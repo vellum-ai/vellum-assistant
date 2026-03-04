@@ -1,5 +1,11 @@
-import { getContact,mergeContacts } from '../../../../contacts/contact-store.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import {
+  getContact,
+  mergeContacts,
+} from "../../../../contacts/contact-store.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 
 export async function executeContactMerge(
   input: Record<string, unknown>,
@@ -8,11 +14,11 @@ export async function executeContactMerge(
   const keepId = input.keep_id as string | undefined;
   const mergeId = input.merge_id as string | undefined;
 
-  if (!keepId || typeof keepId !== 'string') {
-    return { content: 'Error: keep_id is required', isError: true };
+  if (!keepId || typeof keepId !== "string") {
+    return { content: "Error: keep_id is required", isError: true };
   }
-  if (!mergeId || typeof mergeId !== 'string') {
-    return { content: 'Error: merge_id is required', isError: true };
+  if (!mergeId || typeof mergeId !== "string") {
+    return { content: "Error: merge_id is required", isError: true };
   }
 
   // Show what will be merged for clarity
@@ -30,8 +36,11 @@ export async function executeContactMerge(
     const merged = mergeContacts(keepId, mergeId);
 
     const channelList = merged.channels
-      .map((ch) => `  - ${ch.type}: ${ch.address}${ch.isPrimary ? ' (primary)' : ''}`)
-      .join('\n');
+      .map(
+        (ch) =>
+          `  - ${ch.type}: ${ch.address}${ch.isPrimary ? " (primary)" : ""}`,
+      )
+      .join("\n");
 
     return {
       content: [
@@ -45,7 +54,9 @@ export async function executeContactMerge(
         merged.channels.length > 0 ? `  Channels:\n${channelList}` : null,
         ``,
         `Deleted contact: ${mergeContact.displayName} (${mergeId})`,
-      ].filter(Boolean).join('\n'),
+      ]
+        .filter(Boolean)
+        .join("\n"),
       isError: false,
     };
   } catch (err) {

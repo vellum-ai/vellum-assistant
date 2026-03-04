@@ -1,10 +1,10 @@
-import { getLogger } from '../util/logger.js';
-import { detectCycles } from './graph-utils.js';
-import type { SwarmLimits } from './limits.js';
-import type { SwarmPlan, SwarmTaskNode } from './types.js';
-import { VALID_SWARM_ROLES } from './types.js';
+import { getLogger } from "../util/logger.js";
+import { detectCycles } from "./graph-utils.js";
+import type { SwarmLimits } from "./limits.js";
+import type { SwarmPlan, SwarmTaskNode } from "./types.js";
+import { VALID_SWARM_ROLES } from "./types.js";
 
-const log = getLogger('swarm:plan-validator');
+const log = getLogger("swarm:plan-validator");
 
 export class SwarmPlanValidationError extends Error {
   constructor(
@@ -12,7 +12,7 @@ export class SwarmPlanValidationError extends Error {
     public readonly issues: string[],
   ) {
     super(message);
-    this.name = 'SwarmPlanValidationError';
+    this.name = "SwarmPlanValidationError";
   }
 }
 
@@ -27,12 +27,12 @@ export function validateAndNormalizePlan(
   const issues: string[] = [];
 
   // --- Basic structure ---
-  if (!plan.objective || typeof plan.objective !== 'string') {
-    issues.push('Plan must have a non-empty objective string.');
+  if (!plan.objective || typeof plan.objective !== "string") {
+    issues.push("Plan must have a non-empty objective string.");
   }
   if (!Array.isArray(plan.tasks) || plan.tasks.length === 0) {
-    issues.push('Plan must have at least one task.');
-    throw new SwarmPlanValidationError('Plan validation failed', issues);
+    issues.push("Plan must have at least one task.");
+    throw new SwarmPlanValidationError("Plan validation failed", issues);
   }
 
   // --- Normalize dependencies early (before any checks that iterate them) ---
@@ -44,14 +44,17 @@ export function validateAndNormalizePlan(
 
   // --- Task count limit ---
   if (tasks.length > limits.maxTasks) {
-    log.warn({ original: tasks.length, max: limits.maxTasks }, 'Plan truncated to task limit');
+    log.warn(
+      { original: tasks.length, max: limits.maxTasks },
+      "Plan truncated to task limit",
+    );
     tasks = tasks.slice(0, limits.maxTasks);
   }
 
   // --- Unique IDs ---
   const ids = new Set<string>();
   for (const task of tasks) {
-    if (!task.id || typeof task.id !== 'string') {
+    if (!task.id || typeof task.id !== "string") {
       issues.push(`Task has invalid or empty id.`);
       continue;
     }
@@ -65,7 +68,9 @@ export function validateAndNormalizePlan(
   for (const task of tasks) {
     if (!VALID_SWARM_ROLES.includes(task.role)) {
       issues.push(
-        `Task "${task.id}" has invalid role "${task.role}". Valid roles: ${VALID_SWARM_ROLES.join(', ')}.`,
+        `Task "${task.id}" has invalid role "${
+          task.role
+        }". Valid roles: ${VALID_SWARM_ROLES.join(", ")}.`,
       );
     }
   }
@@ -89,12 +94,14 @@ export function validateAndNormalizePlan(
   if (!hasDuplicateIds(tasks) && issues.length === 0) {
     const cycleNodes = detectCycles(tasks);
     if (cycleNodes) {
-      issues.push(`Plan contains a dependency cycle: ${cycleNodes.join(' -> ')}.`);
+      issues.push(
+        `Plan contains a dependency cycle: ${cycleNodes.join(" -> ")}.`,
+      );
     }
   }
 
   if (issues.length > 0) {
-    throw new SwarmPlanValidationError('Plan validation failed', issues);
+    throw new SwarmPlanValidationError("Plan validation failed", issues);
   }
 
   return { ...plan, tasks };
@@ -108,4 +115,3 @@ function hasDuplicateIds(tasks: SwarmTaskNode[]): boolean {
   }
   return false;
 }
-

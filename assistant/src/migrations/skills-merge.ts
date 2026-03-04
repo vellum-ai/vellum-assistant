@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, renameSync } from "node:fs";
+import { join } from "node:path";
 
-import { migrationLog } from './log.js';
+import { migrationLog } from "./log.js";
 
 /**
  * When migratePath skips the skills directory because the workspace copy
@@ -10,10 +10,13 @@ import { migrationLog } from './log.js';
  * never moved. This merges any missing skill subdirectories from the
  * legacy path into the workspace skills path so they are not stranded.
  */
-export function mergeLegacySkills(legacyDir: string, workspaceDir: string): void {
+export function mergeLegacySkills(
+  legacyDir: string,
+  workspaceDir: string,
+): void {
   if (!existsSync(legacyDir) || !existsSync(workspaceDir)) return;
 
-  let entries: import('node:fs').Dirent[];
+  let entries: import("node:fs").Dirent[];
   try {
     entries = readdirSync(legacyDir, { withFileTypes: true });
   } catch {
@@ -26,9 +29,16 @@ export function mergeLegacySkills(legacyDir: string, workspaceDir: string): void
     if (existsSync(dest)) continue; // already present in workspace
     try {
       renameSync(src, dest);
-      migrationLog('info', 'Merged legacy skill into workspace', { from: src, to: dest });
+      migrationLog("info", "Merged legacy skill into workspace", {
+        from: src,
+        to: dest,
+      });
     } catch (err) {
-      migrationLog('warn', 'Failed to merge legacy skill', { err: String(err), from: src, to: dest });
+      migrationLog("warn", "Failed to merge legacy skill", {
+        err: String(err),
+        from: src,
+        to: dest,
+      });
     }
   }
 }

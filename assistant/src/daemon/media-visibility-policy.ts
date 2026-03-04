@@ -53,5 +53,7 @@ export function filterVisibleAttachments<T>(
   currentContext: AttachmentContext,
   getContext: (attachment: T) => AttachmentContext,
 ): T[] {
-  return attachments.filter((a) => isAttachmentVisible(getContext(a), currentContext));
+  return attachments.filter((a) =>
+    isAttachmentVisible(getContext(a), currentContext),
+  );
 }

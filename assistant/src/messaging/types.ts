@@ -2,8 +2,8 @@ export interface ThreadMessage {
   id: string;
   sender: string;
   body: string;
-  timestamp: number;       // epoch ms
-  channel: string;         // email, slack, whatsapp, etc.
+  timestamp: number; // epoch ms
+  channel: string; // email, slack, whatsapp, etc.
   metadata?: Record<string, unknown>;
 }
 
@@ -12,7 +12,7 @@ export interface ThreadSummary {
   participants: Array<{ name: string; role?: string }>;
   openQuestions: string[];
   lastAction: string;
-  sentiment: 'positive' | 'neutral' | 'negative' | 'mixed';
+  sentiment: "positive" | "neutral" | "negative" | "mixed";
   messageCount: number;
 }
 
@@ -45,11 +45,11 @@ export interface TriageResult {
  * the LLM classifier may return any category string.
  */
 export const DEFAULT_TRIAGE_CATEGORIES = [
-  'needs_response',
-  'fyi',
-  'newsletter',
-  'cold_outreach',
-  'transactional',
-  'urgent',
-  'scheduling',
+  "needs_response",
+  "fyi",
+  "newsletter",
+  "cold_outreach",
+  "transactional",
+  "urgent",
+  "scheduling",
 ] as const;

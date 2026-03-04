@@ -11,8 +11,10 @@ interface TelegramApiResponse<T> {
   parameters?: { retry_after?: number };
 }
 
-const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN = /\/bot\d{8,10}:[A-Za-z0-9_-]{30,120}\//g;
-const TELEGRAM_BOT_TOKEN_PATTERN = /(?<![A-Za-z0-9_])\d{8,10}:[A-Za-z0-9_-]{30,120}(?![A-Za-z0-9_])/g;
+const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN =
+  /\/bot\d{8,10}:[A-Za-z0-9_-]{30,120}\//g;
+const TELEGRAM_BOT_TOKEN_PATTERN =
+  /(?<![A-Za-z0-9_])\d{8,10}:[A-Za-z0-9_-]{30,120}(?![A-Za-z0-9_])/g;
 
 function redactTelegramBotTokens(value: string): string {
   return value
@@ -102,12 +104,17 @@ async function retryableFetch<T>(
     } catch (err) {
       const safeError = summarizeFetchError(err);
       lastError = new Error(`Telegram ${method} request failed: ${safeError}`);
-      log.warn({ error: safeError, attempt, method }, "Telegram API fetch failed");
+      log.warn(
+        { error: safeError, attempt, method },
+        "Telegram API fetch failed",
+      );
       continue;
     }
 
     if (!isRetryable(response.status) && !response.ok) {
-      const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
+      const data = (await response
+        .json()
+        .catch(() => ({}))) as TelegramApiResponse<T>;
       throw new Error(
         data.description
           ? `Telegram ${method} failed: ${data.description}`
@@ -116,7 +123,9 @@ async function retryableFetch<T>(
     }
 
     if (isRetryable(response.status)) {
-      const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
+      const data = (await response
+        .json()
+        .catch(() => ({}))) as TelegramApiResponse<T>;
       lastRetryAfter =
         response.headers.get("retry-after") ??
         (data.parameters?.retry_after != null
@@ -128,13 +137,20 @@ async function retryableFetch<T>(
           : `Telegram ${method} failed with status ${response.status}`,
       );
       log.warn(
-        { status: response.status, attempt, method, retryAfter: lastRetryAfter },
+        {
+          status: response.status,
+          attempt,
+          method,
+          retryAfter: lastRetryAfter,
+        },
         "Telegram API returned retryable error",
       );
       continue;
     }
 
-    const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
+    const data = (await response
+      .json()
+      .catch(() => ({}))) as TelegramApiResponse<T>;
     if (!data.ok || data.result === undefined) {
       throw new Error(
         data.description

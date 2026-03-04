@@ -1,10 +1,19 @@
-import { getConfig } from '../config/loader.js';
-import { getHookManager } from '../hooks/manager.js';
-import { PermissionPrompter } from '../permissions/prompter.js';
-import { RiskLevel } from '../permissions/types.js';
-import type { SecretPattern } from '../security/secret-scanner.js';
-import { compileCustomPatterns, redactSecrets, scanText } from '../security/secret-scanner.js';
-import type { ExecutionTarget, ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
+import { getConfig } from "../config/loader.js";
+import { getHookManager } from "../hooks/manager.js";
+import { PermissionPrompter } from "../permissions/prompter.js";
+import { RiskLevel } from "../permissions/types.js";
+import type { SecretPattern } from "../security/secret-scanner.js";
+import {
+  compileCustomPatterns,
+  redactSecrets,
+  scanText,
+} from "../security/secret-scanner.js";
+import type {
+  ExecutionTarget,
+  ToolContext,
+  ToolExecutionResult,
+  ToolLifecycleEvent,
+} from "./types.js";
 
 /**
  * Encapsulates post-execution secret detection, redaction, and action handling.
@@ -32,20 +41,33 @@ export class SecretDetectionHandler {
     riskLevel: string,
     decision: string,
     startTime: number,
-    emitLifecycleEvent: (context: ToolContext, event: ToolLifecycleEvent) => void,
-    sanitizeToolInput: (toolName: string, input: Record<string, unknown>) => Record<string, unknown>,
+    emitLifecycleEvent: (
+      context: ToolContext,
+      event: ToolLifecycleEvent,
+    ) => void,
+    sanitizeToolInput: (
+      toolName: string,
+      input: Record<string, unknown>,
+    ) => Record<string, unknown>,
   ): Promise<{ result: ToolExecutionResult; earlyReturn: boolean }> {
     const sdConfig = getConfig().secretDetection;
     if (!sdConfig.enabled || execResult.isError) {
       return { result: execResult, earlyReturn: false };
     }
 
-    const entropyConfig = { enabled: true, base64Threshold: sdConfig.entropyThreshold };
+    const entropyConfig = {
+      enabled: true,
+      base64Threshold: sdConfig.entropyThreshold,
+    };
     const compiledCustom = sdConfig.customPatterns?.length
       ? compileCustomPatterns(sdConfig.customPatterns)
       : undefined;
 
-    const allMatches = this.collectMatches(execResult, entropyConfig, compiledCustom);
+    const allMatches = this.collectMatches(
+      execResult,
+      entropyConfig,
+      compiledCustom,
+    );
 
     if (allMatches.length === 0) {
       return { result: execResult, earlyReturn: false };
@@ -57,7 +79,7 @@ export class SecretDetectionHandler {
     }));
 
     emitLifecycleEvent(context, {
-      type: 'secret_detected',
+      type: "secret_detected",
       toolName: name,
       executionTarget,
       input,
@@ -70,22 +92,39 @@ export class SecretDetectionHandler {
       detectedAtMs: Date.now(),
     });
 
-    if (sdConfig.action === 'redact') {
+    if (sdConfig.action === "redact") {
       this.redactResult(execResult, entropyConfig, compiledCustom);
       return { result: execResult, earlyReturn: false };
     }
 
-    if (sdConfig.action === 'block') {
+    if (sdConfig.action === "block") {
       return this.handleBlock(
-        allMatches, name, input, context, executionTarget,
-        riskLevel, decision, startTime, emitLifecycleEvent, sanitizeToolInput,
+        allMatches,
+        name,
+        input,
+        context,
+        executionTarget,
+        riskLevel,
+        decision,
+        startTime,
+        emitLifecycleEvent,
+        sanitizeToolInput,
       );
     }
 
-    if (sdConfig.action === 'prompt') {
+    if (sdConfig.action === "prompt") {
       return this.handlePrompt(
-        allMatches, execResult, name, input, context, executionTarget,
-        riskLevel, decision, startTime, emitLifecycleEvent, sanitizeToolInput,
+        allMatches,
+        execResult,
+        name,
+        input,
+        context,
+        executionTarget,
+        riskLevel,
+        decision,
+        startTime,
+        emitLifecycleEvent,
+        sanitizeToolInput,
       );
     }
 
@@ -97,13 +136,19 @@ export class SecretDetectionHandler {
     entropyConfig: { enabled: boolean; base64Threshold: number },
     compiledCustom: SecretPattern[] | undefined,
   ) {
-    const contentMatches = scanText(execResult.content, entropyConfig, compiledCustom);
+    const contentMatches = scanText(
+      execResult.content,
+      entropyConfig,
+      compiledCustom,
+    );
     const diffMatches = execResult.diff
       ? scanText(execResult.diff.newContent, entropyConfig, compiledCustom)
       : [];
     const blockMatches = (execResult.contentBlocks ?? []).flatMap((block) => {
-      if (block.type === 'text') return scanText(block.text, entropyConfig, compiledCustom);
-      if (block.type === 'file' && block.extracted_text) return scanText(block.extracted_text, entropyConfig, compiledCustom);
+      if (block.type === "text")
+        return scanText(block.text, entropyConfig, compiledCustom);
+      if (block.type === "file" && block.extracted_text)
+        return scanText(block.extracted_text, entropyConfig, compiledCustom);
       return [];
     });
     return [...contentMatches, ...diffMatches, ...blockMatches];
@@ -114,20 +159,38 @@ export class SecretDetectionHandler {
     entropyConfig: { enabled: boolean; base64Threshold: number },
     compiledCustom: SecretPattern[] | undefined,
   ): void {
-    execResult.content = redactSecrets(execResult.content, entropyConfig, compiledCustom);
+    execResult.content = redactSecrets(
+      execResult.content,
+      entropyConfig,
+      compiledCustom,
+    );
     if (execResult.diff) {
       execResult.diff = {
         ...execResult.diff,
-        newContent: redactSecrets(execResult.diff.newContent, entropyConfig, compiledCustom),
+        newContent: redactSecrets(
+          execResult.diff.newContent,
+          entropyConfig,
+          compiledCustom,
+        ),
       };
     }
     if (execResult.contentBlocks) {
       execResult.contentBlocks = execResult.contentBlocks.map((block) => {
-        if (block.type === 'text') {
-          return { ...block, text: redactSecrets(block.text, entropyConfig, compiledCustom) };
+        if (block.type === "text") {
+          return {
+            ...block,
+            text: redactSecrets(block.text, entropyConfig, compiledCustom),
+          };
         }
-        if (block.type === 'file' && block.extracted_text) {
-          return { ...block, extracted_text: redactSecrets(block.extracted_text, entropyConfig, compiledCustom) };
+        if (block.type === "file" && block.extracted_text) {
+          return {
+            ...block,
+            extracted_text: redactSecrets(
+              block.extracted_text,
+              entropyConfig,
+              compiledCustom,
+            ),
+          };
         }
         return block;
       });
@@ -143,10 +206,16 @@ export class SecretDetectionHandler {
     riskLevel: string,
     decision: string,
     startTime: number,
-    emitLifecycleEvent: (context: ToolContext, event: ToolLifecycleEvent) => void,
-    sanitizeToolInput: (toolName: string, input: Record<string, unknown>) => Record<string, unknown>,
+    emitLifecycleEvent: (
+      context: ToolContext,
+      event: ToolLifecycleEvent,
+    ) => void,
+    sanitizeToolInput: (
+      toolName: string,
+      input: Record<string, unknown>,
+    ) => Record<string, unknown>,
   ): { result: ToolExecutionResult; earlyReturn: boolean } {
-    const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
+    const types = [...new Set(allMatches.map((m) => m.type))].join(", ");
     const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "prompt" to allow output.`;
     const durationMs = Date.now() - startTime;
     const blockedResult: ToolExecutionResult = {
@@ -155,7 +224,7 @@ export class SecretDetectionHandler {
     };
 
     emitLifecycleEvent(context, {
-      type: 'executed',
+      type: "executed",
       toolName: name,
       executionTarget,
       input,
@@ -169,7 +238,7 @@ export class SecretDetectionHandler {
       result: blockedResult,
     });
 
-    void getHookManager().trigger('post-tool-execute', {
+    void getHookManager().trigger("post-tool-execute", {
       toolName: name,
       input: sanitizeToolInput(name, input),
       riskLevel,
@@ -191,10 +260,16 @@ export class SecretDetectionHandler {
     riskLevel: string,
     _decision: string,
     startTime: number,
-    emitLifecycleEvent: (context: ToolContext, event: ToolLifecycleEvent) => void,
-    sanitizeToolInput: (toolName: string, input: Record<string, unknown>) => Record<string, unknown>,
+    emitLifecycleEvent: (
+      context: ToolContext,
+      event: ToolLifecycleEvent,
+    ) => void,
+    sanitizeToolInput: (
+      toolName: string,
+      input: Record<string, unknown>,
+    ) => Record<string, unknown>,
   ): Promise<{ result: ToolExecutionResult; earlyReturn: boolean }> {
-    const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
+    const types = [...new Set(allMatches.map((m) => m.type))].join(", ");
 
     // Non-interactive sessions: auto-block secret output instead of waiting for prompt
     if (context.isInteractive === false) {
@@ -202,7 +277,7 @@ export class SecretDetectionHandler {
       const durationMs = Date.now() - startTime;
 
       emitLifecycleEvent(context, {
-        type: 'permission_denied',
+        type: "permission_denied",
         toolName: name,
         executionTarget,
         input,
@@ -211,12 +286,12 @@ export class SecretDetectionHandler {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel: RiskLevel.High,
-        decision: 'deny',
-        reason: 'Non-interactive session: auto-blocked secret output',
+        decision: "deny",
+        reason: "Non-interactive session: auto-blocked secret output",
         durationMs,
       });
 
-      void getHookManager().trigger('post-tool-execute', {
+      void getHookManager().trigger("post-tool-execute", {
         toolName: name,
         input: sanitizeToolInput(name, input),
         riskLevel,
@@ -225,7 +300,10 @@ export class SecretDetectionHandler {
         sessionId: context.sessionId,
       });
 
-      return { result: { content: blockedContent, isError: true }, earlyReturn: true };
+      return {
+        result: { content: blockedContent, isError: true },
+        earlyReturn: true,
+      };
     }
 
     const promptInput = {
@@ -235,7 +313,7 @@ export class SecretDetectionHandler {
     };
 
     emitLifecycleEvent(context, {
-      type: 'permission_prompt',
+      type: "permission_prompt",
       toolName: name,
       executionTarget,
       input: promptInput,
@@ -254,8 +332,8 @@ export class SecretDetectionHandler {
       name,
       promptInput,
       RiskLevel.High,
-      [],   // no allowlist options
-      [],   // no scope options
+      [], // no allowlist options
+      [], // no scope options
       undefined, // no diff
       undefined, // not sandboxed
       context.conversationId,
@@ -264,12 +342,12 @@ export class SecretDetectionHandler {
       context.signal,
     );
 
-    if (response.decision === 'deny' || response.decision === 'always_deny') {
+    if (response.decision === "deny" || response.decision === "always_deny") {
       const blockedContent = `Tool output blocked: user denied output containing ${allMatches.length} potential secret(s) (${types}).`;
       const durationMs = Date.now() - startTime;
 
       emitLifecycleEvent(context, {
-        type: 'permission_denied',
+        type: "permission_denied",
         toolName: name,
         executionTarget,
         input,
@@ -278,12 +356,12 @@ export class SecretDetectionHandler {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel: RiskLevel.High,
-        decision: response.decision === 'always_deny' ? 'always_deny' : 'deny',
+        decision: response.decision === "always_deny" ? "always_deny" : "deny",
         reason: `User denied output containing secrets: ${types}`,
         durationMs,
       });
 
-      void getHookManager().trigger('post-tool-execute', {
+      void getHookManager().trigger("post-tool-execute", {
         toolName: name,
         input: sanitizeToolInput(name, input),
         riskLevel,
@@ -292,7 +370,10 @@ export class SecretDetectionHandler {
         sessionId: context.sessionId,
       });
 
-      return { result: { content: blockedContent, isError: true }, earlyReturn: true };
+      return {
+        result: { content: blockedContent, isError: true },
+        earlyReturn: true,
+      };
     }
 
     // User allowed — pass content through unchanged

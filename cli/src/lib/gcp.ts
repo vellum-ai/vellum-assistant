@@ -11,11 +11,7 @@ import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
 export async function getActiveProject(): Promise<string> {
-  const output = await execOutput("gcloud", [
-    "config",
-    "get-value",
-    "project",
-  ]);
+  const output = await execOutput("gcloud", ["config", "get-value", "project"]);
   const project = output.trim();
   if (!project || project === "(unset)") {
     throw new Error(
@@ -87,7 +83,10 @@ async function describeFirewallRule(
   }
 }
 
-function ruleNeedsUpdate(spec: FirewallRuleSpec, state: FirewallRuleState): boolean {
+function ruleNeedsUpdate(
+  spec: FirewallRuleSpec,
+  state: FirewallRuleState,
+): boolean {
   return (
     spec.direction !== state.direction ||
     spec.rules !== state.allowed ||
@@ -98,7 +97,11 @@ function ruleNeedsUpdate(spec: FirewallRuleSpec, state: FirewallRuleState): bool
   );
 }
 
-async function createFirewallRule(spec: FirewallRuleSpec, project: string, account?: string): Promise<void> {
+async function createFirewallRule(
+  spec: FirewallRuleSpec,
+  project: string,
+  account?: string,
+): Promise<void> {
   const args = [
     "compute",
     "firewall-rules",
@@ -121,7 +124,11 @@ async function createFirewallRule(spec: FirewallRuleSpec, project: string, accou
   await exec("gcloud", args);
 }
 
-async function deleteFirewallRule(ruleName: string, project: string, account?: string): Promise<void> {
+async function deleteFirewallRule(
+  ruleName: string,
+  project: string,
+  account?: string,
+): Promise<void> {
   const args = [
     "compute",
     "firewall-rules",
@@ -151,7 +158,10 @@ export async function syncFirewallRules(
     ];
     if (account) listArgs.push(`--account=${account}`);
     const output = await execOutput("gcloud", listArgs);
-    const allRules = JSON.parse(output) as Array<{ name: string; targetTags?: string[] }>;
+    const allRules = JSON.parse(output) as Array<{
+      name: string;
+      targetTags?: string[];
+    }>;
     existingNames = allRules
       .filter((r) => r.targetTags?.includes(tag))
       .map((r) => r.name);
@@ -211,7 +221,9 @@ export interface GcpInstance {
   species: string | null;
 }
 
-export async function listAssistantInstances(project: string): Promise<GcpInstance[]> {
+export async function listAssistantInstances(
+  project: string,
+): Promise<GcpInstance[]> {
   const output = await execOutput("gcloud", [
     "compute",
     "instances",
@@ -231,7 +243,8 @@ export async function listAssistantInstances(project: string): Promise<GcpInstan
     return {
       name: inst.name,
       zone: zoneParts[zoneParts.length - 1] || "",
-      externalIp: inst.networkInterfaces?.[0]?.accessConfigs?.[0]?.natIP ?? null,
+      externalIp:
+        inst.networkInterfaces?.[0]?.accessConfigs?.[0]?.natIP ?? null,
       species: inst.labels?.species ?? null,
     };
   });
@@ -258,7 +271,10 @@ export async function instanceExists(
     return true;
   } catch (error) {
     const msg = error instanceof Error ? error.message.toLowerCase() : "";
-    if (msg.includes("was not found") || msg.includes("could not fetch resource")) {
+    if (
+      msg.includes("was not found") ||
+      msg.includes("could not fetch resource")
+    ) {
       return false;
     }
     throw error;
@@ -407,15 +423,25 @@ async function pollInstance(
     const output = await execOutput("gcloud", args);
     const sepIdx = output.indexOf("===HATCH_SEP===");
     if (sepIdx === -1) {
-      return { lastLine: output.trim() || null, done: false, failed: false, errorContent: "" };
+      return {
+        lastLine: output.trim() || null,
+        done: false,
+        failed: false,
+        errorContent: "",
+      };
     }
     const errIdx = output.indexOf("===HATCH_ERR===");
     const lastLine = output.substring(0, sepIdx).trim() || null;
     const statusEnd = errIdx === -1 ? undefined : errIdx;
-    const status = output.substring(sepIdx + "===HATCH_SEP===".length, statusEnd).trim();
+    const status = output
+      .substring(sepIdx + "===HATCH_SEP===".length, statusEnd)
+      .trim();
     const errorContent =
-      errIdx === -1 ? "" : output.substring(errIdx + "===HATCH_ERR===".length).trim();
-    const done = lastLine !== null && status !== "active" && status !== "activating";
+      errIdx === -1
+        ? ""
+        : output.substring(errIdx + "===HATCH_ERR===".length).trim();
+    const done =
+      lastLine !== null && status !== "active" && status !== "activating";
     const failed = errorContent.length > 0 || status === "failed";
     return { lastLine, done, failed, errorContent };
   } catch {
@@ -483,7 +509,9 @@ async function recoverFromCurlFailure(
   if (account) sshArgs.push(`--account=${account}`);
   console.log("\ud83d\udd27 Running install script on instance...");
   await exec("gcloud", sshArgs);
-  try { unlinkSync(installScriptPath); } catch {}
+  try {
+    unlinkSync(installScriptPath);
+  } catch {}
 }
 
 export async function hatchGcp(
@@ -542,7 +570,9 @@ export async function hatchGcp(
       }
     } else {
       while (await instanceExists(instanceName, project, zone, account)) {
-        console.log(`\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`);
+        console.log(
+          `\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`,
+        );
         const suffix = generateRandomSuffix();
         instanceName = `${species}-${suffix}`;
       }
@@ -553,7 +583,9 @@ export async function hatchGcp(
     const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
-      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
+      console.error(
+        "Error: ANTHROPIC_API_KEY environment variable is not set.",
+      );
       process.exit(1);
     }
     const startupScript = await buildStartupScript(
@@ -596,7 +628,12 @@ export async function hatchGcp(
     }
 
     console.log("\ud83d\udd12 Syncing firewall rules...");
-    await syncFirewallRules(DESIRED_FIREWALL_RULES, project, FIREWALL_TAG, account);
+    await syncFirewallRules(
+      DESIRED_FIREWALL_RULES,
+      project,
+      FIREWALL_TAG,
+      account,
+    );
 
     console.log(`\u2705 Instance ${instanceName} created successfully\n`);
 
@@ -615,7 +652,9 @@ export async function hatchGcp(
       const ipOutput = await execOutput("gcloud", describeArgs);
       externalIp = ipOutput.trim() || null;
     } catch {
-      console.log("\u26a0\ufe0f  Could not retrieve external IP yet (instance may still be starting)");
+      console.log(
+        "\u26a0\ufe0f  Could not retrieve external IP yet (instance may still be starting)",
+      );
     }
 
     const runtimeUrl = externalIp
@@ -672,8 +711,16 @@ export async function hatchGcp(
           (await checkCurlFailure(instanceName, project, zone, account))
         ) {
           const installScriptUrl = `${process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai"}/install.sh`;
-          console.log(`\ud83d\udd04 Detected install script curl failure for ${installScriptUrl}, attempting recovery...`);
-          await recoverFromCurlFailure(instanceName, project, zone, sshUser, account);
+          console.log(
+            `\ud83d\udd04 Detected install script curl failure for ${installScriptUrl}, attempting recovery...`,
+          );
+          await recoverFromCurlFailure(
+            instanceName,
+            project,
+            zone,
+            sshUser,
+            account,
+          );
           console.log("\u2705 Recovery successful!");
         } else {
           process.exit(1);
@@ -689,7 +736,10 @@ export async function hatchGcp(
       }
     }
   } catch (error) {
-    console.error("\u274c Error:", error instanceof Error ? error.message : error);
+    console.error(
+      "\u274c Error:",
+      error instanceof Error ? error.message : error,
+    );
     process.exit(1);
   }
 }

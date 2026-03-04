@@ -8,26 +8,24 @@
 import {
   type GuardianApprovalRequest,
   resolveApprovalRequest,
-} from '../../memory/channel-guardian-store.js';
-import { getLogger } from '../../util/logger.js';
-import { createOutboundSession } from '../channel-guardian-service.js';
-import { deliverChannelReply } from '../gateway-client.js';
+} from "../../memory/channel-guardian-store.js";
+import { getLogger } from "../../util/logger.js";
+import { createOutboundSession } from "../channel-guardian-service.js";
+import { deliverChannelReply } from "../gateway-client.js";
 
-const log = getLogger('access-request-decision');
+const log = getLogger("access-request-decision");
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type AccessRequestDecisionAction = 'approve' | 'deny';
+export type AccessRequestDecisionAction = "approve" | "deny";
 
-export type DeliveryResult =
-  | { ok: true }
-  | { ok: false; reason: string };
+export type DeliveryResult = { ok: true } | { ok: false; reason: string };
 
 export interface AccessRequestDecisionResult {
   handled: boolean;
-  type: 'approved' | 'denied' | 'stale' | 'idempotent';
+  type: "approved" | "denied" | "stale" | "idempotent";
   verificationSessionId?: string;
   verificationCode?: string;
 }
@@ -58,12 +56,16 @@ export function handleAccessRequestDecision(
   // if already resolved with the same decision, returns the existing record
   // unchanged. Returns null when already resolved with a *different* decision
   // or when the record doesn't exist.
-  const decision = action === 'approve' ? 'approved' : 'denied';
-  const resolved = resolveApprovalRequest(approval.id, decision, decidedByExternalUserId);
+  const decision = action === "approve" ? "approved" : "denied";
+  const resolved = resolveApprovalRequest(
+    approval.id,
+    decision,
+    decidedByExternalUserId,
+  );
 
   if (!resolved) {
     // Already resolved with a different decision, or does not exist
-    return { handled: true, type: 'stale' };
+    return { handled: true, type: "stale" };
   }
 
   // resolveApprovalRequest returns the existing record (unchanged) when the
@@ -71,12 +73,12 @@ export function handleAccessRequestDecision(
   // the approval's status was not 'pending' before our call. We detect
   // this by checking if the original approval (passed in) was already
   // non-pending, meaning the transition happened in a prior call.
-  if (approval.status !== 'pending') {
-    return { handled: true, type: 'idempotent' };
+  if (approval.status !== "pending") {
+    return { handled: true, type: "idempotent" };
   }
 
-  if (action === 'deny') {
-    return { handled: true, type: 'denied' };
+  if (action === "deny") {
+    return { handled: true, type: "denied" };
   }
 
   // On approve: create an identity-bound outbound verification session.
@@ -88,14 +90,14 @@ export function handleAccessRequestDecision(
     channel: approval.channel,
     expectedExternalUserId: approval.requesterExternalUserId,
     expectedChatId: approval.requesterChatId,
-    identityBindingStatus: 'bound',
+    identityBindingStatus: "bound",
     destinationAddress: approval.requesterChatId,
-    verificationPurpose: 'trusted_contact',
+    verificationPurpose: "trusted_contact",
   });
 
   return {
     handled: true,
-    type: 'approved',
+    type: "approved",
     verificationSessionId: session.sessionId,
     verificationCode: session.secret,
   };
@@ -113,21 +115,26 @@ export async function deliverVerificationCodeToGuardian(params: {
   assistantId: string;
   bearerToken?: string;
 }): Promise<DeliveryResult> {
-  const text = `You approved access for ${params.requesterIdentifier}. `
-    + `Give them this verification code: ${params.verificationCode}. `
-    + `The code expires in 10 minutes.`;
+  const text =
+    `You approved access for ${params.requesterIdentifier}. ` +
+    `Give them this verification code: ${params.verificationCode}. ` +
+    `The code expires in 10 minutes.`;
 
   try {
-    await deliverChannelReply(params.replyCallbackUrl, {
-      chatId: params.guardianChatId,
-      text,
-      assistantId: params.assistantId,
-    }, params.bearerToken);
+    await deliverChannelReply(
+      params.replyCallbackUrl,
+      {
+        chatId: params.guardianChatId,
+        text,
+        assistantId: params.assistantId,
+      },
+      params.bearerToken,
+    );
     return { ok: true };
   } catch (err) {
     log.error(
       { err, guardianChatId: params.guardianChatId },
-      'Failed to deliver verification code to guardian',
+      "Failed to deliver verification code to guardian",
     );
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, reason };
@@ -144,19 +151,24 @@ export async function notifyRequesterOfApproval(params: {
   assistantId: string;
   bearerToken?: string;
 }): Promise<void> {
-  const text = 'Your access request has been approved! '
-    + 'Please enter the 6-digit verification code you receive from the guardian.';
+  const text =
+    "Your access request has been approved! " +
+    "Please enter the 6-digit verification code you receive from the guardian.";
 
   try {
-    await deliverChannelReply(params.replyCallbackUrl, {
-      chatId: params.requesterChatId,
-      text,
-      assistantId: params.assistantId,
-    }, params.bearerToken);
+    await deliverChannelReply(
+      params.replyCallbackUrl,
+      {
+        chatId: params.requesterChatId,
+        text,
+        assistantId: params.assistantId,
+      },
+      params.bearerToken,
+    );
   } catch (err) {
     log.error(
       { err, requesterChatId: params.requesterChatId },
-      'Failed to notify requester of access request approval',
+      "Failed to notify requester of access request approval",
     );
   }
 }
@@ -172,19 +184,24 @@ export async function notifyRequesterOfDeliveryFailure(params: {
   assistantId: string;
   bearerToken?: string;
 }): Promise<void> {
-  const text = 'Your access request was approved, but we were unable to '
-    + 'deliver the verification code. Please try again later.';
+  const text =
+    "Your access request was approved, but we were unable to " +
+    "deliver the verification code. Please try again later.";
 
   try {
-    await deliverChannelReply(params.replyCallbackUrl, {
-      chatId: params.requesterChatId,
-      text,
-      assistantId: params.assistantId,
-    }, params.bearerToken);
+    await deliverChannelReply(
+      params.replyCallbackUrl,
+      {
+        chatId: params.requesterChatId,
+        text,
+        assistantId: params.assistantId,
+      },
+      params.bearerToken,
+    );
   } catch (err) {
     log.error(
       { err, requesterChatId: params.requesterChatId },
-      'Failed to notify requester of delivery failure',
+      "Failed to notify requester of delivery failure",
     );
   }
 }
@@ -198,18 +215,22 @@ export async function notifyRequesterOfDenial(params: {
   assistantId: string;
   bearerToken?: string;
 }): Promise<void> {
-  const text = 'Your access request has been denied by the guardian.';
+  const text = "Your access request has been denied by the guardian.";
 
   try {
-    await deliverChannelReply(params.replyCallbackUrl, {
-      chatId: params.requesterChatId,
-      text,
-      assistantId: params.assistantId,
-    }, params.bearerToken);
+    await deliverChannelReply(
+      params.replyCallbackUrl,
+      {
+        chatId: params.requesterChatId,
+        text,
+        assistantId: params.assistantId,
+      },
+      params.bearerToken,
+    );
   } catch (err) {
     log.error(
       { err, requesterChatId: params.requesterChatId },
-      'Failed to notify requester of access request denial',
+      "Failed to notify requester of access request denial",
     );
   }
 }

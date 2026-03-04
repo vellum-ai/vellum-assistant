@@ -1,9 +1,9 @@
-import type { Page } from './browser-manager.js';
+import type { Page } from "./browser-manager.js";
 
-export type AuthChallengeType = 'login' | '2fa' | 'oauth_consent' | 'captcha';
+export type AuthChallengeType = "login" | "2fa" | "oauth_consent" | "captcha";
 
 export interface AuthField {
-  type: 'email' | 'password' | 'code' | 'approval';
+  type: "email" | "password" | "code" | "approval";
   selector: string;
   label: string;
 }
@@ -26,15 +26,19 @@ interface ServicePattern {
 
 const SERVICE_PATTERNS: ServicePattern[] = [
   // Auth-subdomain services — hostname match is sufficient
-  { pattern: /accounts\.google\.com/, service: 'Google' },
-  { pattern: /login\.microsoftonline\.com/, service: 'Microsoft' },
-  { pattern: /appleid\.apple\.com/, service: 'Apple' },
-  { pattern: /login\.salesforce\.com/, service: 'Salesforce' },
-  { pattern: /id\.atlassian\.com/, service: 'Atlassian' },
-  { pattern: /auth0\.com/, service: 'Auth0' },
-  { pattern: /okta\.com/, service: 'Okta' },
+  { pattern: /accounts\.google\.com/, service: "Google" },
+  { pattern: /login\.microsoftonline\.com/, service: "Microsoft" },
+  { pattern: /appleid\.apple\.com/, service: "Apple" },
+  { pattern: /login\.salesforce\.com/, service: "Salesforce" },
+  { pattern: /id\.atlassian\.com/, service: "Atlassian" },
+  { pattern: /auth0\.com/, service: "Auth0" },
+  { pattern: /okta\.com/, service: "Okta" },
   // General-domain services — need both hostname AND path match
-  { pattern: /github\.com/, service: 'GitHub', pathPattern: /^\/(login|session)/ },
+  {
+    pattern: /github\.com/,
+    service: "GitHub",
+    pathPattern: /^\/(login|session)/,
+  },
 ];
 
 const GENERIC_AUTH_PATTERNS: RegExp[] = [
@@ -80,7 +84,8 @@ export function isAuthUrl(url: string): boolean {
   if (
     SERVICE_PATTERNS.some(
       ({ pattern, pathPattern }) =>
-        pattern.test(parsedUrl.hostname) && (!pathPattern || pathPattern.test(parsedUrl.pathname)),
+        pattern.test(parsedUrl.hostname) &&
+        (!pathPattern || pathPattern.test(parsedUrl.pathname)),
     )
   )
     return true;
@@ -255,12 +260,16 @@ const CAPTCHA_DETECT_EXPRESSION = `(() => {
  * Detect whether the current page presents a CAPTCHA or Cloudflare
  * challenge that requires human interaction.
  */
-export async function detectCaptchaChallenge(page: Page): Promise<AuthChallenge | null> {
+export async function detectCaptchaChallenge(
+  page: Page,
+): Promise<AuthChallenge | null> {
   try {
-    const isCaptcha = await page.evaluate(CAPTCHA_DETECT_EXPRESSION) as boolean;
+    const isCaptcha = (await page.evaluate(
+      CAPTCHA_DETECT_EXPRESSION,
+    )) as boolean;
     if (isCaptcha) {
       return {
-        type: 'captcha',
+        type: "captcha",
         fields: [],
         url: page.url(),
       };
@@ -282,14 +291,18 @@ export async function detectCaptchaChallenge(page: Page): Promise<AuthChallenge 
  * Returns an {@link AuthChallenge} if a challenge is detected, or `null`
  * if the page does not appear to be an auth page.
  */
-export async function detectAuthChallenge(page: Page): Promise<AuthChallenge | null> {
+export async function detectAuthChallenge(
+  page: Page,
+): Promise<AuthChallenge | null> {
   try {
     const currentUrl = page.url();
     const service = identifyService(currentUrl);
     const urlIsAuth = isAuthUrl(currentUrl);
 
     // DOM-based detection
-    const domResult = (await page.evaluate(DOM_DETECT_EXPRESSION)) as DomDetectionResult | null;
+    const domResult = (await page.evaluate(
+      DOM_DETECT_EXPRESSION,
+    )) as DomDetectionResult | null;
 
     if (domResult) {
       return {
@@ -304,7 +317,7 @@ export async function detectAuthChallenge(page: Page): Promise<AuthChallenge | n
     // yield specific fields, still report it as a generic login challenge.
     if (urlIsAuth) {
       return {
-        type: 'login',
+        type: "login",
         service,
         fields: [],
         url: currentUrl,
@@ -323,15 +336,15 @@ export async function detectAuthChallenge(page: Page): Promise<AuthChallenge | n
  * for appending to browser_navigate output.
  */
 export function formatAuthChallenge(challenge: AuthChallenge): string {
-  const serviceName = challenge.service ? `${challenge.service} ` : '';
+  const serviceName = challenge.service ? `${challenge.service} ` : "";
   const typeLabel =
-    challenge.type === 'login'
-      ? 'login page'
-      : challenge.type === '2fa'
-        ? '2FA verification'
-        : challenge.type === 'captcha'
-          ? 'CAPTCHA verification'
-          : 'OAuth consent screen';
+    challenge.type === "login"
+      ? "login page"
+      : challenge.type === "2fa"
+        ? "2FA verification"
+        : challenge.type === "captcha"
+          ? "CAPTCHA verification"
+          : "OAuth consent screen";
 
   const lines: string[] = [
     `\u26a0\ufe0f Auth challenge detected: ${serviceName}${typeLabel}`,
@@ -339,9 +352,11 @@ export function formatAuthChallenge(challenge: AuthChallenge): string {
   ];
 
   if (challenge.fields.length > 0) {
-    const fieldDescs = challenge.fields.map((f) => `${f.label} (${f.type})`).join(', ');
+    const fieldDescs = challenge.fields
+      .map((f) => `${f.label} (${f.type})`)
+      .join(", ");
     lines.push(`  Fields: ${fieldDescs}`);
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }

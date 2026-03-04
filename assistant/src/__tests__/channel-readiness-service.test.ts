@@ -121,7 +121,9 @@ describe("ChannelReadinessService", () => {
 
     // Manually age the cached snapshot beyond TTL
     const cached = (
-      service as unknown as { snapshots: Map<string, { checkedAt: number }> }
+      service as unknown as {
+        snapshots: Map<string, { checkedAt: number }>;
+      }
     ).snapshots.get("sms::__default__")!;
     cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
 
@@ -308,7 +310,9 @@ describe("ChannelReadinessService", () => {
 
     // Age snapshot beyond TTL so remote checks are stale
     const cached = (
-      service as unknown as { snapshots: Map<string, { checkedAt: number }> }
+      service as unknown as {
+        snapshots: Map<string, { checkedAt: number }>;
+      }
     ).snapshots.get("sms::__default__")!;
     cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
 

@@ -22,33 +22,33 @@
  * POST   /v1/integrations/guardian/outbound/cancel   — cancel outbound verification
  */
 
-import type { ChannelId } from '../../channels/types.js';
+import type { ChannelId } from "../../channels/types.js";
 import {
   createGuardianChallenge,
   getGuardianStatus,
   revokeGuardianForChannel,
-} from '../../daemon/handlers/config-channels.js';
+} from "../../daemon/handlers/config-channels.js";
 import {
   clearSlackChannelConfig,
   getSlackChannelConfig,
   setSlackChannelConfig,
-} from '../../daemon/handlers/config-slack-channel.js';
+} from "../../daemon/handlers/config-slack-channel.js";
 import {
   clearTelegramConfig,
   getTelegramConfig,
   setTelegramCommands,
   setTelegramConfig,
   setupTelegram,
-} from '../../daemon/handlers/config-telegram.js';
-import { normalizePhoneNumber } from '../../util/phone.js';
+} from "../../daemon/handlers/config-telegram.js";
+import { normalizePhoneNumber } from "../../util/phone.js";
 import {
   cancelOutbound,
   normalizeTelegramDestination,
   resendOutbound,
   startOutbound,
-} from '../guardian-outbound-actions.js';
-import { httpError } from '../http-errors.js';
-import { guardianVerificationLimiter } from '../verification-rate-limiter.js';
+} from "../guardian-outbound-actions.js";
+import { httpError } from "../http-errors.js";
+import { guardianVerificationLimiter } from "../verification-rate-limiter.js";
 
 /**
  * GET /v1/integrations/telegram/config
@@ -83,7 +83,9 @@ export async function handleClearTelegramConfig(): Promise<Response> {
  *
  * Body: { commands?: Array<{ command: string; description: string }> }
  */
-export async function handleSetTelegramCommands(req: Request): Promise<Response> {
+export async function handleSetTelegramCommands(
+  req: Request,
+): Promise<Response> {
   const body = (await req.json()) as {
     commands?: Array<{ command: string; description: string }>;
   };
@@ -124,7 +126,9 @@ export function handleGetSlackChannelConfig(): Response {
  *
  * Body: { botToken?: string, appToken?: string }
  */
-export async function handleSetSlackChannelConfig(req: Request): Promise<Response> {
+export async function handleSetSlackChannelConfig(
+  req: Request,
+): Promise<Response> {
   const body = (await req.json()) as { botToken?: string; appToken?: string };
   const result = await setSlackChannelConfig(body.botToken, body.appToken);
   const status = result.success ? 200 : 400;
@@ -148,13 +152,19 @@ export function handleClearSlackChannelConfig(): Response {
  *
  * Body: { channel?: ChannelId; rebind?: boolean; sessionId?: string }
  */
-export async function handleCreateGuardianChallenge(req: Request): Promise<Response> {
+export async function handleCreateGuardianChallenge(
+  req: Request,
+): Promise<Response> {
   const body = (await req.json()) as {
     channel?: ChannelId;
     rebind?: boolean;
     sessionId?: string;
   };
-  const result = createGuardianChallenge(body.channel, body.rebind, body.sessionId);
+  const result = createGuardianChallenge(
+    body.channel,
+    body.rebind,
+    body.sessionId,
+  );
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });
 }
@@ -165,7 +175,8 @@ export async function handleCreateGuardianChallenge(req: Request): Promise<Respo
  * Query params: channel?
  */
 export function handleGetGuardianStatus(url: URL): Response {
-  const channel = (url.searchParams.get('channel') as ChannelId | null) ?? undefined;
+  const channel =
+    (url.searchParams.get("channel") as ChannelId | null) ?? undefined;
   const result = getGuardianStatus(channel);
   return Response.json(result);
 }
@@ -201,22 +212,26 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     originConversationId?: string;
   };
   if (!body.channel) {
-    return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
+    return httpError("BAD_REQUEST", 'The "channel" field is required.', 400);
   }
 
   // Normalize destination to prevent rate-limit bypass via format variations
   // (e.g. "+15551234567" vs "(555) 123-4567", or "@User" vs "user")
   let rateLimitKey = body.destination;
   if (rateLimitKey) {
-    if (body.channel === 'sms' || body.channel === 'voice') {
+    if (body.channel === "sms" || body.channel === "voice") {
       rateLimitKey = normalizePhoneNumber(rateLimitKey) ?? rateLimitKey;
-    } else if (body.channel === 'telegram') {
+    } else if (body.channel === "telegram") {
       rateLimitKey = normalizeTelegramDestination(rateLimitKey);
     }
   }
 
   if (rateLimitKey && guardianVerificationLimiter.isBlocked(rateLimitKey)) {
-    return httpError('RATE_LIMITED', 'Too many verification attempts for this identity. Please try again later.', 429);
+    return httpError(
+      "RATE_LIMITED",
+      "Too many verification attempts for this identity. Please try again later.",
+      429,
+    );
   }
 
   const result = startOutbound({
@@ -230,7 +245,11 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     guardianVerificationLimiter.recordFailure(rateLimitKey);
   }
 
-  const status = result.success ? 200 : (result.error === 'rate_limited' ? 429 : 400);
+  const status = result.success
+    ? 200
+    : result.error === "rate_limited"
+      ? 429
+      : 400;
   return Response.json(result, { status });
 }
 
@@ -245,13 +264,17 @@ export async function handleResendOutbound(req: Request): Promise<Response> {
     originConversationId?: string;
   };
   if (!body.channel) {
-    return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
+    return httpError("BAD_REQUEST", 'The "channel" field is required.', 400);
   }
   const result = resendOutbound({
     channel: body.channel,
     originConversationId: body.originConversationId,
   });
-  const status = result.success ? 200 : (result.error === 'rate_limited' ? 429 : 400);
+  const status = result.success
+    ? 200
+    : result.error === "rate_limited"
+      ? 429
+      : 400;
   return Response.json(result, { status });
 }
 
@@ -265,7 +288,7 @@ export async function handleCancelOutbound(req: Request): Promise<Response> {
     channel?: ChannelId;
   };
   if (!body.channel) {
-    return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
+    return httpError("BAD_REQUEST", 'The "channel" field is required.', 400);
   }
   const result = cancelOutbound({
     channel: body.channel,

@@ -8,11 +8,17 @@
  * POST   /v1/calls/:callSessionId/instruction — relay an instruction to an active call
  */
 
-import { answerCall, cancelCall, getCallStatus, relayInstruction,startCall } from '../../calls/call-domain.js';
-import { getConfig } from '../../config/loader.js';
-import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
-import { httpError, httpErrorCodeFromStatus } from '../http-errors.js';
+import {
+  answerCall,
+  cancelCall,
+  getCallStatus,
+  relayInstruction,
+  startCall,
+} from "../../calls/call-domain.js";
+import { getConfig } from "../../config/loader.js";
+import { VALID_CALLER_IDENTITY_MODES } from "../../config/schema.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { httpError, httpErrorCodeFromStatus } from "../http-errors.js";
 
 // ── Idempotency cache ─────────────────────────────────────────────────────────
 // Stores serialized 201 responses keyed by idempotencyKey for 5 minutes so
@@ -42,9 +48,16 @@ function pruneIdempotencyCache(): void {
  * Optional `idempotencyKey`: if supplied, duplicate requests with the same key
  * within 5 minutes return the cached 201 response without starting a second call.
  */
-export async function handleStartCall(req: Request, assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID): Promise<Response> {
+export async function handleStartCall(
+  req: Request,
+  assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
+): Promise<Response> {
   if (!getConfig().calls.enabled) {
-    return httpError('FORBIDDEN', 'Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.', 403);
+    return httpError(
+      "FORBIDDEN",
+      "Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.",
+      403,
+    );
   }
 
   let body: {
@@ -52,32 +65,43 @@ export async function handleStartCall(req: Request, assistantId: string = DAEMON
     task?: string;
     context?: string;
     conversationId?: string;
-    callerIdentityMode?: 'assistant_number' | 'user_number';
+    callerIdentityMode?: "assistant_number" | "user_number";
     idempotencyKey?: string;
   };
   try {
-    body = await req.json() as typeof body;
+    body = (await req.json()) as typeof body;
   } catch {
-    return httpError('BAD_REQUEST', 'Invalid JSON in request body', 400);
+    return httpError("BAD_REQUEST", "Invalid JSON in request body", 400);
   }
 
-  if (typeof body !== 'object' || body == null || Array.isArray(body)) {
-    return httpError('BAD_REQUEST', 'Request body must be a JSON object', 400);
+  if (typeof body !== "object" || body == null || Array.isArray(body)) {
+    return httpError("BAD_REQUEST", "Request body must be a JSON object", 400);
   }
 
   if (!body.conversationId) {
-    return httpError('BAD_REQUEST', 'conversationId is required', 400);
+    return httpError("BAD_REQUEST", "conversationId is required", 400);
   }
 
-  if (body.callerIdentityMode != null &&
-      !(VALID_CALLER_IDENTITY_MODES as readonly string[]).includes(body.callerIdentityMode as string)) {
-    return httpError('BAD_REQUEST', `Invalid callerIdentityMode: "${body.callerIdentityMode}". Must be one of: ${VALID_CALLER_IDENTITY_MODES.join(', ')}`, 400);
+  if (
+    body.callerIdentityMode != null &&
+    !(VALID_CALLER_IDENTITY_MODES as readonly string[]).includes(
+      body.callerIdentityMode as string,
+    )
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      `Invalid callerIdentityMode: "${
+        body.callerIdentityMode
+      }". Must be one of: ${VALID_CALLER_IDENTITY_MODES.join(", ")}`,
+      400,
+    );
   }
 
   // Idempotency check: return cached response for duplicate requests
-  const idempotencyKey = typeof body.idempotencyKey === 'string' && body.idempotencyKey
-    ? body.idempotencyKey
-    : null;
+  const idempotencyKey =
+    typeof body.idempotencyKey === "string" && body.idempotencyKey
+      ? body.idempotencyKey
+      : null;
 
   if (idempotencyKey) {
     pruneIdempotencyCache();
@@ -88,8 +112,8 @@ export async function handleStartCall(req: Request, assistantId: string = DAEMON
   }
 
   const result = await startCall({
-    phoneNumber: body.phoneNumber ?? '',
-    task: body.task ?? '',
+    phoneNumber: body.phoneNumber ?? "",
+    task: body.task ?? "",
     context: body.context,
     conversationId: body.conversationId,
     assistantId,
@@ -111,7 +135,10 @@ export async function handleStartCall(req: Request, assistantId: string = DAEMON
   };
 
   if (idempotencyKey) {
-    idempotencyCache.set(idempotencyKey, { body: responseBody, expiresAt: Date.now() + IDEMPOTENCY_TTL_MS });
+    idempotencyCache.set(idempotencyKey, {
+      body: responseBody,
+      expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+    });
   }
 
   return Response.json(responseBody, { status: 201 });
@@ -138,7 +165,9 @@ export function handleGetCallStatus(callSessionId: string): Response {
     provider: session.provider,
     providerCallSid: session.providerCallSid,
     task: session.task,
-    startedAt: session.startedAt ? new Date(session.startedAt).toISOString() : null,
+    startedAt: session.startedAt
+      ? new Date(session.startedAt).toISOString()
+      : null,
     endedAt: session.endedAt ? new Date(session.endedAt).toISOString() : null,
     lastError: session.lastError,
     pendingQuestion: result.pendingQuestion ?? null,
@@ -152,10 +181,13 @@ export function handleGetCallStatus(callSessionId: string): Response {
  *
  * Body: { reason?: string }
  */
-export async function handleCancelCall(req: Request, callSessionId: string): Promise<Response> {
+export async function handleCancelCall(
+  req: Request,
+  callSessionId: string,
+): Promise<Response> {
   let reason: string | undefined;
   try {
-    const body = await req.json() as { reason?: string };
+    const body = (await req.json()) as { reason?: string };
     reason = body.reason;
   } catch {
     // Empty body is fine
@@ -179,22 +211,28 @@ export async function handleCancelCall(req: Request, callSessionId: string): Pro
  *
  * Body: { answer: string }
  */
-export async function handleAnswerCall(req: Request, callSessionId: string): Promise<Response> {
+export async function handleAnswerCall(
+  req: Request,
+  callSessionId: string,
+): Promise<Response> {
   let body: { answer?: string; pendingQuestionId?: string };
   try {
-    body = await req.json() as typeof body;
+    body = (await req.json()) as typeof body;
   } catch {
-    return httpError('BAD_REQUEST', 'Invalid JSON in request body', 400);
+    return httpError("BAD_REQUEST", "Invalid JSON in request body", 400);
   }
 
-  if (typeof body !== 'object' || body == null || Array.isArray(body)) {
-    return httpError('BAD_REQUEST', 'Request body must be a JSON object', 400);
+  if (typeof body !== "object" || body == null || Array.isArray(body)) {
+    return httpError("BAD_REQUEST", "Request body must be a JSON object", 400);
   }
 
   const result = await answerCall({
     callSessionId,
-    answer: body.answer ?? '',
-    pendingQuestionId: typeof body.pendingQuestionId === 'string' ? body.pendingQuestionId : undefined,
+    answer: body.answer ?? "",
+    pendingQuestionId:
+      typeof body.pendingQuestionId === "string"
+        ? body.pendingQuestionId
+        : undefined,
   });
 
   if (!result.ok) {
@@ -210,21 +248,24 @@ export async function handleAnswerCall(req: Request, callSessionId: string): Pro
  *
  * Body: { instruction: string }
  */
-export async function handleInstructionCall(req: Request, callSessionId: string): Promise<Response> {
+export async function handleInstructionCall(
+  req: Request,
+  callSessionId: string,
+): Promise<Response> {
   let body: { instruction?: string };
   try {
-    body = await req.json() as typeof body;
+    body = (await req.json()) as typeof body;
   } catch {
-    return httpError('BAD_REQUEST', 'Invalid JSON in request body', 400);
+    return httpError("BAD_REQUEST", "Invalid JSON in request body", 400);
   }
 
-  if (typeof body !== 'object' || body == null || Array.isArray(body)) {
-    return httpError('BAD_REQUEST', 'Request body must be a JSON object', 400);
+  if (typeof body !== "object" || body == null || Array.isArray(body)) {
+    return httpError("BAD_REQUEST", "Request body must be a JSON object", 400);
   }
 
   const result = await relayInstruction({
     callSessionId,
-    instructionText: body.instruction ?? '',
+    instructionText: body.instruction ?? "",
   });
 
   if (!result.ok) {

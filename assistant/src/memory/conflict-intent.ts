@@ -14,8 +14,12 @@ export function computeConflictRelevance(
 ): number {
   const queryTokens = tokenizeForConflictRelevance(userMessage);
   if (queryTokens.size === 0) return 0;
-  const existingTokens = tokenizeForConflictRelevance(conflict.existingStatement);
-  const candidateTokens = tokenizeForConflictRelevance(conflict.candidateStatement);
+  const existingTokens = tokenizeForConflictRelevance(
+    conflict.existingStatement,
+  );
+  const candidateTokens = tokenizeForConflictRelevance(
+    conflict.candidateStatement,
+  );
   return Math.max(
     overlapRatio(queryTokens, existingTokens),
     overlapRatio(queryTokens, candidateTokens),
@@ -23,7 +27,13 @@ export function computeConflictRelevance(
 }
 
 const NOISE_TOKENS = new Set([
-  'http', 'https', 'github', 'gitlab', 'www', 'com', 'org',
+  "http",
+  "https",
+  "github",
+  "gitlab",
+  "www",
+  "com",
+  "org",
 ]);
 
 // Matches full URLs (http(s)://...) and scheme-less bare domain URLs for known
@@ -31,10 +41,11 @@ const NOISE_TOKENS = new Set([
 // segments like "pull", "issue", "ticket" don't leak into relevance scoring.
 // The scheme-less branch is restricted to known hosting domains to avoid
 // stripping dotted identifiers like "index.ts/runtime".
-const URL_PATTERN = /https?:\/\/[^\s)>\]]+|(?:github|gitlab|bitbucket)\.(?:com|org|io)\/[^\s)>\]]*/gi;
+const URL_PATTERN =
+  /https?:\/\/[^\s)>\]]+|(?:github|gitlab|bitbucket)\.(?:com|org|io)\/[^\s)>\]]*/gi;
 
 export function tokenizeForConflictRelevance(input: string): Set<string> {
-  const stripped = input.replace(URL_PATTERN, ' ');
+  const stripped = input.replace(URL_PATTERN, " ");
   const tokens = stripped
     .toLowerCase()
     .split(/[^a-z0-9]+/g)
@@ -60,7 +71,7 @@ export function overlapRatio(left: Set<string>, right: Set<string>): number {
  * to preserve short technical terms like "vim", "css", "git", "npm", etc.
  */
 function tokenizeForCoherence(input: string): Set<string> {
-  const stripped = input.replace(URL_PATTERN, ' ');
+  const stripped = input.replace(URL_PATTERN, " ");
   const tokens = stripped
     .toLowerCase()
     .split(/[^a-z0-9]+/g)
@@ -77,7 +88,10 @@ function tokenizeForCoherence(input: string): Set<string> {
  * Uses a permissive tokenizer (>= 3 chars) to avoid dropping short
  * technical terms like "vim", "css", "git", etc.
  */
-export function areStatementsCoherent(statementA: string, statementB: string): boolean {
+export function areStatementsCoherent(
+  statementA: string,
+  statementB: string,
+): boolean {
   const tokensA = tokenizeForCoherence(statementA);
   const tokensB = tokenizeForCoherence(statementB);
   return overlapRatio(tokensA, tokensB) > 0;
@@ -85,15 +99,41 @@ export function areStatementsCoherent(statementA: string, statementB: string): b
 
 // Action verbs that signal the user is making a deliberate choice.
 const ACTION_CUES = new Set([
-  'keep', 'use', 'prefer', 'go', 'pick', 'choose', 'take', 'want', 'select',
+  "keep",
+  "use",
+  "prefer",
+  "go",
+  "pick",
+  "choose",
+  "take",
+  "want",
+  "select",
 ]);
 
 // Directional/merge cue words mirrored from clarification-resolver.ts heuristics.
 const DIRECTIONAL_CUES = new Set([
-  'existing', 'old', 'previous', 'first', 'earlier', 'original',
-  'candidate', 'new', 'latest', 'second', 'updated', 'instead', 'replace',
-  'both', 'merge', 'combine', 'together', 'either', 'mix',
-  'option', 'former', 'latter',
+  "existing",
+  "old",
+  "previous",
+  "first",
+  "earlier",
+  "original",
+  "candidate",
+  "new",
+  "latest",
+  "second",
+  "updated",
+  "instead",
+  "replace",
+  "both",
+  "merge",
+  "combine",
+  "together",
+  "either",
+  "mix",
+  "option",
+  "former",
+  "latter",
 ]);
 
 const MAX_REPLY_WORD_COUNT = 12;
@@ -106,7 +146,15 @@ const MAX_DIRECTION_ONLY_WORD_COUNT = 4;
 // Messages starting with a question word are unlikely to be clarification
 // replies even when they lack a trailing question mark.
 const QUESTION_WORD_PREFIXES = new Set([
-  'what', 'how', 'why', 'where', 'when', 'which', 'who', 'whom', 'whose',
+  "what",
+  "how",
+  "why",
+  "where",
+  "when",
+  "which",
+  "who",
+  "whom",
+  "whose",
 ]);
 
 /**
@@ -115,12 +163,12 @@ const QUESTION_WORD_PREFIXES = new Set([
  */
 export function looksLikeClarificationReply(userMessage: string): boolean {
   const trimmed = userMessage.trim();
-  if (trimmed.endsWith('?')) return false;
+  if (trimmed.endsWith("?")) return false;
 
   const words = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0 || words.length > MAX_REPLY_WORD_COUNT) return false;
 
-  const normalized = words.map((w) => w.replace(/[^a-z]/g, ''));
+  const normalized = words.map((w) => w.replace(/[^a-z]/g, ""));
 
   // Reject messages that start with a question word (even without '?').
   // Match exact question words or contractions (e.g. "what's", "where's"),
@@ -128,7 +176,12 @@ export function looksLikeClarificationReply(userMessage: string): boolean {
   const firstWord = words[0];
   const firstNorm = normalized[0];
   for (const qw of QUESTION_WORD_PREFIXES) {
-    if (firstNorm === qw || (firstWord.startsWith(qw) && "'\u2018\u2019".includes(firstWord[qw.length]))) return false;
+    if (
+      firstNorm === qw ||
+      (firstWord.startsWith(qw) &&
+        "'\u2018\u2019".includes(firstWord[qw.length]))
+    )
+      return false;
   }
 
   const hasAction = normalized.some((w) => ACTION_CUES.has(w));
@@ -144,13 +197,11 @@ export function looksLikeClarificationReply(userMessage: string): boolean {
  * - non-zero topical overlap with the conflict statements, or
  * - a very recent explicit ask from the assistant.
  */
-export function shouldAttemptConflictResolution(
-  input: {
-    clarificationReply: boolean;
-    relevance: number;
-    wasRecentlyAsked: boolean;
-  },
-): boolean {
+export function shouldAttemptConflictResolution(input: {
+  clarificationReply: boolean;
+  relevance: number;
+  wasRecentlyAsked: boolean;
+}): boolean {
   if (!input.clarificationReply) return false;
   if (input.relevance > 0) return true;
   return input.wasRecentlyAsked;

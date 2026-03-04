@@ -1,4 +1,4 @@
-import type { FsError } from './errors.js';
+import type { FsError } from "./errors.js";
 
 // ---------------------------------------------------------------------------
 // Read
@@ -66,7 +66,7 @@ export interface EditOutput {
   /** File content after the edit. */
   newContent: string;
   /** How the match was found (exact, whitespace-normalized, or fuzzy). */
-  matchMethod: 'exact' | 'whitespace' | 'fuzzy';
+  matchMethod: "exact" | "whitespace" | "fuzzy";
   /** Match similarity score (0–1). Always 1 for exact/whitespace, <1 for fuzzy. */
   similarity: number;
   /** The text that was actually matched in the file (may differ from the requested old_string for fuzzy/whitespace matches). */

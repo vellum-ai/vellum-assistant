@@ -6,7 +6,7 @@
  * policy decision, not a runtime configuration.
  */
 
-import type { AuthContext, Scope, ScopeProfile } from './types.js';
+import type { AuthContext, Scope, ScopeProfile } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Profile -> scope mapping
@@ -14,37 +14,30 @@ import type { AuthContext, Scope, ScopeProfile } from './types.js';
 
 const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
   actor_client_v1: new Set<Scope>([
-    'chat.read',
-    'chat.write',
-    'approval.read',
-    'approval.write',
-    'settings.read',
-    'settings.write',
-    'attachments.read',
-    'attachments.write',
-    'calls.read',
-    'calls.write',
-    'feature_flags.read',
-    'feature_flags.write',
+    "chat.read",
+    "chat.write",
+    "approval.read",
+    "approval.write",
+    "settings.read",
+    "settings.write",
+    "attachments.read",
+    "attachments.write",
+    "calls.read",
+    "calls.write",
+    "feature_flags.read",
+    "feature_flags.write",
   ]),
-  gateway_ingress_v1: new Set<Scope>([
-    'ingress.write',
-    'internal.write',
-  ]),
+  gateway_ingress_v1: new Set<Scope>(["ingress.write", "internal.write"]),
   gateway_service_v1: new Set<Scope>([
-    'chat.write',
-    'settings.read',
-    'settings.write',
-    'attachments.read',
-    'attachments.write',
-    'internal.write',
+    "chat.write",
+    "settings.read",
+    "settings.write",
+    "attachments.read",
+    "attachments.write",
+    "internal.write",
   ]),
-  ipc_v1: new Set<Scope>([
-    'ipc.all',
-  ]),
-  ui_page_v1: new Set<Scope>([
-    'settings.read',
-  ]),
+  ipc_v1: new Set<Scope>(["ipc.all"]),
+  ui_page_v1: new Set<Scope>(["settings.read"]),
 };
 
 // ---------------------------------------------------------------------------

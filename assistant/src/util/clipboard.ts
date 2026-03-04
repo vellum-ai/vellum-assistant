@@ -1,14 +1,14 @@
-import { execSync } from 'node:child_process';
+import { execSync } from "node:child_process";
 
-import { PlatformError } from './errors.js';
-import { getClipboardCommand } from './platform.js';
+import { PlatformError } from "./errors.js";
+import { getClipboardCommand } from "./platform.js";
 
 export function copyToClipboard(text: string): void {
   const cmd = getClipboardCommand();
   if (!cmd) {
-    throw new PlatformError('Clipboard not supported on this platform');
+    throw new PlatformError("Clipboard not supported on this platform");
   }
-  execSync(cmd, { input: text, stdio: ['pipe', 'ignore', 'ignore'] });
+  execSync(cmd, { input: text, stdio: ["pipe", "ignore", "ignore"] });
 }
 
 export function formatSessionForExport(
@@ -16,10 +16,10 @@ export function formatSessionForExport(
 ): string {
   return messages
     .map((m) => {
-      const label = m.role === 'user' ? 'you' : 'assistant';
+      const label = m.role === "user" ? "you" : "assistant";
       return `${label}> ${m.text}`;
     })
-    .join('\n\n');
+    .join("\n\n");
 }
 
 export function extractLastCodeBlock(text: string): string | null {

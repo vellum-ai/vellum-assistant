@@ -15,7 +15,10 @@ export interface GuardianDecisionPrompt {
   requestId: string;
   /** Short human-readable code for the request. */
   requestCode: string;
-  state: 'pending' | 'followup_awaiting_choice' | 'expired_superseded_with_active_call';
+  state:
+    | "pending"
+    | "followup_awaiting_choice"
+    | "expired_superseded_with_active_call";
   questionText: string;
   toolName: string | null;
   actions: GuardianDecisionAction[];
@@ -43,11 +46,11 @@ export interface GuardianDecisionAction {
 
 /** Canonical set of all guardian decision actions with their labels. */
 export const GUARDIAN_DECISION_ACTIONS = {
-  approve_once:   { action: 'approve_once',   label: 'Approve once' },
-  approve_10m:    { action: 'approve_10m',    label: 'Allow 10 min' },
-  approve_thread: { action: 'approve_thread', label: 'Allow thread' },
-  approve_always: { action: 'approve_always', label: 'Approve always' },
-  reject:         { action: 'reject',         label: 'Reject' },
+  approve_once: { action: "approve_once", label: "Approve once" },
+  approve_10m: { action: "approve_10m", label: "Allow 10 min" },
+  approve_thread: { action: "approve_thread", label: "Allow thread" },
+  approve_always: { action: "approve_always", label: "Approve always" },
+  reject: { action: "reject", label: "Reject" },
 } as const satisfies Record<string, GuardianDecisionAction>;
 
 /**
@@ -66,11 +69,18 @@ export function buildDecisionActions(opts?: {
   persistentDecisionsAllowed?: boolean;
   forGuardianOnBehalf?: boolean;
 }): GuardianDecisionAction[] {
-  const showAlways = opts?.persistentDecisionsAllowed !== false && !opts?.forGuardianOnBehalf;
-  const showTemporary = opts?.persistentDecisionsAllowed !== false && !opts?.forGuardianOnBehalf;
+  const showAlways =
+    opts?.persistentDecisionsAllowed !== false && !opts?.forGuardianOnBehalf;
+  const showTemporary =
+    opts?.persistentDecisionsAllowed !== false && !opts?.forGuardianOnBehalf;
   return [
     GUARDIAN_DECISION_ACTIONS.approve_once,
-    ...(showTemporary ? [GUARDIAN_DECISION_ACTIONS.approve_10m, GUARDIAN_DECISION_ACTIONS.approve_thread] : []),
+    ...(showTemporary
+      ? [
+          GUARDIAN_DECISION_ACTIONS.approve_10m,
+          GUARDIAN_DECISION_ACTIONS.approve_thread,
+        ]
+      : []),
     ...(showAlways ? [GUARDIAN_DECISION_ACTIONS.approve_always] : []),
     GUARDIAN_DECISION_ACTIONS.reject,
   ];
@@ -85,9 +95,9 @@ export function buildPlainTextFallback(
   promptText: string,
   actions: GuardianDecisionAction[],
 ): string {
-  const hasAlways = actions.some(a => a.action === 'approve_always');
-  const has10m = actions.some(a => a.action === 'approve_10m');
-  const hasThread = actions.some(a => a.action === 'approve_thread');
+  const hasAlways = actions.some((a) => a.action === "approve_always");
+  const has10m = actions.some((a) => a.action === "approve_10m");
+  const hasThread = actions.some((a) => a.action === "approve_thread");
 
   if (hasAlways && has10m && hasThread) {
     return `${promptText}\n\nReply "yes" to approve once, "approve for 10 minutes", "approve for thread", "always" to approve always, or "no" to reject.`;
@@ -107,7 +117,12 @@ export function buildPlainTextFallback(
 
 export interface ApplyGuardianDecisionResult {
   applied: boolean;
-  reason?: 'stale' | 'identity_mismatch' | 'invalid_action' | 'not_found' | 'expired';
+  reason?:
+    | "stale"
+    | "identity_mismatch"
+    | "invalid_action"
+    | "not_found"
+    | "expired";
   requestId?: string;
   /** Feedback text when the action was parsed from user text. */
   userText?: string;

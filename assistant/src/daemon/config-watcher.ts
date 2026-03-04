@@ -3,29 +3,36 @@
  * Watches workspace files (config, prompts), protected directory
  * (trust rules, secret allowlist), and skills directories for changes.
  */
-import { existsSync, type FSWatcher,readdirSync, watch } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, type FSWatcher, readdirSync, watch } from "node:fs";
+import { join } from "node:path";
 
-import { getConfig, invalidateConfigCache } from '../config/loader.js';
-import { clearEmbeddingBackendCache } from '../memory/embedding-backend.js';
-import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
-import { initializeProviders } from '../providers/registry.js';
-import { resetAllowlist, validateAllowlistFile } from '../security/secret-allowlist.js';
-import { DebouncerMap } from '../util/debounce.js';
-import { getLogger } from '../util/logger.js';
-import { getRootDir, getWorkspaceDir, getWorkspaceSkillsDir } from '../util/platform.js';
+import { getConfig, invalidateConfigCache } from "../config/loader.js";
+import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
+import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
+import { initializeProviders } from "../providers/registry.js";
+import {
+  resetAllowlist,
+  validateAllowlistFile,
+} from "../security/secret-allowlist.js";
+import { DebouncerMap } from "../util/debounce.js";
+import { getLogger } from "../util/logger.js";
+import {
+  getRootDir,
+  getWorkspaceDir,
+  getWorkspaceSkillsDir,
+} from "../util/platform.js";
 
-const log = getLogger('config-watcher');
+const log = getLogger("config-watcher");
 
 export class ConfigWatcher {
   private watchers: FSWatcher[] = [];
   private debounceTimers = new DebouncerMap({
     defaultDelayMs: 200,
     maxEntries: 1000,
-    protectedKeyPrefix: '__',
+    protectedKeyPrefix: "__",
   });
   private suppressReload = false;
-  lastFingerprint = '';
+  lastFingerprint = "";
   private lastRefreshTime = 0;
 
   static readonly REFRESH_INTERVAL_MS = 30_000;
@@ -81,7 +88,7 @@ export class ConfigWatcher {
     }
     clearTrustCache();
     clearEmbeddingBackendCache();
-    const isFirstInit = this.lastFingerprint === '';
+    const isFirstInit = this.lastFingerprint === "";
     initializeProviders(config);
     this.lastFingerprint = fingerprint;
     return !isFirstInit;
@@ -94,64 +101,88 @@ export class ConfigWatcher {
    */
   start(onSessionEvict: () => void, onIdentityChanged?: () => void): void {
     const workspaceDir = getWorkspaceDir();
-    const protectedDir = join(getRootDir(), 'protected');
+    const protectedDir = join(getRootDir(), "protected");
 
     const workspaceHandlers: Record<string, () => void> = {
-      'config.json': () => {
+      "config.json": () => {
         if (this.suppressReload) return;
         try {
           const changed = this.refreshConfigFromSources();
           if (changed) onSessionEvict();
         } catch (err) {
-          log.error({ err, configPath: join(workspaceDir, 'config.json') }, 'Failed to reload config after file change. Previous config remains active.');
+          log.error(
+            { err, configPath: join(workspaceDir, "config.json") },
+            "Failed to reload config after file change. Previous config remains active.",
+          );
         }
       },
-      'SOUL.md': () => onSessionEvict(),
-      'IDENTITY.md': () => { onSessionEvict(); onIdentityChanged?.(); },
-      'USER.md': () => onSessionEvict(),
-      'UPDATES.md': () => onSessionEvict(),
+      "SOUL.md": () => onSessionEvict(),
+      "IDENTITY.md": () => {
+        onSessionEvict();
+        onIdentityChanged?.();
+      },
+      "USER.md": () => onSessionEvict(),
+      "UPDATES.md": () => onSessionEvict(),
     };
 
     const protectedHandlers: Record<string, () => void> = {
-      'trust.json': () => {
+      "trust.json": () => {
         clearTrustCache();
       },
-      'secret-allowlist.json': () => {
+      "secret-allowlist.json": () => {
         resetAllowlist();
         try {
           const errors = validateAllowlistFile();
           if (errors && errors.length > 0) {
             for (const e of errors) {
-              log.warn({ index: e.index, pattern: e.pattern }, `Invalid regex in secret-allowlist.json: ${e.message}`);
+              log.warn(
+                { index: e.index, pattern: e.pattern },
+                `Invalid regex in secret-allowlist.json: ${e.message}`,
+              );
             }
           }
         } catch (err) {
-          log.warn({ err }, 'Failed to validate secret-allowlist.json');
+          log.warn({ err }, "Failed to validate secret-allowlist.json");
         }
       },
     };
 
-    const watchDir = (dir: string, handlers: Record<string, () => void>, label: string): void => {
+    const watchDir = (
+      dir: string,
+      handlers: Record<string, () => void>,
+      label: string,
+    ): void => {
       try {
         const watcher = watch(dir, (_eventType, filename) => {
           if (!filename) return;
           const file = String(filename);
           if (!handlers[file]) return;
           this.debounceTimers.schedule(`file:${file}`, () => {
-            log.info({ file }, 'File changed, reloading');
+            log.info({ file }, "File changed, reloading");
             handlers[file]();
           });
         });
         this.watchers.push(watcher);
         log.info({ dir }, `Watching ${label}`);
       } catch (err) {
-        log.warn({ err, dir }, `Failed to watch ${label}. Hot-reload will be unavailable.`);
+        log.warn(
+          { err, dir },
+          `Failed to watch ${label}. Hot-reload will be unavailable.`,
+        );
       }
     };
 
-    watchDir(workspaceDir, workspaceHandlers, 'workspace directory for config/prompt changes');
+    watchDir(
+      workspaceDir,
+      workspaceHandlers,
+      "workspace directory for config/prompt changes",
+    );
     if (existsSync(protectedDir)) {
-      watchDir(protectedDir, protectedHandlers, 'protected directory for trust/allowlist changes');
+      watchDir(
+        protectedDir,
+        protectedHandlers,
+        "protected directory for trust/allowlist changes",
+      );
     }
 
     this.startSkillsWatchers(onSessionEvict);
@@ -171,33 +202,43 @@ export class ConfigWatcher {
 
     const scheduleSkillsReload = (file: string): void => {
       this.debounceTimers.schedule(`skills:${file}`, () => {
-        log.info({ file }, 'Skill file changed, reloading');
+        log.info({ file }, "Skill file changed, reloading");
         onSessionEvict();
       });
     };
 
     try {
-      const recursiveWatcher = watch(skillsDir, { recursive: true }, (_eventType, filename) => {
-        scheduleSkillsReload(filename ? String(filename) : '(unknown)');
-      });
+      const recursiveWatcher = watch(
+        skillsDir,
+        { recursive: true },
+        (_eventType, filename) => {
+          scheduleSkillsReload(filename ? String(filename) : "(unknown)");
+        },
+      );
       this.watchers.push(recursiveWatcher);
-      log.info({ dir: skillsDir }, 'Watching skills directory recursively');
+      log.info({ dir: skillsDir }, "Watching skills directory recursively");
       return;
     } catch (err) {
-      log.info({ err, dir: skillsDir }, 'Recursive skills watch unavailable; using per-directory watchers');
+      log.info(
+        { err, dir: skillsDir },
+        "Recursive skills watch unavailable; using per-directory watchers",
+      );
     }
 
     const childWatchers = new Map<string, FSWatcher>();
 
-    const watchDir = (dirPath: string, onChange: (filename: string) => void): FSWatcher | null => {
+    const watchDir = (
+      dirPath: string,
+      onChange: (filename: string) => void,
+    ): FSWatcher | null => {
       try {
         const watcher = watch(dirPath, (_eventType, filename) => {
-          onChange(filename ? String(filename) : '(unknown)');
+          onChange(filename ? String(filename) : "(unknown)");
         });
         this.watchers.push(watcher);
         return watcher;
       } catch (err) {
-        log.warn({ err, dirPath }, 'Failed to watch skills directory');
+        log.warn({ err, dirPath }, "Failed to watch skills directory");
         return null;
       }
     };
@@ -222,7 +263,10 @@ export class ConfigWatcher {
           if (childWatchers.has(childDir)) continue;
 
           const watcher = watchDir(childDir, (filename) => {
-            const label = filename === '(unknown)' ? entry.name : `${entry.name}/${filename}`;
+            const label =
+              filename === "(unknown)"
+                ? entry.name
+                : `${entry.name}/${filename}`;
             scheduleSkillsReload(label);
           });
           if (watcher) {
@@ -230,7 +274,7 @@ export class ConfigWatcher {
           }
         }
       } catch (err) {
-        log.warn({ err, skillsDir }, 'Failed to enumerate skill directories');
+        log.warn({ err, skillsDir }, "Failed to enumerate skill directories");
         return;
       }
 
@@ -250,6 +294,9 @@ export class ConfigWatcher {
     if (!rootWatcher) return;
 
     refreshChildWatchers();
-    log.info({ dir: skillsDir }, 'Watching skills directory with non-recursive fallback');
+    log.info(
+      { dir: skillsDir },
+      "Watching skills directory with non-recursive fallback",
+    );
   }
 }

@@ -1,17 +1,21 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { getConfig } from '../../config/loader.js';
-import { RateLimitProvider } from '../../providers/ratelimit.js';
-import { getFailoverProvider } from '../../providers/registry.js';
-import { ComputerUseSession } from '../computer-use-session.js';
-import { deleteBlob, readBlob, validateBlobKindEncoding } from '../ipc-blob-store.js';
+import { getConfig } from "../../config/loader.js";
+import { RateLimitProvider } from "../../providers/ratelimit.js";
+import { getFailoverProvider } from "../../providers/registry.js";
+import { ComputerUseSession } from "../computer-use-session.js";
+import {
+  deleteBlob,
+  readBlob,
+  validateBlobKindEncoding,
+} from "../ipc-blob-store.js";
 import type {
   CuObservation,
   CuSessionAbort,
   CuSessionCreate,
   ServerMessage,
-} from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+} from "../ipc-protocol.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 const cuObservationSequenceBySession = new Map<string, number>();
 
@@ -52,7 +56,11 @@ export function handleCuSessionCreate(
   let provider = getFailoverProvider(config.provider, config.providerOrder);
   const { rateLimit } = config;
   if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
-    provider = new RateLimitProvider(provider, rateLimit, ctx.sharedRequestTimestamps);
+    provider = new RateLimitProvider(
+      provider,
+      rateLimit,
+      ctx.sharedRequestTimestamps,
+    );
   }
 
   const sendToClient = (serverMsg: ServerMessage) => {
@@ -62,7 +70,10 @@ export function handleCuSessionCreate(
   const sessionRef: { current?: ComputerUseSession } = {};
   const onTerminal = (sessionId: string) => {
     removeCuSessionReferences(ctx, sessionId, sessionRef.current);
-    log.info({ sessionId }, 'Computer-use session cleaned up after terminal state');
+    log.info(
+      { sessionId },
+      "Computer-use session cleaned up after terminal state",
+    );
   };
 
   const session = new ComputerUseSession(
@@ -87,7 +98,10 @@ export function handleCuSessionCreate(
   }
   sessionIds.add(msg.sessionId);
 
-  log.info({ sessionId: msg.sessionId, taskLength: msg.task.length }, 'Computer-use session created');
+  log.info(
+    { sessionId: msg.sessionId, taskLength: msg.task.length },
+    "Computer-use session created",
+  );
 }
 
 export function handleCuSessionAbort(
@@ -97,12 +111,18 @@ export function handleCuSessionAbort(
 ): void {
   const session = ctx.cuSessions.get(msg.sessionId);
   if (!session) {
-    log.debug({ sessionId: msg.sessionId }, 'CU session abort: session not found (already finished?)');
+    log.debug(
+      { sessionId: msg.sessionId },
+      "CU session abort: session not found (already finished?)",
+    );
     return;
   }
   session.abort();
   removeCuSessionReferences(ctx, msg.sessionId, session);
-  log.info({ sessionId: msg.sessionId }, 'Computer-use session aborted by client');
+  log.info(
+    { sessionId: msg.sessionId },
+    "Computer-use session aborted by client",
+  );
 }
 
 export async function handleCuObservation(
@@ -116,59 +136,79 @@ export async function handleCuObservation(
   // Strategy: blob-first, inline-fallback, cu_error if neither available.
   if (msg.axTreeBlob) {
     try {
-      validateBlobKindEncoding(msg.axTreeBlob, 'axTreeBlob');
+      validateBlobKindEncoding(msg.axTreeBlob, "axTreeBlob");
       const buf = await readBlob(msg.axTreeBlob);
-      msg.axTree = buf.toString('utf8');
+      msg.axTree = buf.toString("utf8");
       deleteBlob(msg.axTreeBlob.id);
     } catch (err) {
-      log.warn({ err, blobId: msg.axTreeBlob.id }, 'Failed to hydrate axTreeBlob, checking inline fallback');
+      log.warn(
+        { err, blobId: msg.axTreeBlob.id },
+        "Failed to hydrate axTreeBlob, checking inline fallback",
+      );
       deleteBlob(msg.axTreeBlob.id);
       if (!msg.axTree) {
-        log.warn({ blobId: msg.axTreeBlob.id }, 'No inline axTree fallback; continuing with partial observation');
+        log.warn(
+          { blobId: msg.axTreeBlob.id },
+          "No inline axTree fallback; continuing with partial observation",
+        );
       }
     }
   }
 
   if (msg.screenshotBlob) {
     try {
-      validateBlobKindEncoding(msg.screenshotBlob, 'screenshotBlob');
+      validateBlobKindEncoding(msg.screenshotBlob, "screenshotBlob");
       const buf = await readBlob(msg.screenshotBlob);
-      msg.screenshot = buf.toString('base64');
+      msg.screenshot = buf.toString("base64");
       deleteBlob(msg.screenshotBlob.id);
     } catch (err) {
-      log.warn({ err, blobId: msg.screenshotBlob.id }, 'Failed to hydrate screenshotBlob, checking inline fallback');
+      log.warn(
+        { err, blobId: msg.screenshotBlob.id },
+        "Failed to hydrate screenshotBlob, checking inline fallback",
+      );
       deleteBlob(msg.screenshotBlob.id);
       if (!msg.screenshot) {
-        log.warn({ blobId: msg.screenshotBlob.id }, 'No inline screenshot fallback; continuing with partial observation');
+        log.warn(
+          { blobId: msg.screenshotBlob.id },
+          "No inline screenshot fallback; continuing with partial observation",
+        );
       }
     }
   }
 
-  const previousSequence = cuObservationSequenceBySession.get(msg.sessionId) ?? 0;
+  const previousSequence =
+    cuObservationSequenceBySession.get(msg.sessionId) ?? 0;
   const sequence = previousSequence + 1;
   cuObservationSequenceBySession.set(msg.sessionId, sequence);
-  const axTreeBytes = msg.axTree ? Buffer.byteLength(msg.axTree, 'utf8') : 0;
-  const axDiffBytes = msg.axDiff ? Buffer.byteLength(msg.axDiff, 'utf8') : 0;
-  const secondaryWindowsBytes = msg.secondaryWindows ? Buffer.byteLength(msg.secondaryWindows, 'utf8') : 0;
-  const screenshotBase64Bytes = msg.screenshot ? Buffer.byteLength(msg.screenshot, 'utf8') : 0;
+  const axTreeBytes = msg.axTree ? Buffer.byteLength(msg.axTree, "utf8") : 0;
+  const axDiffBytes = msg.axDiff ? Buffer.byteLength(msg.axDiff, "utf8") : 0;
+  const secondaryWindowsBytes = msg.secondaryWindows
+    ? Buffer.byteLength(msg.secondaryWindows, "utf8")
+    : 0;
+  const screenshotBase64Bytes = msg.screenshot
+    ? Buffer.byteLength(msg.screenshot, "utf8")
+    : 0;
   const screenshotApproxRawBytes = msg.screenshot
     ? Math.floor((msg.screenshot.length / 4) * 3)
     : 0;
-  log.info({
-    sessionId: msg.sessionId,
-    sequence,
-    receiveTimestampMs,
-    axTreeBytes,
-    axDiffBytes,
-    secondaryWindowsBytes,
-    screenshotBase64Bytes,
-    screenshotApproxRawBytes,
-  }, 'IPC_METRIC cu_observation_daemon_receive');
+  log.info(
+    {
+      sessionId: msg.sessionId,
+      sequence,
+      receiveTimestampMs,
+      axTreeBytes,
+      axDiffBytes,
+      secondaryWindowsBytes,
+      screenshotBase64Bytes,
+      screenshotApproxRawBytes,
+    },
+    "IPC_METRIC cu_observation_daemon_receive",
+  );
 
   const session = ctx.cuSessions.get(msg.sessionId);
   if (!session) {
     ctx.send(socket, {
-      type: 'cu_error',
+      type: "cu_error",
       sessionId: msg.sessionId,
       message: `No computer-use session found for id ${msg.sessionId}`,
     });
@@ -177,7 +217,10 @@ export async function handleCuObservation(
 
   // Fire-and-forget: the session sends messages via its sendToClient callback
   session.handleObservation(msg).catch((err) => {
-    log.error({ err, sessionId: msg.sessionId }, 'Error handling CU observation');
+    log.error(
+      { err, sessionId: msg.sessionId },
+      "Error handling CU observation",
+    );
   });
 }
 

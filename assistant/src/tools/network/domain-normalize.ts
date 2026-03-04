@@ -5,7 +5,7 @@
  * credential domain policy enforcement.
  */
 
-import { parse } from 'tldts';
+import { parse } from "tldts";
 
 export interface DomainInfo {
   /** Original hostname, lowercased and stripped of trailing dot. */
@@ -28,13 +28,13 @@ export interface DomainInfo {
  * (e.g. IP addresses, localhost, empty strings).
  */
 export function normalizeDomain(input: string): DomainInfo | null {
-  if (!input || typeof input !== 'string') return null;
+  if (!input || typeof input !== "string") return null;
 
   let hostname: string;
 
   // If input looks like a URL, extract the hostname
   try {
-    if (input.includes('://')) {
+    if (input.includes("://")) {
       const url = new URL(input);
       hostname = url.hostname;
     } else {
@@ -46,24 +46,28 @@ export function normalizeDomain(input: string): DomainInfo | null {
 
   // Strip trailing port from bare hostnames (no scheme).
   // Without this, "example.com:8080" is misidentified as IPv6 by isIPAddress.
-  if (!input.includes('://')) {
-    hostname = hostname.replace(/:\d+$/, '');
+  if (!input.includes("://")) {
+    hostname = hostname.replace(/:\d+$/, "");
   }
 
   // Normalize: lowercase, strip trailing dot
-  hostname = hostname.toLowerCase().replace(/\.$/, '');
+  hostname = hostname.toLowerCase().replace(/\.$/, "");
 
   if (!hostname) return null;
 
   // Reject IP addresses and localhost — they don't have registrable domains
-  if (isIPAddress(hostname) || hostname === 'localhost') {
+  if (isIPAddress(hostname) || hostname === "localhost") {
     return null;
   }
 
   // Reject malformed hostnames. Each DNS label must start and end with an
   // alphanumeric and contain only alphanumerics/hyphens — no consecutive dots,
   // no labels starting or ending with hyphens.
-  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(hostname)) {
+  if (
+    !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(
+      hostname,
+    )
+  ) {
     return null;
   }
 
@@ -80,6 +84,6 @@ function isIPAddress(hostname: string): boolean {
   // IPv4
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
   // IPv6 (bracketed or bare)
-  if (hostname.startsWith('[') || hostname.includes(':')) return true;
+  if (hostname.startsWith("[") || hostname.includes(":")) return true;
   return false;
 }

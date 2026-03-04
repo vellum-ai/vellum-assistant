@@ -1,7 +1,7 @@
-import { ProviderError } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
+import { ProviderError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('slack-webhook');
+const log = getLogger("slack-webhook");
 
 /**
  * Post a rich Block Kit message to a Slack Incoming Webhook URL.
@@ -17,25 +17,25 @@ export async function postToSlackWebhook(
 ): Promise<void> {
   const blocks = [
     {
-      type: 'header',
+      type: "header",
       text: {
-        type: 'plain_text',
+        type: "plain_text",
         text: `${appIcon} ${appName}`,
         emoji: true,
       },
     },
     {
-      type: 'section',
+      type: "section",
       text: {
-        type: 'mrkdwn',
-        text: appDescription || '_No description_',
+        type: "mrkdwn",
+        text: appDescription || "_No description_",
       },
     },
     {
-      type: 'context',
+      type: "context",
       elements: [
         {
-          type: 'mrkdwn',
+          type: "mrkdwn",
           text: `Shared from Vellum Assistant`,
         },
       ],
@@ -44,19 +44,23 @@ export async function postToSlackWebhook(
 
   const payload = {
     blocks,
-    text: `${appIcon} ${appName}: ${appDescription || 'No description'}`,
+    text: `${appIcon} ${appName}: ${appDescription || "No description"}`,
   };
 
-  log.info({ appName }, 'Posting app to Slack webhook');
+  log.info({ appName }, "Posting app to Slack webhook");
 
   const response = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
     const body = await response.text();
-    throw new ProviderError(`Slack webhook returned ${response.status}: ${body}`, 'slack', response.status);
+    throw new ProviderError(
+      `Slack webhook returned ${response.status}: ${body}`,
+      "slack",
+      response.status,
+    );
   }
 }

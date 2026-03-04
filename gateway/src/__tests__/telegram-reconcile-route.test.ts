@@ -3,15 +3,15 @@ import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
 /** Mint a valid daemon JWT for reconcile auth. */
 function mintDaemonToken(): string {
   return mintToken({
-    aud: 'vellum-daemon',
-    sub: 'svc:gateway:self',
-    scope_profile: 'gateway_service_v1',
+    aud: "vellum-daemon",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -19,14 +19,20 @@ function mintDaemonToken(): string {
 
 const TOKEN = mintDaemonToken();
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createTelegramReconcileHandler } = await import("../http/routes/telegram-reconcile.js");
+const { createTelegramReconcileHandler } =
+  await import("../http/routes/telegram-reconcile.js");
 
 function makeTelegramResponse(result: unknown) {
   return new Response(JSON.stringify({ ok: true, result }), {
@@ -169,7 +175,9 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("updates ingressPublicBaseUrl when provided", async () => {
-    const config = makeConfig({ ingressPublicBaseUrl: "https://old.example.com" });
+    const config = makeConfig({
+      ingressPublicBaseUrl: "https://old.example.com",
+    });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(
       makeRequest("POST", TOKEN, {
@@ -182,7 +190,9 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("clears ingressPublicBaseUrl when empty string is provided", async () => {
-    const config = makeConfig({ ingressPublicBaseUrl: "https://old.example.com" });
+    const config = makeConfig({
+      ingressPublicBaseUrl: "https://old.example.com",
+    });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(
       makeRequest("POST", TOKEN, {
@@ -196,12 +206,15 @@ describe("POST /internal/telegram/reconcile", () => {
   test("works with empty body (no URL update)", async () => {
     const config = makeConfig();
     const handler = createTelegramReconcileHandler(config);
-    const req = new Request("http://localhost:7830/internal/telegram/reconcile", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${TOKEN}`,
+    const req = new Request(
+      "http://localhost:7830/internal/telegram/reconcile",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+        },
       },
-    });
+    );
     const res = await handler(req);
     expect(res.status).toBe(200);
     expect(config.ingressPublicBaseUrl).toBe("https://example.com");
@@ -222,14 +235,17 @@ describe("POST /internal/telegram/reconcile", () => {
   test("returns 400 for invalid JSON body", async () => {
     const config = makeConfig();
     const handler = createTelegramReconcileHandler(config);
-    const req = new Request("http://localhost:7830/internal/telegram/reconcile", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${TOKEN}`,
-        "content-type": "application/json",
+    const req = new Request(
+      "http://localhost:7830/internal/telegram/reconcile",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: "not-json{",
       },
-      body: "not-json{",
-    });
+    );
     const res = await handler(req);
     expect(res.status).toBe(400);
   });

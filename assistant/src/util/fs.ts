@@ -6,7 +6,13 @@
  * from 'node:fs' for these patterns.
  */
 
-import { existsSync, mkdirSync, readFileSync, type Stats,statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  type Stats,
+  statSync,
+} from "node:fs";
 
 /** Check whether a path (file or directory) exists on disk. */
 export function pathExists(path: string): boolean {
@@ -24,7 +30,7 @@ export function ensureDir(dir: string): void {
 export function readTextFileSync(path: string): string | null {
   try {
     if (!existsSync(path)) return null;
-    return readFileSync(path, 'utf-8');
+    return readFileSync(path, "utf-8");
   } catch {
     return null;
   }

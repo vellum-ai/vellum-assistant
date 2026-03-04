@@ -21,9 +21,7 @@ export function computeTwilioSignature(
     data += key + params[key];
   }
 
-  return createHmac("sha1", authToken)
-    .update(data)
-    .digest("base64");
+  return createHmac("sha1", authToken).update(data).digest("base64");
 }
 
 /**

@@ -1,5 +1,5 @@
-import type { ResolvedSkill } from '../config/skill-state.js';
-import type { SkillSummary } from '../config/skills.js';
+import type { ResolvedSkill } from "../config/skill-state.js";
+import type { SkillSummary } from "../config/skills.js";
 
 /**
  * Parse whether user input starts with a slash-like command token.
@@ -18,19 +18,22 @@ export function extractLeadingToken(input: string): string | null {
   return firstToken || null;
 }
 
-export function parseSlashCandidate(input: string): { kind: 'none' | 'candidate'; token?: string } {
+export function parseSlashCandidate(input: string): {
+  kind: "none" | "candidate";
+  token?: string;
+} {
   const token = extractLeadingToken(input);
-  if (!token || !token.startsWith('/')) {
-    return { kind: 'none' };
+  if (!token || !token.startsWith("/")) {
+    return { kind: "none" };
   }
   if (isPathLikeSlashToken(token)) {
-    return { kind: 'none' };
+    return { kind: "none" };
   }
   const id = token.slice(1);
   if (!isValidSlashSkillId(id)) {
-    return { kind: 'none' };
+    return { kind: "none" };
   }
-  return { kind: 'candidate', token };
+  return { kind: "candidate", token };
 }
 
 /** Validate that a slash skill ID starts with alphanumeric and contains only [A-Za-z0-9._-] */
@@ -41,7 +44,7 @@ export function isValidSlashSkillId(id: string): boolean {
 /** Detect filesystem-like paths: tokens containing more than one `/` */
 export function isPathLikeSlashToken(token: string): boolean {
   // Count slashes — a single leading `/` is expected, but any additional `/` means it's a path
-  const slashCount = token.split('/').length - 1;
+  const slashCount = token.split("/").length - 1;
   return slashCount > 1;
 }
 
@@ -71,7 +74,7 @@ export function buildInvocableSlashCatalog(
   for (const skill of catalog) {
     if (!skill.userInvocable) continue;
     const resolved = stateById.get(skill.id);
-    if (!resolved || resolved.state === 'disabled') continue;
+    if (!resolved || resolved.state === "disabled") continue;
     result.set(skill.id.toLowerCase(), {
       canonicalId: skill.id,
       name: skill.name,
@@ -84,9 +87,9 @@ export function buildInvocableSlashCatalog(
 // ─── Slash command resolution ────────────────────────────────────────────────
 
 export type SlashResolution =
-  | { kind: 'none' }
-  | { kind: 'known'; skillId: string; trailingArgs: string }
-  | { kind: 'unknown'; requestedId: string; message: string };
+  | { kind: "none" }
+  | { kind: "known"; skillId: string; trailingArgs: string }
+  | { kind: "unknown"; requestedId: string; message: string };
 
 /**
  * Resolve user input against the invocable slash catalog.
@@ -101,8 +104,8 @@ export function resolveSlashSkillCommand(
   catalog: Map<string, InvocableSlashSkill>,
 ): SlashResolution {
   const candidate = parseSlashCandidate(input);
-  if (candidate.kind === 'none') {
-    return { kind: 'none' };
+  if (candidate.kind === "none") {
+    return { kind: "none" };
   }
 
   const token = candidate.token!;
@@ -112,18 +115,19 @@ export function resolveSlashSkillCommand(
   // Extract trailing args: everything after the first token
   const trimmed = input.trimStart();
   const firstSpaceIdx = trimmed.search(/\s/);
-  const trailingArgs = firstSpaceIdx === -1 ? '' : trimmed.slice(firstSpaceIdx).trim();
+  const trailingArgs =
+    firstSpaceIdx === -1 ? "" : trimmed.slice(firstSpaceIdx).trim();
 
   const match = catalog.get(lookupKey);
   if (match) {
-    return { kind: 'known', skillId: match.canonicalId, trailingArgs };
+    return { kind: "known", skillId: match.canonicalId, trailingArgs };
   }
 
   const availableIds = Array.from(catalog.values())
     .map((s) => s.canonicalId)
-    .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+    .sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
   return {
-    kind: 'unknown',
+    kind: "unknown",
     requestedId,
     message: formatUnknownSlashSkillMessage(requestedId, availableIds),
   };
@@ -138,16 +142,16 @@ export function formatUnknownSlashSkillMessage(
 ): string {
   const lines = [`Unknown command \`/${requestedId}\`.`];
   if (availableSkillIds.length > 0) {
-    lines.push('');
-    lines.push('Available slash commands:');
+    lines.push("");
+    lines.push("Available slash commands:");
     for (const id of availableSkillIds) {
       lines.push(`- \`/${id}\``);
     }
   } else {
-    lines.push('');
-    lines.push('No slash commands are currently available.');
+    lines.push("");
+    lines.push("No slash commands are currently available.");
   }
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 // ─── Prompt rewrite for known slash commands ─────────────────────────────────
@@ -169,20 +173,22 @@ export function rewriteKnownSlashCommandPrompt(params: {
   // For the claude-code skill, route trailing args through the `command` input
   // so CC command templates (.claude/commands/*.md) are loaded and $ARGUMENTS
   // substitution is applied, rather than sending them as a raw prompt.
-  if (params.skillId === 'claude-code' && params.trailingArgs) {
+  if (params.skillId === "claude-code" && params.trailingArgs) {
     // Extract the command name (first word of trailing args) and remaining arguments
     const parts = params.trailingArgs.split(/\s+/);
     const commandName = parts[0];
-    const commandArgs = parts.slice(1).join(' ');
+    const commandArgs = parts.slice(1).join(" ");
 
     const lines = [
       `The user invoked the slash command \`/${params.skillId}\`.`,
       `Execute the Claude Code command "${commandName}" using the claude_code tool with command="${commandName}".`,
     ];
     if (commandArgs) {
-      lines.push(`Pass the following as the \`arguments\` input: ${commandArgs}`);
+      lines.push(
+        `Pass the following as the \`arguments\` input: ${commandArgs}`,
+      );
     }
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   const lines = [
@@ -190,8 +196,8 @@ export function rewriteKnownSlashCommandPrompt(params: {
     `Please invoke the "${params.skillName}" skill (ID: ${params.skillId}).`,
   ];
   if (params.trailingArgs) {
-    lines.push('');
+    lines.push("");
     lines.push(`User arguments: ${params.trailingArgs}`);
   }
-  return lines.join('\n');
+  return lines.join("\n");
 }

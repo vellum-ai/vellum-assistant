@@ -6,9 +6,9 @@
  * that maps to the Conversation type.
  */
 
-import type { Conversation } from './provider-types.js';
+import type { Conversation } from "./provider-types.js";
 
-export type ActivityLevel = 'dead' | 'low' | 'medium' | 'high';
+export type ActivityLevel = "dead" | "low" | "medium" | "high";
 
 export interface ActivityGroup {
   level: ActivityLevel;
@@ -44,13 +44,13 @@ export function classifyActivity(
 
     let level: ActivityLevel;
     if (conv.unreadCount > 0 && ageDays < 1) {
-      level = 'high';
+      level = "high";
     } else if (ageDays < 7) {
-      level = 'medium';
+      level = "medium";
     } else if (ageDays < 30) {
-      level = 'low';
+      level = "low";
     } else {
-      level = 'dead';
+      level = "dead";
     }
 
     groups[level].push(conv);
@@ -62,7 +62,7 @@ export function classifyActivity(
   }
 
   const result: ActivityGroup[] = [];
-  for (const level of ['high', 'medium', 'low', 'dead'] as ActivityLevel[]) {
+  for (const level of ["high", "medium", "low", "dead"] as ActivityLevel[]) {
     if (groups[level].length > 0) {
       result.push({ level, conversations: groups[level] });
     }

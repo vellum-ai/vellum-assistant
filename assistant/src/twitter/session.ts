@@ -3,12 +3,21 @@
  * Stores/loads auth cookies from a recording or manual login.
  */
 
-import { existsSync, mkdirSync, readFileSync, unlinkSync,writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 
-import type { ExtractedCredential,SessionRecording } from '../tools/browser/network-recording-types.js';
-import { ConfigError } from '../util/errors.js';
-import { getDataDir } from '../util/platform.js';
+import type {
+  ExtractedCredential,
+  SessionRecording,
+} from "../tools/browser/network-recording-types.js";
+import { ConfigError } from "../util/errors.js";
+import { getDataDir } from "../util/platform.js";
 
 export interface TwitterSession {
   cookies: ExtractedCredential[];
@@ -17,18 +26,18 @@ export interface TwitterSession {
 }
 
 function getSessionDir(): string {
-  return join(getDataDir(), 'twitter');
+  return join(getDataDir(), "twitter");
 }
 
 function getSessionPath(): string {
-  return join(getSessionDir(), 'session.json');
+  return join(getSessionDir(), "session.json");
 }
 
 export function loadSession(): TwitterSession | null {
   const path = getSessionPath();
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, 'utf-8')) as TwitterSession;
+    return JSON.parse(readFileSync(path, "utf-8")) as TwitterSession;
   } catch {
     return null;
   }
@@ -54,17 +63,19 @@ export function importFromRecording(recordingPath: string): TwitterSession {
   if (!existsSync(recordingPath)) {
     throw new ConfigError(`Recording not found: ${recordingPath}`);
   }
-  const recording = JSON.parse(readFileSync(recordingPath, 'utf-8')) as SessionRecording;
+  const recording = JSON.parse(
+    readFileSync(recordingPath, "utf-8"),
+  ) as SessionRecording;
   if (!recording.cookies?.length) {
-    throw new ConfigError('Recording contains no cookies');
+    throw new ConfigError("Recording contains no cookies");
   }
   // Require the two cookies that prove a logged-in Twitter session:
   // the auth session cookie and the ct0 CSRF cookie.
-  const cookieNames = new Set(recording.cookies.map(c => c.name));
-  if (!cookieNames.has('ct0') || !cookieNames.has(`auth_${'token'}`)) {
+  const cookieNames = new Set(recording.cookies.map((c) => c.name));
+  if (!cookieNames.has("ct0") || !cookieNames.has(`auth_${"token"}`)) {
     throw new ConfigError(
-      'Recording is missing required Twitter session cookies. ' +
-      'Make sure you are logged in to x.com before recording.',
+      "Recording is missing required Twitter session cookies. " +
+        "Make sure you are logged in to x.com before recording.",
     );
   }
   const session: TwitterSession = {
@@ -80,14 +91,12 @@ export function importFromRecording(recordingPath: string): TwitterSession {
  * Build a Cookie header string from the session.
  */
 export function getCookieHeader(session: TwitterSession): string {
-  return session.cookies
-    .map(c => `${c.name}=${c.value}`)
-    .join('; ');
+  return session.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 }
 
 /**
  * Get the CSRF token from session cookies (ct0 cookie).
  */
 export function getCsrfToken(session: TwitterSession): string | undefined {
-  return session.cookies.find(c => c.name === 'ct0')?.value;
+  return session.cookies.find((c) => c.name === "ct0")?.value;
 }

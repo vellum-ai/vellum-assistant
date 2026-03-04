@@ -7,34 +7,34 @@
  * overwritten, never user-provided custom titles.
  */
 
-import { getConfig } from '../config/loader.js';
-import { getConfiguredProvider } from '../providers/provider-send-message.js';
-import type { Provider } from '../providers/types.js';
-import { getLogger } from '../util/logger.js';
-import { truncate } from '../util/truncate.js';
-import type { MessageRow } from './conversation-store.js';
-import * as conversationStore from './conversation-store.js';
+import { getConfig } from "../config/loader.js";
+import { getConfiguredProvider } from "../providers/provider-send-message.js";
+import type { Provider } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
+import { truncate } from "../util/truncate.js";
+import type { MessageRow } from "./conversation-store.js";
+import * as conversationStore from "./conversation-store.js";
 
-const log = getLogger('conversation-title-service');
+const log = getLogger("conversation-title-service");
 
 // ── Types ────────────────────────────────────────────────────────────
 
 export type TitleOrigin =
-  | 'runtime_api'
-  | 'channel_inbound'
-  | 'voice_outbound'
-  | 'voice_inbound'
-  | 'guardian_request'
-  | 'schedule'
-  | 'reminder'
-  | 'task'
-  | 'watcher'
-  | 'subagent'
-  | 'sequence'
-  | 'heartbeat'
-  | 'ipc'
-  | 'task_submit'
-  | 'misc';
+  | "runtime_api"
+  | "channel_inbound"
+  | "voice_outbound"
+  | "voice_inbound"
+  | "guardian_request"
+  | "schedule"
+  | "reminder"
+  | "task"
+  | "watcher"
+  | "subagent"
+  | "sequence"
+  | "heartbeat"
+  | "ipc"
+  | "task_submit"
+  | "misc";
 
 export interface TitleContext {
   origin: TitleOrigin;
@@ -52,8 +52,8 @@ export interface TitleContext {
 
 // ── Placeholder / loading state ──────────────────────────────────────
 
-export const GENERATING_TITLE = 'Generating title...';
-export const UNTITLED_FALLBACK = 'Untitled Conversation';
+export const GENERATING_TITLE = "Generating title...";
+export const UNTITLED_FALLBACK = "Untitled Conversation";
 
 // ── Replaceability check ─────────────────────────────────────────────
 
@@ -71,7 +71,7 @@ const REPLACEABLE_PATTERNS = [
  * user-provided custom titles.
  */
 export function isReplaceableTitle(title: string | null): boolean {
-  if (title == null || title.trim() === '') return true;
+  if (title == null || title.trim() === "") return true;
   return REPLACEABLE_PATTERNS.some((pattern) => pattern.test(title));
 }
 
@@ -100,7 +100,14 @@ export interface GenerateTitleParams {
 export async function generateAndPersistConversationTitle(
   params: GenerateTitleParams,
 ): Promise<{ title: string; updated: boolean }> {
-  const { conversationId, context, userMessage, assistantResponse, onTitleUpdated, signal } = params;
+  const {
+    conversationId,
+    context,
+    userMessage,
+    assistantResponse,
+    onTitleUpdated,
+    signal,
+  } = params;
 
   // Check current title is replaceable
   const conversation = conversationStore.getConversation(conversationId);
@@ -125,14 +132,17 @@ export async function generateAndPersistConversationTitle(
     : timeoutSignal;
 
   const response = await provider.sendMessage(
-    [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [],
     undefined,
-    { config: { max_tokens: config.daemon.titleGenerationMaxTokens }, signal: combinedSignal },
+    {
+      config: { max_tokens: config.daemon.titleGenerationMaxTokens },
+      signal: combinedSignal,
+    },
   );
 
-  const textBlock = response.content.find((b) => b.type === 'text');
-  if (textBlock && textBlock.type === 'text') {
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (textBlock && textBlock.type === "text") {
     let title = normalizeTitle(textBlock.text);
     if (!title) {
       title = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
@@ -146,7 +156,7 @@ export async function generateAndPersistConversationTitle(
 
     conversationStore.updateConversationTitle(conversationId, title, 1);
     onTitleUpdated?.(title);
-    log.info({ conversationId, title }, 'Auto-generated conversation title');
+    log.info({ conversationId, title }, "Auto-generated conversation title");
     return { title, updated: true };
   }
 
@@ -177,14 +187,20 @@ export function queueGenerateConversationTitle(
   generateAndPersistConversationTitle(params).catch((err) => {
     log.warn(
       { err, conversationId: params.conversationId },
-      'Failed to generate conversation title (non-fatal)',
+      "Failed to generate conversation title (non-fatal)",
     );
     // Replace loading placeholder with stable fallback
     try {
-      const conversation = conversationStore.getConversation(params.conversationId);
+      const conversation = conversationStore.getConversation(
+        params.conversationId,
+      );
       if (conversation && conversation.title === GENERATING_TITLE) {
-        const fallback = deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
-        conversationStore.updateConversationTitle(params.conversationId, fallback);
+        const fallback =
+          deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
+        conversationStore.updateConversationTitle(
+          params.conversationId,
+          fallback,
+        );
         params.onTitleUpdated?.(fallback);
       }
     } catch {
@@ -236,14 +252,17 @@ export async function regenerateConversationTitle(
     : timeoutSignal;
 
   const response = await provider.sendMessage(
-    [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [],
     undefined,
-    { config: { max_tokens: config.daemon.titleGenerationMaxTokens }, signal: combinedSignal },
+    {
+      config: { max_tokens: config.daemon.titleGenerationMaxTokens },
+      signal: combinedSignal,
+    },
   );
 
-  const textBlock = response.content.find((b) => b.type === 'text');
-  if (textBlock && textBlock.type === 'text') {
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (textBlock && textBlock.type === "text") {
     const title = normalizeTitle(textBlock.text);
     if (!title) {
       return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
@@ -257,7 +276,10 @@ export async function regenerateConversationTitle(
 
     conversationStore.updateConversationTitle(conversationId, title, 1);
     onTitleUpdated?.(title);
-    log.info({ conversationId, title }, 'Re-generated conversation title (second pass)');
+    log.info(
+      { conversationId, title },
+      "Re-generated conversation title (second pass)",
+    );
     return { title, updated: true };
   }
 
@@ -273,7 +295,7 @@ export function queueRegenerateConversationTitle(
   regenerateConversationTitle(params).catch((err) => {
     log.warn(
       { err, conversationId: params.conversationId },
-      'Failed to regenerate conversation title (non-fatal)',
+      "Failed to regenerate conversation title (non-fatal)",
     );
   });
 }
@@ -286,7 +308,7 @@ function buildTitlePrompt(
   assistantResponse?: string,
 ): string {
   const parts: string[] = [
-    'Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting.',
+    "Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting.",
   ];
 
   if (context) {
@@ -295,27 +317,28 @@ function buildTitlePrompt(
     if (context.displayName) hints.push(`User: ${context.displayName}`);
     if (context.systemHint) hints.push(`Context: ${context.systemHint}`);
     if (context.uxBrief) hints.push(`Brief: ${context.uxBrief}`);
-    if (context.metadataHints?.length) hints.push(`Hints: ${context.metadataHints.join(', ')}`);
+    if (context.metadataHints?.length)
+      hints.push(`Hints: ${context.metadataHints.join(", ")}`);
     if (hints.length > 0) {
-      parts.push('', 'Metadata:', ...hints);
+      parts.push("", "Metadata:", ...hints);
     }
   }
 
   if (userMessage) {
-    parts.push('', `User: ${truncate(userMessage, 200, '')}`);
+    parts.push("", `User: ${truncate(userMessage, 200, "")}`);
   }
   if (assistantResponse) {
-    parts.push(`Assistant: ${truncate(assistantResponse, 200, '')}`);
+    parts.push(`Assistant: ${truncate(assistantResponse, 200, "")}`);
   }
 
-  return parts.join('\n');
+  return parts.join("\n");
 }
 
 function normalizeTitle(raw: string): string {
-  let title = raw.trim().replace(/^["']|["']$/g, '');
+  let title = raw.trim().replace(/^["']|["']$/g, "");
   title = stripMarkdown(title);
   const words = title.split(/\s+/);
-  if (words.length > 5) title = words.slice(0, 5).join(' ');
+  if (words.length > 5) title = words.slice(0, 5).join(" ");
   if (title.length > 40) title = title.slice(0, 40).trimEnd();
   return title;
 }
@@ -323,34 +346,34 @@ function normalizeTitle(raw: string): string {
 /** Strip common markdown formatting so titles render as plain text. */
 function stripMarkdown(text: string): string {
   return text
-    .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold**
-    .replace(/__(.+?)__/g, '$1')        // __bold__
-    .replace(/\*(.+?)\*/g, '$1')        // *italic*
-    .replace(/(?<!\w)_(.+?)_(?!\w)/g, '$1') // _italic_ (word-boundary-aware to preserve snake_case)
-    .replace(/~~(.+?)~~/g, '$1')        // ~~strikethrough~~
-    .replace(/`(.+?)`/g, '$1')          // `code`
-    .replace(/\[(.+?)\]\(.+?\)/g, '$1') // [link](url)
-    .replace(/^#{1,6}\s+/gm, '');       // # headings
+    .replace(/\*\*(.+?)\*\*/g, "$1") // **bold**
+    .replace(/__(.+?)__/g, "$1") // __bold__
+    .replace(/\*(.+?)\*/g, "$1") // *italic*
+    .replace(/(?<!\w)_(.+?)_(?!\w)/g, "$1") // _italic_ (word-boundary-aware to preserve snake_case)
+    .replace(/~~(.+?)~~/g, "$1") // ~~strikethrough~~
+    .replace(/`(.+?)`/g, "$1") // `code`
+    .replace(/\[(.+?)\]\(.+?\)/g, "$1") // [link](url)
+    .replace(/^#{1,6}\s+/gm, ""); // # headings
 }
 
 function deriveFallbackTitle(context?: TitleContext): string | null {
   if (!context) return null;
-  if (context.systemHint) return truncate(context.systemHint, 40, '');
-  if (context.uxBrief) return truncate(context.uxBrief, 40, '');
+  if (context.systemHint) return truncate(context.systemHint, 40, "");
+  if (context.uxBrief) return truncate(context.uxBrief, 40, "");
   return null;
 }
 
 function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
   const parts: string[] = [
-    'Generate a very short title for this conversation based on the recent messages below. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting.',
-    '',
-    'Recent messages:',
+    "Generate a very short title for this conversation based on the recent messages below. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting.",
+    "",
+    "Recent messages:",
   ];
 
   for (const msg of recentMessages) {
-    const role = msg.role === 'user' ? 'User' : 'Assistant';
-    parts.push(`${role}: ${truncate(msg.content, 200, '')}`);
+    const role = msg.role === "user" ? "User" : "Assistant";
+    parts.push(`${role}: ${truncate(msg.content, 200, "")}`);
   }
 
-  return parts.join('\n');
+  return parts.join("\n");
 }

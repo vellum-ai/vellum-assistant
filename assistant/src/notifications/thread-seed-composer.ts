@@ -13,19 +13,19 @@
  * the decision engine's LLM produced one.
  */
 
-import type { InterfaceId } from '../channels/types.js';
-import { isInterfaceId } from '../channels/types.js';
-import type { NotificationSignal } from './signal.js';
-import type { NotificationChannel, RenderedChannelCopy } from './types.js';
+import type { InterfaceId } from "../channels/types.js";
+import { isInterfaceId } from "../channels/types.js";
+import type { NotificationSignal } from "./signal.js";
+import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 
-export type SurfaceVerbosity = 'rich' | 'compact';
+export type SurfaceVerbosity = "rich" | "compact";
 
 const CHANNEL_DEFAULT_INTERFACE: Record<string, InterfaceId> = {
-  vellum: 'macos',
-  telegram: 'telegram',
+  vellum: "macos",
+  telegram: "telegram",
 };
 
-const RICH_INTERFACES = new Set<InterfaceId>(['macos', 'ios', 'vellum']);
+const RICH_INTERFACES = new Set<InterfaceId>(["macos", "ios", "vellum"]);
 
 /**
  * Resolve verbosity level from delivery channel + optional interface hint.
@@ -40,18 +40,18 @@ export function resolveVerbosity(
   contextPayload: Record<string, unknown>,
 ): SurfaceVerbosity {
   const hint = contextPayload.interfaceHint;
-  if (typeof hint === 'string' && isInterfaceId(hint)) {
-    return RICH_INTERFACES.has(hint) ? 'rich' : 'compact';
+  if (typeof hint === "string" && isInterfaceId(hint)) {
+    return RICH_INTERFACES.has(hint) ? "rich" : "compact";
   }
 
   const sourceIface = contextPayload.sourceInterface;
-  if (typeof sourceIface === 'string' && isInterfaceId(sourceIface)) {
-    return RICH_INTERFACES.has(sourceIface) ? 'rich' : 'compact';
+  if (typeof sourceIface === "string" && isInterfaceId(sourceIface)) {
+    return RICH_INTERFACES.has(sourceIface) ? "rich" : "compact";
   }
 
   const defaultIface = CHANNEL_DEFAULT_INTERFACE[channel];
-  if (defaultIface && RICH_INTERFACES.has(defaultIface)) return 'rich';
-  return 'compact';
+  if (defaultIface && RICH_INTERFACES.has(defaultIface)) return "rich";
+  return "compact";
 }
 
 /**
@@ -61,12 +61,12 @@ export function resolveVerbosity(
  * Min-length is 3 (not higher) to support concise CJK text.
  */
 export function isThreadSeedSane(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
+  if (typeof value !== "string") return false;
   const trimmed = value.trim();
   if (trimmed.length < 3) return false;
   if (trimmed.length > 2000) return false;
   // Reject raw JSON dumps
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return false;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return false;
   return true;
 }
 
@@ -76,8 +76,8 @@ export function isThreadSeedSane(value: unknown): value is string {
  * e.g. "reminder.fired" → "Reminder fired", "guardian.question" → "Guardian question"
  */
 function humanizeEventName(eventName: string): string {
-  const words = eventName.replace(/[._]/g, ' ').trim();
-  if (words.length === 0) return 'Notification';
+  const words = eventName.replace(/[._]/g, " ").trim();
+  if (words.length === 0) return "Notification";
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
@@ -94,10 +94,20 @@ function buildContextFallback(signal: NotificationSignal): string {
   const payload = signal.contextPayload;
 
   // Try common payload keys in priority order
-  const candidateKeys = ['message', 'summary', 'body', 'preview', 'senderIdentifier', 'title', 'label', 'questionText', 'name'];
+  const candidateKeys = [
+    "message",
+    "summary",
+    "body",
+    "preview",
+    "senderIdentifier",
+    "title",
+    "label",
+    "questionText",
+    "name",
+  ];
   for (const key of candidateKeys) {
     const val = payload[key];
-    if (typeof val === 'string' && val.trim().length > 0) {
+    if (typeof val === "string" && val.trim().length > 0) {
       return `${label}: ${val.trim()}`;
     }
   }
@@ -109,7 +119,9 @@ function buildContextFallback(signal: NotificationSignal): string {
  * Check whether rendered copy has usable content in title or body.
  */
 function hasCopyContent(copy: RenderedChannelCopy): boolean {
-  const hasTitle = Boolean(copy.title && copy.title.trim() && copy.title !== 'Notification');
+  const hasTitle = Boolean(
+    copy.title && copy.title.trim() && copy.title !== "Notification",
+  );
   const hasBody = Boolean(copy.body && copy.body.trim());
   return hasTitle || hasBody;
 }
@@ -136,16 +148,22 @@ export function composeThreadSeed(
     return buildContextFallback(signal);
   }
 
-  if (verbosity === 'rich') {
+  if (verbosity === "rich") {
     const parts: string[] = [];
-    if (copy.title && copy.title !== 'Notification') parts.push(copy.title);
+    if (copy.title && copy.title !== "Notification") parts.push(copy.title);
     if (copy.body) parts.push(copy.body);
-    const alreadyMentionsAction = parts.some((part) => /\baction required\b/i.test(part));
-    if (signal.attentionHints.requiresAction && parts.length > 0 && !alreadyMentionsAction) {
-      parts.push('Action required.');
+    const alreadyMentionsAction = parts.some((part) =>
+      /\baction required\b/i.test(part),
+    );
+    if (
+      signal.attentionHints.requiresAction &&
+      parts.length > 0 &&
+      !alreadyMentionsAction
+    ) {
+      parts.push("Action required.");
     }
     if (parts.length > 0) {
-      return parts.join('. ').replace(/\.\./g, '.');
+      return parts.join(". ").replace(/\.\./g, ".");
     }
   }
 

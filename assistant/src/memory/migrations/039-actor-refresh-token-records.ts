@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Create the actor_refresh_token_records table for hash-only refresh token persistence.
@@ -28,24 +28,18 @@ export function createActorRefreshTokenRecordsTable(database: DrizzleDb): void {
   `);
 
   // Token hash lookup (any status — needed for replay detection)
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash
-      ON actor_refresh_token_records(token_hash)`,
-  );
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash
+      ON actor_refresh_token_records(token_hash)`);
 
   // Unique active refresh token per device binding.
   // DROP first so that databases that already created the older non-unique
   // index with the same name get upgraded to UNIQUE.
   database.run(/*sql*/ `DROP INDEX IF EXISTS idx_refresh_tokens_active_device`);
-  database.run(
-    /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_active_device
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_active_device
       ON actor_refresh_token_records(assistant_id, guardian_principal_id, hashed_device_id)
-      WHERE status = 'active'`,
-  );
+      WHERE status = 'active'`);
 
   // Family lookup for replay detection (revoke entire family)
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family
-      ON actor_refresh_token_records(family_id)`,
-  );
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family
+      ON actor_refresh_token_records(family_id)`);
 }

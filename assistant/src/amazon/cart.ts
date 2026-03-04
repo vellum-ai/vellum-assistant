@@ -1,4 +1,4 @@
-import type { CartSummary } from './client.js';
+import type { CartSummary } from "./client.js";
 import {
   AMAZON_BASE,
   cdpEval,
@@ -6,7 +6,7 @@ import {
   prepareRequest,
   runWithBackoff,
   sendRelayCommand,
-} from './client.js';
+} from "./client.js";
 
 /**
  * Add an item to the Amazon cart.
@@ -30,13 +30,15 @@ export async function addToCart(opts: {
   if (!opts.isFresh) {
     return runWithBackoff(async () => {
       // Step 1: Navigate to the product page
-      await sendRelayCommand({ action: 'navigate', tabId, url: productUrl });
+      await sendRelayCommand({ action: "navigate", tabId, url: productUrl });
 
       // Step 2: Wait for the page to load and the Add to Cart button to appear
       let buttonClicked = false;
       for (let attempt = 0; attempt < 10; attempt++) {
-        await new Promise(r => setTimeout(r, 1000));
-        const clickResult = await cdpEval(tabId, `
+        await new Promise((r) => setTimeout(r, 1000));
+        const clickResult = (await cdpEval(
+          tabId,
+          `
           (function() {
             try {
               // Check if we're on the right product page
@@ -44,13 +46,17 @@ export async function addToCart(opts: {
               if (!titleEl) return JSON.stringify({ ready: false, reason: 'no product title yet' });
 
               // Set quantity if needed
-              ${quantity > 1 ? `
+              ${
+                quantity > 1
+                  ? `
               var qtySelect = document.querySelector('#quantity');
               if (qtySelect) {
                 qtySelect.value = '${quantity}';
                 qtySelect.dispatchEvent(new Event('change', { bubbles: true }));
               }
-              ` : ''}
+              `
+                  : ""
+              }
 
               // Find and click the Add to Cart button
               var btn = document.querySelector('#add-to-cart-button')
@@ -64,7 +70,8 @@ export async function addToCart(opts: {
               return JSON.stringify({ ready: false, reason: e.message });
             }
           })()
-        `) as Record<string, unknown>;
+        `,
+        )) as Record<string, unknown>;
 
         if (clickResult && clickResult.clicked) {
           buttonClicked = true;
@@ -73,14 +80,18 @@ export async function addToCart(opts: {
       }
 
       if (!buttonClicked) {
-        throw new Error('Could not find or click the Add to Cart button on the product page after 10 seconds.');
+        throw new Error(
+          "Could not find or click the Add to Cart button on the product page after 10 seconds.",
+        );
       }
 
       // Step 3: Wait for the cart confirmation page to load and extract cart info
-      await new Promise(r => setTimeout(r, 2000)); // initial wait for navigation
+      await new Promise((r) => setTimeout(r, 2000)); // initial wait for navigation
       let cartData: Record<string, unknown> | null = null;
       for (let attempt = 0; attempt < 6; attempt++) {
-        const confirmResult = await cdpEval(tabId, `
+        const confirmResult = (await cdpEval(
+          tabId,
+          `
           (function() {
             try {
               var title = document.title || '';
@@ -116,35 +127,41 @@ export async function addToCart(opts: {
               return JSON.stringify({ confirmed: false, reason: e.message });
             }
           })()
-        `) as Record<string, unknown>;
+        `,
+        )) as Record<string, unknown>;
 
         if (confirmResult && confirmResult.confirmed) {
           cartData = confirmResult;
           break;
         }
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 1000));
       }
 
       // Build the cart summary
-      const items = [{
-        cartItemId: opts.asin,
-        asin: opts.asin,
-        title: '',
-        quantity: quantity,
-        price: '',
-        isFresh: false,
-      }];
+      const items = [
+        {
+          cartItemId: opts.asin,
+          asin: opts.asin,
+          title: "",
+          quantity: quantity,
+          price: "",
+          isFresh: false,
+        },
+      ];
 
       const cart: CartSummary & { __debug?: unknown; __verbose?: unknown } = {
         items,
-        subtotal: (cartData?.subtotal as string) || '',
-        itemCount: parseInt((cartData?.cartCount as string) || '0', 10) || items.length,
+        subtotal: (cartData?.subtotal as string) || "",
+        itemCount:
+          parseInt((cartData?.cartCount as string) || "0", 10) || items.length,
       };
 
       if (!cartData?.confirmed) {
         // Button was clicked but we couldn't confirm. It likely still worked
         // (Amazon sometimes shows interstitials). Return optimistic result.
-        cart.__debug = { warning: 'Could not confirm cart page, but button click succeeded.' };
+        cart.__debug = {
+          warning: "Could not confirm cart page, but button click succeeded.",
+        };
       } else {
         cart.__debug = {
           confirmText: cartData.confirmText,
@@ -250,7 +267,9 @@ export async function addToCart(opts: {
           }
 
           var freshReftag = freshPayload.reftag || 'alm-dp-atc-so-fs';
-          var addResp = await fetch('${AMAZON_BASE}/alm/addtofreshcart?ref_=' + freshReftag + '&discoveredAsins.0=' + encodeURIComponent(${JSON.stringify(opts.asin)}) + '&almBrandId=QW1hem9uIEZyZXNo', {
+          var addResp = await fetch('${AMAZON_BASE}/alm/addtofreshcart?ref_=' + freshReftag + '&discoveredAsins.0=' + encodeURIComponent(${JSON.stringify(
+            opts.asin,
+          )}) + '&almBrandId=QW1hem9uIEZyZXNo', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -294,11 +313,15 @@ export async function addToCart(opts: {
                 var freshCartData = await freshCartResp.json();
                 if (Array.isArray(freshCartData)) {
                   var allFreshItems = freshCartData.filter(function(i) { return i.cartType === 'LOCAL_MARKET'; });
-                  var targetFound = allFreshItems.some(function(i) { return i.asin === ${JSON.stringify(opts.asin)}; });
+                  var targetFound = allFreshItems.some(function(i) { return i.asin === ${JSON.stringify(
+                    opts.asin,
+                  )}; });
                   if (!targetFound) {
                     return JSON.stringify({
                       __error: true,
-                      __message: 'Add-to-cart failed: ASIN ' + ${JSON.stringify(opts.asin)} + ' was not found in the Fresh cart after adding. The item may be unavailable or the session cookies may be stale. Try running vellum amazon refresh.'
+                      __message: 'Add-to-cart failed: ASIN ' + ${JSON.stringify(
+                        opts.asin,
+                      )} + ' was not found in the Fresh cart after adding. The item may be unavailable or the session cookies may be stale. Try running vellum amazon refresh.'
                     });
                   }
                   items = allFreshItems.map(function(item) {
@@ -321,14 +344,18 @@ export async function addToCart(opts: {
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
 
     const cart = result.__data as CartSummary & { __debug?: unknown };
 
     if (result.__ok === false) {
-      const rawSnippet = result.__addCartJson ? ` | raw: ${(result.__addCartJson as string).substring(0, 150)}` : '';
-      throw new Error(`Fresh add-to-cart POST failed (status=${result.__status}${rawSnippet}).`);
+      const rawSnippet = result.__addCartJson
+        ? ` | raw: ${(result.__addCartJson as string).substring(0, 150)}`
+        : "";
+      throw new Error(
+        `Fresh add-to-cart POST failed (status=${result.__status}${rawSnippet}).`,
+      );
     }
 
     cart.__debug = {
@@ -383,7 +410,7 @@ export async function removeFromCart(opts: {
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
     return viewCart();
   });
@@ -479,7 +506,7 @@ export async function viewCart(): Promise<CartSummary> {
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
     return result.__data as CartSummary;
   });

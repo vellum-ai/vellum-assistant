@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Add requester_chat_id column to canonical_guardian_requests.
@@ -10,6 +10,14 @@ import type { DrizzleDb } from '../db-connection.js';
  * Uses ALTER TABLE ADD COLUMN with try/catch for idempotency — no registry
  * entry needed.
  */
-export function migrateCanonicalGuardianRequesterChatId(database: DrizzleDb): void {
-  try { database.run(/*sql*/ `ALTER TABLE canonical_guardian_requests ADD COLUMN requester_chat_id TEXT`); } catch { /* already exists */ }
+export function migrateCanonicalGuardianRequesterChatId(
+  database: DrizzleDb,
+): void {
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE canonical_guardian_requests ADD COLUMN requester_chat_id TEXT`,
+    );
+  } catch {
+    /* already exists */
+  }
 }

@@ -4,33 +4,30 @@
  * go through the browser's authenticated session.
  */
 
-import { ProviderError } from '../util/errors.js';
-import {
-  loadSession,
-  type TwitterSession,
-} from './session.js';
+import { ProviderError } from "../util/errors.js";
+import { loadSession, type TwitterSession } from "./session.js";
 
-const CDP_BASE = 'http://localhost:9222';
+const CDP_BASE = "http://localhost:9222";
 
 /** Static bearer token used by x.com for all GraphQL requests. */
 const BEARER_TOKEN =
-  'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
+  "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 
 // ─── Query IDs (captured from x.com) ─────────────────────────────────────────
 
 const QUERY_IDS = {
-  CreateTweet: 'Ah3G_byjEDs_HSlgU0PyZw',
-  UserByScreenName: 'AWbeRIdkLtqTRN7yL_H8yw',
-  UserTweets: 'N2tFDY-MlrLxXJ9F_ZxJGA',
-  TweetDetail: 'YCNdW_ZytXfV9YR3cJK9kw',
-  SearchTimeline: 'ML-n2SfAxx5S_9QMqNejbg',
-  Bookmarks: 'toTC7lB_mQm5fuBE5yyEJw',
-  HomeTimeline: 'nn16KxqX3E1OdE7WlHB5LA',
-  NotificationsTimeline: 'saZw4lppu6QzMEiRUCYurg',
-  Likes: 'Pcw-j9lrSeDMmkgnIejJiQ',
-  Followers: 'P7m4Qr-rJEB8KUluOenU6A',
-  Following: 'T5wihsMTYHncY7BB4YxHSg',
-  UserMedia: 'xLCC9bG_VqHfXXgq8jPoCg',
+  CreateTweet: "Ah3G_byjEDs_HSlgU0PyZw",
+  UserByScreenName: "AWbeRIdkLtqTRN7yL_H8yw",
+  UserTweets: "N2tFDY-MlrLxXJ9F_ZxJGA",
+  TweetDetail: "YCNdW_ZytXfV9YR3cJK9kw",
+  SearchTimeline: "ML-n2SfAxx5S_9QMqNejbg",
+  Bookmarks: "toTC7lB_mQm5fuBE5yyEJw",
+  HomeTimeline: "nn16KxqX3E1OdE7WlHB5LA",
+  NotificationsTimeline: "saZw4lppu6QzMEiRUCYurg",
+  Likes: "Pcw-j9lrSeDMmkgnIejJiQ",
+  Followers: "P7m4Qr-rJEB8KUluOenU6A",
+  Following: "T5wihsMTYHncY7BB4YxHSg",
+  UserMedia: "xLCC9bG_VqHfXXgq8jPoCg",
 } as const;
 
 /** Feature flags shared by all GraphQL endpoints. */
@@ -78,14 +75,14 @@ const FEATURES: Record<string, boolean> = {
 export class SessionExpiredError extends Error {
   constructor(reason: string) {
     super(reason);
-    this.name = 'SessionExpiredError';
+    this.name = "SessionExpiredError";
   }
 }
 
 function requireSession(): TwitterSession {
   const session = loadSession();
   if (!session) {
-    throw new SessionExpiredError('No Twitter session found.');
+    throw new SessionExpiredError("No Twitter session found.");
   }
   return session;
 }
@@ -95,14 +92,24 @@ function requireSession(): TwitterSession {
 async function findTwitterTab(): Promise<string> {
   const res = await fetch(`${CDP_BASE}/json/list`).catch(() => null);
   if (!res?.ok) {
-    throw new SessionExpiredError('Chrome CDP not available. Run `vellum twitter refresh` first.');
+    throw new SessionExpiredError(
+      "Chrome CDP not available. Run `vellum twitter refresh` first.",
+    );
   }
-  const targets = (await res.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
+  const targets = (await res.json()) as Array<{
+    type: string;
+    url: string;
+    webSocketDebuggerUrl: string;
+  }>;
   const tab = targets.find(
-    t => t.type === 'page' && (t.url.includes('x.com') || t.url.includes('twitter.com')),
+    (t) =>
+      t.type === "page" &&
+      (t.url.includes("x.com") || t.url.includes("twitter.com")),
   );
   if (!tab?.webSocketDebuggerUrl) {
-    throw new SessionExpiredError('No x.com tab found in Chrome. Open x.com and try again.');
+    throw new SessionExpiredError(
+      "No x.com tab found in Chrome. Open x.com and try again.",
+    );
   }
   return tab.webSocketDebuggerUrl;
 }
@@ -126,8 +133,14 @@ const API_HEADERS_POST = `{
     }`;
 
 /** Execute a POST fetch inside Chrome via CDP Runtime.evaluate. */
-async function cdpFetch(wsUrl: string, url: string, body: string): Promise<unknown> {
-  return cdpEval(wsUrl, `
+async function cdpFetch(
+  wsUrl: string,
+  url: string,
+  body: string,
+): Promise<unknown> {
+  return cdpEval(
+    wsUrl,
+    `
     (function() {
       var csrf = (document.cookie.match(/ct0=([^;]+)/) || [])[1] || '';
       return fetch(${JSON.stringify(url)}, {
@@ -144,12 +157,15 @@ async function cdpFetch(wsUrl: string, url: string, body: string): Promise<unkno
       })
       .catch(function(e) { return JSON.stringify({ __error: true, __message: e.message }); });
     })()
-  `);
+  `,
+  );
 }
 
 /** Execute a GET fetch inside Chrome via CDP Runtime.evaluate. */
 async function cdpGet(wsUrl: string, url: string): Promise<unknown> {
-  return cdpEval(wsUrl, `
+  return cdpEval(
+    wsUrl,
+    `
     (function() {
       var csrf = (document.cookie.match(/ct0=([^;]+)/) || [])[1] || '';
       return fetch(${JSON.stringify(url)}, {
@@ -165,7 +181,8 @@ async function cdpGet(wsUrl: string, url: string): Promise<unknown> {
       })
       .catch(function(e) { return JSON.stringify({ __error: true, __message: e.message }); });
     })()
-  `);
+  `,
+  );
 }
 
 /**
@@ -173,7 +190,11 @@ async function cdpGet(wsUrl: string, url: string): Promise<unknown> {
  * This works for endpoints that require X's client-generated transaction ID (e.g. Search, Followers)
  * because the browser's own JavaScript generates the correct headers.
  */
-async function cdpNavigateAndCapture(wsUrl: string, pageUrl: string, queryName: string): Promise<unknown> {
+async function cdpNavigateAndCapture(
+  wsUrl: string,
+  pageUrl: string,
+  queryName: string,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
     let nextId = 1;
@@ -182,19 +203,24 @@ async function cdpNavigateAndCapture(wsUrl: string, pageUrl: string, queryName: 
 
     const timeout = setTimeout(() => {
       ws.close();
-      reject(new Error(`CDP navigate+capture timed out waiting for ${queryName}`));
+      reject(
+        new Error(`CDP navigate+capture timed out waiting for ${queryName}`),
+      );
     }, 30000);
 
-    function send(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    function send(
+      method: string,
+      params?: Record<string, unknown>,
+    ): Promise<unknown> {
       const id = nextId++;
-      return new Promise(r => {
+      return new Promise((r) => {
         callbacks.set(id, r);
         ws.send(JSON.stringify({ id, method, params }));
       });
     }
 
     ws.onmessage = (event) => {
-      const msg = JSON.parse(typeof event.data === 'string' ? event.data : '');
+      const msg = JSON.parse(typeof event.data === "string" ? event.data : "");
 
       // Handle command responses
       if (msg.id != null && callbacks.has(msg.id)) {
@@ -204,7 +230,7 @@ async function cdpNavigateAndCapture(wsUrl: string, pageUrl: string, queryName: 
       }
 
       // Track GraphQL requests matching our query name
-      if (msg.method === 'Network.requestWillBeSent') {
+      if (msg.method === "Network.requestWillBeSent") {
         const req = msg.params?.request;
         const url = req?.url as string | undefined;
         if (url?.includes(`/graphql/`) && url?.includes(`/${queryName}`)) {
@@ -213,37 +239,47 @@ async function cdpNavigateAndCapture(wsUrl: string, pageUrl: string, queryName: 
       }
 
       // Capture response when loading finishes
-      if (msg.method === 'Network.loadingFinished') {
+      if (msg.method === "Network.loadingFinished") {
         const requestId = msg.params?.requestId as string;
         if (!pendingRequestIds.has(requestId)) return;
         pendingRequestIds.delete(requestId);
 
-        send('Network.getResponseBody', { requestId }).then(result => {
-          const body = (result as Record<string, unknown>)?.body as string;
-          if (!body) return;
-          try {
-            const json = JSON.parse(body);
-            clearTimeout(timeout);
-            ws.close();
-            if (json.errors?.length) {
-              reject(new Error(`X API errors: ${json.errors.map((e: { message: string }) => e.message).join('; ')}`));
-            } else {
-              resolve(json);
+        send("Network.getResponseBody", { requestId })
+          .then((result) => {
+            const body = (result as Record<string, unknown>)?.body as string;
+            if (!body) return;
+            try {
+              const json = JSON.parse(body);
+              clearTimeout(timeout);
+              ws.close();
+              if (json.errors?.length) {
+                reject(
+                  new Error(
+                    `X API errors: ${json.errors.map((e: { message: string }) => e.message).join("; ")}`,
+                  ),
+                );
+              } else {
+                resolve(json);
+              }
+            } catch {
+              /* not JSON, skip */
             }
-          } catch { /* not JSON, skip */ }
-        }).catch(() => { /* ignore */ });
+          })
+          .catch(() => {
+            /* ignore */
+          });
       }
     };
 
     ws.onerror = () => {
       clearTimeout(timeout);
-      reject(new SessionExpiredError('CDP connection failed.'));
+      reject(new SessionExpiredError("CDP connection failed."));
     };
 
     ws.onopen = async () => {
-      await send('Network.enable');
-      await send('Page.enable');
-      await send('Page.navigate', { url: pageUrl });
+      await send("Network.enable");
+      await send("Page.enable");
+      await send("Page.navigate", { url: pageUrl });
     };
   });
 }
@@ -256,20 +292,24 @@ async function cdpEval(wsUrl: string, expression: string): Promise<unknown> {
 
     const timeout = setTimeout(() => {
       ws.close();
-      reject(new Error('CDP fetch timed out after 30s'));
+      reject(new Error("CDP fetch timed out after 30s"));
     }, 30000);
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({
-        id,
-        method: 'Runtime.evaluate',
-        params: { expression, awaitPromise: true, returnByValue: true },
-      }));
+      ws.send(
+        JSON.stringify({
+          id,
+          method: "Runtime.evaluate",
+          params: { expression, awaitPromise: true, returnByValue: true },
+        }),
+      );
     };
 
     ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(typeof event.data === 'string' ? event.data : '');
+        const msg = JSON.parse(
+          typeof event.data === "string" ? event.data : "",
+        );
         if (msg.id === id) {
           clearTimeout(timeout);
           ws.close();
@@ -281,16 +321,21 @@ async function cdpEval(wsUrl: string, expression: string): Promise<unknown> {
 
           const value = msg.result?.result?.value;
           if (!value) {
-            reject(new Error('Empty CDP response'));
+            reject(new Error("Empty CDP response"));
             return;
           }
 
-          const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+          const parsed = typeof value === "string" ? JSON.parse(value) : value;
           if (parsed.__error) {
             if (parsed.__status === 403 || parsed.__status === 401) {
-              reject(new SessionExpiredError('Twitter session has expired.'));
+              reject(new SessionExpiredError("Twitter session has expired."));
             } else {
-              reject(new Error(parsed.__message ?? `HTTP ${parsed.__status}: ${parsed.__body ?? ''}`));
+              reject(
+                new Error(
+                  parsed.__message ??
+                    `HTTP ${parsed.__status}: ${parsed.__body ?? ""}`,
+                ),
+              );
             }
             return;
           }
@@ -305,7 +350,7 @@ async function cdpEval(wsUrl: string, expression: string): Promise<unknown> {
 
     ws.onerror = () => {
       clearTimeout(timeout);
-      reject(new SessionExpiredError('CDP connection failed.'));
+      reject(new SessionExpiredError("CDP connection failed."));
     };
   });
 }
@@ -313,20 +358,33 @@ async function cdpEval(wsUrl: string, expression: string): Promise<unknown> {
 // ─── GraphQL helpers ─────────────────────────────────────────────────────────
 
 /** Build a GraphQL GET URL with encoded variables and features. */
-function graphqlUrl(queryId: string, queryName: string, variables: Record<string, unknown>): string {
+function graphqlUrl(
+  queryId: string,
+  queryName: string,
+  variables: Record<string, unknown>,
+): string {
   const v = encodeURIComponent(JSON.stringify(variables));
   const f = encodeURIComponent(JSON.stringify(FEATURES));
   return `https://x.com/i/api/graphql/${queryId}/${queryName}?variables=${v}&features=${f}`;
 }
 
 /** Execute a GraphQL GET query and return the parsed response. */
-async function graphqlGet(queryId: string, queryName: string, variables: Record<string, unknown>): Promise<unknown> {
+async function graphqlGet(
+  queryId: string,
+  queryName: string,
+  variables: Record<string, unknown>,
+): Promise<unknown> {
   requireSession();
   const wsUrl = await findTwitterTab();
   const url = graphqlUrl(queryId, queryName, variables);
-  const json = await cdpGet(wsUrl, url) as { errors?: Array<{ message: string }> };
+  const json = (await cdpGet(wsUrl, url)) as {
+    errors?: Array<{ message: string }>;
+  };
   if (json.errors?.length) {
-    throw new ProviderError(`X API errors: ${json.errors.map(e => e.message).join('; ')}`, 'x');
+    throw new ProviderError(
+      `X API errors: ${json.errors.map((e) => e.message).join("; ")}`,
+      "x",
+    );
   }
   return json;
 }
@@ -505,12 +563,14 @@ function extractScreenName(tweetResult: TweetResult): string {
   return (
     tweetResult?.core?.user_results?.result?.legacy?.screen_name ??
     tweetResult?.core?.user_results?.result?.core?.screen_name ??
-    'i'
+    "i"
   );
 }
 
 /** Extract tweets from a timeline instructions array (shared by most endpoints). */
-function extractTweetsFromInstructions(instructions: TimelineInstruction[]): TweetEntry[] {
+function extractTweetsFromInstructions(
+  instructions: TimelineInstruction[],
+): TweetEntry[] {
   const tweets: TweetEntry[] = [];
   for (const instruction of instructions) {
     // Handle both array-style entries and direct entries
@@ -519,15 +579,15 @@ function extractTweetsFromInstructions(instructions: TimelineInstruction[]): Twe
       // Standard tweet entry
       let tweetResult = entry.content?.itemContent?.tweet_results?.result;
       // Some results wrap in __typename: "TweetWithVisibilityResults"
-      if (tweetResult?.__typename === 'TweetWithVisibilityResults') {
+      if (tweetResult?.__typename === "TweetWithVisibilityResults") {
         tweetResult = tweetResult.tweet;
       }
       if (tweetResult?.rest_id) {
         tweets.push({
           tweetId: tweetResult.rest_id,
-          text: tweetResult.legacy?.full_text ?? '',
+          text: tweetResult.legacy?.full_text ?? "",
           url: `https://x.com/${extractScreenName(tweetResult)}/status/${tweetResult.rest_id}`,
-          createdAt: tweetResult.legacy?.created_at ?? '',
+          createdAt: tweetResult.legacy?.created_at ?? "",
         });
       }
 
@@ -535,13 +595,13 @@ function extractTweetsFromInstructions(instructions: TimelineInstruction[]): Twe
       if (entry.content?.items) {
         for (const item of entry.content.items) {
           let tr = item.item?.itemContent?.tweet_results?.result;
-          if (tr?.__typename === 'TweetWithVisibilityResults') tr = tr.tweet;
+          if (tr?.__typename === "TweetWithVisibilityResults") tr = tr.tweet;
           if (tr?.rest_id) {
             tweets.push({
               tweetId: tr.rest_id,
-              text: tr.legacy?.full_text ?? '',
+              text: tr.legacy?.full_text ?? "",
               url: `https://x.com/${extractScreenName(tr)}/status/${tr.rest_id}`,
-              createdAt: tr.legacy?.created_at ?? '',
+              createdAt: tr.legacy?.created_at ?? "",
             });
           }
         }
@@ -552,7 +612,9 @@ function extractTweetsFromInstructions(instructions: TimelineInstruction[]): Twe
 }
 
 /** Extract users from a timeline instructions array (Followers/Following). */
-function extractUsersFromInstructions(instructions: TimelineInstruction[]): UserInfo[] {
+function extractUsersFromInstructions(
+  instructions: TimelineInstruction[],
+): UserInfo[] {
   const users: UserInfo[] = [];
   for (const instruction of instructions) {
     for (const entry of instruction.entries ?? []) {
@@ -560,8 +622,11 @@ function extractUsersFromInstructions(instructions: TimelineInstruction[]): User
       if (userResult?.rest_id) {
         users.push({
           userId: userResult.rest_id,
-          screenName: userResult.legacy?.screen_name ?? userResult.core?.screen_name ?? '',
-          name: userResult.legacy?.name ?? userResult.core?.name ?? '',
+          screenName:
+            userResult.legacy?.screen_name ??
+            userResult.core?.screen_name ??
+            "",
+          name: userResult.legacy?.name ?? userResult.core?.name ?? "",
         });
       }
     }
@@ -599,7 +664,10 @@ export interface NotificationEntry {
 
 // ─── Write operations ────────────────────────────────────────────────────────
 
-export async function postTweet(text: string, opts?: { inReplyToTweetId?: string }): Promise<PostTweetResult> {
+export async function postTweet(
+  text: string,
+  opts?: { inReplyToTweetId?: string },
+): Promise<PostTweetResult> {
   requireSession();
 
   const wsUrl = await findTwitterTab();
@@ -629,16 +697,25 @@ export async function postTweet(text: string, opts?: { inReplyToTweetId?: string
   const json = (await cdpFetch(wsUrl, url, body)) as CreateTweetResponse;
 
   if (json.errors?.length) {
-    throw new ProviderError(`X API errors: ${json.errors.map(e => e.message).join('; ')}`, 'x');
+    throw new ProviderError(
+      `X API errors: ${json.errors.map((e) => e.message).join("; ")}`,
+      "x",
+    );
   }
 
   const tweetResults = json.data?.create_tweet?.tweet_results;
   const result = tweetResults?.result;
   if (!result?.rest_id) {
     if (tweetResults && !result) {
-      throw new ProviderError('X rejected this post — it may be a duplicate of a recent post. Try different text.', 'x');
+      throw new ProviderError(
+        "X rejected this post — it may be a duplicate of a recent post. Try different text.",
+        "x",
+      );
     }
-    throw new ProviderError(`Unexpected response from X API. Response: ${JSON.stringify(json).slice(0, 500)}`, 'x');
+    throw new ProviderError(
+      `Unexpected response from X API. Response: ${JSON.stringify(json).slice(0, 500)}`,
+      "x",
+    );
   }
 
   return {
@@ -650,15 +727,21 @@ export async function postTweet(text: string, opts?: { inReplyToTweetId?: string
 
 // ─── User lookup ─────────────────────────────────────────────────────────────
 
-export async function getUserByScreenName(screenName: string): Promise<UserInfo> {
-  const json = await graphqlGet(QUERY_IDS.UserByScreenName, 'UserByScreenName', {
-    screen_name: screenName,
-    withGrokTranslatedBio: true,
-  }) as UserByScreenNameResponse;
+export async function getUserByScreenName(
+  screenName: string,
+): Promise<UserInfo> {
+  const json = (await graphqlGet(
+    QUERY_IDS.UserByScreenName,
+    "UserByScreenName",
+    {
+      screen_name: screenName,
+      withGrokTranslatedBio: true,
+    },
+  )) as UserByScreenNameResponse;
 
   const user = json.data?.user?.result;
   if (!user?.rest_id) {
-    throw new ProviderError(`User @${screenName} not found`, 'x');
+    throw new ProviderError(`User @${screenName} not found`, "x");
   }
 
   return {
@@ -670,18 +753,22 @@ export async function getUserByScreenName(screenName: string): Promise<UserInfo>
 
 // ─── User tweets ─────────────────────────────────────────────────────────────
 
-export async function getUserTweets(userId: string, count = 20): Promise<TweetEntry[]> {
-  const json = await graphqlGet(QUERY_IDS.UserTweets, 'UserTweets', {
+export async function getUserTweets(
+  userId: string,
+  count = 20,
+): Promise<TweetEntry[]> {
+  const json = (await graphqlGet(QUERY_IDS.UserTweets, "UserTweets", {
     userId,
     count,
     includePromotedContent: true,
     withQuickPromoteEligibilityTweetFields: true,
     withVoice: true,
-  }) as UserTweetsResponse;
+  })) as UserTweetsResponse;
 
   // Response path: data.user.result.timeline_v2.timeline.instructions[]
   // Fallback to data.user.result.timeline.timeline.instructions[]
-  const timelineData = json.data?.user?.result?.timeline_v2 ?? json.data?.user?.result?.timeline;
+  const timelineData =
+    json.data?.user?.result?.timeline_v2 ?? json.data?.user?.result?.timeline;
   const instructions = timelineData?.timeline?.instructions ?? [];
   return extractTweetsFromInstructions(instructions);
 }
@@ -689,20 +776,21 @@ export async function getUserTweets(userId: string, count = 20): Promise<TweetEn
 // ─── Tweet detail ────────────────────────────────────────────────────────────
 
 export async function getTweetDetail(tweetId: string): Promise<TweetEntry[]> {
-  const json = await graphqlGet(QUERY_IDS.TweetDetail, 'TweetDetail', {
+  const json = (await graphqlGet(QUERY_IDS.TweetDetail, "TweetDetail", {
     focalTweetId: tweetId,
-    referrer: 'tweet',
+    referrer: "tweet",
     with_rux_injections: false,
-    rankingMode: 'Relevance',
+    rankingMode: "Relevance",
     includePromotedContent: true,
     withCommunity: true,
     withQuickPromoteEligibilityTweetFields: true,
     withBirdwatchNotes: true,
     withVoice: true,
-  }) as TweetDetailResponse;
+  })) as TweetDetailResponse;
 
   // Response path: data.threaded_conversation_with_injections_v2.instructions[]
-  const instructions = json.data?.threaded_conversation_with_injections_v2?.instructions ?? [];
+  const instructions =
+    json.data?.threaded_conversation_with_injections_v2?.instructions ?? [];
   return extractTweetsFromInstructions(instructions);
 }
 
@@ -710,43 +798,50 @@ export async function getTweetDetail(tweetId: string): Promise<TweetEntry[]> {
 
 export async function searchTweets(
   query: string,
-  product: 'Top' | 'Latest' | 'People' | 'Media' = 'Top',
+  product: "Top" | "Latest" | "People" | "Media" = "Top",
 ): Promise<TweetEntry[]> {
   requireSession();
   const wsUrl = await findTwitterTab();
 
   // Search requires X's client-generated transaction ID, so we navigate Chrome
   // to the search page and capture the response from network events.
-  const productParam = product === 'Top' ? '' : `&f=${product.toLowerCase()}`;
+  const productParam = product === "Top" ? "" : `&f=${product.toLowerCase()}`;
   const pageUrl = `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query${productParam}`;
-  const json = await cdpNavigateAndCapture(wsUrl, pageUrl, 'SearchTimeline') as SearchTimelineResponse;
+  const json = (await cdpNavigateAndCapture(
+    wsUrl,
+    pageUrl,
+    "SearchTimeline",
+  )) as SearchTimelineResponse;
 
-  const instructions = json.data?.search_by_raw_query?.search_timeline?.timeline?.instructions ?? [];
+  const instructions =
+    json.data?.search_by_raw_query?.search_timeline?.timeline?.instructions ??
+    [];
   return extractTweetsFromInstructions(instructions);
 }
 
 // ─── Bookmarks ───────────────────────────────────────────────────────────────
 
 export async function getBookmarks(count = 20): Promise<TweetEntry[]> {
-  const json = await graphqlGet(QUERY_IDS.Bookmarks, 'Bookmarks', {
+  const json = (await graphqlGet(QUERY_IDS.Bookmarks, "Bookmarks", {
     count,
     includePromotedContent: true,
-  }) as BookmarksResponse;
+  })) as BookmarksResponse;
 
   // Response path: data.bookmark_timeline_v2.timeline.instructions[]
-  const instructions = json.data?.bookmark_timeline_v2?.timeline?.instructions ?? [];
+  const instructions =
+    json.data?.bookmark_timeline_v2?.timeline?.instructions ?? [];
   return extractTweetsFromInstructions(instructions);
 }
 
 // ─── Home timeline ───────────────────────────────────────────────────────────
 
 export async function getHomeTimeline(count = 20): Promise<TweetEntry[]> {
-  const json = await graphqlGet(QUERY_IDS.HomeTimeline, 'HomeTimeline', {
+  const json = (await graphqlGet(QUERY_IDS.HomeTimeline, "HomeTimeline", {
     count,
     includePromotedContent: true,
-    requestContext: 'launch',
+    requestContext: "launch",
     withCommunity: true,
-  }) as HomeTimelineResponse;
+  })) as HomeTimelineResponse;
 
   // Response path: data.home.home_timeline_urt.instructions[]
   const instructions = json.data?.home?.home_timeline_urt?.instructions ?? [];
@@ -755,25 +850,32 @@ export async function getHomeTimeline(count = 20): Promise<TweetEntry[]> {
 
 // ─── Notifications ───────────────────────────────────────────────────────────
 
-export async function getNotifications(count = 20): Promise<NotificationEntry[]> {
-  const json = await graphqlGet(QUERY_IDS.NotificationsTimeline, 'NotificationsTimeline', {
-    timeline_type: 'All',
-    count,
-  }) as NotificationsTimelineResponse;
+export async function getNotifications(
+  count = 20,
+): Promise<NotificationEntry[]> {
+  const json = (await graphqlGet(
+    QUERY_IDS.NotificationsTimeline,
+    "NotificationsTimeline",
+    {
+      timeline_type: "All",
+      count,
+    },
+  )) as NotificationsTimelineResponse;
 
   // Response path: data.viewer_v2.user_results.result.notification_timeline.timeline.instructions[]
   const instructions =
-    json.data?.viewer_v2?.user_results?.result?.notification_timeline?.timeline?.instructions ?? [];
+    json.data?.viewer_v2?.user_results?.result?.notification_timeline?.timeline
+      ?.instructions ?? [];
 
   const notifications: NotificationEntry[] = [];
   for (const instruction of instructions) {
     for (const entry of instruction.entries ?? []) {
       const ic = entry.content?.itemContent;
-      if (ic?.__typename !== 'TimelineNotification') continue;
+      if (ic?.__typename !== "TimelineNotification") continue;
       notifications.push({
-        id: ic.id ?? entry.entryId ?? '',
-        message: ic.rich_message?.text ?? ic.notification_text?.text ?? '',
-        timestamp: ic.timestamp_ms ?? '',
+        id: ic.id ?? entry.entryId ?? "",
+        message: ic.rich_message?.text ?? ic.notification_text?.text ?? "",
+        timestamp: ic.timestamp_ms ?? "",
         url: ic.notification_url?.url,
       });
     }
@@ -783,74 +885,95 @@ export async function getNotifications(count = 20): Promise<NotificationEntry[]>
 
 // ─── Likes ───────────────────────────────────────────────────────────────────
 
-export async function getLikes(userId: string, count = 20): Promise<TweetEntry[]> {
-  const json = await graphqlGet(QUERY_IDS.Likes, 'Likes', {
+export async function getLikes(
+  userId: string,
+  count = 20,
+): Promise<TweetEntry[]> {
+  const json = (await graphqlGet(QUERY_IDS.Likes, "Likes", {
     userId,
     count,
     includePromotedContent: false,
     withClientEventToken: false,
     withBirdwatchNotes: false,
     withVoice: true,
-  }) as UserTimelineResponse;
+  })) as UserTimelineResponse;
 
   // Response path: data.user.result.timeline.timeline.instructions[]
-  const instructions = json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
+  const instructions =
+    json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
   return extractTweetsFromInstructions(instructions);
 }
 
 // ─── Followers ───────────────────────────────────────────────────────────────
 
-export async function getFollowers(userId: string, screenName?: string): Promise<UserInfo[]> {
+export async function getFollowers(
+  userId: string,
+  screenName?: string,
+): Promise<UserInfo[]> {
   // Followers requires X's client-generated transaction ID.
   // Navigate to the followers page and capture via CDP.
   if (screenName) {
     requireSession();
     const wsUrl = await findTwitterTab();
-    const json = await cdpNavigateAndCapture(wsUrl, `https://x.com/${screenName}/followers`, 'Followers') as UserTimelineResponse;
-    const instructions = json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
+    const json = (await cdpNavigateAndCapture(
+      wsUrl,
+      `https://x.com/${screenName}/followers`,
+      "Followers",
+    )) as UserTimelineResponse;
+    const instructions =
+      json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
     return extractUsersFromInstructions(instructions);
   }
 
-  const json = await graphqlGet(QUERY_IDS.Followers, 'Followers', {
+  const json = (await graphqlGet(QUERY_IDS.Followers, "Followers", {
     userId,
     count: 20,
     includePromotedContent: false,
     withGrokTranslatedBio: false,
-  }) as UserTimelineResponse;
+  })) as UserTimelineResponse;
 
-  const instructions = json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
+  const instructions =
+    json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
   return extractUsersFromInstructions(instructions);
 }
 
 // ─── Following ───────────────────────────────────────────────────────────────
 
-export async function getFollowing(userId: string, count = 20): Promise<UserInfo[]> {
-  const json = await graphqlGet(QUERY_IDS.Following, 'Following', {
+export async function getFollowing(
+  userId: string,
+  count = 20,
+): Promise<UserInfo[]> {
+  const json = (await graphqlGet(QUERY_IDS.Following, "Following", {
     userId,
     count,
     includePromotedContent: false,
     withGrokTranslatedBio: false,
-  }) as UserTimelineResponse;
+  })) as UserTimelineResponse;
 
   // Response path: data.user.result.timeline.timeline.instructions[]
-  const instructions = json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
+  const instructions =
+    json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
   return extractUsersFromInstructions(instructions);
 }
 
 // ─── User media ──────────────────────────────────────────────────────────────
 
-export async function getUserMedia(userId: string, count = 20): Promise<TweetEntry[]> {
-  const json = await graphqlGet(QUERY_IDS.UserMedia, 'UserMedia', {
+export async function getUserMedia(
+  userId: string,
+  count = 20,
+): Promise<TweetEntry[]> {
+  const json = (await graphqlGet(QUERY_IDS.UserMedia, "UserMedia", {
     userId,
     count,
     includePromotedContent: false,
     withClientEventToken: false,
     withBirdwatchNotes: false,
     withVoice: true,
-  }) as UserTimelineResponse;
+  })) as UserTimelineResponse;
 
   // Response path: data.user.result.timeline.timeline.instructions[]
   // (same as Likes — contains tweets that have media)
-  const instructions = json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
+  const instructions =
+    json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
   return extractTweetsFromInstructions(instructions);
 }

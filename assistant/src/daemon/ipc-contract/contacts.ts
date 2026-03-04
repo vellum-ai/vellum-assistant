@@ -3,20 +3,20 @@
 // === Client → Server ===
 
 export interface ContactsRequest {
-  type: 'contacts';
-  action: 'list' | 'get' | 'update_channel';
+  type: "contacts";
+  action: "list" | "get" | "update_channel";
   /** Contact ID (get only). */
   contactId?: string;
   /** Channel ID (update_channel only). */
   channelId?: string;
   /** New status for channel (update_channel only). */
-  status?: 'active' | 'pending' | 'revoked' | 'blocked' | 'unverified';
+  status?: "active" | "pending" | "revoked" | "blocked" | "unverified";
   /** New policy for channel (update_channel only). */
-  policy?: 'allow' | 'deny' | 'escalate';
+  policy?: "allow" | "deny" | "escalate";
   /** Reason for status change (update_channel only). */
   reason?: string;
   /** Filter by role (list only). */
-  role?: 'guardian' | 'contact';
+  role?: "guardian" | "contact";
   /** Limit (list only). */
   limit?: number;
 }
@@ -24,7 +24,7 @@ export interface ContactsRequest {
 // === Server → Client ===
 
 export interface ContactsResponse {
-  type: 'contacts_response';
+  type: "contacts_response";
   success: boolean;
   error?: string;
   contact?: ContactPayload;
@@ -33,13 +33,13 @@ export interface ContactsResponse {
 
 /** Server push — lightweight invalidation signal: the contacts table has been mutated, refetch your list. */
 export interface ContactsChanged {
-  type: 'contacts_changed';
+  type: "contacts_changed";
 }
 
 export interface ContactPayload {
   id: string;
   displayName: string;
-  role: 'guardian' | 'contact';
+  role: "guardian" | "contact";
   relationship?: string;
   importance: number;
   lastInteraction?: number;

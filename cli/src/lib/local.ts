@@ -92,7 +92,6 @@ function isOutboundProxySourceDir(dir: string): boolean {
   }
 }
 
-
 function resolveAssistantIndexPath(): string | undefined {
   // Source tree layout: cli/src/lib/ -> ../../.. -> repo root -> assistant/src/index.ts
   const sourceTreeIndex = join(
@@ -186,7 +185,9 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
           console.log(`   Daemon already running (pid ${pid})\n`);
           return;
         } catch {
-          try { unlinkSync(pidFile); } catch {}
+          try {
+            unlinkSync(pidFile);
+          } catch {}
         }
       }
     } catch {}
@@ -205,7 +206,9 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
     return;
   }
 
-  try { unlinkSync(socketFile); } catch {}
+  try {
+    unlinkSync(socketFile);
+  } catch {}
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -238,7 +241,9 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
 // launcher. Its lifecycle guards should eventually converge with
 // assistant/src/daemon/daemon-control.ts::startDaemon which is the
 // assistant-side equivalent.
-async function startDaemonWatchFromSource(assistantIndex: string): Promise<void> {
+async function startDaemonWatchFromSource(
+  assistantIndex: string,
+): Promise<void> {
   const mainPath = resolveDaemonMainPath(assistantIndex);
   if (!existsSync(mainPath)) {
     throw new Error(`Daemon main.ts not found at ${mainPath}`);
@@ -262,7 +267,9 @@ async function startDaemonWatchFromSource(assistantIndex: string): Promise<void>
           return;
         } catch {
           // Process doesn't exist, clean up stale PID file
-          try { unlinkSync(pidFile); } catch {}
+          try {
+            unlinkSync(pidFile);
+          } catch {}
         }
       }
     } catch {}
@@ -284,7 +291,9 @@ async function startDaemonWatchFromSource(assistantIndex: string): Promise<void>
   }
 
   // Socket is unresponsive or missing — safe to clean up and start fresh.
-  try { unlinkSync(socketFile); } catch {}
+  try {
+    unlinkSync(socketFile);
+  } catch {}
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -733,7 +742,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       if (socketReady) {
         console.log("   Daemon socket ready\n");
       } else {
-        console.log("   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n");
+        console.log(
+          "   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n",
+        );
       }
     } else {
       await startDaemonFromSource(assistantIndex);
@@ -752,7 +763,10 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
   }
 }
 
-export async function startGateway(assistantId?: string, watch: boolean = false): Promise<string> {
+export async function startGateway(
+  assistantId?: string,
+  watch: boolean = false,
+): Promise<string> {
   const publicUrl = await discoverPublicUrl();
   if (publicUrl) {
     console.log(`   Public URL: ${publicUrl}`);
@@ -936,7 +950,9 @@ export async function startGateway(assistantId?: string, watch: boolean = false)
   return gatewayUrl;
 }
 
-export async function startOutboundProxy(watch: boolean = false): Promise<void> {
+export async function startOutboundProxy(
+  watch: boolean = false,
+): Promise<void> {
   const proxyDir = resolveOutboundProxyDir();
   if (!proxyDir) {
     console.log("   ⚠️  Outbound proxy not found — skipping");
@@ -960,7 +976,9 @@ export async function startOutboundProxy(watch: boolean = false): Promise<void> 
           console.log(`   Outbound proxy already running (pid ${pid})\n`);
           return;
         } catch {
-          try { unlinkSync(pidFile); } catch {}
+          try {
+            unlinkSync(pidFile);
+          } catch {}
         }
       }
     } catch {}
@@ -976,9 +994,14 @@ export async function startOutboundProxy(watch: boolean = false): Promise<void> 
 
   let proxy;
   if (process.env.VELLUM_DESKTOP_APP && !watch) {
-    const proxyBinary = join(dirname(process.execPath), "vellum-outbound-proxy");
+    const proxyBinary = join(
+      dirname(process.execPath),
+      "vellum-outbound-proxy",
+    );
     if (!existsSync(proxyBinary)) {
-      console.log("   ⚠️  Outbound proxy binary not found — falling back to source");
+      console.log(
+        "   ⚠️  Outbound proxy binary not found — falling back to source",
+      );
       const bunArgs = watch
         ? ["--watch", "run", "src/main.ts"]
         : ["run", "src/main.ts"];

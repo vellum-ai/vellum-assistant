@@ -5,11 +5,11 @@
  * and applies lockouts when the threshold is exceeded.
  */
 
-import { and, eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb } from './db.js';
-import { channelGuardianRateLimits } from './schema.js';
+import { getDb } from "./db.js";
+import { channelGuardianRateLimits } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,7 +43,9 @@ function parseTimestamps(json: string): number[] {
   }
 }
 
-function rowToRateLimit(row: typeof channelGuardianRateLimits.$inferSelect): VerificationRateLimit {
+function rowToRateLimit(
+  row: typeof channelGuardianRateLimits.$inferSelect,
+): VerificationRateLimit {
   const timestamps = parseTimestamps(row.attemptTimestampsJson);
   return {
     id: row.id,
@@ -111,15 +113,24 @@ export function recordInvalidAttempt(
   const now = Date.now();
   const cutoff = now - windowMs;
 
-  const existing = getRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
+  const existing = getRateLimit(
+    assistantId,
+    channel,
+    actorExternalUserId,
+    actorChatId,
+  );
 
   if (existing) {
     // Keep only timestamps within the sliding window, then add the new one
-    const recentTimestamps = existing.attemptTimestamps.filter((ts) => ts > cutoff);
+    const recentTimestamps = existing.attemptTimestamps.filter(
+      (ts) => ts > cutoff,
+    );
     recentTimestamps.push(now);
 
     const newLockedUntil =
-      recentTimestamps.length >= maxAttempts ? now + lockoutMs : existing.lockedUntil;
+      recentTimestamps.length >= maxAttempts
+        ? now + lockoutMs
+        : existing.lockedUntil;
 
     const timestampsJson = JSON.stringify(recentTimestamps);
 
@@ -180,7 +191,7 @@ export function resetRateLimit(
 
   db.update(channelGuardianRateLimits)
     .set({
-      attemptTimestampsJson: '[]',
+      attemptTimestampsJson: "[]",
       lockedUntil: null,
       updatedAt: now,
     })

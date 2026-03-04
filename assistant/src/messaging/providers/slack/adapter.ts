@@ -5,7 +5,7 @@
  * and implements the MessagingProvider interface.
  */
 
-import type { MessagingProvider } from '../../provider.js';
+import type { MessagingProvider } from "../../provider.js";
 import type {
   ConnectionInfo,
   Conversation,
@@ -16,24 +16,29 @@ import type {
   SearchResult,
   SendOptions,
   SendResult,
-} from '../../provider-types.js';
-import * as slack from './client.js';
-import type { SlackConversation, SlackMessage, SlackSearchMatch } from './types.js';
+} from "../../provider-types.js";
+import * as slack from "./client.js";
+import type {
+  SlackConversation,
+  SlackMessage,
+  SlackSearchMatch,
+} from "./types.js";
 
 // Cache user display names to avoid repeated API calls within a session
 const userNameCache = new Map<string, string>();
 
 async function resolveUserName(token: string, userId: string): Promise<string> {
-  if (!userId) return 'unknown';
+  if (!userId) return "unknown";
   const cached = userNameCache.get(userId);
   if (cached) return cached;
 
   try {
     const resp = await slack.userInfo(token, userId);
-    const name = resp.user.profile?.display_name
-      || resp.user.profile?.real_name
-      || resp.user.real_name
-      || resp.user.name;
+    const name =
+      resp.user.profile?.display_name ||
+      resp.user.profile?.real_name ||
+      resp.user.real_name ||
+      resp.user.name;
     userNameCache.set(userId, name);
     return name;
   } catch {
@@ -41,11 +46,11 @@ async function resolveUserName(token: string, userId: string): Promise<string> {
   }
 }
 
-function mapConversationType(conv: SlackConversation): Conversation['type'] {
-  if (conv.is_im) return 'dm';
-  if (conv.is_mpim) return 'group';
-  if (conv.is_group) return 'group';
-  return 'channel';
+function mapConversationType(conv: SlackConversation): Conversation["type"] {
+  if (conv.is_im) return "dm";
+  if (conv.is_mpim) return "group";
+  if (conv.is_group) return "group";
+  return "channel";
 }
 
 function mapConversation(conv: SlackConversation): Conversation {
@@ -54,7 +59,7 @@ function mapConversation(conv: SlackConversation): Conversation {
     id: conv.id,
     name: conv.name ?? conv.id,
     type: mapConversationType(conv),
-    platform: 'slack',
+    platform: "slack",
     unreadCount: conv.unread_count_display ?? conv.unread_count ?? 0,
     lastActivityAt: latestTs,
     memberCount: conv.num_members,
@@ -65,16 +70,20 @@ function mapConversation(conv: SlackConversation): Conversation {
   };
 }
 
-function mapMessage(msg: SlackMessage, channelId: string, senderName: string): Message {
+function mapMessage(
+  msg: SlackMessage,
+  channelId: string,
+  senderName: string,
+): Message {
   return {
     id: msg.ts,
     conversationId: channelId,
-    sender: { id: msg.user ?? msg.bot_id ?? 'unknown', name: senderName },
+    sender: { id: msg.user ?? msg.bot_id ?? "unknown", name: senderName },
     text: msg.text,
     timestamp: parseFloat(msg.ts) * 1000,
     threadId: msg.thread_ts,
     replyCount: msg.reply_count,
-    platform: 'slack',
+    platform: "slack",
     reactions: msg.reactions?.map((r) => ({ name: r.name, count: r.count })),
     hasAttachments: (msg.files?.length ?? 0) > 0,
   };
@@ -84,43 +93,46 @@ function mapSearchMatch(match: SlackSearchMatch): Message {
   return {
     id: match.ts,
     conversationId: match.channel.id,
-    sender: { id: match.user ?? 'unknown', name: match.username ?? 'unknown' },
+    sender: { id: match.user ?? "unknown", name: match.username ?? "unknown" },
     text: match.text,
     timestamp: parseFloat(match.ts) * 1000,
     threadId: match.thread_ts,
-    platform: 'slack',
+    platform: "slack",
     metadata: { permalink: match.permalink, channelName: match.channel.name },
   };
 }
 
 export const slackProvider: MessagingProvider = {
-  id: 'slack',
-  displayName: 'Slack',
-  credentialService: 'integration:slack',
-  capabilities: new Set(['reactions', 'threads', 'leave_channel']),
+  id: "slack",
+  displayName: "Slack",
+  credentialService: "integration:slack",
+  capabilities: new Set(["reactions", "threads", "leave_channel"]),
 
   async testConnection(token: string): Promise<ConnectionInfo> {
     const resp = await slack.authTest(token);
     return {
       connected: true,
       user: resp.user,
-      platform: 'slack',
+      platform: "slack",
       metadata: { team: resp.team, teamId: resp.team_id, userId: resp.user_id },
     };
   },
 
-  async listConversations(token: string, options?: ListOptions): Promise<Conversation[]> {
+  async listConversations(
+    token: string,
+    options?: ListOptions,
+  ): Promise<Conversation[]> {
     const typeMap: Record<string, string> = {
-      channel: 'public_channel,private_channel',
-      dm: 'im',
-      group: 'mpim',
+      channel: "public_channel,private_channel",
+      dm: "im",
+      group: "mpim",
     };
 
     let types: string;
     if (options?.types?.length) {
-      types = options.types.map((t) => typeMap[t] ?? t).join(',');
+      types = options.types.map((t) => typeMap[t] ?? t).join(",");
     } else {
-      types = 'public_channel,private_channel,mpim,im';
+      types = "public_channel,private_channel,mpim,im";
     }
 
     const conversations: Conversation[] = [];
@@ -137,19 +149,29 @@ export const slackProvider: MessagingProvider = {
       );
       conversations.push(...resp.channels.map(mapConversation));
       cursor = resp.response_metadata?.next_cursor || undefined;
-    } while (cursor && (!options?.limit || conversations.length < options.limit));
+    } while (
+      cursor &&
+      (!options?.limit || conversations.length < options.limit)
+    );
 
     // Resolve DM user names
     for (const conv of conversations) {
-      if (conv.type === 'dm' && conv.metadata?.dmUserId) {
-        conv.name = await resolveUserName(token, conv.metadata.dmUserId as string);
+      if (conv.type === "dm" && conv.metadata?.dmUserId) {
+        conv.name = await resolveUserName(
+          token,
+          conv.metadata.dmUserId as string,
+        );
       }
     }
 
     return conversations;
   },
 
-  async getHistory(token: string, conversationId: string, options?: HistoryOptions): Promise<Message[]> {
+  async getHistory(
+    token: string,
+    conversationId: string,
+    options?: HistoryOptions,
+  ): Promise<Message[]> {
     const resp = await slack.conversationHistory(
       token,
       conversationId,
@@ -160,14 +182,18 @@ export const slackProvider: MessagingProvider = {
 
     const messages: Message[] = [];
     for (const msg of resp.messages) {
-      const name = await resolveUserName(token, msg.user ?? '');
+      const name = await resolveUserName(token, msg.user ?? "");
       messages.push(mapMessage(msg, conversationId, name));
     }
 
     return messages;
   },
 
-  async search(token: string, query: string, options?: SearchOptions): Promise<SearchResult> {
+  async search(
+    token: string,
+    query: string,
+    options?: SearchOptions,
+  ): Promise<SearchResult> {
     const resp = await slack.searchMessages(token, query, options?.count ?? 20);
     return {
       total: resp.messages.total,
@@ -176,8 +202,18 @@ export const slackProvider: MessagingProvider = {
     };
   },
 
-  async sendMessage(token: string, conversationId: string, text: string, options?: SendOptions): Promise<SendResult> {
-    const resp = await slack.postMessage(token, conversationId, text, options?.threadId);
+  async sendMessage(
+    token: string,
+    conversationId: string,
+    text: string,
+    options?: SendOptions,
+  ): Promise<SendResult> {
+    const resp = await slack.postMessage(
+      token,
+      conversationId,
+      text,
+      options?.threadId,
+    );
     return {
       id: resp.ts,
       timestamp: parseFloat(resp.ts) * 1000,
@@ -185,17 +221,31 @@ export const slackProvider: MessagingProvider = {
     };
   },
 
-  async getThreadReplies(token: string, conversationId: string, threadId: string, options?: HistoryOptions): Promise<Message[]> {
-    const resp = await slack.conversationReplies(token, conversationId, threadId, options?.limit ?? 50);
+  async getThreadReplies(
+    token: string,
+    conversationId: string,
+    threadId: string,
+    options?: HistoryOptions,
+  ): Promise<Message[]> {
+    const resp = await slack.conversationReplies(
+      token,
+      conversationId,
+      threadId,
+      options?.limit ?? 50,
+    );
     const messages: Message[] = [];
     for (const msg of resp.messages) {
-      const name = await resolveUserName(token, msg.user ?? '');
+      const name = await resolveUserName(token, msg.user ?? "");
       messages.push(mapMessage(msg, conversationId, name));
     }
     return messages;
   },
 
-  async markRead(token: string, conversationId: string, messageId?: string): Promise<void> {
+  async markRead(
+    token: string,
+    conversationId: string,
+    messageId?: string,
+  ): Promise<void> {
     // Slack's conversations.mark requires a timestamp — use the provided one or "now"
     const ts = messageId ?? String(Date.now() / 1000);
     await slack.conversationMark(token, conversationId, ts);

@@ -25,10 +25,7 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
     trustClass: "guardian",
     sourceChannel: input.sourceChannel ?? "vellum",
   }),
-  withSourceChannel: (
-    sourceChannel: string,
-    ctx: Record<string, unknown>,
-  ) => ({
+  withSourceChannel: (sourceChannel: string, ctx: Record<string, unknown>) => ({
     ...ctx,
     sourceChannel,
   }),

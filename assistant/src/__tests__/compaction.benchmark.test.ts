@@ -48,7 +48,9 @@ function makeLongMessages(turns: number): Message[] {
       content: [
         {
           type: "text",
-          text: `[U${i}] User message with enough content to estimate tokens. Topic ${i % 9}.`,
+          text: `[U${i}] User message with enough content to estimate tokens. Topic ${
+            i % 9
+          }.`,
         },
       ],
     });
@@ -57,7 +59,9 @@ function makeLongMessages(turns: number): Message[] {
       content: [
         {
           type: "text",
-          text: `[A${i}] Assistant response with relevant content. Result ${i % 7}.`,
+          text: `[A${i}] Assistant response with relevant content. Result ${
+            i % 7
+          }.`,
         },
       ],
     });

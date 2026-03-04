@@ -13,14 +13,14 @@
  * }
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { pathExists } from '../util/fs.js';
-import { getLogger } from '../util/logger.js';
-import { getRootDir } from '../util/platform.js';
+import { pathExists } from "../util/fs.js";
+import { getLogger } from "../util/logger.js";
+import { getRootDir } from "../util/platform.js";
 
-const log = getLogger('secret-allowlist');
+const log = getLogger("secret-allowlist");
 
 export interface AllowlistConfig {
   /** Exact values to suppress (case-sensitive). */
@@ -45,31 +45,38 @@ let allowedRegexes: RegExp[] = [];
 export function loadAllowlist(): void {
   if (loaded || fileChecked) return;
 
-  const filePath = join(getRootDir(), 'protected', 'secret-allowlist.json');
+  const filePath = join(getRootDir(), "protected", "secret-allowlist.json");
   if (!pathExists(filePath)) {
     fileChecked = true;
     return;
   }
 
   try {
-    const raw = readFileSync(filePath, 'utf-8');
+    const raw = readFileSync(filePath, "utf-8");
     const config: AllowlistConfig = JSON.parse(raw);
 
     if (config.values && Array.isArray(config.values)) {
-      allowedValues = new Set(config.values.filter((v) => typeof v === 'string'));
+      allowedValues = new Set(
+        config.values.filter((v) => typeof v === "string"),
+      );
     }
 
     if (config.prefixes && Array.isArray(config.prefixes)) {
-      allowedPrefixes = config.prefixes.filter((p) => typeof p === 'string' && p.length > 0);
+      allowedPrefixes = config.prefixes.filter(
+        (p) => typeof p === "string" && p.length > 0,
+      );
     }
 
     if (config.patterns && Array.isArray(config.patterns)) {
       for (const p of config.patterns) {
-        if (typeof p !== 'string') continue;
+        if (typeof p !== "string") continue;
         try {
           allowedRegexes.push(new RegExp(p));
         } catch {
-          log.warn({ pattern: p }, 'Invalid regex in secret-allowlist.json, skipping');
+          log.warn(
+            { pattern: p },
+            "Invalid regex in secret-allowlist.json, skipping",
+          );
         }
       }
     }
@@ -77,12 +84,20 @@ export function loadAllowlist(): void {
     // Only mark as loaded after successful parse
     loaded = true;
 
-    const total = allowedValues.size + allowedPrefixes.length + allowedRegexes.length;
+    const total =
+      allowedValues.size + allowedPrefixes.length + allowedRegexes.length;
     if (total > 0) {
-      log.debug({ values: allowedValues.size, prefixes: allowedPrefixes.length, patterns: allowedRegexes.length }, 'Loaded secret allowlist');
+      log.debug(
+        {
+          values: allowedValues.size,
+          prefixes: allowedPrefixes.length,
+          patterns: allowedRegexes.length,
+        },
+        "Loaded secret allowlist",
+      );
     }
   } catch (err) {
-    log.warn({ err }, 'Failed to load secret-allowlist.json');
+    log.warn({ err }, "Failed to load secret-allowlist.json");
   }
 }
 
@@ -116,18 +131,28 @@ export interface AllowlistValidationError {
  * Validate all regex patterns in an allowlist config without loading them.
  * Returns an array of validation errors (empty = all valid).
  */
-export function validateAllowlist(config: AllowlistConfig): AllowlistValidationError[] {
+export function validateAllowlist(
+  config: AllowlistConfig,
+): AllowlistValidationError[] {
   const errors: AllowlistValidationError[] = [];
   if (!config.patterns) return errors;
   if (!Array.isArray(config.patterns)) {
-    errors.push({ index: -1, pattern: String(config.patterns), message: '"patterns" must be an array' });
+    errors.push({
+      index: -1,
+      pattern: String(config.patterns),
+      message: '"patterns" must be an array',
+    });
     return errors;
   }
 
   for (let i = 0; i < config.patterns.length; i++) {
     const p = config.patterns[i];
-    if (typeof p !== 'string') {
-      errors.push({ index: i, pattern: String(p), message: 'Pattern is not a string' });
+    if (typeof p !== "string") {
+      errors.push({
+        index: i,
+        pattern: String(p),
+        message: "Pattern is not a string",
+      });
       continue;
     }
     try {
@@ -144,10 +169,10 @@ export function validateAllowlist(config: AllowlistConfig): AllowlistValidationE
  * Returns validation errors, or null if the file doesn't exist.
  */
 export function validateAllowlistFile(): AllowlistValidationError[] | null {
-  const filePath = join(getRootDir(), 'protected', 'secret-allowlist.json');
+  const filePath = join(getRootDir(), "protected", "secret-allowlist.json");
   if (!pathExists(filePath)) return null;
 
-  const raw = readFileSync(filePath, 'utf-8');
+  const raw = readFileSync(filePath, "utf-8");
   const config: AllowlistConfig = JSON.parse(raw);
   return validateAllowlist(config);
 }

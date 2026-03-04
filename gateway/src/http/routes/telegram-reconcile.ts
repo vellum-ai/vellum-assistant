@@ -28,7 +28,7 @@ export function createTelegramReconcileHandler(config: GatewayConfig) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     const token = authHeader.slice(7);
-    const authResult = verifyToken(token, 'vellum-daemon');
+    const authResult = verifyToken(token, "vellum-daemon");
     if (!authResult.ok) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -51,9 +51,14 @@ export function createTelegramReconcileHandler(config: GatewayConfig) {
           // If a new ingress URL is provided, update the in-memory config so that
           // reconcile uses the latest value without requiring a gateway restart.
           if (typeof body.ingressPublicBaseUrl === "string") {
-            const normalized = body.ingressPublicBaseUrl.trim().replace(/\/+$/, "");
+            const normalized = body.ingressPublicBaseUrl
+              .trim()
+              .replace(/\/+$/, "");
             config.ingressPublicBaseUrl = normalized || undefined;
-            log.info({ ingressPublicBaseUrl: config.ingressPublicBaseUrl }, "Updated in-memory ingress URL");
+            log.info(
+              { ingressPublicBaseUrl: config.ingressPublicBaseUrl },
+              "Updated in-memory ingress URL",
+            );
           }
 
           try {
@@ -61,8 +66,16 @@ export function createTelegramReconcileHandler(config: GatewayConfig) {
             log.info("Telegram webhook reconciled via internal endpoint");
             resolve(Response.json({ ok: true }));
           } catch (err) {
-            log.error({ err }, "Failed to reconcile Telegram webhook via internal endpoint");
-            resolve(Response.json({ error: "Reconciliation failed" }, { status: 502 }));
+            log.error(
+              { err },
+              "Failed to reconcile Telegram webhook via internal endpoint",
+            );
+            resolve(
+              Response.json(
+                { error: "Reconciliation failed" },
+                { status: 502 },
+              ),
+            );
           }
         })
         // Swallow errors so the chain never rejects and subsequent requests

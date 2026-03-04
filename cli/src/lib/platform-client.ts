@@ -1,4 +1,11 @@
-import { chmodSync, readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from "fs";
+import {
+  chmodSync,
+  readFileSync,
+  writeFileSync,
+  unlinkSync,
+  existsSync,
+  mkdirSync,
+} from "fs";
 import { homedir } from "os";
 import { join, dirname } from "path";
 
@@ -63,10 +70,16 @@ export async function fetchCurrentUser(token: string): Promise<PlatformUser> {
   });
 
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403 || response.status === 410) {
+    if (
+      response.status === 401 ||
+      response.status === 403 ||
+      response.status === 410
+    ) {
       throw new Error("Invalid or expired token. Please login again.");
     }
-    throw new Error(`Platform API error: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Platform API error: ${response.status} ${response.statusText}`,
+    );
   }
 
   const body = (await response.json()) as AllauthSessionResponse;

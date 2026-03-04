@@ -8,40 +8,53 @@
  * barge-in, state machine, guardian verification).
  */
 
-import { getGatewayInternalBaseUrl } from '../config/env.js';
-import type { ServerMessage } from '../daemon/ipc-contract.js';
-import type { TrustContext } from '../daemon/session-runtime-assembly.js';
+import { getGatewayInternalBaseUrl } from "../config/env.js";
+import type { ServerMessage } from "../daemon/ipc-contract.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
   expireCanonicalGuardianRequest,
   getCanonicalRequestByPendingQuestionId,
   getPendingCanonicalRequestByCallSessionId,
   listCanonicalGuardianDeliveries,
-} from '../memory/canonical-guardian-store.js';
-import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { mintDaemonDeliveryToken } from '../runtime/auth/token-service.js';
-import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
-import { getLogger } from '../util/logger.js';
-import { getMaxCallDurationMs, getSilenceTimeoutMs, getUserConsultationTimeoutMs } from './call-constants.js';
-import { persistCallCompletionMessage } from './call-conversation-messages.js';
-import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
-import { fireCallCompletionNotifier, fireCallQuestionNotifier, fireCallTranscriptNotifier,registerCallController, unregisterCallController } from './call-state.js';
+} from "../memory/canonical-guardian-store.js";
+import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
+import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { getLogger } from "../util/logger.js";
+import {
+  getMaxCallDurationMs,
+  getSilenceTimeoutMs,
+  getUserConsultationTimeoutMs,
+} from "./call-constants.js";
+import { persistCallCompletionMessage } from "./call-conversation-messages.js";
+import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import {
+  fireCallCompletionNotifier,
+  fireCallQuestionNotifier,
+  fireCallTranscriptNotifier,
+  registerCallController,
+  unregisterCallController,
+} from "./call-state.js";
 import {
   createPendingQuestion,
   expirePendingQuestions,
   getCallSession,
   recordCallEvent,
   updateCallSession,
-} from './call-store.js';
-import { sendGuardianExpiryNotices } from './guardian-action-sweep.js';
-import { dispatchGuardianQuestion } from './guardian-dispatch.js';
-import type { RelayConnection } from './relay-server.js';
-import type { PromptSpeakerContext } from './speaker-identification.js';
-import { startVoiceTurn, type VoiceTurnHandle } from './voice-session-bridge.js';
+} from "./call-store.js";
+import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
+import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
+import type { RelayConnection } from "./relay-server.js";
+import type { PromptSpeakerContext } from "./speaker-identification.js";
+import {
+  startVoiceTurn,
+  type VoiceTurnHandle,
+} from "./voice-session-bridge.js";
 
-const log = getLogger('call-controller');
+const log = getLogger("call-controller");
 
-type ControllerState = 'idle' | 'processing' | 'speaking';
+type ControllerState = "idle" | "processing" | "speaking";
 
 /**
  * Tracks a pending guardian input request independently of the controller's
@@ -86,7 +99,7 @@ function extractBalancedJson(
 
   const prefixIdx = prefixMatch.index;
   const jsonStart = prefixIdx + prefixMatch[0].length;
-  if (jsonStart >= text.length || text[jsonStart] !== '{') return null;
+  if (jsonStart >= text.length || text[jsonStart] !== "{") return null;
 
   let depth = 0;
   let inString = false;
@@ -100,7 +113,7 @@ function extractBalancedJson(
       continue;
     }
 
-    if (ch === '\\' && inString) {
+    if (ch === "\\" && inString) {
       escape = true;
       continue;
     }
@@ -112,9 +125,9 @@ function extractBalancedJson(
 
     if (inString) continue;
 
-    if (ch === '{') {
+    if (ch === "{") {
       depth++;
-    } else if (ch === '}') {
+    } else if (ch === "}") {
       depth--;
       if (depth === 0) {
         const jsonEnd = i + 1;
@@ -129,7 +142,7 @@ function extractBalancedJson(
         // Require the closing ']' to be present before considering this
         // a complete match. If it hasn't arrived yet (streaming), return
         // null so the caller keeps buffering.
-        if (bracketIdx >= text.length || text[bracketIdx] !== ']') {
+        if (bracketIdx >= text.length || text[bracketIdx] !== "]") {
           return null;
         }
         const fullMatchEnd = bracketIdx + 1;
@@ -152,7 +165,9 @@ function stripGuardianApprovalMarkers(text: string): string {
   for (;;) {
     const match = extractBalancedJson(result);
     if (!match) break;
-    result = result.slice(0, match.startIndex) + result.slice(match.startIndex + match.fullMatch.length);
+    result =
+      result.slice(0, match.startIndex) +
+      result.slice(match.startIndex + match.fullMatch.length);
   }
   return result;
 }
@@ -164,28 +179,28 @@ const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
 const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
 const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
 const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
-const CALL_OPENING_MARKER = '[CALL_OPENING]';
-const CALL_OPENING_ACK_MARKER = '[CALL_OPENING_ACK]';
-const END_CALL_MARKER = '[END_CALL]';
+const CALL_OPENING_MARKER = "[CALL_OPENING]";
+const CALL_OPENING_ACK_MARKER = "[CALL_OPENING_ACK]";
+const END_CALL_MARKER = "[END_CALL]";
 
 function stripInternalSpeechMarkers(text: string): string {
   let result = stripGuardianApprovalMarkers(text);
   result = result
-    .replace(ASK_GUARDIAN_MARKER_REGEX, '')
-    .replace(USER_ANSWERED_MARKER_REGEX, '')
-    .replace(USER_INSTRUCTION_MARKER_REGEX, '')
-    .replace(CALL_OPENING_MARKER_REGEX, '')
-    .replace(CALL_OPENING_ACK_MARKER_REGEX, '')
-    .replace(END_CALL_MARKER_REGEX, '')
-    .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, '')
-    .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, '');
+    .replace(ASK_GUARDIAN_MARKER_REGEX, "")
+    .replace(USER_ANSWERED_MARKER_REGEX, "")
+    .replace(USER_INSTRUCTION_MARKER_REGEX, "")
+    .replace(CALL_OPENING_MARKER_REGEX, "")
+    .replace(CALL_OPENING_ACK_MARKER_REGEX, "")
+    .replace(END_CALL_MARKER_REGEX, "")
+    .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, "")
+    .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, "");
   return result;
 }
 
 export class CallController {
   private callSessionId: string;
   private relay: RelayConnection;
-  private state: ControllerState = 'idle';
+  private state: ControllerState = "idle";
   private abortController: AbortController = new AbortController();
   private currentTurnHandle: VoiceTurnHandle | null = null;
   private currentTurnPromise: Promise<void> | null = null;
@@ -304,7 +319,7 @@ export class CallController {
    */
   async startInitialGreeting(): Promise<void> {
     if (this.initialGreetingStarted) return;
-    if (this.state !== 'idle') return;
+    if (this.state !== "idle") return;
 
     this.initialGreetingStarted = true;
     this.resetSilenceTimer();
@@ -317,12 +332,16 @@ export class CallController {
    * Caller utterances always trigger normal turns, even when a guardian
    * consultation is pending — the consultation is tracked separately.
    */
-  async handleCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): Promise<void> {
-    const interruptedInFlight = this.state === 'processing' || this.state === 'speaking';
+  async handleCallerUtterance(
+    transcript: string,
+    speaker?: PromptSpeakerContext,
+  ): Promise<void> {
+    const interruptedInFlight =
+      this.state === "processing" || this.state === "speaking";
     // If we're already processing or speaking, abort the in-flight generation
     if (interruptedInFlight) {
       this.abortCurrentTurn();
-      this.llmRunVersion++;  // Invalidate stale turn before awaiting teardown
+      this.llmRunVersion++; // Invalidate stale turn before awaiting teardown
     }
 
     // Always await any lingering turn promise, even if handleInterrupt() already ran
@@ -331,11 +350,11 @@ export class CallController {
       this.currentTurnPromise = null;
       await Promise.race([
         teardownPromise.catch(() => {}),
-        new Promise<void>(resolve => setTimeout(resolve, 2000)),
+        new Promise<void>((resolve) => setTimeout(resolve, 2000)),
       ]);
     }
 
-    this.state = 'processing';
+    this.state = "processing";
     this.resetSilenceTimer();
     const callerContent = this.formatCallerUtterance(transcript, speaker);
     const shouldMarkOpeningAck = this.awaitingOpeningAck;
@@ -363,7 +382,7 @@ export class CallController {
     if (!this.pendingGuardianInput) {
       log.warn(
         { callSessionId: this.callSessionId, state: this.state },
-        'handleUserAnswer called but no pending consultation exists',
+        "handleUserAnswer called but no pending consultation exists",
       );
       return false;
     }
@@ -372,7 +391,7 @@ export class CallController {
     clearTimeout(this.pendingGuardianInput.timer);
     this.pendingGuardianInput = null;
 
-    updateCallSession(this.callSessionId, { status: 'in_progress' });
+    updateCallSession(this.callSessionId, { status: "in_progress" });
 
     // Inject the answer as a queued instruction so it merges into the
     // next turn naturally, respecting role-alternation. If the controller
@@ -382,7 +401,7 @@ export class CallController {
     // If the controller is idle, flush instructions immediately to
     // deliver the answer. If processing/speaking, the answer will be
     // delivered when the current turn completes via flushPendingInstructions.
-    if (this.state === 'idle') {
+    if (this.state === "idle") {
       this.flushPendingInstructions();
     }
 
@@ -399,10 +418,12 @@ export class CallController {
    * position once the current turn completes.
    */
   async handleUserInstruction(instructionText: string): Promise<void> {
-    recordCallEvent(this.callSessionId, 'user_instruction_relayed', { instruction: instructionText });
+    recordCallEvent(this.callSessionId, "user_instruction_relayed", {
+      instruction: instructionText,
+    });
 
     // Queue the instruction when it cannot be safely appended right now
-    if (this.state === 'processing' || this.state === 'speaking') {
+    if (this.state === "processing" || this.state === "speaking") {
       this.pendingInstructions.push(`[USER_INSTRUCTION: ${instructionText}]`);
       return;
     }
@@ -418,15 +439,15 @@ export class CallController {
    * Handle caller interrupting the assistant's speech.
    */
   handleInterrupt(): void {
-    const wasSpeaking = this.state === 'speaking';
+    const wasSpeaking = this.state === "speaking";
     this.abortCurrentTurn();
     this.llmRunVersion++;
     // Explicitly terminate the in-progress TTS turn so the relay can
     // immediately hand control back to the caller after barge-in.
     if (wasSpeaking) {
-      this.relay.sendTextToken('', true);
+      this.relay.sendTextToken("", true);
     }
-    this.state = 'idle';
+    this.state = "idle";
     // Restart silence detection so a barge-in that never yields a
     // follow-up utterance doesn't leave the call without a watchdog.
     this.resetSilenceTimer();
@@ -439,8 +460,14 @@ export class CallController {
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.durationTimer) clearTimeout(this.durationTimer);
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
-    if (this.pendingGuardianInput) { clearTimeout(this.pendingGuardianInput.timer); this.pendingGuardianInput = null; }
-    if (this.durationEndTimer) { clearTimeout(this.durationEndTimer); this.durationEndTimer = null; }
+    if (this.pendingGuardianInput) {
+      clearTimeout(this.pendingGuardianInput.timer);
+      this.pendingGuardianInput = null;
+    }
+    if (this.durationEndTimer) {
+      clearTimeout(this.durationEndTimer);
+      this.durationEndTimer = null;
+    }
     this.llmRunVersion++;
     this.abortCurrentTurn();
     this.currentTurnPromise = null;
@@ -451,16 +478,30 @@ export class CallController {
     // guardian-approval-interception minting path sets callSessionId: null
     // but always sets conversationId.
     try {
-      let revoked = revokeScopedApprovalGrantsForContext({ callSessionId: this.callSessionId });
-      revoked += revokeScopedApprovalGrantsForContext({ conversationId: this.conversationId });
+      let revoked = revokeScopedApprovalGrantsForContext({
+        callSessionId: this.callSessionId,
+      });
+      revoked += revokeScopedApprovalGrantsForContext({
+        conversationId: this.conversationId,
+      });
       if (revoked > 0) {
-        log.info({ callSessionId: this.callSessionId, conversationId: this.conversationId, revokedCount: revoked }, 'Revoked scoped grants on call end');
+        log.info(
+          {
+            callSessionId: this.callSessionId,
+            conversationId: this.conversationId,
+            revokedCount: revoked,
+          },
+          "Revoked scoped grants on call end",
+        );
       }
     } catch (err) {
-      log.warn({ err, callSessionId: this.callSessionId }, 'Failed to revoke scoped grants on call end');
+      log.warn(
+        { err, callSessionId: this.callSessionId },
+        "Failed to revoke scoped grants on call end",
+      );
     }
 
-    log.info({ callSessionId: this.callSessionId }, 'CallController destroyed');
+    log.info({ callSessionId: this.callSessionId }, "CallController destroyed");
   }
 
   // ── Private ──────────────────────────────────────────────────────
@@ -478,11 +519,17 @@ export class CallController {
     this.abortController = new AbortController();
   }
 
-  private formatCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): string {
+  private formatCallerUtterance(
+    transcript: string,
+    speaker?: PromptSpeakerContext,
+  ): string {
     if (!speaker) return transcript;
-    const safeId = speaker.speakerId.replaceAll('"', '\'');
-    const safeLabel = speaker.speakerLabel.replaceAll('"', '\'');
-    const confidencePart = speaker.speakerConfidence != null ? ` confidence="${speaker.speakerConfidence.toFixed(2)}"` : '';
+    const safeId = speaker.speakerId.replaceAll('"', "'");
+    const safeLabel = speaker.speakerLabel.replaceAll('"', "'");
+    const confidencePart =
+      speaker.speakerConfidence != null
+        ? ` confidence="${speaker.speakerConfidence.toFixed(2)}"`
+        : "";
     return `[SPEAKER id="${safeId}" label="${safeLabel}" source="${speaker.source}"${confidencePart}] ${transcript}`;
   }
 
@@ -509,23 +556,23 @@ export class CallController {
     }
 
     try {
-      this.state = 'speaking';
+      this.state = "speaking";
 
       // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
       // could be the start of a control marker.
-      let ttsBuffer = '';
+      let ttsBuffer = "";
       // Accumulate the full response text for post-turn marker detection
-      let fullResponseText = '';
+      let fullResponseText = "";
 
       const flushSafeText = (): void => {
         if (!this.isCurrentRun(runVersion)) return;
         if (ttsBuffer.length === 0) return;
-        const bracketIdx = ttsBuffer.indexOf('[');
+        const bracketIdx = ttsBuffer.indexOf("[");
         if (bracketIdx === -1) {
           // No bracket at all — safe to flush everything
           this.relay.sendTextToken(ttsBuffer, false);
-          ttsBuffer = '';
+          ttsBuffer = "";
         } else {
           // Flush everything before the bracket
           if (bracketIdx > 0) {
@@ -538,36 +585,36 @@ export class CallController {
           // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
           const afterBracket = ttsBuffer;
           const couldBeControl =
-            '[ASK_GUARDIAN_APPROVAL:'.startsWith(afterBracket) ||
-            '[ASK_GUARDIAN:'.startsWith(afterBracket) ||
-            '[USER_ANSWERED:'.startsWith(afterBracket) ||
-            '[USER_INSTRUCTION:'.startsWith(afterBracket) ||
-            '[CALL_OPENING]'.startsWith(afterBracket) ||
-            '[CALL_OPENING_ACK]'.startsWith(afterBracket) ||
-            '[END_CALL]'.startsWith(afterBracket) ||
-            '[GUARDIAN_TIMEOUT]'.startsWith(afterBracket) ||
-            '[GUARDIAN_UNAVAILABLE]'.startsWith(afterBracket) ||
-            afterBracket.startsWith('[ASK_GUARDIAN_APPROVAL:') ||
-            afterBracket.startsWith('[ASK_GUARDIAN:') ||
-            afterBracket.startsWith('[USER_ANSWERED:') ||
-            afterBracket.startsWith('[USER_INSTRUCTION:') ||
-            afterBracket === '[CALL_OPENING' ||
-            afterBracket.startsWith('[CALL_OPENING]') ||
-            afterBracket === '[CALL_OPENING_ACK' ||
-            afterBracket.startsWith('[CALL_OPENING_ACK]') ||
-            afterBracket === '[END_CALL' ||
-            afterBracket.startsWith('[END_CALL]') ||
-            afterBracket === '[GUARDIAN_TIMEOUT' ||
-            afterBracket.startsWith('[GUARDIAN_TIMEOUT]') ||
-            afterBracket === '[GUARDIAN_UNAVAILABLE' ||
-            afterBracket.startsWith('[GUARDIAN_UNAVAILABLE]');
+            "[ASK_GUARDIAN_APPROVAL:".startsWith(afterBracket) ||
+            "[ASK_GUARDIAN:".startsWith(afterBracket) ||
+            "[USER_ANSWERED:".startsWith(afterBracket) ||
+            "[USER_INSTRUCTION:".startsWith(afterBracket) ||
+            "[CALL_OPENING]".startsWith(afterBracket) ||
+            "[CALL_OPENING_ACK]".startsWith(afterBracket) ||
+            "[END_CALL]".startsWith(afterBracket) ||
+            "[GUARDIAN_TIMEOUT]".startsWith(afterBracket) ||
+            "[GUARDIAN_UNAVAILABLE]".startsWith(afterBracket) ||
+            afterBracket.startsWith("[ASK_GUARDIAN_APPROVAL:") ||
+            afterBracket.startsWith("[ASK_GUARDIAN:") ||
+            afterBracket.startsWith("[USER_ANSWERED:") ||
+            afterBracket.startsWith("[USER_INSTRUCTION:") ||
+            afterBracket === "[CALL_OPENING" ||
+            afterBracket.startsWith("[CALL_OPENING]") ||
+            afterBracket === "[CALL_OPENING_ACK" ||
+            afterBracket.startsWith("[CALL_OPENING_ACK]") ||
+            afterBracket === "[END_CALL" ||
+            afterBracket.startsWith("[END_CALL]") ||
+            afterBracket === "[GUARDIAN_TIMEOUT" ||
+            afterBracket.startsWith("[GUARDIAN_TIMEOUT]") ||
+            afterBracket === "[GUARDIAN_UNAVAILABLE" ||
+            afterBracket.startsWith("[GUARDIAN_UNAVAILABLE]");
 
           if (!couldBeControl) {
             // Not a control marker prefix — flush up to the next '[' (if any)
-            const nextBracket = ttsBuffer.indexOf('[', 1);
+            const nextBracket = ttsBuffer.indexOf("[", 1);
             if (nextBracket === -1) {
               this.relay.sendTextToken(ttsBuffer, false);
-              ttsBuffer = '';
+              ttsBuffer = "";
             } else {
               this.relay.sendTextToken(ttsBuffer.slice(0, nextBracket), false);
               ttsBuffer = ttsBuffer.slice(nextBracket);
@@ -608,21 +655,29 @@ export class CallController {
           onComplete,
           onError,
           signal: runSignal,
-        }).then((handle) => {
-          if (this.isCurrentRun(runVersion)) {
-            this.currentTurnHandle = handle;
-          } else {
-            // Turn was superseded before handle arrived; abort immediately
-            handle.abort();
-          }
-        }).catch((err) => {
-          reject(err);
-        });
+        })
+          .then((handle) => {
+            if (this.isCurrentRun(runVersion)) {
+              this.currentTurnHandle = handle;
+            } else {
+              // Turn was superseded before handle arrived; abort immediately
+              handle.abort();
+            }
+          })
+          .catch((err) => {
+            reject(err);
+          });
 
         // Defensive: if the turn is aborted (e.g. barge-in) and the event
         // sink callbacks are never invoked, resolve the promise so it
         // doesn't hang forever.
-        runSignal.addEventListener('abort', () => { resolve(); }, { once: true });
+        runSignal.addEventListener(
+          "abort",
+          () => {
+            resolve();
+          },
+          { once: true },
+        );
       });
 
       await turnComplete;
@@ -635,7 +690,7 @@ export class CallController {
       }
 
       // Signal end of this turn's speech
-      this.relay.sendTextToken('', true);
+      this.relay.sendTextToken("", true);
 
       // Mark the greeting's first response as awaiting ack
       if (this.lastSentWasOpener && fullResponseText.length > 0) {
@@ -646,12 +701,19 @@ export class CallController {
       const responseText = fullResponseText;
 
       // Record the assistant response event
-      recordCallEvent(this.callSessionId, 'assistant_spoke', { text: responseText });
+      recordCallEvent(this.callSessionId, "assistant_spoke", {
+        text: responseText,
+      });
       const spokenText = stripInternalSpeechMarkers(responseText).trim();
       if (spokenText.length > 0) {
         const session = getCallSession(this.callSessionId);
         if (session) {
-          fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', spokenText);
+          fireCallTranscriptNotifier(
+            session.conversationId,
+            this.callSessionId,
+            "assistant",
+            spokenText,
+          );
         }
       }
 
@@ -660,16 +722,34 @@ export class CallController {
       // `}]` inside JSON string values does not truncate the payload or
       // leak partial JSON into TTS output.
       const approvalMatch = extractBalancedJson(responseText);
-      let toolApprovalMeta: { question: string; toolName: string; inputDigest: string } | null = null;
+      let toolApprovalMeta: {
+        question: string;
+        toolName: string;
+        inputDigest: string;
+      } | null = null;
       if (approvalMatch) {
         try {
-          const parsed = JSON.parse(approvalMatch.json) as { question?: string; toolName?: string; input?: Record<string, unknown> };
+          const parsed = JSON.parse(approvalMatch.json) as {
+            question?: string;
+            toolName?: string;
+            input?: Record<string, unknown>;
+          };
           if (parsed.question && parsed.toolName && parsed.input) {
-            const digest = computeToolApprovalDigest(parsed.toolName, parsed.input);
-            toolApprovalMeta = { question: parsed.question, toolName: parsed.toolName, inputDigest: digest };
+            const digest = computeToolApprovalDigest(
+              parsed.toolName,
+              parsed.input,
+            );
+            toolApprovalMeta = {
+              question: parsed.question,
+              toolName: parsed.toolName,
+              inputDigest: digest,
+            };
           }
         } catch {
-          log.warn({ callSessionId: this.callSessionId }, 'Failed to parse ASK_GUARDIAN_APPROVAL JSON payload');
+          log.warn(
+            { callSessionId: this.callSessionId },
+            "Failed to parse ASK_GUARDIAN_APPROVAL JSON payload",
+          );
         }
       }
 
@@ -677,29 +757,44 @@ export class CallController {
         ? null // structured approval takes precedence
         : responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
 
-      const questionText = toolApprovalMeta?.question ?? (askMatch ? askMatch[1] : null);
+      const questionText =
+        toolApprovalMeta?.question ?? (askMatch ? askMatch[1] : null);
 
       if (questionText) {
         if (this.isCallerGuardian()) {
           // Caller IS the guardian — don't dispatch cross-channel.
           // Queue an instruction so the next turn asks them directly.
-          log.info({ callSessionId: this.callSessionId }, 'Caller is guardian — skipping ASK_GUARDIAN dispatch, asking directly');
-          this.pendingInstructions.push(`You just tried to use [ASK_GUARDIAN] but the person on the phone IS your guardian. Ask them directly: "${questionText}"`);
+          log.info(
+            { callSessionId: this.callSessionId },
+            "Caller is guardian — skipping ASK_GUARDIAN dispatch, asking directly",
+          );
+          this.pendingInstructions.push(
+            `You just tried to use [ASK_GUARDIAN] but the person on the phone IS your guardian. Ask them directly: "${questionText}"`,
+          );
           // Fall through to normal turn completion (idle + flushPendingInstructions)
         } else if (this.guardianUnavailableForCall) {
           // Guardian already timed out earlier in this call — skip the full
           // consultation wait and immediately tell the model to proceed
           // without guardian input.
-          log.info({ callSessionId: this.callSessionId }, 'Guardian unavailable for call — skipping ASK_GUARDIAN wait');
-          recordCallEvent(this.callSessionId, 'guardian_unavailable_skipped', { question: questionText });
+          log.info(
+            { callSessionId: this.callSessionId },
+            "Guardian unavailable for call — skipping ASK_GUARDIAN wait",
+          );
+          recordCallEvent(this.callSessionId, "guardian_unavailable_skipped", {
+            question: questionText,
+          });
           this.pendingInstructions.push(
-            `[GUARDIAN_UNAVAILABLE] You tried to consult your guardian again, but they were already unreachable earlier in this call. `
-            + `Do NOT use [ASK_GUARDIAN] again. Instead, let the caller know you cannot reach the guardian right now, `
-            + `and continue the conversation by asking if there is anything else you can help with or if they would like a callback. `
-            + `The unanswered question was: "${questionText}"`,
+            `[GUARDIAN_UNAVAILABLE] You tried to consult your guardian again, but they were already unreachable earlier in this call. ` +
+              `Do NOT use [ASK_GUARDIAN] again. Instead, let the caller know you cannot reach the guardian right now, ` +
+              `and continue the conversation by asking if there is anything else you can help with or if they would like a callback. ` +
+              `The unanswered question was: "${questionText}"`,
           );
           // Fall through to normal turn completion (idle + flushPendingInstructions)
-        } else if (this.pendingInstructions.some((instr) => instr.startsWith('[USER_ANSWERED:'))) {
+        } else if (
+          this.pendingInstructions.some((instr) =>
+            instr.startsWith("[USER_ANSWERED:"),
+          )
+        ) {
           // A guardian answer arrived mid-turn and is queued in
           // pendingInstructions but hasn't been flushed yet. The in-flight
           // LLM response was generated without knowledge of this answer, so
@@ -707,16 +802,24 @@ export class CallController {
           // desynchronize the flow. Skip this consultation — the answer will
           // be flushed on the next turn, and if the model still needs to
           // consult a guardian, it will emit another ASK_GUARDIAN then.
-          log.info({ callSessionId: this.callSessionId }, 'Deferring ASK_GUARDIAN — queued USER_ANSWERED pending');
-          recordCallEvent(this.callSessionId, 'guardian_consult_deferred', { question: questionText });
+          log.info(
+            { callSessionId: this.callSessionId },
+            "Deferring ASK_GUARDIAN — queued USER_ANSWERED pending",
+          );
+          recordCallEvent(this.callSessionId, "guardian_consult_deferred", {
+            question: questionText,
+          });
           // Fall through to normal turn completion (idle + flushPendingInstructions)
         } else {
           // Determine the effective tool metadata for this ask. If the new
           // ask has structured tool metadata, use it; otherwise inherit from
           // the prior pending consultation (preserves tool scope on re-asks).
           const effectiveToolMeta = toolApprovalMeta
-            ? { toolName: toolApprovalMeta.toolName, inputDigest: toolApprovalMeta.inputDigest }
-            : this.pendingGuardianInput?.toolApprovalMeta ?? null;
+            ? {
+                toolName: toolApprovalMeta.toolName,
+                inputDigest: toolApprovalMeta.inputDigest,
+              }
+            : (this.pendingGuardianInput?.toolApprovalMeta ?? null);
 
           // Coalesce repeated identical asks: if a consultation is already
           // pending for the same tool/action (or same informational question),
@@ -724,18 +827,28 @@ export class CallController {
           if (this.pendingGuardianInput) {
             const isSameToolAction =
               effectiveToolMeta && this.pendingGuardianInput.toolApprovalMeta
-                ? effectiveToolMeta.toolName === this.pendingGuardianInput.toolApprovalMeta.toolName
-                  && effectiveToolMeta.inputDigest === this.pendingGuardianInput.toolApprovalMeta.inputDigest
-                : !effectiveToolMeta && !this.pendingGuardianInput.toolApprovalMeta;
+                ? effectiveToolMeta.toolName ===
+                    this.pendingGuardianInput.toolApprovalMeta.toolName &&
+                  effectiveToolMeta.inputDigest ===
+                    this.pendingGuardianInput.toolApprovalMeta.inputDigest
+                : !effectiveToolMeta &&
+                  !this.pendingGuardianInput.toolApprovalMeta;
 
             if (isSameToolAction) {
               // Same tool/action — coalesce. Keep the existing consultation
               // alive and skip creating a new request.
               log.info(
-                { callSessionId: this.callSessionId, questionId: this.pendingGuardianInput.questionId },
-                'Coalescing repeated ASK_GUARDIAN — same tool/action already pending',
+                {
+                  callSessionId: this.callSessionId,
+                  questionId: this.pendingGuardianInput.questionId,
+                },
+                "Coalescing repeated ASK_GUARDIAN — same tool/action already pending",
               );
-              recordCallEvent(this.callSessionId, 'guardian_consult_coalesced', { question: questionText });
+              recordCallEvent(
+                this.callSessionId,
+                "guardian_consult_coalesced",
+                { question: questionText },
+              );
               // Fall through to normal turn completion (idle + flushPendingInstructions)
             } else {
               // Materially different intent — supersede the old consultation.
@@ -744,14 +857,19 @@ export class CallController {
               // Expire the previous consultation's storage records so stale
               // guardian answers cannot match the old request.
               expirePendingQuestions(this.callSessionId);
-              const previousRequest = getPendingCanonicalRequestByCallSessionId(this.callSessionId);
+              const previousRequest = getPendingCanonicalRequestByCallSessionId(
+                this.callSessionId,
+              );
               if (previousRequest) {
                 // Immediately expire with 'superseded' reason to prevent
                 // stale answers from resolving the old request.
                 expireCanonicalGuardianRequest(previousRequest.id);
                 log.info(
-                  { callSessionId: this.callSessionId, requestId: previousRequest.id },
-                  'Superseded guardian action request (materially different intent)',
+                  {
+                    callSessionId: this.callSessionId,
+                    requestId: previousRequest.id,
+                  },
+                  "Superseded guardian action request (materially different intent)",
                 );
               }
 
@@ -761,7 +879,11 @@ export class CallController {
               // The previous request ID is passed through so the dispatch
               // can backfill supersession chain metadata (superseded_by_request_id)
               // once the new request has been created.
-              this.dispatchNewConsultation(questionText, effectiveToolMeta, previousRequest?.id ?? null);
+              this.dispatchNewConsultation(
+                questionText,
+                effectiveToolMeta,
+                previousRequest?.id ?? null,
+              );
             }
           } else {
             // No prior consultation — dispatch fresh
@@ -785,7 +907,9 @@ export class CallController {
           // a completed call with a dangling pendingQuestion, and guardian
           // replies are cleanly rejected instead of hitting answerCall failures.
           expirePendingQuestions(this.callSessionId);
-          const previousRequest = getPendingCanonicalRequestByCallSessionId(this.callSessionId);
+          const previousRequest = getPendingCanonicalRequestByCallSessionId(
+            this.callSessionId,
+          );
           if (previousRequest) {
             expireCanonicalGuardianRequest(previousRequest.id);
           }
@@ -795,37 +919,70 @@ export class CallController {
 
         const currentSession = getCallSession(this.callSessionId);
         const shouldNotifyCompletion = currentSession
-          ? currentSession.status !== 'completed' && currentSession.status !== 'failed' && currentSession.status !== 'cancelled'
+          ? currentSession.status !== "completed" &&
+            currentSession.status !== "failed" &&
+            currentSession.status !== "cancelled"
           : false;
 
-        this.relay.endSession('Call completed');
-        updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
-        recordCallEvent(this.callSessionId, 'call_ended', { reason: 'completed' });
+        this.relay.endSession("Call completed");
+        updateCallSession(this.callSessionId, {
+          status: "completed",
+          endedAt: Date.now(),
+        });
+        recordCallEvent(this.callSessionId, "call_ended", {
+          reason: "completed",
+        });
 
         // Notify the voice conversation
         if (shouldNotifyCompletion && currentSession) {
-          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId).catch((err) => {
-            log.error({ err, conversationId: currentSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+          persistCallCompletionMessage(
+            currentSession.conversationId,
+            this.callSessionId,
+          ).catch((err) => {
+            log.error(
+              {
+                err,
+                conversationId: currentSession.conversationId,
+                callSessionId: this.callSessionId,
+              },
+              "Failed to persist call completion message",
+            );
           });
-          fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
+          fireCallCompletionNotifier(
+            currentSession.conversationId,
+            this.callSessionId,
+          );
         }
 
         // Post a pointer message in the initiating conversation
         if (currentSession?.initiatedFromConversationId) {
-          const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
-          addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
-            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
-          }).catch((err) => {
-            log.warn({ conversationId: currentSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+          const durationMs = currentSession.startedAt
+            ? Date.now() - currentSession.startedAt
+            : 0;
+          addPointerMessage(
+            currentSession.initiatedFromConversationId,
+            "completed",
+            currentSession.toNumber,
+            {
+              duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+            },
+          ).catch((err) => {
+            log.warn(
+              {
+                conversationId: currentSession.initiatedFromConversationId,
+                err,
+              },
+              "Skipping pointer write — origin conversation may no longer exist",
+            );
           });
         }
-        this.state = 'idle';
+        this.state = "idle";
         return;
       }
 
       // Normal turn complete — restart silence detection and flush any
       // instructions that arrived while the LLM was active.
-      this.state = 'idle';
+      this.state = "idle";
       this.currentTurnHandle = null;
       this.resetSilenceTimer();
       this.flushPendingInstructions();
@@ -839,24 +996,30 @@ export class CallController {
             errName: err instanceof Error ? err.name : typeof err,
             stale: !this.isCurrentRun(runVersion),
           },
-          'Voice turn aborted',
+          "Voice turn aborted",
         );
         if (this.isCurrentRun(runVersion)) {
-          this.state = 'idle';
+          this.state = "idle";
           this.resetSilenceTimer();
         }
         return;
       }
       if (!this.isCurrentRun(runVersion)) {
         log.debug(
-          { callSessionId: this.callSessionId, errName: err instanceof Error ? err.name : typeof err },
-          'Ignoring stale voice turn error from superseded turn',
+          {
+            callSessionId: this.callSessionId,
+            errName: err instanceof Error ? err.name : typeof err,
+          },
+          "Ignoring stale voice turn error from superseded turn",
         );
         return;
       }
-      log.error({ err, callSessionId: this.callSessionId }, 'Voice turn error');
-      this.relay.sendTextToken('I\'m sorry, I encountered a technical issue. Could you repeat that?', true);
-      this.state = 'idle';
+      log.error({ err, callSessionId: this.callSessionId }, "Voice turn error");
+      this.relay.sendTextToken(
+        "I'm sorry, I encountered a technical issue. Could you repeat that?",
+        true,
+      );
+      this.state = "idle";
       this.resetSilenceTimer();
       this.flushPendingInstructions();
     }
@@ -864,8 +1027,7 @@ export class CallController {
 
   private isExpectedAbortError(err: unknown): boolean {
     if (!(err instanceof Error)) return false;
-    return err.name === 'AbortError'
-      || err.name === 'APIUserAbortError';
+    return err.name === "AbortError" || err.name === "APIUserAbortError";
   }
 
   private isCurrentRun(runVersion: number): boolean {
@@ -873,7 +1035,7 @@ export class CallController {
   }
 
   private isCallerGuardian(): boolean {
-    return this.trustContext?.trustClass === 'guardian';
+    return this.trustContext?.trustClass === "guardian";
   }
 
   /**
@@ -888,14 +1050,23 @@ export class CallController {
     effectiveToolMeta: { toolName: string; inputDigest: string } | null,
     supersededRequestId: string | null,
   ): void {
-    const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
-    updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
-    recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
+    const pendingQuestion = createPendingQuestion(
+      this.callSessionId,
+      questionText,
+    );
+    updateCallSession(this.callSessionId, { status: "waiting_on_user" });
+    recordCallEvent(this.callSessionId, "user_question_asked", {
+      question: questionText,
+    });
 
     // Notify the conversation that a question was asked
     const session = getCallSession(this.callSessionId);
     if (session) {
-      fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
+      fireCallQuestionNotifier(
+        session.conversationId,
+        this.callSessionId,
+        questionText,
+      );
 
       // Dispatch guardian action request to all configured channels
       // Capture the pending question ID in a closure for stable lookup
@@ -914,13 +1085,19 @@ export class CallController {
         // Backfill supersession chain: now that the new request exists in
         // the store, link the old request to the new one.
         if (supersededRequestId) {
-          const newRequest = getCanonicalRequestByPendingQuestionId(stablePendingQuestionId);
+          const newRequest = getCanonicalRequestByPendingQuestionId(
+            stablePendingQuestionId,
+          );
           if (newRequest) {
             // Canonical store does not track supersession metadata;
             // the old request was already expired above.
             log.info(
-              { callSessionId: this.callSessionId, oldRequestId: supersededRequestId, newRequestId: newRequest.id },
-              'Supersession chain: new canonical request created',
+              {
+                callSessionId: this.callSessionId,
+                oldRequestId: supersededRequestId,
+                newRequestId: newRequest.id,
+              },
+              "Supersession chain: new canonical request created",
             );
           }
         }
@@ -931,22 +1108,36 @@ export class CallController {
     // record, not the global controller state.
     const consultationTimer = setTimeout(() => {
       // Only fire if this consultation is still the active one
-      if (!this.pendingGuardianInput || this.pendingGuardianInput.questionId !== pendingQuestion.id) return;
+      if (
+        !this.pendingGuardianInput ||
+        this.pendingGuardianInput.questionId !== pendingQuestion.id
+      )
+        return;
 
-      log.info({ callSessionId: this.callSessionId }, 'Guardian consultation timed out');
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Guardian consultation timed out",
+      );
 
       // Mark the linked guardian action request as timed out and
       // send expiry notices to guardian destinations. Deliveries
       // must be captured before markTimedOutWithReason changes
       // their status.
-      const pendingActionRequest = getPendingCanonicalRequestByCallSessionId(this.callSessionId);
+      const pendingActionRequest = getPendingCanonicalRequestByCallSessionId(
+        this.callSessionId,
+      );
       if (pendingActionRequest) {
-        const canonicalDeliveries = listCanonicalGuardianDeliveries(pendingActionRequest.id);
+        const canonicalDeliveries = listCanonicalGuardianDeliveries(
+          pendingActionRequest.id,
+        );
         // Expire the canonical request and its deliveries
         expireCanonicalGuardianRequest(pendingActionRequest.id);
         log.info(
-          { callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
-          'Marked canonical guardian request as timed out',
+          {
+            callSessionId: this.callSessionId,
+            requestId: pendingActionRequest.id,
+          },
+          "Marked canonical guardian request as timed out",
         );
         void sendGuardianExpiryNotices(
           canonicalDeliveries,
@@ -955,8 +1146,12 @@ export class CallController {
           () => mintDaemonDeliveryToken(),
         ).catch((err) => {
           log.error(
-            { err, callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
-            'Failed to send guardian action expiry notices after call timeout',
+            {
+              err,
+              callSessionId: this.callSessionId,
+              requestId: pendingActionRequest.id,
+            },
+            "Failed to send guardian action expiry notices after call timeout",
           );
         });
       }
@@ -964,22 +1159,24 @@ export class CallController {
       // Expire pending questions and update call state
       expirePendingQuestions(this.callSessionId);
       this.pendingGuardianInput = null;
-      updateCallSession(this.callSessionId, { status: 'in_progress' });
+      updateCallSession(this.callSessionId, { status: "in_progress" });
       this.guardianUnavailableForCall = true;
-      recordCallEvent(this.callSessionId, 'guardian_consultation_timed_out', { question: questionText });
+      recordCallEvent(this.callSessionId, "guardian_consultation_timed_out", {
+        question: questionText,
+      });
 
       // Inject timeout instruction so the model addresses it on the
       // next turn. If idle, flush immediately; otherwise it merges
       // into the next turn completion.
       const timeoutInstruction =
-        `[GUARDIAN_TIMEOUT] Your guardian did not respond in time to your question: "${questionText}". `
-        + `Apologize to the caller for the delay, let them know you were unable to reach your guardian, `
-        + `ask if they would like to leave a message or receive a callback, `
-        + `and ask if there are any other questions you can help with right now.`;
+        `[GUARDIAN_TIMEOUT] Your guardian did not respond in time to your question: "${questionText}". ` +
+        `Apologize to the caller for the delay, let them know you were unable to reach your guardian, ` +
+        `ask if they would like to leave a message or receive a callback, ` +
+        `and ask if there are any other questions you can help with right now.`;
 
       this.pendingInstructions.push(timeoutInstruction);
 
-      if (this.state === 'idle') {
+      if (this.state === "idle") {
         this.resetSilenceTimer();
         this.flushPendingInstructions();
       }
@@ -999,18 +1196,21 @@ export class CallController {
   private flushPendingInstructions(): void {
     if (this.pendingInstructions.length === 0) return;
 
-    const parts = this.pendingInstructions.map(
-      (instr) => instr.startsWith('[') ? instr : `[USER_INSTRUCTION: ${instr}]`,
+    const parts = this.pendingInstructions.map((instr) =>
+      instr.startsWith("[") ? instr : `[USER_INSTRUCTION: ${instr}]`,
     );
     this.pendingInstructions = [];
 
-    const content = parts.join('\n');
+    const content = parts.join("\n");
 
     this.resetSilenceTimer();
 
     // Fire-and-forget so we don't block the current turn's cleanup.
     this.runTurn(content).catch((err) =>
-      log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after flushing queued instructions'),
+      log.error(
+        { err, callSessionId: this.callSessionId },
+        "runTurn failed after flushing queued instructions",
+      ),
     );
   }
 
@@ -1020,44 +1220,83 @@ export class CallController {
 
     if (warningMs > 0) {
       this.durationWarningTimer = setTimeout(() => {
-        log.info({ callSessionId: this.callSessionId }, 'Call duration warning');
+        log.info(
+          { callSessionId: this.callSessionId },
+          "Call duration warning",
+        );
         this.relay.sendTextToken(
-          'Just to let you know, we\'re running low on time for this call.',
+          "Just to let you know, we're running low on time for this call.",
           true,
         );
       }, warningMs);
     }
 
     this.durationTimer = setTimeout(() => {
-      log.info({ callSessionId: this.callSessionId }, 'Call duration limit reached');
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Call duration limit reached",
+      );
       this.relay.sendTextToken(
-        'I\'m sorry, but we\'ve reached the maximum time for this call. Thank you for your time. Goodbye!',
+        "I'm sorry, but we've reached the maximum time for this call. Thank you for your time. Goodbye!",
         true,
       );
       // Give TTS a moment to play, then end
       this.durationEndTimer = setTimeout(() => {
         const currentSession = getCallSession(this.callSessionId);
         const shouldNotifyCompletion = currentSession
-          ? currentSession.status !== 'completed' && currentSession.status !== 'failed' && currentSession.status !== 'cancelled'
+          ? currentSession.status !== "completed" &&
+            currentSession.status !== "failed" &&
+            currentSession.status !== "cancelled"
           : false;
 
-        this.relay.endSession('Maximum call duration reached');
-        updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
-        recordCallEvent(this.callSessionId, 'call_ended', { reason: 'max_duration' });
+        this.relay.endSession("Maximum call duration reached");
+        updateCallSession(this.callSessionId, {
+          status: "completed",
+          endedAt: Date.now(),
+        });
+        recordCallEvent(this.callSessionId, "call_ended", {
+          reason: "max_duration",
+        });
         if (shouldNotifyCompletion && currentSession) {
-          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId).catch((err) => {
-            log.error({ err, conversationId: currentSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+          persistCallCompletionMessage(
+            currentSession.conversationId,
+            this.callSessionId,
+          ).catch((err) => {
+            log.error(
+              {
+                err,
+                conversationId: currentSession.conversationId,
+                callSessionId: this.callSessionId,
+              },
+              "Failed to persist call completion message",
+            );
           });
-          fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
+          fireCallCompletionNotifier(
+            currentSession.conversationId,
+            this.callSessionId,
+          );
         }
 
         // Post a pointer message in the initiating conversation
         if (currentSession?.initiatedFromConversationId) {
-          const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
-          addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
-            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
-          }).catch((err) => {
-            log.warn({ conversationId: currentSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+          const durationMs = currentSession.startedAt
+            ? Date.now() - currentSession.startedAt
+            : 0;
+          addPointerMessage(
+            currentSession.initiatedFromConversationId,
+            "completed",
+            currentSession.toNumber,
+            {
+              duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+            },
+          ).catch((err) => {
+            log.warn(
+              {
+                conversationId: currentSession.initiatedFromConversationId,
+                err,
+              },
+              "Skipping pointer write — origin conversation may no longer exist",
+            );
           });
         }
       }, 3000);
@@ -1072,12 +1311,21 @@ export class CallController {
       // which is confusing when the caller is waiting on a decision.
       // Two paths: in-call consultation (pendingGuardianInput) and
       // inbound access-request wait (relay state).
-      if (this.pendingGuardianInput || this.relay.getConnectionState() === 'awaiting_guardian_decision') {
-        log.debug({ callSessionId: this.callSessionId }, 'Silence timeout suppressed during guardian wait');
+      if (
+        this.pendingGuardianInput ||
+        this.relay.getConnectionState() === "awaiting_guardian_decision"
+      ) {
+        log.debug(
+          { callSessionId: this.callSessionId },
+          "Silence timeout suppressed during guardian wait",
+        );
         return;
       }
-      log.info({ callSessionId: this.callSessionId }, 'Silence timeout triggered');
-      this.relay.sendTextToken('Are you still there?', true);
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Silence timeout triggered",
+      );
+      this.relay.sendTextToken("Are you still there?", true);
     }, getSilenceTimeoutMs());
   }
 }

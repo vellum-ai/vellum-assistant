@@ -1,5 +1,5 @@
-import { getSubagentManager } from '../../subagent/index.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { getSubagentManager } from "../../subagent/index.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeSubagentSpawn(
   input: Record<string, unknown>,
@@ -11,13 +11,21 @@ export async function executeSubagentSpawn(
   const sendResultToUser = input.send_result_to_user !== false;
 
   if (!label || !objective) {
-    return { content: 'Both "label" and "objective" are required.', isError: true };
+    return {
+      content: 'Both "label" and "objective" are required.',
+      isError: true,
+    };
   }
 
   const manager = getSubagentManager();
-  const sendToClient = context.sendToClient as ((msg: { type: string; [key: string]: unknown }) => void) | undefined;
+  const sendToClient = context.sendToClient as
+    | ((msg: { type: string; [key: string]: unknown }) => void)
+    | undefined;
   if (!sendToClient) {
-    return { content: 'No IPC client connected — cannot spawn subagent.', isError: true };
+    return {
+      content: "No IPC client connected — cannot spawn subagent.",
+      isError: true,
+    };
   }
 
   try {
@@ -36,7 +44,7 @@ export async function executeSubagentSpawn(
       content: JSON.stringify({
         subagentId,
         label,
-        status: 'pending',
+        status: "pending",
         message: `Subagent "${label}" spawned. You will be notified automatically when it completes or fails — do NOT poll subagent_status. Continue the conversation normally.`,
       }),
       isError: false,

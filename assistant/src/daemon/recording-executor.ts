@@ -3,7 +3,7 @@
 // handlers/recording.ts (side effects), so both sessions.ts and misc.ts
 // can share the same execution logic without duplicating switch/case blocks.
 
-import type * as net from 'node:net';
+import type * as net from "node:net";
 
 import {
   handleRecordingPause,
@@ -12,9 +12,9 @@ import {
   handleRecordingStart,
   handleRecordingStop,
   isRecordingIdle,
-} from './handlers/recording.js';
-import type { HandlerContext } from './handlers/shared.js';
-import type { RecordingIntentResult } from './recording-intent.js';
+} from "./handlers/recording.js";
+import type { HandlerContext } from "./handlers/shared.js";
+import type { RecordingIntentResult } from "./recording-intent.js";
 
 export interface RecordingExecutionContext {
   conversationId: string;
@@ -44,10 +44,10 @@ export function executeRecordingIntent(
   context: RecordingExecutionContext,
 ): RecordingExecutionOutput {
   switch (result.kind) {
-    case 'none':
+    case "none":
       return { handled: false };
 
-    case 'start_only': {
+    case "start_only": {
       const recordingId = handleRecordingStart(
         context.conversationId,
         { promptForSource: true },
@@ -58,36 +58,37 @@ export function executeRecordingIntent(
         handled: true,
         recordingStarted: !!recordingId,
         responseText: recordingId
-          ? 'Starting screen recording.'
-          : 'A recording is already active.',
+          ? "Starting screen recording."
+          : "A recording is already active.",
       };
     }
 
-    case 'stop_only': {
-      const stopped = handleRecordingStop(context.conversationId, context.ctx) !== undefined;
+    case "stop_only": {
+      const stopped =
+        handleRecordingStop(context.conversationId, context.ctx) !== undefined;
       return {
         handled: true,
         responseText: stopped
-          ? 'Stopping the recording.'
-          : 'No active recording to stop.',
+          ? "Stopping the recording."
+          : "No active recording to stop.",
       };
     }
 
-    case 'start_with_remainder':
+    case "start_with_remainder":
       return {
         handled: false,
         remainderText: result.remainder,
         pendingStart: true,
       };
 
-    case 'stop_with_remainder':
+    case "stop_with_remainder":
       return {
         handled: false,
         remainderText: result.remainder,
         pendingStop: true,
       };
 
-    case 'start_and_stop_only': {
+    case "start_and_stop_only": {
       // Route through handleRecordingRestart which properly cleans up maps
       // between stop and start, preventing the "already active" guard from
       // blocking the new recording.
@@ -102,7 +103,10 @@ export function executeRecordingIntent(
       // the stop is a no-op and we just start a new recording.
       // Only fall back for this specific reason; "restart_in_progress" should
       // not start a duplicate recording.
-      if (!restartResult.initiated && restartResult.reason === 'no_active_recording') {
+      if (
+        !restartResult.initiated &&
+        restartResult.reason === "no_active_recording"
+      ) {
         const recordingId = handleRecordingStart(
           context.conversationId,
           { promptForSource: true },
@@ -113,8 +117,8 @@ export function executeRecordingIntent(
           handled: true,
           recordingStarted: !!recordingId,
           responseText: recordingId
-            ? 'Starting screen recording.'
-            : 'A recording is already active.',
+            ? "Starting screen recording."
+            : "A recording is already active.",
         };
       }
 
@@ -122,12 +126,12 @@ export function executeRecordingIntent(
         handled: true,
         recordingStarted: restartResult.initiated,
         responseText: restartResult.initiated
-          ? 'Stopping current recording and starting a new one.'
+          ? "Stopping current recording and starting a new one."
           : restartResult.responseText,
       };
     }
 
-    case 'start_and_stop_with_remainder':
+    case "start_and_stop_with_remainder":
       // When there's no active recording, fall back to a plain start rather
       // than a restart — the stop is a no-op and we just need to start.
       return {
@@ -138,7 +142,7 @@ export function executeRecordingIntent(
           : { pendingRestart: true }),
       };
 
-    case 'restart_only': {
+    case "restart_only": {
       const restartResult = handleRecordingRestart(
         context.conversationId,
         context.socket,
@@ -150,30 +154,33 @@ export function executeRecordingIntent(
       };
     }
 
-    case 'restart_with_remainder':
+    case "restart_with_remainder":
       return {
         handled: false,
         remainderText: result.remainder,
         pendingRestart: true,
       };
 
-    case 'pause_only': {
-      const paused = handleRecordingPause(context.conversationId, context.ctx) !== undefined;
+    case "pause_only": {
+      const paused =
+        handleRecordingPause(context.conversationId, context.ctx) !== undefined;
       return {
         handled: true,
         responseText: paused
-          ? 'Pausing the recording.'
-          : 'No active recording to pause.',
+          ? "Pausing the recording."
+          : "No active recording to pause.",
       };
     }
 
-    case 'resume_only': {
-      const resumed = handleRecordingResume(context.conversationId, context.ctx) !== undefined;
+    case "resume_only": {
+      const resumed =
+        handleRecordingResume(context.conversationId, context.ctx) !==
+        undefined;
       return {
         handled: true,
         responseText: resumed
-          ? 'Resuming the recording.'
-          : 'No active recording to resume.',
+          ? "Resuming the recording."
+          : "No active recording to resume.",
       };
     }
   }

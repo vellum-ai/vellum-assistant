@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * One-shot migration: seed assistant_inbox_thread_state from existing
@@ -9,30 +9,38 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
  * Counters (unread_count, pending_escalation_count, has_pending_escalation)
  * are initialised to zero since historical state is unknown.
  */
-export function migrateBackfillInboxThreadStateFromBindings(database: DrizzleDb): void {
+export function migrateBackfillInboxThreadStateFromBindings(
+  database: DrizzleDb,
+): void {
   const raw = getSqliteFrom(database);
-  const checkpointKey = 'backfill_inbox_thread_state_from_bindings';
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey);
+  const checkpointKey = "backfill_inbox_thread_state_from_bindings";
+  const checkpoint = raw
+    .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey);
   if (checkpoint) return;
 
   // Guard: skip if either table does not exist yet (first boot edge case).
-  const srcExists = raw.query(
-    `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'external_conversation_bindings'`,
-  ).get();
-  const dstExists = raw.query(
-    `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assistant_inbox_thread_state'`,
-  ).get();
+  const srcExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'external_conversation_bindings'`,
+    )
+    .get();
+  const dstExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assistant_inbox_thread_state'`,
+    )
+    .get();
   if (!srcExists || !dstExists) {
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
     return;
   }
 
   try {
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
 
     raw.exec(/*sql*/ `
       INSERT OR IGNORE INTO assistant_inbox_thread_state (
@@ -64,13 +72,19 @@ export function migrateBackfillInboxThreadStateFromBindings(database: DrizzleDb)
       FROM external_conversation_bindings
     `);
 
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
 
-    raw.exec('COMMIT');
+    raw.exec("COMMIT");
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   }
 }

@@ -1,28 +1,43 @@
-import { getConfig } from '../../../../config/loader.js';
-import { type AttachmentContext,isAttachmentVisible } from '../../../../daemon/media-visibility-policy.js';
-import { generateImage, mapGeminiError } from '../../../../media/gemini-image-service.js';
-import { getAttachmentsByIds } from '../../../../memory/attachments-store.js';
-import { getConversationThreadType } from '../../../../memory/conversation-store.js';
-import type { ImageContent } from '../../../../providers/types.js';
-import { getAttachmentSourceConversations } from '../../../../tools/assets/search.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { getConfig } from "../../../../config/loader.js";
+import {
+  type AttachmentContext,
+  isAttachmentVisible,
+} from "../../../../daemon/media-visibility-policy.js";
+import {
+  generateImage,
+  mapGeminiError,
+} from "../../../../media/gemini-image-service.js";
+import { getAttachmentsByIds } from "../../../../memory/attachments-store.js";
+import { getConversationThreadType } from "../../../../memory/conversation-store.js";
+import type { ImageContent } from "../../../../providers/types.js";
+import { getAttachmentSourceConversations } from "../../../../tools/assets/search.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 
 /**
  * Check whether an attachment is visible from the given context.
  * Mirrors the logic in tools/assets/search.ts:isAttachmentVisibleFromContext.
  */
-function isAttachmentAccessible(attachmentId: string, currentContext: AttachmentContext): boolean {
+function isAttachmentAccessible(
+  attachmentId: string,
+  currentContext: AttachmentContext,
+): boolean {
   const sources = getAttachmentSourceConversations(attachmentId);
   if (sources.length === 0) {
     return true; // orphan attachments are universally visible
   }
-  const hasStandard = sources.some((s) => s.threadType !== 'private');
+  const hasStandard = sources.some((s) => s.threadType !== "private");
   if (hasStandard) {
     return true;
   }
   // All sources are private — visible only if the caller is in one of those threads
-  return sources.some(
-    (s) => isAttachmentVisible({ conversationId: s.conversationId, isPrivate: true }, currentContext),
+  return sources.some((s) =>
+    isAttachmentVisible(
+      { conversationId: s.conversationId, isPrivate: true },
+      currentContext,
+    ),
   );
 }
 
@@ -35,13 +50,14 @@ export async function run(
 
   if (!apiKey) {
     return {
-      content: 'No Gemini API key configured. Please set your Gemini API key to use image generation.',
+      content:
+        "No Gemini API key configured. Please set your Gemini API key to use image generation.",
       isError: true,
     };
   }
 
   const prompt = input.prompt as string;
-  const mode = (input.mode as 'generate' | 'edit') ?? 'generate';
+  const mode = (input.mode as "generate" | "edit") ?? "generate";
   const attachmentIds = input.attachment_ids as string[] | undefined;
   const model = (input.model as string | undefined) ?? config.imageGenModel;
   const variants = input.variants as number | undefined;
@@ -56,7 +72,7 @@ export async function run(
     const threadType = getConversationThreadType(context.conversationId);
     const currentContext: AttachmentContext = {
       conversationId: context.conversationId,
-      isPrivate: threadType === 'private',
+      isPrivate: threadType === "private",
     };
 
     // Filter to only visible attachments using their originating context
@@ -66,7 +82,8 @@ export async function run(
 
     if (visibleAttachments.length === 0 && attachmentIds.length > 0) {
       return {
-        content: 'None of the specified attachments could be found or are accessible.',
+        content:
+          "None of the specified attachments could be found or are accessible.",
         isError: true,
       };
     }
@@ -87,15 +104,15 @@ export async function run(
     });
 
     const imageCount = result.images.length;
-    let content = `Generated ${imageCount} image${imageCount !== 1 ? 's' : ''} using ${result.resolvedModel}.`;
+    let content = `Generated ${imageCount} image${imageCount !== 1 ? "s" : ""} using ${result.resolvedModel}.`;
     if (result.text) {
       content += `\n\n${result.text}`;
     }
 
     const contentBlocks: ImageContent[] = result.images.map((img) => ({
-      type: 'image' as const,
+      type: "image" as const,
       source: {
-        type: 'base64' as const,
+        type: "base64" as const,
         media_type: img.mimeType,
         data: img.dataBase64,
       },

@@ -55,16 +55,20 @@ async function pollForApproval(
 
     if (!statusRes.ok) {
       const body = await statusRes.text().catch(() => "");
-      throw new Error(`Failed to check pairing status: HTTP ${statusRes.status}: ${body || statusRes.statusText}`);
+      throw new Error(
+        `Failed to check pairing status: HTTP ${statusRes.status}: ${body || statusRes.statusText}`,
+      );
     }
 
-    const statusBody = await statusRes.json() as PairingResponse;
+    const statusBody = (await statusRes.json()) as PairingResponse;
 
     if (statusBody.status === "approved") {
       return statusBody;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, PAIRING_POLL_INTERVAL_MS));
+    await new Promise((resolve) =>
+      setTimeout(resolve, PAIRING_POLL_INTERVAL_MS),
+    );
   }
 
   throw new Error("Pairing timed out waiting for approval.");
@@ -76,7 +80,9 @@ export async function pair(): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum pair <path-to-qrcode.png>");
     console.log("");
-    console.log("Pair with a remote assistant by scanning the QR code PNG generated during setup.");
+    console.log(
+      "Pair with a remote assistant by scanning the QR code PNG generated during setup.",
+    );
     process.exit(0);
   }
 
@@ -85,7 +91,9 @@ export async function pair(): Promise<void> {
   if (!qrCodePath) {
     console.error("Usage: vellum pair <path-to-qrcode.png>");
     console.error("");
-    console.error("Pair with a remote assistant by scanning the QR code PNG generated during setup.");
+    console.error(
+      "Pair with a remote assistant by scanning the QR code PNG generated during setup.",
+    );
     process.exit(1);
   }
 
@@ -102,7 +110,12 @@ export async function pair(): Promise<void> {
       throw new Error("QR code does not contain valid pairing data.");
     }
 
-    if (payload.type !== "vellum-daemon" || !payload.g || !payload.pairingRequestId || !payload.pairingSecret) {
+    if (
+      payload.type !== "vellum-daemon" ||
+      !payload.g ||
+      !payload.pairingRequestId ||
+      !payload.pairingSecret
+    ) {
       throw new Error("QR code does not contain valid Vellum pairing data.");
     }
 
@@ -127,10 +140,12 @@ export async function pair(): Promise<void> {
 
     if (!requestRes.ok) {
       const body = await requestRes.text().catch(() => "");
-      throw new Error(`Failed to initiate pairing: HTTP ${requestRes.status}: ${body || requestRes.statusText}`);
+      throw new Error(
+        `Failed to initiate pairing: HTTP ${requestRes.status}: ${body || requestRes.statusText}`,
+      );
     }
 
-    const requestBody = await requestRes.json() as PairingResponse;
+    const requestBody = (await requestRes.json()) as PairingResponse;
 
     let bearerToken: string | undefined;
 
@@ -145,7 +160,9 @@ export async function pair(): Promise<void> {
       );
       bearerToken = approvedResponse.bearerToken;
     } else {
-      throw new Error(`Unexpected pairing response status: ${requestBody.status}`);
+      throw new Error(
+        `Unexpected pairing response status: ${requestBody.status}`,
+      );
     }
 
     const customEntry: AssistantEntry = {

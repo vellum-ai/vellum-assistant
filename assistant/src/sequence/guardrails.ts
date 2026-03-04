@@ -6,14 +6,11 @@
  * can explain why a send was delayed.
  */
 
-import { getLogger } from '../util/logger.js';
-import {
-  countActiveEnrollments,
-  listEnrollments,
-} from './store.js';
-import type { SequenceEnrollment } from './types.js';
+import { getLogger } from "../util/logger.js";
+import { countActiveEnrollments, listEnrollments } from "./store.js";
+import type { SequenceEnrollment } from "./types.js";
 
-const log = getLogger('sequence:guardrails');
+const log = getLogger("sequence:guardrails");
 
 // ── Defaults ────────────────────────────────────────────────────────
 
@@ -41,7 +38,9 @@ export function getGuardrailConfig(): GuardrailConfig {
   return { ...config };
 }
 
-export function setGuardrailConfig(patch: Partial<GuardrailConfig>): GuardrailConfig {
+export function setGuardrailConfig(
+  patch: Partial<GuardrailConfig>,
+): GuardrailConfig {
   config = { ...config, ...patch };
   return { ...config };
 }
@@ -89,7 +88,7 @@ export function checkDailyCap(): GuardrailResult {
     return {
       ok: false,
       reason: `Daily send cap reached (${count}/${config.dailySendCap}). Will retry tomorrow.`,
-      guardrail: 'daily_cap',
+      guardrail: "daily_cap",
     };
   }
   return { ok: true };
@@ -101,7 +100,7 @@ export function checkHourlyRate(sequenceId: string): GuardrailResult {
     return {
       ok: false,
       reason: `Hourly rate limit for sequence reached (${count}/${config.perSequenceHourlyRate}). Will retry next hour.`,
-      guardrail: 'hourly_rate',
+      guardrail: "hourly_rate",
     };
   }
   return { ok: true };
@@ -112,7 +111,7 @@ export function checkMinDelay(delaySec: number): GuardrailResult {
     return {
       ok: false,
       reason: `Step delay (${delaySec}s) is below minimum (${config.minimumStepDelaySec}s).`,
-      guardrail: 'min_delay',
+      guardrail: "min_delay",
     };
   }
   return { ok: true };
@@ -124,7 +123,7 @@ export function checkEnrollmentCap(sequenceId: string): GuardrailResult {
     return {
       ok: false,
       reason: `Active enrollment cap reached (${count}/${config.maxActiveEnrollments}).`,
-      guardrail: 'enrollment_cap',
+      guardrail: "enrollment_cap",
     };
   }
   return { ok: true };
@@ -137,7 +136,11 @@ export function checkDuplicateEnrollment(
 ): GuardrailResult {
   if (!config.duplicateEnrollmentCheck) return { ok: true };
 
-  const existing = listEnrollments({ sequenceId, contactEmail: email, status: 'active' });
+  const existing = listEnrollments({
+    sequenceId,
+    contactEmail: email,
+    status: "active",
+  });
   const duplicates = excludeEnrollmentId
     ? existing.filter((e) => e.id !== excludeEnrollmentId)
     : existing;
@@ -145,7 +148,7 @@ export function checkDuplicateEnrollment(
     return {
       ok: false,
       reason: `${email} is already enrolled in this sequence.`,
-      guardrail: 'duplicate',
+      guardrail: "duplicate",
     };
   }
   return { ok: true };
@@ -161,17 +164,18 @@ export function checkCooldown(
   const past = listEnrollments({ sequenceId, contactEmail: email });
   const recent = past.filter(
     (e) =>
-      (e.status === 'completed' || e.status === 'replied') &&
+      (e.status === "completed" || e.status === "replied") &&
       e.updatedAt >= cutoff,
   );
   if (recent.length > 0) {
     const daysLeft = Math.ceil(
-      (config.cooldownPeriodMs - (Date.now() - recent[0].updatedAt)) / (24 * 60 * 60 * 1000),
+      (config.cooldownPeriodMs - (Date.now() - recent[0].updatedAt)) /
+        (24 * 60 * 60 * 1000),
     );
     return {
       ok: false,
       reason: `${email} completed/replied to this sequence recently. Cooldown: ${daysLeft} day(s) remaining.`,
-      guardrail: 'cooldown',
+      guardrail: "cooldown",
     };
   }
   return { ok: true };
@@ -191,15 +195,23 @@ export function checkAllPreSend(
     checkHourlyRate(sequenceId),
     checkMinDelay(stepDelaySec),
     checkEnrollmentCap(sequenceId),
-    checkDuplicateEnrollment(sequenceId, enrollment.contactEmail, enrollment.id),
+    checkDuplicateEnrollment(
+      sequenceId,
+      enrollment.contactEmail,
+      enrollment.id,
+    ),
     checkCooldown(sequenceId, enrollment.contactEmail),
   ];
 
   for (const check of checks) {
     if (!check.ok) {
       log.info(
-        { enrollmentId: enrollment.id, guardrail: check.guardrail, reason: check.reason },
-        'Guardrail blocked send',
+        {
+          enrollmentId: enrollment.id,
+          guardrail: check.guardrail,
+          reason: check.reason,
+        },
+        "Guardrail blocked send",
       );
       return check;
     }

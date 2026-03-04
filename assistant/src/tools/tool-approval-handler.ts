@@ -1,16 +1,25 @@
-import { consumeGrantForInvocation } from '../approvals/approval-primitive.js';
-import { getCanonicalGuardianRequest, updateCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { createOrReuseToolGrantRequest } from '../runtime/tool-grant-request-helper.js';
-import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
-import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
-import { getLogger } from '../util/logger.js';
-import { enforceGuardianOnlyPolicy } from './guardian-control-plane-policy.js';
-import { getAllTools, getTool } from './registry.js';
-import { isSideEffectTool } from './side-effects.js';
-import type { ExecutionTarget, Tool, ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
+import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
+import {
+  getCanonicalGuardianRequest,
+  updateCanonicalGuardianRequest,
+} from "../memory/canonical-guardian-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
+import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
+import { getLogger } from "../util/logger.js";
+import { enforceGuardianOnlyPolicy } from "./guardian-control-plane-policy.js";
+import { getAllTools, getTool } from "./registry.js";
+import { isSideEffectTool } from "./side-effects.js";
+import type {
+  ExecutionTarget,
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+  ToolLifecycleEvent,
+} from "./types.js";
 
-const log = getLogger('tool-approval-handler');
+const log = getLogger("tool-approval-handler");
 
 /** Default polling interval for inline grant wait (ms). */
 export const TC_GRANT_WAIT_INTERVAL_MS = 500;
@@ -26,11 +35,11 @@ export const TC_GRANT_WAIT_MAX_MS = 60_000;
  * - `escalation_failed`: the grant request could not be created.
  */
 export type InlineGrantWaitOutcome =
-  | { outcome: 'granted'; grant: { id: string } }
-  | { outcome: 'denied'; requestId: string }
-  | { outcome: 'timeout'; requestId: string }
-  | { outcome: 'aborted' }
-  | { outcome: 'escalation_failed'; reason: string };
+  | { outcome: "granted"; grant: { id: string } }
+  | { outcome: "denied"; requestId: string }
+  | { outcome: "timeout"; requestId: string }
+  | { outcome: "aborted" }
+  | { outcome: "escalation_failed"; reason: string };
 
 /**
  * Wait bounded for a guardian to approve a tool grant request and for the
@@ -52,74 +61,76 @@ export async function waitForInlineGrant(
 
   log.info(
     {
-      event: 'tc_inline_grant_wait_start',
+      event: "tc_inline_grant_wait_start",
       escalationRequestId,
       toolName: consumeParams.toolName,
       maxWaitMs: maxWait,
       intervalMs: interval,
     },
-    'Starting inline wait for guardian grant decision',
+    "Starting inline wait for guardian grant decision",
   );
 
   while (Date.now() < deadline) {
     if (signal?.aborted) {
-      return { outcome: 'aborted' };
+      return { outcome: "aborted" };
     }
 
     await new Promise((resolve) => setTimeout(resolve, interval));
 
     if (signal?.aborted) {
-      return { outcome: 'aborted' };
+      return { outcome: "aborted" };
     }
 
     // Check if the canonical request was rejected — exit early without
     // waiting for the full timeout.
     const request = getCanonicalGuardianRequest(escalationRequestId);
-    if (request && request.status === 'denied') {
+    if (request && request.status === "denied") {
       log.info(
         {
-          event: 'tc_inline_grant_wait_denied',
+          event: "tc_inline_grant_wait_denied",
           escalationRequestId,
           toolName: consumeParams.toolName,
           elapsedMs: maxWait - (deadline - Date.now()),
         },
-        'Guardian denied tool grant request during inline wait',
+        "Guardian denied tool grant request during inline wait",
       );
-      return { outcome: 'denied', requestId: escalationRequestId };
+      return { outcome: "denied", requestId: escalationRequestId };
     }
 
     // Try to consume the grant — if the guardian approved, the canonical
     // decision primitive will have minted a scoped grant by now.
-    const grantResult = await consumeGrantForInvocation(consumeParams, { maxWaitMs: 0 });
+    const grantResult = await consumeGrantForInvocation(consumeParams, {
+      maxWaitMs: 0,
+    });
     if (grantResult.ok) {
       log.info(
         {
-          event: 'tc_inline_grant_wait_granted',
+          event: "tc_inline_grant_wait_granted",
           escalationRequestId,
           toolName: consumeParams.toolName,
           grantId: grantResult.grant.id,
           elapsedMs: maxWait - (deadline - Date.now()),
         },
-        'Grant found during inline wait — tool execution proceeding',
+        "Grant found during inline wait — tool execution proceeding",
       );
-      return { outcome: 'granted', grant: { id: grantResult.grant.id } };
+      return { outcome: "granted", grant: { id: grantResult.grant.id } };
     }
   }
 
   log.info(
     {
-      event: 'tc_inline_grant_wait_timeout',
+      event: "tc_inline_grant_wait_timeout",
       escalationRequestId,
       toolName: consumeParams.toolName,
       maxWaitMs: maxWait,
     },
-    'Inline grant wait timed out — no guardian decision within budget',
+    "Inline grant wait timed out — no guardian decision within budget",
   );
-  return { outcome: 'timeout', requestId: escalationRequestId };
+  return { outcome: "timeout", requestId: escalationRequestId };
 }
 
-function isUntrustedTrustClass(role: ToolContext['trustClass']): boolean {
-  return role === 'trusted_contact' || role === 'unknown';
+function isUntrustedTrustClass(role: ToolContext["trustClass"]): boolean {
+  return role === "trusted_contact" || role === "unknown";
 }
 
 function requiresGuardianApprovalForActor(
@@ -130,14 +141,14 @@ function requiresGuardianApprovalForActor(
   // Side-effect tools always require guardian approval for untrusted actors.
   // Read-only host execution is also blocked because it can leak sensitive
   // local information (e.g. shell/file reads).
-  return isSideEffectTool(toolName, input) || executionTarget === 'host';
+  return isSideEffectTool(toolName, input) || executionTarget === "host";
 }
 
 function guardianApprovalDeniedMessage(
-  trustClass: ToolContext['trustClass'],
+  trustClass: ToolContext["trustClass"],
   toolName: string,
 ): string {
-  if (trustClass === 'unknown') {
+  if (trustClass === "unknown") {
     return `Permission denied for "${toolName}": this action requires guardian approval from a verified channel identity.`;
   }
   return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
@@ -185,7 +196,7 @@ export class ToolApprovalHandler {
     if (context.signal?.aborted) {
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
-        type: 'error',
+        type: "error",
         toolName: name,
         executionTarget,
         input,
@@ -194,28 +205,38 @@ export class ToolApprovalHandler {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        decision: 'error',
+        decision: "error",
         durationMs,
-        errorMessage: 'Cancelled',
+        errorMessage: "Cancelled",
         isExpected: true,
-        errorCategory: 'tool_failure',
+        errorCategory: "tool_failure",
       });
-      return { allowed: false, result: { content: 'Cancelled', isError: true } };
+      return {
+        allowed: false,
+        result: { content: "Cancelled", isError: true },
+      };
     }
 
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.
-    const guardianCheck = enforceGuardianOnlyPolicy(name, input, context.trustClass);
+    const guardianCheck = enforceGuardianOnlyPolicy(
+      name,
+      input,
+      context.trustClass,
+    );
     if (guardianCheck.denied) {
-      log.warn({
-        toolName: name,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        trustClass: context.trustClass,
-        reason: 'guardian_only_policy',
-      }, 'Guardian-only policy blocked tool invocation');
+      log.warn(
+        {
+          toolName: name,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          trustClass: context.trustClass,
+          reason: "guardian_only_policy",
+        },
+        "Guardian-only policy blocked tool invocation",
+      );
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
-        type: 'permission_denied',
+        type: "permission_denied",
         toolName: name,
         executionTarget,
         input,
@@ -224,11 +245,14 @@ export class ToolApprovalHandler {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        decision: 'deny',
+        decision: "deny",
         reason: guardianCheck.reason!,
         durationMs,
       });
-      return { allowed: false, result: { content: guardianCheck.reason!, isError: true } };
+      return {
+        allowed: false,
+        result: { content: guardianCheck.reason!, isError: true },
+      };
     }
 
     // Determine whether this invocation requires a scoped grant. Capture
@@ -237,11 +261,13 @@ export class ToolApprovalHandler {
     // preflight, tool registry) pass. This prevents wasting a one-time-use
     // grant when a subsequent gate rejects the invocation.
     let needsGrantConsumption = false;
-    let deferredConsumeParams: Parameters<typeof consumeGrantForInvocation>[0] | null = null;
+    let deferredConsumeParams:
+      | Parameters<typeof consumeGrantForInvocation>[0]
+      | null = null;
 
     if (
-      isUntrustedTrustClass(context.trustClass)
-      && requiresGuardianApprovalForActor(name, input, executionTarget)
+      isUntrustedTrustClass(context.trustClass) &&
+      requiresGuardianApprovalForActor(name, input, executionTarget)
     ) {
       const inputDigest = computeToolApprovalDigest(name, input);
       needsGrantConsumption = true;
@@ -249,7 +275,8 @@ export class ToolApprovalHandler {
         requestId: context.requestId,
         toolName: name,
         inputDigest,
-        consumingRequestId: context.requestId ?? `preexec-${context.sessionId}-${Date.now()}`,
+        consumingRequestId:
+          context.requestId ?? `preexec-${context.sessionId}-${Date.now()}`,
         assistantId: context.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
         executionChannel: context.executionChannel,
         conversationId: context.conversationId,
@@ -263,7 +290,7 @@ export class ToolApprovalHandler {
       const msg = `Tool "${name}" is not currently active. Load the skill that provides this tool first.`;
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
-        type: 'error',
+        type: "error",
         toolName: name,
         executionTarget,
         input,
@@ -272,11 +299,11 @@ export class ToolApprovalHandler {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        decision: 'error',
+        decision: "error",
         durationMs,
         errorMessage: msg,
         isExpected: true,
-        errorCategory: 'tool_failure',
+        errorCategory: "tool_failure",
       });
       return { allowed: false, result: { content: msg, isError: true } };
     }
@@ -292,7 +319,7 @@ export class ToolApprovalHandler {
         const msg = `Tool '${name}' was not approved in the task's preflight. Add it to required tools and re-approve.`;
         const durationMs = Date.now() - startTime;
         emitLifecycleEvent({
-          type: 'permission_denied',
+          type: "permission_denied",
           toolName: name,
           executionTarget,
           input,
@@ -301,7 +328,7 @@ export class ToolApprovalHandler {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
-          decision: 'deny',
+          decision: "deny",
           reason: msg,
           durationMs,
         });
@@ -312,11 +339,15 @@ export class ToolApprovalHandler {
     // Resolve the tool from the registry
     const tool = getTool(name);
     if (!tool) {
-      const available = getAllTools().filter((t) => t.executionMode !== 'proxy' || context.proxyToolResolver).map((t) => t.name).sort().join(', ');
+      const available = getAllTools()
+        .filter((t) => t.executionMode !== "proxy" || context.proxyToolResolver)
+        .map((t) => t.name)
+        .sort()
+        .join(", ");
       const msg = `Unknown tool: ${name}. Available tools: ${available}`;
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
-        type: 'error',
+        type: "error",
         toolName: name,
         executionTarget,
         input,
@@ -325,11 +356,11 @@ export class ToolApprovalHandler {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        decision: 'error',
+        decision: "error",
         durationMs,
         errorMessage: msg,
         isExpected: true,
-        errorCategory: 'tool_failure',
+        errorCategory: "tool_failure",
       });
       return { allowed: false, result: { content: msg, isError: true } };
     }
@@ -344,21 +375,24 @@ export class ToolApprovalHandler {
     // minting (2-5s). Non-voice channels get an instant sync lookup so
     // normal denials are not delayed.
     if (needsGrantConsumption && deferredConsumeParams) {
-      const isVoice = context.executionChannel === 'voice';
+      const isVoice = context.executionChannel === "voice";
       const grantResult = await consumeGrantForInvocation(
         deferredConsumeParams,
         isVoice ? { signal: context.signal } : { maxWaitMs: 0 },
       );
 
       if (grantResult.ok) {
-        log.info({
-          toolName: name,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          trustClass: context.trustClass,
-          executionTarget,
-          grantId: grantResult.grant.id,
-        }, 'Scoped grant consumed — allowing untrusted actor tool invocation');
+        log.info(
+          {
+            toolName: name,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            trustClass: context.trustClass,
+            executionTarget,
+            grantId: grantResult.grant.id,
+          },
+          "Scoped grant consumed — allowing untrusted actor tool invocation",
+        );
 
         return { allowed: true, tool, grantConsumed: true };
       }
@@ -367,10 +401,10 @@ export class ToolApprovalHandler {
       // the abort check at the top of checkPreExecutionGates so the caller
       // sees a consistent "Cancelled" result instead of a spurious
       // guardian_approval_required denial during voice barge-in.
-      if (grantResult.reason === 'aborted') {
+      if (grantResult.reason === "aborted") {
         const durationMs = Date.now() - startTime;
         emitLifecycleEvent({
-          type: 'error',
+          type: "error",
           toolName: name,
           executionTarget,
           input,
@@ -379,13 +413,16 @@ export class ToolApprovalHandler {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
-          decision: 'error',
+          decision: "error",
           durationMs,
-          errorMessage: 'Cancelled',
+          errorMessage: "Cancelled",
           isExpected: true,
-          errorCategory: 'tool_failure',
+          errorCategory: "tool_failure",
         });
-        return { allowed: false, result: { content: 'Cancelled', isError: true } };
+        return {
+          allowed: false,
+          result: { content: "Cancelled", isError: true },
+        };
       }
 
       // No matching grant or race condition — deny or wait inline.
@@ -398,16 +435,18 @@ export class ToolApprovalHandler {
       //
       // Unverified actors remain fail-closed with no escalation or wait.
       if (
-        context.trustClass === 'trusted_contact'
-        && context.assistantId
-        && context.executionChannel
-        && context.requesterExternalUserId
+        context.trustClass === "trusted_contact" &&
+        context.assistantId &&
+        context.executionChannel &&
+        context.requesterExternalUserId
       ) {
-        const inputDigest = deferredConsumeParams?.inputDigest
-          ?? computeToolApprovalDigest(name, input);
+        const inputDigest =
+          deferredConsumeParams?.inputDigest ??
+          computeToolApprovalDigest(name, input);
         const escalation = createOrReuseToolGrantRequest({
           assistantId: context.assistantId,
-          sourceChannel: context.executionChannel as import('../channels/types.js').ChannelId,
+          sourceChannel:
+            context.executionChannel as import("../channels/types.js").ChannelId,
           conversationId: context.conversationId,
           requesterExternalUserId: context.requesterExternalUserId,
           requesterChatId: context.requesterChatId,
@@ -419,13 +458,13 @@ export class ToolApprovalHandler {
         // Only wait inline if the escalation succeeded (created or deduped).
         // If escalation failed (no binding, missing identity), fall through
         // to the generic denial path.
-        if ('created' in escalation || 'deduped' in escalation) {
+        if ("created" in escalation || "deduped" in escalation) {
           // Stamp the canonical request so the approval resolver knows an
           // inline consumer is waiting. Without this, the resolver would
           // send a stale "please retry" notification even though the
           // original invocation is about to resume inline.
           updateCanonicalGuardianRequest(escalation.requestId, {
-            followupState: 'inline_wait_active:' + Date.now(),
+            followupState: "inline_wait_active:" + Date.now(),
           });
 
           const waitResult = await waitForInlineGrant(
@@ -438,24 +477,27 @@ export class ToolApprovalHandler {
             },
           );
 
-          if (waitResult.outcome === 'granted') {
+          if (waitResult.outcome === "granted") {
             // Clear the inline-wait stamp now that the grant has been consumed.
             updateCanonicalGuardianRequest(escalation.requestId, {
               followupState: null,
             });
-            log.info({
-              toolName: name,
-              sessionId: context.sessionId,
-              conversationId: context.conversationId,
-              trustClass: context.trustClass,
-              executionTarget,
-              grantId: waitResult.grant.id,
-              escalationRequestId: escalation.requestId,
-            }, 'Inline grant wait succeeded — allowing trusted contact tool invocation');
+            log.info(
+              {
+                toolName: name,
+                sessionId: context.sessionId,
+                conversationId: context.conversationId,
+                trustClass: context.trustClass,
+                executionTarget,
+                grantId: waitResult.grant.id,
+                escalationRequestId: escalation.requestId,
+              },
+              "Inline grant wait succeeded — allowing trusted contact tool invocation",
+            );
             return { allowed: true, tool, grantConsumed: true };
           }
 
-          if (waitResult.outcome === 'aborted') {
+          if (waitResult.outcome === "aborted") {
             // Clear the inline-wait stamp so a later guardian approval
             // (if the request is still pending) will send the retry notification.
             updateCanonicalGuardianRequest(escalation.requestId, {
@@ -463,7 +505,7 @@ export class ToolApprovalHandler {
             });
             const durationMs = Date.now() - startTime;
             emitLifecycleEvent({
-              type: 'error',
+              type: "error",
               toolName: name,
               executionTarget,
               input,
@@ -472,13 +514,16 @@ export class ToolApprovalHandler {
               conversationId: context.conversationId,
               requestId: context.requestId,
               riskLevel,
-              decision: 'error',
+              decision: "error",
               durationMs,
-              errorMessage: 'Cancelled',
+              errorMessage: "Cancelled",
               isExpected: true,
-              errorCategory: 'tool_failure',
+              errorCategory: "tool_failure",
             });
-            return { allowed: false, result: { content: 'Cancelled', isError: true } };
+            return {
+              allowed: false,
+              result: { content: "Cancelled", isError: true },
+            };
           }
 
           // Clear the inline-wait stamp so a later guardian approval
@@ -490,31 +535,35 @@ export class ToolApprovalHandler {
 
           const codeSuffix = escalation.requestCode
             ? ` (request code: ${escalation.requestCode})`
-            : '';
+            : "";
 
           let escalationMessage: string;
-          if (waitResult.outcome === 'denied') {
+          if (waitResult.outcome === "denied") {
             escalationMessage = `Permission denied for "${name}": the guardian rejected the request${codeSuffix}.`;
           } else {
             // timeout
-            escalationMessage = `Permission denied for "${name}": guardian approval was not received in time${codeSuffix}. `
-              + `Please retry after the guardian approves.`;
+            escalationMessage =
+              `Permission denied for "${name}": guardian approval was not received in time${codeSuffix}. ` +
+              `Please retry after the guardian approves.`;
           }
 
-          log.warn({
-            toolName: name,
-            sessionId: context.sessionId,
-            conversationId: context.conversationId,
-            trustClass: context.trustClass,
-            executionTarget,
-            reason: 'guardian_approval_required',
-            grantMissReason: grantResult.reason,
-            waitOutcome: waitResult.outcome,
-            escalationRequestId: escalation.requestId,
-          }, 'Inline grant wait ended without approval — denying trusted contact tool invocation');
+          log.warn(
+            {
+              toolName: name,
+              sessionId: context.sessionId,
+              conversationId: context.conversationId,
+              trustClass: context.trustClass,
+              executionTarget,
+              reason: "guardian_approval_required",
+              grantMissReason: grantResult.reason,
+              waitOutcome: waitResult.outcome,
+              escalationRequestId: escalation.requestId,
+            },
+            "Inline grant wait ended without approval — denying trusted contact tool invocation",
+          );
           const durationMs = Date.now() - startTime;
           emitLifecycleEvent({
-            type: 'permission_denied',
+            type: "permission_denied",
             toolName: name,
             executionTarget,
             input,
@@ -523,30 +572,36 @@ export class ToolApprovalHandler {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
-            decision: 'deny',
+            decision: "deny",
             reason: escalationMessage,
             durationMs,
           });
-          return { allowed: false, result: { content: escalationMessage, isError: true } };
+          return {
+            allowed: false,
+            result: { content: escalationMessage, isError: true },
+          };
         }
         // escalation.failed — fall through to generic denial.
       }
 
       // Unknown/unverified actors or escalation failures — generic denial.
       const reason = guardianApprovalDeniedMessage(context.trustClass, name);
-      log.warn({
-        toolName: name,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        trustClass: context.trustClass,
-        executionTarget,
-        reason: 'guardian_approval_required',
-        grantMissReason: grantResult.reason,
-        escalated: false,
-      }, 'Guardian approval gate blocked untrusted actor tool invocation (no matching grant)');
+      log.warn(
+        {
+          toolName: name,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          trustClass: context.trustClass,
+          executionTarget,
+          reason: "guardian_approval_required",
+          grantMissReason: grantResult.reason,
+          escalated: false,
+        },
+        "Guardian approval gate blocked untrusted actor tool invocation (no matching grant)",
+      );
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
-        type: 'permission_denied',
+        type: "permission_denied",
         toolName: name,
         executionTarget,
         input,
@@ -555,7 +610,7 @@ export class ToolApprovalHandler {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        decision: 'deny',
+        decision: "deny",
         reason,
         durationMs,
       });

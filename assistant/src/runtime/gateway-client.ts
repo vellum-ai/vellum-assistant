@@ -1,19 +1,20 @@
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
-import { getLogger } from '../util/logger.js';
-import type { ApprovalUIMetadata } from './channel-approval-types.js';
-import type { RuntimeAttachmentMetadata } from './http-types.js';
+import { getLogger } from "../util/logger.js";
+import type { ApprovalUIMetadata } from "./channel-approval-types.js";
+import type { RuntimeAttachmentMetadata } from "./http-types.js";
 
-const log = getLogger('gateway-client');
+const log = getLogger("gateway-client");
 
 const DELIVERY_TIMEOUT_MS = 30_000;
-const MANAGED_OUTBOUND_SEND_PATH = '/v1/internal/managed-gateway/outbound-send/';
-const MANAGED_CALLBACK_TOKEN_HEADER = 'X-Managed-Gateway-Callback-Token';
-const MANAGED_IDEMPOTENCY_HEADER = 'X-Idempotency-Key';
+const MANAGED_OUTBOUND_SEND_PATH =
+  "/v1/internal/managed-gateway/outbound-send/";
+const MANAGED_CALLBACK_TOKEN_HEADER = "X-Managed-Gateway-Callback-Token";
+const MANAGED_IDEMPOTENCY_HEADER = "X-Idempotency-Key";
 const MANAGED_OUTBOUND_MAX_ATTEMPTS = 3;
 const MANAGED_OUTBOUND_RETRY_BASE_MS = 150;
 const SMS_ATTACHMENTS_FALLBACK_TEXT =
-  'I have a media attachment to share, but SMS currently supports text only.';
+  "I have a media attachment to share, but SMS currently supports text only.";
 
 export interface ChannelReplyPayload {
   chatId: string;
@@ -21,14 +22,14 @@ export interface ChannelReplyPayload {
   assistantId?: string;
   attachments?: RuntimeAttachmentMetadata[];
   approval?: ApprovalUIMetadata;
-  chatAction?: 'typing';
+  chatAction?: "typing";
 }
 
 interface ManagedOutboundCallbackContext {
   requestUrl: string;
   routeId: string;
   assistantId: string;
-  sourceChannel: 'sms' | 'voice';
+  sourceChannel: "sms" | "voice";
   sourceUpdateId?: string;
   callbackToken?: string;
 }
@@ -44,34 +45,41 @@ export async function deliverChannelReply(
     return;
   }
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   if (bearerToken) {
-    headers['Authorization'] = `Bearer ${bearerToken}`;
+    headers["Authorization"] = `Bearer ${bearerToken}`;
   }
 
   const response = await fetch(callbackUrl, {
-    method: 'POST',
+    method: "POST",
     headers,
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
   });
 
   if (!response.ok) {
-    const body = await response.text().catch(() => '<unreadable>');
+    const body = await response.text().catch(() => "<unreadable>");
     log.error(
       { status: response.status, body, callbackUrl, chatId: payload.chatId },
-      'Channel reply delivery failed',
+      "Channel reply delivery failed",
     );
-    throw new Error(`Channel reply delivery failed (${response.status}): ${body}`);
+    throw new Error(
+      `Channel reply delivery failed (${response.status}): ${body}`,
+    );
   }
 
   if (payload.chatAction) {
     log.debug(
       { chatId: payload.chatId, callbackUrl, chatAction: payload.chatAction },
-      'Channel action delivered',
+      "Channel action delivered",
     );
   } else {
-    log.info({ chatId: payload.chatId, callbackUrl }, 'Channel reply delivered');
+    log.info(
+      { chatId: payload.chatId, callbackUrl },
+      "Channel reply delivered",
+    );
   }
 }
 
@@ -85,31 +93,35 @@ function parseManagedOutboundCallback(
     return null;
   }
 
-  const normalizedPath = parsed.pathname.endsWith('/')
+  const normalizedPath = parsed.pathname.endsWith("/")
     ? parsed.pathname
     : `${parsed.pathname}/`;
   if (normalizedPath !== MANAGED_OUTBOUND_SEND_PATH) {
     return null;
   }
 
-  const routeId = parsed.searchParams.get('route_id')?.trim();
-  const assistantId = parsed.searchParams.get('assistant_id')?.trim();
-  const sourceChannel = parsed.searchParams.get('source_channel')?.trim();
+  const routeId = parsed.searchParams.get("route_id")?.trim();
+  const assistantId = parsed.searchParams.get("assistant_id")?.trim();
+  const sourceChannel = parsed.searchParams.get("source_channel")?.trim();
 
-  if (!routeId || !assistantId || (sourceChannel !== 'sms' && sourceChannel !== 'voice')) {
+  if (
+    !routeId ||
+    !assistantId ||
+    (sourceChannel !== "sms" && sourceChannel !== "voice")
+  ) {
     throw new Error(
-      'Managed outbound callback URL is missing required route_id, assistant_id, or source_channel.',
+      "Managed outbound callback URL is missing required route_id, assistant_id, or source_channel.",
     );
   }
 
-  const sourceUpdateId = parsed.searchParams.get('source_update_id')?.trim();
-  const callbackToken = parsed.searchParams.get('callback_token')?.trim();
+  const sourceUpdateId = parsed.searchParams.get("source_update_id")?.trim();
+  const callbackToken = parsed.searchParams.get("callback_token")?.trim();
 
-  parsed.searchParams.delete('route_id');
-  parsed.searchParams.delete('assistant_id');
-  parsed.searchParams.delete('source_channel');
-  parsed.searchParams.delete('source_update_id');
-  parsed.searchParams.delete('callback_token');
+  parsed.searchParams.delete("route_id");
+  parsed.searchParams.delete("assistant_id");
+  parsed.searchParams.delete("source_channel");
+  parsed.searchParams.delete("source_update_id");
+  parsed.searchParams.delete("callback_token");
 
   return {
     requestUrl: parsed.toString(),
@@ -126,33 +138,42 @@ async function deliverManagedOutboundReply(
   payload: ChannelReplyPayload,
   bearerToken?: string,
 ): Promise<void> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   if (callback.callbackToken) {
     headers[MANAGED_CALLBACK_TOKEN_HEADER] = callback.callbackToken;
   } else if (bearerToken) {
     headers.Authorization = `Bearer ${bearerToken}`;
   }
 
-  const hasAttachments = Array.isArray(payload.attachments) && payload.attachments.length > 0;
+  const hasAttachments =
+    Array.isArray(payload.attachments) && payload.attachments.length > 0;
   const text = payload.approval?.plainTextFallback ?? payload.text;
   const normalizedText =
-    typeof text === 'string' && text.trim().length > 0
+    typeof text === "string" && text.trim().length > 0
       ? text
       : hasAttachments
         ? SMS_ATTACHMENTS_FALLBACK_TEXT
-        : '';
+        : "";
   if (!normalizedText) {
-    throw new Error('Managed outbound delivery requires text or plainTextFallback.');
+    throw new Error(
+      "Managed outbound delivery requires text or plainTextFallback.",
+    );
   }
 
-  const requestId = buildManagedOutboundRequestId(callback, payload, normalizedText);
+  const requestId = buildManagedOutboundRequestId(
+    callback,
+    payload,
+    normalizedText,
+  );
   headers[MANAGED_IDEMPOTENCY_HEADER] = requestId;
 
   const requestBody = JSON.stringify({
     route_id: callback.routeId,
     assistant_id: callback.assistantId,
     normalized_send: {
-      version: 'v1',
+      version: "v1",
       sourceChannel: callback.sourceChannel,
       message: {
         to: payload.chatId,
@@ -177,7 +198,7 @@ async function deliverManagedOutboundReply(
     let response: Response;
     try {
       response = await fetch(callback.requestUrl, {
-        method: 'POST',
+        method: "POST",
         headers,
         body: requestBody,
         signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
@@ -195,7 +216,7 @@ async function deliverManagedOutboundReply(
             retryDelayMs,
             error,
           },
-          'Managed outbound delivery attempt failed before response; retrying',
+          "Managed outbound delivery attempt failed before response; retrying",
         );
         await sleep(retryDelayMs);
         continue;
@@ -213,13 +234,17 @@ async function deliverManagedOutboundReply(
           chatId: payload.chatId,
           attempt,
         },
-        'Managed outbound delivery accepted',
+        "Managed outbound delivery accepted",
       );
       return;
     }
 
-    const responseBody = await response.text().catch(() => '<unreadable>');
-    if (response.status >= 500 && response.status < 600 && attempt < MANAGED_OUTBOUND_MAX_ATTEMPTS) {
+    const responseBody = await response.text().catch(() => "<unreadable>");
+    if (
+      response.status >= 500 &&
+      response.status < 600 &&
+      attempt < MANAGED_OUTBOUND_MAX_ATTEMPTS
+    ) {
       const retryDelayMs = MANAGED_OUTBOUND_RETRY_BASE_MS * attempt;
       log.warn(
         {
@@ -232,7 +257,7 @@ async function deliverManagedOutboundReply(
           responseBody,
           retryDelayMs,
         },
-        'Managed outbound delivery got retriable upstream response; retrying',
+        "Managed outbound delivery got retriable upstream response; retrying",
       );
       await sleep(retryDelayMs);
       continue;
@@ -248,9 +273,11 @@ async function deliverManagedOutboundReply(
         chatId: payload.chatId,
         attempt,
       },
-      'Managed outbound delivery failed',
+      "Managed outbound delivery failed",
     );
-    throw new Error(`Managed outbound delivery failed (${response.status}): ${responseBody}`);
+    throw new Error(
+      `Managed outbound delivery failed (${response.status}): ${responseBody}`,
+    );
   }
 }
 
@@ -271,21 +298,23 @@ function buildManagedOutboundRequestId(
       text: normalizedText,
       assistantId: payload.assistantId ?? null,
       chatAction: payload.chatAction ?? null,
-      hasAttachments: Array.isArray(payload.attachments) && payload.attachments.length > 0,
+      hasAttachments:
+        Array.isArray(payload.attachments) && payload.attachments.length > 0,
       approvalRequestId: payload.approval?.requestId ?? null,
-      approvalActions: payload.approval?.actions.map(action => action.id) ?? null,
+      approvalActions:
+        payload.approval?.actions.map((action) => action.id) ?? null,
     },
   });
 
-  const digest = createHash('sha256')
+  const digest = createHash("sha256")
     .update(bodyMaterial)
-    .digest('hex')
+    .digest("hex")
     .slice(0, 40);
   return `mgw-send-${digest}`;
 }
 
 async function sleep(ms: number): Promise<void> {
-  await new Promise(resolve => {
+  await new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
 }
@@ -302,5 +331,9 @@ export async function deliverApprovalPrompt(
   assistantId?: string,
   bearerToken?: string,
 ): Promise<void> {
-  await deliverChannelReply(callbackUrl, { chatId, text, approval, assistantId }, bearerToken);
+  await deliverChannelReply(
+    callbackUrl,
+    { chatId, text, approval, assistantId },
+    bearerToken,
+  );
 }

@@ -59,7 +59,11 @@ export function resolveProviderSelection(
   }
 
   if (ordered.length === 0) {
-    return { availableProviders: [], selectedPrimary: null, usedFallbackPrimary: false };
+    return {
+      availableProviders: [],
+      selectedPrimary: null,
+      usedFallbackPrimary: false,
+    };
   }
 
   return {
@@ -78,7 +82,10 @@ export function resolveProviderSelection(
  * Throws ConfigError only when NO providers are available at all.
  * Caches the FailoverProvider instance so health state persists across calls.
  */
-export function getFailoverProvider(primaryName: string, providerOrder: string[]): Provider {
+export function getFailoverProvider(
+  primaryName: string,
+  providerOrder: string[],
+): Provider {
   const selection = resolveProviderSelection(primaryName, providerOrder);
 
   if (!selection.selectedPrimary) {
@@ -96,7 +103,7 @@ export function getFailoverProvider(primaryName: string, providerOrder: string[]
   }
 
   // Cache key from effective ordered providers (not raw input strings)
-  const cacheKey = selection.availableProviders.join(',');
+  const cacheKey = selection.availableProviders.join(",");
   if (cachedFailoverProvider && cachedFailoverKey === cacheKey) {
     return cachedFailoverProvider;
   }
@@ -130,7 +137,10 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
   if (config.provider === providerName) {
     // If a non-Anthropic provider is selected with the untouched global default
     // model, use a provider-appropriate fallback instead.
-    if (providerName !== 'anthropic' && config.model === getProviderDefaultModel('anthropic')) {
+    if (
+      providerName !== "anthropic" &&
+      config.model === getProviderDefaultModel("anthropic")
+    ) {
       return getProviderDefaultModel(providerName);
     }
     return config.model;
@@ -144,7 +154,7 @@ export interface ProviderDebugStatus {
   usedFallback: boolean;
   registeredProviders: string[];
   failoverHealth: ProviderHealthStatus[] | null;
-  overallHealth: 'healthy' | 'degraded' | 'down';
+  overallHealth: "healthy" | "degraded" | "down";
 }
 
 export function getProviderDebugStatus(
@@ -159,16 +169,16 @@ export function getProviderDebugStatus(
     failoverHealth = cachedFailoverProvider.getHealthStatus();
   }
 
-  let overallHealth: 'healthy' | 'degraded' | 'down' = 'down';
+  let overallHealth: "healthy" | "degraded" | "down" = "down";
   if (registered.length > 0 && selection.selectedPrimary) {
     if (!failoverHealth) {
-      overallHealth = 'healthy';
+      overallHealth = "healthy";
     } else {
       const healthyCount = failoverHealth.filter((h) => h.healthy).length;
       if (healthyCount === failoverHealth.length) {
-        overallHealth = 'healthy';
+        overallHealth = "healthy";
       } else if (healthyCount > 0) {
-        overallHealth = 'degraded';
+        overallHealth = "degraded";
       }
     }
   }
@@ -188,45 +198,83 @@ export function initializeProviders(config: ProvidersConfig): void {
   cachedFailoverProvider = null;
   cachedFailoverKey = null;
 
-  const streamTimeoutMs = (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000;
+  const streamTimeoutMs =
+    (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000;
 
   if (config.apiKeys.anthropic) {
-    const model = resolveModel(config, 'anthropic');
-    registerProvider('anthropic', new RetryProvider(
-      wrapWithLogfire(new AnthropicProvider(config.apiKeys.anthropic, model, {
-        useNativeWebSearch: config.webSearchProvider === 'anthropic-native',
-        streamTimeoutMs,
-      })),
-    ));
+    const model = resolveModel(config, "anthropic");
+    registerProvider(
+      "anthropic",
+      new RetryProvider(
+        wrapWithLogfire(
+          new AnthropicProvider(config.apiKeys.anthropic, model, {
+            useNativeWebSearch: config.webSearchProvider === "anthropic-native",
+            streamTimeoutMs,
+          }),
+        ),
+      ),
+    );
   }
   if (config.apiKeys.openai) {
-    const model = resolveModel(config, 'openai');
-    registerProvider('openai', new RetryProvider(
-      wrapWithLogfire(new OpenAIProvider(config.apiKeys.openai, model, { streamTimeoutMs })),
-    ));
+    const model = resolveModel(config, "openai");
+    registerProvider(
+      "openai",
+      new RetryProvider(
+        wrapWithLogfire(
+          new OpenAIProvider(config.apiKeys.openai, model, { streamTimeoutMs }),
+        ),
+      ),
+    );
   }
   if (config.apiKeys.gemini) {
-    const model = resolveModel(config, 'gemini');
-    registerProvider('gemini', new RetryProvider(
-      wrapWithLogfire(new GeminiProvider(config.apiKeys.gemini, model, { streamTimeoutMs })),
-    ));
+    const model = resolveModel(config, "gemini");
+    registerProvider(
+      "gemini",
+      new RetryProvider(
+        wrapWithLogfire(
+          new GeminiProvider(config.apiKeys.gemini, model, { streamTimeoutMs }),
+        ),
+      ),
+    );
   }
-  if (config.provider === 'ollama' || config.apiKeys.ollama) {
-    const model = resolveModel(config, 'ollama');
-    registerProvider('ollama', new RetryProvider(
-      wrapWithLogfire(new OllamaProvider(model, { apiKey: config.apiKeys.ollama, streamTimeoutMs })),
-    ));
+  if (config.provider === "ollama" || config.apiKeys.ollama) {
+    const model = resolveModel(config, "ollama");
+    registerProvider(
+      "ollama",
+      new RetryProvider(
+        wrapWithLogfire(
+          new OllamaProvider(model, {
+            apiKey: config.apiKeys.ollama,
+            streamTimeoutMs,
+          }),
+        ),
+      ),
+    );
   }
   if (config.apiKeys.fireworks) {
-    const model = resolveModel(config, 'fireworks');
-    registerProvider('fireworks', new RetryProvider(
-      wrapWithLogfire(new FireworksProvider(config.apiKeys.fireworks, model, { streamTimeoutMs })),
-    ));
+    const model = resolveModel(config, "fireworks");
+    registerProvider(
+      "fireworks",
+      new RetryProvider(
+        wrapWithLogfire(
+          new FireworksProvider(config.apiKeys.fireworks, model, {
+            streamTimeoutMs,
+          }),
+        ),
+      ),
+    );
   }
   if (config.apiKeys.openrouter) {
-    const model = resolveModel(config, 'openrouter');
-    registerProvider('openrouter', new RetryProvider(
-      wrapWithLogfire(new OpenRouterProvider(config.apiKeys.openrouter, model, { streamTimeoutMs })),
-    ));
+    const model = resolveModel(config, "openrouter");
+    registerProvider(
+      "openrouter",
+      new RetryProvider(
+        wrapWithLogfire(
+          new OpenRouterProvider(config.apiKeys.openrouter, model, {
+            streamTimeoutMs,
+          }),
+        ),
+      ),
+    );
   }
 }

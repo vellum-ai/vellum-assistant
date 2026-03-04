@@ -1,33 +1,96 @@
-import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
-import type { ModelIntent } from '../providers/types.js';
-import { truncate } from '../util/truncate.js';
+import {
+  createTimeout,
+  extractToolUse,
+  getConfiguredProvider,
+  userMessage,
+} from "../providers/provider-send-message.js";
+import type { ModelIntent } from "../providers/types.js";
+import { truncate } from "../util/truncate.js";
 
-const DEFAULT_RESOLVER_MODEL_INTENT: ModelIntent = 'latency-optimized';
+const DEFAULT_RESOLVER_MODEL_INTENT: ModelIntent = "latency-optimized";
 const DEFAULT_RESOLVER_TIMEOUT_MS = 12_000;
 
-const DIRECTIONAL_EXISTING_CUES = ['existing', 'old', 'previous', 'first', 'earlier', 'original'];
-const DIRECTIONAL_CANDIDATE_CUES = ['candidate', 'new', 'latest', 'second', 'updated', 'instead', 'replace'];
-const MERGE_CUES = ['both', 'merge', 'combine', 'together', 'depends', 'either', 'mix'];
+const DIRECTIONAL_EXISTING_CUES = [
+  "existing",
+  "old",
+  "previous",
+  "first",
+  "earlier",
+  "original",
+];
+const DIRECTIONAL_CANDIDATE_CUES = [
+  "candidate",
+  "new",
+  "latest",
+  "second",
+  "updated",
+  "instead",
+  "replace",
+];
+const MERGE_CUES = [
+  "both",
+  "merge",
+  "combine",
+  "together",
+  "depends",
+  "either",
+  "mix",
+];
 
 const STOP_WORDS = new Set([
-  'about', 'after', 'again', 'also', 'because', 'been', 'before', 'being', 'between',
-  'could', 'doing', 'from', 'have', 'into', 'just', 'more', 'most', 'only', 'over',
-  'same', 'should', 'some', 'than', 'that', 'their', 'there', 'these', 'they', 'this',
-  'those', 'were', 'what', 'when', 'where', 'which', 'while', 'with', 'would', 'your',
+  "about",
+  "after",
+  "again",
+  "also",
+  "because",
+  "been",
+  "before",
+  "being",
+  "between",
+  "could",
+  "doing",
+  "from",
+  "have",
+  "into",
+  "just",
+  "more",
+  "most",
+  "only",
+  "over",
+  "same",
+  "should",
+  "some",
+  "than",
+  "that",
+  "their",
+  "there",
+  "these",
+  "they",
+  "this",
+  "those",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "with",
+  "would",
+  "your",
 ]);
 
 export type ClarificationResolution =
-  | 'keep_existing'
-  | 'keep_candidate'
-  | 'merge'
-  | 'still_unclear';
+  | "keep_existing"
+  | "keep_candidate"
+  | "merge"
+  | "still_unclear";
 
 export type ClarificationStrategy =
-  | 'heuristic'
-  | 'llm'
-  | 'llm_timeout'
-  | 'llm_error'
-  | 'no_llm_key';
+  | "heuristic"
+  | "llm"
+  | "llm_timeout"
+  | "llm_error"
+  | "no_llm_key";
 
 export interface ClarificationResolverInput {
   existingStatement: string;
@@ -59,10 +122,11 @@ export async function resolveConflictClarification(
   const provider = getConfiguredProvider();
   if (!provider) {
     return {
-      resolution: 'still_unclear',
-      strategy: 'no_llm_key',
+      resolution: "still_unclear",
+      strategy: "no_llm_key",
       resolvedStatement: null,
-      explanation: 'Configured provider unavailable for clarification fallback.',
+      explanation:
+        "Configured provider unavailable for clarification fallback.",
     };
   }
 
@@ -74,92 +138,115 @@ export async function resolveConflictClarification(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message === 'clarification_resolver_timeout') {
+    if (message === "clarification_resolver_timeout") {
       return {
-        resolution: 'still_unclear',
-        strategy: 'llm_timeout',
+        resolution: "still_unclear",
+        strategy: "llm_timeout",
         resolvedStatement: null,
-        explanation: 'Clarification resolver timed out.',
+        explanation: "Clarification resolver timed out.",
       };
     }
     return {
-      resolution: 'still_unclear',
-      strategy: 'llm_error',
+      resolution: "still_unclear",
+      strategy: "llm_error",
       resolvedStatement: null,
-      explanation: `Clarification resolver failed: ${truncate(message, 300, '')}`,
+      explanation: `Clarification resolver failed: ${truncate(
+        message,
+        300,
+        "",
+      )}`,
     };
   }
 }
 
-function resolveWithHeuristics(input: ClarificationResolverInput): ClarificationResolverResult | null {
+function resolveWithHeuristics(
+  input: ClarificationResolverInput,
+): ClarificationResolverResult | null {
   const normalizedMessage = normalize(input.userMessage);
   if (!normalizedMessage) return null;
 
   const lowerMessage = normalizedMessage.toLowerCase();
 
-  const hasExistingCue = containsAnyCue(lowerMessage, DIRECTIONAL_EXISTING_CUES);
-  const hasCandidateCue = containsAnyCue(lowerMessage, DIRECTIONAL_CANDIDATE_CUES);
+  const hasExistingCue = containsAnyCue(
+    lowerMessage,
+    DIRECTIONAL_EXISTING_CUES,
+  );
+  const hasCandidateCue = containsAnyCue(
+    lowerMessage,
+    DIRECTIONAL_CANDIDATE_CUES,
+  );
   const hasMergeCue = containsAnyCue(lowerMessage, MERGE_CUES);
 
   // When multiple cue categories match, delegate to LLM to avoid misclassification
-  const matchCount = [hasExistingCue, hasCandidateCue, hasMergeCue].filter(Boolean).length;
+  const matchCount = [hasExistingCue, hasCandidateCue, hasMergeCue].filter(
+    Boolean,
+  ).length;
   if (matchCount > 1) return null;
 
   if (hasMergeCue) {
     return {
-      resolution: 'merge',
-      strategy: 'heuristic',
+      resolution: "merge",
+      strategy: "heuristic",
       resolvedStatement: buildMergedStatement(input),
-      explanation: 'User response includes merge cues.',
+      explanation: "User response includes merge cues.",
     };
   }
 
   if (hasExistingCue) {
     return {
-      resolution: 'keep_existing',
-      strategy: 'heuristic',
+      resolution: "keep_existing",
+      strategy: "heuristic",
       resolvedStatement: null,
-      explanation: 'User response explicitly points to existing/old statement.',
+      explanation: "User response explicitly points to existing/old statement.",
     };
   }
 
   if (hasCandidateCue) {
     return {
-      resolution: 'keep_candidate',
-      strategy: 'heuristic',
+      resolution: "keep_candidate",
+      strategy: "heuristic",
       resolvedStatement: null,
-      explanation: 'User response explicitly points to candidate/new statement.',
+      explanation:
+        "User response explicitly points to candidate/new statement.",
     };
   }
 
   const messageTokens = tokenize(normalizedMessage);
-  const existingOverlap = overlapScore(messageTokens, tokenize(input.existingStatement));
-  const candidateOverlap = overlapScore(messageTokens, tokenize(input.candidateStatement));
+  const existingOverlap = overlapScore(
+    messageTokens,
+    tokenize(input.existingStatement),
+  );
+  const candidateOverlap = overlapScore(
+    messageTokens,
+    tokenize(input.candidateStatement),
+  );
 
   if (existingOverlap >= 2 && existingOverlap >= candidateOverlap + 1) {
     return {
-      resolution: 'keep_existing',
-      strategy: 'heuristic',
+      resolution: "keep_existing",
+      strategy: "heuristic",
       resolvedStatement: null,
-      explanation: 'User response overlaps more with existing statement details.',
+      explanation:
+        "User response overlaps more with existing statement details.",
     };
   }
 
   if (candidateOverlap >= 2 && candidateOverlap >= existingOverlap + 1) {
     return {
-      resolution: 'keep_candidate',
-      strategy: 'heuristic',
+      resolution: "keep_candidate",
+      strategy: "heuristic",
       resolvedStatement: null,
-      explanation: 'User response overlaps more with candidate statement details.',
+      explanation:
+        "User response overlaps more with candidate statement details.",
     };
   }
 
   if (existingOverlap > 0 && candidateOverlap > 0) {
     return {
-      resolution: 'merge',
-      strategy: 'heuristic',
+      resolution: "merge",
+      strategy: "heuristic",
       resolvedStatement: buildMergedStatement(input),
-      explanation: 'User response overlaps with both statements.',
+      explanation: "User response overlaps with both statements.",
     };
   }
 
@@ -172,53 +259,66 @@ async function resolveWithLlm(
 ): Promise<ClarificationResolverResult> {
   const provider = getConfiguredProvider()!;
   const userPrompt = [
-    'You are resolving a memory clarification response.',
-    '',
+    "You are resolving a memory clarification response.",
+    "",
     `Existing statement: ${input.existingStatement}`,
     `Candidate statement: ${input.candidateStatement}`,
     `User clarification: ${input.userMessage}`,
-  ].join('\n');
+  ].join("\n");
 
   const { signal, cleanup } = createTimeout(options.timeoutMs);
 
   try {
     const response = await provider.sendMessage(
       [userMessage(userPrompt)],
-      [{
-        name: 'resolve_conflict_clarification',
-        description: 'Resolve a pending memory contradiction using user clarification.',
-        input_schema: {
-          type: 'object' as const,
-          properties: {
-            resolution: {
-              type: 'string',
-              enum: ['keep_existing', 'keep_candidate', 'merge', 'still_unclear'],
-            },
-            resolved_statement: {
-              type: 'string',
-              description: 'Required only when resolution is merge.',
-            },
-            explanation: {
-              type: 'string',
-              description: 'One short rationale for the classification.',
-            },
-          },
-          required: ['resolution', 'explanation'],
-        },
-      }],
       [
-        'Classify the user clarification for conflicting memory statements.',
-        'Return exactly one resolution:',
-        '- keep_existing',
-        '- keep_candidate',
-        '- merge',
-        '- still_unclear',
-      ].join('\n'),
+        {
+          name: "resolve_conflict_clarification",
+          description:
+            "Resolve a pending memory contradiction using user clarification.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              resolution: {
+                type: "string",
+                enum: [
+                  "keep_existing",
+                  "keep_candidate",
+                  "merge",
+                  "still_unclear",
+                ],
+              },
+              resolved_statement: {
+                type: "string",
+                description: "Required only when resolution is merge.",
+              },
+              explanation: {
+                type: "string",
+                description: "One short rationale for the classification.",
+              },
+            },
+            required: ["resolution", "explanation"],
+          },
+        },
+      ],
+      [
+        "Classify the user clarification for conflicting memory statements.",
+        "Return exactly one resolution:",
+        "- keep_existing",
+        "- keep_candidate",
+        "- merge",
+        "- still_unclear",
+      ].join("\n"),
       {
         config: {
-          ...(options.model ? { model: options.model } : { modelIntent: options.modelIntent }),
+          ...(options.model
+            ? { model: options.model }
+            : { modelIntent: options.modelIntent }),
           max_tokens: 256,
-          tool_choice: { type: 'tool' as const, name: 'resolve_conflict_clarification' },
+          tool_choice: {
+            type: "tool" as const,
+            name: "resolve_conflict_clarification",
+          },
         },
         signal,
       },
@@ -227,7 +327,7 @@ async function resolveWithLlm(
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) {
-      throw new Error('No tool_use block in clarification resolver response.');
+      throw new Error("No tool_use block in clarification resolver response.");
     }
 
     const parsed = toolBlock.input as {
@@ -237,33 +337,45 @@ async function resolveWithLlm(
     };
 
     if (!isResolution(parsed.resolution)) {
-      throw new Error(`Invalid clarification resolution: ${String(parsed.resolution)}`);
+      throw new Error(
+        `Invalid clarification resolution: ${String(parsed.resolution)}`,
+      );
     }
 
-    const resolvedStatement = parsed.resolution === 'merge'
-      ? normalize(parsed.resolved_statement ?? buildMergedStatement(input)) || buildMergedStatement(input)
-      : null;
+    const resolvedStatement =
+      parsed.resolution === "merge"
+        ? normalize(parsed.resolved_statement ?? buildMergedStatement(input)) ||
+          buildMergedStatement(input)
+        : null;
 
     return {
       resolution: parsed.resolution,
-      strategy: 'llm',
+      strategy: "llm",
       resolvedStatement,
-      explanation: truncate(normalize(parsed.explanation ?? 'Resolved via LLM fallback.'), 500, ''),
+      explanation: truncate(
+        normalize(parsed.explanation ?? "Resolved via LLM fallback."),
+        500,
+        "",
+      ),
     };
   } catch (err) {
     cleanup();
     if (signal.aborted) {
-      throw new Error('clarification_resolver_timeout');
+      throw new Error("clarification_resolver_timeout");
     }
     throw err;
   }
 }
 
-function isResolution(value: string | undefined): value is ClarificationResolution {
-  return value === 'keep_existing'
-    || value === 'keep_candidate'
-    || value === 'merge'
-    || value === 'still_unclear';
+function isResolution(
+  value: string | undefined,
+): value is ClarificationResolution {
+  return (
+    value === "keep_existing" ||
+    value === "keep_candidate" ||
+    value === "merge" ||
+    value === "still_unclear"
+  );
 }
 
 function containsAnyCue(input: string, cues: readonly string[]): boolean {
@@ -288,15 +400,18 @@ function tokenize(input: string): Set<string> {
 }
 
 function normalize(input: string): string {
-  return input.replace(/\s+/g, ' ').trim();
+  return input.replace(/\s+/g, " ").trim();
 }
 
 function buildMergedStatement(input: ClarificationResolverInput): string {
   const normalizedUserMessage = normalize(input.userMessage);
-  if (normalizedUserMessage.length >= 8 && normalizedUserMessage.length <= 320) {
+  if (
+    normalizedUserMessage.length >= 8 &&
+    normalizedUserMessage.length <= 320
+  ) {
     return normalizedUserMessage;
   }
-  const existing = truncate(normalize(input.existingStatement), 140, '');
-  const candidate = truncate(normalize(input.candidateStatement), 140, '');
-  return truncate(`Merged clarification: ${existing}; ${candidate}`, 320, '');
+  const existing = truncate(normalize(input.existingStatement), 140, "");
+  const candidate = truncate(normalize(input.candidateStatement), 140, "");
+  return truncate(`Merged clarification: ${existing}; ${candidate}`, 320, "");
 }

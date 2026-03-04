@@ -1,5 +1,5 @@
-import { getSubagentManager } from '../../subagent/index.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { getSubagentManager } from "../../subagent/index.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeSubagentMessage(
   input: Record<string, unknown>,
@@ -9,7 +9,10 @@ export async function executeSubagentMessage(
   const content = input.content as string;
 
   if (!subagentId || !content) {
-    return { content: 'Both "subagent_id" and "content" are required.', isError: true };
+    return {
+      content: 'Both "subagent_id" and "content" are required.',
+      isError: true,
+    };
   }
 
   const manager = getSubagentManager();
@@ -25,21 +28,21 @@ export async function executeSubagentMessage(
 
   const result = await manager.sendMessage(subagentId, content);
 
-  if (result === 'queue_full') {
+  if (result === "queue_full") {
     return {
       content: `Subagent "${subagentId}" message queue is full. Please wait for current messages to be processed.`,
       isError: true,
     };
   }
 
-  if (result === 'empty') {
+  if (result === "empty") {
     return {
-      content: 'Message content is empty or whitespace-only.',
+      content: "Message content is empty or whitespace-only.",
       isError: true,
     };
   }
 
-  if (result !== 'sent') {
+  if (result !== "sent") {
     return {
       content: `Could not send message to subagent "${subagentId}". It may not exist or be in a terminal state.`,
       isError: true,
@@ -47,7 +50,10 @@ export async function executeSubagentMessage(
   }
 
   return {
-    content: JSON.stringify({ subagentId, message: 'Message sent to subagent.' }),
+    content: JSON.stringify({
+      subagentId,
+      message: "Message sent to subagent.",
+    }),
     isError: false,
   };
 }

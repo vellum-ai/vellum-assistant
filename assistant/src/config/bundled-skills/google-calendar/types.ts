@@ -9,7 +9,7 @@ export interface EventDateTime {
 export interface EventAttendee {
   email: string;
   displayName?: string;
-  responseStatus?: 'needsAction' | 'declined' | 'tentative' | 'accepted';
+  responseStatus?: "needsAction" | "declined" | "tentative" | "accepted";
   self?: boolean;
   organizer?: boolean;
   optional?: boolean;
@@ -25,7 +25,7 @@ export interface EventOrganizer {
 /** A single Google Calendar event. */
 export interface CalendarEvent {
   id: string;
-  status?: 'confirmed' | 'tentative' | 'cancelled';
+  status?: "confirmed" | "tentative" | "cancelled";
   summary?: string;
   description?: string;
   location?: string;
@@ -87,7 +87,7 @@ export interface CalendarListEntry {
   description?: string;
   timeZone?: string;
   primary?: boolean;
-  accessRole?: 'freeBusyReader' | 'reader' | 'writer' | 'owner';
+  accessRole?: "freeBusyReader" | "reader" | "writer" | "owner";
 }
 
 /** Calendar list response. */

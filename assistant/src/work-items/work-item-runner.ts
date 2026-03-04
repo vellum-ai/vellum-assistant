@@ -6,15 +6,22 @@
  * work item execution without needing direct access to HandlerContext.
  */
 
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import type { Session } from '../daemon/session.js';
-import { runTask } from '../tasks/task-runner.js';
-import { getTask } from '../tasks/task-store.js';
-import { getRegisteredToolNames,sanitizeToolList } from '../tasks/tool-sanitizer.js';
-import { getLogger } from '../util/logger.js';
-import { getWorkItem, updateWorkItem, type WorkItemStatus } from './work-item-store.js';
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { Session } from "../daemon/session.js";
+import { runTask } from "../tasks/task-runner.js";
+import { getTask } from "../tasks/task-store.js";
+import {
+  getRegisteredToolNames,
+  sanitizeToolList,
+} from "../tasks/tool-sanitizer.js";
+import { getLogger } from "../util/logger.js";
+import {
+  getWorkItem,
+  updateWorkItem,
+  type WorkItemStatus,
+} from "./work-item-store.js";
 
-const log = getLogger('work-item-runner');
+const log = getLogger("work-item-runner");
 
 // ── Daemon callback registry ─────────────────────────────────────────
 
@@ -31,11 +38,14 @@ export function registerDaemonCallbacks(callbacks: DaemonCallbacks): void {
 
 // ── Public API ───────────────────────────────────────────────────────
 
-function broadcastWorkItemStatus(broadcast: (msg: ServerMessage) => void, id: string): void {
+function broadcastWorkItemStatus(
+  broadcast: (msg: ServerMessage) => void,
+  id: string,
+): void {
   const item = getWorkItem(id);
   if (item) {
     broadcast({
-      type: 'work_item_status_changed',
+      type: "work_item_status_changed",
       item: {
         id: item.id,
         taskId: item.taskId,
@@ -65,26 +75,46 @@ export interface RunWorkItemResult {
  */
 export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
   if (!_callbacks) {
-    return { success: false, error: 'Daemon callbacks not registered', errorCode: 'not_initialized' };
+    return {
+      success: false,
+      error: "Daemon callbacks not registered",
+      errorCode: "not_initialized",
+    };
   }
 
   const workItem = getWorkItem(workItemId);
   if (!workItem) {
-    return { success: false, error: 'Work item not found', errorCode: 'not_found' };
+    return {
+      success: false,
+      error: "Work item not found",
+      errorCode: "not_found",
+    };
   }
 
-  if (workItem.status === 'running') {
-    return { success: false, error: 'Work item is already running', errorCode: 'already_running' };
+  if (workItem.status === "running") {
+    return {
+      success: false,
+      error: "Work item is already running",
+      errorCode: "already_running",
+    };
   }
 
-  const NON_RUNNABLE_STATUSES: readonly string[] = ['archived'];
+  const NON_RUNNABLE_STATUSES: readonly string[] = ["archived"];
   if (NON_RUNNABLE_STATUSES.includes(workItem.status)) {
-    return { success: false, error: `Work item has status '${workItem.status}' and cannot be run`, errorCode: 'invalid_status' };
+    return {
+      success: false,
+      error: `Work item has status '${workItem.status}' and cannot be run`,
+      errorCode: "invalid_status",
+    };
   }
 
   const task = getTask(workItem.taskId);
   if (!task) {
-    return { success: false, error: `Associated task not found: ${workItem.taskId}`, errorCode: 'no_task' };
+    return {
+      success: false,
+      error: `Associated task not found: ${workItem.taskId}`,
+      errorCode: "no_task",
+    };
   }
 
   // Resolve required tools
@@ -102,13 +132,13 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
   const approvedTools = requiredTools;
 
   // Set status to running
-  updateWorkItem(workItemId, { status: 'running' });
+  updateWorkItem(workItemId, { status: "running" });
 
   const { getOrCreateSession, broadcast } = _callbacks;
 
   // Broadcast the running state
   broadcastWorkItemStatus(broadcast, workItemId);
-  broadcast({ type: 'tasks_changed' } as ServerMessage);
+  broadcast({ type: "tasks_changed" } as ServerMessage);
 
   // Execute asynchronously
   let session: Awaited<ReturnType<typeof getOrCreateSession>> | null = null;
@@ -118,11 +148,13 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
         { taskId: workItem.taskId, workingDir: process.cwd(), approvedTools },
         async (conversationId, message, taskRunId) => {
           if (!session) {
-            updateWorkItem(workItemId, { lastRunConversationId: conversationId });
+            updateWorkItem(workItemId, {
+              lastRunConversationId: conversationId,
+            });
             session = await getOrCreateSession(conversationId);
 
             broadcast({
-              type: 'task_run_thread_created',
+              type: "task_run_thread_created",
               conversationId,
               workItemId,
               title: workItem.title,
@@ -143,8 +175,9 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
       }
 
       const current = getWorkItem(workItemId);
-      if (current?.status !== 'cancelled') {
-        const finalStatus: WorkItemStatus = result.status === 'completed' ? 'awaiting_review' : 'failed';
+      if (current?.status !== "cancelled") {
+        const finalStatus: WorkItemStatus =
+          result.status === "completed" ? "awaiting_review" : "failed";
         updateWorkItem(workItemId, {
           status: finalStatus,
           lastRunId: result.taskRunId,
@@ -154,19 +187,19 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
       }
 
       broadcastWorkItemStatus(broadcast, workItemId);
-      broadcast({ type: 'tasks_changed' } as ServerMessage);
+      broadcast({ type: "tasks_changed" } as ServerMessage);
     } catch (err) {
       const errSession = session as { headlessLock: boolean } | null;
       if (errSession) {
         errSession.headlessLock = false;
       }
-      log.error({ err, workItemId }, 'work item background run failed');
+      log.error({ err, workItemId }, "work item background run failed");
       updateWorkItem(workItemId, {
-        status: 'failed',
-        lastRunStatus: 'failed',
+        status: "failed",
+        lastRunStatus: "failed",
       });
       broadcastWorkItemStatus(broadcast, workItemId);
-      broadcast({ type: 'tasks_changed' } as ServerMessage);
+      broadcast({ type: "tasks_changed" } as ServerMessage);
     }
   })();
 

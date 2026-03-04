@@ -45,9 +45,7 @@ export async function downloadTelegramFile(
   }
 
   const filename =
-    hint?.fileName ||
-    file.file_path.split("/").pop() ||
-    `file_${fileId}`;
+    hint?.fileName || file.file_path.split("/").pop() || `file_${fileId}`;
 
   const buffer = await response.arrayBuffer();
   const detected = await fileTypeFromBuffer(new Uint8Array(buffer));

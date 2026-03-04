@@ -1,4 +1,4 @@
-import type { UsageActor } from './actors.js';
+import type { UsageActor } from "./actors.js";
 
 /**
  * Input data required to record a single LLM usage event.
@@ -22,7 +22,7 @@ export interface UsageEventInput {
  */
 export interface PricingResult {
   estimatedCostUsd: number | null;
-  pricingStatus: 'priced' | 'unpriced';
+  pricingStatus: "priced" | "unpriced";
 }
 
 /**
@@ -33,5 +33,5 @@ export interface UsageEvent extends UsageEventInput {
   id: string;
   createdAt: number;
   estimatedCostUsd: number | null;
-  pricingStatus: 'priced' | 'unpriced';
+  pricingStatus: "priced" | "unpriced";
 }

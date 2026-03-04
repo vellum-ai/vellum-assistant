@@ -218,7 +218,9 @@ async function transcribeViaApi(
 
   try {
     context.onOutput?.(
-      `Large file (${Math.round(duration / 60)}min) — splitting into chunks...\n`,
+      `Large file (${Math.round(
+        duration / 60,
+      )}min) — splitting into chunks...\n`,
     );
     const chunks = await splitAudio(
       audioPath,
@@ -313,7 +315,9 @@ async function transcribeViaLocal(
 
   try {
     context.onOutput?.(
-      `Large file (${Math.round(duration / 60)}min) — splitting into chunks...\n`,
+      `Large file (${Math.round(
+        duration / 60,
+      )}min) — splitting into chunks...\n`,
     );
     const chunks = await splitAudio(audioPath, chunkDir, 600);
     const parts: string[] = [];

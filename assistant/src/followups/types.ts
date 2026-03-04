@@ -1,4 +1,4 @@
-export type FollowUpStatus = 'pending' | 'resolved' | 'overdue' | 'nudged';
+export type FollowUpStatus = "pending" | "resolved" | "overdue" | "nudged";
 
 export interface FollowUp {
   id: string;

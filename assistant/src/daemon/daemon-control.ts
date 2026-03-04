@@ -1,19 +1,27 @@
-import { execSync, spawn } from 'node:child_process';
-import { closeSync,existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { createConnection } from 'node:net';
-import { join, resolve } from 'node:path';
+import { execSync, spawn } from "node:child_process";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { createConnection } from "node:net";
+import { join, resolve } from "node:path";
 
-import { DaemonError } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
+import { DaemonError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
 import {
   getPidPath,
   getRootDir,
   getSocketPath,
   getWorkspaceConfigPath,
   removeSocketFile,
-} from '../util/platform.js';
+} from "../util/platform.js";
 
-const log = getLogger('lifecycle');
+const log = getLogger("lifecycle");
 
 const DAEMON_TIMEOUT_DEFAULTS = {
   startupSocketWaitMs: 5000,
@@ -25,7 +33,7 @@ const SOCKET_HEALTH_TIMEOUT_MS = 1500;
 const STARTUP_LOCK_STALE_MS = 30_000;
 
 function isPositiveInteger(v: unknown): v is number {
-  return typeof v === 'number' && Number.isInteger(v) && v > 0;
+  return typeof v === "number" && Number.isInteger(v) && v > 0;
 }
 
 /**
@@ -36,8 +44,8 @@ function isPositiveInteger(v: unknown): v is number {
  */
 function readDaemonTimeouts(): typeof DAEMON_TIMEOUT_DEFAULTS {
   try {
-    const raw = JSON.parse(readFileSync(getWorkspaceConfigPath(), 'utf-8'));
-    if (raw.daemon && typeof raw.daemon === 'object') {
+    const raw = JSON.parse(readFileSync(getWorkspaceConfigPath(), "utf-8"));
+    if (raw.daemon && typeof raw.daemon === "object") {
       return {
         startupSocketWaitMs: isPositiveInteger(raw.daemon.startupSocketWaitMs)
           ? raw.daemon.startupSocketWaitMs
@@ -73,7 +81,10 @@ function killStaleDaemon(): void {
   // Guard against stale PID reuse: if the PID has been recycled by the OS
   // and now belongs to an unrelated process, we must not signal it.
   if (!isVellumDaemonProcess(pid)) {
-    log.info({ pid }, 'PID file references a non-vellum process (stale PID reuse) — cleaning up PID file only');
+    log.info(
+      { pid },
+      "PID file references a non-vellum process (stale PID reuse) — cleaning up PID file only",
+    );
     cleanupPidFile();
     return;
   }
@@ -82,8 +93,8 @@ function killStaleDaemon(): void {
   // (called earlier in startDaemon) already returns early when the daemon is
   // healthy. If we reach here, the recorded process is alive but non-responsive.
   try {
-    log.info({ pid }, 'Killing stale daemon process from PID file');
-    process.kill(pid, 'SIGKILL');
+    log.info({ pid }, "Killing stale daemon process from PID file");
+    process.kill(pid, "SIGKILL");
   } catch {
     // Process may have exited between the check and the kill.
   }
@@ -107,13 +118,13 @@ function isProcessRunning(pid: number): boolean {
 function isVellumDaemonProcess(pid: number): boolean {
   try {
     const cmd = execSync(`ps -ww -p ${pid} -o command=`, {
-      encoding: 'utf-8',
+      encoding: "utf-8",
       timeout: 3000,
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
     // The daemon is spawned as `bun run <path>/main.ts` — look for bun
     // running our daemon entry point.
-    return cmd.includes('bun') && cmd.includes('daemon/main.ts');
+    return cmd.includes("bun") && cmd.includes("daemon/main.ts");
   } catch {
     // Process exited or ps failed — treat as not ours.
     return false;
@@ -134,12 +145,12 @@ function isSocketResponsive(): Promise<boolean> {
       resolve(false);
     }, SOCKET_HEALTH_TIMEOUT_MS);
 
-    socket.on('connect', () => {
+    socket.on("connect", () => {
       clearTimeout(timer);
       socket.destroy();
       resolve(true);
     });
-    socket.on('error', () => {
+    socket.on("error", () => {
       clearTimeout(timer);
       socket.destroy();
       resolve(false);
@@ -151,7 +162,7 @@ function readPid(): number | null {
   const pidPath = getPidPath();
   if (!existsSync(pidPath)) return null;
   try {
-    const pid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10);
+    const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
     return isNaN(pid) ? null : pid;
   } catch {
     return null;
@@ -188,7 +199,10 @@ export function isDaemonRunning(): boolean {
   return true;
 }
 
-export async function getDaemonStatus(): Promise<{ running: boolean; pid?: number }> {
+export async function getDaemonStatus(): Promise<{
+  running: boolean;
+  pid?: number;
+}> {
   const pid = readPid();
   if (pid == null) return { running: false };
   if (!isProcessRunning(pid)) {
@@ -198,7 +212,10 @@ export async function getDaemonStatus(): Promise<{ running: boolean; pid?: numbe
   // Guard against stale PID reuse: if the OS recycled the PID and it now
   // belongs to an unrelated process, discard the stale PID file.
   if (!isVellumDaemonProcess(pid)) {
-    log.info({ pid }, 'PID file references a non-vellum process (stale PID reuse) — cleaning up');
+    log.info(
+      { pid },
+      "PID file references a non-vellum process (stale PID reuse) — cleaning up",
+    );
     cleanupPidFile();
     return { running: false };
   }
@@ -208,14 +225,14 @@ export async function getDaemonStatus(): Promise<{ running: boolean; pid?: numbe
   // killStaleDaemon() can clean it up.
   const responsive = await isSocketResponsive();
   if (!responsive) {
-    log.warn({ pid }, 'Daemon process alive but socket unresponsive');
+    log.warn({ pid }, "Daemon process alive but socket unresponsive");
     return { running: false, pid };
   }
   return { running: true, pid };
 }
 
 function getStartupLockPath(): string {
-  return join(getRootDir(), 'daemon-startup.lock');
+  return join(getRootDir(), "daemon-startup.lock");
 }
 
 /** Attempt to acquire a startup lock. Returns true on success. Stale locks
@@ -230,12 +247,12 @@ function acquireStartupLock(): boolean {
     // "lock already held."
     mkdirSync(getRootDir(), { recursive: true });
     // O_CREAT | O_EXCL — fails atomically if the file already exists.
-    writeFileSync(lockPath, String(Date.now()), { flag: 'wx' });
+    writeFileSync(lockPath, String(Date.now()), { flag: "wx" });
     return true;
   } catch {
     // Lock file exists — check for staleness.
     try {
-      const ts = parseInt(readFileSync(lockPath, 'utf-8').trim(), 10);
+      const ts = parseInt(readFileSync(lockPath, "utf-8").trim(), 10);
       if (!isNaN(ts) && Date.now() - ts > STARTUP_LOCK_STALE_MS) {
         unlinkSync(lockPath);
         return acquireStartupLock();
@@ -248,7 +265,11 @@ function acquireStartupLock(): boolean {
 }
 
 function releaseStartupLock(): void {
-  try { unlinkSync(getStartupLockPath()); } catch { /* already removed */ }
+  try {
+    unlinkSync(getStartupLockPath());
+  } catch {
+    /* already removed */
+  }
 }
 
 // NOTE: startDaemon() is the assistant-side daemon lifecycle manager.
@@ -266,7 +287,7 @@ export async function startDaemon(): Promise<{
   // Serialize concurrent startup attempts. If another caller already holds
   // the lock, wait for it to finish and then re-check daemon status.
   if (!acquireStartupLock()) {
-    log.info('Another startup in progress, waiting for lock');
+    log.info("Another startup in progress, waiting for lock");
     const lockWaitMs = 10_000;
     const lockInterval = 200;
     let lockWaited = 0;
@@ -286,7 +307,9 @@ export async function startDaemon(): Promise<{
       if (recheck.running && recheck.pid) {
         return { pid: recheck.pid, alreadyRunning: true };
       }
-      throw new DaemonError('Timed out waiting for concurrent daemon startup to finish');
+      throw new DaemonError(
+        "Timed out waiting for concurrent daemon startup to finish",
+      );
     }
     // Acquired the lock after waiting — re-check in case the other caller
     // already started the daemon successfully.
@@ -326,21 +349,18 @@ async function startDaemonLocked(): Promise<{
   removeSocketFile(socketPath);
 
   // Spawn the daemon as a detached child process
-  const mainPath = resolve(
-    import.meta.dirname ?? __dirname,
-    'main.ts',
-  );
+  const mainPath = resolve(import.meta.dirname ?? __dirname, "main.ts");
 
   // Redirect the child's stderr to a file instead of piping it back to the
   // parent. A pipe's read end is destroyed when the parent exits, leaving
   // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
   // so any later stderr write would silently kill the daemon.
-  const stderrPath = join(rootDir, 'daemon-stderr.log');
-  const stderrFd = openSync(stderrPath, 'w');
+  const stderrPath = join(rootDir, "daemon-stderr.log");
+  const stderrFd = openSync(stderrPath, "w");
 
-  const child = spawn('bun', ['run', mainPath], {
+  const child = spawn("bun", ["run", mainPath], {
     detached: true,
-    stdio: ['ignore', 'ignore', stderrFd],
+    stdio: ["ignore", "ignore", stderrFd],
     env: { ...process.env },
   });
 
@@ -349,7 +369,7 @@ async function startDaemonLocked(): Promise<{
 
   let childExited = false;
   let childExitCode: number | null = null;
-  child.on('exit', (code) => {
+  child.on("exit", (code) => {
     childExited = true;
     childExitCode = code;
   });
@@ -358,7 +378,7 @@ async function startDaemonLocked(): Promise<{
 
   const pid = child.pid;
   if (!pid) {
-    throw new DaemonError('Failed to start daemon: no PID returned');
+    throw new DaemonError("Failed to start daemon: no PID returned");
   }
 
   // Wait for socket to appear before writing the PID file. Writing it
@@ -374,12 +394,14 @@ async function startDaemonLocked(): Promise<{
       return { pid, alreadyRunning: false };
     }
     if (childExited) {
-      const stderr = readFileSync(stderrPath, 'utf-8').trim();
+      const stderr = readFileSync(stderrPath, "utf-8").trim();
       const detail = stderr
         ? `\n${stderr}`
         : `\nCheck logs at ~/.vellum/workspace/data/logs/ for details.`;
       throw new DaemonError(
-        `Daemon exited immediately (code ${childExitCode ?? 'unknown'}).${detail}`,
+        `Daemon exited immediately (code ${
+          childExitCode ?? "unknown"
+        }).${detail}`,
       );
     }
     await new Promise((r) => setTimeout(r, interval));
@@ -397,25 +419,28 @@ async function startDaemonLocked(): Promise<{
 
 export type StopResult =
   | { stopped: true }
-  | { stopped: false; reason: 'not_running' | 'stop_failed' };
+  | { stopped: false; reason: "not_running" | "stop_failed" };
 
 export async function stopDaemon(): Promise<StopResult> {
   const pid = readPid();
   if (pid == null || !isProcessRunning(pid)) {
     cleanupPidFile();
-    return { stopped: false, reason: 'not_running' };
+    return { stopped: false, reason: "not_running" };
   }
 
   // Guard against stale PID reuse: if the PID has been recycled by the OS
   // and now belongs to an unrelated process, clean up the PID file but
   // never signal it.
   if (!isVellumDaemonProcess(pid)) {
-    log.info({ pid }, 'PID file references a non-vellum process (stale PID reuse) — cleaning up PID file only');
+    log.info(
+      { pid },
+      "PID file references a non-vellum process (stale PID reuse) — cleaning up PID file only",
+    );
     cleanupPidFile();
-    return { stopped: false, reason: 'not_running' };
+    return { stopped: false, reason: "not_running" };
   }
 
-  process.kill(pid, 'SIGTERM');
+  process.kill(pid, "SIGTERM");
 
   const timeouts = readDaemonTimeouts();
 
@@ -434,9 +459,9 @@ export async function stopDaemon(): Promise<StopResult> {
 
   // Force kill
   try {
-    process.kill(pid, 'SIGKILL');
+    process.kill(pid, "SIGKILL");
   } catch (err) {
-    log.debug({ err, pid }, 'SIGKILL failed, process already exited');
+    log.debug({ err, pid }, "SIGKILL failed, process already exited");
   }
 
   // Wait for the process to actually die after SIGKILL. Without this,
@@ -459,8 +484,11 @@ export async function stopDaemon(): Promise<StopResult> {
     return { stopped: true };
   }
 
-  log.warn({ pid }, 'Daemon process still running after SIGKILL + timeout, leaving socket and PID file intact');
-  return { stopped: false, reason: 'stop_failed' };
+  log.warn(
+    { pid },
+    "Daemon process still running after SIGKILL + timeout, leaving socket and PID file intact",
+  );
+  return { stopped: false, reason: "stop_failed" };
 }
 
 export async function ensureDaemonRunning(): Promise<void> {

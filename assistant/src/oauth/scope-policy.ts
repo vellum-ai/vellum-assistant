@@ -5,7 +5,7 @@
  * scopes for an OAuth flow based on the provider profile's scope policy.
  */
 
-import type { OAuthProviderProfile } from './connect-types.js';
+import type { OAuthProviderProfile } from "./connect-types.js";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -50,7 +50,10 @@ export function resolveScopes(
 
     // Check forbidden list first
     if (scopePolicy.forbiddenScopes.includes(scope)) {
-      return { ok: false, error: `Scope '${scope}' is forbidden for ${service}` };
+      return {
+        ok: false,
+        error: `Scope '${scope}' is forbidden for ${service}`,
+      };
     }
 
     // Additional scopes not allowed at all

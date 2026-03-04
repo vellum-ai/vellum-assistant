@@ -1,5 +1,5 @@
-import { getCallStatus } from '../../calls/call-domain.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { getCallStatus } from "../../calls/call-domain.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeCallStatus(
   input: Record<string, unknown>,
@@ -11,7 +11,10 @@ export async function executeCallStatus(
 
   if (!result.ok) {
     // When no active call is found and no specific ID was requested, it's not an error
-    if (!callSessionId && result.error === 'No active call found in the current conversation') {
+    if (
+      !callSessionId &&
+      result.error === "No active call found in the current conversation"
+    ) {
       return { content: result.error, isError: false };
     }
     return { content: `Error: ${result.error}`, isError: true };
@@ -44,10 +47,10 @@ export async function executeCallStatus(
   }
 
   if (result.pendingQuestion) {
-    lines.push('');
+    lines.push("");
     lines.push(`  Pending Question: ${result.pendingQuestion.questionText}`);
     lines.push(`  Question ID: ${result.pendingQuestion.id}`);
   }
 
-  return { content: lines.join('\n'), isError: false };
+  return { content: lines.join("\n"), isError: false };
 }

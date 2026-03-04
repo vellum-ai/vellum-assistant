@@ -9,13 +9,13 @@
  * {@link ActorTrustContext} is converted to {@link TrustContext} via
  * {@link toTrustContext}.
  */
-import type { TrustContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
   resolveActorTrust,
   type ResolveActorTrustInput,
   toTrustContext,
-} from './actor-trust-resolver.js';
-export type { DenialReason } from './actor-trust-resolver.js';
+} from "./actor-trust-resolver.js";
+export type { DenialReason } from "./actor-trust-resolver.js";
 
 /**
  * Resolve route-level trust context from canonical identity state.
@@ -23,7 +23,9 @@ export type { DenialReason } from './actor-trust-resolver.js';
  * Delegates to resolveActorTrust for classification, then converts to
  * the canonical TrustContext via toTrustContext.
  */
-export function resolveTrustContext(input: ResolveActorTrustInput): TrustContext {
+export function resolveTrustContext(
+  input: ResolveActorTrustInput,
+): TrustContext {
   const trust = resolveActorTrust(input);
   return toTrustContext(trust, input.conversationExternalId);
 }
@@ -65,9 +67,11 @@ export interface RoutingState {
  * Trusted contacts are only interactive when a guardian binding exists
  * to receive approval notifications. Unknown actors are never interactive.
  */
-export function resolveRoutingState(ctx: Pick<TrustContext, 'trustClass' | 'guardianExternalUserId'>): RoutingState {
-  const isGuardian = ctx.trustClass === 'guardian';
-  const isTrustedContact = ctx.trustClass === 'trusted_contact';
+export function resolveRoutingState(
+  ctx: Pick<TrustContext, "trustClass" | "guardianExternalUserId">,
+): RoutingState {
+  const isGuardian = ctx.trustClass === "guardian";
+  const isTrustedContact = ctx.trustClass === "trusted_contact";
 
   // Guardians self-approve — they are always interactive and route-resolvable.
   if (isGuardian) {
@@ -103,7 +107,9 @@ export function resolveRoutingState(ctx: Pick<TrustContext, 'trustClass' | 'guar
  * Convenience: compute routing state from a TrustContext
  * (the shape persisted in stored payloads and used by the retry sweep).
  */
-export function resolveRoutingStateFromRuntime(ctx: TrustContext): RoutingState {
+export function resolveRoutingStateFromRuntime(
+  ctx: TrustContext,
+): RoutingState {
   return resolveRoutingState(ctx);
 }
 
@@ -116,7 +122,7 @@ export function resolveRoutingStateFromRuntime(ctx: TrustContext): RoutingState 
  * copies the context with the caller-supplied sourceChannel.
  */
 export function withSourceChannel(
-  sourceChannel: import('../channels/types.js').ChannelId,
+  sourceChannel: import("../channels/types.js").ChannelId,
   ctx: TrustContext,
 ): TrustContext {
   return { ...ctx, sourceChannel };

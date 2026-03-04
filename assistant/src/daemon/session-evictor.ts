@@ -1,6 +1,6 @@
-import { getLogger } from '../util/logger.js';
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('session-evictor');
+const log = getLogger("session-evictor");
 
 /** Minimal interface a session must satisfy to be evictable. */
 export interface EvictableSession {
@@ -60,8 +60,10 @@ export class SessionEvictor {
     this.sessions = sessions;
     this.ttlMs = options?.ttlMs ?? DEFAULT_TTL_MS;
     this.maxSessions = options?.maxSessions ?? DEFAULT_MAX_SESSIONS;
-    this.memoryThresholdBytes = options?.memoryThresholdBytes ?? DEFAULT_MEMORY_THRESHOLD_BYTES;
-    this.sweepIntervalMs = options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
+    this.memoryThresholdBytes =
+      options?.memoryThresholdBytes ?? DEFAULT_MEMORY_THRESHOLD_BYTES;
+    this.sweepIntervalMs =
+      options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
   }
 
   /** Record an access for the given session (resets its idle clock). */
@@ -80,12 +82,13 @@ export class SessionEvictor {
     this.sweepTimer = setInterval(() => {
       try {
         const result = this.sweep();
-        const total = result.ttlEvicted + result.lruEvicted + result.memoryEvicted;
+        const total =
+          result.ttlEvicted + result.lruEvicted + result.memoryEvicted;
         if (total > 0) {
-          log.info(result, 'Session eviction sweep completed');
+          log.info(result, "Session eviction sweep completed");
         }
       } catch (err) {
-        log.error({ err }, 'Session eviction sweep failed');
+        log.error({ err }, "Session eviction sweep failed");
       }
     }, this.sweepIntervalMs);
   }
@@ -142,8 +145,12 @@ export class SessionEvictor {
       const sorted = this.idleSessionsByLru();
       if (sorted.length > 0) {
         log.warn(
-          { rssBytes: rss, thresholdBytes: this.memoryThresholdBytes, sessionCount: this.sessions.size },
-          'Memory pressure detected, evicting idle sessions',
+          {
+            rssBytes: rss,
+            thresholdBytes: this.memoryThresholdBytes,
+            sessionCount: this.sessions.size,
+          },
+          "Memory pressure detected, evicting idle sessions",
         );
         for (const [id, session] of sorted) {
           if (process.memoryUsage.rss() <= this.memoryThresholdBytes) break;
@@ -176,7 +183,7 @@ export class SessionEvictor {
     this.sessions.delete(id);
     this.lastAccess.delete(id);
     this.onEvict?.(id);
-    log.debug({ sessionId: id }, 'Evicted idle session');
+    log.debug({ sessionId: id }, "Evicted idle session");
   }
 
   /**

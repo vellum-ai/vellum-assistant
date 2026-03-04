@@ -1,7 +1,7 @@
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { getSecureKey } from '../../security/secure-keys.js';
-import { getLogger } from '../../util/logger.js';
+import { getSecureKey } from "../../security/secure-keys.js";
+import { getLogger } from "../../util/logger.js";
 import type {
   AuthorizeRequest,
   AuthorizeResult,
@@ -13,13 +13,13 @@ import type {
   ServerUseRequest,
   ServerUseResult,
   UsageToken,
-} from './broker-types.js';
-import { isDomainAllowed } from './domain-policy.js';
-import { getCredentialMetadata } from './metadata-store.js';
-import { resolveById } from './resolve.js';
-import { isToolAllowed } from './tool-policy.js';
+} from "./broker-types.js";
+import { isDomainAllowed } from "./domain-policy.js";
+import { getCredentialMetadata } from "./metadata-store.js";
+import { resolveById } from "./resolve.js";
+import { isToolAllowed } from "./tool-policy.js";
 
-const log = getLogger('credential-broker');
+const log = getLogger("credential-broker");
 
 /** Tokens expire after 5 minutes to limit the window for using stale/revoked credentials. */
 const TOKEN_TTL_MS = 5 * 60 * 1000;
@@ -48,7 +48,10 @@ export class CredentialBroker {
   injectTransient(service: string, field: string, value: string): void {
     const key = `credential:${service}:${field}`;
     this.transientValues.set(key, { value });
-    log.info({ service, field }, 'Transient credential injected for one-time use');
+    log.info(
+      { service, field },
+      "Transient credential injected for one-time use",
+    );
   }
 
   /**
@@ -69,10 +72,11 @@ export class CredentialBroker {
       const tools = metadata.allowedTools ?? [];
       return {
         authorized: false,
-        reason: `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
+        reason:
+          `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
-            : `Allowed tools: ${tools.join(', ')}.`),
+            ? "No tools are currently allowed — update the credential with allowed_tools via credential_store."
+            : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
 
@@ -87,8 +91,15 @@ export class CredentialBroker {
     };
 
     this.tokens.set(token.tokenId, token);
-    log.info({ tokenId: token.tokenId, service: request.service, field: request.field, tool: request.toolName },
-      'Usage token issued');
+    log.info(
+      {
+        tokenId: token.tokenId,
+        service: request.service,
+        field: request.field,
+        tool: request.toolName,
+      },
+      "Usage token issued",
+    );
 
     return { authorized: true, token: { ...token } };
   }
@@ -100,15 +111,15 @@ export class CredentialBroker {
   consume(tokenId: string): ConsumeResult {
     const token = this.tokens.get(tokenId);
     if (!token) {
-      return { success: false, reason: 'Token not found or already revoked' };
+      return { success: false, reason: "Token not found or already revoked" };
     }
     if (token.consumed) {
-      return { success: false, reason: 'Token already consumed' };
+      return { success: false, reason: "Token already consumed" };
     }
     if (Date.now() - token.createdAt > TOKEN_TTL_MS) {
       this.tokens.delete(tokenId);
-      log.info({ tokenId }, 'Token expired (TTL exceeded)');
-      return { success: false, reason: 'Token expired' };
+      log.info({ tokenId }, "Token expired (TTL exceeded)");
+      return { success: false, reason: "Token expired" };
     }
 
     token.consumed = true;
@@ -118,11 +129,14 @@ export class CredentialBroker {
     const transient = this.transientValues.get(storageKey);
     if (transient !== undefined) {
       this.transientValues.delete(storageKey);
-      log.info({ tokenId, storageKey, transient: true }, 'Usage token consumed (transient)');
+      log.info(
+        { tokenId, storageKey, transient: true },
+        "Usage token consumed (transient)",
+      );
       return { success: true, storageKey, value: transient.value };
     }
 
-    log.info({ tokenId, storageKey }, 'Usage token consumed');
+    log.info({ tokenId, storageKey }, "Usage token consumed");
     return { success: true, storageKey };
   }
 
@@ -133,7 +147,7 @@ export class CredentialBroker {
   revoke(tokenId: string): boolean {
     const existed = this.tokens.delete(tokenId);
     if (existed) {
-      log.info({ tokenId }, 'Usage token revoked');
+      log.info({ tokenId }, "Usage token revoked");
     }
     return existed;
   }
@@ -143,7 +157,7 @@ export class CredentialBroker {
     const count = this.tokens.size;
     this.tokens.clear();
     if (count > 0) {
-      log.info({ count }, 'All usage tokens revoked');
+      log.info({ count }, "All usage tokens revoked");
     }
   }
 
@@ -168,10 +182,11 @@ export class CredentialBroker {
       const tools = metadata.allowedTools ?? [];
       return {
         success: false,
-        reason: `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
+        reason:
+          `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
-            : `Allowed tools: ${tools.join(', ')}.`),
+            ? "No tools are currently allowed — update the credential with allowed_tools via credential_store."
+            : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
 
@@ -181,15 +196,17 @@ export class CredentialBroker {
       if (!request.domain) {
         return {
           success: false,
-          reason: `Credential ${request.service}/${request.field} has a domain policy but no page domain was provided. ` +
-            `Allowed domains: ${browserDomains.join(', ')}.`,
+          reason:
+            `Credential ${request.service}/${request.field} has a domain policy but no page domain was provided. ` +
+            `Allowed domains: ${browserDomains.join(", ")}.`,
         };
       }
       if (!isDomainAllowed(request.domain, browserDomains)) {
         return {
           success: false,
-          reason: `Domain "${request.domain}" is not allowed for credential ${request.service}/${request.field}. ` +
-            `Allowed domains: ${browserDomains.join(', ')}.`,
+          reason:
+            `Domain "${request.domain}" is not allowed for credential ${request.service}/${request.field}. ` +
+            `Allowed domains: ${browserDomains.join(", ")}.`,
         };
       }
     }
@@ -212,12 +229,19 @@ export class CredentialBroker {
       // Only discard the transient value after a successful fill, and only if
       // the map still holds the same reference — a concurrent injectTransient()
       // call during the async fill could have replaced it with a new value.
-      if (transient !== undefined && this.transientValues.get(storageKey) === transient) {
+      if (
+        transient !== undefined &&
+        this.transientValues.get(storageKey) === transient
+      ) {
         this.transientValues.delete(storageKey);
       }
       log.info(
-        { service: request.service, field: request.field, tool: request.toolName },
-        'Browser fill completed',
+        {
+          service: request.service,
+          field: request.field,
+          tool: request.toolName,
+        },
+        "Browser fill completed",
       );
       return { success: true };
     } catch (err) {
@@ -226,9 +250,9 @@ export class CredentialBroker {
       // the broker's trust boundary.
       log.error(
         { err, service: request.service, field: request.field },
-        'Browser fill failed',
+        "Browser fill failed",
       );
-      return { success: false, reason: 'Fill operation failed' };
+      return { success: false, reason: "Fill operation failed" };
     }
   }
 
@@ -239,7 +263,9 @@ export class CredentialBroker {
    * to the provided callback. The return value contains only the callback's
    * result — the plaintext never leaves this method's scope.
    */
-  async serverUse<T>(request: ServerUseRequest<T>): Promise<ServerUseResult<T>> {
+  async serverUse<T>(
+    request: ServerUseRequest<T>,
+  ): Promise<ServerUseResult<T>> {
     const metadata = getCredentialMetadata(request.service, request.field);
     if (!metadata) {
       return {
@@ -252,10 +278,11 @@ export class CredentialBroker {
       const tools = metadata.allowedTools ?? [];
       return {
         success: false,
-        reason: `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
+        reason:
+          `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
-            : `Allowed tools: ${tools.join(', ')}.`),
+            ? "No tools are currently allowed — update the credential with allowed_tools via credential_store."
+            : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
 
@@ -265,9 +292,10 @@ export class CredentialBroker {
     if (serverDomains.length > 0) {
       return {
         success: false,
-        reason: `Credential ${request.service}/${request.field} has domain restrictions ` +
-          `(${serverDomains.join(', ')}) and cannot be used server-side. ` +
-          'Remove domain restrictions or use a separate credential without domain policy.',
+        reason:
+          `Credential ${request.service}/${request.field} has domain restrictions ` +
+          `(${serverDomains.join(", ")}) and cannot be used server-side. ` +
+          "Remove domain restrictions or use a separate credential without domain policy.",
       };
     }
 
@@ -283,20 +311,27 @@ export class CredentialBroker {
 
     try {
       const result = await request.execute(value);
-      if (transient !== undefined && this.transientValues.get(storageKey) === transient) {
+      if (
+        transient !== undefined &&
+        this.transientValues.get(storageKey) === transient
+      ) {
         this.transientValues.delete(storageKey);
       }
       log.info(
-        { service: request.service, field: request.field, tool: request.toolName },
-        'Server-side credential use completed',
+        {
+          service: request.service,
+          field: request.field,
+          tool: request.toolName,
+        },
+        "Server-side credential use completed",
       );
       return { success: true, result };
     } catch (err) {
       log.error(
         { err, service: request.service, field: request.field },
-        'Server-side credential use failed',
+        "Server-side credential use failed",
       );
-      return { success: false, reason: 'Credential use failed' };
+      return { success: false, reason: "Credential use failed" };
     }
   }
 
@@ -324,10 +359,11 @@ export class CredentialBroker {
       const tools = metadata.allowedTools ?? [];
       return {
         success: false,
-        reason: `Tool "${request.requestingTool}" is not allowed to use credential ${metadata.service}/${metadata.field}. ` +
+        reason:
+          `Tool "${request.requestingTool}" is not allowed to use credential ${metadata.service}/${metadata.field}. ` +
           (tools.length === 0
-            ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
-            : `Allowed tools: ${tools.join(', ')}.`),
+            ? "No tools are currently allowed — update the credential with allowed_tools via credential_store."
+            : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
 
@@ -337,9 +373,10 @@ export class CredentialBroker {
     if (domains.length > 0) {
       return {
         success: false,
-        reason: `Credential ${metadata.service}/${metadata.field} has domain restrictions ` +
-          `(${domains.join(', ')}) and cannot be used server-side. ` +
-          'Remove domain restrictions or use a separate credential without domain policy.',
+        reason:
+          `Credential ${metadata.service}/${metadata.field} has domain restrictions ` +
+          `(${domains.join(", ")}) and cannot be used server-side. ` +
+          "Remove domain restrictions or use a separate credential without domain policy.",
       };
     }
 
@@ -354,8 +391,13 @@ export class CredentialBroker {
     }
 
     log.info(
-      { credentialId: request.credentialId, service: metadata.service, field: metadata.field, tool: request.requestingTool },
-      'Server-side credential lookup by ID completed',
+      {
+        credentialId: request.credentialId,
+        service: metadata.service,
+        field: metadata.field,
+        tool: request.requestingTool,
+      },
+      "Server-side credential lookup by ID completed",
     );
 
     return {

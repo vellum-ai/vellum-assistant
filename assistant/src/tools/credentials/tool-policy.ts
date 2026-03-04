@@ -17,9 +17,12 @@
  * 2. No wildcard support in v1
  * 3. Fail-closed on empty or missing list
  */
-export function isToolAllowed(toolName: string, allowedTools: string[]): boolean {
+export function isToolAllowed(
+  toolName: string,
+  allowedTools: string[],
+): boolean {
   if (!Array.isArray(allowedTools) || allowedTools.length === 0) return false;
-  if (!toolName || typeof toolName !== 'string') return false;
+  if (!toolName || typeof toolName !== "string") return false;
 
   return allowedTools.includes(toolName);
 }

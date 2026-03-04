@@ -9,7 +9,7 @@
  *         <record-id>.json     # individual record
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -20,16 +20,23 @@ import {
   statSync,
   unlinkSync,
   writeFileSync,
-} from 'node:fs';
-import { basename,dirname, isAbsolute, join, relative, resolve } from 'node:path';
+} from "node:fs";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 
 import {
   isPrebuiltHomeBaseApp,
   validatePrebuiltHomeBaseHtml,
-} from '../home-base/prebuilt-home-base-updater.js';
-import type { EditEngineResult } from '../tools/shared/filesystem/edit-engine.js';
-import { applyEdit } from '../tools/shared/filesystem/edit-engine.js';
-import { getDataDir } from '../util/platform.js';
+} from "../home-base/prebuilt-home-base-updater.js";
+import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
+import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
+import { getDataDir } from "../util/platform.js";
 
 export interface AppDefinition {
   id: string;
@@ -40,7 +47,7 @@ export interface AppDefinition {
   schemaJson: string;
   htmlDefinition: string;
   version?: string;
-  appType?: 'app' | 'site';
+  appType?: "app" | "site";
   /** Additional pages keyed by filename (e.g. "settings.html" → HTML content). */
   pages?: Record<string, string>;
   createdAt: number;
@@ -56,7 +63,13 @@ export interface AppRecord {
 }
 
 function validateId(id: string): void {
-  if (!id || id.includes('/') || id.includes('\\') || id.includes('..') || id !== id.trim()) {
+  if (
+    !id ||
+    id.includes("/") ||
+    id.includes("\\") ||
+    id.includes("..") ||
+    id !== id.trim()
+  ) {
     throw new Error(`Invalid ID: ${id}`);
   }
 }
@@ -68,20 +81,20 @@ function validateId(id: string): void {
 function validatePageFilename(filename: string): void {
   if (
     !filename ||
-    filename.includes('/') ||
-    filename.includes('\\') ||
-    filename.includes('..') ||
+    filename.includes("/") ||
+    filename.includes("\\") ||
+    filename.includes("..") ||
     filename !== filename.trim() ||
-    filename === 'index.html' ||
-    filename === 'manifest.json' ||
-    filename === 'signature.json'
+    filename === "index.html" ||
+    filename === "manifest.json" ||
+    filename === "signature.json"
   ) {
     throw new Error(`Invalid page filename: ${filename}`);
   }
 }
 
 export function getAppsDir(): string {
-  const dir = join(getDataDir(), 'apps');
+  const dir = join(getDataDir(), "apps");
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -92,24 +105,24 @@ export function getAppsDir(): string {
  * Returns the resolved absolute path.
  */
 function validateFilePath(appId: string, path: string): string {
-  if (!path || path.trim() === '') {
+  if (!path || path.trim() === "") {
     throw new Error(`Invalid file path: path is empty`);
   }
   if (isAbsolute(path)) {
     throw new Error(`Invalid file path: absolute paths are not allowed`);
   }
-  if (path.includes('..')) {
+  if (path.includes("..")) {
     throw new Error(`Invalid file path: '..' is not allowed`);
   }
   // Reject paths targeting records/ directory
-  const normalized = path.replace(/\\/g, '/');
-  if (normalized === 'records' || normalized.startsWith('records/')) {
+  const normalized = path.replace(/\\/g, "/");
+  if (normalized === "records" || normalized.startsWith("records/")) {
     throw new Error(`Invalid file path: 'records/' directory is protected`);
   }
   const appDir = join(getAppsDir(), appId);
   const resolved = resolve(appDir, path);
   // Ensure the resolved path is still within the app directory
-  if (!resolved.startsWith(appDir + '/') && resolved !== appDir) {
+  if (!resolved.startsWith(appDir + "/") && resolved !== appDir) {
     throw new Error(`Invalid file path: resolves outside app directory`);
   }
   // Follow symlinks to the real path so a symlink inside the app directory
@@ -135,34 +148,41 @@ function validateFilePath(appId: string, path: string): string {
     }
   }
   const realAppDir = existsSync(appDir) ? realpathSync(appDir) : appDir;
-  if (!realResolved.startsWith(realAppDir + '/') && realResolved !== realAppDir) {
-    throw new Error(`Invalid file path: symlink resolves outside app directory`);
+  if (
+    !realResolved.startsWith(realAppDir + "/") &&
+    realResolved !== realAppDir
+  ) {
+    throw new Error(
+      `Invalid file path: symlink resolves outside app directory`,
+    );
   }
   return resolved;
 }
 
 /** Persist pages as individual files under ~/.vellum/apps/{appId}/pages/. */
 function savePages(appId: string, pages: Record<string, string>): void {
-  const pagesDir = join(getAppsDir(), appId, 'pages');
+  const pagesDir = join(getAppsDir(), appId, "pages");
   mkdirSync(pagesDir, { recursive: true });
   for (const [filename, content] of Object.entries(pages)) {
     validatePageFilename(filename);
-    if (typeof content !== 'string') {
-      throw new Error(`Page content for "${filename}" must be a string, got ${typeof content}`);
+    if (typeof content !== "string") {
+      throw new Error(
+        `Page content for "${filename}" must be a string, got ${typeof content}`,
+      );
     }
-    writeFileSync(join(pagesDir, filename), content, 'utf-8');
+    writeFileSync(join(pagesDir, filename), content, "utf-8");
   }
 }
 
 /** Load pages from disk. Returns undefined if no pages directory exists. */
 function loadPages(appId: string): Record<string, string> | undefined {
-  const pagesDir = join(getAppsDir(), appId, 'pages');
+  const pagesDir = join(getAppsDir(), appId, "pages");
   if (!existsSync(pagesDir)) return undefined;
   const entries = readdirSync(pagesDir);
   if (entries.length === 0) return undefined;
   const pages: Record<string, string> = {};
   for (const entry of entries) {
-    pages[entry] = readFileSync(join(pagesDir, entry), 'utf-8');
+    pages[entry] = readFileSync(join(pagesDir, entry), "utf-8");
   }
   return pages;
 }
@@ -175,7 +195,7 @@ export function createApp(params: {
   schemaJson: string;
   htmlDefinition: string;
   version?: string;
-  appType?: 'app' | 'site';
+  appType?: "app" | "site";
   pages?: Record<string, string>;
 }): AppDefinition {
   const dir = getAppsDir();
@@ -197,18 +217,25 @@ export function createApp(params: {
   // Write htmlDefinition to {appId}/index.html on disk
   const appDir = join(dir, app.id);
   mkdirSync(appDir, { recursive: true });
-  if (typeof params.htmlDefinition !== 'string') {
-    throw new Error(`htmlDefinition must be a string, got ${typeof params.htmlDefinition}`);
+  if (typeof params.htmlDefinition !== "string") {
+    throw new Error(
+      `htmlDefinition must be a string, got ${typeof params.htmlDefinition}`,
+    );
   }
-  writeFileSync(join(appDir, 'index.html'), params.htmlDefinition, 'utf-8');
+  writeFileSync(join(appDir, "index.html"), params.htmlDefinition, "utf-8");
 
   // Write preview to companion file to keep the JSON small
   if (params.preview) {
-    writeFileSync(join(dir, `${app.id}.preview`), params.preview, 'utf-8');
+    writeFileSync(join(dir, `${app.id}.preview`), params.preview, "utf-8");
   }
 
   // Strip htmlDefinition, pages, and preview from the JSON file — only store metadata
-  const { htmlDefinition: _html, pages: _pages, preview: _preview, ...jsonDef } = app;
+  const {
+    htmlDefinition: _html,
+    pages: _pages,
+    preview: _preview,
+    ...jsonDef
+  } = app;
   writeFileSync(join(dir, `${app.id}.json`), JSON.stringify(jsonDef, null, 2));
 
   // Persist additional pages as separate files
@@ -225,20 +252,20 @@ export function getApp(id: string): AppDefinition | null {
   const dir = getAppsDir();
   const filePath = join(dir, `${id}.json`);
   if (!existsSync(filePath)) return null;
-  const raw = readFileSync(filePath, 'utf-8');
+  const raw = readFileSync(filePath, "utf-8");
   const app = JSON.parse(raw) as AppDefinition;
 
   // Read htmlDefinition from {appId}/index.html on disk
-  const indexPath = join(dir, id, 'index.html');
+  const indexPath = join(dir, id, "index.html");
   app.htmlDefinition = existsSync(indexPath)
-    ? readFileSync(indexPath, 'utf-8')
-    : (app.htmlDefinition ?? '');
+    ? readFileSync(indexPath, "utf-8")
+    : (app.htmlDefinition ?? "");
 
   // Migrate inline preview to companion file if present
   if (app.preview) {
     const previewPath = join(dir, `${id}.preview`);
     if (!existsSync(previewPath)) {
-      writeFileSync(previewPath, app.preview, 'utf-8');
+      writeFileSync(previewPath, app.preview, "utf-8");
     }
     // Rewrite JSON without preview
     const { preview: _p, ...clean } = JSON.parse(raw);
@@ -248,7 +275,7 @@ export function getApp(id: string): AppDefinition | null {
   // Load preview from companion file
   const previewPath = join(dir, `${id}.preview`);
   if (existsSync(previewPath)) {
-    app.preview = readFileSync(previewPath, 'utf-8');
+    app.preview = readFileSync(previewPath, "utf-8");
   }
 
   // Load pages from disk
@@ -269,13 +296,13 @@ export function getAppPreview(id: string): string | null {
   const dir = getAppsDir();
   const previewPath = join(dir, `${id}.preview`);
   if (existsSync(previewPath)) {
-    return readFileSync(previewPath, 'utf-8');
+    return readFileSync(previewPath, "utf-8");
   }
   // Fallback: check if preview is still inline in JSON (pre-migration)
   const jsonPath = join(dir, `${id}.json`);
   if (!existsSync(jsonPath)) return null;
   try {
-    const raw = readFileSync(jsonPath, 'utf-8');
+    const raw = readFileSync(jsonPath, "utf-8");
     const app = JSON.parse(raw);
     return app.preview ?? null;
   } catch {
@@ -288,18 +315,18 @@ export function listApps(): AppDefinition[] {
   const entries = readdirSync(dir);
   const apps: AppDefinition[] = [];
   for (const entry of entries) {
-    if (!entry.endsWith('.json')) continue;
+    if (!entry.endsWith(".json")) continue;
     const filePath = join(dir, entry);
     try {
-      const raw = readFileSync(filePath, 'utf-8');
+      const raw = readFileSync(filePath, "utf-8");
       const app = JSON.parse(raw) as AppDefinition;
 
       // Lazy migration: extract inline preview to companion file
       if (app.preview) {
-        const id = entry.replace('.json', '');
+        const id = entry.replace(".json", "");
         const previewPath = join(dir, `${id}.preview`);
         if (!existsSync(previewPath)) {
-          writeFileSync(previewPath, app.preview, 'utf-8');
+          writeFileSync(previewPath, app.preview, "utf-8");
         }
         // Rewrite JSON without preview so future reads are fast
         const { preview: _p, ...clean } = app;
@@ -318,21 +345,46 @@ export function listApps(): AppDefinition[] {
 
 export function updateApp(
   id: string,
-  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'icon' | 'preview' | 'schemaJson' | 'htmlDefinition' | 'version' | 'appType' | 'pages'>>,
+  updates: Partial<
+    Pick<
+      AppDefinition,
+      | "name"
+      | "description"
+      | "icon"
+      | "preview"
+      | "schemaJson"
+      | "htmlDefinition"
+      | "version"
+      | "appType"
+      | "pages"
+    >
+  >,
 ): AppDefinition {
   validateId(id);
   const existing = getApp(id);
   if (!existing) throw new Error(`App not found: ${id}`);
 
-  if (typeof updates.htmlDefinition === 'string' && isPrebuiltHomeBaseApp(existing)) {
+  if (
+    typeof updates.htmlDefinition === "string" &&
+    isPrebuiltHomeBaseApp(existing)
+  ) {
     const validation = validatePrebuiltHomeBaseHtml(updates.htmlDefinition);
     if (!validation.valid) {
-      throw new Error(`Home Base update missing required anchors: ${validation.missingAnchors.join(', ')}`);
+      throw new Error(
+        `Home Base update missing required anchors: ${validation.missingAnchors.join(
+          ", ",
+        )}`,
+      );
     }
   }
 
   // Extract pages, htmlDefinition, and preview before spreading into the JSON-persisted definition
-  const { pages, htmlDefinition: htmlUpdate, preview: previewUpdate, ...jsonUpdates } = updates;
+  const {
+    pages,
+    htmlDefinition: htmlUpdate,
+    preview: previewUpdate,
+    ...jsonUpdates
+  } = updates;
 
   const updated: AppDefinition = {
     ...existing,
@@ -346,27 +398,35 @@ export function updateApp(
   if (htmlUpdate !== undefined) {
     updated.htmlDefinition = htmlUpdate;
     mkdirSync(appDir, { recursive: true });
-    writeFileSync(join(appDir, 'index.html'), htmlUpdate, 'utf-8');
-  } else if (!existsSync(join(appDir, 'index.html')) && updated.htmlDefinition) {
+    writeFileSync(join(appDir, "index.html"), htmlUpdate, "utf-8");
+  } else if (
+    !existsSync(join(appDir, "index.html")) &&
+    updated.htmlDefinition
+  ) {
     // Backfill: migrate existing htmlDefinition to index.html before stripping from JSON
     // to prevent data loss on metadata-only updates of pre-migration apps.
     mkdirSync(appDir, { recursive: true });
-    writeFileSync(join(appDir, 'index.html'), updated.htmlDefinition, 'utf-8');
+    writeFileSync(join(appDir, "index.html"), updated.htmlDefinition, "utf-8");
   }
 
   // Write preview to companion file
   if (previewUpdate !== undefined) {
     updated.preview = previewUpdate;
-    writeFileSync(join(dir, `${id}.preview`), previewUpdate, 'utf-8');
+    writeFileSync(join(dir, `${id}.preview`), previewUpdate, "utf-8");
   }
 
   // Don't persist htmlDefinition, pages, or preview in the JSON file — they live as separate files
-  const { pages: _existingPages, htmlDefinition: _html, preview: _preview, ...jsonDef } = updated;
+  const {
+    pages: _existingPages,
+    htmlDefinition: _html,
+    preview: _preview,
+    ...jsonDef
+  } = updated;
   writeFileSync(join(dir, `${id}.json`), JSON.stringify(jsonDef, null, 2));
 
   // Clear existing pages directory before writing new pages to prevent stale files
   if (pages && Object.keys(pages).length > 0) {
-    const pagesDir = join(getAppsDir(), id, 'pages');
+    const pagesDir = join(getAppsDir(), id, "pages");
     if (existsSync(pagesDir)) {
       rmSync(pagesDir, { recursive: true, force: true });
     }
@@ -397,11 +457,14 @@ export function deleteApp(id: string): void {
   rmSync(appDir, { recursive: true, force: true });
 }
 
-export function createAppRecord(appId: string, data: Record<string, unknown>): AppRecord {
+export function createAppRecord(
+  appId: string,
+  data: Record<string, unknown>,
+): AppRecord {
   validateId(appId);
   const app = getApp(appId);
   if (!app) throw new Error(`App not found: ${appId}`);
-  const recordsDir = join(getAppsDir(), appId, 'records');
+  const recordsDir = join(getAppsDir(), appId, "records");
   mkdirSync(recordsDir, { recursive: true });
   const now = Date.now();
   const record: AppRecord = {
@@ -411,29 +474,35 @@ export function createAppRecord(appId: string, data: Record<string, unknown>): A
     createdAt: now,
     updatedAt: now,
   };
-  writeFileSync(join(recordsDir, `${record.id}.json`), JSON.stringify(record, null, 2));
+  writeFileSync(
+    join(recordsDir, `${record.id}.json`),
+    JSON.stringify(record, null, 2),
+  );
   return record;
 }
 
-export function getAppRecord(appId: string, recordId: string): AppRecord | null {
+export function getAppRecord(
+  appId: string,
+  recordId: string,
+): AppRecord | null {
   validateId(appId);
   validateId(recordId);
-  const filePath = join(getAppsDir(), appId, 'records', `${recordId}.json`);
+  const filePath = join(getAppsDir(), appId, "records", `${recordId}.json`);
   if (!existsSync(filePath)) return null;
-  const raw = readFileSync(filePath, 'utf-8');
+  const raw = readFileSync(filePath, "utf-8");
   return JSON.parse(raw) as AppRecord;
 }
 
 export function queryAppRecords(appId: string): AppRecord[] {
   validateId(appId);
-  const recordsDir = join(getAppsDir(), appId, 'records');
+  const recordsDir = join(getAppsDir(), appId, "records");
   if (!existsSync(recordsDir)) return [];
   const entries = readdirSync(recordsDir);
   const records: AppRecord[] = [];
   for (const entry of entries) {
-    if (!entry.endsWith('.json')) continue;
+    if (!entry.endsWith(".json")) continue;
     try {
-      const raw = readFileSync(join(recordsDir, entry), 'utf-8');
+      const raw = readFileSync(join(recordsDir, entry), "utf-8");
       records.push(JSON.parse(raw) as AppRecord);
     } catch {
       // skip malformed files
@@ -457,7 +526,7 @@ export function updateAppRecord(
     updatedAt: Date.now(),
   };
   writeFileSync(
-    join(getAppsDir(), appId, 'records', `${recordId}.json`),
+    join(getAppsDir(), appId, "records", `${recordId}.json`),
     JSON.stringify(updated, null, 2),
   );
   return updated;
@@ -466,7 +535,7 @@ export function updateAppRecord(
 export function deleteAppRecord(appId: string, recordId: string): void {
   validateId(appId);
   validateId(recordId);
-  const filePath = join(getAppsDir(), appId, 'records', `${recordId}.json`);
+  const filePath = join(getAppsDir(), appId, "records", `${recordId}.json`);
   if (existsSync(filePath)) {
     unlinkSync(filePath);
   }
@@ -493,10 +562,11 @@ export function listAppFiles(appId: string): string[] {
       const fullPath = join(dir, entry);
       const relPath = relative(appDir, fullPath);
       // Skip records/ directory
-      const normalized = relPath.replace(/\\/g, '/');
-      if (normalized === 'records' || normalized.startsWith('records/')) continue;
+      const normalized = relPath.replace(/\\/g, "/");
+      if (normalized === "records" || normalized.startsWith("records/"))
+        continue;
       // Skip app.json
-      if (normalized === 'app.json') continue;
+      if (normalized === "app.json") continue;
 
       const stat = statSync(fullPath);
       if (stat.isDirectory()) {
@@ -521,19 +591,23 @@ export function readAppFile(appId: string, path: string): string {
   if (!existsSync(resolved)) {
     throw new Error(`File not found: ${path}`);
   }
-  return readFileSync(resolved, 'utf-8');
+  return readFileSync(resolved, "utf-8");
 }
 
 /**
  * Write a file to the app directory.
  * Auto-creates intermediate directories. Path is validated to prevent traversal.
  */
-export function writeAppFile(appId: string, path: string, content: string): void {
+export function writeAppFile(
+  appId: string,
+  path: string,
+  content: string,
+): void {
   validateId(appId);
   const resolved = validateFilePath(appId, path);
-  const dir = join(resolved, '..');
+  const dir = join(resolved, "..");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(resolved, content, 'utf-8');
+  writeFileSync(resolved, content, "utf-8");
 }
 
 /**
@@ -552,10 +626,10 @@ export function editAppFile(
   if (!existsSync(resolved)) {
     throw new Error(`File not found: ${path}`);
   }
-  const content = readFileSync(resolved, 'utf-8');
+  const content = readFileSync(resolved, "utf-8");
   const result = applyEdit(content, oldString, newString, replaceAll ?? false);
   if (result.ok) {
-    writeFileSync(resolved, result.updatedContent, 'utf-8');
+    writeFileSync(resolved, result.updatedContent, "utf-8");
   }
   return result;
 }

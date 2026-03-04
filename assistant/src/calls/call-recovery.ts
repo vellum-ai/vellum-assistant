@@ -7,15 +7,19 @@
  * accordingly.
  */
 
-import { getLogger } from '../util/logger.js';
-import { isTerminalState } from './call-state-machine.js';
-import { expirePendingQuestions,listRecoverableCalls, updateCallSession } from './call-store.js';
-import type { CallStatus } from './types.js';
-import type { VoiceProvider } from './voice-provider.js';
+import { getLogger } from "../util/logger.js";
+import { isTerminalState } from "./call-state-machine.js";
+import {
+  expirePendingQuestions,
+  listRecoverableCalls,
+  updateCallSession,
+} from "./call-store.js";
+import type { CallStatus } from "./types.js";
+import type { VoiceProvider } from "./voice-provider.js";
 
 type Logger = ReturnType<typeof getLogger>;
 
-const defaultLog = getLogger('call-recovery');
+const defaultLog = getLogger("call-recovery");
 
 /**
  * Grace period (in ms) for no-SID sessions during startup recovery.
@@ -41,23 +45,22 @@ export const NO_SID_GRACE_PERIOD_MS = 5 * 60_000;
  */
 function mapProviderStatus(providerStatus: string): CallStatus | null {
   switch (providerStatus) {
-    case 'queued':
-    case 'ringing':
-      return 'ringing';
-    case 'in-progress':
-      return 'in_progress';
-    case 'completed':
-      return 'completed';
-    case 'failed':
-    case 'busy':
-    case 'no-answer':
-    case 'canceled':
-      return 'failed';
+    case "queued":
+    case "ringing":
+      return "ringing";
+    case "in-progress":
+      return "in_progress";
+    case "completed":
+      return "completed";
+    case "failed":
+    case "busy":
+    case "no-answer":
+    case "canceled":
+      return "failed";
     default:
       return null;
   }
 }
-
 
 /**
  * Reconcile all non-terminal call sessions at daemon startup.
@@ -79,11 +82,14 @@ export async function reconcileCallsOnStartup(
   const recoverableCalls = listRecoverableCalls();
 
   if (recoverableCalls.length === 0) {
-    log.info('No recoverable calls found at startup');
+    log.info("No recoverable calls found at startup");
     return;
   }
 
-  log.info({ count: recoverableCalls.length }, 'Reconciling non-terminal calls at startup');
+  log.info(
+    { count: recoverableCalls.length },
+    "Reconciling non-terminal calls at startup",
+  );
 
   for (const session of recoverableCalls) {
     try {
@@ -96,24 +102,34 @@ export async function reconcileCallsOnStartup(
           // have arrived by now.  Transition to `failed` so it no
           // longer appears as an active call.
           log.info(
-            { callSessionId: session.id, previousStatus: session.status, sessionAgeMs },
-            'No-SID session past grace period — failing orphan session',
+            {
+              callSessionId: session.id,
+              previousStatus: session.status,
+              sessionAgeMs,
+            },
+            "No-SID session past grace period — failing orphan session",
           );
           updateCallSession(session.id, {
-            status: 'failed',
+            status: "failed",
             endedAt: Date.now(),
-            lastError: 'Daemon restarted before provider SID persisted; grace period expired — orphan session failed',
+            lastError:
+              "Daemon restarted before provider SID persisted; grace period expired — orphan session failed",
           });
           expirePendingQuestions(session.id);
         } else {
           // Recent session — webhooks carrying the SID may still arrive.
           // Leave in its current non-terminal state.
           log.info(
-            { callSessionId: session.id, previousStatus: session.status, sessionAgeMs },
-            'Skipping recent no-SID session (within grace period, webhooks may still arrive)',
+            {
+              callSessionId: session.id,
+              previousStatus: session.status,
+              sessionAgeMs,
+            },
+            "Skipping recent no-SID session (within grace period, webhooks may still arrive)",
           );
           updateCallSession(session.id, {
-            lastError: 'Daemon restarted before provider SID persisted; awaiting webhook',
+            lastError:
+              "Daemon restarted before provider SID persisted; awaiting webhook",
           });
         }
         continue;
@@ -127,10 +143,10 @@ export async function reconcileCallsOnStartup(
         const msg = err instanceof Error ? err.message : String(err);
         log.warn(
           { callSessionId: session.id, callSid: session.providerCallSid, err },
-          'Failed to fetch provider status during recovery — failing call',
+          "Failed to fetch provider status during recovery — failing call",
         );
         updateCallSession(session.id, {
-          status: 'failed',
+          status: "failed",
           endedAt: Date.now(),
           lastError: `Recovery: failed to fetch provider status: ${msg}`,
         });
@@ -143,10 +159,10 @@ export async function reconcileCallsOnStartup(
       if (!mappedStatus) {
         log.warn(
           { callSessionId: session.id, providerStatus },
-          'Unrecognised provider status during recovery — failing call',
+          "Unrecognised provider status during recovery — failing call",
         );
         updateCallSession(session.id, {
-          status: 'failed',
+          status: "failed",
           endedAt: Date.now(),
           lastError: `Recovery: unrecognised provider status '${providerStatus}'`,
         });
@@ -158,7 +174,7 @@ export async function reconcileCallsOnStartup(
         // Provider says the call has ended
         log.info(
           { callSessionId: session.id, providerStatus, mappedStatus },
-          'Provider reports call ended — transitioning to terminal state',
+          "Provider reports call ended — transitioning to terminal state",
         );
         updateCallSession(session.id, {
           status: mappedStatus,
@@ -169,18 +185,18 @@ export async function reconcileCallsOnStartup(
         // Provider says call is still active — leave it for webhooks to handle
         log.info(
           { callSessionId: session.id, providerStatus, mappedStatus },
-          'Provider reports call still active — leaving for webhook handling',
+          "Provider reports call still active — leaving for webhook handling",
         );
       }
     } catch (err) {
       log.error(
         { callSessionId: session.id, err },
-        'Unexpected error during call recovery',
+        "Unexpected error during call recovery",
       );
     }
   }
 
-  log.info('Call recovery reconciliation complete');
+  log.info("Call recovery reconciliation complete");
 }
 
 /**
@@ -197,6 +213,6 @@ export function logDeadLetterEvent(
 ): void {
   log.error(
     { reason, payload },
-    'Dead-letter provider event: callback could not be processed',
+    "Dead-letter provider event: callback could not be processed",
   );
 }

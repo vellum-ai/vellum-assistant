@@ -1,8 +1,8 @@
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import type { ServerMessage, TraceEventKind } from './ipc-protocol.js';
+import type { ServerMessage, TraceEventKind } from "./ipc-protocol.js";
 
-export type TraceEventStatus = 'info' | 'success' | 'warning' | 'error';
+export type TraceEventStatus = "info" | "success" | "warning" | "error";
 
 const SUMMARY_MAX_LENGTH = 200;
 const ATTRIBUTE_VALUE_MAX_LENGTH = 500;
@@ -38,7 +38,7 @@ export class TraceEmitter {
       : undefined;
 
     const event: ServerMessage = {
-      type: 'trace_event',
+      type: "trace_event",
       eventId,
       sessionId: this.sessionId,
       requestId: opts?.requestId,
@@ -71,13 +71,14 @@ function normalizeAttributes(
 
 function normalizeValue(value: unknown): string | number | boolean | null {
   if (value == null) return null;
-  if (typeof value === 'boolean' || typeof value === 'number') return value;
-  if (typeof value === 'string') return truncate(value, ATTRIBUTE_VALUE_MAX_LENGTH);
+  if (typeof value === "boolean" || typeof value === "number") return value;
+  if (typeof value === "string")
+    return truncate(value, ATTRIBUTE_VALUE_MAX_LENGTH);
   // Coerce non-primitives to string
   try {
     const str = JSON.stringify(value);
     return truncate(str, ATTRIBUTE_VALUE_MAX_LENGTH);
   } catch {
-    return '[non-serializable]';
+    return "[non-serializable]";
   }
 }

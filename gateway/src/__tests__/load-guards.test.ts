@@ -87,7 +87,15 @@ describe("payload size guard", () => {
     const { handler } = createTelegramWebhookHandler(
       makeConfig({ maxWebhookPayloadBytes: 10000 }),
     );
-    const body = JSON.stringify({ update_id: 1, message: { text: "hi", chat: { id: 1, type: "private" }, from: { id: 1 }, message_id: 1 } });
+    const body = JSON.stringify({
+      update_id: 1,
+      message: {
+        text: "hi",
+        chat: { id: 1, type: "private" },
+        from: { id: 1 },
+        message_id: 1,
+      },
+    });
     const req = new Request("http://localhost:7830/webhooks/telegram", {
       method: "POST",
       body,

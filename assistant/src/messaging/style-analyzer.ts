@@ -6,10 +6,10 @@
  * for memory storage.
  */
 
-import { getConfiguredProvider } from '../providers/provider-send-message.js';
-import type { Message, ToolDefinition } from '../providers/types.js';
-import { truncate } from '../util/truncate.js';
-import type { Message as ProviderMessage } from './provider-types.js';
+import { getConfiguredProvider } from "../providers/provider-send-message.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
+import { truncate } from "../util/truncate.js";
+import type { Message as ProviderMessage } from "./provider-types.js";
 
 export interface StylePattern {
   aspect: string;
@@ -50,41 +50,49 @@ Also identify recurring contacts (people appearing in 3+ messages) and note how 
 You MUST respond using the \`store_style_analysis\` tool. Do not respond with text.`;
 
 const storeStyleAnalysisTool: ToolDefinition = {
-  name: 'store_style_analysis',
-  description: 'Store extracted writing style patterns and relationship observations',
+  name: "store_style_analysis",
+  description:
+    "Store extracted writing style patterns and relationship observations",
   input_schema: {
-    type: 'object',
+    type: "object",
     properties: {
       style_patterns: {
-        type: 'array',
+        type: "array",
         items: {
-          type: 'object',
+          type: "object",
           properties: {
             aspect: {
-              type: 'string',
-              enum: ['tone', 'greetings', 'sign-offs', 'structure', 'vocabulary', 'formality_adaptation'],
+              type: "string",
+              enum: [
+                "tone",
+                "greetings",
+                "sign-offs",
+                "structure",
+                "vocabulary",
+                "formality_adaptation",
+              ],
             },
-            summary: { type: 'string' },
-            importance: { type: 'number' },
-            examples: { type: 'array', items: { type: 'string' } },
+            summary: { type: "string" },
+            importance: { type: "number" },
+            examples: { type: "array", items: { type: "string" } },
           },
-          required: ['aspect', 'summary', 'importance'],
+          required: ["aspect", "summary", "importance"],
         },
       },
       contact_observations: {
-        type: 'array',
+        type: "array",
         items: {
-          type: 'object',
+          type: "object",
           properties: {
-            name: { type: 'string' },
-            email: { type: 'string' },
-            tone_note: { type: 'string' },
+            name: { type: "string" },
+            email: { type: "string" },
+            tone_note: { type: "string" },
           },
-          required: ['name', 'email', 'tone_note'],
+          required: ["name", "email", "tone_note"],
         },
       },
     },
-    required: ['style_patterns'],
+    required: ["style_patterns"],
   },
 };
 
@@ -97,7 +105,7 @@ function buildCorpus(messages: ProviderMessage[]): string[] {
   for (const msg of messages) {
     if (!msg.text.trim()) continue;
     const to = msg.conversationId;
-    const truncatedBody = truncate(msg.text, 500, '');
+    const truncatedBody = truncate(msg.text, 500, "");
     entries.push(`To: ${to}\n\n${truncatedBody}`);
   }
   return entries;
@@ -115,16 +123,25 @@ export async function extractStylePatterns(
     return { stylePatterns: [], contactObservations: [] };
   }
 
-  const corpus = corpusEntries.map((e, i) => `--- Message ${i + 1} ---\n${e}`).join('\n\n');
+  const corpus = corpusEntries
+    .map((e, i) => `--- Message ${i + 1} ---\n${e}`)
+    .join("\n\n");
 
   const provider = getConfiguredProvider();
   if (!provider) {
     return { stylePatterns: [], contactObservations: [] };
   }
-  const promptMessages: Message[] = [{
-    role: 'user',
-    content: [{ type: 'text', text: `Analyze these ${corpusEntries.length} sent messages for writing style patterns:\n\n${corpus}` }],
-  }];
+  const promptMessages: Message[] = [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `Analyze these ${corpusEntries.length} sent messages for writing style patterns:\n\n${corpus}`,
+        },
+      ],
+    },
+  ];
 
   const response = await provider.sendMessage(
     promptMessages,
@@ -133,24 +150,37 @@ export async function extractStylePatterns(
     { signal: AbortSignal.timeout(30_000) },
   );
 
-  const toolBlock = response.content.find((b) => b.type === 'tool_use');
-  if (!toolBlock || toolBlock.type !== 'tool_use') {
+  const toolBlock = response.content.find((b) => b.type === "tool_use");
+  if (!toolBlock || toolBlock.type !== "tool_use") {
     return { stylePatterns: [], contactObservations: [] };
   }
 
   const result = toolBlock.input as {
-    style_patterns?: Array<{ aspect: string; summary: string; importance: number; examples?: string[] }>;
-    contact_observations?: Array<{ name: string; email: string; tone_note: string }>;
+    style_patterns?: Array<{
+      aspect: string;
+      summary: string;
+      importance: number;
+      examples?: string[];
+    }>;
+    contact_observations?: Array<{
+      name: string;
+      email: string;
+      tone_note: string;
+    }>;
   };
 
-  const stylePatterns: StylePattern[] = (result.style_patterns ?? []).map((p) => ({
-    aspect: p.aspect,
-    summary: truncate(p.summary, 500, ''),
-    importance: p.importance,
-    examples: p.examples,
-  }));
+  const stylePatterns: StylePattern[] = (result.style_patterns ?? []).map(
+    (p) => ({
+      aspect: p.aspect,
+      summary: truncate(p.summary, 500, ""),
+      importance: p.importance,
+      examples: p.examples,
+    }),
+  );
 
-  const contactObservations: ContactObservation[] = (result.contact_observations ?? []).map((c) => ({
+  const contactObservations: ContactObservation[] = (
+    result.contact_observations ?? []
+  ).map((c) => ({
     name: c.name,
     email: c.email,
     toneNote: c.tone_note,

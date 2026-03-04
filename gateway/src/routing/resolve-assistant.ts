@@ -12,7 +12,10 @@ export function resolveAssistant(
   // Priority 1: explicit conversation_id route
   for (const entry of config.routingEntries) {
     if (entry.type === "conversation_id" && entry.key === conversationId) {
-      log.debug({ conversationId, assistantId: entry.assistantId }, "Resolved by conversation_id");
+      log.debug(
+        { conversationId, assistantId: entry.assistantId },
+        "Resolved by conversation_id",
+      );
       return { assistantId: entry.assistantId, routeSource: "conversation_id" };
     }
   }
@@ -20,7 +23,10 @@ export function resolveAssistant(
   // Priority 2: explicit actor_id route
   for (const entry of config.routingEntries) {
     if (entry.type === "actor_id" && entry.key === actorId) {
-      log.debug({ actorId, assistantId: entry.assistantId }, "Resolved by actor_id");
+      log.debug(
+        { actorId, assistantId: entry.assistantId },
+        "Resolved by actor_id",
+      );
       return { assistantId: entry.assistantId, routeSource: "actor_id" };
     }
   }

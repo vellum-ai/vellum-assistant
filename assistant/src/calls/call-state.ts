@@ -5,13 +5,16 @@
  * with register/unregister/fire helpers keyed by conversationId.
  */
 
-import { getLogger } from '../util/logger.js';
-import type { CallController } from './call-controller.js';
+import { getLogger } from "../util/logger.js";
+import type { CallController } from "./call-controller.js";
 
-const log = getLogger('call-state');
+const log = getLogger("call-state");
 
 // ── Question notifiers ──────────────────────────────────────────────
-const questionNotifiers = new Map<string, (callSessionId: string, question: string) => void>();
+const questionNotifiers = new Map<
+  string,
+  (callSessionId: string, question: string) => void
+>();
 
 export function registerCallQuestionNotifier(
   conversationId: string,
@@ -24,16 +27,27 @@ export function unregisterCallQuestionNotifier(conversationId: string): void {
   questionNotifiers.delete(conversationId);
 }
 
-export function fireCallQuestionNotifier(conversationId: string, callSessionId: string, question: string): void {
+export function fireCallQuestionNotifier(
+  conversationId: string,
+  callSessionId: string,
+  question: string,
+): void {
   questionNotifiers.get(conversationId)?.(callSessionId, question);
 }
 
 // ── Transcript notifiers ────────────────────────────────────────────
-const transcriptNotifiers = new Map<string, (callSessionId: string, speaker: 'caller' | 'assistant', text: string) => void>();
+const transcriptNotifiers = new Map<
+  string,
+  (callSessionId: string, speaker: "caller" | "assistant", text: string) => void
+>();
 
 export function registerCallTranscriptNotifier(
   conversationId: string,
-  callback: (callSessionId: string, speaker: 'caller' | 'assistant', text: string) => void,
+  callback: (
+    callSessionId: string,
+    speaker: "caller" | "assistant",
+    text: string,
+  ) => void,
 ): void {
   transcriptNotifiers.set(conversationId, callback);
 }
@@ -45,7 +59,7 @@ export function unregisterCallTranscriptNotifier(conversationId: string): void {
 export function fireCallTranscriptNotifier(
   conversationId: string,
   callSessionId: string,
-  speaker: 'caller' | 'assistant',
+  speaker: "caller" | "assistant",
   text: string,
 ): void {
   transcriptNotifiers.get(conversationId)?.(callSessionId, speaker, text);
@@ -65,23 +79,31 @@ export function unregisterCallCompletionNotifier(conversationId: string): void {
   completionNotifiers.delete(conversationId);
 }
 
-export function fireCallCompletionNotifier(conversationId: string, callSessionId: string): void {
+export function fireCallCompletionNotifier(
+  conversationId: string,
+  callSessionId: string,
+): void {
   completionNotifiers.get(conversationId)?.(callSessionId);
 }
 
 // ── Active controller registry ──────────────────────────────────────
 const activeCallControllers = new Map<string, CallController>();
 
-export function registerCallController(callSessionId: string, controller: CallController): void {
+export function registerCallController(
+  callSessionId: string,
+  controller: CallController,
+): void {
   activeCallControllers.set(callSessionId, controller);
-  log.info({ callSessionId }, 'Call controller registered');
+  log.info({ callSessionId }, "Call controller registered");
 }
 
 export function unregisterCallController(callSessionId: string): void {
   activeCallControllers.delete(callSessionId);
-  log.info({ callSessionId }, 'Call controller unregistered');
+  log.info({ callSessionId }, "Call controller unregistered");
 }
 
-export function getCallController(callSessionId: string): CallController | undefined {
+export function getCallController(
+  callSessionId: string,
+): CallController | undefined {
   return activeCallControllers.get(callSessionId);
 }

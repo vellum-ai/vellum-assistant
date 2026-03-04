@@ -26,12 +26,16 @@ export async function reconcileTelegramWebhook(
   config: GatewayConfig,
 ): Promise<void> {
   if (!config.telegramBotToken || !config.telegramWebhookSecret) {
-    log.debug("Skipping webhook reconciliation: Telegram credentials not configured");
+    log.debug(
+      "Skipping webhook reconciliation: Telegram credentials not configured",
+    );
     return;
   }
 
   if (!config.ingressPublicBaseUrl) {
-    log.debug("Skipping webhook reconciliation: INGRESS_PUBLIC_BASE_URL not set");
+    log.debug(
+      "Skipping webhook reconciliation: INGRESS_PUBLIC_BASE_URL not set",
+    );
     return;
   }
 

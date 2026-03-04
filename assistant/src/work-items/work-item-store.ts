@@ -1,12 +1,19 @@
-import { asc,desc, eq } from 'drizzle-orm';
+import { asc, desc, eq } from "drizzle-orm";
 
-import { getDb } from '../memory/db.js';
-import { workItems } from '../memory/schema.js';
-import { getTask } from '../tasks/task-store.js';
+import { getDb } from "../memory/db.js";
+import { workItems } from "../memory/schema.js";
+import { getTask } from "../tasks/task-store.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type WorkItemStatus = 'queued' | 'running' | 'awaiting_review' | 'failed' | 'cancelled' | 'done' | 'archived';
+export type WorkItemStatus =
+  | "queued"
+  | "running"
+  | "awaiting_review"
+  | "failed"
+  | "cancelled"
+  | "done"
+  | "archived";
 
 export interface WorkItem {
   id: string;
@@ -48,7 +55,7 @@ export function createWorkItem(opts: {
     taskId: opts.taskId,
     title: opts.title,
     notes: opts.notes ?? null,
-    status: 'queued',
+    status: "queued",
     priorityTier: opts.priorityTier ?? 1,
     sortIndex: opts.sortIndex ?? null,
     lastRunId: null,
@@ -58,7 +65,7 @@ export function createWorkItem(opts: {
     sourceId: opts.sourceId ?? null,
     requiredTools: opts.requiredTools ?? null,
     approvedTools: null,
-    approvalStatus: 'none',
+    approvalStatus: "none",
     createdAt: now,
     updatedAt: now,
   };
@@ -86,7 +93,9 @@ export function createWorkItemWithPermissions(opts: {
 
 export function getWorkItem(id: string): WorkItem | undefined {
   const db = getDb();
-  return db.select().from(workItems).where(eq(workItems.id, id)).get() as WorkItem | undefined;
+  return db.select().from(workItems).where(eq(workItems.id, id)).get() as
+    | WorkItem
+    | undefined;
 }
 
 export function listWorkItems(opts?: { status?: WorkItemStatus }): WorkItem[] {
@@ -96,13 +105,32 @@ export function listWorkItems(opts?: { status?: WorkItemStatus }): WorkItem[] {
     query = query.where(eq(workItems.status, opts.status)) as typeof query;
   }
   return query
-    .orderBy(asc(workItems.priorityTier), asc(workItems.sortIndex), desc(workItems.updatedAt))
+    .orderBy(
+      asc(workItems.priorityTier),
+      asc(workItems.sortIndex),
+      desc(workItems.updatedAt),
+    )
     .all() as WorkItem[];
 }
 
 export function updateWorkItem(
   id: string,
-  updates: Partial<Pick<WorkItem, 'title' | 'notes' | 'status' | 'priorityTier' | 'sortIndex' | 'lastRunId' | 'lastRunConversationId' | 'lastRunStatus' | 'requiredTools' | 'approvedTools' | 'approvalStatus'>>,
+  updates: Partial<
+    Pick<
+      WorkItem,
+      | "title"
+      | "notes"
+      | "status"
+      | "priorityTier"
+      | "sortIndex"
+      | "lastRunId"
+      | "lastRunConversationId"
+      | "lastRunStatus"
+      | "requiredTools"
+      | "approvedTools"
+      | "approvalStatus"
+    >
+  >,
 ): WorkItem | undefined {
   const db = getDb();
   db.update(workItems)
@@ -133,10 +161,18 @@ export interface RemoveWorkItemResult {
 export function removeWorkItemFromQueue(id: string): RemoveWorkItemResult {
   const item = getWorkItem(id);
   if (!item) {
-    return { success: false, title: '', message: `No work item found with ID "${id}"` };
+    return {
+      success: false,
+      title: "",
+      message: `No work item found with ID "${id}"`,
+    };
   }
   deleteWorkItem(item.id);
-  return { success: true, title: item.title, message: `Removed "${item.title}" from the task queue.` };
+  return {
+    success: true,
+    title: item.title,
+    message: `Removed "${item.title}" from the task queue.`,
+  };
 }
 
 // ── Selectors / Helpers ─────────────────────────────────────────────
@@ -154,24 +190,36 @@ export interface WorkItemSelector {
 }
 
 export type ResolveWorkItemResult =
-  | { status: 'found'; workItem: WorkItem }
-  | { status: 'not_found'; message: string }
-  | { status: 'ambiguous'; matches: WorkItem[]; message: string };
+  | { status: "found"; workItem: WorkItem }
+  | { status: "not_found"; message: string }
+  | { status: "ambiguous"; matches: WorkItem[]; message: string };
 
-const PRIORITY_TIER_LABELS: Record<number, string> = { 0: 'high', 1: 'medium', 2: 'low' };
+const PRIORITY_TIER_LABELS: Record<number, string> = {
+  0: "high",
+  1: "medium",
+  2: "low",
+};
 
-function formatAmbiguityMessage(selectorLabel: string, matches: WorkItem[]): string {
+function formatAmbiguityMessage(
+  selectorLabel: string,
+  matches: WorkItem[],
+): string {
   const lines = matches.map(
-    m =>
-      `  - ID: ${m.id} | title: "${m.title}" | priority: ${PRIORITY_TIER_LABELS[m.priorityTier] ?? m.priorityTier} | status: ${m.status}`,
+    (m) =>
+      `  - ID: ${m.id} | title: "${m.title}" | priority: ${
+        PRIORITY_TIER_LABELS[m.priorityTier] ?? m.priorityTier
+      } | status: ${m.status}`,
   );
-  return `Multiple items match '${selectorLabel}'. Please specify which one:\n${lines.join('\n')}`;
+  return `Multiple items match '${selectorLabel}'. Please specify which one:\n${lines.join(
+    "\n",
+  )}`;
 }
 
 /** Find all active work items for a given task ID */
 export function findActiveWorkItemsByTaskId(taskId: string): WorkItem[] {
   return listWorkItems().filter(
-    i => i.taskId === taskId && i.status !== 'done' && i.status !== 'archived'
+    (i) =>
+      i.taskId === taskId && i.status !== "done" && i.status !== "archived",
   );
 }
 
@@ -179,7 +227,10 @@ export function findActiveWorkItemsByTaskId(taskId: string): WorkItem[] {
 export function findActiveWorkItemsByTitle(title: string): WorkItem[] {
   const normalized = title.trim().toLowerCase();
   return listWorkItems().filter(
-    i => i.title.trim().toLowerCase() === normalized && i.status !== 'done' && i.status !== 'archived'
+    (i) =>
+      i.title.trim().toLowerCase() === normalized &&
+      i.status !== "done" &&
+      i.status !== "archived",
   );
 }
 
@@ -189,15 +240,18 @@ export function findActiveWorkItemsByTitle(title: string): WorkItem[] {
  * Returns the filtered list (may still contain multiple items if disambiguation
  * fields are insufficient).
  */
-function applyDisambiguators(items: WorkItem[], selector: WorkItemSelector): WorkItem[] {
+function applyDisambiguators(
+  items: WorkItem[],
+  selector: WorkItemSelector,
+): WorkItem[] {
   let filtered = items;
 
   if (selector.priorityTier !== undefined) {
-    filtered = filtered.filter(i => i.priorityTier === selector.priorityTier);
+    filtered = filtered.filter((i) => i.priorityTier === selector.priorityTier);
   }
 
   if (selector.status !== undefined) {
-    filtered = filtered.filter(i => i.status === selector.status);
+    filtered = filtered.filter((i) => i.status === selector.status);
   }
 
   if (selector.createdOrder !== undefined && filtered.length > 0) {
@@ -217,26 +271,41 @@ function applyDisambiguators(items: WorkItem[], selector: WorkItemSelector): Wor
  * Given a list of candidate matches, apply disambiguators and return a resolution result.
  * Centralises the disambiguate-or-return-ambiguous logic shared across selector branches.
  */
-function resolveFromCandidates(items: WorkItem[], selectorLabel: string, selector: WorkItemSelector): ResolveWorkItemResult {
+function resolveFromCandidates(
+  items: WorkItem[],
+  selectorLabel: string,
+  selector: WorkItemSelector,
+): ResolveWorkItemResult {
   if (items.length === 0) {
-    return { status: 'not_found', message: `No active work item found for "${selectorLabel}"` };
+    return {
+      status: "not_found",
+      message: `No active work item found for "${selectorLabel}"`,
+    };
   }
   if (items.length === 1) {
-    return { status: 'found', workItem: items[0] };
+    return { status: "found", workItem: items[0] };
   }
 
   // Multiple matches — try to narrow down with disambiguator fields
   const narrowed = applyDisambiguators(items, selector);
 
   if (narrowed.length === 1) {
-    return { status: 'found', workItem: narrowed[0] };
+    return { status: "found", workItem: narrowed[0] };
   }
   if (narrowed.length === 0) {
     // Disambiguators filtered out everything — report the original set so the
     // caller sees what was available
-    return { status: 'ambiguous', matches: items, message: formatAmbiguityMessage(selectorLabel, items) };
+    return {
+      status: "ambiguous",
+      matches: items,
+      message: formatAmbiguityMessage(selectorLabel, items),
+    };
   }
-  return { status: 'ambiguous', matches: narrowed, message: formatAmbiguityMessage(selectorLabel, narrowed) };
+  return {
+    status: "ambiguous",
+    matches: narrowed,
+    message: formatAmbiguityMessage(selectorLabel, narrowed),
+  };
 }
 
 /**
@@ -249,14 +318,23 @@ function resolveFromCandidates(items: WorkItem[], selectorLabel: string, selecto
  * When multiple items match, the optional disambiguator fields (priorityTier,
  * status, createdOrder) are applied to narrow down the set.
  */
-export function resolveWorkItem(selector: WorkItemSelector): ResolveWorkItemResult {
+export function resolveWorkItem(
+  selector: WorkItemSelector,
+): ResolveWorkItemResult {
   if (selector.workItemId) {
     const item = getWorkItem(selector.workItemId);
-    if (!item) return { status: 'not_found', message: `No work item found with ID "${selector.workItemId}"` };
-    if (item.status === 'done' || item.status === 'archived') {
-      return { status: 'not_found', message: `Work item "${selector.workItemId}" is ${item.status}` };
+    if (!item)
+      return {
+        status: "not_found",
+        message: `No work item found with ID "${selector.workItemId}"`,
+      };
+    if (item.status === "done" || item.status === "archived") {
+      return {
+        status: "not_found",
+        message: `Work item "${selector.workItemId}" is ${item.status}`,
+      };
     }
-    return { status: 'found', workItem: item };
+    return { status: "found", workItem: item };
   }
 
   if (selector.taskId) {
@@ -269,12 +347,16 @@ export function resolveWorkItem(selector: WorkItemSelector): ResolveWorkItemResu
     return resolveFromCandidates(items, selector.title, selector);
   }
 
-  return { status: 'not_found', message: 'At least one selector field (workItemId, taskId, or title) must be provided' };
+  return {
+    status: "not_found",
+    message:
+      "At least one selector field (workItemId, taskId, or title) must be provided",
+  };
 }
 
 // ── Entity Identification ───────────────────────────────────────────
 
-export type EntityType = 'task_template' | 'work_item' | 'unknown';
+export type EntityType = "task_template" | "work_item" | "unknown";
 
 export interface EntityIdentification {
   type: EntityType;
@@ -290,37 +372,45 @@ export interface EntityIdentification {
 export function identifyEntityById(id: string): EntityIdentification {
   const workItem = getWorkItem(id);
   if (workItem) {
-    return { type: 'work_item', id: workItem.id, title: workItem.title };
+    return { type: "work_item", id: workItem.id, title: workItem.title };
   }
 
   const task = getTask(id);
   if (task) {
-    return { type: 'task_template', id: task.id, title: task.title };
+    return { type: "task_template", id: task.id, title: task.title };
   }
 
-  return { type: 'unknown', id };
+  return { type: "unknown", id };
 }
 
 /**
  * Build a corrective error message when a work item ID is passed where
  * a task template ID is expected.
  */
-export function buildWorkItemMismatchError(id: string, title: string, expectedTool: string): string {
+export function buildWorkItemMismatchError(
+  id: string,
+  title: string,
+  expectedTool: string,
+): string {
   return [
     `Entity mismatch: The ID "${id}" refers to a work item ("${title}"), not a task template.`,
     `Corrective action: Use ${expectedTool} to operate on work items in the task queue.`,
     `Selector fields: work_item_id: "${id}" or title: "${title}"`,
-  ].join('\n');
+  ].join("\n");
 }
 
 /**
  * Build a corrective error message when a task template ID is passed where
  * a work item ID is expected.
  */
-export function buildTaskTemplateMismatchError(id: string, title: string, expectedTool: string): string {
+export function buildTaskTemplateMismatchError(
+  id: string,
+  title: string,
+  expectedTool: string,
+): string {
   return [
     `Entity mismatch: The ID "${id}" refers to a task template ("${title}"), not a work item.`,
     `Corrective action: Use ${expectedTool} to operate on task templates.`,
     `Selector fields: task_id: "${id}" or task_name: "${title}"`,
-  ].join('\n');
+  ].join("\n");
 }

@@ -10,11 +10,16 @@ export interface HealthCheckResult {
   detail: string | null;
 }
 
-export async function checkHealth(runtimeUrl: string): Promise<HealthCheckResult> {
+export async function checkHealth(
+  runtimeUrl: string,
+): Promise<HealthCheckResult> {
   try {
     const url = `${runtimeUrl}/healthz`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      HEALTH_CHECK_TIMEOUT_MS,
+    );
 
     const response = await fetch(url, {
       signal: controller.signal,
@@ -29,10 +34,15 @@ export async function checkHealth(runtimeUrl: string): Promise<HealthCheckResult
 
     const data = (await response.json()) as HealthResponse;
     const status = data.status || "unknown";
-    return { status, detail: status !== "healthy" ? (data.message ?? null) : null };
+    return {
+      status,
+      detail: status !== "healthy" ? (data.message ?? null) : null,
+    };
   } catch (error) {
     const status =
-      error instanceof Error && error.name === "AbortError" ? "timeout" : "unreachable";
+      error instanceof Error && error.name === "AbortError"
+        ? "timeout"
+        : "unreachable";
     return { status, detail: null };
   }
 }

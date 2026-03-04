@@ -45,10 +45,16 @@
  *   - The chrome.debugger API shows a yellow infobar on the tab being debugged
  */
 
-import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
-import { extensionRelayServer } from '../browser-extension-relay/server.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { isSigningKeyInitialized, mintEdgeRelayToken } from '../runtime/auth/token-service.js';
+import type {
+  ExtensionCommand,
+  ExtensionResponse,
+} from "../browser-extension-relay/protocol.js";
+import { extensionRelayServer } from "../browser-extension-relay/server.js";
+import { getGatewayInternalBaseUrl } from "../config/env.js";
+import {
+  isSigningKeyInitialized,
+  mintEdgeRelayToken,
+} from "../runtime/auth/token-service.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,7 +64,7 @@ export interface InfluencerSearchCriteria {
   /** Keywords, niche, or topic to search for */
   query: string;
   /** Platforms to search on */
-  platforms?: ('instagram' | 'tiktok' | 'twitter')[];
+  platforms?: ("instagram" | "tiktok" | "twitter")[];
   /** Minimum follower count */
   minFollowers?: number;
   /** Maximum follower count */
@@ -73,7 +79,7 @@ export interface InfluencerSearchCriteria {
 
 export interface InfluencerProfile {
   /** Platform the profile was found on */
-  platform: 'instagram' | 'tiktok' | 'twitter';
+  platform: "instagram" | "tiktok" | "twitter";
   /** Username/handle */
   username: string;
   /** Display name */
@@ -120,10 +126,14 @@ export interface InfluencerSearchResult {
 // Relay command routing (same pattern as Amazon client)
 // ---------------------------------------------------------------------------
 
-async function sendRelayCommand(command: Record<string, unknown>): Promise<ExtensionResponse> {
+async function sendRelayCommand(
+  command: Record<string, unknown>,
+): Promise<ExtensionResponse> {
   const status = extensionRelayServer.getStatus();
   if (status.connected) {
-    return extensionRelayServer.sendCommand(command as Omit<ExtensionCommand, 'id'>);
+    return extensionRelayServer.sendCommand(
+      command as Omit<ExtensionCommand, "id">,
+    );
   }
 
   // Fall back to HTTP relay endpoint via the gateway.
@@ -131,18 +141,23 @@ async function sendRelayCommand(command: Record<string, unknown>): Promise<Exten
   // exchange token for the runtime. Without the signing key (CLI
   // out-of-process), we cannot mint JWTs at all.
   if (!isSigningKeyInitialized()) {
-    throw new Error('Auth signing key not initialized — browser-relay commands require the daemon to be running');
+    throw new Error(
+      "Auth signing key not initialized — browser-relay commands require the daemon to be running",
+    );
   }
   const token = mintEdgeRelayToken();
 
-  const resp = await fetch(`${getGatewayInternalBaseUrl()}/v1/browser-relay/command`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+  const resp = await fetch(
+    `${getGatewayInternalBaseUrl()}/v1/browser-relay/command`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(command),
     },
-    body: JSON.stringify(command),
-  });
+  );
 
   if (!resp.ok) {
     const body = await resp.text();
@@ -156,13 +171,19 @@ async function sendRelayCommand(command: Record<string, unknown>): Promise<Exten
 // Tab management & eval
 // ---------------------------------------------------------------------------
 
-async function findOrOpenTab(urlPattern: string, fallbackUrl: string): Promise<number> {
-  const resp = await sendRelayCommand({ action: 'find_tab', url: urlPattern });
+async function findOrOpenTab(
+  urlPattern: string,
+  fallbackUrl: string,
+): Promise<number> {
+  const resp = await sendRelayCommand({ action: "find_tab", url: urlPattern });
   if (resp.success && resp.tabId !== undefined) {
     return resp.tabId;
   }
 
-  const newTab = await sendRelayCommand({ action: 'new_tab', url: fallbackUrl });
+  const newTab = await sendRelayCommand({
+    action: "new_tab",
+    url: fallbackUrl,
+  });
   if (!newTab.success || newTab.tabId === undefined) {
     throw new Error(`Could not open tab for ${fallbackUrl}`);
   }
@@ -172,9 +193,9 @@ async function findOrOpenTab(urlPattern: string, fallbackUrl: string): Promise<n
 }
 
 async function navigateTab(tabId: number, url: string): Promise<void> {
-  const resp = await sendRelayCommand({ action: 'navigate', tabId, url });
+  const resp = await sendRelayCommand({ action: "navigate", tabId, url });
   if (!resp.success) {
-    throw new Error(`Failed to navigate: ${resp.error ?? 'unknown error'}`);
+    throw new Error(`Failed to navigate: ${resp.error ?? "unknown error"}`);
   }
   await sleep(3000);
 }
@@ -184,9 +205,13 @@ async function navigateTab(tabId: number, url: string): Promise<void> {
  * so use `return` to yield a value. For complex results, return a JSON string.
  */
 async function evalInTab(tabId: number, script: string): Promise<unknown> {
-  const resp = await sendRelayCommand({ action: 'evaluate', tabId, code: script });
+  const resp = await sendRelayCommand({
+    action: "evaluate",
+    tabId,
+    code: script,
+  });
   if (!resp.success) {
-    throw new Error(`Browser eval failed: ${resp.error ?? 'unknown error'}`);
+    throw new Error(`Browser eval failed: ${resp.error ?? "unknown error"}`);
   }
   return resp.result;
 }
@@ -201,14 +226,18 @@ function sleep(ms: number): Promise<void> {
 
 function parseFollowerCount(text: string): number | undefined {
   if (!text) return undefined;
-  const cleaned = text.toLowerCase().replace(/,/g, '').replace(/\s+/g, '').trim();
+  const cleaned = text
+    .toLowerCase()
+    .replace(/,/g, "")
+    .replace(/\s+/g, "")
+    .trim();
   const match = cleaned.match(/([\d.]+)\s*([kmbt]?)/);
   if (!match) return undefined;
 
   const num = parseFloat(match[1]);
   const suffix = match[2];
   const multipliers: Record<string, number> = {
-    '': 1,
+    "": 1,
     k: 1_000,
     m: 1_000_000,
     b: 1_000_000_000,
@@ -231,22 +260,30 @@ async function searchInstagram(
   criteria: InfluencerSearchCriteria,
 ): Promise<InfluencerProfile[]> {
   const limit = criteria.limit ?? 10;
-  const tabId = await findOrOpenTab('*://*.instagram.com/*', 'https://www.instagram.com');
+  const tabId = await findOrOpenTab(
+    "*://*.instagram.com/*",
+    "https://www.instagram.com",
+  );
 
   // Step 1: Navigate to keyword search (shows a grid of posts)
-  const searchUrl = `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(criteria.query)}`;
+  const searchUrl = `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(
+    criteria.query,
+  )}`;
   await navigateTab(tabId, searchUrl);
   await sleep(2000);
 
   // Step 2: Extract post links from the search grid
-  const postLinksRaw = await evalInTab(tabId, `
+  const postLinksRaw = await evalInTab(
+    tabId,
+    `
     var links = [];
     document.querySelectorAll('a[href]').forEach(function(a) {
       var h = a.getAttribute('href');
       if (h && (h.indexOf('/p/') > -1 || h.indexOf('/reel/') > -1)) links.push(h);
     });
     return JSON.stringify(links.slice(0, ${limit * 2}));
-  `);
+  `,
+  );
 
   let postLinks: string[];
   try {
@@ -265,8 +302,19 @@ async function searchInstagram(
 
   // Navigation skip list — known non-profile IG paths
   const skipUsernames = new Set([
-    'reels', 'explore', 'stories', 'direct', 'accounts', 'about',
-    'p', 'reel', 'tv', 'search', 'nametag', 'directory', '',
+    "reels",
+    "explore",
+    "stories",
+    "direct",
+    "accounts",
+    "about",
+    "p",
+    "reel",
+    "tv",
+    "search",
+    "nametag",
+    "directory",
+    "",
   ]);
 
   for (const postLink of postLinks) {
@@ -280,7 +328,9 @@ async function searchInstagram(
       // The post page body text starts with navigation items, then shows:
       //   "username\n...audio info...\nFollow\nusername\n..."
       // We look for the first profile link that isn't a nav item.
-      const authorRaw = await evalInTab(tabId, `
+      const authorRaw = await evalInTab(
+        tabId,
+        `
         var bodyText = document.body.innerText;
         // The author name appears after navigation elements, usually right before "Follow"
         // Also try extracting from links
@@ -317,10 +367,15 @@ async function searchInstagram(
           }
         }
         return author;
-      `);
+      `,
+      );
 
-      const authorUsername = String(authorRaw || '').trim();
-      if (authorUsername && !skipUsernames.has(authorUsername) && !seenUsernames.has(authorUsername)) {
+      const authorUsername = String(authorRaw || "").trim();
+      if (
+        authorUsername &&
+        !skipUsernames.has(authorUsername) &&
+        !seenUsernames.has(authorUsername)
+      ) {
         seenUsernames.add(authorUsername);
         authorUsernames.push(authorUsername);
       }
@@ -369,7 +424,9 @@ async function scrapeInstagramProfile(
   await navigateTab(tabId, `https://www.instagram.com/${username}/`);
   await sleep(2000);
 
-  const raw = await evalInTab(tabId, `
+  const raw = await evalInTab(
+    tabId,
+    `
     var r = { username: '${username}' };
 
     // Primary source: meta description tag
@@ -435,7 +492,8 @@ async function scrapeInstagramProfile(
     r.avatarUrl = avatarEl ? avatarEl.getAttribute('src') : null;
 
     return JSON.stringify(r);
-  `);
+  `,
+  );
 
   let data: Record<string, unknown>;
   try {
@@ -444,18 +502,18 @@ async function scrapeInstagramProfile(
     return null;
   }
 
-  const followersNum = parseFollowerCount(String(data.followers || ''));
-  const followingNum = parseFollowerCount(String(data.following || ''));
-  const postCount = parseFollowerCount(String(data.posts || ''));
+  const followersNum = parseFollowerCount(String(data.followers || ""));
+  const followingNum = parseFollowerCount(String(data.following || ""));
+  const postCount = parseFollowerCount(String(data.posts || ""));
 
   return {
-    platform: 'instagram',
+    platform: "instagram",
     username,
     displayName: String(data.displayName || username),
     profileUrl: `https://www.instagram.com/${username}/`,
-    bio: String(data.bio || ''),
+    bio: String(data.bio || ""),
     followers: followersNum,
-    followersDisplay: String(data.followers || 'unknown'),
+    followersDisplay: String(data.followers || "unknown"),
     following: followingNum,
     postCount,
     isVerified: Boolean(data.isVerified),
@@ -463,7 +521,10 @@ async function scrapeInstagramProfile(
     engagementRate: undefined,
     avgLikes: undefined,
     avgComments: undefined,
-    contentThemes: extractThemes(String(data.bio || '') + ' ' + String(data.meta || ''), criteria.query),
+    contentThemes: extractThemes(
+      String(data.bio || "") + " " + String(data.meta || ""),
+      criteria.query,
+    ),
     recentPosts: [],
     relevanceScore: 0,
   };
@@ -495,18 +556,28 @@ async function searchTikTok(
   criteria: InfluencerSearchCriteria,
 ): Promise<InfluencerProfile[]> {
   const limit = criteria.limit ?? 10;
-  const tabId = await findOrOpenTab('*://*.tiktok.com/*', 'https://www.tiktok.com');
+  const tabId = await findOrOpenTab(
+    "*://*.tiktok.com/*",
+    "https://www.tiktok.com",
+  );
 
-  const searchUrl = `https://www.tiktok.com/search/user?q=${encodeURIComponent(criteria.query)}`;
+  const searchUrl = `https://www.tiktok.com/search/user?q=${encodeURIComponent(
+    criteria.query,
+  )}`;
   await navigateTab(tabId, searchUrl);
   await sleep(3000);
 
   // Scroll to load more results
-  await evalInTab(tabId, `window.scrollTo(0, document.body.scrollHeight); return 'scrolled'`);
+  await evalInTab(
+    tabId,
+    `window.scrollTo(0, document.body.scrollHeight); return 'scrolled'`,
+  );
   await sleep(2000);
 
   // Parse the text pattern: DisplayName, username, count, "Followers", "·", count, "Likes"
-  const raw = await evalInTab(tabId, `
+  const raw = await evalInTab(
+    tabId,
+    `
     var text = document.body.innerText;
     var lines = text.split('\\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
     var users = [];
@@ -528,7 +599,8 @@ async function searchTikTok(
       }
     }
     return JSON.stringify(users.slice(0, ${limit * 2}));
-  `);
+  `,
+  );
 
   let searchResults: Array<{
     username: string;
@@ -544,13 +616,13 @@ async function searchTikTok(
 
   // Convert to profiles — we only have basic data from search, no bios yet
   const profiles: InfluencerProfile[] = searchResults.map((p) => ({
-    platform: 'tiktok' as const,
+    platform: "tiktok" as const,
     username: p.username,
     displayName: p.displayName || p.username,
     profileUrl: `https://www.tiktok.com/@${p.username}`,
-    bio: '',
+    bio: "",
     followers: parseFollowerCount(p.followers),
-    followersDisplay: p.followers || 'unknown',
+    followersDisplay: p.followers || "unknown",
     following: undefined,
     postCount: undefined,
     isVerified: false,
@@ -570,7 +642,11 @@ async function searchTikTok(
   const enriched: InfluencerProfile[] = [];
   for (const profile of filtered.slice(0, limit)) {
     try {
-      const detailed = await scrapeTikTokProfile(tabId, profile.username, criteria);
+      const detailed = await scrapeTikTokProfile(
+        tabId,
+        profile.username,
+        criteria,
+      );
       if (detailed) {
         enriched.push(detailed);
       } else {
@@ -601,7 +677,9 @@ async function scrapeTikTokProfile(
   await navigateTab(tabId, `https://www.tiktok.com/@${username}`);
   await sleep(2500);
 
-  const raw = await evalInTab(tabId, `
+  const raw = await evalInTab(
+    tabId,
+    `
     var r = { username: '${username}' };
     var bodyText = document.body.innerText;
 
@@ -653,7 +731,8 @@ async function scrapeTikTokProfile(
     r.avatarUrl = img ? img.getAttribute('src') : null;
 
     return JSON.stringify(r);
-  `);
+  `,
+  );
 
   let data: Record<string, unknown>;
   try {
@@ -662,17 +741,17 @@ async function scrapeTikTokProfile(
     return null;
   }
 
-  const bio = String(data.bio || '');
+  const bio = String(data.bio || "");
 
   return {
-    platform: 'tiktok',
+    platform: "tiktok",
     username,
     displayName: String(data.displayName || username),
     profileUrl: `https://www.tiktok.com/@${username}`,
     bio,
-    followers: parseFollowerCount(String(data.followers || '')),
-    followersDisplay: String(data.followers || 'unknown'),
-    following: parseFollowerCount(String(data.following || '')),
+    followers: parseFollowerCount(String(data.followers || "")),
+    followersDisplay: String(data.followers || "unknown"),
+    following: parseFollowerCount(String(data.following || "")),
     postCount: undefined,
     isVerified: Boolean(data.isVerified),
     avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
@@ -714,22 +793,29 @@ async function searchTwitter(
   criteria: InfluencerSearchCriteria,
 ): Promise<InfluencerProfile[]> {
   const limit = criteria.limit ?? 10;
-  const tabId = await findOrOpenTab('*://*.x.com/*', 'https://x.com');
+  const tabId = await findOrOpenTab("*://*.x.com/*", "https://x.com");
 
   // Use a short query — X people search fails with long queries
-  const queryWords = criteria.query.split(/\s+/).slice(0, 4).join(' ');
-  const searchUrl = `https://x.com/search?q=${encodeURIComponent(queryWords)}&f=user`;
+  const queryWords = criteria.query.split(/\s+/).slice(0, 4).join(" ");
+  const searchUrl = `https://x.com/search?q=${encodeURIComponent(
+    queryWords,
+  )}&f=user`;
   await navigateTab(tabId, searchUrl);
   await sleep(4000);
 
   // Scroll to load more results
   await evalInTab(tabId, `window.scrollTo(0, 800); return 'ok'`);
   await sleep(2000);
-  await evalInTab(tabId, `window.scrollTo(0, document.body.scrollHeight); return 'ok'`);
+  await evalInTab(
+    tabId,
+    `window.scrollTo(0, document.body.scrollHeight); return 'ok'`,
+  );
   await sleep(2000);
 
   // Extract profiles from UserCell components using text pattern parsing
-  const raw = await evalInTab(tabId, `
+  const raw = await evalInTab(
+    tabId,
+    `
     var cells = document.querySelectorAll('[data-testid="UserCell"]');
     var results = [];
     var seen = {};
@@ -779,7 +865,8 @@ async function searchTwitter(
       });
     }
     return JSON.stringify(results.slice(0, ${limit * 3}));
-  `);
+  `,
+  );
 
   let searchResults: Array<{
     username: string;
@@ -808,13 +895,13 @@ async function searchTwitter(
     } catch {
       // Still include with search data if profile visit fails
       profiles.push({
-        platform: 'twitter',
+        platform: "twitter",
         username: sr.username,
         displayName: sr.displayName,
         profileUrl: `https://x.com/${sr.username}`,
         bio: sr.bio,
         followers: undefined,
-        followersDisplay: 'unknown',
+        followersDisplay: "unknown",
         following: undefined,
         postCount: undefined,
         isVerified: sr.isVerified,
@@ -849,7 +936,9 @@ async function scrapeTwitterProfile(
   await navigateTab(tabId, `https://x.com/${username}`);
   await sleep(2500);
 
-  const raw = await evalInTab(tabId, `
+  const raw = await evalInTab(
+    tabId,
+    `
     var r = { username: '${username}' };
 
     // Display name from UserName testid
@@ -879,7 +968,8 @@ async function scrapeTwitterProfile(
     r.avatarUrl = img ? img.getAttribute('src') : null;
 
     return JSON.stringify(r);
-  `);
+  `,
+  );
 
   let data: Record<string, unknown>;
   try {
@@ -889,21 +979,21 @@ async function scrapeTwitterProfile(
   }
 
   return {
-    platform: 'twitter',
+    platform: "twitter",
     username,
     displayName: String(data.displayName || username),
     profileUrl: `https://x.com/${username}`,
-    bio: String(data.bio || ''),
-    followers: parseFollowerCount(String(data.followers || '')),
-    followersDisplay: String(data.followers || 'unknown'),
-    following: parseFollowerCount(String(data.following || '')),
+    bio: String(data.bio || ""),
+    followers: parseFollowerCount(String(data.followers || "")),
+    followersDisplay: String(data.followers || "unknown"),
+    following: parseFollowerCount(String(data.following || "")),
     postCount: undefined,
     isVerified: Boolean(data.isVerified),
     avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
     engagementRate: undefined,
     avgLikes: undefined,
     avgComments: undefined,
-    contentThemes: extractThemes(String(data.bio || ''), ''),
+    contentThemes: extractThemes(String(data.bio || ""), ""),
     recentPosts: [],
     relevanceScore: 0,
   };
@@ -961,7 +1051,8 @@ function scoreProfile(
   }
 
   // Content theme matching
-  if (profile.contentThemes.length > 0) score += 5 * profile.contentThemes.length;
+  if (profile.contentThemes.length > 0)
+    score += 5 * profile.contentThemes.length;
 
   // Completeness bonuses
   if (profile.avatarUrl) score += 5;
@@ -972,24 +1063,85 @@ function scoreProfile(
 
 function extractThemes(bio: string, query: string): string[] {
   const themes: string[] = [];
-  const text = (bio + ' ' + query).toLowerCase();
+  const text = (bio + " " + query).toLowerCase();
 
   const themeKeywords: Record<string, string[]> = {
-    fashion: ['fashion', 'style', 'outfit', 'ootd', 'clothing', 'wear', 'designer'],
-    beauty: ['beauty', 'makeup', 'skincare', 'cosmetic', 'hair', 'glow'],
-    fitness: ['fitness', 'gym', 'workout', 'health', 'training', 'athlete', 'sports'],
-    food: ['food', 'recipe', 'cooking', 'chef', 'foodie', 'restaurant', 'eat'],
-    travel: ['travel', 'wanderlust', 'adventure', 'explore', 'tourism', 'destination'],
-    tech: ['tech', 'technology', 'gadget', 'software', 'coding', 'developer', 'ai', 'artificial intelligence'],
-    gaming: ['gaming', 'gamer', 'esports', 'twitch', 'stream', 'game'],
-    music: ['music', 'musician', 'singer', 'artist', 'producer', 'dj'],
-    lifestyle: ['lifestyle', 'daily', 'vlog', 'life', 'mom', 'dad', 'family'],
-    business: ['business', 'entrepreneur', 'startup', 'marketing', 'ceo', 'founder'],
-    photography: ['photo', 'photography', 'photographer', 'visual', 'creative'],
-    comedy: ['comedy', 'funny', 'humor', 'meme', 'comedian', 'laugh'],
-    education: ['education', 'learn', 'teach', 'tutor', 'tips', 'howto', 'teaching'],
-    wellness: ['wellness', 'mindfulness', 'meditation', 'yoga', 'mental health'],
-    career: ['career', 'job', 'hiring', 'resume', 'interview', 'salary', 'remote work'],
+    fashion: [
+      "fashion",
+      "style",
+      "outfit",
+      "ootd",
+      "clothing",
+      "wear",
+      "designer",
+    ],
+    beauty: ["beauty", "makeup", "skincare", "cosmetic", "hair", "glow"],
+    fitness: [
+      "fitness",
+      "gym",
+      "workout",
+      "health",
+      "training",
+      "athlete",
+      "sports",
+    ],
+    food: ["food", "recipe", "cooking", "chef", "foodie", "restaurant", "eat"],
+    travel: [
+      "travel",
+      "wanderlust",
+      "adventure",
+      "explore",
+      "tourism",
+      "destination",
+    ],
+    tech: [
+      "tech",
+      "technology",
+      "gadget",
+      "software",
+      "coding",
+      "developer",
+      "ai",
+      "artificial intelligence",
+    ],
+    gaming: ["gaming", "gamer", "esports", "twitch", "stream", "game"],
+    music: ["music", "musician", "singer", "artist", "producer", "dj"],
+    lifestyle: ["lifestyle", "daily", "vlog", "life", "mom", "dad", "family"],
+    business: [
+      "business",
+      "entrepreneur",
+      "startup",
+      "marketing",
+      "ceo",
+      "founder",
+    ],
+    photography: ["photo", "photography", "photographer", "visual", "creative"],
+    comedy: ["comedy", "funny", "humor", "meme", "comedian", "laugh"],
+    education: [
+      "education",
+      "learn",
+      "teach",
+      "tutor",
+      "tips",
+      "howto",
+      "teaching",
+    ],
+    wellness: [
+      "wellness",
+      "mindfulness",
+      "meditation",
+      "yoga",
+      "mental health",
+    ],
+    career: [
+      "career",
+      "job",
+      "hiring",
+      "resume",
+      "interview",
+      "salary",
+      "remote work",
+    ],
   };
 
   for (const [theme, keywords] of Object.entries(themeKeywords)) {
@@ -1011,7 +1163,7 @@ function extractThemes(bio: string, query: string): string[] {
 export async function searchInfluencers(
   criteria: InfluencerSearchCriteria,
 ): Promise<InfluencerSearchResult[]> {
-  const platforms = criteria.platforms ?? ['instagram', 'tiktok', 'twitter'];
+  const platforms = criteria.platforms ?? ["instagram", "tiktok", "twitter"];
   const results: InfluencerSearchResult[] = [];
 
   for (const platform of platforms) {
@@ -1019,13 +1171,13 @@ export async function searchInfluencers(
       let profiles: InfluencerProfile[];
 
       switch (platform) {
-        case 'instagram':
+        case "instagram":
           profiles = await searchInstagram(criteria);
           break;
-        case 'tiktok':
+        case "tiktok":
           profiles = await searchTikTok(criteria);
           break;
-        case 'twitter':
+        case "twitter":
           profiles = await searchTwitter(criteria);
           break;
         default:
@@ -1063,22 +1215,28 @@ export async function searchInfluencers(
  * Get detailed profile data for a specific influencer.
  */
 export async function getInfluencerProfile(
-  platform: 'instagram' | 'tiktok' | 'twitter',
+  platform: "instagram" | "tiktok" | "twitter",
   username: string,
 ): Promise<InfluencerProfile | null> {
-  const criteria: InfluencerSearchCriteria = { query: '' };
+  const criteria: InfluencerSearchCriteria = { query: "" };
 
   switch (platform) {
-    case 'instagram': {
-      const tabId = await findOrOpenTab('*://*.instagram.com/*', 'https://www.instagram.com');
+    case "instagram": {
+      const tabId = await findOrOpenTab(
+        "*://*.instagram.com/*",
+        "https://www.instagram.com",
+      );
       return scrapeInstagramProfile(tabId, username, criteria);
     }
-    case 'twitter': {
-      const tabId = await findOrOpenTab('*://*.x.com/*', 'https://x.com');
+    case "twitter": {
+      const tabId = await findOrOpenTab("*://*.x.com/*", "https://x.com");
       return scrapeTwitterProfile(tabId, username, criteria);
     }
-    case 'tiktok': {
-      const tabId = await findOrOpenTab('*://*.tiktok.com/*', 'https://www.tiktok.com');
+    case "tiktok": {
+      const tabId = await findOrOpenTab(
+        "*://*.tiktok.com/*",
+        "https://www.tiktok.com",
+      );
       return scrapeTikTokProfile(tabId, username, criteria);
     }
     default:
@@ -1090,7 +1248,10 @@ export async function getInfluencerProfile(
  * Compare multiple influencers side by side.
  */
 export async function compareInfluencers(
-  influencers: { platform: 'instagram' | 'tiktok' | 'twitter'; username: string }[],
+  influencers: {
+    platform: "instagram" | "tiktok" | "twitter";
+    username: string;
+  }[],
 ): Promise<InfluencerProfile[]> {
   const profiles: InfluencerProfile[] = [];
 

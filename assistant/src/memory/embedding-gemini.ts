@@ -1,4 +1,7 @@
-import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
+import type {
+  EmbeddingBackend,
+  EmbeddingRequestOptions,
+} from "./embedding-backend.js";
 
 interface GeminiEmbedResponse {
   embedding?: {
@@ -7,7 +10,7 @@ interface GeminiEmbedResponse {
 }
 
 export class GeminiEmbeddingBackend implements EmbeddingBackend {
-  readonly provider = 'gemini' as const;
+  readonly provider = "gemini" as const;
   readonly model: string;
   private readonly apiKey: string;
 
@@ -16,7 +19,10 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     this.model = model;
   }
 
-  async embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
+  async embed(
+    texts: string[],
+    options?: EmbeddingRequestOptions,
+  ): Promise<number[][]> {
     const vectors: number[][] = [];
     for (const text of texts) {
       const values = await this.embedSingle(text, options);
@@ -25,11 +31,16 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     return vectors;
   }
 
-  private async embedSingle(text: string, options?: EmbeddingRequestOptions): Promise<number[]> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:embedContent?key=${encodeURIComponent(this.apiKey)}`;
+  private async embedSingle(
+    text: string,
+    options?: EmbeddingRequestOptions,
+  ): Promise<number[]> {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      this.model,
+    )}:embedContent?key=${encodeURIComponent(this.apiKey)}`;
     const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: `models/${this.model}`,
         content: {
@@ -40,12 +51,14 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     });
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`Gemini embeddings request failed (${response.status}): ${body}`);
+      throw new Error(
+        `Gemini embeddings request failed (${response.status}): ${body}`,
+      );
     }
-    const payload = await response.json() as GeminiEmbedResponse;
+    const payload = (await response.json()) as GeminiEmbedResponse;
     const values = payload.embedding?.values;
     if (!Array.isArray(values) || values.length === 0) {
-      throw new Error('Gemini embeddings response missing vector values');
+      throw new Error("Gemini embeddings response missing vector values");
     }
     return values;
   }

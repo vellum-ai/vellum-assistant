@@ -16,7 +16,7 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export type SensitiveOutputKind = 'invite_code';
+export type SensitiveOutputKind = "invite_code";
 
 export interface SensitiveOutputBinding {
   kind: SensitiveOutputKind;
@@ -36,7 +36,7 @@ const DIRECTIVE_RE =
 // ---------------------------------------------------------------------------
 
 const KIND_PREFIX: Record<SensitiveOutputKind, string> = {
-  invite_code: 'VELLUM_ASSISTANT_INVITE_CODE_',
+  invite_code: "VELLUM_ASSISTANT_INVITE_CODE_",
 };
 
 const VALID_KINDS = new Set<string>(Object.keys(KIND_PREFIX));
@@ -46,8 +46,8 @@ const VALID_KINDS = new Set<string>(Object.keys(KIND_PREFIX));
  * Provides ~41 bits of entropy — sufficient for intra-request uniqueness.
  */
 function generateShortId(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let id = '';
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let id = "";
   for (let i = 0; i < 8; i++) {
     id += chars[Math.floor(Math.random() * chars.length)];
   }
@@ -110,7 +110,7 @@ export function extractAndSanitize(content: string): SanitizeResult {
   }
 
   // Step 2: strip directive tags
-  let sanitized = content.replace(DIRECTIVE_RE, '');
+  let sanitized = content.replace(DIRECTIVE_RE, "");
 
   // Step 3: replace raw values with placeholders throughout remaining content
   for (const binding of bindings) {
@@ -155,7 +155,7 @@ export function applyStreamingSubstitution(
   substitutionMap: ReadonlyMap<string, string>,
 ): { emit: string; pending: string } {
   if (substitutionMap.size === 0) {
-    return { emit: text, pending: '' };
+    return { emit: text, pending: "" };
   }
 
   // First, resolve any complete placeholders
@@ -166,12 +166,19 @@ export function applyStreamingSubstitution(
 
   // Check if the tail of resolved text could be an incomplete placeholder prefix.
   // All current placeholders start with "VELLUM_ASSISTANT_".
-  const PREFIX = 'VELLUM_ASSISTANT_';
+  const PREFIX = "VELLUM_ASSISTANT_";
   const minSuffixLen = 1; // At minimum, one char of the prefix
 
   // Walk backwards from the end to find a trailing partial match of any placeholder prefix
   let pendingStart = resolved.length;
-  for (let i = Math.max(0, resolved.length - getMaxPlaceholderLength(substitutionMap)); i < resolved.length; i++) {
+  for (
+    let i = Math.max(
+      0,
+      resolved.length - getMaxPlaceholderLength(substitutionMap),
+    );
+    i < resolved.length;
+    i++
+  ) {
     const tail = resolved.slice(i);
     // Check if any placeholder starts with this tail
     if (tail.length >= minSuffixLen && PREFIX.startsWith(tail)) {

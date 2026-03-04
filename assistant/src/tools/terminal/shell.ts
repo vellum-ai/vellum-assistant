@@ -123,7 +123,9 @@ class ShellTool implements Tool {
           "Credential ref resolution failed",
         );
         return {
-          content: `Error: unknown credential reference(s): ${unresolvedRefs.join(", ")}. Use credential_store list to see available credentials.`,
+          content: `Error: unknown credential reference(s): ${unresolvedRefs.join(
+            ", ",
+          )}. Use credential_store list to see available credentials.`,
           isError: true,
         };
       }
@@ -187,7 +189,9 @@ class ShellTool implements Tool {
       } catch (err) {
         log.error({ err }, "Failed to start proxy session");
         return {
-          content: `Error: failed to start proxy session — ${err instanceof Error ? err.message : String(err)}`,
+          content: `Error: failed to start proxy session — ${
+            err instanceof Error ? err.message : String(err)
+          }`,
           isError: true,
         };
       }
@@ -264,7 +268,11 @@ class ShellTool implements Tool {
         clearTimeout(timer);
         context.signal?.removeEventListener("abort", onAbort);
         resolve({
-          content: `Error spawning command: ${err.message}${(err as NodeJS.ErrnoException).code === "ENOENT" ? ". The command was not found — check that it is installed and in PATH." : ""}`,
+          content: `Error spawning command: ${err.message}${
+            (err as NodeJS.ErrnoException).code === "ENOENT"
+              ? ". The command was not found — check that it is installed and in PATH."
+              : ""
+          }`,
           isError: true,
         });
       });

@@ -3,21 +3,21 @@
 // === Client → Server ===
 
 export interface WorkspaceFilesListRequest {
-  type: 'workspace_files_list';
+  type: "workspace_files_list";
 }
 
 export interface WorkspaceFileReadRequest {
-  type: 'workspace_file_read';
+  type: "workspace_file_read";
   /** Relative path within the workspace directory (e.g. "IDENTITY.md"). */
   path: string;
 }
 
 export interface IdentityGetRequest {
-  type: 'identity_get';
+  type: "identity_get";
 }
 
 export interface ToolPermissionSimulateRequest {
-  type: 'tool_permission_simulate';
+  type: "tool_permission_simulate";
   /** Tool name to simulate (e.g. 'bash', 'file_write'). */
   toolName: string;
   /** Tool input record to simulate. */
@@ -31,13 +31,13 @@ export interface ToolPermissionSimulateRequest {
 }
 
 export interface ToolNamesListRequest {
-  type: 'tool_names_list';
+  type: "tool_names_list";
 }
 
 // === Server → Client ===
 
 export interface WorkspaceFilesListResponse {
-  type: 'workspace_files_list_response';
+  type: "workspace_files_list_response";
   files: Array<{
     /** Relative path within the workspace (e.g. "IDENTITY.md", "skills/my-skill"). */
     path: string;
@@ -49,14 +49,14 @@ export interface WorkspaceFilesListResponse {
 }
 
 export interface WorkspaceFileReadResponse {
-  type: 'workspace_file_read_response';
+  type: "workspace_file_read_response";
   path: string;
   content: string | null;
   error?: string;
 }
 
 export interface IdentityGetResponse {
-  type: 'identity_get_response';
+  type: "identity_get_response";
   /** Whether an IDENTITY.md file was found. When false, all fields are empty defaults. Optional for backwards compat with older daemons. */
   found?: boolean;
   name: string;
@@ -71,22 +71,26 @@ export interface IdentityGetResponse {
 }
 
 export interface ToolPermissionSimulateResponse {
-  type: 'tool_permission_simulate_response';
+  type: "tool_permission_simulate_response";
   success: boolean;
   /** The simulated permission decision. */
-  decision?: 'allow' | 'deny' | 'prompt';
+  decision?: "allow" | "deny" | "prompt";
   /** Risk level of the simulated tool invocation. */
   riskLevel?: string;
   /** Human-readable reason for the decision. */
   reason?: string;
   /** When decision is 'prompt', the data needed to render a ToolConfirmationBubble. */
   promptPayload?: {
-    allowlistOptions: Array<{ label: string; description: string; pattern: string }>;
+    allowlistOptions: Array<{
+      label: string;
+      description: string;
+      pattern: string;
+    }>;
     scopeOptions: Array<{ label: string; scope: string }>;
     persistentDecisionsAllowed: boolean;
   };
   /** Resolved execution target for the tool. */
-  executionTarget?: 'host' | 'sandbox';
+  executionTarget?: "host" | "sandbox";
   /** ID of the trust rule that matched (if any). */
   matchedRuleId?: string;
   /** Error message when success is false. */
@@ -94,18 +98,21 @@ export interface ToolPermissionSimulateResponse {
 }
 
 export interface ToolInputSchema {
-  type: 'object';
-  properties?: Record<string, {
-    type?: string;
-    description?: string;
-    enum?: string[];
-    [key: string]: unknown;
-  }>;
+  type: "object";
+  properties?: Record<
+    string,
+    {
+      type?: string;
+      description?: string;
+      enum?: string[];
+      [key: string]: unknown;
+    }
+  >;
   required?: string[];
 }
 
 export interface ToolNamesListResponse {
-  type: 'tool_names_list_response';
+  type: "tool_names_list_response";
   /** Sorted list of all registered tool names. */
   names: string[];
   /** Input schemas keyed by tool name. */
@@ -114,7 +121,7 @@ export interface ToolNamesListResponse {
 
 /** Server push — broadcast when IDENTITY.md changes on disk. */
 export interface IdentityChanged {
-  type: 'identity_changed';
+  type: "identity_changed";
   name: string;
   role: string;
   personality: string;

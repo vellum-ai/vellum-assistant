@@ -1,17 +1,17 @@
-import { writeFileSync } from 'node:fs';
-import { dirname,join } from 'node:path';
+import { writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-import { ensureDir, readTextFileSync } from '../util/fs.js';
-import { getLogger } from '../util/logger.js';
-import { getHooksDir } from '../util/platform.js';
-import type { HookConfig, HookConfigEntry, HookManifest } from './types.js';
+import { ensureDir, readTextFileSync } from "../util/fs.js";
+import { getLogger } from "../util/logger.js";
+import { getHooksDir } from "../util/platform.js";
+import type { HookConfig, HookConfigEntry, HookManifest } from "./types.js";
 
-const log = getLogger('hooks-config');
+const log = getLogger("hooks-config");
 
 const HOOKS_CONFIG_VERSION = 1;
 
 function getConfigPath(): string {
-  return join(getHooksDir(), 'config.json');
+  return join(getHooksDir(), "config.json");
 }
 
 export function loadHooksConfig(): HookConfig {
@@ -23,13 +23,20 @@ export function loadHooksConfig(): HookConfig {
 
   try {
     const parsed = JSON.parse(raw) as HookConfig;
-    if (typeof parsed.version !== 'number' || typeof parsed.hooks !== 'object' || parsed.hooks == null) {
-      log.warn({ configPath }, 'Invalid hooks config, using defaults');
+    if (
+      typeof parsed.version !== "number" ||
+      typeof parsed.hooks !== "object" ||
+      parsed.hooks == null
+    ) {
+      log.warn({ configPath }, "Invalid hooks config, using defaults");
       return { version: HOOKS_CONFIG_VERSION, hooks: {} };
     }
     return parsed;
   } catch (err) {
-    log.warn({ err, configPath }, 'Failed to read hooks config, using defaults');
+    log.warn(
+      { err, configPath },
+      "Failed to read hooks config, using defaults",
+    );
     return { version: HOOKS_CONFIG_VERSION, hooks: {} };
   }
 }
@@ -37,7 +44,7 @@ export function loadHooksConfig(): HookConfig {
 export function saveHooksConfig(config: HookConfig): void {
   const configPath = getConfigPath();
   ensureDir(dirname(configPath));
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
 }
 
 export function isHookEnabled(hookName: string): boolean {
@@ -51,7 +58,10 @@ export function setHookEnabled(hookName: string, enabled: boolean): void {
   saveHooksConfig(config);
 }
 
-export function ensureHookInConfig(hookName: string, entry: HookConfigEntry): void {
+export function ensureHookInConfig(
+  hookName: string,
+  entry: HookConfigEntry,
+): void {
   const config = loadHooksConfig();
   if (hookName in config.hooks) return;
   config.hooks[hookName] = entry;
@@ -68,7 +78,10 @@ export function removeHook(hookName: string): void {
  * Get merged settings for a hook. Manifest defaults are used as the base,
  * then user overrides from config.json are applied on top.
  */
-export function getHookSettings(hookName: string, manifest: HookManifest): Record<string, unknown> {
+export function getHookSettings(
+  hookName: string,
+  manifest: HookManifest,
+): Record<string, unknown> {
   // Start with defaults from manifest schema
   const defaults: Record<string, unknown> = {};
   if (manifest.settingsSchema) {

@@ -1,9 +1,9 @@
-import { count,desc, lt } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { count, desc, lt } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getLogger } from '../util/logger.js';
-import { getDb } from './db.js';
-import { toolInvocations } from './schema.js';
+import { getLogger } from "../util/logger.js";
+import { getDb } from "./db.js";
+import { toolInvocations } from "./schema.js";
 
 export interface ToolInvocationRecord {
   conversationId: string;
@@ -17,17 +17,19 @@ export interface ToolInvocationRecord {
 
 export function recordToolInvocation(record: ToolInvocationRecord): void {
   const db = getDb();
-  db.insert(toolInvocations).values({
-    id: uuid(),
-    conversationId: record.conversationId,
-    toolName: record.toolName,
-    input: record.input,
-    result: record.result,
-    decision: record.decision,
-    riskLevel: record.riskLevel,
-    durationMs: record.durationMs,
-    createdAt: Date.now(),
-  }).run();
+  db.insert(toolInvocations)
+    .values({
+      id: uuid(),
+      conversationId: record.conversationId,
+      toolName: record.toolName,
+      input: record.input,
+      result: record.result,
+      decision: record.decision,
+      riskLevel: record.riskLevel,
+      durationMs: record.durationMs,
+      createdAt: Date.now(),
+    })
+    .run();
 }
 
 export function getRecentInvocations(limit: number) {
@@ -40,7 +42,7 @@ export function getRecentInvocations(limit: number) {
     .all();
 }
 
-const log = getLogger('audit-log');
+const log = getLogger("audit-log");
 
 /**
  * Delete tool invocation records older than the specified number of days.
@@ -53,11 +55,17 @@ export function rotateToolInvocations(retentionDays: number): number {
   const db = getDb();
 
   // Count before delete (Drizzle's .run() returns void on bun-sqlite)
-  const [countRow] = db.select({ value: count() }).from(toolInvocations).where(lt(toolInvocations.createdAt, cutoff)).all();
+  const [countRow] = db
+    .select({ value: count() })
+    .from(toolInvocations)
+    .where(lt(toolInvocations.createdAt, cutoff))
+    .all();
   const toDelete = countRow?.value ?? 0;
   if (toDelete === 0) return 0;
 
   db.delete(toolInvocations).where(lt(toolInvocations.createdAt, cutoff)).run();
-  log.info(`Rotated ${toDelete} audit log entries older than ${retentionDays} day(s)`);
+  log.info(
+    `Rotated ${toDelete} audit log entries older than ${retentionDays} day(s)`,
+  );
   return toDelete;
 }

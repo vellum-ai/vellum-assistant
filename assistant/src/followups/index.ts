@@ -6,5 +6,5 @@ export {
   markNudged,
   resolveByThread,
   resolveFollowUp,
-} from './followup-store.js';
-export type { FollowUp, FollowUpCreateInput, FollowUpStatus } from './types.js';
+} from "./followup-store.js";
+export type { FollowUp, FollowUpCreateInput, FollowUpStatus } from "./types.js";

@@ -1,20 +1,30 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
-import { Writable } from 'node:stream';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  unlinkSync,
+} from "node:fs";
+import { join } from "node:path";
+import { Writable } from "node:stream";
 
-import pino from 'pino';
-import type { PrettyOptions } from 'pino-pretty';
-import pinoPretty from 'pino-pretty';
+import pino from "pino";
+import type { PrettyOptions } from "pino-pretty";
+import pinoPretty from "pino-pretty";
 
-import { getDebugMode, getDebugStdoutLogs,getLogStderr } from '../config/env-registry.js';
-import { logSerializers } from './log-redact.js';
-import { getLogPath } from './platform.js';
+import {
+  getDebugMode,
+  getDebugStdoutLogs,
+  getLogStderr,
+} from "../config/env-registry.js";
+import { logSerializers } from "./log-redact.js";
+import { getLogPath } from "./platform.js";
 
 /** Common pino-pretty options that inline [module] into the message prefix. */
 function prettyOpts(extra?: PrettyOptions): PrettyOptions {
   return {
-    messageFormat: '[{module}] {msg}',
-    ignore: 'module',
+    messageFormat: "[{module}] {msg}",
+    ignore: "module",
     ...extra,
   };
 }
@@ -24,14 +34,14 @@ export type LogFileConfig = {
   retentionDays: number;
 };
 
-const LOG_FILE_PREFIX = 'assistant-';
-const LOG_FILE_SUFFIX = '.log';
+const LOG_FILE_PREFIX = "assistant-";
+const LOG_FILE_SUFFIX = ".log";
 const LOG_FILE_PATTERN = /^assistant-(\d{4}-\d{2}-\d{2})\.log$/;
 
 function formatDate(date: Date): string {
   const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(date.getUTCDate()).padStart(2, '0');
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -50,7 +60,7 @@ export function pruneOldLogFiles(dir: string, retentionDays: number): number {
   for (const name of readdirSync(dir)) {
     const match = LOG_FILE_PATTERN.exec(name);
     if (!match) continue;
-    const fileDate = new Date(match[1] + 'T00:00:00Z');
+    const fileDate = new Date(match[1] + "T00:00:00Z");
     if (fileDate < cutoff) {
       try {
         unlinkSync(join(dir, name));
@@ -69,7 +79,10 @@ let activeLogFileConfig: LogFileConfig | null = null;
 
 function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   if (!config.dir) {
-    return pino({ name: 'assistant', serializers: logSerializers }, pinoPretty(prettyOpts({ destination: 1 })));
+    return pino(
+      { name: "assistant", serializers: logSerializers },
+      pinoPretty(prettyOpts({ destination: 1 })),
+    );
   }
 
   if (!existsSync(config.dir)) {
@@ -78,23 +91,34 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
 
   const today = formatDate(new Date());
   const filePath = logFilePathForDate(config.dir, new Date());
-  const fileDest = pino.destination({ dest: filePath, sync: false, mkdir: true, mode: 0o600 });
+  const fileDest = pino.destination({
+    dest: filePath,
+    sync: false,
+    mkdir: true,
+    mode: 0o600,
+  });
   // Tighten permissions on pre-existing log files that may have been created with looser modes
-  try { chmodSync(filePath, 0o600); } catch { /* best-effort */ }
-  const fileStream = pinoPretty(prettyOpts({ destination: fileDest, colorize: false }));
+  try {
+    chmodSync(filePath, 0o600);
+  } catch {
+    /* best-effort */
+  }
+  const fileStream = pinoPretty(
+    prettyOpts({ destination: fileDest, colorize: false }),
+  );
 
   activeLogDate = today;
   activeLogFileConfig = config;
 
-  const level = getDebugMode() ? 'debug' : 'info';
+  const level = getDebugMode() ? "debug" : "info";
 
   if (getDebugMode()) {
     const prettyStream = pinoPretty(prettyOpts({ destination: 2 }));
     return pino(
-      { name: 'assistant', level, serializers: logSerializers },
+      { name: "assistant", level, serializers: logSerializers },
       pino.multistream([
-        { stream: fileStream, level: 'info' as const },
-        { stream: prettyStream, level: 'debug' as const },
+        { stream: fileStream, level: "info" as const },
+        { stream: prettyStream, level: "debug" as const },
       ]),
     );
   }
@@ -104,16 +128,19 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   // startup output and echoing pino output there is unnecessary duplication.
   if (!process.stdout.isTTY) {
     return pino(
-      { name: 'assistant', level, serializers: logSerializers },
+      { name: "assistant", level, serializers: logSerializers },
       fileStream,
     );
   }
 
   return pino(
-    { name: 'assistant', level, serializers: logSerializers },
+    { name: "assistant", level, serializers: logSerializers },
     pino.multistream([
-      { stream: fileStream, level: 'info' as const },
-      { stream: pinoPretty(prettyOpts({ destination: 1 })), level: 'info' as const },
+      { stream: fileStream, level: "info" as const },
+      {
+        stream: pinoPretty(prettyOpts({ destination: 1 })),
+        level: "info" as const,
+      },
     ]),
   );
 }
@@ -132,7 +159,10 @@ export function initLogger(config: LogFileConfig): void {
   if (config.dir && config.retentionDays > 0) {
     const removed = pruneOldLogFiles(config.dir, config.retentionDays);
     if (removed > 0) {
-      rootLogger.info({ removed, retentionDays: config.retentionDays }, 'Pruned old log files');
+      rootLogger.info(
+        { removed, retentionDays: config.retentionDays },
+        "Pruned old log files",
+      );
     }
   }
 }
@@ -143,12 +173,15 @@ function getRootLogger(): pino.Logger {
   }
   if (!rootLogger) {
     const forceStderr =
-      process.env.BUN_TEST === '1'
-      || process.env.NODE_ENV === 'test'
-      || getLogStderr();
+      process.env.BUN_TEST === "1" ||
+      process.env.NODE_ENV === "test" ||
+      getLogStderr();
     if (forceStderr) {
       rootLogger = pino(
-        { level: getDebugMode() ? 'debug' : 'info', serializers: logSerializers },
+        {
+          level: getDebugMode() ? "debug" : "info",
+          serializers: logSerializers,
+        },
         pino.destination(2),
       );
       return rootLogger;
@@ -159,31 +192,57 @@ function getRootLogger(): pino.Logger {
       // Use sync: true so the fd is opened immediately. This prevents
       // "sonic boom is not ready yet" errors when commander calls
       // process.exit(0) for --help/--version before the async fd is ready.
-      const fileDest = pino.destination({ dest: logPath, sync: true, mkdir: true, mode: 0o600 });
+      const fileDest = pino.destination({
+        dest: logPath,
+        sync: true,
+        mkdir: true,
+        mode: 0o600,
+      });
       // Tighten permissions on pre-existing log files that may have been created with looser modes
-      try { chmodSync(logPath, 0o600); } catch { /* best-effort */ }
-      const fileStream = pinoPretty(prettyOpts({ destination: fileDest, colorize: false }));
+      try {
+        chmodSync(logPath, 0o600);
+      } catch {
+        /* best-effort */
+      }
+      const fileStream = pinoPretty(
+        prettyOpts({ destination: fileDest, colorize: false }),
+      );
 
       if (getDebugMode()) {
         const prettyStream = pinoPretty(prettyOpts({ destination: 2 }));
         const multi = pino.multistream([
-          { stream: fileStream, level: 'info' as const },
-          { stream: prettyStream, level: 'debug' as const },
+          { stream: fileStream, level: "info" as const },
+          { stream: prettyStream, level: "debug" as const },
         ]);
-        rootLogger = pino({ level: 'debug', serializers: logSerializers }, multi);
+        rootLogger = pino(
+          { level: "debug", serializers: logSerializers },
+          multi,
+        );
       } else if (getDebugStdoutLogs()) {
         rootLogger = pino(
-          { level: 'info', serializers: logSerializers },
+          { level: "info", serializers: logSerializers },
           pino.multistream([
-            { stream: fileStream, level: 'info' as const },
-            { stream: pinoPretty(prettyOpts({ destination: 1 })), level: 'info' as const },
+            { stream: fileStream, level: "info" as const },
+            {
+              stream: pinoPretty(prettyOpts({ destination: 1 })),
+              level: "info" as const,
+            },
           ]),
         );
       } else {
-        rootLogger = pino({ level: 'info', serializers: logSerializers }, fileStream);
+        rootLogger = pino(
+          { level: "info", serializers: logSerializers },
+          fileStream,
+        );
       }
     } catch {
-      rootLogger = pino({ level: getDebugMode() ? 'debug' : 'info', serializers: logSerializers }, pinoPretty(prettyOpts({ destination: 2 })));
+      rootLogger = pino(
+        {
+          level: getDebugMode() ? "debug" : "info",
+          serializers: logSerializers,
+        },
+        pinoPretty(prettyOpts({ destination: 2 })),
+      );
     }
   }
   return rootLogger;
@@ -200,7 +259,9 @@ export function isDebug(): boolean {
  */
 export function truncateForLog(value: string, maxLen = 500): string {
   if (value.length <= maxLen) return value;
-  return value.slice(0, maxLen) + `... (${value.length - maxLen} chars truncated)`;
+  return (
+    value.slice(0, maxLen) + `... (${value.length - maxLen} chars truncated)`
+  );
 }
 
 /**
@@ -216,7 +277,7 @@ export function getLogger(name: string): pino.Logger {
         child = getRootLogger().child({ module: name });
       }
       const val = Reflect.get(child, prop, receiver);
-      if (typeof val === 'function') {
+      if (typeof val === "function") {
         return val.bind(child);
       }
       return val;
@@ -240,7 +301,7 @@ function cliDestination(fd: number, maxLevel?: number): Writable {
           callback();
           return;
         }
-        output.write((obj.msg ?? '') + '\n', callback);
+        output.write((obj.msg ?? "") + "\n", callback);
       } catch {
         output.write(chunk, callback);
       }
@@ -259,15 +320,15 @@ export function getCliLogger(name: string): pino.Logger {
     get(_target, prop, receiver) {
       if (!logger) {
         logger = pino(
-          { name, level: 'trace', serializers: logSerializers },
+          { name, level: "trace", serializers: logSerializers },
           pino.multistream([
-            { stream: cliDestination(1, 49), level: 'trace' as const },
-            { stream: cliDestination(2), level: 'error' as const },
+            { stream: cliDestination(1, 49), level: "trace" as const },
+            { stream: cliDestination(2), level: "error" as const },
           ]),
         );
       }
       const val = Reflect.get(logger, prop, receiver);
-      if (typeof val === 'function') {
+      if (typeof val === "function") {
         return val.bind(logger);
       }
       return val;

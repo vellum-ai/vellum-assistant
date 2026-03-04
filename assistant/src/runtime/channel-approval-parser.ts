@@ -11,17 +11,38 @@
  * not injected (i.e. approvalConversationGenerator is undefined).
  */
 
-import type { ApprovalAction, ApprovalDecisionResult } from './channel-approval-types.js';
+import type {
+  ApprovalAction,
+  ApprovalDecisionResult,
+} from "./channel-approval-types.js";
 
 // ---------------------------------------------------------------------------
 // Phrase → action mapping
 // ---------------------------------------------------------------------------
 
-const APPROVE_ONCE_PHRASES = ['yes', 'approve', 'approve once', 'allow', 'go ahead'];
-const APPROVE_10M_PHRASES = ['approve for 10 minutes', 'allow for 10 minutes', 'approve 10m', 'allow 10m', 'approve 10 min', 'allow 10 min'];
-const APPROVE_THREAD_PHRASES = ['approve for thread', 'allow for thread', 'approve thread', 'allow thread'];
-const APPROVE_ALWAYS_PHRASES = ['always', 'approve always', 'allow always'];
-const REJECT_PHRASES = ['no', 'reject', 'deny', 'cancel'];
+const APPROVE_ONCE_PHRASES = [
+  "yes",
+  "approve",
+  "approve once",
+  "allow",
+  "go ahead",
+];
+const APPROVE_10M_PHRASES = [
+  "approve for 10 minutes",
+  "allow for 10 minutes",
+  "approve 10m",
+  "allow 10m",
+  "approve 10 min",
+  "allow 10 min",
+];
+const APPROVE_THREAD_PHRASES = [
+  "approve for thread",
+  "allow for thread",
+  "approve thread",
+  "allow thread",
+];
+const APPROVE_ALWAYS_PHRASES = ["always", "approve always", "allow always"];
+const REJECT_PHRASES = ["no", "reject", "deny", "cancel"];
 
 /**
  * Build a Map from lowercased phrase to action. Longer phrases are
@@ -32,19 +53,19 @@ function buildPhraseMap(): Map<string, ApprovalAction> {
   const map = new Map<string, ApprovalAction>();
 
   for (const phrase of APPROVE_ALWAYS_PHRASES) {
-    map.set(phrase, 'approve_always');
+    map.set(phrase, "approve_always");
   }
   for (const phrase of APPROVE_10M_PHRASES) {
-    map.set(phrase, 'approve_10m');
+    map.set(phrase, "approve_10m");
   }
   for (const phrase of APPROVE_THREAD_PHRASES) {
-    map.set(phrase, 'approve_thread');
+    map.set(phrase, "approve_thread");
   }
   for (const phrase of APPROVE_ONCE_PHRASES) {
-    map.set(phrase, 'approve_once');
+    map.set(phrase, "approve_once");
   }
   for (const phrase of REJECT_PHRASES) {
-    map.set(phrase, 'reject');
+    map.set(phrase, "reject");
   }
   return map;
 }
@@ -75,7 +96,7 @@ function extractRefTag(text: string): { cleaned: string; requestId?: string } {
   const match = REF_TAG_RE.exec(text);
   if (!match) return { cleaned: text };
   const requestId = match[1].trim();
-  const cleaned = text.replace(REF_TAG_RE, '').trim();
+  const cleaned = text.replace(REF_TAG_RE, "").trim();
   return { cleaned, requestId: requestId || undefined };
 }
 
@@ -91,10 +112,12 @@ function extractRefTag(text: string): { cleaned: string; requestId?: string } {
  * plain-text fallback path), the extracted requestId is included in the
  * result so the caller can disambiguate among multiple pending approvals.
  */
-export function parseApprovalDecision(text: string): ApprovalDecisionResult | null {
+export function parseApprovalDecision(
+  text: string,
+): ApprovalDecisionResult | null {
   const { cleaned, requestId } = extractRefTag(text);
   const normalised = cleaned.trim().toLowerCase();
   const action = PHRASE_MAP.get(normalised);
   if (!action) return null;
-  return { action, source: 'plain_text', ...(requestId ? { requestId } : {}) };
+  return { action, source: "plain_text", ...(requestId ? { requestId } : {}) };
 }

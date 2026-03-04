@@ -1,25 +1,38 @@
-import { appendFileSync, mkdirSync,readFileSync } from 'node:fs';
-import * as net from 'node:net';
-import { dirname } from 'node:path';
-import * as readline from 'node:readline';
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import * as net from "node:net";
+import { dirname } from "node:path";
+import * as readline from "node:readline";
 
-import { type MainScreenLayout,renderMainScreen, updateDaemonText, updateStatusText } from './cli/main-screen.jsx';
-import { hasNoAuthOverride } from './daemon/connection-policy.js';
-import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
+import {
+  type MainScreenLayout,
+  renderMainScreen,
+  updateDaemonText,
+  updateStatusText,
+} from "./cli/main-screen.jsx";
+import { hasNoAuthOverride } from "./daemon/connection-policy.js";
+import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
 import {
   type ClientMessage,
   type ConfirmationRequest,
   createMessageParser,
   serialize,
   type ServerMessage,
-} from './daemon/ipc-protocol.js';
-import { ensureDaemonRunning } from './daemon/lifecycle.js';
-import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from './util/clipboard.js';
-import { formatDiff, formatNewFileDiff } from './util/diff.js';
-import { getHistoryPath, getSocketPath, readSessionToken } from './util/platform.js';
-import { Spinner } from './util/spinner.js';
-import { timeAgo } from './util/time.js';
-import { truncate } from './util/truncate.js';
+} from "./daemon/ipc-protocol.js";
+import { ensureDaemonRunning } from "./daemon/lifecycle.js";
+import {
+  copyToClipboard,
+  extractLastCodeBlock,
+  formatSessionForExport,
+} from "./util/clipboard.js";
+import { formatDiff, formatNewFileDiff } from "./util/diff.js";
+import {
+  getHistoryPath,
+  getSocketPath,
+  readSessionToken,
+} from "./util/platform.js";
+import { Spinner } from "./util/spinner.js";
+import { timeAgo } from "./util/time.js";
+import { truncate } from "./util/truncate.js";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
@@ -27,26 +40,27 @@ const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 
 export function sanitizeUrlForDisplay(rawUrl: unknown): string {
-  const value = typeof rawUrl === 'string' ? rawUrl : String(rawUrl ?? '');
-  if (!value) return '';
+  const value = typeof rawUrl === "string" ? rawUrl : String(rawUrl ?? "");
+  if (!value) return "";
 
   try {
     const parsed = new URL(value);
     if (!parsed.username && !parsed.password) {
       return value;
     }
-    parsed.username = '';
-    parsed.password = '';
+    parsed.username = "";
+    parsed.password = "";
     return parsed.href;
   } catch {
-    return value.replace(/\/\/([^/?#\s@]+)@/g, '//[REDACTED]@');
+    return value.replace(/\/\/([^/?#\s@]+)@/g, "//[REDACTED]@");
   }
 }
 
 function stringifyConfirmationInputValue(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (value == null) return 'null';
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  if (value == null) return "null";
   try {
     return JSON.stringify(value);
   } catch {
@@ -54,15 +68,18 @@ function stringifyConfirmationInputValue(value: unknown): string {
   }
 }
 
-export function formatConfirmationInputLines(input: Record<string, unknown>): string[] {
+export function formatConfirmationInputLines(
+  input: Record<string, unknown>,
+): string[] {
   const lines: string[] = [];
   for (const key of Object.keys(input).sort()) {
     const rawValue = input[key];
-    const value = key.toLowerCase().includes('url') && typeof rawValue === 'string'
-      ? sanitizeUrlForDisplay(rawValue)
-      : rawValue;
+    const value =
+      key.toLowerCase().includes("url") && typeof rawValue === "string"
+        ? sanitizeUrlForDisplay(rawValue)
+        : rawValue;
     const rendered = stringifyConfirmationInputValue(value);
-    const renderedLines = rendered.split('\n');
+    const renderedLines = rendered.split("\n");
     if (renderedLines.length === 0) {
       lines.push(`${key}:`);
       continue;
@@ -75,50 +92,60 @@ export function formatConfirmationInputLines(input: Record<string, unknown>): st
   return lines;
 }
 
-export function formatConfirmationCommandPreview(req: Pick<ConfirmationRequest, 'toolName' | 'input'>): string {
-  if (req.toolName === 'bash' || req.toolName === 'host_bash') {
-    return String(req.input.command ?? '');
+export function formatConfirmationCommandPreview(
+  req: Pick<ConfirmationRequest, "toolName" | "input">,
+): string {
+  if (req.toolName === "bash" || req.toolName === "host_bash") {
+    return String(req.input.command ?? "");
   }
-  if (req.toolName === 'file_read' || req.toolName === 'host_file_read') {
-    return `read ${req.input.path ?? ''}`;
+  if (req.toolName === "file_read" || req.toolName === "host_file_read") {
+    return `read ${req.input.path ?? ""}`;
   }
-  if (req.toolName === 'file_write' || req.toolName === 'host_file_write') {
-    return `write ${req.input.path ?? ''}`;
+  if (req.toolName === "file_write" || req.toolName === "host_file_write") {
+    return `write ${req.input.path ?? ""}`;
   }
-  if (req.toolName === 'file_edit' || req.toolName === 'host_file_edit') {
-    return `edit ${req.input.path ?? ''}`;
+  if (req.toolName === "file_edit" || req.toolName === "host_file_edit") {
+    return `edit ${req.input.path ?? ""}`;
   }
-  if (req.toolName === 'web_fetch') {
-    return `fetch ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
+  if (req.toolName === "web_fetch") {
+    return `fetch ${sanitizeUrlForDisplay(req.input.url ?? "")}`;
   }
-  if (req.toolName === 'browser_navigate') {
-    return `navigate ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
+  if (req.toolName === "browser_navigate") {
+    return `navigate ${sanitizeUrlForDisplay(req.input.url ?? "")}`;
   }
-  if (req.toolName === 'browser_close') {
-    return req.input.close_all_pages ? 'close all browser pages' : 'close browser page';
+  if (req.toolName === "browser_close") {
+    return req.input.close_all_pages
+      ? "close all browser pages"
+      : "close browser page";
   }
-  if (req.toolName === 'browser_click') {
-    return `click ${req.input.element_id ?? req.input.selector ?? ''}`;
+  if (req.toolName === "browser_click") {
+    return `click ${req.input.element_id ?? req.input.selector ?? ""}`;
   }
-  if (req.toolName === 'browser_type') {
-    return `type into ${req.input.element_id ?? req.input.selector ?? ''}`;
+  if (req.toolName === "browser_type") {
+    return `type into ${req.input.element_id ?? req.input.selector ?? ""}`;
   }
-  if (req.toolName === 'browser_press_key') {
-    return `press "${req.input.key ?? ''}"`;
+  if (req.toolName === "browser_press_key") {
+    return `press "${req.input.key ?? ""}"`;
   }
   return req.toolName;
 }
-
 
 export async function startCli(): Promise<void> {
   const socketPath = getSocketPath();
   let socket: net.Socket;
   let parser = createMessageParser();
-  let sessionId = '';
+  let sessionId = "";
   let pendingUserContent: string | null = null;
   let generating = false;
-  let lastResponse = '';
-  let lastUsage: { inputTokens: number; outputTokens: number; totalInputTokens: number; totalOutputTokens: number; estimatedCost: number; model: string } | null = null;
+  let lastResponse = "";
+  let lastUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    estimatedCost: number;
+    model: string;
+  } | null = null;
   let pendingSessionPick = false;
   let pendingConfirmation = false;
   let pendingCopySession = false;
@@ -129,43 +156,48 @@ export async function startCli(): Promise<void> {
   let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
   const spinner = new Spinner();
 
-  process.stdout.write('\x1b[2J\x1b[H');
+  process.stdout.write("\x1b[2J\x1b[H");
   let mainScreenLayout: MainScreenLayout = renderMainScreen();
   let canvasHeight = mainScreenLayout.height;
   const terminalRows = process.stdout.rows || 24;
   process.stdout.write(`\x1b[${canvasHeight + 1};${terminalRows}r`);
   process.stdout.write(`\x1b[${canvasHeight + 1};1H`);
 
-  function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
+  function formatToolProgress(
+    toolName: string,
+    input: Record<string, unknown>,
+  ): string {
     switch (toolName) {
-      case 'bash':
-        return `Running \`${String(input.command ?? '').slice(0, 60)}\`...`;
-      case 'file_read':
-        return `Reading ${input.path ?? ''}...`;
-      case 'file_write':
-        return `Writing ${input.path ?? ''}...`;
-      case 'file_edit':
-        return `Editing ${input.path ?? ''}...`;
-      case 'web_fetch':
+      case "bash":
+        return `Running \`${String(input.command ?? "").slice(0, 60)}\`...`;
+      case "file_read":
+        return `Reading ${input.path ?? ""}...`;
+      case "file_write":
+        return `Writing ${input.path ?? ""}...`;
+      case "file_edit":
+        return `Editing ${input.path ?? ""}...`;
+      case "web_fetch":
         return `Fetching ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
-      case 'browser_navigate':
+      case "browser_navigate":
         return `Navigating to ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
-      case 'browser_snapshot':
-        return 'Taking page snapshot...';
-      case 'browser_close':
-        return 'Closing browser...';
-      case 'browser_click':
-        return `Clicking ${String(input.element_id ?? input.selector ?? '').slice(0, 60)}...`;
-      case 'browser_type':
-        return `Typing into ${String(input.element_id ?? input.selector ?? '').slice(0, 60)}...`;
-      case 'browser_press_key':
-        return `Pressing "${String(input.key ?? '')}"...`;
-      case 'browser_wait_for':
-        if (input.selector) return `Waiting for ${String(input.selector).slice(0, 60)}...`;
-        if (input.text) return `Waiting for text "${String(input.text).slice(0, 40)}"...`;
+      case "browser_snapshot":
+        return "Taking page snapshot...";
+      case "browser_close":
+        return "Closing browser...";
+      case "browser_click":
+        return `Clicking ${String(input.element_id ?? input.selector ?? "").slice(0, 60)}...`;
+      case "browser_type":
+        return `Typing into ${String(input.element_id ?? input.selector ?? "").slice(0, 60)}...`;
+      case "browser_press_key":
+        return `Pressing "${String(input.key ?? "")}"...`;
+      case "browser_wait_for":
+        if (input.selector)
+          return `Waiting for ${String(input.selector).slice(0, 60)}...`;
+        if (input.text)
+          return `Waiting for text "${String(input.text).slice(0, 40)}"...`;
         return `Waiting ${input.duration ?? 0}ms...`;
-      case 'browser_extract':
-        return 'Extracting page content...';
+      case "browser_extract":
+        return "Extracting page content...";
       default:
         return `Running ${toolName}...`;
     }
@@ -175,8 +207,8 @@ export async function startCli(): Promise<void> {
   const MAX_HISTORY = 1000;
   let savedHistory: string[] = [];
   try {
-    savedHistory = readFileSync(historyPath, 'utf-8')
-      .split('\n')
+    savedHistory = readFileSync(historyPath, "utf-8")
+      .split("\n")
       .filter(Boolean)
       .slice(-MAX_HISTORY)
       .reverse();
@@ -192,7 +224,7 @@ export async function startCli(): Promise<void> {
   });
 
   function prompt(): void {
-    rl.setPrompt('you> ');
+    rl.setPrompt("you> ");
     rl.prompt();
   }
 
@@ -207,9 +239,11 @@ export async function startCli(): Promise<void> {
   function renderConfirmationPrompt(req: ConfirmationRequest): void {
     const preview = formatConfirmationCommandPreview(req);
     const inputLines = formatConfirmationInputLines(req.input);
-    process.stdout.write('\n');
+    process.stdout.write("\n");
     process.stdout.write(`\u250C ${req.toolName}: ${preview}\n`);
-    process.stdout.write(`\u2502 Risk: ${req.riskLevel}${req.sandboxed ? '  [sandboxed]' : ''}\n`);
+    process.stdout.write(
+      `\u2502 Risk: ${req.riskLevel}${req.sandboxed ? "  [sandboxed]" : ""}\n`,
+    );
     if (req.executionTarget) {
       process.stdout.write(`\u2502 Target: ${req.executionTarget}\n`);
     }
@@ -222,20 +256,24 @@ export async function startCli(): Promise<void> {
     if (req.diff) {
       const diffOutput = req.diff.isNewFile
         ? formatNewFileDiff(req.diff.newContent, req.diff.filePath, null)
-        : formatDiff(req.diff.oldContent, req.diff.newContent, req.diff.filePath);
+        : formatDiff(
+            req.diff.oldContent,
+            req.diff.newContent,
+            req.diff.filePath,
+          );
       if (diffOutput) {
         process.stdout.write(`\u2502\n`);
-        for (const line of diffOutput.split('\n')) {
+        for (const line of diffOutput.split("\n")) {
           if (line) process.stdout.write(`\u2502 ${line}\n`);
         }
       }
     }
     process.stdout.write(`\u2502\n`);
     process.stdout.write(`\u2502 [a] Allow once\n`);
-    if (req.temporaryOptionsAvailable?.includes('allow_10m')) {
+    if (req.temporaryOptionsAvailable?.includes("allow_10m")) {
       process.stdout.write(`\u2502 [t] Allow 10m\n`);
     }
-    if (req.temporaryOptionsAvailable?.includes('allow_thread')) {
+    if (req.temporaryOptionsAvailable?.includes("allow_thread")) {
       process.stdout.write(`\u2502 [T] Allow Thread\n`);
     }
     process.stdout.write(`\u2502 [d] Deny once\n`);
@@ -247,91 +285,120 @@ export async function startCli(): Promise<void> {
     process.stdout.write(`\u2514 > `);
 
     pendingConfirmation = true;
-    rl.once('line', (answer) => {
+    rl.once("line", (answer) => {
       const trimmed = answer.trim();
       const choice = trimmed.toLowerCase();
 
       // Uppercase 'A' → allowlist pattern selection (check before lowercase 'a')
       // Only process when scope options exist, matching the display guard above
-      if ((trimmed === 'A' || choice === 'allowlist') && req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
+      if (
+        (trimmed === "A" || choice === "allowlist") &&
+        req.allowlistOptions.length > 0 &&
+        req.scopeOptions.length > 0
+      ) {
         // pendingConfirmation stays true through sub-prompts
-        renderPatternSelection(req, 'always_allow');
+        renderPatternSelection(req, "always_allow");
         return;
       }
 
       // Uppercase 'H' → high-risk allowlist pattern selection
-      if (trimmed === 'H' && req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
+      if (
+        trimmed === "H" &&
+        req.allowlistOptions.length > 0 &&
+        req.scopeOptions.length > 0
+      ) {
         // pendingConfirmation stays true through sub-prompts
-        renderPatternSelection(req, 'always_allow_high_risk');
+        renderPatternSelection(req, "always_allow_high_risk");
         return;
       }
 
       // Uppercase 'D' → denylist pattern selection (check before lowercase 'd')
-      if ((trimmed === 'D' || choice === 'denylist') && req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
+      if (
+        (trimmed === "D" || choice === "denylist") &&
+        req.allowlistOptions.length > 0 &&
+        req.scopeOptions.length > 0
+      ) {
         // pendingConfirmation stays true through sub-prompts
-        renderPatternSelection(req, 'always_deny');
+        renderPatternSelection(req, "always_deny");
         return;
       }
 
       pendingConfirmation = false;
-      if (choice === 'a') {
+      if (choice === "a") {
         send({
-          type: 'confirmation_response',
+          type: "confirmation_response",
           requestId: req.requestId,
-          decision: 'allow',
+          decision: "allow",
         });
         return;
       }
 
-      if (choice === 't' && trimmed === 't' && req.temporaryOptionsAvailable?.includes('allow_10m')) {
+      if (
+        choice === "t" &&
+        trimmed === "t" &&
+        req.temporaryOptionsAvailable?.includes("allow_10m")
+      ) {
         send({
-          type: 'confirmation_response',
+          type: "confirmation_response",
           requestId: req.requestId,
-          decision: 'allow_10m',
+          decision: "allow_10m",
         });
         return;
       }
 
-      if (trimmed === 'T' && req.temporaryOptionsAvailable?.includes('allow_thread')) {
+      if (
+        trimmed === "T" &&
+        req.temporaryOptionsAvailable?.includes("allow_thread")
+      ) {
         send({
-          type: 'confirmation_response',
+          type: "confirmation_response",
           requestId: req.requestId,
-          decision: 'allow_thread',
+          decision: "allow_thread",
         });
         return;
       }
 
-      if (choice === 'd') {
+      if (choice === "d") {
         send({
-          type: 'confirmation_response',
+          type: "confirmation_response",
           requestId: req.requestId,
-          decision: 'deny',
+          decision: "deny",
         });
         return;
       }
 
       // Default to deny for unrecognized input
       send({
-        type: 'confirmation_response',
+        type: "confirmation_response",
         requestId: req.requestId,
-        decision: 'deny',
+        decision: "deny",
       });
     });
   }
 
-  function renderPatternSelection(req: ConfirmationRequest, decision: 'always_allow' | 'always_allow_high_risk' | 'always_deny'): void {
-    const label = decision === 'always_deny' ? 'Denylist' : decision === 'always_allow_high_risk' ? 'Allowlist (high-risk)' : 'Allowlist';
-    process.stdout.write('\n');
+  function renderPatternSelection(
+    req: ConfirmationRequest,
+    decision: "always_allow" | "always_allow_high_risk" | "always_deny",
+  ): void {
+    const label =
+      decision === "always_deny"
+        ? "Denylist"
+        : decision === "always_allow_high_risk"
+          ? "Allowlist (high-risk)"
+          : "Allowlist";
+    process.stdout.write("\n");
     process.stdout.write(`\u250C ${label}: choose command pattern\n`);
     for (let i = 0; i < req.allowlistOptions.length; i++) {
-      process.stdout.write(`\u2502 [${i + 1}] ${req.allowlistOptions[i].label}\n`);
+      process.stdout.write(
+        `\u2502 [${i + 1}] ${req.allowlistOptions[i].label}\n`,
+      );
     }
     process.stdout.write(`\u2514 > `);
 
-    rl.once('line', (answer) => {
+    rl.once("line", (answer) => {
       const parsed = parseInt(answer.trim(), 10);
       if (Number.isNaN(parsed)) {
-        process.stdout.write('  Invalid input — enter a number.\n');
+        process.stdout.write("  Invalid input — enter a number.\n");
         renderPatternSelection(req, decision);
         return;
       }
@@ -344,27 +411,36 @@ export async function startCli(): Promise<void> {
         // Invalid selection → deny
         pendingConfirmation = false;
         send({
-          type: 'confirmation_response',
+          type: "confirmation_response",
           requestId: req.requestId,
-          decision: 'deny',
+          decision: "deny",
         });
       }
     });
   }
 
-  function renderScopeSelection(req: ConfirmationRequest, selectedPattern: string, decision: 'always_allow' | 'always_allow_high_risk' | 'always_deny'): void {
-    const label = decision === 'always_deny' ? 'Denylist' : decision === 'always_allow_high_risk' ? 'Allowlist (high-risk)' : 'Allowlist';
-    process.stdout.write('\n');
+  function renderScopeSelection(
+    req: ConfirmationRequest,
+    selectedPattern: string,
+    decision: "always_allow" | "always_allow_high_risk" | "always_deny",
+  ): void {
+    const label =
+      decision === "always_deny"
+        ? "Denylist"
+        : decision === "always_allow_high_risk"
+          ? "Allowlist (high-risk)"
+          : "Allowlist";
+    process.stdout.write("\n");
     process.stdout.write(`\u250C ${label}: choose scope\n`);
     for (let i = 0; i < req.scopeOptions.length; i++) {
       process.stdout.write(`\u2502 [${i + 1}] ${req.scopeOptions[i].label}\n`);
     }
     process.stdout.write(`\u2514 > `);
 
-    rl.once('line', (answer) => {
+    rl.once("line", (answer) => {
       const parsed = parseInt(answer.trim(), 10);
       if (Number.isNaN(parsed)) {
-        process.stdout.write('  Invalid input — enter a number.\n');
+        process.stdout.write("  Invalid input — enter a number.\n");
         renderScopeSelection(req, selectedPattern, decision);
         return;
       }
@@ -372,7 +448,7 @@ export async function startCli(): Promise<void> {
       const idx = parsed - 1;
       if (idx >= 0 && idx < req.scopeOptions.length) {
         send({
-          type: 'confirmation_response',
+          type: "confirmation_response",
           requestId: req.requestId,
           decision,
           selectedPattern,
@@ -381,30 +457,32 @@ export async function startCli(): Promise<void> {
       } else {
         // Invalid selection → deny
         send({
-          type: 'confirmation_response',
+          type: "confirmation_response",
           requestId: req.requestId,
-          decision: 'deny',
+          decision: "deny",
         });
       }
     });
   }
 
-  function renderSessionPicker(sessions: Array<{ id: string; title: string; updatedAt: number }>): void {
-    process.stdout.write('\n  Recent sessions:\n');
+  function renderSessionPicker(
+    sessions: Array<{ id: string; title: string; updatedAt: number }>,
+  ): void {
+    process.stdout.write("\n  Recent sessions:\n");
     for (let i = 0; i < sessions.length; i++) {
       const s = sessions[i];
       const ago = timeAgo(s.updatedAt);
       const title = truncate(s.title, 50);
-      const padding = ' '.repeat(Math.max(1, 55 - title.length));
+      const padding = " ".repeat(Math.max(1, 55 - title.length));
       process.stdout.write(`  [${i + 1}] ${title}${padding}${ago}\n`);
     }
-    process.stdout.write('  [n] New session\n\n');
-    process.stdout.write('  Pick a session> ');
+    process.stdout.write("  [n] New session\n\n");
+    process.stdout.write("  Pick a session> ");
 
-    rl.once('line', (answer) => {
+    rl.once("line", (answer) => {
       const trimmed = answer.trim().toLowerCase();
-      if (trimmed === 'n') {
-        send({ type: 'session_create' });
+      if (trimmed === "n") {
+        send({ type: "session_create" });
         return;
       }
       const parsed = parseInt(trimmed, 10);
@@ -423,10 +501,10 @@ export async function startCli(): Promise<void> {
           );
           prompt();
         } else {
-          send({ type: 'session_switch', sessionId: sessions[idx].id });
+          send({ type: "session_switch", sessionId: sessions[idx].id });
         }
       } else {
-        process.stdout.write('  Invalid selection.\n');
+        process.stdout.write("  Invalid selection.\n");
         renderSessionPicker(sessions);
       }
     });
@@ -434,7 +512,7 @@ export async function startCli(): Promise<void> {
 
   function handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
-      case 'session_info':
+      case "session_info":
         pendingSessionPick = false;
         sessionId = msg.sessionId;
         process.stdout.write(
@@ -443,12 +521,20 @@ export async function startCli(): Promise<void> {
         if (pendingUserContent) {
           const content = pendingUserContent;
           pendingUserContent = null;
-          lastResponse = '';
-          if (send({ type: 'user_message', sessionId, content, channel: 'vellum', interface: 'cli' })) {
+          lastResponse = "";
+          if (
+            send({
+              type: "user_message",
+              sessionId,
+              content,
+              channel: "vellum",
+              interface: "cli",
+            })
+          ) {
             generating = true;
-            spinner.start('Thinking...');
+            spinner.start("Thinking...");
           } else {
-            process.stdout.write('[Not connected — message not sent]\n');
+            process.stdout.write("[Not connected — message not sent]\n");
             prompt();
           }
         } else {
@@ -456,80 +542,84 @@ export async function startCli(): Promise<void> {
         }
         break;
 
-      case 'assistant_text_delta':
+      case "assistant_text_delta":
         spinner.stop();
         lastResponse += msg.text;
         process.stdout.write(msg.text);
         break;
 
-      case 'assistant_thinking_delta':
+      case "assistant_thinking_delta":
         spinner.stop();
         process.stdout.write(`\x1B[2m${msg.thinking}\x1B[0m`);
         break;
 
-      case 'usage_update':
+      case "usage_update":
         lastUsage = msg;
         break;
 
-      case 'context_compacted': {
+      case "context_compacted": {
         spinner.stop();
-        const summaryOverhead = msg.summaryCalls > 0
-          ? ` | summary: ${msg.summaryCalls} call${msg.summaryCalls === 1 ? '' : 's'}`
-          : '';
+        const summaryOverhead =
+          msg.summaryCalls > 0
+            ? ` | summary: ${msg.summaryCalls} call${msg.summaryCalls === 1 ? "" : "s"}`
+            : "";
         process.stdout.write(
           `\n\x1B[2m[Context compacted: ${msg.previousEstimatedInputTokens.toLocaleString()} -> ${msg.estimatedInputTokens.toLocaleString()} est input tokens, ${msg.compactedMessages} messages${summaryOverhead}]\x1B[0m\n`,
         );
-        spinner.start('Thinking...');
+        spinner.start("Thinking...");
         break;
       }
 
-      case 'memory_status':
+      case "memory_status":
         if (msg.degraded) {
           spinner.stop();
-          process.stdout.write(`\n\x1B[2m[Memory degraded: ${msg.reason ?? 'unknown'}]\x1B[0m\n`);
-          spinner.start('Thinking...');
+          process.stdout.write(
+            `\n\x1B[2m[Memory degraded: ${msg.reason ?? "unknown"}]\x1B[0m\n`,
+          );
+          spinner.start("Thinking...");
         }
         break;
 
-      case 'memory_recalled':
+      case "memory_recalled":
         spinner.stop();
         process.stdout.write(
-          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | lexical ${msg.lexicalHits} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | entity ${msg.entityHits} | merged ${msg.mergedCount} → selected ${msg.selectedCount}${msg.rerankApplied ? ' (reranked)' : ''} | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
+          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | lexical ${msg.lexicalHits} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | entity ${msg.entityHits} | merged ${msg.mergedCount} → selected ${msg.selectedCount}${msg.rerankApplied ? " (reranked)" : ""} | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
         );
-        spinner.start('Thinking...');
+        spinner.start("Thinking...");
         break;
 
-      case 'message_complete': {
+      case "message_complete": {
         spinner.stop();
         generating = false;
         if (lastUsage) {
-          const cost = lastUsage.estimatedCost > 0
-            ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
-            : '';
+          const cost =
+            lastUsage.estimatedCost > 0
+              ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
+              : "";
           process.stdout.write(
             `\n\n\x1B[2m[${lastUsage.inputTokens.toLocaleString()} in / ${lastUsage.outputTokens.toLocaleString()} out${cost}]\x1B[0m\n\n`,
           );
           lastUsage = null;
         } else {
-          process.stdout.write('\n\n');
+          process.stdout.write("\n\n");
         }
         prompt();
         break;
       }
 
-      case 'message_request_complete': {
+      case "message_request_complete": {
         // Request-level terminal for inline approval consumption.
         // When no agent turn remains active, clear busy state and re-prompt.
         if (msg.runStillActive !== true) {
           spinner.stop();
           generating = false;
-          process.stdout.write('\n\n');
+          process.stdout.write("\n\n");
           prompt();
         }
         break;
       }
 
-      case 'generation_handoff': {
+      case "generation_handoff": {
         // The current request's generation is done; show usage and re-prompt.
         // Always clear `generating` — this CLI client's generation is finished
         // when it receives a handoff. If other work is queued, those completions
@@ -537,34 +627,35 @@ export async function startCli(): Promise<void> {
         spinner.stop();
         generating = false;
         if (lastUsage) {
-          const cost = lastUsage.estimatedCost > 0
-            ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
-            : '';
+          const cost =
+            lastUsage.estimatedCost > 0
+              ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
+              : "";
           process.stdout.write(
             `\n\n\x1B[2m[${lastUsage.inputTokens.toLocaleString()} in / ${lastUsage.outputTokens.toLocaleString()} out${cost}]\x1B[0m\n\n`,
           );
           lastUsage = null;
         } else {
-          process.stdout.write('\n\n');
+          process.stdout.write("\n\n");
         }
         prompt();
         break;
       }
 
-      case 'generation_cancelled':
+      case "generation_cancelled":
         spinner.stop();
         generating = false;
         lastUsage = null;
-        process.stdout.write('\n[Cancelled]\n\n');
+        process.stdout.write("\n[Cancelled]\n\n");
         prompt();
         break;
 
-      case 'tool_use_start':
+      case "tool_use_start":
         toolStreaming = false;
         spinner.start(formatToolProgress(msg.toolName, msg.input));
         break;
 
-      case 'tool_output_chunk':
+      case "tool_output_chunk":
         if (!toolStreaming) {
           spinner.stop();
           toolStreaming = true;
@@ -572,13 +663,13 @@ export async function startCli(): Promise<void> {
         process.stdout.write(msg.chunk);
         break;
 
-      case 'tool_result':
+      case "tool_result":
         if (!toolStreaming) spinner.stop();
         if (toolStreaming) {
           if (msg.status) {
             process.stdout.write(`\n${msg.status}`);
           }
-          process.stdout.write('\n');
+          process.stdout.write("\n");
         } else {
           process.stdout.write(`\n[Tool: ${truncate(msg.result, 200)}]\n`);
         }
@@ -586,48 +677,59 @@ export async function startCli(): Promise<void> {
         if (msg.diff) {
           const diffOutput = msg.diff.isNewFile
             ? formatNewFileDiff(msg.diff.newContent, msg.diff.filePath, null)
-            : formatDiff(msg.diff.oldContent, msg.diff.newContent, msg.diff.filePath);
+            : formatDiff(
+                msg.diff.oldContent,
+                msg.diff.newContent,
+                msg.diff.filePath,
+              );
           if (diffOutput) {
             process.stdout.write(diffOutput);
           }
         }
-        spinner.start('Thinking...');
+        spinner.start("Thinking...");
         break;
 
-      case 'confirmation_request':
+      case "confirmation_request":
         spinner.stop();
         renderConfirmationPrompt(msg);
         break;
 
-      case 'error':
+      case "error":
         spinner.stop();
         generating = false;
         if (pendingConfirmation || pendingSessionPick || pendingCopySession) {
           pendingConfirmation = false;
           pendingSessionPick = false;
           pendingCopySession = false;
-          rl.removeAllListeners('line');
-          rl.on('line', handleLine);
+          rl.removeAllListeners("line");
+          rl.on("line", handleLine);
         }
         process.stdout.write(`\n[Error: ${msg.message}]\n`);
         prompt();
         break;
 
-      case 'secret_detected': {
+      case "secret_detected": {
         const wasSpinning = spinner.isSpinning;
         spinner.stop();
-        const types = msg.matches.map((m) => m.type).join(', ');
-        const actionLabel = msg.action === 'redact' ? 'redacted' : msg.action === 'block' ? 'blocked' : 'detected';
-        process.stdout.write(`\n  ⚠ Secret ${actionLabel} in ${msg.toolName} output: ${types}\n`);
+        const types = msg.matches.map((m) => m.type).join(", ");
+        const actionLabel =
+          msg.action === "redact"
+            ? "redacted"
+            : msg.action === "block"
+              ? "blocked"
+              : "detected";
+        process.stdout.write(
+          `\n  ⚠ Secret ${actionLabel} in ${msg.toolName} output: ${types}\n`,
+        );
         for (const match of msg.matches) {
           process.stdout.write(`    • ${match.type}: ${match.redactedValue}\n`);
         }
-        process.stdout.write('\n');
-        if (wasSpinning) spinner.start('Thinking...');
+        process.stdout.write("\n");
+        if (wasSpinning) spinner.start("Thinking...");
         break;
       }
 
-      case 'session_list_response':
+      case "session_list_response":
         if (pendingSessionPick) {
           renderSessionPicker(msg.sessions);
         } else {
@@ -638,67 +740,80 @@ export async function startCli(): Promise<void> {
         }
         break;
 
-      case 'model_info':
+      case "model_info":
         process.stdout.write(`\n  Model: ${msg.model} (${msg.provider})\n\n`);
         prompt();
         break;
 
-      case 'history_response':
+      case "history_response":
         if (pendingCopySession) {
           pendingCopySession = false;
           if (msg.messages.length === 0) {
-            process.stdout.write('\n  No messages to copy.\n\n');
+            process.stdout.write("\n  No messages to copy.\n\n");
           } else {
             try {
               const formatted = formatSessionForExport(msg.messages);
               copyToClipboard(formatted);
-              process.stdout.write(`\n  Copied session (${msg.messages.length} messages) to clipboard.\n\n`);
+              process.stdout.write(
+                `\n  Copied session (${msg.messages.length} messages) to clipboard.\n\n`,
+              );
             } catch (err) {
-              process.stdout.write(`\n  Clipboard error: ${(err as Error).message}\n\n`);
+              process.stdout.write(
+                `\n  Clipboard error: ${(err as Error).message}\n\n`,
+              );
             }
           }
           prompt();
           break;
         }
-        process.stdout.write('\n');
+        process.stdout.write("\n");
         if (msg.messages.length === 0) {
-          process.stdout.write('  No messages in this session.\n');
+          process.stdout.write("  No messages in this session.\n");
         } else {
           for (const m of msg.messages) {
-            const label = m.role === 'user' ? 'you' : 'assistant';
+            const label = m.role === "user" ? "you" : "assistant";
             const preview = truncate(m.text, 120);
-            process.stdout.write(`  ${label}> ${preview.replace(/\n/g, ' ')}\n`);
+            process.stdout.write(
+              `  ${label}> ${preview.replace(/\n/g, " ")}\n`,
+            );
           }
         }
-        process.stdout.write('\n');
+        process.stdout.write("\n");
         prompt();
         break;
 
-      case 'undo_complete':
+      case "undo_complete":
         if (msg.removedCount === 0) {
-          process.stdout.write('\n  Nothing to undo.\n\n');
+          process.stdout.write("\n  Nothing to undo.\n\n");
         } else {
-          lastResponse = '';
-          process.stdout.write(`\n  Removed last exchange (${msg.removedCount} messages).\n\n`);
+          lastResponse = "";
+          process.stdout.write(
+            `\n  Removed last exchange (${msg.removedCount} messages).\n\n`,
+          );
         }
         prompt();
         break;
 
-      case 'usage_response': {
-        process.stdout.write('\n');
+      case "usage_response": {
+        process.stdout.write("\n");
         process.stdout.write(`  Model:          ${msg.model}\n`);
-        process.stdout.write(`  Input tokens:   ${msg.totalInputTokens.toLocaleString()}\n`);
-        process.stdout.write(`  Output tokens:  ${msg.totalOutputTokens.toLocaleString()}\n`);
-        const costStr = msg.estimatedCost > 0
-          ? `$${msg.estimatedCost.toFixed(4)}`
-          : 'N/A (unknown model pricing)';
+        process.stdout.write(
+          `  Input tokens:   ${msg.totalInputTokens.toLocaleString()}\n`,
+        );
+        process.stdout.write(
+          `  Output tokens:  ${msg.totalOutputTokens.toLocaleString()}\n`,
+        );
+        const costStr =
+          msg.estimatedCost > 0
+            ? `$${msg.estimatedCost.toFixed(4)}`
+            : "N/A (unknown model pricing)";
         process.stdout.write(`  Estimated cost: ${costStr}\n`);
-        process.stdout.write('\n');
+        process.stdout.write("\n");
         prompt();
         break;
       }
 
-      case 'pong':
+      case "pong":
         // Heartbeat response — clear the timeout
         if (heartbeatTimeout) {
           clearTimeout(heartbeatTimeout);
@@ -723,7 +838,7 @@ export async function startCli(): Promise<void> {
     stopHeartbeat();
     heartbeatTimer = setInterval(() => {
       if (socket.destroyed) return;
-      send({ type: 'ping' });
+      send({ type: "ping" });
       if (heartbeatTimeout) {
         clearTimeout(heartbeatTimeout);
       }
@@ -750,8 +865,8 @@ export async function startCli(): Promise<void> {
 
     // Remove stale rl.once('line') handlers from confirmation/selection prompts
     // and re-register the main line handler
-    rl.removeAllListeners('line');
-    rl.on('line', handleLine);
+    rl.removeAllListeners("line");
+    rl.on("line", handleLine);
 
     // Retry with exponential backoff (1s → 2s → 4s → … → 30s cap) until connected
     while (true) {
@@ -781,7 +896,7 @@ export async function startCli(): Promise<void> {
       let connected = false;
       let authenticated = false;
 
-      newSocket.on('connect', () => {
+      newSocket.on("connect", () => {
         connected = true;
         socket = newSocket;
 
@@ -799,25 +914,30 @@ export async function startCli(): Promise<void> {
             resolve();
             return;
           }
-          reject(new Error('Session token not found — is the daemon running?'));
+          reject(new Error("Session token not found — is the daemon running?"));
           newSocket.destroy();
           return;
         }
-        newSocket.write(serialize({ type: 'auth', token }));
+        newSocket.write(serialize({ type: "auth", token }));
       });
 
-      newSocket.on('data', (data) => {
+      newSocket.on("data", (data) => {
         const messages = parser.feed(data.toString()) as ServerMessage[];
         for (const msg of messages) {
           // Wait for auth_result before processing other messages
           if (!authenticated) {
-            if (msg.type === 'auth_result') {
+            if (msg.type === "auth_result") {
               if ((msg as { success: boolean }).success) {
                 authenticated = true;
                 startHeartbeat();
                 resolve();
               } else {
-                reject(new Error((msg as { message?: string }).message ?? 'Authentication failed'));
+                reject(
+                  new Error(
+                    (msg as { message?: string }).message ??
+                      "Authentication failed",
+                  ),
+                );
                 newSocket.destroy();
               }
             }
@@ -827,7 +947,7 @@ export async function startCli(): Promise<void> {
         }
       });
 
-      newSocket.on('close', () => {
+      newSocket.on("close", () => {
         stopHeartbeat();
         if (!connected) return; // handled by 'error'
         // Only auto-reconnect if we're not intentionally exiting
@@ -836,7 +956,7 @@ export async function startCli(): Promise<void> {
         }
       });
 
-      newSocket.on('error', (err) => {
+      newSocket.on("error", (err) => {
         stopHeartbeat();
         if (!connected) {
           reject(err);
@@ -857,16 +977,18 @@ export async function startCli(): Promise<void> {
     // Persist to history file (ensure parent directory exists)
     try {
       mkdirSync(dirname(historyPath), { recursive: true });
-      appendFileSync(historyPath, content + '\n');
-    } catch { /* ignore */ }
+      appendFileSync(historyPath, content + "\n");
+    } catch {
+      /* ignore */
+    }
 
-    if (content === '/copy') {
+    if (content === "/copy") {
       if (!lastResponse) {
-        process.stdout.write('No response to copy.\n');
+        process.stdout.write("No response to copy.\n");
       } else {
         try {
           copyToClipboard(lastResponse);
-          process.stdout.write('Copied to clipboard.\n');
+          process.stdout.write("Copied to clipboard.\n");
         } catch (err) {
           process.stdout.write(`Clipboard error: ${(err as Error).message}\n`);
         }
@@ -875,20 +997,20 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === '/sessions') {
+    if (content === "/sessions") {
       pendingSessionPick = true;
-      send({ type: 'session_list' });
+      send({ type: "session_list" });
       return;
     }
 
-    if (content === '/copy-code') {
+    if (content === "/copy-code") {
       const code = extractLastCodeBlock(lastResponse);
       if (code == null) {
-        process.stdout.write('No code block found.\n');
+        process.stdout.write("No code block found.\n");
       } else {
         try {
           copyToClipboard(code);
-          process.stdout.write('Copied code block to clipboard.\n');
+          process.stdout.write("Copied code block to clipboard.\n");
         } catch (err) {
           process.stdout.write(`Clipboard error: ${(err as Error).message}\n`);
         }
@@ -897,9 +1019,9 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === '/copy-session') {
-      if (!send({ type: 'history_request', sessionId })) {
-        process.stdout.write('[Not connected — command not sent]\n');
+    if (content === "/copy-session") {
+      if (!send({ type: "history_request", sessionId })) {
+        process.stdout.write("[Not connected — command not sent]\n");
         prompt();
         return;
       }
@@ -907,15 +1029,15 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === '/new') {
-      send({ type: 'session_create' });
+    if (content === "/new") {
+      send({ type: "session_create" });
       return;
     }
 
-    if (content === '/clear') {
-      lastResponse = '';
-      process.stdout.write('\x1b[r');
-      process.stdout.write('\x1b[2J\x1b[H');
+    if (content === "/clear") {
+      lastResponse = "";
+      process.stdout.write("\x1b[r");
+      process.stdout.write("\x1b[2J\x1b[H");
       mainScreenLayout = renderMainScreen();
       canvasHeight = mainScreenLayout.height;
       const rows = process.stdout.rows || 24;
@@ -925,92 +1047,107 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === '/model' || content.startsWith('/model ')) {
-      const modelArg = content.slice('/model'.length).trim();
+    if (content === "/model" || content.startsWith("/model ")) {
+      const modelArg = content.slice("/model".length).trim();
       if (modelArg) {
-        send({ type: 'model_set', model: modelArg });
+        send({ type: "model_set", model: modelArg });
       } else {
-        send({ type: 'model_get' });
+        send({ type: "model_get" });
       }
       return;
     }
 
-    if (content === '/history') {
-      send({ type: 'history_request', sessionId });
+    if (content === "/history") {
+      send({ type: "history_request", sessionId });
       return;
     }
 
-    if (content === '/undo') {
-      send({ type: 'undo', sessionId });
+    if (content === "/undo") {
+      send({ type: "undo", sessionId });
       return;
     }
 
-    if (content === '/usage') {
-      send({ type: 'usage_request', sessionId });
+    if (content === "/usage") {
+      send({ type: "usage_request", sessionId });
       return;
     }
 
-    if (content === '/help') {
-      process.stdout.write('\n  Available commands:\n');
-      process.stdout.write('  /new              Start a new session\n');
-      process.stdout.write('  /sessions         Switch between sessions\n');
-      process.stdout.write('  /clear            Clear the screen\n');
-      process.stdout.write('  /model [name]     Show or change the model\n');
-      process.stdout.write('  /history          Show conversation history\n');
-      process.stdout.write('  /undo             Remove last message exchange\n');
-      process.stdout.write('  /usage            Show token usage and cost\n');
-      process.stdout.write('  /copy             Copy last response to clipboard\n');
-      process.stdout.write('  /copy-code        Copy last code block to clipboard\n');
-      process.stdout.write('  /copy-session     Copy entire session to clipboard\n');
-      process.stdout.write('  /help             Show this help\n');
-      process.stdout.write('\n');
+    if (content === "/help") {
+      process.stdout.write("\n  Available commands:\n");
+      process.stdout.write("  /new              Start a new session\n");
+      process.stdout.write("  /sessions         Switch between sessions\n");
+      process.stdout.write("  /clear            Clear the screen\n");
+      process.stdout.write("  /model [name]     Show or change the model\n");
+      process.stdout.write("  /history          Show conversation history\n");
+      process.stdout.write(
+        "  /undo             Remove last message exchange\n",
+      );
+      process.stdout.write("  /usage            Show token usage and cost\n");
+      process.stdout.write(
+        "  /copy             Copy last response to clipboard\n",
+      );
+      process.stdout.write(
+        "  /copy-code        Copy last code block to clipboard\n",
+      );
+      process.stdout.write(
+        "  /copy-session     Copy entire session to clipboard\n",
+      );
+      process.stdout.write("  /help             Show this help\n");
+      process.stdout.write("\n");
       prompt();
       return;
     }
 
     if (!sessionId) {
       pendingUserContent = content;
-      spinner.start('Waiting for session...');
+      spinner.start("Waiting for session...");
       return;
     }
 
-    lastResponse = '';
-    if (!send({ type: 'user_message', sessionId, content, channel: 'vellum', interface: 'cli' })) {
-      process.stdout.write('[Not connected — message not sent]\n');
+    lastResponse = "";
+    if (
+      !send({
+        type: "user_message",
+        sessionId,
+        content,
+        channel: "vellum",
+        interface: "cli",
+      })
+    ) {
+      process.stdout.write("[Not connected — message not sent]\n");
       prompt();
       return;
     }
     generating = true;
-    spinner.start('Thinking...');
+    spinner.start("Thinking...");
   }
 
-  rl.on('line', handleLine);
+  rl.on("line", handleLine);
 
-  rl.on('close', () => {
+  rl.on("close", () => {
     stopHeartbeat();
-    process.stdout.write('\x1b[r\x1b[2J\x1b[H');
-    process.stdout.write('\x1b[2mDetached.\x1b[0m\n');
+    process.stdout.write("\x1b[r\x1b[2J\x1b[H");
+    process.stdout.write("\x1b[2mDetached.\x1b[0m\n");
     process.exit(0);
   });
 
   // Ctrl+C: cancel generation if in progress, otherwise detach
-  process.on('SIGINT', () => {
+  process.on("SIGINT", () => {
     spinner.stop();
     if (generating) {
-      send({ type: 'cancel' });
+      send({ type: "cancel" });
     } else {
       rl.close();
     }
   });
 
-  process.stdout.on('resize', () => {
+  process.stdout.on("resize", () => {
     const rows = process.stdout.rows || 24;
     process.stdout.write(`\x1b[${canvasHeight + 1};${rows}r`);
   });
 
   // Initial connection
   await connect();
-  updateDaemonText(mainScreenLayout, 'connected');
-  updateStatusText(mainScreenLayout, 'ready');
-
+  updateDaemonText(mainScreenLayout, "connected");
+  updateStatusText(mainScreenLayout, "ready");
 }

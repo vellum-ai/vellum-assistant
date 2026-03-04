@@ -1,14 +1,20 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createSlackDeliverHandler } = await import("../http/routes/slack-deliver.js");
+const { createSlackDeliverHandler } =
+  await import("../http/routes/slack-deliver.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -69,36 +75,49 @@ function makeRequest(
   });
 }
 
-let fetchCalls: { url: string; body?: unknown; headers?: Record<string, string> }[];
+let fetchCalls: {
+  url: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+}[];
 
 beforeEach(() => {
   fetchCalls = [];
-  fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    let body: unknown;
-    try {
-      if (init?.body) body = JSON.parse(String(init.body));
-    } catch { /* not JSON */ }
-    const headers: Record<string, string> = {};
-    if (init?.headers) {
-      const h = init.headers;
-      if (h && typeof h === "object" && !Array.isArray(h)) {
-        for (const [k, v] of Object.entries(h)) {
-          headers[k.toLowerCase()] = v;
+  fetchMock = mock(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      let body: unknown;
+      try {
+        if (init?.body) body = JSON.parse(String(init.body));
+      } catch {
+        /* not JSON */
+      }
+      const headers: Record<string, string> = {};
+      if (init?.headers) {
+        const h = init.headers;
+        if (h && typeof h === "object" && !Array.isArray(h)) {
+          for (const [k, v] of Object.entries(h)) {
+            headers[k.toLowerCase()] = v;
+          }
         }
       }
-    }
-    fetchCalls.push({ url, body, headers });
+      fetchCalls.push({ url, body, headers });
 
-    // Slack API response
-    if (url.includes("slack.com/api/chat.postMessage")) {
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
-    return new Response("Not found", { status: 404 });
-  });
+      // Slack API response
+      if (url.includes("slack.com/api/chat.postMessage")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    },
+  );
 });
 
 describe("slack-deliver endpoint", () => {
@@ -122,7 +141,9 @@ describe("slack-deliver endpoint", () => {
     expect(body.ok).toBe(true);
 
     // Verify the Slack API was called with the correct payload
-    const slackCall = fetchCalls.find((c) => c.url.includes("chat.postMessage"));
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
     expect(slackCall).toBeDefined();
     expect((slackCall!.body as any).channel).toBe("C123");
     expect((slackCall!.body as any).text).toBe("hello");
@@ -138,7 +159,9 @@ describe("slack-deliver endpoint", () => {
     const res = await handler(req);
     expect(res.status).toBe(200);
 
-    const slackCall = fetchCalls.find((c) => c.url.includes("chat.postMessage"));
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
     expect(slackCall).toBeDefined();
     expect((slackCall!.body as any).thread_ts).toBe("1700000000.000050");
   });
@@ -154,7 +177,11 @@ describe("slack-deliver endpoint", () => {
 
   test("returns 400 with 'not supported' message when attachments are provided", async () => {
     const handler = createSlackDeliverHandler(makeConfig());
-    const req = makeRequest({ chatId: "C123", text: "hello", attachments: [{ id: "att-1" }] });
+    const req = makeRequest({
+      chatId: "C123",
+      text: "hello",
+      attachments: [{ id: "att-1" }],
+    });
     const res = await handler(req);
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -178,7 +205,9 @@ describe("slack-deliver endpoint", () => {
     const res = await handler(req);
     expect(res.status).toBe(200);
 
-    const slackCall = fetchCalls.find((c) => c.url.includes("chat.postMessage"));
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
     expect(slackCall).toBeDefined();
     expect((slackCall!.body as any).channel).toBe("C_TO_CHAN");
   });
@@ -221,17 +250,24 @@ describe("slack-deliver endpoint", () => {
     const req = makeRequest({ chatId: "C123", text: "hello" });
     await handler(req);
 
-    const slackCall = fetchCalls.find((c) => c.url.includes("chat.postMessage"));
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
     expect(slackCall).toBeDefined();
-    expect(slackCall!.headers!["authorization"]).toBe("Bearer xoxb-my-secret-token");
+    expect(slackCall!.headers!["authorization"]).toBe(
+      "Bearer xoxb-my-secret-token",
+    );
   });
 
   test("returns 502 when Slack API returns ok: false", async () => {
     fetchMock = mock(async () => {
-      return new Response(JSON.stringify({ ok: false, error: "channel_not_found" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ ok: false, error: "channel_not_found" }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     });
 
     const handler = createSlackDeliverHandler(makeConfig());
@@ -245,7 +281,9 @@ describe("slack-deliver endpoint", () => {
     const req = makeRequest({ chatId: "C123", text: "hello" });
     await handler(req);
 
-    const slackCall = fetchCalls.find((c) => c.url.includes("chat.postMessage"));
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
     expect(slackCall).toBeDefined();
     expect((slackCall!.body as any).thread_ts).toBeUndefined();
   });

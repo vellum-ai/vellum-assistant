@@ -1,5 +1,5 @@
-import { applyNestedDefaults } from './loader.js';
-import type { AssistantConfig } from './types.js';
+import { applyNestedDefaults } from "./loader.js";
+import type { AssistantConfig } from "./types.js";
 
 // Single source of truth: Zod schema field-level .default() values.
 // Uses applyNestedDefaults to cascade through nested .default({}) calls,

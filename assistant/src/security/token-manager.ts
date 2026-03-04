@@ -6,17 +6,22 @@
  * refresh for any OAuth2 service that stores its config in metadata.
  */
 
-import { getCredentialMetadata, upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
-import { getLogger } from '../util/logger.js';
-import { refreshOAuth2Token, type TokenEndpointAuthMethod } from './oauth2.js';
-import { getSecureKey, setSecureKey } from './secure-keys.js';
+import {
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../tools/credentials/metadata-store.js";
+import { getLogger } from "../util/logger.js";
+import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
+import { getSecureKey, setSecureKey } from "./secure-keys.js";
 
-const log = getLogger('token-manager');
+const log = getLogger("token-manager");
 
-const MESSAGING_SERVICES = new Set(['integration:gmail', 'integration:slack']);
+const MESSAGING_SERVICES = new Set(["integration:gmail", "integration:slack"]);
 
 function recoveryHint(service: string): string {
-  const shortName = service.startsWith('integration:') ? service.slice('integration:'.length) : service;
+  const shortName = service.startsWith("integration:")
+    ? service.slice("integration:".length)
+    : service;
   if (MESSAGING_SERVICES.has(service)) {
     return ` Reconnect ${shortName} — follow the Error Recovery steps in the messaging skill. Do not present options or explain the error to the user.`;
   }
@@ -48,7 +53,8 @@ const refreshBreakers = new Map<string, RefreshBreakerState>();
 
 function isRefreshBreakerOpen(service: string): boolean {
   const state = refreshBreakers.get(service);
-  if (!state || state.consecutiveFailures < REFRESH_FAILURE_THRESHOLD) return false;
+  if (!state || state.consecutiveFailures < REFRESH_FAILURE_THRESHOLD)
+    return false;
   if (Date.now() - state.openedAt < state.cooldownMs) return true;
   // Cooldown expired — transition to half-open: reset failure count so the
   // next batch of failures must reach the threshold again to re-trip. The
@@ -59,7 +65,10 @@ function isRefreshBreakerOpen(service: string): boolean {
 
 function recordRefreshSuccess(service: string): void {
   if (refreshBreakers.has(service)) {
-    log.info({ service }, 'Token refresh circuit breaker closed — refresh succeeded');
+    log.info(
+      { service },
+      "Token refresh circuit breaker closed — refresh succeeded",
+    );
     refreshBreakers.delete(service);
   }
 }
@@ -67,7 +76,11 @@ function recordRefreshSuccess(service: string): void {
 function recordRefreshFailure(service: string): void {
   const state = refreshBreakers.get(service);
   if (!state) {
-    refreshBreakers.set(service, { consecutiveFailures: 1, openedAt: 0, cooldownMs: INITIAL_COOLDOWN_MS });
+    refreshBreakers.set(service, {
+      consecutiveFailures: 1,
+      openedAt: 0,
+      cooldownMs: INITIAL_COOLDOWN_MS,
+    });
     return;
   }
   state.consecutiveFailures++;
@@ -75,13 +88,20 @@ function recordRefreshFailure(service: string): void {
     // Only escalate cooldown on the exact failure that trips the breaker.
     // Concurrent in-flight failures that arrive after the threshold is
     // already crossed must not double the cooldown again.
-    if (state.consecutiveFailures === REFRESH_FAILURE_THRESHOLD && state.openedAt > 0) {
+    if (
+      state.consecutiveFailures === REFRESH_FAILURE_THRESHOLD &&
+      state.openedAt > 0
+    ) {
       state.cooldownMs = Math.min(state.cooldownMs * 2, MAX_COOLDOWN_MS);
     }
     state.openedAt = Date.now();
     log.warn(
-      { service, consecutiveFailures: state.consecutiveFailures, cooldownMs: state.cooldownMs },
-      'Token refresh circuit breaker opened — skipping refresh attempts until cooldown expires',
+      {
+        service,
+        consecutiveFailures: state.consecutiveFailures,
+        cooldownMs: state.cooldownMs,
+      },
+      "Token refresh circuit breaker opened — skipping refresh attempts until cooldown expires",
     );
   }
 }
@@ -92,14 +112,21 @@ export function _resetRefreshBreakers(): void {
 }
 
 /** @internal Test-only: get breaker state for a service */
-export function _getRefreshBreakerState(service: string): RefreshBreakerState | undefined {
+export function _getRefreshBreakerState(
+  service: string,
+): RefreshBreakerState | undefined {
   return refreshBreakers.get(service);
 }
 
 export class TokenExpiredError extends Error {
-  constructor(public readonly service: string, message?: string) {
-    super(message ?? `Token expired for "${service}". Re-authorization required.`);
-    this.name = 'TokenExpiredError';
+  constructor(
+    public readonly service: string,
+    message?: string,
+  ) {
+    super(
+      message ?? `Token expired for "${service}". Re-authorization required.`,
+    );
+    this.name = "TokenExpiredError";
   }
 }
 
@@ -108,7 +135,7 @@ export class TokenExpiredError extends Error {
  * within the buffer window, based on the `expiresAt` field in credential metadata.
  */
 function isTokenExpired(service: string): boolean {
-  const meta = getCredentialMetadata(service, 'access_token');
+  const meta = getCredentialMetadata(service, "access_token");
   if (!meta?.expiresAt) return false;
   return Date.now() >= meta.expiresAt - EXPIRY_BUFFER_MS;
 }
@@ -123,10 +150,13 @@ function isTokenExpired(service: string): boolean {
 async function doRefresh(service: string): Promise<string> {
   const refreshToken = getSecureKey(`credential:${service}:refresh_token`);
   if (!refreshToken) {
-    throw new TokenExpiredError(service, `No refresh token available for "${service}". Re-authorization required.${recoveryHint(service)}`);
+    throw new TokenExpiredError(
+      service,
+      `No refresh token available for "${service}". Re-authorization required.${recoveryHint(service)}`,
+    );
   }
 
-  const meta = getCredentialMetadata(service, 'access_token');
+  const meta = getCredentialMetadata(service, "access_token");
   const tokenUrl = meta?.oauth2TokenUrl;
   const clientId = meta?.oauth2ClientId;
 
@@ -135,10 +165,10 @@ async function doRefresh(service: string): Promise<string> {
     // oauth2TokenUrl/oauth2ClientId in metadata. The client ID is user-specific
     // (from their Google Cloud Console) and cannot be recovered, so the only
     // path forward is re-authorization via the new oauth2_connect flow.
-    const isLegacy = service === 'integration:gmail' && !tokenUrl && !clientId;
+    const isLegacy = service === "integration:gmail" && !tokenUrl && !clientId;
     const hint = isLegacy
       ? ` This is a one-time migration: your old Gmail connection needs to be re-authorized. Ask me to "reconnect Gmail" to set it up again.`
-      : '';
+      : "";
     throw new TokenExpiredError(
       service,
       `Missing OAuth2 refresh config for "${service}".${hint}${recoveryHint(service)}`,
@@ -146,7 +176,9 @@ async function doRefresh(service: string): Promise<string> {
   }
 
   const clientSecret = meta?.oauth2ClientSecret as string | undefined;
-  const authMethod = meta?.oauth2TokenEndpointAuthMethod as TokenEndpointAuthMethod | undefined;
+  const authMethod = meta?.oauth2TokenEndpointAuthMethod as
+    | TokenEndpointAuthMethod
+    | undefined;
   const resolvedTokenUrl = tokenUrl;
 
   if (isRefreshBreakerOpen(service)) {
@@ -155,20 +187,29 @@ async function doRefresh(service: string): Promise<string> {
     throw new TokenExpiredError(
       service,
       `Token refresh for "${service}" is temporarily suspended after ${state.consecutiveFailures} consecutive failures. ` +
-      `Retrying in ${Math.ceil(remainingMs / 1000)}s.${recoveryHint(service)}`,
+        `Retrying in ${Math.ceil(remainingMs / 1000)}s.${recoveryHint(service)}`,
     );
   }
 
-  log.info({ service }, 'Refreshing OAuth2 access token');
+  log.info({ service }, "Refreshing OAuth2 access token");
 
   let result;
   try {
-    result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken, clientSecret, authMethod);
+    result = await refreshOAuth2Token(
+      resolvedTokenUrl,
+      clientId,
+      refreshToken,
+      clientSecret,
+      authMethod,
+    );
   } catch (err) {
     recordRefreshFailure(service);
     if (isCredentialError(err)) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new TokenExpiredError(service, `Token refresh failed for "${service}": ${msg}.${recoveryHint(service)}`);
+      throw new TokenExpiredError(
+        service,
+        `Token refresh failed for "${service}": ${msg}.${recoveryHint(service)}`,
+      );
     }
     // Transient errors (network failures, 5xx) are re-thrown as-is so
     // upstream retry/backoff logic can handle them without triggering
@@ -177,26 +218,35 @@ async function doRefresh(service: string): Promise<string> {
   }
 
   if (!setSecureKey(`credential:${service}:access_token`, result.accessToken)) {
-    throw new TokenExpiredError(service, `Failed to store refreshed access token for "${service}".`);
+    throw new TokenExpiredError(
+      service,
+      `Failed to store refreshed access token for "${service}".`,
+    );
   }
 
   if (result.refreshToken) {
-    if (!setSecureKey(`credential:${service}:refresh_token`, result.refreshToken)) {
-      throw new TokenExpiredError(service, `Failed to store refreshed refresh token for "${service}".`);
+    if (
+      !setSecureKey(`credential:${service}:refresh_token`, result.refreshToken)
+    ) {
+      throw new TokenExpiredError(
+        service,
+        `Failed to store refreshed refresh token for "${service}".`,
+      );
     }
   }
 
   // Update metadata with new expiry.
   // Use null to explicitly clear a stale expiresAt when the provider omits
   // expires_in (or returns 0), so isTokenExpired won't keep forcing refreshes.
-  const expiresAt = result.expiresIn != null && result.expiresIn > 0
-    ? Date.now() + result.expiresIn * 1000
-    : null;
+  const expiresAt =
+    result.expiresIn != null && result.expiresIn > 0
+      ? Date.now() + result.expiresIn * 1000
+      : null;
 
-  upsertCredentialMetadata(service, 'access_token', { expiresAt });
+  upsertCredentialMetadata(service, "access_token", { expiresAt });
 
   recordRefreshSuccess(service);
-  log.info({ service }, 'OAuth2 access token refreshed successfully');
+  log.info({ service }, "OAuth2 access token refreshed successfully");
   return result.accessToken;
 }
 
@@ -214,7 +264,10 @@ export async function withValidToken<T>(
 ): Promise<T> {
   let token = getSecureKey(`credential:${service}:access_token`);
   if (!token) {
-    throw new TokenExpiredError(service, `No access token found for "${service}". Authorization required.${recoveryHint(service)}`);
+    throw new TokenExpiredError(
+      service,
+      `No access token found for "${service}". Authorization required.${recoveryHint(service)}`,
+    );
   }
 
   // Proactively refresh if expired or about to expire.
@@ -234,9 +287,14 @@ export async function withValidToken<T>(
 }
 
 function is401Error(err: unknown): boolean {
-  if (err && typeof err === 'object') {
-    if ('status' in err && (err as { status: number }).status === 401) return true;
-    if ('statusCode' in err && (err as { statusCode: number }).statusCode === 401) return true;
+  if (err && typeof err === "object") {
+    if ("status" in err && (err as { status: number }).status === 401)
+      return true;
+    if (
+      "statusCode" in err &&
+      (err as { statusCode: number }).statusCode === 401
+    )
+      return true;
   }
   return false;
 }
@@ -260,6 +318,7 @@ function isCredentialError(err: unknown): boolean {
   if (/HTTP\s+40[13]\b/.test(msg)) return true;
   // 400 with invalid_grant means the refresh token is revoked/expired;
   // invalid_client means client credentials are bad/rotated
-  if (/HTTP\s+400\b/.test(msg) && /invalid_grant|invalid_client/.test(msg)) return true;
+  if (/HTTP\s+400\b/.test(msg) && /invalid_grant|invalid_client/.test(msg))
+    return true;
   return false;
 }

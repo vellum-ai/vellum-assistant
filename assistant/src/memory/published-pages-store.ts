@@ -5,10 +5,10 @@
  * for deduplication.
  */
 
-import { and,eq } from 'drizzle-orm';
+import { and, eq } from "drizzle-orm";
 
-import { getDb } from './db.js';
-import { publishedPages } from './schema.js';
+import { getDb } from "./db.js";
+import { publishedPages } from "./schema.js";
 
 export interface PublishedPageRecord {
   id: string;
@@ -40,7 +40,7 @@ export function createPublishedPage(record: {
       pageTitle: record.pageTitle ?? null,
       htmlHash: record.htmlHash,
       publishedAt: Date.now(),
-      status: 'active',
+      status: "active",
       appId: record.appId ?? null,
       projectSlug: record.projectSlug ?? null,
     })
@@ -70,7 +70,7 @@ export function getPublishedPageByHash(
     .where(
       and(
         eq(publishedPages.htmlHash, hash),
-        eq(publishedPages.status, 'active'),
+        eq(publishedPages.status, "active"),
       ),
     )
     .get();
@@ -83,7 +83,7 @@ export function listPublishedPages(): PublishedPageRecord[] {
   return db
     .select()
     .from(publishedPages)
-    .where(eq(publishedPages.status, 'active'))
+    .where(eq(publishedPages.status, "active"))
     .all();
 }
 
@@ -98,23 +98,22 @@ export function markDeleted(id: string): boolean {
   if (!existing) return false;
 
   db.update(publishedPages)
-    .set({ status: 'deleted' })
+    .set({ status: "deleted" })
     .where(eq(publishedPages.id, id))
     .run();
 
   return true;
 }
 
-export function getActivePublishedPageByAppId(appId: string): PublishedPageRecord | null {
+export function getActivePublishedPageByAppId(
+  appId: string,
+): PublishedPageRecord | null {
   const db = getDb();
   const row = db
     .select()
     .from(publishedPages)
     .where(
-      and(
-        eq(publishedPages.appId, appId),
-        eq(publishedPages.status, 'active'),
-      ),
+      and(eq(publishedPages.appId, appId), eq(publishedPages.status, "active")),
     )
     .get();
   return row ?? null;
@@ -131,8 +130,5 @@ export function updatePublishedPage(
   },
 ): void {
   const db = getDb();
-  db.update(publishedPages)
-    .set(updates)
-    .where(eq(publishedPages.id, id))
-    .run();
+  db.update(publishedPages).set(updates).where(eq(publishedPages.id, id)).run();
 }

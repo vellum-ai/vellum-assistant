@@ -28,15 +28,12 @@ delete process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
 
 // Dynamically import to pick up env
 const { loadConfig } = await import("../config.js");
-const { createTelegramWebhookHandler } = await import(
-  "../http/routes/telegram-webhook.js"
-);
-const { createRuntimeProxyHandler } = await import(
-  "../http/routes/runtime-proxy.js"
-);
-const { createRuntimeHealthProxyHandler } = await import(
-  "../http/routes/runtime-health-proxy.js"
-);
+const { createTelegramWebhookHandler } =
+  await import("../http/routes/telegram-webhook.js");
+const { createRuntimeProxyHandler } =
+  await import("../http/routes/runtime-proxy.js");
+const { createRuntimeHealthProxyHandler } =
+  await import("../http/routes/runtime-health-proxy.js");
 
 const config = loadConfig();
 
@@ -94,7 +91,9 @@ describe("Telegram-only default: runtime proxy is disabled by default", () => {
   });
 
   test("GET /v1/health returns 401 without bearer auth", async () => {
-    const res = await handleRequest(new Request("http://gateway.test/v1/health"));
+    const res = await handleRequest(
+      new Request("http://gateway.test/v1/health"),
+    );
     expect(res.status).toBe(401);
   });
 
@@ -110,7 +109,9 @@ describe("Telegram-only default: runtime proxy is disabled by default", () => {
   });
 
   test("GET /random-path returns 404", async () => {
-    const res = await handleRequest(new Request("http://gateway.test/random-path"));
+    const res = await handleRequest(
+      new Request("http://gateway.test/random-path"),
+    );
     expect(res.status).toBe(404);
   });
 

@@ -1,14 +1,14 @@
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { getConfig } from '../config/loader.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import { redactSensitiveFields } from '../security/redaction.js';
-import type { ExecutionTarget } from '../tools/types.js';
-import { AssistantError, ErrorCode } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
-import type { AllowlistOption, ScopeOption,UserDecision } from './types.js';
+import { getConfig } from "../config/loader.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import { redactSensitiveFields } from "../security/redaction.js";
+import type { ExecutionTarget } from "../tools/types.js";
+import { AssistantError, ErrorCode } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
+import type { AllowlistOption, ScopeOption, UserDecision } from "./types.js";
 
-const log = getLogger('permission-prompter');
+const log = getLogger("permission-prompter");
 
 interface PendingPrompt {
   resolve: (value: {
@@ -23,8 +23,8 @@ interface PendingPrompt {
 
 export type ConfirmationStateCallback = (
   requestId: string,
-  state: 'pending' | 'approved' | 'denied' | 'timed_out' | 'resolved_stale',
-  source: 'button' | 'inline_nl' | 'auto_deny' | 'timeout' | 'system',
+  state: "pending" | "approved" | "denied" | "timed_out" | "resolved_stale",
+  source: "button" | "inline_nl" | "auto_deny" | "timeout" | "system",
 ) => void;
 
 export class PermissionPrompter {
@@ -50,20 +50,25 @@ export class PermissionPrompter {
     riskLevel: string,
     allowlistOptions: AllowlistOption[],
     scopeOptions: ScopeOption[],
-    diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean },
+    diff?: {
+      filePath: string;
+      oldContent: string;
+      newContent: string;
+      isNewFile: boolean;
+    },
     sandboxed?: boolean,
     sessionId?: string,
     executionTarget?: ExecutionTarget,
     persistentDecisionsAllowed?: boolean,
     signal?: AbortSignal,
-    temporaryOptionsAvailable?: Array<'allow_10m' | 'allow_thread'>,
+    temporaryOptionsAvailable?: Array<"allow_10m" | "allow_thread">,
   ): Promise<{
     decision: UserDecision;
     selectedPattern?: string;
     selectedScope?: string;
     decisionContext?: string;
   }> {
-    if (signal?.aborted) return { decision: 'deny' };
+    if (signal?.aborted) return { decision: "deny" };
 
     const requestId = uuid();
 
@@ -71,9 +76,12 @@ export class PermissionPrompter {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        log.warn({ requestId, toolName }, 'Permission prompt timed out, defaulting to deny');
-        this.onStateChanged?.(requestId, 'timed_out', 'timeout');
-        resolve({ decision: 'deny' });
+        log.warn(
+          { requestId, toolName },
+          "Permission prompt timed out, defaulting to deny",
+        );
+        this.onStateChanged?.(requestId, "timed_out", "timeout");
+        resolve({ decision: "deny" });
       }, timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timer });
@@ -83,20 +91,27 @@ export class PermissionPrompter {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
-            resolve({ decision: 'deny' });
+            resolve({ decision: "deny" });
           }
         };
-        signal.addEventListener('abort', onAbort, { once: true });
+        signal.addEventListener("abort", onAbort, { once: true });
       }
 
       this.sendToClient({
-        type: 'confirmation_request',
+        type: "confirmation_request",
         requestId,
         toolName,
         input: redactSensitiveFields(input),
         riskLevel,
-        allowlistOptions: allowlistOptions.map((o) => ({ label: o.label, description: o.description, pattern: o.pattern })),
-        scopeOptions: scopeOptions.map((o) => ({ label: o.label, scope: o.scope })),
+        allowlistOptions: allowlistOptions.map((o) => ({
+          label: o.label,
+          description: o.description,
+          pattern: o.pattern,
+        })),
+        scopeOptions: scopeOptions.map((o) => ({
+          label: o.label,
+          scope: o.scope,
+        })),
         diff,
         sandboxed,
         sessionId,
@@ -105,7 +120,7 @@ export class PermissionPrompter {
         temporaryOptionsAvailable,
       });
 
-      this.onStateChanged?.(requestId, 'pending', 'system');
+      this.onStateChanged?.(requestId, "pending", "system");
     });
   }
 
@@ -122,12 +137,17 @@ export class PermissionPrompter {
   ): void {
     const pending = this.pending.get(requestId);
     if (!pending) {
-      log.warn({ requestId }, 'No pending prompt for confirmation response');
+      log.warn({ requestId }, "No pending prompt for confirmation response");
       return;
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
-    pending.resolve({ decision, selectedPattern, selectedScope, decisionContext });
+    pending.resolve({
+      decision,
+      selectedPattern,
+      selectedScope,
+      decisionContext,
+    });
   }
 
   /**
@@ -139,7 +159,11 @@ export class PermissionPrompter {
     for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
       this.pending.delete(requestId);
-      pending.resolve({ decision: 'deny', decisionContext: 'The user sent a new message instead of responding to this permission prompt. Stop what you are doing and respond to the user\'s new message. Do NOT retry this tool or request permission again until the user asks you to.' });
+      pending.resolve({
+        decision: "deny",
+        decisionContext:
+          "The user sent a new message instead of responding to this permission prompt. Stop what you are doing and respond to the user's new message. Do NOT retry this tool or request permission again until the user asks you to.",
+      });
     }
   }
 
@@ -150,7 +174,9 @@ export class PermissionPrompter {
   dispose(): void {
     for (const [, pending] of this.pending) {
       clearTimeout(pending.timer);
-      pending.reject(new AssistantError('Prompter disposed', ErrorCode.INTERNAL_ERROR));
+      pending.reject(
+        new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
+      );
     }
     this.pending.clear();
   }

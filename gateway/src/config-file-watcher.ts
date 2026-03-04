@@ -31,7 +31,12 @@ function getConfigPath(): string {
   return join(getRootDir(), "workspace", CONFIG_FILENAME);
 }
 
-function readConfigFile(path: string): { ingressPublicBaseUrl?: string; smsPhoneNumber?: string; assistantPhoneNumbers?: Record<string, string>; assistantEmail?: string } {
+function readConfigFile(path: string): {
+  ingressPublicBaseUrl?: string;
+  smsPhoneNumber?: string;
+  assistantPhoneNumbers?: Record<string, string>;
+  assistantEmail?: string;
+} {
   try {
     if (!existsSync(path)) return {};
 
@@ -56,7 +61,10 @@ function readConfigFile(path: string): { ingressPublicBaseUrl?: string; smsPhone
       data.sms.assistantPhoneNumbers !== null &&
       !Array.isArray(data.sms.assistantPhoneNumbers)
     ) {
-      assistantPhoneNumbers = data.sms.assistantPhoneNumbers as Record<string, string>;
+      assistantPhoneNumbers = data.sms.assistantPhoneNumbers as Record<
+        string,
+        string
+      >;
     }
 
     const assistantEmail =
@@ -64,7 +72,12 @@ function readConfigFile(path: string): { ingressPublicBaseUrl?: string; smsPhone
         ? data.email.address || undefined
         : undefined;
 
-    return { ingressPublicBaseUrl, smsPhoneNumber, assistantPhoneNumbers, assistantEmail };
+    return {
+      ingressPublicBaseUrl,
+      smsPhoneNumber,
+      assistantPhoneNumbers,
+      assistantEmail,
+    };
   } catch (err) {
     log.debug({ err }, "Failed to read config file");
     return {};
@@ -96,19 +109,23 @@ export class ConfigFileWatcher {
       : this.configPath;
 
     try {
-      this.watcher = watch(watchTarget, { persistent: false }, (_event, filename) => {
-        if (
-          this.watchingDirectory &&
-          filename !== CONFIG_FILENAME
-        ) {
-          return;
-        }
-        this.scheduleCheck();
-      });
+      this.watcher = watch(
+        watchTarget,
+        { persistent: false },
+        (_event, filename) => {
+          if (this.watchingDirectory && filename !== CONFIG_FILENAME) {
+            return;
+          }
+          this.scheduleCheck();
+        },
+      );
 
       log.info({ path: watchTarget }, "Watching for config file changes");
     } catch (err) {
-      log.warn({ err, path: watchTarget }, "Failed to start config file watcher");
+      log.warn(
+        { err, path: watchTarget },
+        "Failed to start config file watcher",
+      );
     }
   }
 
@@ -146,13 +163,9 @@ export class ConfigFileWatcher {
     if (!existsSync(this.configPath)) return;
 
     try {
-      this.watcher = watch(
-        this.configPath,
-        { persistent: false },
-        () => {
-          this.scheduleCheck();
-        },
-      );
+      this.watcher = watch(this.configPath, { persistent: false }, () => {
+        this.scheduleCheck();
+      });
       this.watchingDirectory = false;
       log.debug("Upgraded watcher to config file");
     } catch (err) {
@@ -161,16 +174,28 @@ export class ConfigFileWatcher {
   }
 
   private pollOnce(): void {
-    const { ingressPublicBaseUrl, smsPhoneNumber, assistantPhoneNumbers, assistantEmail } = readConfigFile(this.configPath);
+    const {
+      ingressPublicBaseUrl,
+      smsPhoneNumber,
+      assistantPhoneNumbers,
+      assistantEmail,
+    } = readConfigFile(this.configPath);
 
-    const ingressChanged = ingressPublicBaseUrl !== this.lastIngressPublicBaseUrl;
+    const ingressChanged =
+      ingressPublicBaseUrl !== this.lastIngressPublicBaseUrl;
     const smsPhoneNumberChanged = smsPhoneNumber !== this.lastSmsPhoneNumber;
     // Shallow JSON comparison is sufficient for the Record<string, string> mapping
     const assistantPhoneNumbersChanged =
-      JSON.stringify(assistantPhoneNumbers) !== JSON.stringify(this.lastAssistantPhoneNumbers);
+      JSON.stringify(assistantPhoneNumbers) !==
+      JSON.stringify(this.lastAssistantPhoneNumbers);
     const assistantEmailChanged = assistantEmail !== this.lastAssistantEmail;
 
-    if (!ingressChanged && !smsPhoneNumberChanged && !assistantPhoneNumbersChanged && !assistantEmailChanged) {
+    if (
+      !ingressChanged &&
+      !smsPhoneNumberChanged &&
+      !assistantPhoneNumbersChanged &&
+      !assistantEmailChanged
+    ) {
       return;
     }
 
@@ -186,22 +211,13 @@ export class ConfigFileWatcher {
       );
     }
     if (smsPhoneNumberChanged) {
-      log.info(
-        { smsPhoneNumber },
-        "SMS phone number updated",
-      );
+      log.info({ smsPhoneNumber }, "SMS phone number updated");
     }
     if (assistantPhoneNumbersChanged) {
-      log.info(
-        { assistantPhoneNumbers },
-        "Assistant phone numbers updated",
-      );
+      log.info({ assistantPhoneNumbers }, "Assistant phone numbers updated");
     }
     if (assistantEmailChanged) {
-      log.info(
-        { assistantEmail },
-        "Assistant email updated from config file",
-      );
+      log.info({ assistantEmail }, "Assistant email updated from config file");
     }
 
     this.callback({

@@ -3,35 +3,35 @@
 // === Client → Server ===
 
 export interface PairingApprovalResponse {
-  type: 'pairing_approval_response';
+  type: "pairing_approval_response";
   pairingRequestId: string;
-  decision: 'approve_once' | 'always_allow' | 'deny';
+  decision: "approve_once" | "always_allow" | "deny";
 }
 
 export interface ApprovedDevicesList {
-  type: 'approved_devices_list';
+  type: "approved_devices_list";
 }
 
 export interface ApprovedDeviceRemove {
-  type: 'approved_device_remove';
+  type: "approved_device_remove";
   hashedDeviceId: string;
 }
 
 export interface ApprovedDevicesClear {
-  type: 'approved_devices_clear';
+  type: "approved_devices_clear";
 }
 
 // === Server → Client ===
 
 export interface PairingApprovalRequest {
-  type: 'pairing_approval_request';
+  type: "pairing_approval_request";
   pairingRequestId: string;
   deviceId: string;
   deviceName: string;
 }
 
 export interface ApprovedDevicesListResponse {
-  type: 'approved_devices_list_response';
+  type: "approved_devices_list_response";
   devices: Array<{
     hashedDeviceId: string;
     deviceName: string;
@@ -40,7 +40,7 @@ export interface ApprovedDevicesListResponse {
 }
 
 export interface ApprovedDeviceRemoveResponse {
-  type: 'approved_device_remove_response';
+  type: "approved_device_remove_response";
   success: boolean;
 }
 

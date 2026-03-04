@@ -1,7 +1,10 @@
-import { renderTemplate } from '../../tasks/task-runner.js';
-import { getTask, listTasks } from '../../tasks/task-store.js';
-import { buildWorkItemMismatchError,identifyEntityById } from '../../work-items/work-item-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { renderTemplate } from "../../tasks/task-runner.js";
+import { getTask, listTasks } from "../../tasks/task-store.js";
+import {
+  buildWorkItemMismatchError,
+  identifyEntityById,
+} from "../../work-items/work-item-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeTaskRun(
   input: Record<string, unknown>,
@@ -13,7 +16,7 @@ export async function executeTaskRun(
 
   if (!taskName && !taskId) {
     return {
-      content: 'Error: At least one of task_name or task_id must be provided',
+      content: "Error: At least one of task_name or task_id must be provided",
       isError: true,
     };
   }
@@ -26,13 +29,20 @@ export async function executeTaskRun(
       task = getTask(taskId);
       if (!task) {
         const entity = identifyEntityById(taskId);
-        if (entity.type === 'work_item') {
+        if (entity.type === "work_item") {
           return {
-            content: `Error: ${buildWorkItemMismatchError(taskId, entity.title!, 'task_list_show to view work items, or task_list_update to modify them')}`,
+            content: `Error: ${buildWorkItemMismatchError(
+              taskId,
+              entity.title!,
+              "task_list_show to view work items, or task_list_update to modify them",
+            )}`,
             isError: true,
           };
         }
-        return { content: `Error: No task template found with ID "${taskId}". Use task_list to see available templates.`, isError: true };
+        return {
+          content: `Error: No task template found with ID "${taskId}". Use task_list to see available templates.`,
+          isError: true,
+        };
       }
     } else if (taskName) {
       const allTasks = listTasks();
@@ -43,9 +53,15 @@ export async function executeTaskRun(
 
       if (!task) {
         if (allTasks.length === 0) {
-          return { content: 'Error: No task templates found. Use task_save to create one first.', isError: true };
+          return {
+            content:
+              "Error: No task templates found. Use task_save to create one first.",
+            isError: true,
+          };
         }
-        const available = allTasks.map((t) => `  - "${t.title}" (${t.id})`).join('\n');
+        const available = allTasks
+          .map((t) => `  - "${t.title}" (${t.id})`)
+          .join("\n");
         return {
           content: `Error: No task template matching "${taskName}" found. Available templates:\n${available}`,
           isError: true,
@@ -54,18 +70,25 @@ export async function executeTaskRun(
     }
 
     if (!task) {
-      return { content: 'Error: Could not resolve task template', isError: true };
+      return {
+        content: "Error: Could not resolve task template",
+        isError: true,
+      };
     }
 
     // Check if required inputs are provided
     if (task.inputSchema) {
-      const schema = JSON.parse(task.inputSchema) as { properties?: Record<string, unknown> };
+      const schema = JSON.parse(task.inputSchema) as {
+        properties?: Record<string, unknown>;
+      };
       if (schema.properties) {
         const requiredKeys = Object.keys(schema.properties);
         const missingKeys = requiredKeys.filter((k) => !(k in inputs));
         if (missingKeys.length > 0) {
           return {
-            content: `Error: Missing required inputs: ${missingKeys.join(', ')}. Provide them in the "inputs" parameter.`,
+            content: `Error: Missing required inputs: ${missingKeys.join(
+              ", ",
+            )}. Provide them in the "inputs" parameter.`,
             isError: true,
           };
         }
@@ -75,7 +98,9 @@ export async function executeTaskRun(
     // Render the template
     const rendered = renderTemplate(task.template, inputs);
 
-    const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
+    const requiredTools: string[] = task.requiredTools
+      ? JSON.parse(task.requiredTools)
+      : [];
 
     const lines = [
       `Template "${task.title}" resolved and rendered.`,
@@ -86,10 +111,10 @@ export async function executeTaskRun(
     ];
 
     if (requiredTools.length > 0) {
-      lines.push('', `Required tools: ${requiredTools.join(', ')}`);
+      lines.push("", `Required tools: ${requiredTools.join(", ")}`);
     }
 
-    return { content: lines.join('\n'), isError: false };
+    return { content: lines.join("\n"), isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };

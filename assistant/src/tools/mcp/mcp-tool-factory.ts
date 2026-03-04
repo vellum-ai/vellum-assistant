@@ -1,8 +1,8 @@
-import type { McpServerConfig } from '../../config/mcp-schema.js';
-import type { McpServerManager } from '../../mcp/manager.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import type { McpServerConfig } from "../../config/mcp-schema.js";
+import type { McpServerManager } from "../../mcp/manager.js";
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 const riskMap: Record<string, RiskLevel> = {
   low: RiskLevel.Low,
@@ -22,10 +22,12 @@ export function mcpToolName(serverId: string, toolName: string): string {
  * Parse a namespaced MCP tool name back into serverId and original tool name.
  * Returns null if the name doesn't match the MCP naming convention.
  */
-export function parseMcpToolName(name: string): { serverId: string; toolName: string } | null {
-  if (!name.startsWith('mcp__')) return null;
+export function parseMcpToolName(
+  name: string,
+): { serverId: string; toolName: string } | null {
+  if (!name.startsWith("mcp__")) return null;
   const prefixRemoved = name.slice(5); // remove 'mcp__'
-  const firstSep = prefixRemoved.indexOf('__');
+  const firstSep = prefixRemoved.indexOf("__");
   if (firstSep === -1) return null;
   return {
     serverId: prefixRemoved.slice(0, firstSep),
@@ -55,21 +57,24 @@ export function createMcpTool(
   return {
     name: namespacedName,
     description: metadata.description,
-    category: 'mcp',
+    category: "mcp",
     defaultRiskLevel: riskLevel,
-    origin: 'mcp',
+    origin: "mcp",
     ownerMcpServerId: serverId,
-    executionTarget: 'host',
+    executionTarget: "host",
 
     getDefinition(): ToolDefinition {
       return {
         name: namespacedName,
         description: metadata.description,
-        input_schema: metadata.inputSchema as ToolDefinition['input_schema'],
+        input_schema: metadata.inputSchema as ToolDefinition["input_schema"],
       };
     },
 
-    async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+    async execute(
+      input: Record<string, unknown>,
+      _context: ToolContext,
+    ): Promise<ToolExecutionResult> {
       try {
         const result = await manager.callTool(serverId, metadata.name, input);
         return {
@@ -96,5 +101,7 @@ export function createMcpToolsFromServer(
   serverConfig: McpServerConfig,
   manager: McpServerManager,
 ): Tool[] {
-  return tools.map((tool) => createMcpTool(tool, serverId, serverConfig, manager));
+  return tools.map((tool) =>
+    createMcpTool(tool, serverId, serverConfig, manager),
+  );
 }

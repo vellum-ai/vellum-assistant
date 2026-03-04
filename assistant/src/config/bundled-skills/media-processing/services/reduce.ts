@@ -100,7 +100,10 @@ function formatMapOutputAsText(mapOutput: MapOutput): string {
     const startSec = Math.floor(segment.startSeconds % 60);
     const endMin = Math.floor(segment.endSeconds / 60);
     const endSec = Math.floor(segment.endSeconds % 60);
-    const timeRange = `${startMin}:${String(startSec).padStart(2, "0")} - ${endMin}:${String(endSec).padStart(2, "0")}`;
+    const timeRange = `${startMin}:${String(startSec).padStart(
+      2,
+      "0",
+    )} - ${endMin}:${String(endSec).padStart(2, "0")}`;
 
     lines.push(`[Segment ${segment.segmentId}] ${timeRange}`);
     lines.push(JSON.stringify(segment.result, null, 2));

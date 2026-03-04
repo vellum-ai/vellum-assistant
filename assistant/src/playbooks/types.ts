@@ -22,7 +22,7 @@ export interface Playbook {
   priority: number;
 }
 
-export type PlaybookAutonomyLevel = 'auto' | 'draft' | 'notify';
+export type PlaybookAutonomyLevel = "auto" | "draft" | "notify";
 
 /**
  * Parse a playbook from its JSON-serialized statement column.
@@ -32,18 +32,21 @@ export function parsePlaybookStatement(statement: string): Playbook | null {
   try {
     const parsed = JSON.parse(statement);
     if (
-      typeof parsed.trigger !== 'string' ||
-      typeof parsed.action !== 'string'
+      typeof parsed.trigger !== "string" ||
+      typeof parsed.action !== "string"
     ) {
       return null;
     }
     return {
       trigger: parsed.trigger,
-      channel: typeof parsed.channel === 'string' ? parsed.channel : '*',
-      category: typeof parsed.category === 'string' ? parsed.category : 'general',
+      channel: typeof parsed.channel === "string" ? parsed.channel : "*",
+      category:
+        typeof parsed.category === "string" ? parsed.category : "general",
       action: parsed.action,
-      autonomyLevel: isValidAutonomyLevel(parsed.autonomyLevel) ? parsed.autonomyLevel : 'draft',
-      priority: typeof parsed.priority === 'number' ? parsed.priority : 0,
+      autonomyLevel: isValidAutonomyLevel(parsed.autonomyLevel)
+        ? parsed.autonomyLevel
+        : "draft",
+      priority: typeof parsed.priority === "number" ? parsed.priority : 0,
     };
   } catch {
     return null;
@@ -51,5 +54,5 @@ export function parsePlaybookStatement(statement: string): Playbook | null {
 }
 
 function isValidAutonomyLevel(value: unknown): value is PlaybookAutonomyLevel {
-  return value === 'auto' || value === 'draft' || value === 'notify';
+  return value === "auto" || value === "draft" || value === "notify";
 }

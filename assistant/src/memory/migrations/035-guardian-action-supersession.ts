@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Add supersession metadata columns to guardian_action_requests and
@@ -14,8 +14,20 @@ import type { DrizzleDb } from '../db-connection.js';
  * supersession chain.
  */
 export function migrateGuardianActionSupersession(database: DrizzleDb): void {
-  try { database.run(/*sql*/ `ALTER TABLE guardian_action_requests ADD COLUMN superseded_by_request_id TEXT`); } catch { /* already exists */ }
-  try { database.run(/*sql*/ `ALTER TABLE guardian_action_requests ADD COLUMN superseded_at INTEGER`); } catch { /* already exists */ }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE guardian_action_requests ADD COLUMN superseded_by_request_id TEXT`,
+    );
+  } catch {
+    /* already exists */
+  }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE guardian_action_requests ADD COLUMN superseded_at INTEGER`,
+    );
+  } catch {
+    /* already exists */
+  }
 
   database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_requests_session_status_created ON guardian_action_requests(call_session_id, status, created_at DESC)`,

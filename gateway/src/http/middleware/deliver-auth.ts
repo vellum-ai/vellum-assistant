@@ -27,7 +27,7 @@ export function checkDeliverAuth(
   }
 
   const token = authHeader.slice(7);
-  const result = verifyToken(token, 'vellum-daemon');
+  const result = verifyToken(token, "vellum-daemon");
   if (!result.ok) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }

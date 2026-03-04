@@ -30,9 +30,7 @@ describe("resolveTrustClass", () => {
     const ctx: Pick<TrustContext, "trustClass"> = {
       trustClass: "trusted_contact",
     };
-    expect(resolveTrustClass(ctx as TrustContext)).toBe(
-      "trusted_contact",
-    );
+    expect(resolveTrustClass(ctx as TrustContext)).toBe("trusted_contact");
   });
 
   test("returns 'unknown' when trustContext is undefined", () => {
@@ -44,9 +42,7 @@ describe("resolveTrustClass", () => {
     const ctx: Pick<TrustContext, "trustClass"> = {
       trustClass: "trusted_contact",
     };
-    expect(resolveTrustClass(ctx as TrustContext)).toBe(
-      "guardian",
-    );
+    expect(resolveTrustClass(ctx as TrustContext)).toBe("guardian");
   });
 
   test("forces guardian for unknown trust class when HTTP auth is disabled", () => {
@@ -54,8 +50,6 @@ describe("resolveTrustClass", () => {
     const ctx: Pick<TrustContext, "trustClass"> = {
       trustClass: "unknown",
     };
-    expect(resolveTrustClass(ctx as TrustContext)).toBe(
-      "guardian",
-    );
+    expect(resolveTrustClass(ctx as TrustContext)).toBe("guardian");
   });
 });

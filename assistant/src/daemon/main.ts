@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
-process.title = 'vellum-daemon';
-import * as Sentry from '@sentry/node';
+process.title = "vellum-daemon";
+import * as Sentry from "@sentry/node";
 
-import { getLogger } from '../util/logger.js';
-import { runDaemon } from './lifecycle.js';
+import { getLogger } from "../util/logger.js";
+import { runDaemon } from "./lifecycle.js";
 
 runDaemon().catch(async (err) => {
   Sentry.captureException(err);
@@ -12,12 +12,14 @@ runDaemon().catch(async (err) => {
   // startDaemon() captures the child process's stderr to surface error
   // details to the parent process.
   try {
-    const log = getLogger('daemon-main');
-    log.fatal({ err }, 'Failed to start daemon');
+    const log = getLogger("daemon-main");
+    log.fatal({ err }, "Failed to start daemon");
   } catch {
     // Logger may not be initialized yet
   }
-  console.error('Failed to start daemon:', err);
-  console.error('Troubleshooting: check if another daemon is already running, verify ~/.vellum/ permissions, and review logs at ~/.vellum/workspace/data/logs/');
+  console.error("Failed to start daemon:", err);
+  console.error(
+    "Troubleshooting: check if another daemon is already running, verify ~/.vellum/ permissions, and review logs at ~/.vellum/workspace/data/logs/",
+  );
   process.exit(1);
 });

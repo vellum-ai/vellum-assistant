@@ -553,12 +553,18 @@ function main() {
 
       // ── Guardian verification control-plane proxy ──
       if (
-        (url.pathname === "/v1/integrations/guardian/challenge" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/guardian/status" && req.method === "GET")
-        || (url.pathname === "/v1/integrations/guardian/revoke" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/guardian/outbound/start" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/guardian/outbound/resend" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/guardian/outbound/cancel" && req.method === "POST")
+        (url.pathname === "/v1/integrations/guardian/challenge" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/guardian/status" &&
+          req.method === "GET") ||
+        (url.pathname === "/v1/integrations/guardian/revoke" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/guardian/outbound/start" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/guardian/outbound/resend" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/guardian/outbound/cancel" &&
+          req.method === "POST")
       ) {
         const authError = requireEdgeAuth();
         if (authError) return authError;

@@ -1,6 +1,9 @@
-import { resolveByThread,resolveFollowUp } from '../../followups/followup-store.js';
-import type { FollowUp } from '../../followups/types.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import {
+  resolveByThread,
+  resolveFollowUp,
+} from "../../followups/followup-store.js";
+import type { FollowUp } from "../../followups/types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function formatFollowUp(f: FollowUp): string {
   const lines = [
@@ -10,7 +13,7 @@ function formatFollowUp(f: FollowUp): string {
     `  Status: ${f.status}`,
   ];
   if (f.contactId) lines.push(`  Contact ID: ${f.contactId}`);
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 export async function executeFollowupResolve(
@@ -23,7 +26,7 @@ export async function executeFollowupResolve(
 
   if (!id && !(channel && threadId)) {
     return {
-      content: 'Error: Either id or both channel and thread_id are required',
+      content: "Error: Either id or both channel and thread_id are required",
       isError: true,
     };
   }
@@ -43,7 +46,7 @@ export async function executeFollowupResolve(
           isError: false,
         };
       }
-      const summaries = resolved.map(formatFollowUp).join('\n\n');
+      const summaries = resolved.map(formatFollowUp).join("\n\n");
       return {
         content: `Resolved ${resolved.length} follow-up(s):\n${summaries}`,
         isError: false,

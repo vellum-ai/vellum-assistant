@@ -1,4 +1,7 @@
-import { findAssistantByName, loadLatestAssistant } from "../lib/assistant-config";
+import {
+  findAssistantByName,
+  loadLatestAssistant,
+} from "../lib/assistant-config";
 import { runNgrokTunnel } from "../lib/ngrok";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
@@ -70,9 +73,7 @@ export async function tunnel(): Promise<void> {
         `No assistant instance found with name '${assistantName}'.`,
       );
     } else {
-      console.error(
-        "No assistant instance found. Run `vellum hatch` first.",
-      );
+      console.error("No assistant instance found. Run `vellum hatch` first.");
     }
     process.exit(1);
   }
@@ -82,7 +83,5 @@ export async function tunnel(): Promise<void> {
     return;
   }
 
-  throw new Error(
-    `Tunnel provider '${provider}' is not yet implemented.`,
-  );
+  throw new Error(`Tunnel provider '${provider}' is not yet implemented.`);
 }

@@ -1,13 +1,13 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
-import { hostPolicy } from '../shared/filesystem/path-policy.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
+import { hostPolicy } from "../shared/filesystem/path-policy.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class HostFileReadTool implements Tool {
-  name = 'host_file_read';
-  description = 'Read the contents of a file on the host filesystem';
-  category = 'host-filesystem';
+  name = "host_file_read";
+  description = "Read the contents of a file on the host filesystem";
+  category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 
   getDefinition(): ToolDefinition {
@@ -15,58 +15,77 @@ class HostFileReadTool implements Tool {
       name: this.name,
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           path: {
-            type: 'string',
-            description: 'Absolute path to the host file to read',
+            type: "string",
+            description: "Absolute path to the host file to read",
           },
           offset: {
-            type: 'number',
-            description: 'Line number to start reading from (1-indexed)',
+            type: "number",
+            description: "Line number to start reading from (1-indexed)",
           },
           limit: {
-            type: 'number',
-            description: 'Maximum number of lines to read',
+            type: "number",
+            description: "Maximum number of lines to read",
           },
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of why this file is being read, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of why this file is being read, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
-        required: ['path', 'reason'],
+        required: ["path", "reason"],
       },
     };
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    input: Record<string, unknown>,
+    _context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
-    if (!rawPath || typeof rawPath !== 'string') {
-      return { content: 'Error: path is required and must be a string', isError: true };
+    if (!rawPath || typeof rawPath !== "string") {
+      return {
+        content: "Error: path is required and must be a string",
+        isError: true,
+      };
     }
 
     const ops = new FileSystemOps(hostPolicy);
 
     const result = ops.readFileSafe({
       path: rawPath,
-      offset: typeof input.offset === 'number' ? input.offset : undefined,
-      limit: typeof input.limit === 'number' ? input.limit : undefined,
+      offset: typeof input.offset === "number" ? input.offset : undefined,
+      limit: typeof input.limit === "number" ? input.limit : undefined,
     });
 
     if (!result.ok) {
       const { error } = result;
       switch (error.code) {
-        case 'NOT_FOUND':
-          return { content: `Error: File not found: ${error.path}`, isError: true };
-        case 'NOT_A_FILE':
-          return { content: `Error: ${error.path} is not a regular file`, isError: true };
-        case 'IO_ERROR': {
+        case "NOT_FOUND":
+          return {
+            content: `Error: File not found: ${error.path}`,
+            isError: true,
+          };
+        case "NOT_A_FILE":
+          return {
+            content: `Error: ${error.path} is not a regular file`,
+            isError: true,
+          };
+        case "IO_ERROR": {
           const msg = error.message;
-          const hint = msg.includes('ENOENT') ? ' (file does not exist)'
-            : msg.includes('EACCES') ? ' (permission denied)'
-            : msg.includes('EISDIR') ? ' (path is a directory, not a file)'
-            : '';
-          return { content: `Error reading file "${rawPath}"${hint}: ${msg}`, isError: true };
+          const hint = msg.includes("ENOENT")
+            ? " (file does not exist)"
+            : msg.includes("EACCES")
+              ? " (permission denied)"
+              : msg.includes("EISDIR")
+                ? " (path is a directory, not a file)"
+                : "";
+          return {
+            content: `Error reading file "${rawPath}"${hint}: ${msg}`,
+            isError: true,
+          };
         }
         default:
           return { content: `Error: ${error.message}`, isError: true };

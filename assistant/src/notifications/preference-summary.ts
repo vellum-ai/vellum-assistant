@@ -7,11 +7,11 @@
  * can interpret when making routing decisions.
  */
 
-import { getLogger } from '../util/logger.js';
-import type { AppliesWhenConditions } from './preferences-store.js';
-import { listPreferences } from './preferences-store.js';
+import { getLogger } from "../util/logger.js";
+import type { AppliesWhenConditions } from "./preferences-store.js";
+import { listPreferences } from "./preferences-store.js";
 
-const log = getLogger('notification-preference-summary');
+const log = getLogger("notification-preference-summary");
 
 /**
  * Build a compact preference summary for inclusion in the decision engine
@@ -25,13 +25,18 @@ export function getPreferenceSummary(assistantId: string): string | null {
   }
 
   const lines: string[] = [
-    'The user has set the following notification preferences (ordered by priority, highest first):',
+    "The user has set the following notification preferences (ordered by priority, highest first):",
   ];
 
   for (const pref of preferences) {
     const safeText = sanitizePreferenceText(pref.preferenceText);
     const conditionStr = formatConditions(pref.appliesWhenJson);
-    const priorityLabel = pref.priority >= 2 ? 'CRITICAL' : pref.priority === 1 ? 'override' : 'default';
+    const priorityLabel =
+      pref.priority >= 2
+        ? "CRITICAL"
+        : pref.priority === 1
+          ? "override"
+          : "default";
     const prefix = `[${priorityLabel}]`;
 
     if (conditionStr) {
@@ -41,9 +46,9 @@ export function getPreferenceSummary(assistantId: string): string | null {
     }
   }
 
-  log.debug({ count: preferences.length }, 'Built preference summary');
+  log.debug({ count: preferences.length }, "Built preference summary");
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 // ── Text sanitization ───────────────────────────────────────────────────
@@ -54,7 +59,7 @@ export function getPreferenceSummary(assistantId: string): string | null {
  * text cannot break the `<user-preferences>` framing in the system prompt.
  */
 function sanitizePreferenceText(text: string): string {
-  return text.replace(/</g, '\uFF1C').replace(/>/g, '\uFF1E');
+  return text.replace(/</g, "\uFF1C").replace(/>/g, "\uFF1E");
 }
 
 /**
@@ -64,7 +69,9 @@ function sanitizePreferenceText(text: string): string {
  * preventing prompt injection via coerced types.
  */
 function safeString(value: unknown): string {
-  return sanitizePreferenceText(typeof value === 'string' ? value : String(value ?? ''));
+  return sanitizePreferenceText(
+    typeof value === "string" ? value : String(value ?? ""),
+  );
 }
 
 // ── Condition formatting ────────────────────────────────────────────────
@@ -74,17 +81,21 @@ function formatConditions(appliesWhenJson: string): string {
   try {
     conditions = JSON.parse(appliesWhenJson);
   } catch {
-    return '';
+    return "";
   }
 
   // Skip empty condition objects
-  if (!conditions || typeof conditions !== 'object') return '';
+  if (!conditions || typeof conditions !== "object") return "";
 
   const parts: string[] = [];
 
   if (conditions.timeRange) {
-    const after = conditions.timeRange.after ? safeString(conditions.timeRange.after) : '';
-    const before = conditions.timeRange.before ? safeString(conditions.timeRange.before) : '';
+    const after = conditions.timeRange.after
+      ? safeString(conditions.timeRange.after)
+      : "";
+    const before = conditions.timeRange.before
+      ? safeString(conditions.timeRange.before)
+      : "";
     if (after && before) {
       parts.push(`${after}-${before}`);
     } else if (after) {
@@ -95,16 +106,18 @@ function formatConditions(appliesWhenJson: string): string {
   }
 
   if (conditions.channels && conditions.channels.length > 0) {
-    parts.push(`channels: ${conditions.channels.map(safeString).join(', ')}`);
+    parts.push(`channels: ${conditions.channels.map(safeString).join(", ")}`);
   }
 
   if (conditions.urgencyLevels && conditions.urgencyLevels.length > 0) {
-    parts.push(`urgency: ${conditions.urgencyLevels.map(safeString).join(', ')}`);
+    parts.push(
+      `urgency: ${conditions.urgencyLevels.map(safeString).join(", ")}`,
+    );
   }
 
   if (conditions.contexts && conditions.contexts.length > 0) {
-    parts.push(`context: ${conditions.contexts.map(safeString).join(', ')}`);
+    parts.push(`context: ${conditions.contexts.map(safeString).join(", ")}`);
   }
 
-  return parts.join('; ');
+  return parts.join("; ");
 }

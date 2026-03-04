@@ -11,7 +11,7 @@ export interface MemoryRecalledCandidateDebug {
 }
 
 export interface MemoryRecalled {
-  type: 'memory_recalled';
+  type: "memory_recalled";
   provider: string;
   model: string;
   lexicalHits: number;
@@ -32,7 +32,7 @@ export interface MemoryRecalled {
 }
 
 export interface MemoryStatus {
-  type: 'memory_status';
+  type: "memory_status";
   enabled: boolean;
   degraded: boolean;
   reason?: string;
@@ -50,6 +50,4 @@ export interface MemoryStatus {
 // --- Domain-level union aliases (consumed by the barrel file) ---
 // Memory has no client messages.
 
-export type _MemoryServerMessages =
-  | MemoryRecalled
-  | MemoryStatus;
+export type _MemoryServerMessages = MemoryRecalled | MemoryStatus;

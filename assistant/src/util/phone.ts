@@ -24,14 +24,14 @@ export function isValidE164(phone: string): boolean {
 export function normalizePhoneNumber(input: string): string | null {
   // Strip optional trunk-zero notation "(0)" used in international formats
   // like "+44 (0)20 7946 0958" before any other processing.
-  const withoutTrunkZero = input.replace(/\(0\)/g, '');
+  const withoutTrunkZero = input.replace(/\(0\)/g, "");
 
   // Strip formatting characters: spaces, dashes, parentheses, dots
-  const stripped = withoutTrunkZero.replace(/[\s\-().]/g, '');
+  const stripped = withoutTrunkZero.replace(/[\s\-().]/g, "");
 
   if (stripped.length === 0) return null;
 
-  if (stripped.startsWith('+')) {
+  if (stripped.startsWith("+")) {
     const digits = stripped.slice(1);
     if (/^\d{10,15}$/.test(digits)) {
       return stripped;
@@ -46,7 +46,7 @@ export function normalizePhoneNumber(input: string): string | null {
     return `+1${stripped}`;
   }
 
-  if (stripped.length === 11 && stripped.startsWith('1')) {
+  if (stripped.length === 11 && stripped.startsWith("1")) {
     return `+${stripped}`;
   }
 

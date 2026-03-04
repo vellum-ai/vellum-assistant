@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Create the actor_token_records table for hash-only actor token persistence.
@@ -24,16 +24,12 @@ export function createActorTokenRecordsTable(database: DrizzleDb): void {
   `);
 
   // Unique active token per device binding
-  database.run(
-    /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_actor_tokens_active_device
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_actor_tokens_active_device
       ON actor_token_records(assistant_id, guardian_principal_id, hashed_device_id)
-      WHERE status = 'active'`,
-  );
+      WHERE status = 'active'`);
 
   // Token hash lookup for verification
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_actor_tokens_hash
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_actor_tokens_hash
       ON actor_token_records(token_hash)
-      WHERE status = 'active'`,
-  );
+      WHERE status = 'active'`);
 }

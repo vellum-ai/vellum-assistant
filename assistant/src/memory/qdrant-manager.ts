@@ -1,17 +1,24 @@
-import { createHash } from 'node:crypto';
-import { chmodSync,existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { arch, platform } from 'node:os';
-import { dirname,join } from 'node:path';
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { arch, platform } from "node:os";
+import { dirname, join } from "node:path";
 
-import type { Subprocess } from 'bun';
+import type { Subprocess } from "bun";
 
-import { getQdrantUrlEnv } from '../config/env.js';
-import { getLogger } from '../util/logger.js';
-import { getDataDir } from '../util/platform.js';
+import { getQdrantUrlEnv } from "../config/env.js";
+import { getLogger } from "../util/logger.js";
+import { getDataDir } from "../util/platform.js";
 
-const log = getLogger('qdrant-manager');
+const log = getLogger("qdrant-manager");
 
-const QDRANT_VERSION = '1.13.2';
+const QDRANT_VERSION = "1.13.2";
 const READYZ_POLL_INTERVAL_MS = 200;
 const READYZ_TIMEOUT_MS = 30_000;
 const SHUTDOWN_GRACE_MS = 5_000;
@@ -54,11 +61,12 @@ export class QdrantManager {
     this.url = config.url;
     const parsed = new URL(config.url);
     this.host = parsed.hostname;
-    this.port = parseInt(parsed.port || '6333', 10);
-    this.storagePath = config.storagePath ?? join(getDataDir(), 'qdrant');
-    this.pidPath = join(getDataDir(), 'qdrant', 'qdrant.pid');
+    this.port = parseInt(parsed.port || "6333", 10);
+    this.storagePath = config.storagePath ?? join(getDataDir(), "qdrant");
+    this.pidPath = join(getDataDir(), "qdrant", "qdrant.pid");
 
-    this.readyzPollIntervalMs = config.readyzPollIntervalMs ?? READYZ_POLL_INTERVAL_MS;
+    this.readyzPollIntervalMs =
+      config.readyzPollIntervalMs ?? READYZ_POLL_INTERVAL_MS;
     this.readyzTimeoutMs = config.readyzTimeoutMs ?? READYZ_TIMEOUT_MS;
     this.shutdownGraceMs = config.shutdownGraceMs ?? SHUTDOWN_GRACE_MS;
 
@@ -68,7 +76,10 @@ export class QdrantManager {
 
   async start(): Promise<void> {
     if (this.isExternal) {
-      log.info({ url: this.url }, 'Qdrant running in external mode, verifying connectivity');
+      log.info(
+        { url: this.url },
+        "Qdrant running in external mode, verifying connectivity",
+      );
       await this.waitForReady();
       return;
     }
@@ -81,7 +92,10 @@ export class QdrantManager {
       await this.installBinary(binaryPath);
     }
 
-    log.info({ binaryPath, storagePath: this.storagePath, port: this.port }, 'Starting Qdrant');
+    log.info(
+      { binaryPath, storagePath: this.storagePath, port: this.port },
+      "Starting Qdrant",
+    );
 
     this.process = Bun.spawn({
       cmd: [binaryPath],
@@ -89,13 +103,13 @@ export class QdrantManager {
         ...process.env,
         QDRANT__SERVICE__HOST: this.host,
         QDRANT__SERVICE__HTTP_PORT: String(this.port),
-        QDRANT__SERVICE__GRPC_PORT: '0', // disable gRPC
-        QDRANT__TELEMETRY_DISABLED: 'true',
+        QDRANT__SERVICE__GRPC_PORT: "0", // disable gRPC
+        QDRANT__TELEMETRY_DISABLED: "true",
         QDRANT__STORAGE__STORAGE_PATH: this.storagePath,
-        QDRANT__LOG_LEVEL: 'WARN',
+        QDRANT__LOG_LEVEL: "WARN",
       },
-      stdout: 'ignore',
-      stderr: 'ignore',
+      stdout: "ignore",
+      stderr: "ignore",
     });
 
     if (this.process.pid) {
@@ -104,7 +118,7 @@ export class QdrantManager {
 
     try {
       await this.waitForReady();
-      log.info({ pid: this.process.pid, port: this.port }, 'Qdrant is ready');
+      log.info({ pid: this.process.pid, port: this.port }, "Qdrant is ready");
     } catch (err) {
       // If startup fails, clean up
       await this.stop();
@@ -118,24 +132,26 @@ export class QdrantManager {
       return;
     }
 
-    log.info('Stopping Qdrant');
-    this.process.kill('SIGTERM');
+    log.info("Stopping Qdrant");
+    this.process.kill("SIGTERM");
 
     // Wait for graceful shutdown
     const graceful = await Promise.race([
       this.process.exited.then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), this.shutdownGraceMs)),
+      new Promise<false>((resolve) =>
+        setTimeout(() => resolve(false), this.shutdownGraceMs),
+      ),
     ]);
 
     if (!graceful) {
-      log.warn('Qdrant did not exit gracefully, sending SIGKILL');
-      this.process.kill('SIGKILL');
+      log.warn("Qdrant did not exit gracefully, sending SIGKILL");
+      this.process.kill("SIGKILL");
       await this.process.exited;
     }
 
     this.process = null;
     this.cleanupPid();
-    log.info('Qdrant stopped');
+    log.info("Qdrant stopped");
   }
 
   getUrl(): string {
@@ -147,18 +163,18 @@ export class QdrantManager {
     const cpu = arch();
 
     let target: string;
-    if (os === 'darwin' && cpu === 'arm64') {
-      target = 'aarch64-apple-darwin';
-    } else if (os === 'darwin' && cpu === 'x64') {
-      target = 'x86_64-apple-darwin';
-    } else if (os === 'linux' && cpu === 'x64') {
-      target = 'x86_64-unknown-linux-musl';
-    } else if (os === 'linux' && cpu === 'arm64') {
-      target = 'aarch64-unknown-linux-musl';
+    if (os === "darwin" && cpu === "arm64") {
+      target = "aarch64-apple-darwin";
+    } else if (os === "darwin" && cpu === "x64") {
+      target = "x86_64-apple-darwin";
+    } else if (os === "linux" && cpu === "x64") {
+      target = "x86_64-unknown-linux-musl";
+    } else if (os === "linux" && cpu === "arm64") {
+      target = "aarch64-unknown-linux-musl";
     } else {
       throw new Error(
         `Unsupported platform: ${os}/${cpu}. ` +
-        'Set QDRANT_URL to use an external Qdrant instance.',
+          "Set QDRANT_URL to use an external Qdrant instance.",
       );
     }
 
@@ -167,7 +183,7 @@ export class QdrantManager {
     const url = `${baseUrl}/${filename}`;
     const checksumUrl = `${baseUrl}/${filename}.sha256`;
 
-    log.info({ url, binaryPath }, 'Downloading Qdrant binary');
+    log.info({ url, binaryPath }, "Downloading Qdrant binary");
 
     // Fetch the tarball and its SHA-256 checksum in parallel
     const [response, checksumResponse] = await Promise.all([
@@ -176,7 +192,9 @@ export class QdrantManager {
     ]);
 
     if (!response.ok) {
-      throw new Error(`Failed to download Qdrant: ${response.status} ${response.statusText} from ${url}`);
+      throw new Error(
+        `Failed to download Qdrant: ${response.status} ${response.statusText} from ${url}`,
+      );
     }
 
     const tarball = await response.arrayBuffer();
@@ -186,17 +204,22 @@ export class QdrantManager {
       const checksumText = (await checksumResponse.text()).trim();
       // Checksum files contain "<hex>  <filename>" or just "<hex>"
       const expectedHash = checksumText.split(/\s+/)[0].toLowerCase();
-      const actualHash = createHash('sha256').update(Buffer.from(tarball)).digest('hex');
+      const actualHash = createHash("sha256")
+        .update(Buffer.from(tarball))
+        .digest("hex");
 
       if (actualHash !== expectedHash) {
         throw new Error(
           `Qdrant binary checksum mismatch! ` +
-          `expected=${expectedHash} actual=${actualHash} url=${url}`,
+            `expected=${expectedHash} actual=${actualHash} url=${url}`,
         );
       }
-      log.info({ hash: actualHash }, 'Qdrant binary checksum verified');
+      log.info({ hash: actualHash }, "Qdrant binary checksum verified");
     } else {
-      log.warn({ checksumUrl, status: checksumResponse.status }, 'Could not fetch Qdrant checksum — skipping integrity check');
+      log.warn(
+        { checksumUrl, status: checksumResponse.status },
+        "Could not fetch Qdrant checksum — skipping integrity check",
+      );
     }
 
     // Extract the qdrant binary from the tarball
@@ -209,9 +232,9 @@ export class QdrantManager {
 
     try {
       const proc = Bun.spawn({
-        cmd: ['tar', 'xzf', tmpTar, '-C', binDir, 'qdrant'],
-        stdout: 'ignore',
-        stderr: 'pipe',
+        cmd: ["tar", "xzf", tmpTar, "-C", binDir, "qdrant"],
+        stdout: "ignore",
+        stderr: "pipe",
       });
       await proc.exited;
       if (proc.exitCode !== 0) {
@@ -219,11 +242,18 @@ export class QdrantManager {
         throw new Error(`Failed to extract Qdrant binary: ${stderr}`);
       }
     } finally {
-      try { unlinkSync(tmpTar); } catch { /* ignore */ }
+      try {
+        unlinkSync(tmpTar);
+      } catch {
+        /* ignore */
+      }
     }
 
     chmodSync(binaryPath, 0o755);
-    log.info({ binaryPath, version: QDRANT_VERSION }, 'Qdrant binary installed');
+    log.info(
+      { binaryPath, version: QDRANT_VERSION },
+      "Qdrant binary installed",
+    );
   }
 
   private async waitForReady(): Promise<void> {
@@ -237,11 +267,13 @@ export class QdrantManager {
       }
       await Bun.sleep(this.readyzPollIntervalMs);
     }
-    throw new Error(`Qdrant did not become ready within ${this.readyzTimeoutMs}ms at ${this.url}`);
+    throw new Error(
+      `Qdrant did not become ready within ${this.readyzTimeoutMs}ms at ${this.url}`,
+    );
   }
 
   private getBinaryPath(): string {
-    return join(getDataDir(), 'qdrant', 'bin', 'qdrant');
+    return join(getDataDir(), "qdrant", "bin", "qdrant");
   }
 
   private cleanupStaleProcess(): void {
@@ -251,8 +283,8 @@ export class QdrantManager {
     try {
       process.kill(pid, 0); // Check if process exists
       // Process is still running — kill it
-      log.warn({ pid }, 'Found stale Qdrant process, killing it');
-      process.kill(pid, 'SIGTERM');
+      log.warn({ pid }, "Found stale Qdrant process, killing it");
+      process.kill(pid, "SIGTERM");
     } catch {
       // Process doesn't exist, just clean up PID file
     }
@@ -262,7 +294,7 @@ export class QdrantManager {
   private readPid(): number | null {
     if (!existsSync(this.pidPath)) return null;
     try {
-      const pid = parseInt(readFileSync(this.pidPath, 'utf-8').trim(), 10);
+      const pid = parseInt(readFileSync(this.pidPath, "utf-8").trim(), 10);
       return isNaN(pid) ? null : pid;
     } catch {
       return null;

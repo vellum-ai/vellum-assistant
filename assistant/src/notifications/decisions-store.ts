@@ -7,10 +7,10 @@
  * were routed.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from "drizzle-orm";
 
-import { getDb } from '../memory/db.js';
-import { notificationDecisions, notificationEvents } from '../memory/schema.js';
+import { getDb } from "../memory/db.js";
+import { notificationDecisions, notificationEvents } from "../memory/schema.js";
 
 export interface NotificationDecisionRow {
   id: string;
@@ -25,7 +25,9 @@ export interface NotificationDecisionRow {
   createdAt: number;
 }
 
-function rowToDecision(row: typeof notificationDecisions.$inferSelect): NotificationDecisionRow {
+function rowToDecision(
+  row: typeof notificationDecisions.$inferSelect,
+): NotificationDecisionRow {
   return {
     id: row.id,
     notificationEventId: row.notificationEventId,
@@ -53,7 +55,9 @@ export interface CreateDecisionParams {
 }
 
 /** Insert a new decision record. */
-export function createDecision(params: CreateDecisionParams): NotificationDecisionRow {
+export function createDecision(
+  params: CreateDecisionParams,
+): NotificationDecisionRow {
   const db = getDb();
   const now = Date.now();
 
@@ -66,7 +70,9 @@ export function createDecision(params: CreateDecisionParams): NotificationDecisi
     confidence: params.confidence,
     fallbackUsed: params.fallbackUsed ? 1 : 0,
     promptVersion: params.promptVersion ?? null,
-    validationResults: params.validationResults ? JSON.stringify(params.validationResults) : null,
+    validationResults: params.validationResults
+      ? JSON.stringify(params.validationResults)
+      : null,
     createdAt: now,
   };
 
@@ -100,7 +106,10 @@ export function updateDecision(id: string, params: UpdateDecisionParams): void {
   }
   if (Object.keys(updates).length === 0) return;
 
-  db.update(notificationDecisions).set(updates).where(eq(notificationDecisions.id, id)).run();
+  db.update(notificationDecisions)
+    .set(updates)
+    .where(eq(notificationDecisions.id, id))
+    .run();
 }
 
 /** Fetch a single decision by ID. */
@@ -116,7 +125,9 @@ export function getDecisionById(id: string): NotificationDecisionRow | null {
 }
 
 /** Fetch a decision by its parent event ID. */
-export function getDecisionByEventId(eventId: string): NotificationDecisionRow | null {
+export function getDecisionByEventId(
+  eventId: string,
+): NotificationDecisionRow | null {
   const db = getDb();
   const row = db
     .select()
@@ -143,7 +154,9 @@ export function listDecisions(
   const conditions = [eq(notificationEvents.assistantId, assistantId)];
 
   if (filters?.shouldNotify !== undefined) {
-    conditions.push(eq(notificationDecisions.shouldNotify, filters.shouldNotify ? 1 : 0));
+    conditions.push(
+      eq(notificationDecisions.shouldNotify, filters.shouldNotify ? 1 : 0),
+    );
   }
 
   const limit = filters?.limit ?? 50;
@@ -162,7 +175,10 @@ export function listDecisions(
       createdAt: notificationDecisions.createdAt,
     })
     .from(notificationDecisions)
-    .innerJoin(notificationEvents, eq(notificationDecisions.notificationEventId, notificationEvents.id))
+    .innerJoin(
+      notificationEvents,
+      eq(notificationDecisions.notificationEventId, notificationEvents.id),
+    )
     .where(and(...conditions))
     .orderBy(desc(notificationDecisions.createdAt))
     .limit(limit)

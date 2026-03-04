@@ -1,16 +1,19 @@
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-import { ensureDir,pathExists } from '../../../util/fs.js';
-import { applyEdit } from './edit-engine.js';
-import * as Err from './errors.js';
-import type { PathFailureReason,PathResult } from './path-policy.js';
-import { checkContentSize,checkFileSizeOnDisk } from './size-guard.js';
+import { ensureDir, pathExists } from "../../../util/fs.js";
+import { applyEdit } from "./edit-engine.js";
+import * as Err from "./errors.js";
+import type { PathFailureReason, PathResult } from "./path-policy.js";
+import { checkContentSize, checkFileSizeOnDisk } from "./size-guard.js";
 import type {
-  EditInput, EditResult,
-  ReadInput, ReadResult,
-  WriteInput, WriteResult,
-} from './types.js';
+  EditInput,
+  EditResult,
+  ReadInput,
+  ReadResult,
+  WriteInput,
+  WriteResult,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Path policy hook
@@ -29,10 +32,16 @@ export type PathPolicy = (
 // Service
 // ---------------------------------------------------------------------------
 
-function pathError(path: string, reason: PathFailureReason, detail: string): Err.FsError {
+function pathError(
+  path: string,
+  reason: PathFailureReason,
+  detail: string,
+): Err.FsError {
   switch (reason) {
-    case 'not_absolute': return Err.pathNotAbsolute(path);
-    case 'out_of_bounds': return { code: 'PATH_OUT_OF_BOUNDS', message: detail, path };
+    case "not_absolute":
+      return Err.pathNotAbsolute(path);
+    case "out_of_bounds":
+      return { code: "PATH_OUT_OF_BOUNDS", message: detail, path };
   }
 }
 
@@ -52,7 +61,10 @@ export class FileSystemOps {
   readFileSafe(input: ReadInput): ReadResult {
     const pathCheck = this.policy(input.path, { mustExist: true });
     if (!pathCheck.ok) {
-      return { ok: false, error: pathError(input.path, pathCheck.reason, pathCheck.error) };
+      return {
+        ok: false,
+        error: pathError(input.path, pathCheck.reason, pathCheck.error),
+      };
     }
     const filePath = pathCheck.resolved;
 
@@ -71,8 +83,8 @@ export class FileSystemOps {
     }
 
     try {
-      const raw = readFileSync(filePath, 'utf-8');
-      const lines = raw.split('\n');
+      const raw = readFileSync(filePath, "utf-8");
+      const lines = raw.split("\n");
 
       const offset = (input.offset ?? 1) - 1;
       const limit = input.limit ?? lines.length;
@@ -83,7 +95,7 @@ export class FileSystemOps {
           const lineNum = offset + i + 1;
           return `${String(lineNum).padStart(6)}  ${line}`;
         })
-        .join('\n');
+        .join("\n");
 
       return { ok: true, value: { content: numbered } };
     } catch (err) {
@@ -99,7 +111,10 @@ export class FileSystemOps {
   writeFileSafe(input: WriteInput): WriteResult {
     const pathCheck = this.policy(input.path, { mustExist: false });
     if (!pathCheck.ok) {
-      return { ok: false, error: pathError(input.path, pathCheck.reason, pathCheck.error) };
+      return {
+        ok: false,
+        error: pathError(input.path, pathCheck.reason, pathCheck.error),
+      };
     }
     const filePath = pathCheck.resolved;
 
@@ -111,11 +126,11 @@ export class FileSystemOps {
     try {
       ensureDir(dirname(filePath));
 
-      let oldContent = '';
+      let oldContent = "";
       const isNewFile = !pathExists(filePath);
       if (!isNewFile) {
         try {
-          oldContent = readFileSync(filePath, 'utf-8');
+          oldContent = readFileSync(filePath, "utf-8");
         } catch {
           // Unreadable existing file — keep oldContent as empty string.
         }
@@ -145,7 +160,10 @@ export class FileSystemOps {
   editFileSafe(input: EditInput): EditResult {
     const pathCheck = this.policy(input.path, { mustExist: true });
     if (!pathCheck.ok) {
-      return { ok: false, error: pathError(input.path, pathCheck.reason, pathCheck.error) };
+      return {
+        ok: false,
+        error: pathError(input.path, pathCheck.reason, pathCheck.error),
+      };
     }
     const filePath = pathCheck.resolved;
 
@@ -161,15 +179,16 @@ export class FileSystemOps {
 
     let content: string;
     try {
-      content = readFileSync(filePath, 'utf-8');
+      content = readFileSync(filePath, "utf-8");
     } catch (err) {
-      const code = err instanceof Error && 'code' in err
-        ? (err as NodeJS.ErrnoException).code
-        : undefined;
-      if (code === 'EISDIR') {
+      const code =
+        err instanceof Error && "code" in err
+          ? (err as NodeJS.ErrnoException).code
+          : undefined;
+      if (code === "EISDIR") {
         return { ok: false, error: Err.notAFile(filePath) };
       }
-      if (code === 'ENOENT') {
+      if (code === "ENOENT") {
         return { ok: false, error: Err.notFound(filePath) };
       }
       const msg = err instanceof Error ? err.message : String(err);
@@ -180,13 +199,21 @@ export class FileSystemOps {
       return { ok: false, error: Err.matchNotFound(filePath) };
     }
 
-    const result = applyEdit(content, input.oldString, input.newString, input.replaceAll);
+    const result = applyEdit(
+      content,
+      input.oldString,
+      input.newString,
+      input.replaceAll,
+    );
 
     if (!result.ok) {
-      if (result.reason === 'not_found') {
+      if (result.reason === "not_found") {
         return { ok: false, error: Err.matchNotFound(filePath) };
       }
-      return { ok: false, error: Err.matchAmbiguous(filePath, result.matchCount) };
+      return {
+        ok: false,
+        error: Err.matchAmbiguous(filePath, result.matchCount),
+      };
     }
 
     try {

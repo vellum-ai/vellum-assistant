@@ -19,21 +19,21 @@ import {
   type ProcessingStage,
   updateMediaAssetStatus,
   updateProcessingStage,
-} from '../../../../memory/media-store.js';
-import { computeRetryDelay, sleep } from '../../../../util/retry.js';
+} from "../../../../memory/media-store.js";
+import { computeRetryDelay, sleep } from "../../../../util/retry.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type PipelineStageName =
-  | 'preprocess'
-  | 'map'
-  | 'reduce';
+export type PipelineStageName = "preprocess" | "map" | "reduce";
 
 export interface StageHandler {
   /** Execute the stage. Throw on failure. */
-  execute: (assetId: string, onProgress?: (msg: string) => void) => Promise<void>;
+  execute: (
+    assetId: string,
+    onProgress?: (msg: string) => void,
+  ) => Promise<void>;
 }
 
 export interface PipelineOptions {
@@ -58,17 +58,16 @@ export interface PipelineResult {
 // Pipeline stage ordering
 // ---------------------------------------------------------------------------
 
-const STAGE_ORDER: PipelineStageName[] = [
-  'preprocess',
-  'map',
-  'reduce',
-];
+const STAGE_ORDER: PipelineStageName[] = ["preprocess", "map", "reduce"];
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function findOrCreateStage(assetId: string, stageName: string): ProcessingStage {
+function findOrCreateStage(
+  assetId: string,
+  stageName: string,
+): ProcessingStage {
   const stages = getProcessingStagesForAsset(assetId);
   const existing = stages.find((s) => s.stage === stageName);
   if (existing) return existing;
@@ -76,7 +75,7 @@ function findOrCreateStage(assetId: string, stageName: string): ProcessingStage 
 }
 
 function isStageCompleted(stage: ProcessingStage): boolean {
-  return stage.status === 'completed';
+  return stage.status === "completed";
 }
 
 /**
@@ -86,7 +85,7 @@ function isStageCompleted(stage: ProcessingStage): boolean {
 function isAssetCancelled(assetId: string): boolean {
   const asset = getMediaAssetById(assetId);
   if (!asset) return true;
-  return (asset.status as string) === 'cancelled';
+  return (asset.status as string) === "cancelled";
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +115,7 @@ export async function runPipeline(
   }
 
   // Check if asset is already cancelled before forcing processing
-  if ((asset.status as string) === 'cancelled') {
+  if ((asset.status as string) === "cancelled") {
     return {
       assetId,
       completedStages: [],
@@ -128,7 +127,7 @@ export async function runPipeline(
   }
 
   // Mark asset as processing
-  updateMediaAssetStatus(assetId, 'processing');
+  updateMediaAssetStatus(assetId, "processing");
 
   const completedStages: PipelineStageName[] = [];
   let failedStage: PipelineStageName | null = null;
@@ -153,8 +152,8 @@ export async function runPipeline(
     onProgress?.(`Resuming pipeline from stage: ${resumedFrom}`);
   } else if (startIndex >= STAGE_ORDER.length) {
     // All stages already completed — idempotent no-op
-    onProgress?.('All pipeline stages already completed.');
-    updateMediaAssetStatus(assetId, 'indexed');
+    onProgress?.("All pipeline stages already completed.");
+    updateMediaAssetStatus(assetId, "indexed");
     return {
       assetId,
       completedStages,
@@ -181,7 +180,7 @@ export async function runPipeline(
 
     onProgress?.(`Starting stage: ${stageName}`);
     updateProcessingStage(stageRecord.id, {
-      status: 'running',
+      status: "running",
       startedAt: Date.now(),
       lastError: null,
     });
@@ -192,12 +191,16 @@ export async function runPipeline(
       try {
         if (attempt > 0) {
           const delay = computeRetryDelay(attempt - 1, baseDelayMs);
-          onProgress?.(`Retrying stage ${stageName} (attempt ${attempt + 1}/${maxRetries + 1}) after ${Math.round(delay)}ms...`);
+          onProgress?.(
+            `Retrying stage ${stageName} (attempt ${attempt + 1}/${maxRetries + 1}) after ${Math.round(delay)}ms...`,
+          );
           await sleep(delay);
 
           // Re-check cancellation before retry
           if (isAssetCancelled(assetId)) {
-            onProgress?.(`Pipeline cancelled during retry of stage: ${stageName}`);
+            onProgress?.(
+              `Pipeline cancelled during retry of stage: ${stageName}`,
+            );
             cancelled = true;
             break;
           }
@@ -207,7 +210,7 @@ export async function runPipeline(
 
         // Mark stage as completed
         updateProcessingStage(stageRecord.id, {
-          status: 'completed',
+          status: "completed",
           progress: 100,
           completedAt: Date.now(),
         });
@@ -218,12 +221,14 @@ export async function runPipeline(
         break;
       } catch (err) {
         const errorMsg = (err as Error).message.slice(0, 500);
-        onProgress?.(`Stage ${stageName} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${errorMsg}`);
+        onProgress?.(
+          `Stage ${stageName} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${errorMsg}`,
+        );
 
         // Save partial progress — the stage handler should have already
         // persisted any partial results before throwing
         updateProcessingStage(stageRecord.id, {
-          status: attempt >= maxRetries ? 'failed' : 'running',
+          status: attempt >= maxRetries ? "failed" : "running",
           lastError: errorMsg,
         });
       }
@@ -243,9 +248,9 @@ export async function runPipeline(
   if (cancelled) {
     // Leave status as-is (already 'cancelled')
   } else if (failedStage) {
-    updateMediaAssetStatus(assetId, 'failed');
+    updateMediaAssetStatus(assetId, "failed");
   } else {
-    updateMediaAssetStatus(assetId, 'indexed');
+    updateMediaAssetStatus(assetId, "indexed");
   }
 
   return {

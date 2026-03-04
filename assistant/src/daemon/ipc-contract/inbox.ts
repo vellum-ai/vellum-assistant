@@ -3,8 +3,8 @@
 // === Client → Server ===
 
 export interface IngressInviteRequest {
-  type: 'ingress_invite';
-  action: 'create' | 'list' | 'revoke' | 'redeem';
+  type: "ingress_invite";
+  action: "create" | "list" | "revoke" | "redeem";
   /** Source channel for the invite (required for create and redeem). */
   sourceChannel?: string;
   /** Optional note describing the invite (create only). */
@@ -30,8 +30,8 @@ export interface IngressInviteRequest {
 }
 
 export interface IngressMemberRequest {
-  type: 'ingress_member';
-  action: 'list' | 'upsert' | 'revoke' | 'block';
+  type: "ingress_member";
+  action: "list" | "upsert" | "revoke" | "block";
   /** Assistant ID for scoping member operations (defaults to 'self'). */
   assistantId?: string;
   /** Source channel (required for upsert, optional filter for list). */
@@ -45,9 +45,9 @@ export interface IngressMemberRequest {
   /** Username (upsert only). */
   username?: string;
   /** Access policy (upsert only). */
-  policy?: 'allow' | 'deny' | 'escalate';
+  policy?: "allow" | "deny" | "escalate";
   /** Member status (upsert only for setting, list only for filtering). */
-  status?: 'pending' | 'active';
+  status?: "pending" | "active";
   /** Member ID (revoke and block only). */
   memberId?: string;
   /** Reason for revoke or block (revoke and block only). */
@@ -55,8 +55,8 @@ export interface IngressMemberRequest {
 }
 
 export interface AssistantInboxEscalationRequest {
-  type: 'assistant_inbox_escalation';
-  action: 'list' | 'decide';
+  type: "assistant_inbox_escalation";
+  action: "list" | "decide";
   /** Filter by assistant ID (list only). */
   assistantId?: string;
   /** Filter by status (list only). */
@@ -64,7 +64,7 @@ export interface AssistantInboxEscalationRequest {
   /** Approval request ID (required for decide). */
   approvalRequestId?: string;
   /** Decision (required for decide). */
-  decision?: 'approve' | 'deny';
+  decision?: "approve" | "deny";
   /** Reason for the decision (decide only). */
   reason?: string;
 }
@@ -72,7 +72,7 @@ export interface AssistantInboxEscalationRequest {
 // === Server → Client ===
 
 export interface IngressInviteResponse {
-  type: 'ingress_invite_response';
+  type: "ingress_invite_response";
   success: boolean;
   error?: string;
   /** Single invite (returned on create/revoke). Token field is only present on create. */
@@ -103,7 +103,7 @@ export interface IngressInviteResponse {
 }
 
 export interface IngressMemberResponse {
-  type: 'ingress_member_response';
+  type: "ingress_member_response";
   success: boolean;
   error?: string;
   /** Single member (returned on upsert/revoke/block). */
@@ -135,7 +135,7 @@ export interface IngressMemberResponse {
 }
 
 export interface AssistantInboxEscalationResponse {
-  type: 'assistant_inbox_escalation_response';
+  type: "assistant_inbox_escalation_response";
   success: boolean;
   error?: string;
   /** List of escalations (returned on list). */

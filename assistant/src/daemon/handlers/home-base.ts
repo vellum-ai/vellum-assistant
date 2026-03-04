@@ -1,14 +1,17 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { getHomeBaseAppLink } from '../../home-base/app-link-store.js';
-import { bootstrapHomeBaseAppLink, resolveHomeBaseAppId } from '../../home-base/bootstrap.js';
+import { getHomeBaseAppLink } from "../../home-base/app-link-store.js";
+import {
+  bootstrapHomeBaseAppLink,
+  resolveHomeBaseAppId,
+} from "../../home-base/bootstrap.js";
 import {
   getPrebuiltHomeBasePreview,
   getPrebuiltHomeBaseTaskPayload,
-} from '../../home-base/prebuilt/seed.js';
-import { getApp } from '../../memory/app-store.js';
-import type { HomeBaseGetRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+} from "../../home-base/prebuilt/seed.js";
+import { getApp } from "../../memory/app-store.js";
+import type { HomeBaseGetRequest } from "../ipc-protocol.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 export function handleHomeBaseGet(
   msg: HomeBaseGetRequest,
@@ -22,12 +25,12 @@ export function handleHomeBaseGet(
 
     const appId = resolveHomeBaseAppId();
     if (!appId) {
-      ctx.send(socket, { type: 'home_base_get_response', homeBase: null });
+      ctx.send(socket, { type: "home_base_get_response", homeBase: null });
       return;
     }
 
     const link = getHomeBaseAppLink();
-    const source = link?.source ?? 'prebuilt_seed';
+    const source = link?.source ?? "prebuilt_seed";
 
     let preview: {
       title: string;
@@ -37,14 +40,14 @@ export function handleHomeBaseGet(
       metrics: Array<{ label: string; value: string }>;
     };
 
-    if (source === 'personalized') {
+    if (source === "personalized") {
       const app = getApp(appId);
       if (app) {
         preview = {
           title: app.name,
-          subtitle: 'Dashboard',
-          description: app.description ?? '',
-          icon: app.icon ?? '🏠',
+          subtitle: "Dashboard",
+          description: app.description ?? "",
+          icon: app.icon ?? "🏠",
           metrics: [],
         };
       } else {
@@ -57,7 +60,7 @@ export function handleHomeBaseGet(
     const tasks = getPrebuiltHomeBaseTaskPayload();
 
     ctx.send(socket, {
-      type: 'home_base_get_response',
+      type: "home_base_get_response",
       homeBase: {
         appId,
         source,
@@ -67,10 +70,10 @@ export function handleHomeBaseGet(
       },
     });
   } catch (err) {
-    log.error({ err }, 'Failed to resolve home base metadata');
+    log.error({ err }, "Failed to resolve home base metadata");
     // Return null rather than surfacing an error banner to the user —
     // the chat still works fine without home base metadata.
-    ctx.send(socket, { type: 'home_base_get_response', homeBase: null });
+    ctx.send(socket, { type: "home_base_get_response", homeBase: null });
   }
 }
 

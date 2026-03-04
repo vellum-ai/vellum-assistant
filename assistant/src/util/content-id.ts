@@ -6,11 +6,11 @@
  * update detection (comparing bundled content_id to local content_id) works.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
 export function computeContentId(name: string): string {
-  return createHash('sha256')
+  return createHash("sha256")
     .update(`vellum-assistant:${name}`)
-    .digest('hex')
+    .digest("hex")
     .slice(0, 16);
 }

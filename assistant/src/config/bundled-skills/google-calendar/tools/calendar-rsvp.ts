@@ -1,11 +1,17 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import * as calendar from '../calendar-client.js';
-import { ok,withCalendarToken } from './shared.js';
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import * as calendar from "../calendar-client.js";
+import { ok, withCalendarToken } from "./shared.js";
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
   const eventId = input.event_id as string;
-  const response = input.response as 'accepted' | 'declined' | 'tentative';
-  const calendarId = (input.calendar_id as string) ?? 'primary';
+  const response = input.response as "accepted" | "declined" | "tentative";
+  const calendarId = (input.calendar_id as string) ?? "primary";
 
   return withCalendarToken(async (token) => {
     // First get the event to find the user's attendee entry
@@ -16,9 +22,11 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       // If the user is the organizer and not in the attendees list,
       // they don't need to RSVP
       if (event.organizer?.self) {
-        return ok('You are the organizer of this event. No RSVP needed.');
+        return ok("You are the organizer of this event. No RSVP needed.");
       }
-      return ok('Could not find your attendee entry for this event. You may not be invited.');
+      return ok(
+        "Could not find your attendee entry for this event. You may not be invited.",
+      );
     }
 
     // Update the attendee's response status
@@ -29,13 +37,21 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
     await calendar.patchEvent(
       token,
       eventId,
-      { attendees: updatedAttendees as Array<{ email: string; responseStatus?: string }> },
+      {
+        attendees: updatedAttendees as Array<{
+          email: string;
+          responseStatus?: string;
+        }>,
+      },
       calendarId,
     );
 
-    const responseLabel = response === 'accepted' ? 'Accepted'
-      : response === 'declined' ? 'Declined'
-      : 'Tentatively accepted';
+    const responseLabel =
+      response === "accepted"
+        ? "Accepted"
+        : response === "declined"
+          ? "Declined"
+          : "Tentatively accepted";
     return ok(`${responseLabel} the event "${event.summary ?? eventId}".`);
   });
 }

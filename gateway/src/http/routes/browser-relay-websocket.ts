@@ -1,4 +1,7 @@
-import { validateEdgeToken, mintServiceToken } from "../../auth/token-exchange.js";
+import {
+  validateEdgeToken,
+  mintServiceToken,
+} from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
 
@@ -13,7 +16,11 @@ function isPrivateAddress(addr: string): boolean {
 
   if (normalized.includes(".")) {
     const parts = normalized.split(".").map(Number);
-    if (parts.length !== 4 || parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) return false;
+    if (
+      parts.length !== 4 ||
+      parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)
+    )
+      return false;
 
     if (parts[0] === 127) return true;
     if (parts[0] === 10) return true;
@@ -32,7 +39,10 @@ function isPrivateAddress(addr: string): boolean {
   return false;
 }
 
-function isPrivateNetworkPeer(server: import("bun").Server<unknown>, req: Request): boolean {
+function isPrivateNetworkPeer(
+  server: import("bun").Server<unknown>,
+  req: Request,
+): boolean {
   const ip = server.requestIP(req);
   if (!ip) return false;
   return isPrivateAddress(ip.address);
@@ -62,7 +72,10 @@ export function createBrowserRelayWebsocketHandler(config: GatewayConfig) {
 
     // Trust actual peer IP, not request host headers, for local/private gating.
     if (!isPrivateNetworkPeer(server, req)) {
-      return new Response("Browser relay only accepts connections from localhost", { status: 403 });
+      return new Response(
+        "Browser relay only accepts connections from localhost",
+        { status: 403 },
+      );
     }
 
     const authResponse = checkBrowserRelayAuth(req, url, config);
@@ -97,7 +110,9 @@ function checkBrowserRelayAuth(
   const authHeader = req.headers.get("authorization");
   const queryToken = url.searchParams.get("token");
   const rawToken = authHeader
-    ? (authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : null)
+    ? authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7)
+      : null
     : queryToken;
 
   if (!rawToken) {
@@ -107,7 +122,10 @@ function checkBrowserRelayAuth(
 
   const result = validateEdgeToken(rawToken);
   if (!result.ok) {
-    log.warn({ reason: result.reason }, "Browser relay WS: authentication failed");
+    log.warn(
+      { reason: result.reason },
+      "Browser relay WS: authentication failed",
+    );
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -131,7 +149,10 @@ export function getBrowserRelayWebsocketHandlers() {
       const upstreamUrl = `${runtimeBase}/v1/browser-relay${query}`;
       const logSafeUpstreamUrl = `${runtimeBase}/v1/browser-relay?token=<redacted>`;
 
-      log.info({ upstreamUrl: logSafeUpstreamUrl }, "Opening upstream browser relay WS to runtime");
+      log.info(
+        { upstreamUrl: logSafeUpstreamUrl },
+        "Opening upstream browser relay WS to runtime",
+      );
 
       const upstream = new WebSocket(upstreamUrl);
       ws.data.upstream = upstream;
@@ -148,9 +169,10 @@ export function getBrowserRelayWebsocketHandlers() {
       });
 
       upstream.addEventListener("message", (event) => {
-        const data = typeof event.data === "string"
-          ? event.data
-          : new Uint8Array(event.data as ArrayBuffer);
+        const data =
+          typeof event.data === "string"
+            ? event.data
+            : new Uint8Array(event.data as ArrayBuffer);
         ws.send(data);
       });
 
@@ -174,7 +196,9 @@ export function getBrowserRelayWebsocketHandlers() {
         upstream.send(message);
       } else if (ws.data.pendingMessages) {
         if (ws.data.pendingMessages.length >= MAX_PENDING_MESSAGES) {
-          log.warn("Browser relay pending message buffer overflow — closing connection");
+          log.warn(
+            "Browser relay pending message buffer overflow — closing connection",
+          );
           ws.close(1008, "Buffer overflow");
           return;
         }
@@ -190,7 +214,11 @@ export function getBrowserRelayWebsocketHandlers() {
       const { upstream } = ws.data;
       log.info({ code, reason }, "Browser relay downstream WS closed");
       ws.data.pendingMessages = undefined;
-      if (upstream && (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING)) {
+      if (
+        upstream &&
+        (upstream.readyState === WebSocket.OPEN ||
+          upstream.readyState === WebSocket.CONNECTING)
+      ) {
         upstream.close(code, reason);
       }
     },

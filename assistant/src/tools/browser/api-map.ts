@@ -4,14 +4,14 @@
  * calls to the same endpoint are grouped together.
  */
 
-import { mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
 
-import { getCliLogger } from '../../util/logger.js';
-import { getDataDir } from '../../util/platform.js';
-import type { NetworkRecordedEntry } from './network-recording-types.js';
+import { getCliLogger } from "../../util/logger.js";
+import { getDataDir } from "../../util/platform.js";
+import type { NetworkRecordedEntry } from "./network-recording-types.js";
 
-const log = getCliLogger('api-map');
+const log = getCliLogger("api-map");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,7 +39,8 @@ export interface ApiMapResult {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NUMERIC_RE = /^\d+$/;
 const HEX_HASH_RE = /^[0-9a-f]{8,}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -73,17 +74,19 @@ function isIdSegment(segment: string): boolean {
 /** Replace ID-like path segments with `{id}`. */
 function normalizePathSegments(pathname: string): string {
   return pathname
-    .split('/')
-    .map((seg) => (isIdSegment(seg) ? '{id}' : seg))
-    .join('/');
+    .split("/")
+    .map((seg) => (isIdSegment(seg) ? "{id}" : seg))
+    .join("/");
 }
 
 /** Safely parse JSON, returning undefined on failure. */
-function tryParseJson(text: string | undefined): Record<string, unknown> | undefined {
+function tryParseJson(
+  text: string | undefined,
+): Record<string, unknown> | undefined {
   if (!text) return undefined;
   try {
     const parsed = JSON.parse(text);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>;
     }
   } catch {
@@ -93,17 +96,22 @@ function tryParseJson(text: string | undefined): Record<string, unknown> | undef
 }
 
 /** Extract GraphQL operation name from request body. */
-function extractGraphQLOperationName(postData: string | undefined): string | null {
+function extractGraphQLOperationName(
+  postData: string | undefined,
+): string | null {
   if (!postData) return null;
   const body = tryParseJson(postData);
   if (!body) return null;
-  if (typeof body.operationName === 'string' && body.operationName) return body.operationName;
+  if (typeof body.operationName === "string" && body.operationName)
+    return body.operationName;
   // Try extracting from query string: "query FooBar { ..." or "mutation FooBar { ..."
-  if (typeof body.query === 'string') {
+  if (typeof body.query === "string") {
     const named = body.query.match(/(?:query|mutation|subscription)\s+(\w+)/);
     if (named) return named[1];
     // Unnamed query — extract the first field name: "query{fooBar(" or "query { fooBar {"
-    const firstField = body.query.match(/(?:query|mutation|subscription)\s*\{?\s*(\w+)/);
+    const firstField = body.query.match(
+      /(?:query|mutation|subscription)\s*\{?\s*(\w+)/,
+    );
     if (firstField) return firstField[1];
   }
   return null;
@@ -140,11 +148,12 @@ export function analyzeApiMap(
     }
 
     // Skip non-API noise
-    if (NOISE_PATH_PATTERNS.some(p => p.test(parsed.pathname))) continue;
+    if (NOISE_PATH_PATTERNS.some((p) => p.test(parsed.pathname))) continue;
 
     // Skip non-JSON responses
-    const mimeType = response?.mimeType ?? '';
-    if (response && !mimeType.includes('json') && !mimeType.includes('graphql')) continue;
+    const mimeType = response?.mimeType ?? "";
+    if (response && !mimeType.includes("json") && !mimeType.includes("graphql"))
+      continue;
 
     const method = request.method.toUpperCase();
     const normalizedPath = normalizePathSegments(parsed.pathname);
@@ -152,8 +161,8 @@ export function analyzeApiMap(
 
     // For GraphQL endpoints, split by operation name
     let urlPattern = basePattern;
-    const isGraphQL = normalizedPath.includes('graphql');
-    if (isGraphQL && method === 'POST') {
+    const isGraphQL = normalizedPath.includes("graphql");
+    if (isGraphQL && method === "POST") {
       const opName = extractGraphQLOperationName(request.postData);
       if (opName) {
         urlPattern = `${basePattern} → ${opName}`;
@@ -183,11 +192,11 @@ export function analyzeApiMap(
       group.queryParams.add(paramKey);
     }
 
-    if (['POST', 'PUT', 'PATCH'].includes(method)) {
+    if (["POST", "PUT", "PATCH"].includes(method)) {
       const body = tryParseJson(request.postData);
       if (body) {
         for (const k of Object.keys(body)) {
-          if (k !== 'query' && k !== 'operationName' && k !== 'extensions') {
+          if (k !== "query" && k !== "operationName" && k !== "extensions") {
             group.requestBodyKeys.add(k);
           }
         }
@@ -240,7 +249,7 @@ export function analyzeApiMap(
 // ---------------------------------------------------------------------------
 
 export function saveApiMap(domain: string, result: ApiMapResult): string {
-  const dir = join(getDataDir(), 'api-maps');
+  const dir = join(getDataDir(), "api-maps");
   mkdirSync(dir, { recursive: true });
 
   const timestamp = Date.now();
@@ -254,13 +263,15 @@ export function saveApiMap(domain: string, result: ApiMapResult): string {
 // ---------------------------------------------------------------------------
 
 export function printApiMapTable(result: ApiMapResult): void {
-  const dataEndpoints = result.endpoints.filter(ep => ep.count <= 15);
-  const boilerplate = result.endpoints.filter(ep => ep.count > 15);
+  const dataEndpoints = result.endpoints.filter((ep) => ep.count <= 15);
+  const boilerplate = result.endpoints.filter((ep) => ep.count > 15);
 
-  log.info(`\nAPI Map for ${result.domain} — ${result.endpoints.length} endpoints discovered\n`);
+  log.info(
+    `\nAPI Map for ${result.domain} — ${result.endpoints.length} endpoints discovered\n`,
+  );
 
   const stripDomain = (pattern: string) => {
-    const idx = pattern.indexOf('/');
+    const idx = pattern.indexOf("/");
     return idx >= 0 ? pattern.slice(idx) : pattern;
   };
 
@@ -268,30 +279,35 @@ export function printApiMapTable(result: ApiMapResult): void {
     if (eps.length === 0) return;
     log.info(`  ${title} (${eps.length})\n`);
 
-    const header = ['Method', 'Endpoint', 'Hits', 'Response Keys'];
+    const header = ["Method", "Endpoint", "Hits", "Response Keys"];
     const rows = eps.map((ep) => [
       ep.method,
       stripDomain(ep.urlPattern),
       String(ep.count),
-      ep.responseBodyKeys.slice(0, 5).join(', ') || '-',
+      ep.responseBodyKeys.slice(0, 5).join(", ") || "-",
     ]);
 
     const widths = header.map((h, i) =>
-      Math.min(i === 1 ? 72 : i === 3 ? 50 : 200, Math.max(h.length, ...rows.map((r) => r[i].length))),
+      Math.min(
+        i === 1 ? 72 : i === 3 ? 50 : 200,
+        Math.max(h.length, ...rows.map((r) => r[i].length)),
+      ),
     );
 
-    const sep = widths.map((w) => '-'.repeat(w)).join(' | ');
+    const sep = widths.map((w) => "-".repeat(w)).join(" | ");
     const fmt = (row: string[]) =>
-      row.map((cell, i) => cell.slice(0, widths[i]).padEnd(widths[i])).join(' | ');
+      row
+        .map((cell, i) => cell.slice(0, widths[i]).padEnd(widths[i]))
+        .join(" | ");
 
     log.info(`  ${fmt(header)}`);
     log.info(`  ${sep}`);
     for (const row of rows) {
       log.info(`  ${fmt(row)}`);
     }
-    log.info('');
+    log.info("");
   };
 
-  printSection('DATA ENDPOINTS', dataEndpoints);
-  printSection('PAGE-LOAD BOILERPLATE', boilerplate);
+  printSection("DATA ENDPOINTS", dataEndpoints);
+  printSection("PAGE-LOAD BOILERPLATE", boilerplate);
 }

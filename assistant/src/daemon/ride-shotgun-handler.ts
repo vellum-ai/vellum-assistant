@@ -1,25 +1,25 @@
-import { randomUUID } from 'node:crypto';
-import type * as net from 'node:net';
+import { randomUUID } from "node:crypto";
+import type * as net from "node:net";
 
-import { autoNavigate } from '../tools/browser/auto-navigate.js';
-import { NetworkRecorder } from '../tools/browser/network-recorder.js';
-import type { SessionRecording } from '../tools/browser/network-recording-types.js';
-import { saveRecording } from '../tools/browser/recording-store.js';
-import { navigateXPages } from '../tools/browser/x-auto-navigate.js';
-import type { WatchSession } from '../tools/watch/watch-state.js';
+import { autoNavigate } from "../tools/browser/auto-navigate.js";
+import { NetworkRecorder } from "../tools/browser/network-recorder.js";
+import type { SessionRecording } from "../tools/browser/network-recording-types.js";
+import { saveRecording } from "../tools/browser/recording-store.js";
+import { navigateXPages } from "../tools/browser/x-auto-navigate.js";
+import type { WatchSession } from "../tools/watch/watch-state.js";
 import {
   fireWatchCompletionNotifier,
   fireWatchStartNotifier,
   registerWatchCompletionNotifier,
   unregisterWatchCompletionNotifier,
   watchSessions,
-} from '../tools/watch/watch-state.js';
-import { getLogger } from '../util/logger.js';
-import type { HandlerContext } from './handlers.js';
-import type { RideShotgunStart, RideShotgunStop } from './ipc-protocol.js';
-import { generateSummary,lastSummaryBySession } from './watch-handler.js';
+} from "../tools/watch/watch-state.js";
+import { getLogger } from "../util/logger.js";
+import type { HandlerContext } from "./handlers.js";
+import type { RideShotgunStart, RideShotgunStop } from "./ipc-protocol.js";
+import { generateSummary, lastSummaryBySession } from "./watch-handler.js";
 
-const log = getLogger('ride-shotgun-handler');
+const log = getLogger("ride-shotgun-handler");
 
 /** Active network recorders keyed by watchId. */
 const activeRecorders = new Map<string, NetworkRecorder>();
@@ -29,17 +29,17 @@ const activeProgressIntervals = new Map<string, NodeJS.Timeout>();
 
 /** Return domain-specific URL patterns that indicate a successful login. */
 function getLoginSignals(targetDomain?: string): string[] {
-  if (targetDomain === 'x.com' || targetDomain === 'twitter.com') {
+  if (targetDomain === "x.com" || targetDomain === "twitter.com") {
     return [
-      '/i/api/graphql/',       // any authenticated GraphQL call
-      '/1.1/account/settings', // legacy API session check
+      "/i/api/graphql/", // any authenticated GraphQL call
+      "/1.1/account/settings", // legacy API session check
     ];
   }
   // DoorDash and general fallback
   return [
-    '/graphql/postLoginQuery',
-    '/graphql/homePageFacetFeed',
-    '/graphql/getConsumerOrdersWithDetails',
+    "/graphql/postLoginQuery",
+    "/graphql/homePageFacetFeed",
+    "/graphql/getConsumerOrdersWithDetails",
   ];
 }
 
@@ -48,9 +48,9 @@ function getLoginSignals(targetDomain?: string): string[] {
  * Shared by both the duration timeout and the early-stop handler.
  */
 async function completeSession(session: WatchSession): Promise<void> {
-  if (session.status !== 'active') return; // already completing/completed
+  if (session.status !== "active") return; // already completing/completed
 
-  session.status = 'completing';
+  session.status = "completing";
   if (session.timeoutHandle) {
     clearTimeout(session.timeoutHandle);
     session.timeoutHandle = undefined;
@@ -66,24 +66,34 @@ async function completeSession(session: WatchSession): Promise<void> {
   const { watchId, sessionId } = session;
   log.info(
     { watchId, sessionId, observationCount: session.observations.length },
-    'Session completing...',
+    "Session completing...",
   );
 
   // In learn mode, stop recording and save — skip the LLM summary (not needed)
   if (session.isLearnMode && session.recordingId) {
-    session.savedRecordingPath = await finalizeLearnRecording(watchId, session, session.recordingId);
-    lastSummaryBySession.set(sessionId, session.savedRecordingPath
-      ? 'Learn session completed — recording saved.'
-      : 'Learn session completed — recording failed to save.');
-    session.status = 'completed';
-    log.info({ watchId, sessionId }, 'Learn session complete — firing completion notifier');
+    session.savedRecordingPath = await finalizeLearnRecording(
+      watchId,
+      session,
+      session.recordingId,
+    );
+    lastSummaryBySession.set(
+      sessionId,
+      session.savedRecordingPath
+        ? "Learn session completed — recording saved."
+        : "Learn session completed — recording failed to save.",
+    );
+    session.status = "completed";
+    log.info(
+      { watchId, sessionId },
+      "Learn session complete — firing completion notifier",
+    );
     fireWatchCompletionNotifier(sessionId, session);
-    log.info({ watchId, sessionId }, 'Completion notifier fired');
+    log.info({ watchId, sessionId }, "Completion notifier fired");
     return;
   }
 
   await generateSummary(session);
-  session.status = 'completed';
+  session.status = "completed";
 }
 
 export async function handleRideShotgunStart(
@@ -94,22 +104,24 @@ export async function handleRideShotgunStart(
   const watchId = randomUUID();
   const sessionId = randomUUID();
   const { durationSeconds, intervalSeconds } = msg;
-  const mode = msg.mode ?? 'observe';
+  const mode = msg.mode ?? "observe";
   const targetDomain = msg.targetDomain;
-  const isLearnMode = mode === 'learn';
+  const isLearnMode = mode === "learn";
   const recordingId = isLearnMode ? randomUUID() : undefined;
 
   const session: WatchSession = {
     watchId,
     sessionId,
     focusArea: isLearnMode
-      ? `Learn mode: recording network traffic and screen observations${targetDomain ? ` for ${targetDomain}` : ''}`
-      : 'General workflow observation',
+      ? `Learn mode: recording network traffic and screen observations${
+          targetDomain ? ` for ${targetDomain}` : ""
+        }`
+      : "General workflow observation",
     durationSeconds,
     intervalSeconds,
     observations: [],
     commentaryCount: 0,
-    status: 'active',
+    status: "active",
     startedAt: Date.now(),
     isRideShotgun: true,
     isLearnMode,
@@ -119,8 +131,15 @@ export async function handleRideShotgunStart(
 
   watchSessions.set(watchId, session);
   log.debug(
-    { watchId, sessionId, durationSeconds, intervalSeconds, mode, targetDomain },
-    'Session created and stored in watchSessions map',
+    {
+      watchId,
+      sessionId,
+      durationSeconds,
+      intervalSeconds,
+      mode,
+      targetDomain,
+    },
+    "Session created and stored in watchSessions map",
   );
 
   // In learn mode, connect directly to Chrome's CDP endpoint for network recording.
@@ -129,8 +148,11 @@ export async function handleRideShotgunStart(
     const startRecording = async () => {
       for (let attempt = 0; attempt < 10; attempt++) {
         // Check if session is still active before each attempt
-        if (session.status !== 'active') {
-          log.info({ watchId, attempt, status: session.status }, 'Session no longer active — aborting recording start');
+        if (session.status !== "active") {
+          log.info(
+            { watchId, attempt, status: session.status },
+            "Session no longer active — aborting recording start",
+          );
           return;
         }
         try {
@@ -138,13 +160,19 @@ export async function handleRideShotgunStart(
           recorder.loginSignals = getLoginSignals(targetDomain);
           await recorder.startDirect();
           // If session completed while we were connecting, stop immediately to avoid leak
-          if (session.status !== 'active') {
-            log.info({ watchId, attempt }, 'Session completed during CDP connect — stopping recorder to prevent leak');
+          if (session.status !== "active") {
+            log.info(
+              { watchId, attempt },
+              "Session completed during CDP connect — stopping recorder to prevent leak",
+            );
             await recorder.stop();
             return;
           }
           activeRecorders.set(watchId, recorder);
-          log.info({ watchId, targetDomain, attempt }, 'Network recording started for learn session');
+          log.info(
+            { watchId, targetDomain, attempt },
+            "Network recording started for learn session",
+          );
 
           // Send periodic progress updates with network entry counts and idle detection
           let lastNetworkEntryCount = 0;
@@ -152,7 +180,7 @@ export async function handleRideShotgunStart(
           let idleHintSent = false;
 
           const progressInterval: NodeJS.Timeout = setInterval(() => {
-            if (session.status !== 'active') {
+            if (session.status !== "active") {
               clearInterval(progressInterval);
               return;
             }
@@ -166,13 +194,16 @@ export async function handleRideShotgunStart(
               // If we previously sent an idle hint, clear it now that activity resumed
               if (idleHintSent) {
                 idleHintSent = false;
-                log.info({ watchId, currentCount }, 'Activity resumed — clearing idleHint');
+                log.info(
+                  { watchId, currentCount },
+                  "Activity resumed — clearing idleHint",
+                );
                 ctx.send(socket, {
-                  type: 'ride_shotgun_progress',
+                  type: "ride_shotgun_progress",
                   watchId,
                   message: `Recording network traffic...`,
                   networkEntryCount: currentCount,
-                  statusMessage: 'Recording network traffic...',
+                  statusMessage: "Recording network traffic...",
                   idleHint: false,
                 });
                 return;
@@ -185,15 +216,18 @@ export async function handleRideShotgunStart(
             if (!idleHintSent && currentCount > 0 && idleMs >= 15_000) {
               idleHint = true;
               idleHintSent = true;
-              log.info({ watchId, currentCount, idleMs }, 'Idle detected — sending idleHint');
+              log.info(
+                { watchId, currentCount, idleMs },
+                "Idle detected — sending idleHint",
+              );
             }
 
             ctx.send(socket, {
-              type: 'ride_shotgun_progress',
+              type: "ride_shotgun_progress",
               watchId,
               message: `Recording network traffic...`,
               networkEntryCount: currentCount,
-              statusMessage: 'Recording network traffic...',
+              statusMessage: "Recording network traffic...",
               ...(idleHint !== undefined ? { idleHint } : {}),
             });
           }, 5000);
@@ -201,67 +235,83 @@ export async function handleRideShotgunStart(
 
           // For x.com, auto-navigate Chrome through key pages to capture the full API surface.
           // Skip login detection — auto-navigation will complete the session when done.
-          if ((targetDomain === 'x.com' || targetDomain === 'twitter.com') && msg.autoNavigate !== false) {
+          if (
+            (targetDomain === "x.com" || targetDomain === "twitter.com") &&
+            msg.autoNavigate !== false
+          ) {
             // Don't set onLoginDetected — it would kill the session after the first
             // GraphQL call (5s grace), before auto-navigation finishes.
             const abortSignal = { aborted: false };
             const checkInterval = setInterval(() => {
-              if (session.status !== 'active') {
+              if (session.status !== "active") {
                 abortSignal.aborted = true;
                 clearInterval(checkInterval);
               }
             }, 1000);
-            navigateXPages(abortSignal).then(completed => {
-              clearInterval(checkInterval);
-              log.info({ watchId, completedSteps: completed.length }, 'X auto-navigation finished');
-              if (session.status === 'active') {
-                completeSession(session);
-              }
-            }).catch(err => {
-              clearInterval(checkInterval);
-              log.warn({ err, watchId }, 'X auto-navigation failed');
-              if (session.status === 'active') {
-                completeSession(session);
-              }
-            });
+            navigateXPages(abortSignal)
+              .then((completed) => {
+                clearInterval(checkInterval);
+                log.info(
+                  { watchId, completedSteps: completed.length },
+                  "X auto-navigation finished",
+                );
+                if (session.status === "active") {
+                  completeSession(session);
+                }
+              })
+              .catch((err) => {
+                clearInterval(checkInterval);
+                log.warn({ err, watchId }, "X auto-navigation failed");
+                if (session.status === "active") {
+                  completeSession(session);
+                }
+              });
           } else if (msg.autoNavigate && targetDomain) {
             const navDomain = msg.navigateDomain ?? targetDomain;
             const abortSignal = { aborted: false };
             const checkInterval = setInterval(() => {
-              if (session.status !== 'active') {
+              if (session.status !== "active") {
                 abortSignal.aborted = true;
                 clearInterval(checkInterval);
               }
             }, 1000);
             autoNavigate(navDomain, abortSignal, (progress) => {
               // Send progress to connected client
-              if (progress.type === 'visiting' && progress.url) {
-                const shortUrl = progress.url.replace(/^https?:\/\//, '');
+              if (progress.type === "visiting" && progress.url) {
+                const shortUrl = progress.url.replace(/^https?:\/\//, "");
                 ctx.send(socket, {
-                  type: 'ride_shotgun_progress',
+                  type: "ride_shotgun_progress",
                   watchId,
-                  message: `[${progress.pageNumber || '?'}] ${shortUrl}`,
+                  message: `[${progress.pageNumber || "?"}] ${shortUrl}`,
                 });
               }
-            }).then(visited => {
-              clearInterval(checkInterval);
-              log.info({ watchId, visitedPages: visited.length }, 'Generic auto-navigation finished');
-              if (session.status === 'active') {
-                completeSession(session);
-              }
-            }).catch(err => {
-              clearInterval(checkInterval);
-              log.warn({ err, watchId }, 'Generic auto-navigation failed');
-              if (session.status === 'active') {
-                completeSession(session);
-              }
-            });
+            })
+              .then((visited) => {
+                clearInterval(checkInterval);
+                log.info(
+                  { watchId, visitedPages: visited.length },
+                  "Generic auto-navigation finished",
+                );
+                if (session.status === "active") {
+                  completeSession(session);
+                }
+              })
+              .catch((err) => {
+                clearInterval(checkInterval);
+                log.warn({ err, watchId }, "Generic auto-navigation failed");
+                if (session.status === "active") {
+                  completeSession(session);
+                }
+              });
           } else if (msg.autoNavigate === false && targetDomain) {
             // Manual mode: just record network traffic until timeout or early stop — no login detection shortcut.
           } else {
             // No targetDomain or targetDomain without explicit autoNavigate=false: use login detection
             recorder.onLoginDetected = () => {
-              log.info({ watchId }, 'Login detected — auto-stopping learn session');
+              log.info(
+                { watchId },
+                "Login detected — auto-stopping learn session",
+              );
               completeSession(session);
             };
           }
@@ -269,10 +319,13 @@ export async function handleRideShotgunStart(
           return;
         } catch (err) {
           if (attempt < 9) {
-            log.debug({ attempt, watchId }, 'CDP not ready, retrying in 2s...');
-            await new Promise(r => setTimeout(r, 2000));
+            log.debug({ attempt, watchId }, "CDP not ready, retrying in 2s...");
+            await new Promise((r) => setTimeout(r, 2000));
           } else {
-            log.warn({ err, watchId }, 'Failed to start network recording after 10 attempts');
+            log.warn(
+              { err, watchId },
+              "Failed to start network recording after 10 attempts",
+            );
           }
         }
       }
@@ -282,46 +335,63 @@ export async function handleRideShotgunStart(
   }
 
   // Set timeout for duration expiry
-  session.timeoutHandle = setTimeout(() => { completeSession(session); }, durationSeconds * 1000);
+  session.timeoutHandle = setTimeout(() => {
+    completeSession(session);
+  }, durationSeconds * 1000);
 
   // Register completion notifier to send summary back to client
-  registerWatchCompletionNotifier(sessionId, (_completedSession: WatchSession) => {
-    const summary = lastSummaryBySession.get(sessionId) ?? '';
-    const observationCount = _completedSession.observations.length;
+  registerWatchCompletionNotifier(
+    sessionId,
+    (_completedSession: WatchSession) => {
+      const summary = lastSummaryBySession.get(sessionId) ?? "";
+      const observationCount = _completedSession.observations.length;
 
-    log.info(
-      { watchId, sessionId, observationCount, summaryLength: summary.length, socketDestroyed: socket.destroyed },
-      'Completion notifier firing — sending ride_shotgun_result to client',
-    );
+      log.info(
+        {
+          watchId,
+          sessionId,
+          observationCount,
+          summaryLength: summary.length,
+          socketDestroyed: socket.destroyed,
+        },
+        "Completion notifier firing — sending ride_shotgun_result to client",
+      );
 
-    ctx.send(socket, {
-      type: 'ride_shotgun_result',
-      sessionId,
-      watchId,
-      summary,
-      observationCount,
-      recordingId,
-      recordingPath: _completedSession.savedRecordingPath,
-    });
+      ctx.send(socket, {
+        type: "ride_shotgun_result",
+        sessionId,
+        watchId,
+        summary,
+        observationCount,
+        recordingId,
+        recordingPath: _completedSession.savedRecordingPath,
+      });
 
-    unregisterWatchCompletionNotifier(sessionId);
-    lastSummaryBySession.delete(sessionId);
-    log.debug({ watchId, sessionId, observationCount, recordingId }, 'Ride shotgun result sent successfully');
-  });
+      unregisterWatchCompletionNotifier(sessionId);
+      lastSummaryBySession.delete(sessionId);
+      log.debug(
+        { watchId, sessionId, observationCount, recordingId },
+        "Ride shotgun result sent successfully",
+      );
+    },
+  );
 
   // Fire start notifier
   fireWatchStartNotifier(sessionId, session);
 
   // Send watch_started so the Swift client knows the watchId/sessionId
   ctx.send(socket, {
-    type: 'watch_started',
+    type: "watch_started",
     sessionId,
     watchId,
     durationSeconds,
     intervalSeconds,
   });
 
-  log.info({ watchId, sessionId, durationSeconds, intervalSeconds, mode }, 'Ride shotgun session started');
+  log.info(
+    { watchId, sessionId, durationSeconds, intervalSeconds, mode },
+    "Ride shotgun session started",
+  );
 }
 
 export async function handleRideShotgunStop(
@@ -332,10 +402,10 @@ export async function handleRideShotgunStop(
   const { watchId } = msg;
   const session = watchSessions.get(watchId);
   if (!session) {
-    log.warn({ watchId }, 'ride_shotgun_stop: session not found');
+    log.warn({ watchId }, "ride_shotgun_stop: session not found");
     return;
   }
-  log.info({ watchId, sessionId: session.sessionId }, 'Early stop requested');
+  log.info({ watchId, sessionId: session.sessionId }, "Early stop requested");
   await completeSession(session);
 }
 
@@ -351,7 +421,9 @@ async function finalizeLearnRecording(
     const recorder = activeRecorders.get(watchId);
 
     // Extract cookies before stopping (needs the CDP connection alive)
-    const cookies = recorder ? await recorder.extractCookies(session.targetDomain) : [];
+    const cookies = recorder
+      ? await recorder.extractCookies(session.targetDomain)
+      : [];
 
     const networkEntries = recorder ? await recorder.stop() : [];
     activeRecorders.delete(watchId);
@@ -363,7 +435,7 @@ async function finalizeLearnRecording(
       targetDomain: session.targetDomain,
       networkEntries,
       cookies,
-      observations: session.observations.map(obs => ({
+      observations: session.observations.map((obs) => ({
         ocrText: obs.ocrText,
         appName: obs.appName,
         windowTitle: obs.windowTitle,
@@ -374,12 +446,20 @@ async function finalizeLearnRecording(
 
     const path = saveRecording(recording);
     log.info(
-      { recordingId, networkEntries: networkEntries.length, cookies: cookies.length, observations: session.observations.length },
-      'Learn recording finalized and saved',
+      {
+        recordingId,
+        networkEntries: networkEntries.length,
+        cookies: cookies.length,
+        observations: session.observations.length,
+      },
+      "Learn recording finalized and saved",
     );
     return path;
   } catch (err) {
-    log.error({ err, watchId, recordingId }, 'Failed to finalize learn recording');
+    log.error(
+      { err, watchId, recordingId },
+      "Failed to finalize learn recording",
+    );
     return undefined;
   }
 }

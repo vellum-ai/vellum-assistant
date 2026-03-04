@@ -2,19 +2,23 @@ import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createGuardianControlPlaneProxyHandler } = await import(
-  "../http/routes/guardian-control-plane-proxy.js"
-);
+const { createGuardianControlPlaneProxyHandler } =
+  await import("../http/routes/guardian-control-plane-proxy.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -81,19 +85,33 @@ describe("guardian control-plane proxy", () => {
     const handler = createGuardianControlPlaneProxyHandler(makeConfig());
 
     await handler.handleCreateGuardianChallenge(
-      new Request("http://localhost:7830/v1/integrations/guardian/challenge", { method: "POST" }),
+      new Request("http://localhost:7830/v1/integrations/guardian/challenge", {
+        method: "POST",
+      }),
     );
     await handler.handleGetGuardianStatus(
-      new Request("http://localhost:7830/v1/integrations/guardian/status?channel=voice", { method: "GET" }),
+      new Request(
+        "http://localhost:7830/v1/integrations/guardian/status?channel=voice",
+        { method: "GET" },
+      ),
     );
     await handler.handleStartGuardianOutbound(
-      new Request("http://localhost:7830/v1/integrations/guardian/outbound/start", { method: "POST" }),
+      new Request(
+        "http://localhost:7830/v1/integrations/guardian/outbound/start",
+        { method: "POST" },
+      ),
     );
     await handler.handleResendGuardianOutbound(
-      new Request("http://localhost:7830/v1/integrations/guardian/outbound/resend", { method: "POST" }),
+      new Request(
+        "http://localhost:7830/v1/integrations/guardian/outbound/resend",
+        { method: "POST" },
+      ),
     );
     await handler.handleCancelGuardianOutbound(
-      new Request("http://localhost:7830/v1/integrations/guardian/outbound/cancel", { method: "POST" }),
+      new Request(
+        "http://localhost:7830/v1/integrations/guardian/outbound/cancel",
+        { method: "POST" },
+      ),
     );
 
     expect(captured).toEqual([
@@ -108,60 +126,86 @@ describe("guardian control-plane proxy", () => {
   test("replaces caller auth with runtime auth", async () => {
     let capturedHeaders: Headers | undefined;
     let capturedBody = "";
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = init?.headers as unknown as Headers;
-      if (init?.body) {
-        capturedBody = new TextDecoder().decode(init.body as ArrayBuffer);
-      }
-      return new Response("ok", { status: 200 });
-    });
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
+        if (init?.body) {
+          capturedBody = new TextDecoder().decode(init.body as ArrayBuffer);
+        }
+        return new Response("ok", { status: 200 });
+      },
+    );
 
     const handler = createGuardianControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleStartGuardianOutbound(
-      new Request("http://localhost:7830/v1/integrations/guardian/outbound/start", {
-        method: "POST",
-        headers: {
-          authorization: "Bearer caller-token",
-          "content-type": "application/json",
-          host: "localhost:7830",
+      new Request(
+        "http://localhost:7830/v1/integrations/guardian/outbound/start",
+        {
+          method: "POST",
+          headers: {
+            authorization: "Bearer caller-token",
+            "content-type": "application/json",
+            host: "localhost:7830",
+          },
+          body: JSON.stringify({
+            channel: "voice",
+            destination: "+15551234567",
+          }),
         },
-        body: JSON.stringify({ channel: "voice", destination: "+15551234567" }),
-      }),
+      ),
     );
 
     expect(res.status).toBe(200);
-    expect(capturedBody).toBe('{"channel":"voice","destination":"+15551234567"}');
+    expect(capturedBody).toBe(
+      '{"channel":"voice","destination":"+15551234567"}',
+    );
     expect(capturedHeaders?.get("authorization")).toMatch(/^Bearer ey/);
     expect(capturedHeaders?.has("host")).toBe(false);
   });
 
   test("passes through upstream client errors", async () => {
     fetchMock = mock(async () => {
-      return new Response(JSON.stringify({ success: false, error: "invalid_destination" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: false, error: "invalid_destination" }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        },
+      );
     });
 
     const handler = createGuardianControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleStartGuardianOutbound(
-      new Request("http://localhost:7830/v1/integrations/guardian/outbound/start", {
-        method: "POST",
-      }),
+      new Request(
+        "http://localhost:7830/v1/integrations/guardian/outbound/start",
+        {
+          method: "POST",
+        },
+      ),
     );
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ success: false, error: "invalid_destination" });
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "invalid_destination",
+    });
   });
 
   test("returns 504 when upstream times out", async () => {
     fetchMock = mock(async () => {
-      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      throw new DOMException(
+        "The operation was aborted due to timeout",
+        "TimeoutError",
+      );
     });
 
-    const handler = createGuardianControlPlaneProxyHandler(makeConfig({ runtimeTimeoutMs: 100 }));
+    const handler = createGuardianControlPlaneProxyHandler(
+      makeConfig({ runtimeTimeoutMs: 100 }),
+    );
     const res = await handler.handleGetGuardianStatus(
-      new Request("http://localhost:7830/v1/integrations/guardian/status?channel=voice"),
+      new Request(
+        "http://localhost:7830/v1/integrations/guardian/status?channel=voice",
+      ),
     );
 
     expect(res.status).toBe(504);
@@ -175,7 +219,9 @@ describe("guardian control-plane proxy", () => {
 
     const handler = createGuardianControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleGetGuardianStatus(
-      new Request("http://localhost:7830/v1/integrations/guardian/status?channel=voice"),
+      new Request(
+        "http://localhost:7830/v1/integrations/guardian/status?channel=voice",
+      ),
     );
 
     expect(res.status).toBe(502);

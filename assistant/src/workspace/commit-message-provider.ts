@@ -7,7 +7,7 @@
 
 export interface CommitContext {
   workspaceDir: string;
-  trigger: 'turn' | 'heartbeat' | 'shutdown';
+  trigger: "turn" | "heartbeat" | "shutdown";
   sessionId?: string;
   turnNumber?: number;
   changedFiles: string[];
@@ -25,7 +25,9 @@ export interface CommitMessageProvider {
   /** Build a commit message synchronously for immediate use. */
   buildImmediateMessage(ctx: CommitContext): CommitMessageResult;
   /** Optional: enqueue async enrichment after commit succeeds. */
-  enqueueEnrichment?(ctx: CommitContext & { commitHash: string }): Promise<void>;
+  enqueueEnrichment?(
+    ctx: CommitContext & { commitHash: string },
+  ): Promise<void>;
 }
 
 /**
@@ -33,15 +35,15 @@ export interface CommitMessageProvider {
  */
 export function buildChangeSummary(files: string[]): string {
   if (files.length === 0) {
-    return 'workspace changes';
+    return "workspace changes";
   }
   if (files.length === 1) {
     return files[0];
   }
   if (files.length <= 3) {
-    return files.join(', ');
+    return files.join(", ");
   }
-  return `${files.slice(0, 2).join(', ')} and ${files.length - 2} more`;
+  return `${files.slice(0, 2).join(", ")} and ${files.length - 2} more`;
 }
 
 /**
@@ -53,11 +55,11 @@ export function buildChangeSummary(files: string[]): string {
 export class DefaultCommitMessageProvider implements CommitMessageProvider {
   buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
     switch (ctx.trigger) {
-      case 'turn':
+      case "turn":
         return this.buildTurnMessage(ctx);
-      case 'heartbeat':
+      case "heartbeat":
         return this.buildHeartbeatMessage(ctx);
-      case 'shutdown':
+      case "shutdown":
         return this.buildShutdownMessage(ctx);
     }
   }
@@ -67,12 +69,12 @@ export class DefaultCommitMessageProvider implements CommitMessageProvider {
     const timestamp = new Date(ctx.timestampMs).toISOString();
     const message = [
       `Turn: ${summary}`,
-      '',
+      "",
       `Session: ${ctx.sessionId}`,
       `Turn: ${ctx.turnNumber}`,
       `Timestamp: ${timestamp}`,
       `Files: ${ctx.changedFiles.length} changed`,
-    ].join('\n');
+    ].join("\n");
     return { message };
   }
 
@@ -81,7 +83,7 @@ export class DefaultCommitMessageProvider implements CommitMessageProvider {
     const reason = ctx.reason ?? `${totalChanges} files`;
     return {
       message: `auto-commit: heartbeat safety net (${totalChanges} files, ${reason})`,
-      metadata: { trigger: 'heartbeat', timestamp: ctx.timestampMs },
+      metadata: { trigger: "heartbeat", timestamp: ctx.timestampMs },
     };
   }
 
@@ -89,7 +91,7 @@ export class DefaultCommitMessageProvider implements CommitMessageProvider {
     const totalChanges = ctx.changedFiles.length;
     return {
       message: `auto-commit: shutdown safety net (${totalChanges} files)`,
-      metadata: { trigger: 'shutdown', timestamp: ctx.timestampMs },
+      metadata: { trigger: "shutdown", timestamp: ctx.timestampMs },
     };
   }
 }

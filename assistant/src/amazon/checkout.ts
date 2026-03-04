@@ -1,11 +1,16 @@
-import type { CheckoutSummary, DeliverySlot, PaymentMethod, PlaceOrderResult } from './client.js';
+import type {
+  CheckoutSummary,
+  DeliverySlot,
+  PaymentMethod,
+  PlaceOrderResult,
+} from "./client.js";
 import {
   AMAZON_BASE,
   cdpEval,
   handleResult,
   prepareRequest,
   runWithBackoff,
-} from './client.js';
+} from "./client.js";
 
 /**
  * Get available Amazon Fresh delivery slots.
@@ -69,7 +74,7 @@ export async function getFreshDeliverySlots(): Promise<DeliverySlot[]> {
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
     return result.__data as DeliverySlot[];
   });
@@ -78,7 +83,9 @@ export async function getFreshDeliverySlots(): Promise<DeliverySlot[]> {
 /**
  * Select an Amazon Fresh delivery slot.
  */
-export async function selectFreshDeliverySlot(slotId: string): Promise<{ ok: boolean }> {
+export async function selectFreshDeliverySlot(
+  slotId: string,
+): Promise<{ ok: boolean }> {
   const { tabId } = await prepareRequest();
 
   return runWithBackoff(async () => {
@@ -119,7 +126,7 @@ export async function selectFreshDeliverySlot(slotId: string): Promise<{ ok: boo
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
     return { ok: Boolean(result.__ok) };
   });
@@ -198,7 +205,7 @@ export async function getPaymentMethods(): Promise<PaymentMethod[]> {
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
     return result.__data as PaymentMethod[];
   });
@@ -271,7 +278,7 @@ export async function getCheckoutSummary(): Promise<CheckoutSummary> {
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
     return result.__data as CheckoutSummary;
   });
@@ -281,10 +288,12 @@ export async function getCheckoutSummary(): Promise<CheckoutSummary> {
  * Place an Amazon order.
  * WARNING: This submits a real order. Always confirm with the user first.
  */
-export async function placeOrder(opts: {
-  paymentMethodId?: string;
-  deliverySlotId?: string;
-} = {}): Promise<PlaceOrderResult> {
+export async function placeOrder(
+  opts: {
+    paymentMethodId?: string;
+    deliverySlotId?: string;
+  } = {},
+): Promise<PlaceOrderResult> {
   const { tabId } = await prepareRequest();
 
   return runWithBackoff(async () => {
@@ -332,8 +341,10 @@ export async function placeOrder(opts: {
           });
 
           // Apply payment method if specified
-          if (${JSON.stringify(opts.paymentMethodId || '')}) {
-            formData.set('ppw-instrumentId', ${JSON.stringify(opts.paymentMethodId || '')});
+          if (${JSON.stringify(opts.paymentMethodId || "")}) {
+            formData.set('ppw-instrumentId', ${JSON.stringify(
+              opts.paymentMethodId || "",
+            )});
           }
 
           // Submit order
@@ -377,7 +388,7 @@ export async function placeOrder(opts: {
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
     return result.__data as PlaceOrderResult;
   });

@@ -1,11 +1,11 @@
-export type CandidateType = 'segment' | 'item' | 'summary';
+export type CandidateType = "segment" | "item" | "summary";
 export type CandidateSource =
-  | 'lexical'
-  | 'semantic'
-  | 'recency'
-  | 'entity_direct'
-  | 'entity_relation'
-  | 'item_direct';
+  | "lexical"
+  | "semantic"
+  | "recency"
+  | "entity_direct"
+  | "entity_relation"
+  | "item_direct";
 
 export interface Candidate {
   key: string;
@@ -139,7 +139,7 @@ export interface MemorySearchResult {
   };
 }
 
-import type { EntityRelationType, EntityType } from '../entity-extractor.js';
+import type { EntityRelationType, EntityType } from "../entity-extractor.js";
 
 export interface TraversalOptions {
   maxEdges: number;

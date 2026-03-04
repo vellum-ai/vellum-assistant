@@ -10,14 +10,18 @@
  * `notifications` scope (classic) or Notification read permission (fine-grained).
  */
 
-import { withValidToken } from '../../security/token-manager.js';
-import { getLogger } from '../../util/logger.js';
-import { truncate } from '../../util/truncate.js';
-import type { FetchResult,WatcherItem, WatcherProvider } from '../provider-types.js';
+import { withValidToken } from "../../security/token-manager.js";
+import { getLogger } from "../../util/logger.js";
+import { truncate } from "../../util/truncate.js";
+import type {
+  FetchResult,
+  WatcherItem,
+  WatcherProvider,
+} from "../provider-types.js";
 
-const log = getLogger('watcher:github');
+const log = getLogger("watcher:github");
 
-const GITHUB_API_BASE = 'https://api.github.com';
+const GITHUB_API_BASE = "https://api.github.com";
 
 // ── API types ──────────────────────────────────────────────────────────────────
 
@@ -30,7 +34,7 @@ interface GitHubNotification {
     title: string;
     url: string | null;
     latest_comment_url: string | null;
-    type: 'Issue' | 'PullRequest' | 'Release' | 'Commit' | string;
+    type: "Issue" | "PullRequest" | "Release" | "Commit" | string;
   };
   repository: {
     full_name: string;
@@ -42,11 +46,14 @@ interface GitHubNotification {
 
 /** Map a GitHub notification reason to a watcher event type. */
 function reasonToEventType(reason: string, subjectType: string): string {
-  if (reason === 'review_requested') return 'github_review_requested';
-  if (reason === 'assign') return subjectType === 'Issue' ? 'github_issue_assigned' : 'github_pr_assigned';
-  if (reason === 'mention') return 'github_mention';
-  if (subjectType === 'PullRequest') return 'github_pr_activity';
-  return 'github_notification';
+  if (reason === "review_requested") return "github_review_requested";
+  if (reason === "assign")
+    return subjectType === "Issue"
+      ? "github_issue_assigned"
+      : "github_pr_assigned";
+  if (reason === "mention") return "github_mention";
+  if (subjectType === "PullRequest") return "github_pr_activity";
+  return "github_notification";
 }
 
 function notificationToItem(n: GitHubNotification): WatcherItem {
@@ -80,22 +87,22 @@ async function fetchNotificationsPage(
   page: number,
 ): Promise<{ items: GitHubNotification[]; hasMore: boolean }> {
   const params = new URLSearchParams({
-    all: 'false', // only unread
+    all: "false", // only unread
     since,
-    per_page: '50',
+    per_page: "50",
     page: String(page),
   });
 
   const resp = await fetch(`${GITHUB_API_BASE}/notifications?${params}`, {
     headers: {
       Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
     },
   });
 
   if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
+    const body = await resp.text().catch(() => "");
     throw new Error(`GitHub Notifications API ${resp.status}: ${body}`);
   }
 
@@ -108,9 +115,9 @@ async function fetchNotificationsPage(
 // ── Provider ───────────────────────────────────────────────────────────────────
 
 export const githubProvider: WatcherProvider = {
-  id: 'github',
-  displayName: 'GitHub',
-  requiredCredentialService: 'integration:github',
+  id: "github",
+  displayName: "GitHub",
+  requiredCredentialService: "integration:github",
 
   async getInitialWatermark(_credentialService: string): Promise<string> {
     // Start from "now" so we don't replay all existing notifications
@@ -129,12 +136,19 @@ export const githubProvider: WatcherProvider = {
       let page = 1;
 
       while (true) {
-        const { items: pageItems, hasMore } = await fetchNotificationsPage(token, since, page);
+        const { items: pageItems, hasMore } = await fetchNotificationsPage(
+          token,
+          since,
+          page,
+        );
 
         for (const n of pageItems) {
           // Only surface notifications for reasons that warrant attention
           const relevantReasons = new Set([
-            'assign', 'mention', 'review_requested', 'team_mention',
+            "assign",
+            "mention",
+            "review_requested",
+            "team_mention",
           ]);
           if (!relevantReasons.has(n.reason)) continue;
 
@@ -149,7 +163,10 @@ export const githubProvider: WatcherProvider = {
       // that arrive between poll cycles.
       const newWatermark = new Date().toISOString();
 
-      log.info({ count: items.length, watermark: newWatermark }, 'GitHub: fetched new notifications');
+      log.info(
+        { count: items.length, watermark: newWatermark },
+        "GitHub: fetched new notifications",
+      );
       return { items, watermark: newWatermark };
     });
   },

@@ -3,7 +3,7 @@ import type {
   Message,
   ToolResultContent,
   ToolUseContent,
-} from '../providers/types.js';
+} from "../providers/types.js";
 
 export interface RepairStats {
   assistantToolResultsMigrated: number;
@@ -17,7 +17,8 @@ export interface RepairResult {
   stats: RepairStats;
 }
 
-const SYNTHETIC_RESULT = '<synthesized_result>tool result missing from history</synthesized_result>';
+const SYNTHETIC_RESULT =
+  "<synthesized_result>tool result missing from history</synthesized_result>";
 
 export function repairHistory(messages: Message[]): RepairResult {
   const stats: RepairStats = {
@@ -33,7 +34,7 @@ export function repairHistory(messages: Message[]): RepairResult {
   let recoveredResults = new Map<string, ToolResultContent>();
 
   for (const msg of messages) {
-    if (msg.role === 'assistant') {
+    if (msg.role === "assistant") {
       // If previous assistant had unfulfilled tool_use, inject user message
       // using recovered results where available, synthetic for the rest
       if (pendingToolUseIds.size > 0) {
@@ -49,7 +50,7 @@ export function repairHistory(messages: Message[]): RepairResult {
       const cleanedContent: ContentBlock[] = [];
       const newRecovered = new Map<string, ToolResultContent>();
       for (const block of msg.content) {
-        if (block.type === 'tool_result') {
+        if (block.type === "tool_result") {
           const tr = block as ToolResultContent;
           newRecovered.set(tr.tool_use_id, tr);
           stats.assistantToolResultsMigrated++;
@@ -58,12 +59,12 @@ export function repairHistory(messages: Message[]): RepairResult {
         }
       }
 
-      result.push({ role: 'assistant', content: cleanedContent });
+      result.push({ role: "assistant", content: cleanedContent });
 
       // Collect tool_use IDs from this assistant message
       pendingToolUseIds = new Set(
         cleanedContent
-          .filter((b): b is ToolUseContent => b.type === 'tool_use')
+          .filter((b): b is ToolUseContent => b.type === "tool_use")
           .map((b) => b.id),
       );
       recoveredResults = newRecovered;
@@ -74,7 +75,7 @@ export function repairHistory(messages: Message[]): RepairResult {
         const newContent: ContentBlock[] = [];
 
         for (const block of msg.content) {
-          if (block.type === 'tool_result') {
+          if (block.type === "tool_result") {
             const tr = block as ToolResultContent;
             if (pendingToolUseIds.has(tr.tool_use_id)) {
               matchedIds.add(tr.tool_use_id);
@@ -98,7 +99,7 @@ export function repairHistory(messages: Message[]): RepairResult {
             } else {
               stats.missingToolResultsInserted++;
               newContent.push({
-                type: 'tool_result',
+                type: "tool_result",
                 tool_use_id: id,
                 content: SYNTHETIC_RESULT,
                 is_error: true,
@@ -107,20 +108,20 @@ export function repairHistory(messages: Message[]): RepairResult {
           }
         }
 
-        result.push({ role: 'user', content: newContent });
+        result.push({ role: "user", content: newContent });
         pendingToolUseIds = new Set();
         recoveredResults = new Map();
       } else {
         // No pending tool_use — any tool_result here is orphaned
         const newContent: ContentBlock[] = msg.content.map((block) => {
-          if (block.type === 'tool_result') {
+          if (block.type === "tool_result") {
             stats.orphanToolResultsDowngraded++;
             return downgradeToolResult(block as ToolResultContent);
           }
           return block;
         });
 
-        result.push({ role: 'user', content: newContent });
+        result.push({ role: "user", content: newContent });
       }
     }
   }
@@ -156,7 +157,7 @@ function buildResultMessage(
   stats: RepairStats,
 ): Message {
   return {
-    role: 'user',
+    role: "user",
     content: Array.from(ids).map((id) => {
       const rec = recovered.get(id);
       if (rec) {
@@ -165,7 +166,7 @@ function buildResultMessage(
       }
       stats.missingToolResultsInserted++;
       return {
-        type: 'tool_result' as const,
+        type: "tool_result" as const,
         tool_use_id: id,
         content: SYNTHETIC_RESULT,
         is_error: true,
@@ -187,7 +188,7 @@ export function deepRepairHistory(messages: Message[]): RepairResult {
   let cleaned = messages.filter((m) => m.content.length > 0);
 
   // 2. Strip leading assistant messages (provider requires user-first)
-  while (cleaned.length > 0 && cleaned[0].role === 'assistant') {
+  while (cleaned.length > 0 && cleaned[0].role === "assistant") {
     cleaned = cleaned.slice(1);
   }
 
@@ -208,7 +209,7 @@ export function deepRepairHistory(messages: Message[]): RepairResult {
 
 function downgradeToolResult(tr: ToolResultContent): ContentBlock {
   return {
-    type: 'text',
+    type: "text",
     text: `[orphaned tool_result for ${tr.tool_use_id}]: ${tr.content}`,
   };
 }

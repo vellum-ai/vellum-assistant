@@ -1,13 +1,20 @@
 import { spawn } from "child_process";
 
-import { findAssistantByName, loadLatestAssistant } from "../lib/assistant-config";
+import {
+  findAssistantByName,
+  loadLatestAssistant,
+} from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 
 const SSH_OPTS = [
-  "-o", "StrictHostKeyChecking=no",
-  "-o", "UserKnownHostsFile=/dev/null",
-  "-o", "ConnectTimeout=10",
-  "-o", "LogLevel=ERROR",
+  "-o",
+  "StrictHostKeyChecking=no",
+  "-o",
+  "UserKnownHostsFile=/dev/null",
+  "-o",
+  "ConnectTimeout=10",
+  "-o",
+  "LogLevel=ERROR",
 ];
 
 function resolveCloud(entry: AssistantEntry): string {
@@ -40,7 +47,9 @@ export async function ssh(): Promise<void> {
     console.log("SSH into a remote assistant instance.");
     console.log("");
     console.log("Arguments:");
-    console.log("  <name>    Name of the assistant to connect to (defaults to latest)");
+    console.log(
+      "  <name>    Name of the assistant to connect to (defaults to latest)",
+    );
     process.exit(0);
   }
 
@@ -61,7 +70,7 @@ export async function ssh(): Promise<void> {
   if (cloud === "local") {
     console.error(
       "Cannot SSH into a local assistant. Local assistants run directly on this machine.\n" +
-      `Use 'vellum ps ${entry.assistantId}' to check its processes instead.`,
+        `Use 'vellum ps ${entry.assistantId}' to check its processes instead.`,
     );
     process.exit(1);
   }
@@ -77,7 +86,9 @@ export async function ssh(): Promise<void> {
     const project = entry.project;
     const zone = entry.zone;
     if (!project || !zone) {
-      console.error("Error: GCP project and zone not found in assistant config.");
+      console.error(
+        "Error: GCP project and zone not found in assistant config.",
+      );
       process.exit(1);
     }
 
@@ -102,11 +113,7 @@ export async function ssh(): Promise<void> {
 
     console.log(`🔗 Connecting to ${entry.assistantId} via ssh...\n`);
 
-    child = spawn(
-      "ssh",
-      [...SSH_OPTS, sshTarget],
-      { stdio: "inherit" },
-    );
+    child = spawn("ssh", [...SSH_OPTS, sshTarget], { stdio: "inherit" });
   } else {
     console.error(`Error: Unknown cloud type '${cloud}'.`);
     process.exit(1);

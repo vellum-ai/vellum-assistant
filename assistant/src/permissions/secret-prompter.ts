@@ -1,15 +1,15 @@
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { getConfig } from '../config/loader.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import { AssistantError, ErrorCode } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
+import { getConfig } from "../config/loader.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import { AssistantError, ErrorCode } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
 
-type SecretRequestMessage = Extract<ServerMessage, { type: 'secret_request' }>;
+type SecretRequestMessage = Extract<ServerMessage, { type: "secret_request" }>;
 
-const log = getLogger('secret-prompter');
+const log = getLogger("secret-prompter");
 
-export type SecretDelivery = 'store' | 'transient_send';
+export type SecretDelivery = "store" | "transient_send";
 
 export interface SecretPromptResult {
   value: string | null;
@@ -58,15 +58,15 @@ export class SecretPrompter {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        log.warn({ requestId, service, field }, 'Secret prompt timed out');
-        resolve({ value: null, delivery: 'store' });
+        log.warn({ requestId, service, field }, "Secret prompt timed out");
+        resolve({ value: null, delivery: "store" });
       }, timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timer });
 
       const config = getConfig();
       const msg: SecretRequestMessage = {
-        type: 'secret_request',
+        type: "secret_request",
         requestId,
         service,
         field,
@@ -94,21 +94,27 @@ export class SecretPrompter {
    * statements must use metadata-only fields (requestId, service, field).
    * Any future change that adds logging here must be audited for leaks.
    */
-  resolveSecret(requestId: string, value?: string, delivery?: SecretDelivery): void {
+  resolveSecret(
+    requestId: string,
+    value?: string,
+    delivery?: SecretDelivery,
+  ): void {
     const pending = this.pending.get(requestId);
     if (!pending) {
-      log.warn({ requestId }, 'No pending prompt for secret response');
+      log.warn({ requestId }, "No pending prompt for secret response");
       return;
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
-    pending.resolve({ value: value ?? null, delivery: delivery ?? 'store' });
+    pending.resolve({ value: value ?? null, delivery: delivery ?? "store" });
   }
 
   dispose(): void {
     for (const [, pending] of this.pending) {
       clearTimeout(pending.timer);
-      pending.reject(new AssistantError('Prompter disposed', ErrorCode.INTERNAL_ERROR));
+      pending.reject(
+        new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
+      );
     }
     this.pending.clear();
   }

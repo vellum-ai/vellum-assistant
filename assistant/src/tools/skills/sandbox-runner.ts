@@ -1,13 +1,13 @@
-import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync,writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
-import { getConfig } from '../../config/loader.js';
-import { computeSkillVersionHash } from '../../skills/version-hash.js';
-import { buildSanitizedEnv } from '../terminal/safe-env.js';
-import { wrapCommand } from '../terminal/sandbox.js';
-import type { ToolContext,ToolExecutionResult } from '../types.js';
+import { getConfig } from "../../config/loader.js";
+import { computeSkillVersionHash } from "../../skills/version-hash.js";
+import { buildSanitizedEnv } from "../terminal/safe-env.js";
+import { wrapCommand } from "../terminal/sandbox.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_CHARS = 50_000;
@@ -70,9 +70,12 @@ export async function runSkillToolScriptSandbox(
   },
 ): Promise<ToolExecutionResult> {
   const scriptPath = resolve(join(skillDir, executorPath));
-  const resolvedSkillDir = resolve(skillDir) + '/';
+  const resolvedSkillDir = resolve(skillDir) + "/";
   if (!scriptPath.startsWith(resolvedSkillDir)) {
-    return { content: `Skill tool script path "${executorPath}" escapes the skill directory`, isError: true };
+    return {
+      content: `Skill tool script path "${executorPath}" escapes the skill directory`,
+      isError: true,
+    };
   }
 
   // Block execution if the skill has been modified since approval.
@@ -97,16 +100,23 @@ export async function runSkillToolScriptSandbox(
 
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  const runDir = join(skillDir, '.vellum-skill-run', randomUUID());
+  const runDir = join(skillDir, ".vellum-skill-run", randomUUID());
 
   try {
     mkdirSync(runDir, { recursive: true });
-    writeFileSync(join(runDir, '__skill_runner.ts'), buildRunnerSource(scriptPath), 'utf-8');
+    writeFileSync(
+      join(runDir, "__skill_runner.ts"),
+      buildRunnerSource(scriptPath),
+      "utf-8",
+    );
 
     return await spawnRunner(runDir, input, context, timeoutMs, executorPath);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { content: `Failed to run skill tool script "${executorPath}" in sandbox: ${message}`, isError: true };
+    return {
+      content: `Failed to run skill tool script "${executorPath}" in sandbox: ${message}`,
+      isError: true,
+    };
   } finally {
     try {
       rmSync(runDir, { recursive: true, force: true });
@@ -129,11 +139,12 @@ function spawnRunner(
     let timedOut = false;
 
     const config = getConfig();
-    const sandboxConfig = context.sandboxOverride != null
-      ? { ...config.sandbox, enabled: context.sandboxOverride }
-      : config.sandbox;
+    const sandboxConfig =
+      context.sandboxOverride != null
+        ? { ...config.sandbox, enabled: context.sandboxOverride }
+        : config.sandbox;
 
-    const bunRunCmd = 'bun run __skill_runner.ts';
+    const bunRunCmd = "bun run __skill_runner.ts";
     const wrapped = wrapCommand(bunRunCmd, runDir, sandboxConfig);
 
     const env = buildSanitizedEnv();
@@ -148,38 +159,38 @@ function spawnRunner(
     const child = spawn(wrapped.command, wrapped.args, {
       cwd: runDir,
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      child.kill("SIGKILL");
     }, timeoutMs);
 
     // Cooperative cancellation via AbortSignal
     const onAbort = () => {
-      child.kill('SIGKILL');
+      child.kill("SIGKILL");
     };
     if (context.signal) {
       if (context.signal.aborted) {
-        child.kill('SIGKILL');
+        child.kill("SIGKILL");
       } else {
-        context.signal.addEventListener('abort', onAbort, { once: true });
+        context.signal.addEventListener("abort", onAbort, { once: true });
       }
     }
 
-    child.stdout.on('data', (data: Buffer) => stdoutChunks.push(data));
-    child.stderr.on('data', (data: Buffer) => stderrChunks.push(data));
+    child.stdout.on("data", (data: Buffer) => stdoutChunks.push(data));
+    child.stderr.on("data", (data: Buffer) => stderrChunks.push(data));
 
-    child.on('close', (code) => {
+    child.on("close", (code) => {
       clearTimeout(timer);
-      context.signal?.removeEventListener('abort', onAbort);
+      context.signal?.removeEventListener("abort", onAbort);
 
       if (timedOut) {
         resolve({
           content: `Skill tool script "${executorPath}" timed out after ${timeoutMs}ms`,
           isError: true,
-          status: 'timeout',
+          status: "timeout",
         });
         return;
       }
@@ -196,9 +207,10 @@ function spawnRunner(
 
       // No structured result — fall back to raw output
       if (code !== 0) {
-        const truncatedStderr = stderr.length > MAX_OUTPUT_CHARS
-          ? stderr.slice(0, MAX_OUTPUT_CHARS) + '\n[stderr truncated]'
-          : stderr;
+        const truncatedStderr =
+          stderr.length > MAX_OUTPUT_CHARS
+            ? stderr.slice(0, MAX_OUTPUT_CHARS) + "\n[stderr truncated]"
+            : stderr;
         resolve({
           content: `Skill tool script "${executorPath}" exited with code ${code}:\n${truncatedStderr}`,
           isError: true,
@@ -206,15 +218,16 @@ function spawnRunner(
         return;
       }
 
-      const truncatedStdout = stdout.length > MAX_OUTPUT_CHARS
-        ? stdout.slice(0, MAX_OUTPUT_CHARS) + '\n[stdout truncated]'
-        : stdout;
+      const truncatedStdout =
+        stdout.length > MAX_OUTPUT_CHARS
+          ? stdout.slice(0, MAX_OUTPUT_CHARS) + "\n[stdout truncated]"
+          : stdout;
       resolve({ content: truncatedStdout, isError: false });
     });
 
-    child.on('error', (err) => {
+    child.on("error", (err) => {
       clearTimeout(timer);
-      context.signal?.removeEventListener('abort', onAbort);
+      context.signal?.removeEventListener("abort", onAbort);
       resolve({
         content: `Failed to spawn skill tool script "${executorPath}": ${err.message}`,
         isError: true,
@@ -227,21 +240,24 @@ function spawnRunner(
  * Scan stdout for the last occurrence of our structured result marker.
  * Uses a backward-scanning approach to find the last valid result line.
  */
-function parseSkillResult(stdout: string, executorPath: string): ToolExecutionResult | null {
+function parseSkillResult(
+  stdout: string,
+  executorPath: string,
+): ToolExecutionResult | null {
   let searchFrom = stdout.length;
   while (searchFrom > 0) {
-    const markerIdx = stdout.lastIndexOf('__skill_result', searchFrom - 1);
+    const markerIdx = stdout.lastIndexOf("__skill_result", searchFrom - 1);
     if (markerIdx === -1) break;
 
-    const lineStart = stdout.lastIndexOf('\n', markerIdx) + 1;
-    const lineEnd = stdout.indexOf('\n', markerIdx);
+    const lineStart = stdout.lastIndexOf("\n", markerIdx) + 1;
+    const lineEnd = stdout.indexOf("\n", markerIdx);
     const line = stdout.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
 
     try {
       const parsed = JSON.parse(line);
-      if (parsed && typeof parsed === 'object' && '__skill_result' in parsed) {
+      if (parsed && typeof parsed === "object" && "__skill_result" in parsed) {
         const result = parsed.__skill_result;
-        if (result && typeof result === 'object' && 'content' in result) {
+        if (result && typeof result === "object" && "content" in result) {
           return result as ToolExecutionResult;
         }
       }
@@ -254,16 +270,16 @@ function parseSkillResult(stdout: string, executorPath: string): ToolExecutionRe
   // Check for error marker
   searchFrom = stdout.length;
   while (searchFrom > 0) {
-    const markerIdx = stdout.lastIndexOf('__skill_error', searchFrom - 1);
+    const markerIdx = stdout.lastIndexOf("__skill_error", searchFrom - 1);
     if (markerIdx === -1) break;
 
-    const lineStart = stdout.lastIndexOf('\n', markerIdx) + 1;
-    const lineEnd = stdout.indexOf('\n', markerIdx);
+    const lineStart = stdout.lastIndexOf("\n", markerIdx) + 1;
+    const lineEnd = stdout.indexOf("\n", markerIdx);
     const line = stdout.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
 
     try {
       const parsed = JSON.parse(line);
-      if (parsed && typeof parsed === 'object' && '__skill_error' in parsed) {
+      if (parsed && typeof parsed === "object" && "__skill_error" in parsed) {
         return {
           content: `Skill tool script "${executorPath}": ${parsed.__skill_error}`,
           isError: true,

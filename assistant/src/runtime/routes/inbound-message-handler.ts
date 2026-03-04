@@ -159,7 +159,9 @@ export async function handleChannelInbound(
   if (!isChannelId(body.sourceChannel)) {
     return httpError(
       "BAD_REQUEST",
-      `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(", ")}`,
+      `Invalid sourceChannel: ${
+        body.sourceChannel
+      }. Valid values: ${CHANNEL_IDS.join(", ")}`,
       400,
     );
   }
@@ -173,7 +175,9 @@ export async function handleChannelInbound(
   if (!sourceInterface) {
     return httpError(
       "BAD_REQUEST",
-      `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(", ")}`,
+      `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(
+        ", ",
+      )}`,
       400,
     );
   }
@@ -1077,7 +1081,9 @@ export async function handleChannelInbound(
             actorDisplayName: body.actorDisplayName ?? null,
             actorUsername: body.actorUsername ?? null,
           },
-          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${canonicalSenderId ?? rawSenderId!}`,
+          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${
+            canonicalSenderId ?? rawSenderId!
+          }`,
         });
       }
     }

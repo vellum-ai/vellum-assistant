@@ -1,15 +1,15 @@
-import { isAllowDecision, type UserDecision } from '../permissions/types.js';
-import type { ToolLifecycleEventHandler } from '../tools/types.js';
-import type { EventBus } from './bus.js';
-import type { AssistantDomainEvents } from './domain-events.js';
+import { isAllowDecision, type UserDecision } from "../permissions/types.js";
+import type { ToolLifecycleEventHandler } from "../tools/types.js";
+import type { EventBus } from "./bus.js";
+import type { AssistantDomainEvents } from "./domain-events.js";
 
 export function createToolDomainEventPublisher(
   eventBus: EventBus<AssistantDomainEvents>,
 ): ToolLifecycleEventHandler {
   return async (event) => {
     switch (event.type) {
-      case 'start':
-        await eventBus.emit('tool.execution.started', {
+      case "start":
+        await eventBus.emit("tool.execution.started", {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
           requestId: event.requestId,
@@ -18,8 +18,8 @@ export function createToolDomainEventPublisher(
           startedAtMs: event.startedAtMs,
         });
         break;
-      case 'permission_prompt':
-        await eventBus.emit('tool.permission.requested', {
+      case "permission_prompt":
+        await eventBus.emit("tool.permission.requested", {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
           requestId: event.requestId,
@@ -28,8 +28,8 @@ export function createToolDomainEventPublisher(
           requestedAtMs: Date.now(),
         });
         break;
-      case 'permission_denied':
-        await eventBus.emit('tool.permission.decided', {
+      case "permission_denied":
+        await eventBus.emit("tool.permission.decided", {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
           requestId: event.requestId,
@@ -39,19 +39,20 @@ export function createToolDomainEventPublisher(
           decidedAtMs: Date.now(),
         });
         break;
-      case 'executed':
+      case "executed":
         if (isAllowDecision(event.decision as UserDecision)) {
-          await eventBus.emit('tool.permission.decided', {
+          await eventBus.emit("tool.permission.decided", {
             conversationId: event.conversationId,
             sessionId: event.sessionId,
             requestId: event.requestId,
             toolName: event.toolName,
-            decision: event.decision as AssistantDomainEvents['tool.permission.decided']['decision'],
+            decision:
+              event.decision as AssistantDomainEvents["tool.permission.decided"]["decision"],
             riskLevel: event.riskLevel,
             decidedAtMs: Date.now(),
           });
         }
-        await eventBus.emit('tool.execution.finished', {
+        await eventBus.emit("tool.execution.finished", {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
           requestId: event.requestId,
@@ -63,19 +64,20 @@ export function createToolDomainEventPublisher(
           finishedAtMs: Date.now(),
         });
         break;
-      case 'error':
+      case "error":
         if (isAllowDecision(event.decision as UserDecision)) {
-          await eventBus.emit('tool.permission.decided', {
+          await eventBus.emit("tool.permission.decided", {
             conversationId: event.conversationId,
             sessionId: event.sessionId,
             requestId: event.requestId,
             toolName: event.toolName,
-            decision: event.decision as AssistantDomainEvents['tool.permission.decided']['decision'],
+            decision:
+              event.decision as AssistantDomainEvents["tool.permission.decided"]["decision"],
             riskLevel: event.riskLevel,
             decidedAtMs: Date.now(),
           });
         }
-        await eventBus.emit('tool.execution.failed', {
+        await eventBus.emit("tool.execution.failed", {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
           requestId: event.requestId,
@@ -90,8 +92,8 @@ export function createToolDomainEventPublisher(
           failedAtMs: Date.now(),
         });
         break;
-      case 'secret_detected':
-        await eventBus.emit('tool.secret.detected', {
+      case "secret_detected":
+        await eventBus.emit("tool.secret.detected", {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
           requestId: event.requestId,

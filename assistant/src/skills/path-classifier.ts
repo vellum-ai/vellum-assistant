@@ -1,8 +1,8 @@
-import { existsSync,realpathSync } from 'node:fs';
-import { basename, dirname, normalize, resolve, sep } from 'node:path';
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, normalize, resolve, sep } from "node:path";
 
-import { getBundledSkillsDir } from '../config/skills.js';
-import { getWorkspaceSkillsDir } from '../util/platform.js';
+import { getBundledSkillsDir } from "../config/skills.js";
+import { getWorkspaceSkillsDir } from "../util/platform.js";
 
 /**
  * Returns the managed skills root directory. Managed skills are user-installed
@@ -44,7 +44,7 @@ export function normalizeDirPath(dirPath: string): string {
   while (current !== dirname(current)) {
     if (existsSync(current)) {
       const realBase = realpathSync(current);
-      const tail = segments.reduceRight((acc, seg) => acc + sep + seg, '');
+      const tail = segments.reduceRight((acc, seg) => acc + sep + seg, "");
       const full = normalize(realBase + tail);
       return full.endsWith(sep) ? full : full + sep;
     }
@@ -91,10 +91,7 @@ export function normalizeFilePath(filePath: string): string {
  * be passed via the `extraRoots` parameter.
  */
 export function getSkillRoots(extraRoots?: string[]): string[] {
-  const roots = [
-    getManagedSkillsRoot(),
-    getBundledSkillsRoot(),
-  ];
+  const roots = [getManagedSkillsRoot(), getBundledSkillsRoot()];
   if (extraRoots) {
     for (const root of extraRoots) {
       roots.push(normalizeDirPath(root));
@@ -115,7 +112,10 @@ export function getSkillRoots(extraRoots?: string[]): string[] {
  * @param extraRoots - Optional additional skill root directories to check.
  * @returns true if the path is inside any skill directory.
  */
-export function isSkillSourcePath(absPath: string, extraRoots?: string[]): boolean {
+export function isSkillSourcePath(
+  absPath: string,
+  extraRoots?: string[],
+): boolean {
   const normalizedPath = normalizeFilePath(absPath);
   const roots = getSkillRoots(extraRoots);
 

@@ -73,12 +73,17 @@ async function retryableWhatsAppFetch<T>(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       lastError = new Error(`WhatsApp ${operation} request failed: ${message}`);
-      log.warn({ error: message, attempt, operation }, "WhatsApp API fetch failed");
+      log.warn(
+        { error: message, attempt, operation },
+        "WhatsApp API fetch failed",
+      );
       continue;
     }
 
     if (!isRetryable(response.status) && !response.ok) {
-      const data = (await response.json().catch(() => ({}))) as WhatsAppApiErrorResponse;
+      const data = (await response
+        .json()
+        .catch(() => ({}))) as WhatsAppApiErrorResponse;
       throw new Error(
         data.error?.message
           ? `WhatsApp ${operation} failed: ${data.error.message}`
@@ -88,14 +93,21 @@ async function retryableWhatsAppFetch<T>(
 
     if (isRetryable(response.status)) {
       lastRetryAfter = response.headers.get("retry-after");
-      const data = (await response.json().catch(() => ({}))) as WhatsAppApiErrorResponse;
+      const data = (await response
+        .json()
+        .catch(() => ({}))) as WhatsAppApiErrorResponse;
       lastError = new Error(
         data.error?.message
           ? `WhatsApp ${operation} failed: ${data.error.message}`
           : `WhatsApp ${operation} failed with status ${response.status}`,
       );
       log.warn(
-        { status: response.status, attempt, operation, retryAfter: lastRetryAfter },
+        {
+          status: response.status,
+          attempt,
+          operation,
+          retryAfter: lastRetryAfter,
+        },
         "WhatsApp API returned retryable error",
       );
       continue;

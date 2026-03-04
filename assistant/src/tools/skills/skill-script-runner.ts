@@ -1,10 +1,14 @@
-import { basename, join, resolve } from 'node:path';
+import { basename, join, resolve } from "node:path";
 
-import { bundledToolRegistry } from '../../config/bundled-tool-registry.js';
-import { computeSkillVersionHash } from '../../skills/version-hash.js';
-import type { ExecutionTarget,ToolContext, ToolExecutionResult } from '../types.js';
-import { runSkillToolScriptSandbox } from './sandbox-runner.js';
-import type { SkillToolScript } from './script-contract.js';
+import { bundledToolRegistry } from "../../config/bundled-tool-registry.js";
+import { computeSkillVersionHash } from "../../skills/version-hash.js";
+import type {
+  ExecutionTarget,
+  ToolContext,
+  ToolExecutionResult,
+} from "../types.js";
+import { runSkillToolScriptSandbox } from "./sandbox-runner.js";
+import type { SkillToolScript } from "./script-contract.js";
 
 export interface RunSkillToolScriptOptions {
   /** Where to execute: 'host' runs in-process, 'sandbox' runs in an isolated subprocess. */
@@ -36,7 +40,7 @@ export async function runSkillToolScript(
   context: ToolContext,
   options?: RunSkillToolScriptOptions,
 ): Promise<ToolExecutionResult> {
-  if (options?.target === 'sandbox') {
+  if (options?.target === "sandbox") {
     return runSkillToolScriptSandbox(skillDir, executorPath, input, context, {
       timeoutMs: options.timeoutMs,
       expectedSkillVersionHash: options.expectedSkillVersionHash,
@@ -45,9 +49,12 @@ export async function runSkillToolScript(
   }
 
   const scriptPath = resolve(join(skillDir, executorPath));
-  const resolvedSkillDir = resolve(skillDir) + '/';
+  const resolvedSkillDir = resolve(skillDir) + "/";
   if (!scriptPath.startsWith(resolvedSkillDir)) {
-    return { content: `Skill tool script path "${executorPath}" escapes the skill directory`, isError: true };
+    return {
+      content: `Skill tool script path "${executorPath}" escapes the skill directory`,
+      isError: true,
+    };
   }
 
   // Block execution if the skill has been modified since approval.
@@ -85,18 +92,27 @@ export async function runSkillToolScript(
       module = await import(scriptPath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return { content: `Failed to load skill tool script "${executorPath}": ${message}`, isError: true };
+      return {
+        content: `Failed to load skill tool script "${executorPath}": ${message}`,
+        isError: true,
+      };
     }
   }
 
-  if (typeof module!.run !== 'function') {
-    return { content: `Skill tool script "${executorPath}" does not export a "run" function`, isError: true };
+  if (typeof module!.run !== "function") {
+    return {
+      content: `Skill tool script "${executorPath}" does not export a "run" function`,
+      isError: true,
+    };
   }
 
   try {
     return await module!.run(input, context);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { content: `Skill tool script "${executorPath}" threw an error: ${message}`, isError: true };
+    return {
+      content: `Skill tool script "${executorPath}" threw an error: ${message}`,
+      isError: true,
+    };
   }
 }

@@ -5,12 +5,12 @@
 // === Client -> Server ===
 
 export interface GuardianActionsPendingRequest {
-  type: 'guardian_actions_pending_request';
+  type: "guardian_actions_pending_request";
   conversationId: string;
 }
 
 export interface GuardianActionDecision {
-  type: 'guardian_action_decision';
+  type: "guardian_action_decision";
   requestId: string;
   action: string;
   conversationId?: string;
@@ -19,7 +19,7 @@ export interface GuardianActionDecision {
 // === Server -> Client ===
 
 export interface GuardianActionsPendingResponse {
-  type: 'guardian_actions_pending_response';
+  type: "guardian_actions_pending_response";
   conversationId: string;
   prompts: Array<{
     requestId: string;
@@ -41,7 +41,7 @@ export interface GuardianActionsPendingResponse {
 }
 
 export interface GuardianActionDecisionResponse {
-  type: 'guardian_action_decision_response';
+  type: "guardian_action_decision_response";
   applied: boolean;
   reason?: string;
   resolverFailureReason?: string;

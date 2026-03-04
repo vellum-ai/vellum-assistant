@@ -2,13 +2,18 @@
  * IPC handlers for subagent operations initiated by the client.
  */
 
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import * as conversationStore from '../../memory/conversation-store.js';
-import { getSubagentManager } from '../../subagent/index.js';
-import type { SubagentAbortRequest, SubagentDetailRequest,SubagentMessageRequest, SubagentStatusRequest } from '../ipc-protocol.js';
-import type { HandlerContext } from './shared.js';
-import { defineHandlers, isRecord,log } from './shared.js';
+import * as conversationStore from "../../memory/conversation-store.js";
+import { getSubagentManager } from "../../subagent/index.js";
+import type {
+  SubagentAbortRequest,
+  SubagentDetailRequest,
+  SubagentMessageRequest,
+  SubagentStatusRequest,
+} from "../ipc-protocol.js";
+import type { HandlerContext } from "./shared.js";
+import { defineHandlers, isRecord, log } from "./shared.js";
 
 export function handleSubagentAbort(
   msg: SubagentAbortRequest,
@@ -17,12 +22,16 @@ export function handleSubagentAbort(
 ): void {
   const callerSessionId = ctx.socketToSession.get(socket);
   if (!callerSessionId) {
-    log.warn({ subagentId: msg.subagentId }, 'Abort rejected: socket has no bound session');
+    log.warn(
+      { subagentId: msg.subagentId },
+      "Abort rejected: socket has no bound session",
+    );
     return;
   }
 
   const manager = getSubagentManager();
-  const sendToClient = (m: unknown) => ctx.send(socket, m as Parameters<typeof ctx.send>[1]);
+  const sendToClient = (m: unknown) =>
+    ctx.send(socket, m as Parameters<typeof ctx.send>[1]);
   const aborted = manager.abort(
     msg.subagentId,
     sendToClient as Parameters<typeof manager.abort>[1],
@@ -30,7 +39,10 @@ export function handleSubagentAbort(
   );
 
   if (!aborted) {
-    log.warn({ subagentId: msg.subagentId }, 'Client requested abort for unknown or terminal subagent');
+    log.warn(
+      { subagentId: msg.subagentId },
+      "Client requested abort for unknown or terminal subagent",
+    );
   }
 }
 
@@ -43,7 +55,7 @@ export function handleSubagentStatus(
 
   const callerSessionId = ctx.socketToSession.get(socket);
   if (!callerSessionId) {
-    log.warn('Status rejected: socket has no bound session');
+    log.warn("Status rejected: socket has no bound session");
     return;
   }
 
@@ -51,14 +63,14 @@ export function handleSubagentStatus(
     const state = manager.getState(msg.subagentId);
     if (!state || state.config.parentSessionId !== callerSessionId) {
       ctx.send(socket, {
-        type: 'error',
+        type: "error",
         message: `Subagent "${msg.subagentId}" not found.`,
-        category: 'subagent_not_found',
+        category: "subagent_not_found",
       });
       return;
     }
     ctx.send(socket, {
-      type: 'subagent_status_changed',
+      type: "subagent_status_changed",
       subagentId: msg.subagentId,
       status: state.status,
       error: state.error,
@@ -71,7 +83,7 @@ export function handleSubagentStatus(
   const children = manager.getChildrenOf(callerSessionId);
   for (const child of children) {
     ctx.send(socket, {
-      type: 'subagent_status_changed',
+      type: "subagent_status_changed",
       subagentId: child.config.id,
       status: child.status,
       error: child.error,
@@ -87,11 +99,14 @@ export async function handleSubagentMessage(
 ): Promise<void> {
   const callerSessionId = ctx.socketToSession.get(socket);
   if (!callerSessionId) {
-    log.warn({ subagentId: msg.subagentId }, 'Message rejected: socket has no bound session');
+    log.warn(
+      { subagentId: msg.subagentId },
+      "Message rejected: socket has no bound session",
+    );
     ctx.send(socket, {
-      type: 'error',
-      message: 'No active session.',
-      category: 'subagent_not_found',
+      type: "error",
+      message: "No active session.",
+      category: "subagent_not_found",
     });
     return;
   }
@@ -101,37 +116,49 @@ export async function handleSubagentMessage(
   // Ownership check: verify the caller owns this subagent.
   const state = manager.getState(msg.subagentId);
   if (!state || state.config.parentSessionId !== callerSessionId) {
-    log.warn({ subagentId: msg.subagentId, callerSessionId }, 'Client sent message to unknown or unowned subagent');
+    log.warn(
+      { subagentId: msg.subagentId, callerSessionId },
+      "Client sent message to unknown or unowned subagent",
+    );
     ctx.send(socket, {
-      type: 'error',
+      type: "error",
       message: `Subagent "${msg.subagentId}" not found or in terminal state.`,
-      category: 'subagent_not_found',
+      category: "subagent_not_found",
     });
     return;
   }
 
   const result = await manager.sendMessage(msg.subagentId, msg.content);
 
-  if (result === 'queue_full') {
-    log.warn({ subagentId: msg.subagentId }, 'Subagent message rejected — queue full');
+  if (result === "queue_full") {
+    log.warn(
+      { subagentId: msg.subagentId },
+      "Subagent message rejected — queue full",
+    );
     ctx.send(socket, {
-      type: 'error',
+      type: "error",
       message: `Subagent "${msg.subagentId}" message queue is full. Please wait for current messages to be processed.`,
-      category: 'queue_full',
+      category: "queue_full",
     });
-  } else if (result === 'empty') {
-    log.warn({ subagentId: msg.subagentId }, 'Subagent message rejected — empty content');
+  } else if (result === "empty") {
+    log.warn(
+      { subagentId: msg.subagentId },
+      "Subagent message rejected — empty content",
+    );
     ctx.send(socket, {
-      type: 'error',
-      message: 'Message content is empty or whitespace-only.',
-      category: 'empty_content',
+      type: "error",
+      message: "Message content is empty or whitespace-only.",
+      category: "empty_content",
     });
-  } else if (result !== 'sent') {
-    log.warn({ subagentId: msg.subagentId, reason: result }, 'Client sent message to terminal subagent');
+  } else if (result !== "sent") {
+    log.warn(
+      { subagentId: msg.subagentId, reason: result },
+      "Client sent message to terminal subagent",
+    );
     ctx.send(socket, {
-      type: 'error',
+      type: "error",
       message: `Subagent "${msg.subagentId}" not found or in terminal state.`,
-      category: 'subagent_not_found',
+      category: "subagent_not_found",
     });
   }
 }
@@ -144,7 +171,10 @@ export function handleSubagentDetailRequest(
   // Ownership check: reject if the socket has no bound session.
   const callerSessionId = ctx.socketToSession.get(socket);
   if (!callerSessionId) {
-    log.warn({ subagentId: msg.subagentId }, 'Detail request rejected: socket has no bound session');
+    log.warn(
+      { subagentId: msg.subagentId },
+      "Detail request rejected: socket has no bound session",
+    );
     return;
   }
 
@@ -155,7 +185,10 @@ export function handleSubagentDetailRequest(
   const manager = getSubagentManager();
   const state = manager.getState(msg.subagentId);
   if (state && state.config.parentSessionId !== callerSessionId) {
-    log.warn({ subagentId: msg.subagentId, callerSessionId }, 'Detail request rejected: subagent not owned by caller');
+    log.warn(
+      { subagentId: msg.subagentId, callerSessionId },
+      "Detail request rejected: subagent not owned by caller",
+    );
     return;
   }
 
@@ -163,54 +196,82 @@ export function handleSubagentDetailRequest(
 
   // Extract objective from the first user message
   let objective: string | undefined;
-  const firstUser = subagentMsgs.find(m => m.role === 'user');
+  const firstUser = subagentMsgs.find((m) => m.role === "user");
   if (firstUser) {
     try {
       const parsed = JSON.parse(firstUser.content);
       if (Array.isArray(parsed)) {
-        const textBlock = parsed.find((b: Record<string, unknown>) => isRecord(b) && b.type === 'text');
-        if (textBlock && typeof textBlock.text === 'string') {
+        const textBlock = parsed.find(
+          (b: Record<string, unknown>) => isRecord(b) && b.type === "text",
+        );
+        if (textBlock && typeof textBlock.text === "string") {
           objective = textBlock.text;
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   // Extract events from both assistant and user messages.
   // Subagent conversations are not consolidated, so tool_result blocks
   // live in separate user-role messages following the assistant's tool_use.
-  const events: Array<{ type: string; content: string; toolName?: string; isError?: boolean }> = [];
+  const events: Array<{
+    type: string;
+    content: string;
+    toolName?: string;
+    isError?: boolean;
+  }> = [];
   const pendingTools = new Map<string, string>();
   for (const m of subagentMsgs) {
-    if (m.role !== 'assistant' && m.role !== 'user') continue;
+    if (m.role !== "assistant" && m.role !== "user") continue;
     let content: unknown[];
     try {
       const parsed = JSON.parse(m.content);
       content = Array.isArray(parsed) ? parsed : [];
-    } catch { continue; }
+    } catch {
+      continue;
+    }
 
     for (const block of content) {
-      if (!isRecord(block) || typeof block.type !== 'string') continue;
-      if (m.role === 'assistant' && block.type === 'text' && typeof block.text === 'string') {
-        events.push({ type: 'text', content: block.text });
-      } else if (block.type === 'tool_use') {
-        const name = typeof block.name === 'string' ? block.name : 'unknown';
-        const input = isRecord(block.input) ? block.input as Record<string, unknown> : {};
-        const id = typeof block.id === 'string' ? block.id : '';
-        events.push({ type: 'tool_use', content: JSON.stringify(input), toolName: name });
+      if (!isRecord(block) || typeof block.type !== "string") continue;
+      if (
+        m.role === "assistant" &&
+        block.type === "text" &&
+        typeof block.text === "string"
+      ) {
+        events.push({ type: "text", content: block.text });
+      } else if (block.type === "tool_use") {
+        const name = typeof block.name === "string" ? block.name : "unknown";
+        const input = isRecord(block.input)
+          ? (block.input as Record<string, unknown>)
+          : {};
+        const id = typeof block.id === "string" ? block.id : "";
+        events.push({
+          type: "tool_use",
+          content: JSON.stringify(input),
+          toolName: name,
+        });
         if (id) pendingTools.set(id, name);
-      } else if (block.type === 'tool_result') {
-        const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
-        const resultContent = typeof block.content === 'string' ? block.content : '';
+      } else if (block.type === "tool_result") {
+        const toolUseId =
+          typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+        const resultContent =
+          typeof block.content === "string" ? block.content : "";
         const isError = block.is_error === true;
         const toolName = toolUseId ? pendingTools.get(toolUseId) : undefined;
-        events.push({ type: 'tool_result', content: resultContent, toolName: toolName ?? 'unknown', isError });
+        events.push({
+          type: "tool_result",
+          content: resultContent,
+          toolName: toolName ?? "unknown",
+          isError,
+        });
       }
     }
   }
 
   ctx.send(socket, {
-    type: 'subagent_detail_response',
+    type: "subagent_detail_response",
     subagentId: msg.subagentId,
     objective,
     events,

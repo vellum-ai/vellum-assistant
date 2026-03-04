@@ -1,114 +1,151 @@
-import { getCCCommand, loadCCCommandTemplate } from '../../commands/cc-command-registry.js';
-import { getConfig } from '../../config/loader.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import type { WorkerProfile } from '../../swarm/worker-backend.js';
-import { getProfilePolicy } from '../../swarm/worker-backend.js';
-import { getLogger } from '../../util/logger.js';
-import { truncate } from '../../util/truncate.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import {
+  getCCCommand,
+  loadCCCommandTemplate,
+} from "../../commands/cc-command-registry.js";
+import { getConfig } from "../../config/loader.js";
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import type { WorkerProfile } from "../../swarm/worker-backend.js";
+import { getProfilePolicy } from "../../swarm/worker-backend.js";
+import { getLogger } from "../../util/logger.js";
+import { truncate } from "../../util/truncate.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
-const log = getLogger('claude-code-tool');
+const log = getLogger("claude-code-tool");
 
 // Tools that CC can use without user approval
 const AUTO_APPROVE_TOOLS = new Set([
-  'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch',
-  'LS', 'Bash(grep *)', 'Bash(rg *)', 'Bash(find *)',
+  "Read",
+  "Glob",
+  "Grep",
+  "WebSearch",
+  "WebFetch",
+  "LS",
+  "Bash(grep *)",
+  "Bash(rg *)",
+  "Bash(find *)",
 ]);
 
 // Tools that always require user approval via confirmation IPC
 const APPROVAL_REQUIRED_TOOLS = new Set([
-  'Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit',
-
+  "Bash",
+  "Edit",
+  "Write",
+  "MultiEdit",
+  "NotebookEdit",
 ]);
 
-const VALID_PROFILES: readonly WorkerProfile[] = ['general', 'researcher', 'coder', 'reviewer'];
+const VALID_PROFILES: readonly WorkerProfile[] = [
+  "general",
+  "researcher",
+  "coder",
+  "reviewer",
+];
 
 // Maximum nesting depth for Claude Code subprocesses.
 // Depth 0 = top-level assistant, depth 1 = first subprocess, etc.
 const MAX_CLAUDE_CODE_DEPTH = 1;
-const DEPTH_ENV_VAR = 'VELLUM_CLAUDE_CODE_DEPTH';
+const DEPTH_ENV_VAR = "VELLUM_CLAUDE_CODE_DEPTH";
 
-function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
+function summarizeToolInput(
+  toolName: string,
+  input: Record<string, unknown>,
+): string {
   // Extract the most relevant field for each tool type
   const name = toolName.toLowerCase();
-  if (name === 'bash') return String(input.command ?? '');
-  if (name === 'read' || name === 'file_read') return String(input.file_path ?? input.path ?? '');
-  if (name === 'edit' || name === 'file_edit') return String(input.file_path ?? input.path ?? '');
-  if (name === 'write' || name === 'file_write') return String(input.file_path ?? input.path ?? '');
-  if (name === 'glob') return String(input.pattern ?? '');
-  if (name === 'grep') return String(input.pattern ?? '');
-  if (name === 'websearch' || name === 'web_search') return String(input.query ?? '');
-  if (name === 'webfetch' || name === 'web_fetch') return String(input.url ?? '');
-  if (name === 'task') return String(input.description ?? '');
+  if (name === "bash") return String(input.command ?? "");
+  if (name === "read" || name === "file_read")
+    return String(input.file_path ?? input.path ?? "");
+  if (name === "edit" || name === "file_edit")
+    return String(input.file_path ?? input.path ?? "");
+  if (name === "write" || name === "file_write")
+    return String(input.file_path ?? input.path ?? "");
+  if (name === "glob") return String(input.pattern ?? "");
+  if (name === "grep") return String(input.pattern ?? "");
+  if (name === "websearch" || name === "web_search")
+    return String(input.query ?? "");
+  if (name === "webfetch" || name === "web_fetch")
+    return String(input.url ?? "");
+  if (name === "task") return String(input.description ?? "");
   // Fallback: first string value
   for (const val of Object.values(input)) {
-    if (typeof val === 'string' && val.length > 0 && val.length < 200) return val;
+    if (typeof val === "string" && val.length > 0 && val.length < 200)
+      return val;
   }
-  return '';
+  return "";
 }
 
 export const claudeCodeTool: Tool = {
-  name: 'claude_code',
-  description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
-  category: 'coding',
+  name: "claude_code",
+  description:
+    "Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.",
+  category: "coding",
   defaultRiskLevel: RiskLevel.Medium,
 
   getDefinition(): ToolDefinition {
     return {
-      name: 'claude_code',
+      name: "claude_code",
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           prompt: {
-            type: 'string',
-            description: 'The coding task or question for Claude Code to work on. Use this for free-form tasks. Mutually exclusive with command.',
+            type: "string",
+            description:
+              "The coding task or question for Claude Code to work on. Use this for free-form tasks. Mutually exclusive with command.",
           },
           command: {
-            type: 'string',
-            description: 'Name of a .claude/commands/*.md command template to execute. The template will be loaded and $ARGUMENTS substituted before execution. Use this instead of prompt when invoking a named CC command.',
+            type: "string",
+            description:
+              "Name of a .claude/commands/*.md command template to execute. The template will be loaded and $ARGUMENTS substituted before execution. Use this instead of prompt when invoking a named CC command.",
           },
           arguments: {
-            type: 'string',
-            description: 'Arguments to substitute into the command template ($ARGUMENTS placeholder). Only used with the command input.',
+            type: "string",
+            description:
+              "Arguments to substitute into the command template ($ARGUMENTS placeholder). Only used with the command input.",
           },
           working_dir: {
-            type: 'string',
-            description: 'Working directory for Claude Code (defaults to session working directory)',
+            type: "string",
+            description:
+              "Working directory for Claude Code (defaults to session working directory)",
           },
           resume: {
-            type: 'string',
-            description: 'Claude Code session ID to resume a previous session',
+            type: "string",
+            description: "Claude Code session ID to resume a previous session",
           },
           model: {
-            type: 'string',
-            description: 'Model to use (defaults to claude-sonnet-4-6)',
+            type: "string",
+            description: "Model to use (defaults to claude-sonnet-4-6)",
           },
           profile: {
-            type: 'string',
-            enum: ['general', 'researcher', 'coder', 'reviewer'],
-            description: 'Worker profile that scopes tool access. Defaults to general (backward compatible).',
+            type: "string",
+            enum: ["general", "researcher", "coder", "reviewer"],
+            description:
+              "Worker profile that scopes tool access. Defaults to general (backward compatible).",
           },
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of what you are delegating and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of what you are delegating and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
       },
     };
   },
 
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     if (context.signal?.aborted) {
-      return { content: 'Cancelled', isError: true };
+      return { content: "Cancelled", isError: true };
     }
 
     const workingDir = (input.working_dir as string) || context.workingDir;
 
     // Resolve prompt: either from direct prompt input or by loading a CC command template
     let prompt: string;
-    if (input.command != null && typeof input.command !== 'string') {
+    if (input.command != null && typeof input.command !== "string") {
       return {
         content: `Error: "command" must be a string, got ${typeof input.command}`,
         isError: true,
@@ -138,11 +175,14 @@ export const claudeCodeTool: Tool = {
       }
 
       // Substitute $ARGUMENTS placeholder with the provided arguments
-      const args = (input.arguments as string) ?? '';
+      const args = (input.arguments as string) ?? "";
       prompt = template.replace(/\$ARGUMENTS/g, args);
 
-      log.info({ command: commandName, templatePath: entry.filePath, hasArgs: !!args }, 'Loaded CC command template');
-    } else if (typeof input.prompt === 'string') {
+      log.info(
+        { command: commandName, templatePath: entry.filePath, hasArgs: !!args },
+        "Loaded CC command template",
+      );
+    } else if (typeof input.prompt === "string") {
       prompt = input.prompt;
     } else {
       return {
@@ -151,13 +191,16 @@ export const claudeCodeTool: Tool = {
       };
     }
     const resumeSessionId = input.resume as string | undefined;
-    const model = (input.model as string) || 'claude-sonnet-4-6';
-    const profileName = (input.profile as WorkerProfile | undefined) ?? 'general';
+    const model = (input.model as string) || "claude-sonnet-4-6";
+    const profileName =
+      (input.profile as WorkerProfile | undefined) ?? "general";
 
     // Validate profile
     if (!VALID_PROFILES.includes(profileName)) {
       return {
-        content: `Error: Invalid profile "${profileName}". Valid profiles: ${VALID_PROFILES.join(', ')}.`,
+        content: `Error: Invalid profile "${profileName}". Valid profiles: ${VALID_PROFILES.join(
+          ", ",
+        )}.`,
         isError: true,
       };
     }
@@ -169,18 +212,19 @@ export const claudeCodeTool: Tool = {
     const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return {
-        content: 'Error: No Anthropic API key configured. Set it via config or ANTHROPIC_API_KEY environment variable.',
+        content:
+          "Error: No Anthropic API key configured. Set it via config or ANTHROPIC_API_KEY environment variable.",
         isError: true,
       };
     }
 
     // Dynamic import of the Agent SDK
-    let sdkModule: typeof import('@anthropic-ai/claude-agent-sdk');
+    let sdkModule: typeof import("@anthropic-ai/claude-agent-sdk");
     try {
-      sdkModule = await import('@anthropic-ai/claude-agent-sdk');
+      sdkModule = await import("@anthropic-ai/claude-agent-sdk");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.error({ err }, 'Failed to load Claude Agent SDK');
+      log.error({ err }, "Failed to load Claude Agent SDK");
       return {
         content: `Error: Failed to load Claude Agent SDK: ${message}`,
         isError: true,
@@ -192,53 +236,86 @@ export const claudeCodeTool: Tool = {
     // Collect stderr output from the Claude Code subprocess for debugging
     const stderrLines: string[] = [];
 
-    log.info({ prompt: truncate(prompt, 100, ''), workingDir, model, resume: !!resumeSessionId }, 'Starting Claude Code session');
+    log.info(
+      {
+        prompt: truncate(prompt, 100, ""),
+        workingDir,
+        model,
+        resume: !!resumeSessionId,
+      },
+      "Starting Claude Code session",
+    );
 
     // Build the canUseTool callback, enforcing profile-based restrictions
-    const canUseTool: import('@anthropic-ai/claude-agent-sdk').CanUseTool = async (toolName, toolInput, _options) => {
-      // Profile hard-deny check first
-      if (profilePolicy.deny.has(toolName)) {
-        log.debug({ toolName, profile: profileName }, 'Tool denied by profile policy');
-        return { behavior: 'deny' as const, message: `Tool "${toolName}" is denied by profile "${profileName}"` };
-      }
-
-      // Profile explicit allow (auto-approve)
-      if (profilePolicy.allow.has(toolName)) {
-        return { behavior: 'allow' as const };
-      }
-
-      // Auto-approve safe read-only tools (backward compat for general profile)
-      if (AUTO_APPROVE_TOOLS.has(toolName)) {
-        return { behavior: 'allow' as const };
-      }
-
-      // For tools that need approval, bridge to Vellum's confirmation flow
-      if (!context.requestConfirmation) {
-        log.warn({ toolName }, 'Claude Code tool requires approval but no requestConfirmation callback available');
-        return { behavior: 'deny' as const, message: 'Tool approval not available in this context' };
-      }
-
-      try {
-        const result = await context.requestConfirmation({
-          toolName,
-          input: toolInput,
-          riskLevel: APPROVAL_REQUIRED_TOOLS.has(toolName) ? 'Medium' : 'Low',
-          principal: context.principal,
-        });
-        if (result.decision === 'allow') {
-          return { behavior: 'allow' as const };
+    const canUseTool: import("@anthropic-ai/claude-agent-sdk").CanUseTool =
+      async (toolName, toolInput, _options) => {
+        // Profile hard-deny check first
+        if (profilePolicy.deny.has(toolName)) {
+          log.debug(
+            { toolName, profile: profileName },
+            "Tool denied by profile policy",
+          );
+          return {
+            behavior: "deny" as const,
+            message: `Tool "${toolName}" is denied by profile "${profileName}"`,
+          };
         }
-        return { behavior: 'deny' as const, message: `User denied ${toolName}` };
-      } catch (err) {
-        log.debug({ err, toolName }, 'requestConfirmation rejected (likely abort)');
-        return { behavior: 'deny' as const, message: 'Approval request cancelled' };
-      }
-    };
+
+        // Profile explicit allow (auto-approve)
+        if (profilePolicy.allow.has(toolName)) {
+          return { behavior: "allow" as const };
+        }
+
+        // Auto-approve safe read-only tools (backward compat for general profile)
+        if (AUTO_APPROVE_TOOLS.has(toolName)) {
+          return { behavior: "allow" as const };
+        }
+
+        // For tools that need approval, bridge to Vellum's confirmation flow
+        if (!context.requestConfirmation) {
+          log.warn(
+            { toolName },
+            "Claude Code tool requires approval but no requestConfirmation callback available",
+          );
+          return {
+            behavior: "deny" as const,
+            message: "Tool approval not available in this context",
+          };
+        }
+
+        try {
+          const result = await context.requestConfirmation({
+            toolName,
+            input: toolInput,
+            riskLevel: APPROVAL_REQUIRED_TOOLS.has(toolName) ? "Medium" : "Low",
+            principal: context.principal,
+          });
+          if (result.decision === "allow") {
+            return { behavior: "allow" as const };
+          }
+          return {
+            behavior: "deny" as const,
+            message: `User denied ${toolName}`,
+          };
+        } catch (err) {
+          log.debug(
+            { err, toolName },
+            "requestConfirmation rejected (likely abort)",
+          );
+          return {
+            behavior: "deny" as const,
+            message: "Approval request cancelled",
+          };
+        }
+      };
 
     // Enforce nesting depth limit to prevent infinite recursion.
-    const currentDepth = parseInt(process.env[DEPTH_ENV_VAR] ?? '0', 10);
+    const currentDepth = parseInt(process.env[DEPTH_ENV_VAR] ?? "0", 10);
     if (currentDepth >= MAX_CLAUDE_CODE_DEPTH) {
-      log.warn({ currentDepth, max: MAX_CLAUDE_CODE_DEPTH }, 'Claude Code nesting depth exceeded');
+      log.warn(
+        { currentDepth, max: MAX_CLAUDE_CODE_DEPTH },
+        "Claude Code nesting depth exceeded",
+      );
       return {
         content: `Error: Claude Code nesting depth exceeded (depth ${currentDepth}, max ${MAX_CLAUDE_CODE_DEPTH}). Cannot spawn another Claude Code subprocess.`,
         isError: true,
@@ -256,11 +333,11 @@ export const claudeCodeTool: Tool = {
     delete subprocessEnv.CLAUDE_CODE_ENTRYPOINT;
 
     // Build query options
-    const queryOptions: import('@anthropic-ai/claude-agent-sdk').Options = {
+    const queryOptions: import("@anthropic-ai/claude-agent-sdk").Options = {
       cwd: workingDir,
       model,
       canUseTool,
-      permissionMode: 'default',
+      permissionMode: "default",
       allowedTools: [...AUTO_APPROVE_TOOLS],
       env: subprocessEnv,
       maxTurns: 50,
@@ -269,7 +346,7 @@ export const claudeCodeTool: Tool = {
         const trimmed = data.trimEnd();
         if (trimmed) {
           stderrLines.push(trimmed);
-          log.debug({ stderr: trimmed }, 'Claude Code subprocess stderr');
+          log.debug({ stderr: trimmed }, "Claude Code subprocess stderr");
         }
       },
     };
@@ -284,35 +361,47 @@ export const claudeCodeTool: Tool = {
 
     try {
       const conversation = query({ prompt, options: queryOptions });
-      let resultText = '';
-      let sessionId = '';
+      let resultText = "";
+      let sessionId = "";
       let hasError = false;
 
       // Track tool_use_id → {name, inputSummary} for enriching progress events.
-      const toolUseIdInfo = new Map<string, { name: string; inputSummary: string }>();
+      const toolUseIdInfo = new Map<
+        string,
+        { name: string; inputSummary: string }
+      >();
       // Track tool_use_ids that we've already emitted tool_start for (to avoid duplicates).
       const emittedToolUseIds = new Set<string>();
 
       for await (const message of conversation) {
         switch (message.type) {
-          case 'assistant': {
+          case "assistant": {
             // Check for SDK-level errors on the assistant message
             if (message.error) {
-              log.error({ error: message.error, sessionId: message.session_id }, 'Claude Code assistant message error');
+              log.error(
+                { error: message.error, sessionId: message.session_id },
+                "Claude Code assistant message error",
+              );
               hasError = true;
               resultText += `\n\n[Claude Code error: ${message.error}]`;
             }
             // Extract text from assistant messages
             if (message.message?.content) {
               for (const block of message.message.content) {
-                if (block.type === 'text') {
+                if (block.type === "text") {
                   context.onOutput?.(block.text);
                   resultText += block.text;
                 }
-                if (block.type === 'tool_use') {
+                if (block.type === "tool_use") {
                   // Capture info keyed by tool_use_id for enriching tool_progress events.
-                  const inputSummary = summarizeToolInput(block.name, block.input as Record<string, unknown>);
-                  toolUseIdInfo.set(block.id, { name: block.name, inputSummary });
+                  const inputSummary = summarizeToolInput(
+                    block.name,
+                    block.input as Record<string, unknown>,
+                  );
+                  toolUseIdInfo.set(block.id, {
+                    name: block.name,
+                    inputSummary,
+                  });
 
                   // Emit tool_start if we haven't already (tool_progress may have fired first).
                   // NOTE: Do NOT emit tool_complete for the previous tool here. An assistant
@@ -320,12 +409,14 @@ export const claudeCodeTool: Tool = {
                   // of them have executed yet at this point. Completions are handled by
                   // tool_use_summary and tool_progress events.
                   if (!emittedToolUseIds.has(block.id)) {
-                    context.onOutput?.(JSON.stringify({
-                      subType: 'tool_start',
-                      subToolName: block.name,
-                      subToolInput: inputSummary,
-                      subToolId: block.id,
-                    }));
+                    context.onOutput?.(
+                      JSON.stringify({
+                        subType: "tool_start",
+                        subToolName: block.name,
+                        subToolInput: inputSummary,
+                        subToolId: block.id,
+                      }),
+                    );
                     emittedToolUseIds.add(block.id);
                     lastSubToolName = block.name;
                     activeToolUseId = block.id;
@@ -336,7 +427,7 @@ export const claudeCodeTool: Tool = {
             sessionId = message.session_id;
             break;
           }
-          case 'tool_progress': {
+          case "tool_progress": {
             // The SDK fires tool_progress periodically DURING tool execution.
             // This is our primary signal for live sub-tool progress.
             const toolUseId = message.tool_use_id;
@@ -345,44 +436,55 @@ export const claudeCodeTool: Tool = {
 
             // Record tool name if we don't have it yet (tool_progress fires before assistant sometimes).
             if (!toolUseIdInfo.has(toolUseId)) {
-              toolUseIdInfo.set(toolUseId, { name: toolName, inputSummary: '' });
+              toolUseIdInfo.set(toolUseId, {
+                name: toolName,
+                inputSummary: "",
+              });
             }
 
             if (!emittedToolUseIds.has(toolUseId)) {
               // New tool — mark previous as complete and emit tool_start.
               if (lastSubToolName && activeToolUseId !== toolUseId) {
-                context.onOutput?.(JSON.stringify({
-                  subType: 'tool_complete',
-                  subToolName: lastSubToolName,
-                  subToolId: activeToolUseId,
-                }));
+                context.onOutput?.(
+                  JSON.stringify({
+                    subType: "tool_complete",
+                    subToolName: lastSubToolName,
+                    subToolId: activeToolUseId,
+                  }),
+                );
               }
-              const inputSummary = toolUseIdInfo.get(toolUseId)?.inputSummary ?? '';
-              context.onOutput?.(JSON.stringify({
-                subType: 'tool_start',
-                subToolName: toolName,
-                subToolInput: inputSummary,
-                subToolId: toolUseId,
-              }));
+              const inputSummary =
+                toolUseIdInfo.get(toolUseId)?.inputSummary ?? "";
+              context.onOutput?.(
+                JSON.stringify({
+                  subType: "tool_start",
+                  subToolName: toolName,
+                  subToolInput: inputSummary,
+                  subToolId: toolUseId,
+                }),
+              );
               emittedToolUseIds.add(toolUseId);
               lastSubToolName = toolName;
             }
             activeToolUseId = toolUseId;
             break;
           }
-          case 'tool_use_summary': {
+          case "tool_use_summary": {
             // The SDK fires tool_use_summary after tool execution with a summary
             // and the IDs of tools that were executed.
             sessionId = message.session_id;
             for (const completedId of message.preceding_tool_use_ids) {
               const info = toolUseIdInfo.get(completedId);
-              const completedName: string | null = info?.name ?? lastSubToolName;
+              const completedName: string | null =
+                info?.name ?? lastSubToolName;
               if (completedName && emittedToolUseIds.has(completedId)) {
-                context.onOutput?.(JSON.stringify({
-                  subType: 'tool_complete',
-                  subToolName: completedName,
-                  subToolId: completedId,
-                }));
+                context.onOutput?.(
+                  JSON.stringify({
+                    subType: "tool_complete",
+                    subToolName: completedName,
+                    subToolId: completedId,
+                  }),
+                );
                 if (lastSubToolName === completedName) {
                   lastSubToolName = null;
                 }
@@ -394,16 +496,18 @@ export const claudeCodeTool: Tool = {
             activeToolUseId = null;
             break;
           }
-          case 'result': {
+          case "result": {
             // Mark the final sub-tool as complete (flag error if the session failed).
             if (lastSubToolName) {
-              const isFailure = message.subtype !== 'success';
-              context.onOutput?.(JSON.stringify({
-                subType: 'tool_complete',
-                subToolName: lastSubToolName,
-                subToolId: activeToolUseId,
-                ...(isFailure && { subToolIsError: true }),
-              }));
+              const isFailure = message.subtype !== "success";
+              context.onOutput?.(
+                JSON.stringify({
+                  subType: "tool_complete",
+                  subToolName: lastSubToolName,
+                  subToolId: activeToolUseId,
+                  ...(isFailure && { subToolIsError: true }),
+                }),
+              );
               lastSubToolName = null;
             }
             sessionId = message.session_id;
@@ -415,8 +519,11 @@ export const claudeCodeTool: Tool = {
               stopReason: message.stop_reason,
             };
 
-            if (message.subtype === 'success') {
-              log.info(resultMeta, 'Claude Code session completed successfully');
+            if (message.subtype === "success") {
+              log.info(
+                resultMeta,
+                "Claude Code session completed successfully",
+              );
               if (message.result && !resultText) {
                 resultText = message.result;
               }
@@ -426,30 +533,46 @@ export const claudeCodeTool: Tool = {
               const errors = message.errors ?? [];
               const denials = message.permission_denials ?? [];
 
-              log.error({ ...resultMeta, errors, permissionDenials: denials.length }, 'Claude Code session failed');
+              log.error(
+                { ...resultMeta, errors, permissionDenials: denials.length },
+                "Claude Code session failed",
+              );
 
               const parts: string[] = [];
-              parts.push(`[${message.subtype}] (${message.num_turns} turns, ${(message.duration_ms / 1000).toFixed(1)}s)`);
+              parts.push(
+                `[${message.subtype}] (${message.num_turns} turns, ${(
+                  message.duration_ms / 1000
+                ).toFixed(1)}s)`,
+              );
               if (errors.length > 0) {
-                parts.push(`Errors: ${errors.join('; ')}`);
+                parts.push(`Errors: ${errors.join("; ")}`);
               }
               if (denials.length > 0) {
-                const denialSummary = denials.map((d: { tool_name: string }) => `${d.tool_name}`).join(', ');
+                const denialSummary = denials
+                  .map((d: { tool_name: string }) => `${d.tool_name}`)
+                  .join(", ");
                 parts.push(`Permission denied: ${denialSummary}`);
               }
-              resultText += `\n\n${parts.join('\n')}`;
+              resultText += `\n\n${parts.join("\n")}`;
             }
             break;
           }
           default:
             // Log unhandled message types at debug level for diagnostics
-            log.debug({ messageType: message.type }, 'Claude Code unhandled message type');
+            log.debug(
+              { messageType: message.type },
+              "Claude Code unhandled message type",
+            );
             break;
         }
       }
 
-      const output = resultText.trim() || 'Claude Code completed without producing text output.';
-      const sessionInfo = sessionId ? `\n\n[Claude Code session: ${sessionId}]` : '';
+      const output =
+        resultText.trim() ||
+        "Claude Code completed without producing text output.";
+      const sessionInfo = sessionId
+        ? `\n\n[Claude Code session: ${sessionId}]`
+        : "";
 
       return {
         content: output + sessionInfo,
@@ -458,25 +581,34 @@ export const claudeCodeTool: Tool = {
     } catch (err) {
       // Mark the last sub-tool as failed so the UI shows an error icon.
       if (lastSubToolName) {
-        context.onOutput?.(JSON.stringify({
-          subType: 'tool_complete',
-          subToolName: lastSubToolName,
-          subToolId: activeToolUseId,
-          subToolIsError: true,
-        }));
+        context.onOutput?.(
+          JSON.stringify({
+            subType: "tool_complete",
+            subToolName: lastSubToolName,
+            subToolId: activeToolUseId,
+            subToolIsError: true,
+          }),
+        );
         lastSubToolName = null;
       }
 
       const errMessage = err instanceof Error ? err.message : String(err);
       const recentStderr = stderrLines.slice(-20);
-      log.error({ err, stderrTail: recentStderr }, 'Claude Code execution failed');
+      log.error(
+        { err, stderrTail: recentStderr },
+        "Claude Code execution failed",
+      );
 
       const parts = [`Claude Code error: ${errMessage}`];
       if (recentStderr.length > 0) {
-        parts.push(`\nSubprocess stderr (last ${recentStderr.length} lines):\n${recentStderr.join('\n')}`);
+        parts.push(
+          `\nSubprocess stderr (last ${
+            recentStderr.length
+          } lines):\n${recentStderr.join("\n")}`,
+        );
       }
       return {
-        content: parts.join(''),
+        content: parts.join(""),
         isError: true,
       };
     }

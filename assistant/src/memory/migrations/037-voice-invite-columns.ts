@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Add voice invite columns to assistant_ingress_invites for guardian-initiated
@@ -10,7 +10,25 @@ import type { DrizzleDb } from '../db-connection.js';
  * - voice_code_digits: configurable digit count (nullable — NULL for non-voice invites)
  */
 export function migrateVoiceInviteColumns(database: DrizzleDb): void {
-  try { database.run(/*sql*/ `ALTER TABLE assistant_ingress_invites ADD COLUMN expected_external_user_id TEXT`); } catch { /* already exists */ }
-  try { database.run(/*sql*/ `ALTER TABLE assistant_ingress_invites ADD COLUMN voice_code_hash TEXT`); } catch { /* already exists */ }
-  try { database.run(/*sql*/ `ALTER TABLE assistant_ingress_invites ADD COLUMN voice_code_digits INTEGER`); } catch { /* already exists */ }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE assistant_ingress_invites ADD COLUMN expected_external_user_id TEXT`,
+    );
+  } catch {
+    /* already exists */
+  }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE assistant_ingress_invites ADD COLUMN voice_code_hash TEXT`,
+    );
+  } catch {
+    /* already exists */
+  }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE assistant_ingress_invites ADD COLUMN voice_code_digits INTEGER`,
+    );
+  } catch {
+    /* already exists */
+  }
 }

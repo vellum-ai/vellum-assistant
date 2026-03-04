@@ -228,7 +228,9 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
         sourceChannel: "telegram",
         interface: "telegram",
         conversationExternalId: "chat-123",
-        externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        externalMessageId: `msg-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`,
         content: "hello",
         actorExternalId: "telegram-user-default",
         replyCallbackUrl: "https://gateway.test/deliver/telegram",

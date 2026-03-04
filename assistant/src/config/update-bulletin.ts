@@ -1,17 +1,28 @@
-import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 
-import { getWorkspacePromptPath } from '../util/platform.js';
-import { APP_VERSION } from '../version.js';
-import { stripCommentLines } from './system-prompt.js';
-import { appendReleaseBlock, hasReleaseBlock } from './update-bulletin-format.js';
+import { getWorkspacePromptPath } from "../util/platform.js";
+import { APP_VERSION } from "../version.js";
+import { stripCommentLines } from "./system-prompt.js";
+import {
+  appendReleaseBlock,
+  hasReleaseBlock,
+} from "./update-bulletin-format.js";
 import {
   addActiveRelease,
   getActiveReleases,
   isReleaseCompleted,
   markReleasesCompleted,
   setActiveReleases,
-} from './update-bulletin-state.js';
-import { getTemplatePath } from './update-bulletin-template-path.js';
+} from "./update-bulletin-state.js";
+import { getTemplatePath } from "./update-bulletin-template-path.js";
 
 /**
  * Writes content to a file via a temp-file + rename to prevent partial/truncated
@@ -20,7 +31,7 @@ import { getTemplatePath } from './update-bulletin-template-path.js';
 function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.tmp.${process.pid}`;
   try {
-    writeFileSync(tmpPath, content, 'utf-8');
+    writeFileSync(tmpPath, content, "utf-8");
     // Resolve symlinks so we rename to the real target, preserving the link.
     // If the symlink is dangling (target doesn't exist), fall back to writing
     // through the symlink path directly — realpathSync throws ENOENT for dangling links.
@@ -32,7 +43,11 @@ function atomicWriteFileSync(filePath: string, content: string): void {
     } catch (err: unknown) {
       // Dangling symlink — fall back to writing through the symlink path.
       // Only swallow ENOENT (dangling target); re-throw ELOOP, EACCES, I/O faults, etc.
-      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if (
+        err instanceof Error &&
+        "code" in err &&
+        (err as NodeJS.ErrnoException).code !== "ENOENT"
+      ) {
         throw err;
       }
     }
@@ -60,7 +75,7 @@ function atomicWriteFileSync(filePath: string, content: string): void {
  */
 export function syncUpdateBulletinOnStartup(): void {
   const currentReleaseId = APP_VERSION;
-  const workspacePath = getWorkspacePromptPath('UPDATES.md');
+  const workspacePath = getWorkspacePromptPath("UPDATES.md");
 
   // --- Deletion completion ---
   // If UPDATES.md was deleted and there are active releases, the assistant
@@ -75,7 +90,7 @@ export function syncUpdateBulletinOnStartup(): void {
   const templatePath = getTemplatePath();
   if (!existsSync(templatePath)) return;
 
-  const rawTemplate = readFileSync(templatePath, 'utf-8');
+  const rawTemplate = readFileSync(templatePath, "utf-8");
   const templateContent = stripCommentLines(rawTemplate);
 
   if (!templateContent || templateContent.trim().length === 0) return;
@@ -83,12 +98,16 @@ export function syncUpdateBulletinOnStartup(): void {
   if (isReleaseCompleted(currentReleaseId)) return;
 
   if (!existsSync(workspacePath)) {
-    const content = appendReleaseBlock('', currentReleaseId, templateContent);
+    const content = appendReleaseBlock("", currentReleaseId, templateContent);
     atomicWriteFileSync(workspacePath, content);
   } else {
-    const existing = readFileSync(workspacePath, 'utf-8');
+    const existing = readFileSync(workspacePath, "utf-8");
     if (!hasReleaseBlock(existing, currentReleaseId)) {
-      const updated = appendReleaseBlock(existing, currentReleaseId, templateContent);
+      const updated = appendReleaseBlock(
+        existing,
+        currentReleaseId,
+        templateContent,
+      );
       atomicWriteFileSync(workspacePath, updated);
     }
   }

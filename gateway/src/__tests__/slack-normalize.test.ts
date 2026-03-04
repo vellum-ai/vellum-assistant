@@ -52,7 +52,9 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   } as GatewayConfig;
 }
 
-function makeEvent(overrides: Partial<SlackAppMentionEvent> = {}): SlackAppMentionEvent {
+function makeEvent(
+  overrides: Partial<SlackAppMentionEvent> = {},
+): SlackAppMentionEvent {
   return {
     type: "app_mention",
     user: "U_USER123",
@@ -85,7 +87,9 @@ describe("stripBotMention", () => {
   });
 
   test("does not strip mid-text mentions", () => {
-    expect(stripBotMention("hello <@U123BOT> world")).toBe("hello <@U123BOT> world");
+    expect(stripBotMention("hello <@U123BOT> world")).toBe(
+      "hello <@U123BOT> world",
+    );
   });
 });
 
@@ -120,7 +124,10 @@ describe("normalizeSlackAppMention", () => {
 
   test("externalMessageId falls back to ts when client_msg_id is absent", () => {
     const config = makeConfig();
-    const event = makeEvent({ client_msg_id: undefined, ts: "1700000000.000100" });
+    const event = makeEvent({
+      client_msg_id: undefined,
+      ts: "1700000000.000100",
+    });
     const result = normalizeSlackAppMention(event, "evt-004", config);
 
     expect(result).not.toBeNull();
@@ -208,6 +215,8 @@ describe("normalizeSlackAppMention", () => {
     const result = normalizeSlackAppMention(event, "evt-012", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.raw).toEqual(event as unknown as Record<string, unknown>);
+    expect(result!.event.raw).toEqual(
+      event as unknown as Record<string, unknown>,
+    );
   });
 });

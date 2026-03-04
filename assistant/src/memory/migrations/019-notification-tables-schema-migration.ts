@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * One-time migration: drop legacy enum-based notification tables so they can
@@ -17,21 +17,23 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
  */
 export function migrateNotificationTablesSchema(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
-  const checkpointKey = 'migration_notification_tables_schema_v1';
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey);
+  const checkpointKey = "migration_notification_tables_schema_v1";
+  const checkpoint = raw
+    .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey);
   if (checkpoint) return;
 
   // Check if the old schema is present: the legacy notification_events table
   // had a `notification_type` column that the new schema does not.
-  const hasOldSchema = raw.query(
-    `SELECT COUNT(*) as cnt FROM pragma_table_info('notification_events') WHERE name = 'notification_type'`,
-  ).get() as { cnt: number } | undefined;
+  const hasOldSchema = raw
+    .query(
+      `SELECT COUNT(*) as cnt FROM pragma_table_info('notification_events') WHERE name = 'notification_type'`,
+    )
+    .get() as { cnt: number } | undefined;
 
   if (hasOldSchema && hasOldSchema.cnt > 0) {
     try {
-      raw.exec('BEGIN');
+      raw.exec("BEGIN");
 
       // Drop in FK-safe order: children before parents
       raw.exec(/*sql*/ `DROP TABLE IF EXISTS notification_deliveries`);
@@ -39,13 +41,19 @@ export function migrateNotificationTablesSchema(database: DrizzleDb): void {
       raw.exec(/*sql*/ `DROP TABLE IF EXISTS notification_events`);
       raw.exec(/*sql*/ `DROP TABLE IF EXISTS notification_preferences`);
 
-      raw.query(
-        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-      ).run(checkpointKey, Date.now());
+      raw
+        .query(
+          `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+        )
+        .run(checkpointKey, Date.now());
 
-      raw.exec('COMMIT');
+      raw.exec("COMMIT");
     } catch (e) {
-      try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+      try {
+        raw.exec("ROLLBACK");
+      } catch {
+        /* no active transaction */
+      }
       throw e;
     }
   } else {
@@ -53,17 +61,23 @@ export function migrateNotificationTablesSchema(database: DrizzleDb): void {
     // Still clean up notification_preferences if it exists, since we want
     // to ensure it's removed regardless.
     try {
-      raw.exec('BEGIN');
+      raw.exec("BEGIN");
 
       raw.exec(/*sql*/ `DROP TABLE IF EXISTS notification_preferences`);
 
-      raw.query(
-        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-      ).run(checkpointKey, Date.now());
+      raw
+        .query(
+          `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+        )
+        .run(checkpointKey, Date.now());
 
-      raw.exec('COMMIT');
+      raw.exec("COMMIT");
     } catch (e) {
-      try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+      try {
+        raw.exec("ROLLBACK");
+      } catch {
+        /* no active transaction */
+      }
       throw e;
     }
   }

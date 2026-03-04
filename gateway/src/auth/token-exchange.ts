@@ -10,14 +10,14 @@
  * segment to 'self' (the daemon's internal scope constant).
  */
 
-import { getLogger } from '../logger.js';
+import { getLogger } from "../logger.js";
 
-import { CURRENT_POLICY_EPOCH } from './policy.js';
-import { parseSub } from './subject.js';
-import { mintToken, verifyToken, type VerifyResult } from './token-service.js';
-import type { ScopeProfile, TokenClaims } from './types.js';
+import { CURRENT_POLICY_EPOCH } from "./policy.js";
+import { parseSub } from "./subject.js";
+import { mintToken, verifyToken, type VerifyResult } from "./token-service.js";
+import type { ScopeProfile, TokenClaims } from "./types.js";
 
-const log = getLogger('token-exchange');
+const log = getLogger("token-exchange");
 
 /** TTL for exchange tokens — short-lived, minted per-request. */
 const EXCHANGE_TOKEN_TTL_SECONDS = 60;
@@ -39,7 +39,7 @@ export function validateEdgeToken(
   token: string,
   opts?: { allowExpired?: boolean },
 ): VerifyResult {
-  return verifyToken(token, 'vellum-gateway', opts);
+  return verifyToken(token, "vellum-gateway", opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -60,27 +60,30 @@ export function mintExchangeToken(
 
   if (!parsed.ok) {
     // If sub parsing fails, log and use a gateway service sub as fallback
-    log.warn({ sub: edgeClaims.sub, reason: parsed.reason }, 'Failed to parse edge token sub, using gateway service sub');
-    exchangeSub = 'svc:gateway:self';
+    log.warn(
+      { sub: edgeClaims.sub, reason: parsed.reason },
+      "Failed to parse edge token sub, using gateway service sub",
+    );
+    exchangeSub = "svc:gateway:self";
   } else {
     // Rewrite the assistant segment to 'self'
     switch (parsed.principalType) {
-      case 'actor':
+      case "actor":
         exchangeSub = `actor:self:${parsed.actorPrincipalId}`;
         break;
-      case 'svc_gateway':
-        exchangeSub = 'svc:gateway:self';
+      case "svc_gateway":
+        exchangeSub = "svc:gateway:self";
         break;
-      case 'ipc':
+      case "ipc":
         exchangeSub = `ipc:self:${parsed.sessionId}`;
         break;
       default:
-        exchangeSub = 'svc:gateway:self';
+        exchangeSub = "svc:gateway:self";
     }
   }
 
   return mintToken({
-    aud: 'vellum-daemon',
+    aud: "vellum-daemon",
     sub: exchangeSub,
     scope_profile: targetScopeProfile,
     policy_epoch: CURRENT_POLICY_EPOCH,
@@ -101,9 +104,9 @@ export function mintExchangeToken(
  */
 export function mintIngressToken(): string {
   return mintToken({
-    aud: 'vellum-daemon',
-    sub: 'svc:gateway:self',
-    scope_profile: 'gateway_ingress_v1',
+    aud: "vellum-daemon",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_ingress_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: EXCHANGE_TOKEN_TTL_SECONDS,
   });
@@ -118,9 +121,9 @@ export function mintIngressToken(): string {
  */
 export function mintServiceToken(): string {
   return mintToken({
-    aud: 'vellum-daemon',
-    sub: 'svc:gateway:self',
-    scope_profile: 'gateway_service_v1',
+    aud: "vellum-daemon",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: EXCHANGE_TOKEN_TTL_SECONDS,
   });

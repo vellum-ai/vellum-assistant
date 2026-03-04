@@ -16,28 +16,30 @@
  * a retry prompt.
  */
 
-import { getLogger } from '../util/logger.js';
-import { getGuardianActionFallbackMessage } from './guardian-action-message-composer.js';
+import { getLogger } from "../util/logger.js";
+import { getGuardianActionFallbackMessage } from "./guardian-action-message-composer.js";
 import type {
   GuardianFollowUpConversationContext,
   GuardianFollowUpConversationGenerator,
   GuardianFollowUpDisposition,
   GuardianFollowUpTurnResult,
-} from './http-types.js';
+} from "./http-types.js";
 
-const log = getLogger('guardian-action-conversation-turn');
+const log = getLogger("guardian-action-conversation-turn");
 
 // ---------------------------------------------------------------------------
 // Fallback text
 // ---------------------------------------------------------------------------
 
-const FALLBACK_RETRY_TEXT = getGuardianActionFallbackMessage({ scenario: 'guardian_followup_clarification' });
+const FALLBACK_RETRY_TEXT = getGuardianActionFallbackMessage({
+  scenario: "guardian_followup_clarification",
+});
 
 const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
-  'call_back',
-  'message_back',
-  'decline',
-  'keep_pending',
+  "call_back",
+  "message_back",
+  "decline",
+  "keep_pending",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -56,22 +58,33 @@ export async function processGuardianFollowUpTurn(
   generator?: GuardianFollowUpConversationGenerator,
 ): Promise<GuardianFollowUpTurnResult> {
   if (!generator) {
-    log.warn('No guardian follow-up conversation generator available, using fallback');
-    return { disposition: 'keep_pending', replyText: FALLBACK_RETRY_TEXT };
+    log.warn(
+      "No guardian follow-up conversation generator available, using fallback",
+    );
+    return { disposition: "keep_pending", replyText: FALLBACK_RETRY_TEXT };
   }
 
   try {
     const result = await generator(context);
 
     // Validate the generator's output
-    if (!result || typeof result.replyText !== 'string' || result.replyText.trim().length === 0) {
-      log.warn('Guardian follow-up generator returned invalid result (missing replyText)');
-      return { disposition: 'keep_pending', replyText: FALLBACK_RETRY_TEXT };
+    if (
+      !result ||
+      typeof result.replyText !== "string" ||
+      result.replyText.trim().length === 0
+    ) {
+      log.warn(
+        "Guardian follow-up generator returned invalid result (missing replyText)",
+      );
+      return { disposition: "keep_pending", replyText: FALLBACK_RETRY_TEXT };
     }
 
     if (!VALID_DISPOSITIONS.has(result.disposition)) {
-      log.warn({ disposition: result.disposition }, 'Guardian follow-up generator returned invalid disposition');
-      return { disposition: 'keep_pending', replyText: FALLBACK_RETRY_TEXT };
+      log.warn(
+        { disposition: result.disposition },
+        "Guardian follow-up generator returned invalid disposition",
+      );
+      return { disposition: "keep_pending", replyText: FALLBACK_RETRY_TEXT };
     }
 
     return {
@@ -79,7 +92,10 @@ export async function processGuardianFollowUpTurn(
       replyText: result.replyText.trim(),
     };
   } catch (err) {
-    log.warn({ err }, 'Guardian follow-up conversation generator failed, using fallback');
-    return { disposition: 'keep_pending', replyText: FALLBACK_RETRY_TEXT };
+    log.warn(
+      { err },
+      "Guardian follow-up conversation generator failed, using fallback",
+    );
+    return { disposition: "keep_pending", replyText: FALLBACK_RETRY_TEXT };
   }
 }

@@ -1,5 +1,5 @@
-import { normalizePhoneNumber } from '../../util/phone.js';
-import { type DrizzleDb, getSqliteFrom } from '../db-connection.js';
+import { normalizePhoneNumber } from "../../util/phone.js";
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * One-shot migration: normalize phone-like identity fields to E.164 format.
@@ -27,13 +27,13 @@ import { type DrizzleDb, getSqliteFrom } from '../db-connection.js';
  */
 export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
-  const checkpointKey = 'migration_normalize_phone_identities_v1';
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey);
+  const checkpointKey = "migration_normalize_phone_identities_v1";
+  const checkpoint = raw
+    .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey);
   if (checkpoint) return;
 
-  const PHONE_CHANNELS = ['sms', 'voice', 'whatsapp'];
+  const PHONE_CHANNELS = ["sms", "voice", "whatsapp"];
 
   /**
    * Unique key scope definition for collision detection.
@@ -59,25 +59,25 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     channelColumn: string,
     uniqueKeyScope?: UniqueKeyScope,
   ): void {
-    const tableExists = raw.query(
-      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
-    ).get(table);
+    const tableExists = raw
+      .query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(table);
     if (!tableExists) return;
 
-    const colExists = raw.query(
-      `SELECT 1 FROM pragma_table_info(?) WHERE name = ?`,
-    ).get(table, column);
+    const colExists = raw
+      .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`)
+      .get(table, column);
     if (!colExists) return;
 
-    const chanColExists = raw.query(
-      `SELECT 1 FROM pragma_table_info(?) WHERE name = ?`,
-    ).get(table, channelColumn);
+    const chanColExists = raw
+      .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`)
+      .get(table, channelColumn);
     if (!chanColExists) return;
 
-    const hasUpdatedAt = !!raw.query(
-      `SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`,
-    ).get(table);
-    const orderBy = hasUpdatedAt ? 'updated_at DESC, rowid DESC' : 'rowid DESC';
+    const hasUpdatedAt = !!raw
+      .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`)
+      .get(table);
+    const orderBy = hasUpdatedAt ? "updated_at DESC, rowid DESC" : "rowid DESC";
 
     const selectColumns = [`id`, column];
     if (uniqueKeyScope) {
@@ -86,18 +86,18 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
       }
     }
 
-    const rows = raw.query(
-      `SELECT ${selectColumns.join(', ')} FROM ${table} WHERE ${channelColumn} IN (${PHONE_CHANNELS.map(() => '?').join(',')}) AND ${column} IS NOT NULL ORDER BY ${orderBy}`,
-    ).all(...PHONE_CHANNELS) as Array<{ id: string; [key: string]: string }>;
+    const rows = raw
+      .query(
+        `SELECT ${selectColumns.join(", ")} FROM ${table} WHERE ${channelColumn} IN (${PHONE_CHANNELS.map(() => "?").join(",")}) AND ${column} IS NOT NULL ORDER BY ${orderBy}`,
+      )
+      .all(...PHONE_CHANNELS) as Array<{ id: string; [key: string]: string }>;
 
     if (rows.length === 0) return;
 
     const update = raw.prepare(
       `UPDATE ${table} SET ${column} = ? WHERE id = ?`,
     );
-    const deleteRow = raw.prepare(
-      `DELETE FROM ${table} WHERE id = ?`,
-    );
+    const deleteRow = raw.prepare(`DELETE FROM ${table} WHERE id = ?`);
 
     for (const row of rows) {
       const original = row[column];
@@ -108,12 +108,16 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
           // Check if another row already has the normalized value within the same unique-key scope
           const peerConditions = uniqueKeyScope.peerColumns
             .map((col) => `${col} = ?`)
-            .join(' AND ');
+            .join(" AND ");
           const peerValues = uniqueKeyScope.peerColumns.map((col) => row[col]);
-          const whereExtra = uniqueKeyScope.whereClause ? ` AND (${uniqueKeyScope.whereClause})` : '';
-          const existing = raw.query(
-            `SELECT 1 FROM ${table} WHERE ${column} = ? AND ${peerConditions} AND id != ?${whereExtra}`,
-          ).get(normalized, ...peerValues, row.id);
+          const whereExtra = uniqueKeyScope.whereClause
+            ? ` AND (${uniqueKeyScope.whereClause})`
+            : "";
+          const existing = raw
+            .query(
+              `SELECT 1 FROM ${table} WHERE ${column} = ? AND ${peerConditions} AND id != ?${whereExtra}`,
+            )
+            .get(normalized, ...peerValues, row.id);
           if (existing) {
             // A canonical row already exists — delete this duplicate
             deleteRow.run(row.id);
@@ -135,20 +139,20 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     column: string,
     uniqueKeyScope?: UniqueKeyScope,
   ): void {
-    const tableExists = raw.query(
-      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
-    ).get(table);
+    const tableExists = raw
+      .query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(table);
     if (!tableExists) return;
 
-    const colExists = raw.query(
-      `SELECT 1 FROM pragma_table_info(?) WHERE name = ?`,
-    ).get(table, column);
+    const colExists = raw
+      .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`)
+      .get(table, column);
     if (!colExists) return;
 
-    const hasUpdatedAt = !!raw.query(
-      `SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`,
-    ).get(table);
-    const orderBy = hasUpdatedAt ? 'updated_at DESC, rowid DESC' : 'rowid DESC';
+    const hasUpdatedAt = !!raw
+      .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`)
+      .get(table);
+    const orderBy = hasUpdatedAt ? "updated_at DESC, rowid DESC" : "rowid DESC";
 
     const selectColumns = [`id`, column];
     if (uniqueKeyScope) {
@@ -157,18 +161,18 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
       }
     }
 
-    const rows = raw.query(
-      `SELECT ${selectColumns.join(', ')} FROM ${table} WHERE ${column} IS NOT NULL ORDER BY ${orderBy}`,
-    ).all() as Array<{ id: string; [key: string]: string }>;
+    const rows = raw
+      .query(
+        `SELECT ${selectColumns.join(", ")} FROM ${table} WHERE ${column} IS NOT NULL ORDER BY ${orderBy}`,
+      )
+      .all() as Array<{ id: string; [key: string]: string }>;
 
     if (rows.length === 0) return;
 
     const update = raw.prepare(
       `UPDATE ${table} SET ${column} = ? WHERE id = ?`,
     );
-    const deleteRow = raw.prepare(
-      `DELETE FROM ${table} WHERE id = ?`,
-    );
+    const deleteRow = raw.prepare(`DELETE FROM ${table} WHERE id = ?`);
 
     for (const row of rows) {
       const original = row[column];
@@ -178,12 +182,16 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
         if (uniqueKeyScope) {
           const peerConditions = uniqueKeyScope.peerColumns
             .map((col) => `${col} = ?`)
-            .join(' AND ');
+            .join(" AND ");
           const peerValues = uniqueKeyScope.peerColumns.map((col) => row[col]);
-          const whereExtra = uniqueKeyScope.whereClause ? ` AND (${uniqueKeyScope.whereClause})` : '';
-          const existing = raw.query(
-            `SELECT 1 FROM ${table} WHERE ${column} = ? AND ${peerConditions} AND id != ?${whereExtra}`,
-          ).get(normalized, ...peerValues, row.id);
+          const whereExtra = uniqueKeyScope.whereClause
+            ? ` AND (${uniqueKeyScope.whereClause})`
+            : "";
+          const existing = raw
+            .query(
+              `SELECT 1 FROM ${table} WHERE ${column} = ? AND ${peerConditions} AND id != ?${whereExtra}`,
+            )
+            .get(normalized, ...peerValues, row.id);
           if (existing) {
             deleteRow.run(row.id);
             continue;
@@ -195,16 +203,16 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
   }
 
   try {
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
 
     // ── channel_guardian_bindings ──────────────────────────────────
     // Has `channel` column — only normalize phone-like channels.
     // Unique index idx_channel_guardian_bindings_active is on (assistant_id, channel)
     // and does NOT include guardian_external_user_id, so no collision risk.
     normalizeColumnByChannel(
-      'channel_guardian_bindings',
-      'guardian_external_user_id',
-      'channel',
+      "channel_guardian_bindings",
+      "guardian_external_user_id",
+      "channel",
     );
 
     // ── assistant_ingress_members ─────────────────────────────────
@@ -213,12 +221,12 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     // WHERE external_user_id IS NOT NULL — collision possible when two format variants normalize
     // to the same E.164 within the same (assistant_id, source_channel) scope.
     normalizeColumnByChannel(
-      'assistant_ingress_members',
-      'external_user_id',
-      'source_channel',
+      "assistant_ingress_members",
+      "external_user_id",
+      "source_channel",
       {
-        peerColumns: ['assistant_id', 'source_channel'],
-        whereClause: 'external_user_id IS NOT NULL',
+        peerColumns: ["assistant_id", "source_channel"],
+        whereClause: "external_user_id IS NOT NULL",
       },
     );
 
@@ -226,39 +234,39 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     // Has `channel` column — normalize identity columns for phone-like channels.
     // Index idx_channel_guardian_challenges_lookup is non-unique, no collision risk.
     normalizeColumnByChannel(
-      'channel_guardian_verification_challenges',
-      'expected_external_user_id',
-      'channel',
+      "channel_guardian_verification_challenges",
+      "expected_external_user_id",
+      "channel",
     );
     normalizeColumnByChannel(
-      'channel_guardian_verification_challenges',
-      'consumed_by_external_user_id',
-      'channel',
+      "channel_guardian_verification_challenges",
+      "consumed_by_external_user_id",
+      "channel",
     );
     // expected_phone_e164 is always a phone number regardless of channel.
     // No unique index includes this column, no collision risk.
     normalizeColumnUnconditionally(
-      'channel_guardian_verification_challenges',
-      'expected_phone_e164',
+      "channel_guardian_verification_challenges",
+      "expected_phone_e164",
     );
 
     // ── canonical_guardian_requests ───────────────────────────────
     // Has `source_channel` column — only normalize phone-like channels.
     // All indexes on this table are non-unique, no collision risk.
     normalizeColumnByChannel(
-      'canonical_guardian_requests',
-      'requester_external_user_id',
-      'source_channel',
+      "canonical_guardian_requests",
+      "requester_external_user_id",
+      "source_channel",
     );
     normalizeColumnByChannel(
-      'canonical_guardian_requests',
-      'guardian_external_user_id',
-      'source_channel',
+      "canonical_guardian_requests",
+      "guardian_external_user_id",
+      "source_channel",
     );
     normalizeColumnByChannel(
-      'canonical_guardian_requests',
-      'decided_by_external_user_id',
-      'source_channel',
+      "canonical_guardian_requests",
+      "decided_by_external_user_id",
+      "source_channel",
     );
 
     // ── channel_guardian_rate_limits ──────────────────────────────
@@ -268,22 +276,28 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     // collision possible when two format variants normalize to the same E.164
     // within the same (assistant_id, channel, actor_chat_id) scope.
     normalizeColumnByChannel(
-      'channel_guardian_rate_limits',
-      'actor_external_user_id',
-      'channel',
+      "channel_guardian_rate_limits",
+      "actor_external_user_id",
+      "channel",
       {
-        peerColumns: ['assistant_id', 'channel', 'actor_chat_id'],
+        peerColumns: ["assistant_id", "channel", "actor_chat_id"],
       },
     );
 
     // Write checkpoint
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
 
-    raw.exec('COMMIT');
+    raw.exec("COMMIT");
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   }
 }

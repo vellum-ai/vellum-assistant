@@ -1,11 +1,15 @@
 /**
  * Route handlers for attachment upload, download, and deletion.
  */
-import { existsSync } from 'node:fs';
+import { existsSync } from "node:fs";
 
-import * as attachmentsStore from '../../memory/attachments-store.js';
-import { AttachmentUploadError, getFilePathForAttachment, validateAttachmentUpload } from '../../memory/attachments-store.js';
-import { httpError } from '../http-errors.js';
+import * as attachmentsStore from "../../memory/attachments-store.js";
+import {
+  AttachmentUploadError,
+  getFilePathForAttachment,
+  validateAttachmentUpload,
+} from "../../memory/attachments-store.js";
+import { httpError } from "../http-errors.js";
 
 /** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
@@ -13,7 +17,11 @@ const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
 export async function handleUploadAttachment(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
   if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
-    return httpError('BAD_REQUEST', `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`, 413);
+    return httpError(
+      "BAD_REQUEST",
+      `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`,
+      413,
+    );
   }
 
   const body = JSON.parse(new TextDecoder().decode(rawBody)) as {
@@ -24,34 +32,30 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
 
   const { filename, mimeType, data } = body;
 
-  if (!filename || typeof filename !== 'string') {
-    return httpError('BAD_REQUEST', 'filename is required', 400);
+  if (!filename || typeof filename !== "string") {
+    return httpError("BAD_REQUEST", "filename is required", 400);
   }
 
-  if (!mimeType || typeof mimeType !== 'string') {
-    return httpError('BAD_REQUEST', 'mimeType is required', 400);
+  if (!mimeType || typeof mimeType !== "string") {
+    return httpError("BAD_REQUEST", "mimeType is required", 400);
   }
 
-  if (!data || typeof data !== 'string') {
-    return httpError('BAD_REQUEST', 'data (base64) is required', 400);
+  if (!data || typeof data !== "string") {
+    return httpError("BAD_REQUEST", "data (base64) is required", 400);
   }
 
   const validation = validateAttachmentUpload(filename, mimeType);
   if (!validation.ok) {
-    return httpError('UNPROCESSABLE_ENTITY', validation.error, 415);
+    return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
   }
 
   let attachment: attachmentsStore.StoredAttachment;
   try {
-    attachment = attachmentsStore.uploadAttachment(
-      filename,
-      mimeType,
-      data,
-    );
+    attachment = attachmentsStore.uploadAttachment(filename, mimeType, data);
   } catch (err) {
     if (err instanceof AttachmentUploadError) {
-      const status = err.message.startsWith('Attachment too large') ? 413 : 400;
-      return httpError('BAD_REQUEST', err.message, status);
+      const status = err.message.startsWith("Attachment too large") ? 413 : 400;
+      return httpError("BAD_REQUEST", err.message, status);
     }
     throw err;
   }
@@ -68,25 +72,29 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
 export async function handleDeleteAttachment(req: Request): Promise<Response> {
   let body: { attachmentId?: string };
   try {
-    body = await req.json() as { attachmentId?: string };
+    body = (await req.json()) as { attachmentId?: string };
   } catch {
-    return httpError('BAD_REQUEST', 'Invalid or missing JSON body', 400);
+    return httpError("BAD_REQUEST", "Invalid or missing JSON body", 400);
   }
 
   const { attachmentId } = body;
 
-  if (!attachmentId || typeof attachmentId !== 'string') {
-    return httpError('BAD_REQUEST', 'attachmentId is required', 400);
+  if (!attachmentId || typeof attachmentId !== "string") {
+    return httpError("BAD_REQUEST", "attachmentId is required", 400);
   }
 
   const result = attachmentsStore.deleteAttachment(attachmentId);
 
-  if (result === 'not_found') {
-    return httpError('NOT_FOUND', 'Attachment not found', 404);
+  if (result === "not_found") {
+    return httpError("NOT_FOUND", "Attachment not found", 404);
   }
 
-  if (result === 'still_referenced') {
-    return httpError('CONFLICT', 'Attachment is still referenced by one or more messages', 409);
+  if (result === "still_referenced") {
+    return httpError(
+      "CONFLICT",
+      "Attachment is still referenced by one or more messages",
+      409,
+    );
   }
 
   return new Response(null, { status: 204 });
@@ -95,7 +103,7 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
 export function handleGetAttachment(attachmentId: string): Response {
   const attachment = attachmentsStore.getAttachmentById(attachmentId);
   if (!attachment) {
-    return httpError('NOT_FOUND', 'Attachment not found', 404);
+    return httpError("NOT_FOUND", "Attachment not found", 404);
   }
 
   // Use the file_path column to detect file-backed attachments, not string
@@ -119,21 +127,24 @@ export function handleGetAttachment(attachmentId: string): Response {
  * streams from disk; for inline attachments it decodes the base64 data.
  * Supports Range headers for video seeking.
  */
-export function handleGetAttachmentContent(attachmentId: string, req: Request): Response {
+export function handleGetAttachmentContent(
+  attachmentId: string,
+  req: Request,
+): Response {
   const attachment = attachmentsStore.getAttachmentById(attachmentId);
   if (!attachment) {
-    return httpError('NOT_FOUND', 'Attachment not found', 404);
+    return httpError("NOT_FOUND", "Attachment not found", 404);
   }
 
   // Check for file-backed attachment
   const filePath = getFilePathForAttachment(attachmentId);
   if (filePath) {
     if (!existsSync(filePath)) {
-      return httpError('NOT_FOUND', 'Recording file not found on disk', 404);
+      return httpError("NOT_FOUND", "Recording file not found on disk", 404);
     }
 
     const file = Bun.file(filePath);
-    const rangeHeader = req.headers.get('Range');
+    const rangeHeader = req.headers.get("Range");
 
     if (rangeHeader) {
       const fileSize = attachment.sizeBytes;
@@ -153,9 +164,9 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
           // Unparseable range — return full file
           return new Response(file, {
             headers: {
-              'Content-Type': attachment.mimeType,
-              'Content-Length': String(fileSize),
-              'Accept-Ranges': 'bytes',
+              "Content-Type": attachment.mimeType,
+              "Content-Length": String(fileSize),
+              "Accept-Ranges": "bytes",
             },
           });
         }
@@ -170,7 +181,7 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
       if (start > end || start >= fileSize) {
         return new Response(null, {
           status: 416,
-          headers: { 'Content-Range': `bytes */${fileSize}` },
+          headers: { "Content-Range": `bytes */${fileSize}` },
         });
       }
 
@@ -178,34 +189,34 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
       return new Response(slice, {
         status: 206,
         headers: {
-          'Content-Type': attachment.mimeType,
-          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': String(end - start + 1),
+          "Content-Type": attachment.mimeType,
+          "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+          "Accept-Ranges": "bytes",
+          "Content-Length": String(end - start + 1),
         },
       });
     }
 
     return new Response(file, {
       headers: {
-        'Content-Type': attachment.mimeType,
-        'Content-Length': String(attachment.sizeBytes),
-        'Accept-Ranges': 'bytes',
+        "Content-Type": attachment.mimeType,
+        "Content-Length": String(attachment.sizeBytes),
+        "Accept-Ranges": "bytes",
       },
     });
   }
 
   // Fall back to base64-decoded content for inline attachments
   if (!attachment.dataBase64) {
-    return httpError('NOT_FOUND', 'No content available', 404);
+    return httpError("NOT_FOUND", "No content available", 404);
   }
 
-  const buffer = Buffer.from(attachment.dataBase64, 'base64');
+  const buffer = Buffer.from(attachment.dataBase64, "base64");
   return new Response(buffer, {
     headers: {
-      'Content-Type': attachment.mimeType,
-      'Content-Length': String(buffer.length),
-      'Accept-Ranges': 'bytes',
+      "Content-Type": attachment.mimeType,
+      "Content-Length": String(buffer.length),
+      "Accept-Ranges": "bytes",
     },
   });
 }

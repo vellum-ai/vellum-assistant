@@ -3,16 +3,16 @@
  * Stores state in ~/.vellum/email-guardrails.json.
  */
 
-import { existsSync, mkdirSync,readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { minimatch } from 'minimatch';
+import { minimatch } from "minimatch";
 
-import { getRootDir } from '../util/platform.js';
+import { getRootDir } from "../util/platform.js";
 
 export interface AddressRule {
   id: string;
-  type: 'block' | 'allow';
+  type: "block" | "allow";
   pattern: string;
   createdAt: string;
 }
@@ -36,14 +36,15 @@ const DEFAULT_STATE: GuardrailsState = {
 };
 
 function getGuardrailsPath(): string {
-  return join(getRootDir(), 'email-guardrails.json');
+  return join(getRootDir(), "email-guardrails.json");
 }
 
 function loadState(): GuardrailsState {
   const path = getGuardrailsPath();
-  if (!existsSync(path)) return { ...DEFAULT_STATE, dailyCounts: {}, addressRules: [] };
+  if (!existsSync(path))
+    return { ...DEFAULT_STATE, dailyCounts: {}, addressRules: [] };
   try {
-    const raw = readFileSync(path, 'utf-8');
+    const raw = readFileSync(path, "utf-8");
     const parsed = JSON.parse(raw) as Partial<GuardrailsState>;
     return {
       paused: parsed.paused ?? DEFAULT_STATE.paused,
@@ -103,30 +104,46 @@ export function setDailySendCap(cap: number): void {
   saveState(state);
 }
 
-export function isAddressAllowed(email: string): { allowed: boolean; reason?: string; rule?: AddressRule } {
+export function isAddressAllowed(email: string): {
+  allowed: boolean;
+  reason?: string;
+  rule?: AddressRule;
+} {
   const state = loadState();
   const normalized = email.toLowerCase().trim();
 
   // Check block rules first
   for (const rule of state.addressRules) {
-    if (rule.type === 'block' && minimatch(normalized, rule.pattern, { nocase: true })) {
-      return { allowed: false, reason: `blocked by rule: ${rule.pattern}`, rule };
+    if (
+      rule.type === "block" &&
+      minimatch(normalized, rule.pattern, { nocase: true })
+    ) {
+      return {
+        allowed: false,
+        reason: `blocked by rule: ${rule.pattern}`,
+        rule,
+      };
     }
   }
 
   // If there are allow rules, address must match at least one
-  const allowRules = state.addressRules.filter(r => r.type === 'allow');
+  const allowRules = state.addressRules.filter((r) => r.type === "allow");
   if (allowRules.length > 0) {
-    const matched = allowRules.some(r => minimatch(normalized, r.pattern, { nocase: true }));
+    const matched = allowRules.some((r) =>
+      minimatch(normalized, r.pattern, { nocase: true }),
+    );
     if (!matched) {
-      return { allowed: false, reason: 'not in allowlist' };
+      return { allowed: false, reason: "not in allowlist" };
     }
   }
 
   return { allowed: true };
 }
 
-export function addAddressRule(type: 'block' | 'allow', pattern: string): AddressRule {
+export function addAddressRule(
+  type: "block" | "allow",
+  pattern: string,
+): AddressRule {
   const state = loadState();
   const rule: AddressRule = {
     id: crypto.randomUUID(),
@@ -141,7 +158,9 @@ export function addAddressRule(type: 'block' | 'allow', pattern: string): Addres
 
 export function removeAddressRule(ruleId: string): boolean {
   const state = loadState();
-  const idx = state.addressRules.findIndex(r => r.id === ruleId || r.id.startsWith(ruleId));
+  const idx = state.addressRules.findIndex(
+    (r) => r.id === ruleId || r.id.startsWith(ruleId),
+  );
   if (idx === -1) return false;
   state.addressRules.splice(idx, 1);
   saveState(state);
@@ -179,19 +198,19 @@ export function checkSendGuardrails(recipients: string[]): {
   cap?: number;
 } | null {
   if (isOutboundPaused()) {
-    return { error: 'outbound_paused' };
+    return { error: "outbound_paused" };
   }
 
   const count = getDailySendCount();
   const cap = getDailySendCap();
   if (count >= cap) {
-    return { error: 'daily_cap_reached', count, cap };
+    return { error: "daily_cap_reached", count, cap };
   }
 
   for (const addr of recipients) {
     const check = isAddressAllowed(addr);
     if (!check.allowed) {
-      return { error: 'address_blocked', address: addr, reason: check.reason };
+      return { error: "address_blocked", address: addr, reason: check.reason };
     }
   }
 

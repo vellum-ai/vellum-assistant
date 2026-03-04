@@ -1,12 +1,12 @@
 // User/assistant messages, tool results, confirmations, secrets, errors, and generation lifecycle.
 
-import type { ChannelId, InterfaceId } from '../../channels/types.js';
-import type { CommandIntent, UserMessageAttachment } from './shared.js';
+import type { ChannelId, InterfaceId } from "../../channels/types.js";
+import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 
 // === Client → Server ===
 
 export interface UserMessage {
-  type: 'user_message';
+  type: "user_message";
   sessionId: string;
   content?: string;
   attachments?: UserMessageAttachment[];
@@ -28,23 +28,30 @@ export interface UserMessage {
 }
 
 export interface ConfirmationResponse {
-  type: 'confirmation_response';
+  type: "confirmation_response";
   requestId: string;
-  decision: 'allow' | 'allow_10m' | 'allow_thread' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny';
+  decision:
+    | "allow"
+    | "allow_10m"
+    | "allow_thread"
+    | "always_allow"
+    | "always_allow_high_risk"
+    | "deny"
+    | "always_deny";
   selectedPattern?: string;
   selectedScope?: string;
 }
 
 export interface SecretResponse {
-  type: 'secret_response';
+  type: "secret_response";
   requestId: string;
-  value?: string;    // undefined = user cancelled
+  value?: string; // undefined = user cancelled
   /** How the secret should be delivered: 'store' persists to keychain (default), 'transient_send' for one-time use without persisting. */
-  delivery?: 'store' | 'transient_send';
+  delivery?: "store" | "transient_send";
 }
 
 export interface SuggestionRequest {
-  type: 'suggestion_request';
+  type: "suggestion_request";
   sessionId: string;
   requestId: string;
 }
@@ -52,34 +59,34 @@ export interface SuggestionRequest {
 // === Server → Client ===
 
 export interface UserMessageEcho {
-  type: 'user_message_echo';
+  type: "user_message_echo";
   text: string;
   sessionId?: string;
 }
 
 export interface AssistantTextDelta {
-  type: 'assistant_text_delta';
+  type: "assistant_text_delta";
   text: string;
   sessionId?: string;
 }
 
 export interface AssistantThinkingDelta {
-  type: 'assistant_thinking_delta';
+  type: "assistant_thinking_delta";
   thinking: string;
 }
 
 export interface ToolUseStart {
-  type: 'tool_use_start';
+  type: "tool_use_start";
   toolName: string;
   input: Record<string, unknown>;
   sessionId?: string;
 }
 
 export interface ToolOutputChunk {
-  type: 'tool_output_chunk';
+  type: "tool_output_chunk";
   chunk: string;
   sessionId?: string;
-  subType?: 'tool_start' | 'tool_complete' | 'status';
+  subType?: "tool_start" | "tool_complete" | "status";
   subToolName?: string;
   subToolInput?: string;
   subToolIsError?: boolean;
@@ -87,18 +94,23 @@ export interface ToolOutputChunk {
 }
 
 export interface ToolInputDelta {
-  type: 'tool_input_delta';
+  type: "tool_input_delta";
   toolName: string;
   content: string;
   sessionId?: string;
 }
 
 export interface ToolResult {
-  type: 'tool_result';
+  type: "tool_result";
   toolName: string;
   result: string;
   isError?: boolean;
-  diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
+  diff?: {
+    filePath: string;
+    oldContent: string;
+    newContent: string;
+    isNewFile: boolean;
+  };
   status?: string;
   sessionId?: string;
   /** Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot). */
@@ -106,25 +118,34 @@ export interface ToolResult {
 }
 
 export interface ConfirmationRequest {
-  type: 'confirmation_request';
+  type: "confirmation_request";
   requestId: string;
   toolName: string;
   input: Record<string, unknown>;
   riskLevel: string;
-  executionTarget?: 'sandbox' | 'host';
-  allowlistOptions: Array<{ label: string; description: string; pattern: string }>;
+  executionTarget?: "sandbox" | "host";
+  allowlistOptions: Array<{
+    label: string;
+    description: string;
+    pattern: string;
+  }>;
   scopeOptions: Array<{ label: string; scope: string }>;
-  diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
+  diff?: {
+    filePath: string;
+    oldContent: string;
+    newContent: string;
+    isNewFile: boolean;
+  };
   sandboxed?: boolean;
   sessionId?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
   /** Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread"). */
-  temporaryOptionsAvailable?: Array<'allow_10m' | 'allow_thread'>;
+  temporaryOptionsAvailable?: Array<"allow_10m" | "allow_thread">;
 }
 
 export interface SecretRequest {
-  type: 'secret_request';
+  type: "secret_request";
   requestId: string;
   service: string;
   field: string;
@@ -143,34 +164,34 @@ export interface SecretRequest {
 }
 
 export interface MessageComplete {
-  type: 'message_complete';
+  type: "message_complete";
   sessionId?: string;
   attachments?: UserMessageAttachment[];
 }
 
 export interface ErrorMessage {
-  type: 'error';
+  type: "error";
   message: string;
   /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
   category?: string;
 }
 
 export interface SecretDetected {
-  type: 'secret_detected';
+  type: "secret_detected";
   toolName: string;
   matches: Array<{ type: string; redactedValue: string }>;
-  action: 'redact' | 'warn' | 'block' | 'prompt';
+  action: "redact" | "warn" | "block" | "prompt";
 }
 
 export interface MessageQueued {
-  type: 'message_queued';
+  type: "message_queued";
   sessionId: string;
   requestId: string;
   position: number;
 }
 
 export interface MessageDequeued {
-  type: 'message_dequeued';
+  type: "message_dequeued";
   sessionId: string;
   requestId: string;
 }
@@ -183,7 +204,7 @@ export interface MessageDequeued {
  * separate in-flight turn may still be running.
  */
 export interface MessageRequestComplete {
-  type: 'message_request_complete';
+  type: "message_request_complete";
   sessionId: string;
   requestId: string;
   /** True when an existing turn is still running after this request is finalized. */
@@ -191,16 +212,16 @@ export interface MessageRequestComplete {
 }
 
 export interface MessageQueuedDeleted {
-  type: 'message_queued_deleted';
+  type: "message_queued_deleted";
   sessionId: string;
   requestId: string;
 }
 
 export interface SuggestionResponse {
-  type: 'suggestion_response';
+  type: "suggestion_response";
   requestId: string;
   suggestion: string | null;
-  source: 'llm' | 'none';
+  source: "llm" | "none";
 }
 
 /**
@@ -210,11 +231,11 @@ export interface SuggestionResponse {
  * confirmation bubble state.
  */
 export interface ConfirmationStateChanged {
-  type: 'confirmation_state_changed';
+  type: "confirmation_state_changed";
   sessionId: string;
   requestId: string;
-  state: 'pending' | 'approved' | 'denied' | 'timed_out' | 'resolved_stale';
-  source: 'button' | 'inline_nl' | 'auto_deny' | 'timeout' | 'system';
+  state: "pending" | "approved" | "denied" | "timed_out" | "resolved_stale";
+  source: "button" | "inline_nl" | "auto_deny" | "timeout" | "system";
   /** requestId of the user message that triggered this transition. */
   causedByRequestId?: string;
   /** Normalized user text for analytics/debug (e.g. "approve", "deny"). */
@@ -228,56 +249,61 @@ export interface ConfirmationStateChanged {
  * ignore events with a version older than their current known version.
  */
 export interface AssistantActivityState {
-  type: 'assistant_activity_state';
+  type: "assistant_activity_state";
   sessionId: string;
   activityVersion: number;
-  phase: 'idle' | 'thinking' | 'streaming' | 'tool_running' | 'awaiting_confirmation';
-  anchor: 'assistant_turn' | 'user_turn' | 'global';
+  phase:
+    | "idle"
+    | "thinking"
+    | "streaming"
+    | "tool_running"
+    | "awaiting_confirmation";
+  anchor: "assistant_turn" | "user_turn" | "global";
   /** Active user request when available. */
   requestId?: string;
   reason:
-    | 'message_dequeued'
-    | 'thinking_delta'
-    | 'first_text_delta'
-    | 'tool_use_start'
-    | 'tool_result_received'
-    | 'confirmation_requested'
-    | 'confirmation_resolved'
-    | 'message_complete'
-    | 'generation_cancelled'
-    | 'error_terminal';
+    | "message_dequeued"
+    | "thinking_delta"
+    | "first_text_delta"
+    | "tool_use_start"
+    | "tool_result_received"
+    | "confirmation_requested"
+    | "confirmation_resolved"
+    | "message_complete"
+    | "generation_cancelled"
+    | "error_terminal";
   /** Human-readable description of what the assistant is currently doing. */
   statusText?: string;
 }
 
 export type TraceEventKind =
-  | 'request_received'
-  | 'request_queued'
-  | 'request_dequeued'
-  | 'llm_call_started'
-  | 'llm_call_finished'
-  | 'assistant_message'
-  | 'tool_started'
-  | 'tool_permission_requested'
-  | 'tool_permission_decided'
-  | 'tool_finished'
-  | 'tool_failed'
-  | 'secret_detected'
-  | 'generation_handoff'
-  | 'message_complete'
-  | 'generation_cancelled'
-  | 'request_error'
-  | 'tool_profiling_summary';
+  | "request_received"
+  | "request_queued"
+  | "request_dequeued"
+  | "llm_call_started"
+  | "llm_call_finished"
+  | "assistant_message"
+  | "tool_started"
+  | "tool_permission_requested"
+  | "tool_permission_decided"
+  | "tool_finished"
+  | "tool_failed"
+  | "secret_detected"
+  | "generation_handoff"
+  | "message_complete"
+  | "generation_cancelled"
+  | "request_error"
+  | "tool_profiling_summary";
 
 export interface TraceEvent {
-  type: 'trace_event';
+  type: "trace_event";
   eventId: string;
   sessionId: string;
   requestId?: string;
   timestampMs: number;
   sequence: number;
   kind: TraceEventKind;
-  status?: 'info' | 'success' | 'warning' | 'error';
+  status?: "info" | "success" | "warning" | "error";
   summary: string;
   attributes?: Record<string, string | number | boolean | null>;
 }

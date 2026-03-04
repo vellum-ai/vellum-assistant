@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { randomBytes } from "crypto";
 
 interface SenderData {
   messageIds: string[];
@@ -18,9 +18,14 @@ const _store = new Map<string, ScanEntry>();
 
 /** Store scan results and return a unique scan ID. */
 export function storeScanResult(
-  senders: Array<{ id: string; messageIds: string[]; newestMessageId: string; newestUnsubscribableMessageId: string | null }>,
+  senders: Array<{
+    id: string;
+    messageIds: string[];
+    newestMessageId: string;
+    newestUnsubscribableMessageId: string | null;
+  }>,
 ): string {
-  const scanId = randomBytes(8).toString('hex');
+  const scanId = randomBytes(8).toString("hex");
 
   // LRU eviction: remove oldest if at capacity
   if (_store.size >= MAX_ENTRIES) {
@@ -42,7 +47,10 @@ export function storeScanResult(
 }
 
 /** Retrieve message IDs for the given senders from a scan result. */
-export function getSenderMessageIds(scanId: string, senderIds: string[]): string[] | null {
+export function getSenderMessageIds(
+  scanId: string,
+  senderIds: string[],
+): string[] | null {
   const entry = _store.get(scanId);
   if (!entry) return null;
   if (Date.now() - entry.createdAt > TTL_MS) {
@@ -65,7 +73,10 @@ export function getSenderMessageIds(scanId: string, senderIds: string[]): string
 export function getSenderMetadata(
   scanId: string,
   senderId: string,
-): { newestMessageId: string; newestUnsubscribableMessageId: string | null } | null {
+): {
+  newestMessageId: string;
+  newestUnsubscribableMessageId: string | null;
+} | null {
   const entry = _store.get(scanId);
   if (!entry) return null;
   if (Date.now() - entry.createdAt > TTL_MS) {
@@ -74,7 +85,10 @@ export function getSenderMetadata(
   }
   const data = entry.senders.get(senderId);
   if (!data) return null;
-  return { newestMessageId: data.newestMessageId, newestUnsubscribableMessageId: data.newestUnsubscribableMessageId };
+  return {
+    newestMessageId: data.newestMessageId,
+    newestUnsubscribableMessageId: data.newestUnsubscribableMessageId,
+  };
 }
 
 /** Clear the store (for tests). */

@@ -46,9 +46,7 @@ export function detectCycles(nodes: GraphNode[]): string[] | null {
   }
 
   if (processed < nodes.length) {
-    return nodes
-      .filter((n) => (inDegree.get(n.id) ?? 0) > 0)
-      .map((n) => n.id);
+    return nodes.filter((n) => (inDegree.get(n.id) ?? 0) > 0).map((n) => n.id);
   }
 
   return null;

@@ -808,10 +808,7 @@ export function listGuardianChannels(): {
     .from(contacts)
     .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
     .where(
-      and(
-        eq(contacts.role, "guardian"),
-        eq(contactChannels.status, "active"),
-      ),
+      and(eq(contacts.role, "guardian"), eq(contactChannels.status, "active")),
     )
     .orderBy(desc(contactChannels.verifiedAt))
     .all();

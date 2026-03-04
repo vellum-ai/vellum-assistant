@@ -1,4 +1,4 @@
-import type { ChannelId } from './types.js';
+import type { ChannelId } from "./types.js";
 
 /**
  * Channel-discriminated inbound event model.
@@ -8,10 +8,13 @@ import type { ChannelId } from './types.js';
  * The discriminated union is keyed by `sourceChannel`.
  */
 
-export type InboundChannelId = Extract<ChannelId, 'telegram' | 'sms' | 'whatsapp' | 'slack'>;
+export type InboundChannelId = Extract<
+  ChannelId,
+  "telegram" | "sms" | "whatsapp" | "slack"
+>;
 
 interface InboundEventBase<C extends InboundChannelId> {
-  version: 'v1';
+  version: "v1";
   sourceChannel: C;
   receivedAt: string;
   message: {
@@ -22,7 +25,7 @@ interface InboundEventBase<C extends InboundChannelId> {
     callbackQueryId?: string;
     callbackData?: string;
     attachments?: Array<{
-      type: 'photo' | 'document';
+      type: "photo" | "document";
       fileId: string;
       fileName?: string;
       mimeType?: string;
@@ -46,10 +49,10 @@ interface InboundEventBase<C extends InboundChannelId> {
   raw: Record<string, unknown>;
 }
 
-export type TelegramInboundEvent = InboundEventBase<'telegram'>;
-export type SmsInboundEvent = InboundEventBase<'sms'>;
-export type WhatsAppInboundEvent = InboundEventBase<'whatsapp'>;
-export type SlackInboundEvent = InboundEventBase<'slack'>;
+export type TelegramInboundEvent = InboundEventBase<"telegram">;
+export type SmsInboundEvent = InboundEventBase<"sms">;
+export type WhatsAppInboundEvent = InboundEventBase<"whatsapp">;
+export type SlackInboundEvent = InboundEventBase<"slack">;
 
 export type GatewayInboundEvent =
   | TelegramInboundEvent

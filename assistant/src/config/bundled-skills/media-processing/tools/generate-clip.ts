@@ -51,7 +51,9 @@ function formatTimestamp(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
-  return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  return `${hrs.toString().padStart(2, "0")}:${mins
+    .toString()
+    .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
 const MIME_BY_FORMAT: Record<string, string> = {
@@ -124,12 +126,17 @@ export async function run(
   const clipDir = join(dirname(asset.filePath), "pipeline", assetId, "clips");
   await mkdir(clipDir, { recursive: true });
 
-  const clipFilename = `clip-${formatTimestamp(startTime).replace(/:/g, "")}-${formatTimestamp(endTime).replace(/:/g, "")}.${outputFormat}`;
+  const clipFilename = `clip-${formatTimestamp(startTime).replace(
+    /:/g,
+    "",
+  )}-${formatTimestamp(endTime).replace(/:/g, "")}.${outputFormat}`;
   const clipPath = join(clipDir, clipFilename);
 
   try {
     context.onOutput?.(
-      `Extracting clip ${formatTimestamp(clipStart)} – ${formatTimestamp(clipEnd)} from ${asset.title}...\n`,
+      `Extracting clip ${formatTimestamp(clipStart)} – ${formatTimestamp(
+        clipEnd,
+      )} from ${asset.title}...\n`,
     );
 
     // Use ffmpeg to extract the segment
@@ -153,7 +160,10 @@ export async function run(
 
     if (result.exitCode !== 0) {
       return {
-        content: `ffmpeg clip extraction failed: ${result.stderr.slice(0, 500)}`,
+        content: `ffmpeg clip extraction failed: ${result.stderr.slice(
+          0,
+          500,
+        )}`,
         isError: true,
       };
     }
@@ -168,7 +178,9 @@ export async function run(
     }
 
     context.onOutput?.(
-      `Clip extracted (${(clipStat.size / 1024 / 1024).toFixed(1)} MB). Registering as attachment...\n`,
+      `Clip extracted (${(clipStat.size / 1024 / 1024).toFixed(
+        1,
+      )} MB). Registering as attachment...\n`,
     );
 
     // Read clip file and register as attachment

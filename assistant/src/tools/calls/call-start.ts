@@ -1,31 +1,38 @@
-import { startCall } from '../../calls/call-domain.js';
-import { getConfig } from '../../config/loader.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
-import { findActiveSession } from '../../runtime/channel-guardian-service.js';
-import { normalizePhoneNumber } from '../../util/phone.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { startCall } from "../../calls/call-domain.js";
+import { getConfig } from "../../config/loader.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
+import { findActiveSession } from "../../runtime/channel-guardian-service.js";
+import { normalizePhoneNumber } from "../../util/phone.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeCallStart(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   if (!getConfig().calls.enabled) {
-    return { content: 'Error: Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.', isError: true };
+    return {
+      content:
+        "Error: Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.",
+      isError: true,
+    };
   }
 
-  const requestedPhone = typeof input.phone_number === 'string'
-    ? normalizePhoneNumber(input.phone_number)
-    : null;
+  const requestedPhone =
+    typeof input.phone_number === "string"
+      ? normalizePhoneNumber(input.phone_number)
+      : null;
   if (requestedPhone) {
     const assistantId = context.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-    const activeVoiceVerification = findActiveSession(assistantId, 'voice');
-    const verificationDestination = activeVoiceVerification?.destinationAddress ?? activeVoiceVerification?.expectedPhoneE164;
+    const activeVoiceVerification = findActiveSession(assistantId, "voice");
+    const verificationDestination =
+      activeVoiceVerification?.destinationAddress ??
+      activeVoiceVerification?.expectedPhoneE164;
     if (verificationDestination === requestedPhone) {
       return {
         content: [
-          'Error: A guardian voice verification call is already active for this number.',
-          'Use the guardian outbound verification flow via the gateway API (`/v1/integrations/guardian/outbound/start` or `/resend`) and wait for completion before using `call_start`.',
-        ].join(' '),
+          "Error: A guardian voice verification call is already active for this number.",
+          "Use the guardian outbound verification flow via the gateway API (`/v1/integrations/guardian/outbound/start` or `/resend`) and wait for completion before using `call_start`.",
+        ].join(" "),
         isError: true,
       };
     }
@@ -37,7 +44,10 @@ export async function executeCallStart(
     context: input.context as string | undefined,
     conversationId: context.conversationId,
     assistantId: context.assistantId,
-    callerIdentityMode: input.caller_identity_mode as 'assistant_number' | 'user_number' | undefined,
+    callerIdentityMode: input.caller_identity_mode as
+      | "assistant_number"
+      | "user_number"
+      | undefined,
   });
 
   if (!result.ok) {
@@ -46,16 +56,16 @@ export async function executeCallStart(
 
   return {
     content: [
-      'Call initiated successfully.',
+      "Call initiated successfully.",
       `  Call Session ID: ${result.session.id}`,
       `  Call SID: ${result.callSid}`,
       `  To: ${result.session.toNumber}`,
       `  From: ${result.session.fromNumber}`,
       `  Caller Identity Mode: ${result.callerIdentityMode}`,
       `  Status: initiated`,
-      '',
-      'The AI voice assistant is now placing the call. Use call_status to check progress.',
-    ].join('\n'),
+      "",
+      "The AI voice assistant is now placing the call. Use call_status to check progress.",
+    ].join("\n"),
     isError: false,
   };
 }

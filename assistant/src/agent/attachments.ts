@@ -8,7 +8,9 @@ export interface MessageAttachmentInput {
   extractedText?: string;
 }
 
-export function attachmentsToContentBlocks(attachments: MessageAttachmentInput[]): ContentBlock[] {
+export function attachmentsToContentBlocks(
+  attachments: MessageAttachmentInput[],
+): ContentBlock[] {
   return attachments.map((attachment) => {
     if (attachment.mimeType.toLowerCase().startsWith("image/")) {
       return {

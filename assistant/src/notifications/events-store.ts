@@ -6,11 +6,11 @@
  * and context payload. Decision/delivery records are tracked separately.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from "drizzle-orm";
 
-import { getDb } from '../memory/db.js';
-import { notificationEvents } from '../memory/schema.js';
-import type { AttentionHints } from './signal.js';
+import { getDb } from "../memory/db.js";
+import { notificationEvents } from "../memory/schema.js";
+import type { AttentionHints } from "./signal.js";
 
 export interface NotificationEventRow {
   id: string;
@@ -25,7 +25,9 @@ export interface NotificationEventRow {
   updatedAt: number;
 }
 
-function rowToEvent(row: typeof notificationEvents.$inferSelect): NotificationEventRow {
+function rowToEvent(
+  row: typeof notificationEvents.$inferSelect,
+): NotificationEventRow {
   return {
     id: row.id,
     assistantId: row.assistantId,
@@ -52,7 +54,9 @@ export interface CreateEventParams {
 }
 
 /** Create a new notification event. Returns null if a duplicate dedupe_key exists. */
-export function createEvent(params: CreateEventParams): NotificationEventRow | null {
+export function createEvent(
+  params: CreateEventParams,
+): NotificationEventRow | null {
   const db = getDb();
   const now = Date.now();
 
@@ -129,7 +133,9 @@ export function listEvents(
   const conditions = [eq(notificationEvents.assistantId, assistantId)];
 
   if (filters?.sourceEventName) {
-    conditions.push(eq(notificationEvents.sourceEventName, filters.sourceEventName));
+    conditions.push(
+      eq(notificationEvents.sourceEventName, filters.sourceEventName),
+    );
   }
 
   const limit = filters?.limit ?? 50;

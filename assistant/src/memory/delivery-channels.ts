@@ -5,10 +5,10 @@
  * tracking, and the deliver-once guard for terminal reply idempotency.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq } from "drizzle-orm";
 
-import { getDb } from './db.js';
-import { channelInboundEvents } from './schema.js';
+import { getDb } from "./db.js";
+import { channelInboundEvents } from "./schema.js";
 
 // ── Pending verification reply helpers ───────────────────────────────
 //
@@ -30,10 +30,13 @@ export interface PendingVerificationReply {
  */
 export function storePendingVerificationReply(
   eventId: string,
-  reply: Omit<PendingVerificationReply, '__pendingVerificationReply'>,
+  reply: Omit<PendingVerificationReply, "__pendingVerificationReply">,
 ): void {
   const db = getDb();
-  const payload: PendingVerificationReply = { __pendingVerificationReply: true, ...reply };
+  const payload: PendingVerificationReply = {
+    __pendingVerificationReply: true,
+    ...reply,
+  };
   db.update(channelInboundEvents)
     .set({ rawPayload: JSON.stringify(payload), updatedAt: Date.now() })
     .where(eq(channelInboundEvents.id, eventId))
@@ -99,7 +102,10 @@ export function getDeliveredSegmentCount(eventId: string): number {
  * Update the delivered segment count after successful delivery of one
  * or more segments. Called incrementally as segments are sent.
  */
-export function updateDeliveredSegmentCount(eventId: string, count: number): void {
+export function updateDeliveredSegmentCount(
+  eventId: string,
+  count: number,
+): void {
   const db = getDb();
   db.update(channelInboundEvents)
     .set({ deliveredSegmentCount: count, updatedAt: Date.now() })

@@ -6,7 +6,7 @@
  * a single implementation with consistent success/failure messaging.
  */
 
-import type { ExecutorResult,ProxyResolver } from './executors.js';
+import type { ExecutorResult, ProxyResolver } from "./executors.js";
 
 /**
  * Open an app on the connected client via the proxy tool resolver.
@@ -25,19 +25,19 @@ export async function openAppViaSurface(
   extraInput?: Record<string, unknown>,
 ): Promise<string> {
   if (!proxyToolResolver) {
-    return 'App created but could not be opened (no connected client). Use app_open to open it manually.';
+    return "App created but could not be opened (no connected client). Use app_open to open it manually.";
   }
 
   try {
-    const result: ExecutorResult = await proxyToolResolver('app_open', {
+    const result: ExecutorResult = await proxyToolResolver("app_open", {
       app_id: appId,
       ...extraInput,
     });
     if (result.isError) {
-      return 'Failed to auto-open app. Use app_open to open it manually.';
+      return "Failed to auto-open app. Use app_open to open it manually.";
     }
     return result.content;
   } catch {
-    return 'Failed to auto-open app. Use app_open to open it manually.';
+    return "Failed to auto-open app. Use app_open to open it manually.";
   }
 }

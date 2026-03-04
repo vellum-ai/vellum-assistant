@@ -6,17 +6,29 @@
  * ~/.vellum/protected/actor-token-signing-key.
  */
 
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
-import { getLogger } from '../logger.js';
-import { getRootDir } from '../credential-reader.js';
+import { getLogger } from "../logger.js";
+import { getRootDir } from "../credential-reader.js";
 
-import { isStaleEpoch } from './policy.js';
-import type { ScopeProfile, TokenAudience, TokenClaims } from './types.js';
+import { isStaleEpoch } from "./policy.js";
+import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 
-const log = getLogger('auth-token-service');
+const log = getLogger("auth-token-service");
 
 // ---------------------------------------------------------------------------
 // Signing key management
@@ -25,7 +37,7 @@ const log = getLogger('auth-token-service');
 let signingKey: Buffer | null = null;
 
 function getSigningKeyPath(): string {
-  return join(getRootDir(), 'protected', 'actor-token-signing-key');
+  return join(getRootDir(), "protected", "actor-token-signing-key");
 }
 
 /**
@@ -39,12 +51,12 @@ export function loadOrCreateSigningKey(): Buffer {
     try {
       const raw = readFileSync(keyPath);
       if (raw.length === 32) {
-        log.info('Auth signing key loaded from disk');
+        log.info("Auth signing key loaded from disk");
         return raw;
       }
-      log.warn('Signing key file has unexpected length, regenerating');
+      log.warn("Signing key file has unexpected length, regenerating");
     } catch (err) {
-      log.warn({ err }, 'Failed to read signing key file, regenerating');
+      log.warn({ err }, "Failed to read signing key file, regenerating");
     }
   }
 
@@ -53,12 +65,12 @@ export function loadOrCreateSigningKey(): Buffer {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const tmpPath = keyPath + '.tmp.' + process.pid;
+  const tmpPath = keyPath + ".tmp." + process.pid;
   writeFileSync(tmpPath, newKey, { mode: 0o600 });
   renameSync(tmpPath, keyPath);
   chmodSync(keyPath, 0o600);
 
-  log.info('Auth signing key generated and persisted');
+  log.info("Auth signing key generated and persisted");
   return newKey;
 }
 
@@ -81,7 +93,9 @@ export function isSigningKeyInitialized(): boolean {
 
 function getSigningKey(): Buffer {
   if (!signingKey) {
-    throw new Error('Auth signing key not initialized — call initSigningKey() during startup');
+    throw new Error(
+      "Auth signing key not initialized — call initSigningKey() during startup",
+    );
   }
   return signingKey;
 }
@@ -91,12 +105,12 @@ function getSigningKey(): Buffer {
 // ---------------------------------------------------------------------------
 
 function base64urlEncode(data: Buffer | string): string {
-  const buf = typeof data === 'string' ? Buffer.from(data, 'utf-8') : data;
-  return buf.toString('base64url');
+  const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
+  return buf.toString("base64url");
 }
 
 function base64urlDecode(str: string): Buffer {
-  return Buffer.from(str, 'base64url');
+  return Buffer.from(str, "base64url");
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +125,9 @@ export type VerifyResult =
 // JWT header
 // ---------------------------------------------------------------------------
 
-const JWT_HEADER = base64urlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+const JWT_HEADER = base64urlEncode(
+  JSON.stringify({ alg: "HS256", typ: "JWT" }),
+);
 
 // ---------------------------------------------------------------------------
 // Mint
@@ -126,23 +142,21 @@ export function mintToken(params: {
 }): string {
   const now = Math.floor(Date.now() / 1000);
   const claims: TokenClaims = {
-    iss: 'vellum-auth',
+    iss: "vellum-auth",
     aud: params.aud,
     sub: params.sub,
     scope_profile: params.scope_profile,
     exp: now + params.ttlSeconds,
     policy_epoch: params.policy_epoch,
     iat: now,
-    jti: randomBytes(16).toString('hex'),
+    jti: randomBytes(16).toString("hex"),
   };
 
   const payload = base64urlEncode(JSON.stringify(claims));
-  const sigInput = JWT_HEADER + '.' + payload;
-  const sig = createHmac('sha256', getSigningKey())
-    .update(sigInput)
-    .digest();
+  const sigInput = JWT_HEADER + "." + payload;
+  const sig = createHmac("sha256", getSigningKey()).update(sigInput).digest();
 
-  return sigInput + '.' + base64urlEncode(sig);
+  return sigInput + "." + base64urlEncode(sig);
 }
 
 // ---------------------------------------------------------------------------
@@ -154,46 +168,52 @@ export function verifyToken(
   expectedAud: TokenAudience,
   opts?: { allowExpired?: boolean },
 ): VerifyResult {
-  const parts = token.split('.');
+  const parts = token.split(".");
   if (parts.length !== 3) {
-    return { ok: false, reason: 'malformed_token: expected 3 dot-separated parts' };
+    return {
+      ok: false,
+      reason: "malformed_token: expected 3 dot-separated parts",
+    };
   }
 
   const [headerPart, payloadPart, sigPart] = parts;
 
-  const sigInput = headerPart + '.' + payloadPart;
-  const expectedSig = createHmac('sha256', getSigningKey())
+  const sigInput = headerPart + "." + payloadPart;
+  const expectedSig = createHmac("sha256", getSigningKey())
     .update(sigInput)
     .digest();
   const actualSig = base64urlDecode(sigPart);
 
   if (expectedSig.length !== actualSig.length) {
-    return { ok: false, reason: 'invalid_signature' };
+    return { ok: false, reason: "invalid_signature" };
   }
 
   if (!timingSafeEqual(expectedSig, actualSig)) {
-    return { ok: false, reason: 'invalid_signature' };
+    return { ok: false, reason: "invalid_signature" };
   }
 
   let claims: TokenClaims;
   try {
-    const decoded = base64urlDecode(payloadPart).toString('utf-8');
+    const decoded = base64urlDecode(payloadPart).toString("utf-8");
     claims = JSON.parse(decoded) as TokenClaims;
   } catch {
-    return { ok: false, reason: 'malformed_claims' };
+    return { ok: false, reason: "malformed_claims" };
   }
 
   if (claims.aud !== expectedAud) {
-    return { ok: false, reason: `audience_mismatch: expected ${expectedAud}, got ${claims.aud}` };
+    return {
+      ok: false,
+      reason: `audience_mismatch: expected ${expectedAud}, got ${claims.aud}`,
+    };
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   if (!opts?.allowExpired && claims.exp <= nowSeconds) {
-    return { ok: false, reason: 'token_expired' };
+    return { ok: false, reason: "token_expired" };
   }
 
   if (isStaleEpoch(claims.policy_epoch)) {
-    return { ok: false, reason: 'stale_policy_epoch' };
+    return { ok: false, reason: "stale_policy_epoch" };
   }
 
   return { ok: true, claims };
@@ -204,5 +224,5 @@ export function verifyToken(
 // ---------------------------------------------------------------------------
 
 export function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
+  return createHash("sha256").update(token).digest("hex");
 }

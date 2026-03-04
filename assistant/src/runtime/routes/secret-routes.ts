@@ -41,7 +41,9 @@ export async function handleAddSecret(req: Request): Promise<Response> {
       ) {
         return httpError(
           "BAD_REQUEST",
-          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
+          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(
+            ", ",
+          )}`,
           400,
         );
       }
@@ -119,7 +121,9 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       ) {
         return httpError(
           "BAD_REQUEST",
-          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
+          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(
+            ", ",
+          )}`,
           400,
         );
       }

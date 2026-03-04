@@ -1,24 +1,34 @@
-import type { ModelIntent,Provider } from '../providers/types.js';
-import { getLogger } from '../util/logger.js';
-import { isCheckpointCompatible,loadCheckpoint, removeCheckpoint, writeCheckpoint } from './checkpoint.js';
-import { detectCycles } from './graph-utils.js';
-import type { SwarmLimits } from './limits.js';
-import { getTimeoutForRole } from './limits.js';
-import { synthesizeResults } from './synthesizer.js';
-import type { SwarmExecutionSummary,SwarmPlan, SwarmTaskNode, SwarmTaskResult } from './types.js';
-import type { SwarmWorkerBackend } from './worker-backend.js';
-import { runWorkerTask } from './worker-runner.js';
+import type { ModelIntent, Provider } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
+import {
+  isCheckpointCompatible,
+  loadCheckpoint,
+  removeCheckpoint,
+  writeCheckpoint,
+} from "./checkpoint.js";
+import { detectCycles } from "./graph-utils.js";
+import type { SwarmLimits } from "./limits.js";
+import { getTimeoutForRole } from "./limits.js";
+import { synthesizeResults } from "./synthesizer.js";
+import type {
+  SwarmExecutionSummary,
+  SwarmPlan,
+  SwarmTaskNode,
+  SwarmTaskResult,
+} from "./types.js";
+import type { SwarmWorkerBackend } from "./worker-backend.js";
+import { runWorkerTask } from "./worker-runner.js";
 
-const log = getLogger('swarm-orchestrator');
+const log = getLogger("swarm-orchestrator");
 
 export type OrchestratorEventKind =
-  | 'plan_created'
-  | 'task_started'
-  | 'task_completed'
-  | 'task_failed'
-  | 'task_blocked'
-  | 'synthesis_started'
-  | 'done';
+  | "plan_created"
+  | "task_started"
+  | "task_completed"
+  | "task_failed"
+  | "task_blocked"
+  | "synthesis_started"
+  | "done";
 
 export interface OrchestratorEvent {
   kind: OrchestratorEventKind;
@@ -49,17 +59,34 @@ export interface ExecuteSwarmOptions {
  * Execute a validated swarm plan with parallel DAG scheduling,
  * bounded concurrency, and per-task retries.
  */
-export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExecutionSummary> {
-  const { plan, limits, backend, workingDir, modelIntent, onStatus, signal, runId, resume } = opts;
+export async function executeSwarm(
+  opts: ExecuteSwarmOptions,
+): Promise<SwarmExecutionSummary> {
+  const {
+    plan,
+    limits,
+    backend,
+    workingDir,
+    modelIntent,
+    onStatus,
+    signal,
+    runId,
+    resume,
+  } = opts;
   const startTime = Date.now();
 
   // Safety net: reject cyclic plans even if the caller skipped validation
   const cycleNodes = detectCycles(plan.tasks);
   if (cycleNodes) {
-    throw new Error(`Swarm plan contains a dependency cycle: ${cycleNodes.join(' -> ')}`);
+    throw new Error(
+      `Swarm plan contains a dependency cycle: ${cycleNodes.join(" -> ")}`,
+    );
   }
 
-  onStatus?.({ kind: 'plan_created', message: `Plan with ${plan.tasks.length} tasks` });
+  onStatus?.({
+    kind: "plan_created",
+    message: `Plan with ${plan.tasks.length} tasks`,
+  });
 
   const results = new Map<string, SwarmTaskResult>();
   const blocked = new Set<string>();
@@ -76,10 +103,16 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       }
       const restored = checkpoint.results.length;
       const restoredBlocked = checkpoint.blockedTaskIds.length;
-      log.info({ runId, restored, restoredBlocked }, 'Resumed from checkpoint');
-      onStatus?.({ kind: 'plan_created', message: `Resumed ${restored} completed tasks from checkpoint` });
+      log.info({ runId, restored, restoredBlocked }, "Resumed from checkpoint");
+      onStatus?.({
+        kind: "plan_created",
+        message: `Resumed ${restored} completed tasks from checkpoint`,
+      });
     } else if (checkpoint) {
-      log.warn({ runId }, 'Checkpoint incompatible with current plan, starting fresh');
+      log.warn(
+        { runId },
+        "Checkpoint incompatible with current plan, starting fresh",
+      );
     }
   }
 
@@ -130,15 +163,17 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
   }
 
   function waitForProgress(): Promise<void> {
-    return new Promise<void>((r) => { resolve = r; });
+    return new Promise<void>((r) => {
+      resolve = r;
+    });
   }
 
   function processResult(result: SwarmTaskResult): void {
     results.set(result.taskId, result);
     remaining.delete(result.taskId);
 
-    if (result.status === 'completed') {
-      onStatus?.({ kind: 'task_completed', taskId: result.taskId });
+    if (result.status === "completed") {
+      onStatus?.({ kind: "task_completed", taskId: result.taskId });
       // Immediately unblock dependents so they enter the ready queue
       for (const depId of dependents.get(result.taskId) ?? []) {
         const pending = pendingDeps.get(depId);
@@ -154,7 +189,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         }
       }
     } else {
-      onStatus?.({ kind: 'task_failed', taskId: result.taskId });
+      onStatus?.({ kind: "task_failed", taskId: result.taskId });
       blockDependents(result.taskId, dependents, blocked, onStatus);
     }
 
@@ -164,7 +199,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
   }
 
   async function runTask(task: SwarmTaskNode): Promise<void> {
-    onStatus?.({ kind: 'task_started', taskId: task.id });
+    onStatus?.({ kind: "task_started", taskId: task.id });
 
     const depOutputs = task.dependencies
       .map((depId) => {
@@ -189,7 +224,11 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       });
 
       let retries = 0;
-      while (result.status === 'failed' && retries < limits.maxRetriesPerTask && !signal?.aborted) {
+      while (
+        result.status === "failed" &&
+        retries < limits.maxRetriesPerTask &&
+        !signal?.aborted
+      ) {
         retries++;
         // Exponential backoff with ±25% jitter to prevent thundering herd
         const baseDelayMs = 1000 * Math.pow(2, retries - 1);
@@ -209,20 +248,26 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       }
       result.retryCount = retries;
 
-      if (result.status === 'failed') {
-        log.error({ taskId: task.id, error: result.summary, retries }, 'Swarm task execution failed');
+      if (result.status === "failed") {
+        log.error(
+          { taskId: task.id, error: result.summary, retries },
+          "Swarm task execution failed",
+        );
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      log.error({ taskId: task.id, error: error.message, stack: error.stack }, 'Swarm task execution failed unexpectedly');
+      log.error(
+        { taskId: task.id, error: error.message, stack: error.stack },
+        "Swarm task execution failed unexpectedly",
+      );
       result = {
         taskId: task.id,
-        status: 'failed',
+        status: "failed",
         summary: `Unexpected error: ${error.message}`,
         artifacts: [],
         issues: [error.message],
         nextSteps: [],
-        rawOutput: '',
+        rawOutput: "",
         durationMs: 0,
         retryCount: 0,
       };
@@ -250,7 +295,10 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         })
         .catch((err) => {
           const error = err instanceof Error ? err : new Error(String(err));
-          log.error({ taskId: task.id, error: error.message, stack: error.stack }, 'Swarm task runner failed');
+          log.error(
+            { taskId: task.id, error: error.message, stack: error.stack },
+            "Swarm task runner failed",
+          );
         });
     }
 
@@ -272,7 +320,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
   for (const [taskId] of remaining) {
     if (!results.has(taskId) && !blocked.has(taskId)) {
       blocked.add(taskId);
-      onStatus?.({ kind: 'task_blocked', taskId });
+      onStatus?.({ kind: "task_blocked", taskId });
     }
   }
 
@@ -282,15 +330,15 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
 
   let finalAnswer: string;
   if (opts.synthesisProvider && !signal?.aborted) {
-    onStatus?.({ kind: 'synthesis_started' });
+    onStatus?.({ kind: "synthesis_started" });
     finalAnswer = await synthesizeResults({
       objective: plan.objective,
       results: allResults,
       provider: opts.synthesisProvider,
-      modelIntent: opts.synthesisModelIntent ?? 'quality-optimized',
+      modelIntent: opts.synthesisModelIntent ?? "quality-optimized",
     });
   } else {
-    if (!signal?.aborted) onStatus?.({ kind: 'synthesis_started' });
+    if (!signal?.aborted) onStatus?.({ kind: "synthesis_started" });
     finalAnswer = buildMarkdownFallback(plan.objective, allResults);
   }
 
@@ -301,7 +349,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     removeCheckpoint(runId);
   }
 
-  onStatus?.({ kind: 'done', message: `Completed in ${totalDurationMs}ms` });
+  onStatus?.({ kind: "done", message: `Completed in ${totalDurationMs}ms` });
 
   return {
     objective: plan.objective,
@@ -310,8 +358,8 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     finalAnswer,
     stats: {
       totalTasks: plan.tasks.length,
-      completed: allResults.filter((r) => r.status === 'completed').length,
-      failed: allResults.filter((r) => r.status === 'failed').length,
+      completed: allResults.filter((r) => r.status === "completed").length,
+      failed: allResults.filter((r) => r.status === "failed").length,
       blocked: blocked.size,
       totalDurationMs,
     },
@@ -327,7 +375,7 @@ function blockDependents(
   for (const depId of dependents.get(taskId) ?? []) {
     if (!blocked.has(depId)) {
       blocked.add(depId);
-      onStatus?.({ kind: 'task_blocked', taskId: depId });
+      onStatus?.({ kind: "task_blocked", taskId: depId });
       blockDependents(depId, dependents, blocked, onStatus);
     }
   }
@@ -338,36 +386,39 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.resolve();
   return new Promise<void>((resolve) => {
     const timer = setTimeout(done, ms);
-    signal?.addEventListener('abort', done, { once: true });
+    signal?.addEventListener("abort", done, { once: true });
     function done() {
       clearTimeout(timer);
-      signal?.removeEventListener('abort', done);
+      signal?.removeEventListener("abort", done);
       resolve();
     }
   });
 }
 
-function buildMarkdownFallback(objective: string, results: SwarmTaskResult[]): string {
-  const lines: string[] = [`## Swarm Results: ${objective}`, ''];
+function buildMarkdownFallback(
+  objective: string,
+  results: SwarmTaskResult[],
+): string {
+  const lines: string[] = [`## Swarm Results: ${objective}`, ""];
 
-  const completed = results.filter((r) => r.status === 'completed');
-  const failed = results.filter((r) => r.status === 'failed');
+  const completed = results.filter((r) => r.status === "completed");
+  const failed = results.filter((r) => r.status === "failed");
 
   if (completed.length > 0) {
-    lines.push('### Completed Tasks');
+    lines.push("### Completed Tasks");
     for (const r of completed) {
       lines.push(`- **${r.taskId}**: ${r.summary}`);
     }
-    lines.push('');
+    lines.push("");
   }
 
   if (failed.length > 0) {
-    lines.push('### Failed Tasks');
+    lines.push("### Failed Tasks");
     for (const r of failed) {
       lines.push(`- **${r.taskId}**: ${r.summary}`);
     }
-    lines.push('');
+    lines.push("");
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }

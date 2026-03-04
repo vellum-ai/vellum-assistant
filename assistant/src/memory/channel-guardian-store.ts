@@ -31,7 +31,7 @@ export {
   listPendingApprovalRequests,
   resolveApprovalRequest,
   updateApprovalDecision,
-} from './guardian-approvals.js';
+} from "./guardian-approvals.js";
 export {
   type BindingStatus,
   createBinding,
@@ -39,13 +39,13 @@ export {
   type GuardianBinding,
   listActiveBindingsByAssistant,
   revokeBinding,
-} from './guardian-bindings.js';
+} from "./guardian-bindings.js";
 export {
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
   type VerificationRateLimit,
-} from './guardian-rate-limits.js';
+} from "./guardian-rate-limits.js";
 export {
   bindSessionIdentity,
   type ChallengeStatus,
@@ -65,4 +65,4 @@ export {
   updateSessionStatus,
   type VerificationChallenge,
   type VerificationPurpose,
-} from './guardian-verification.js';
+} from "./guardian-verification.js";

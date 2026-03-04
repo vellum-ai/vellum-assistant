@@ -5,7 +5,7 @@
  * which maintains a multi-provider pricing catalog including Gemini models.
  */
 
-import { resolvePricing } from '../../../../util/pricing.js';
+import { resolvePricing } from "../../../../util/pricing.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,7 +34,7 @@ export interface CostSummary {
 export class CostTracker {
   private entries: SegmentCostEntry[] = [];
 
-  constructor(private readonly provider: string = 'gemini') {}
+  constructor(private readonly provider: string = "gemini") {}
 
   /**
    * Record token usage for a processed segment. Computes estimated cost
@@ -46,7 +46,12 @@ export class CostTracker {
     inputTokens: number;
     outputTokens: number;
   }): SegmentCostEntry {
-    const result = resolvePricing(this.provider, params.model, params.inputTokens, params.outputTokens);
+    const result = resolvePricing(
+      this.provider,
+      params.model,
+      params.inputTokens,
+      params.outputTokens,
+    );
     const estimatedUSD = result.estimatedCostUsd ?? 0;
 
     const entry: SegmentCostEntry = {

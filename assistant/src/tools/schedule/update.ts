@@ -1,15 +1,23 @@
-import { validateRruleSetLines } from '../../schedule/recurrence-engine.js';
-import { detectScheduleSyntax, normalizeScheduleSyntax, type ScheduleSyntax } from '../../schedule/recurrence-types.js';
-import { describeCronExpression,formatLocalDate, updateSchedule } from '../../schedule/schedule-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
+import {
+  detectScheduleSyntax,
+  normalizeScheduleSyntax,
+  type ScheduleSyntax,
+} from "../../schedule/recurrence-types.js";
+import {
+  describeCronExpression,
+  formatLocalDate,
+  updateSchedule,
+} from "../../schedule/schedule-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeScheduleUpdate(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const jobId = input.job_id as string;
-  if (!jobId || typeof jobId !== 'string') {
-    return { content: 'Error: job_id is required', isError: true };
+  if (!jobId || typeof jobId !== "string") {
+    return { content: "Error: job_id is required", isError: true };
   }
 
   const updates: Record<string, unknown> = {};
@@ -19,10 +27,11 @@ export async function executeScheduleUpdate(
   if (input.enabled !== undefined) updates.enabled = input.enabled;
 
   // Auto-detect syntax when expression changes without explicit syntax
-  const hasExpression = input.expression !== undefined || input.cron_expression !== undefined;
+  const hasExpression =
+    input.expression !== undefined || input.cron_expression !== undefined;
   if (hasExpression || input.syntax !== undefined) {
     const resolved = normalizeScheduleSyntax({
-      syntax: input.syntax as 'cron' | 'rrule' | undefined,
+      syntax: input.syntax as "cron" | "rrule" | undefined,
       expression: input.expression as string | undefined,
       legacyCronExpression: input.cron_expression as string | undefined,
     });
@@ -44,13 +53,23 @@ export async function executeScheduleUpdate(
   }
 
   if (Object.keys(updates).length === 0) {
-    return { content: 'Error: No updates provided. Specify at least one field to update.', isError: true };
+    return {
+      content:
+        "Error: No updates provided. Specify at least one field to update.",
+      isError: true,
+    };
   }
 
   // Set-aware pre-validation for RRULE expressions
   const effectiveSyntax = updates.syntax as string | undefined;
-  const effectiveExpr = (updates.expression as string | undefined) ?? (updates.cronExpression as string | undefined);
-  if (effectiveExpr && typeof effectiveExpr === 'string' && (effectiveSyntax === 'rrule' || /^(DTSTART|RRULE:)/m.test(effectiveExpr))) {
+  const effectiveExpr =
+    (updates.expression as string | undefined) ??
+    (updates.cronExpression as string | undefined);
+  if (
+    effectiveExpr &&
+    typeof effectiveExpr === "string" &&
+    (effectiveSyntax === "rrule" || /^(DTSTART|RRULE:)/m.test(effectiveExpr))
+  ) {
     const setError = validateRruleSetLines(effectiveExpr);
     if (setError) {
       return {
@@ -61,33 +80,37 @@ export async function executeScheduleUpdate(
   }
 
   try {
-    const job = updateSchedule(jobId, updates as {
-      name?: string;
-      cronExpression?: string;
-      timezone?: string | null;
-      message?: string;
-      enabled?: boolean;
-      syntax?: ScheduleSyntax;
-      expression?: string;
-    });
+    const job = updateSchedule(
+      jobId,
+      updates as {
+        name?: string;
+        cronExpression?: string;
+        timezone?: string | null;
+        message?: string;
+        enabled?: boolean;
+        syntax?: ScheduleSyntax;
+        expression?: string;
+      },
+    );
 
     if (!job) {
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
 
-    const scheduleDescription = job.syntax === 'rrule'
-      ? job.expression
-      : describeCronExpression(job.cronExpression);
+    const scheduleDescription =
+      job.syntax === "rrule"
+        ? job.expression
+        : describeCronExpression(job.cronExpression);
 
     return {
       content: [
         `Schedule updated successfully.`,
         `  Name: ${job.name}`,
         `  Syntax: ${job.syntax}`,
-        `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ''}`,
+        `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ""}`,
         `  Enabled: ${job.enabled}`,
-        `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a (disabled)'}`,
-      ].join('\n'),
+        `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : "n/a (disabled)"}`,
+      ].join("\n"),
       isError: false,
     };
   } catch (err) {

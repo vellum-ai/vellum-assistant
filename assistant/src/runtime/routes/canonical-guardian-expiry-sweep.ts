@@ -21,10 +21,10 @@
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
-} from '../../memory/canonical-guardian-store.js';
-import { getLogger } from '../../util/logger.js';
+} from "../../memory/canonical-guardian-store.js";
+import { getLogger } from "../../util/logger.js";
 
-const log = getLogger('canonical-guardian-expiry-sweep');
+const log = getLogger("canonical-guardian-expiry-sweep");
 
 /** Interval at which the expiry sweep runs (60 seconds). */
 const SWEEP_INTERVAL_MS = 60_000;
@@ -43,7 +43,7 @@ let sweepInProgress = false;
  * sweep.  Returns the count of requests transitioned to expired.
  */
 export function sweepExpiredCanonicalGuardianRequests(): number {
-  const pending = listCanonicalGuardianRequests({ status: 'pending' });
+  const pending = listCanonicalGuardianRequests({ status: "pending" });
   const now = Date.now();
   let expiredCount = 0;
 
@@ -56,27 +56,27 @@ export function sweepExpiredCanonicalGuardianRequests(): number {
     // CAS resolve: only transition from 'pending' to 'expired'.
     // If someone resolved it between our read and this write, the CAS
     // fails harmlessly (returns null) and we skip the request.
-    const resolved = resolveCanonicalGuardianRequest(request.id, 'pending', {
-      status: 'expired',
+    const resolved = resolveCanonicalGuardianRequest(request.id, "pending", {
+      status: "expired",
     });
 
     if (resolved) {
       expiredCount++;
       log.info(
         {
-          event: 'canonical_request_expired',
+          event: "canonical_request_expired",
           requestId: request.id,
           kind: request.kind,
           expiresAt: request.expiresAt,
         },
-        'Expired canonical guardian request via sweep',
+        "Expired canonical guardian request via sweep",
       );
     }
   }
 
   if (expiredCount > 0) {
     log.info(
-      { event: 'canonical_expiry_sweep_complete', expiredCount },
+      { event: "canonical_expiry_sweep_complete", expiredCount },
       `Canonical guardian expiry sweep: expired ${expiredCount} request(s)`,
     );
   }
@@ -96,7 +96,7 @@ export function startCanonicalGuardianExpirySweep(): void {
     try {
       sweepExpiredCanonicalGuardianRequests();
     } catch (err) {
-      log.error({ err }, 'Canonical guardian expiry sweep failed');
+      log.error({ err }, "Canonical guardian expiry sweep failed");
     } finally {
       sweepInProgress = false;
     }

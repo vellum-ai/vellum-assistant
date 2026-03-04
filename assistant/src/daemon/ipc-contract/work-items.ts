@@ -3,17 +3,17 @@
 // === Client → Server ===
 
 export interface WorkItemsListRequest {
-  type: 'work_items_list';
-  status?: string;  // optional filter
+  type: "work_items_list";
+  status?: string; // optional filter
 }
 
 export interface WorkItemGetRequest {
-  type: 'work_item_get';
+  type: "work_item_get";
   id: string;
 }
 
 export interface WorkItemUpdateRequest {
-  type: 'work_item_update';
+  type: "work_item_update";
   id: string;
   title?: string;
   notes?: string;
@@ -23,45 +23,45 @@ export interface WorkItemUpdateRequest {
 }
 
 export interface WorkItemCompleteRequest {
-  type: 'work_item_complete';
+  type: "work_item_complete";
   id: string;
 }
 
 export interface WorkItemDeleteRequest {
-  type: 'work_item_delete';
+  type: "work_item_delete";
   id: string;
 }
 
 export interface WorkItemRunTaskRequest {
-  type: 'work_item_run_task';
+  type: "work_item_run_task";
   id: string;
 }
 
 export interface WorkItemOutputRequest {
-  type: 'work_item_output';
+  type: "work_item_output";
   id: string;
 }
 
 export interface WorkItemPreflightRequest {
-  type: 'work_item_preflight';
-  id: string;  // work item ID
+  type: "work_item_preflight";
+  id: string; // work item ID
 }
 
 export interface WorkItemApprovePermissionsRequest {
-  type: 'work_item_approve_permissions';
+  type: "work_item_approve_permissions";
   id: string;
-  approvedTools: string[];  // tools the user approved
+  approvedTools: string[]; // tools the user approved
 }
 
 export interface WorkItemCancelRequest {
-  type: 'work_item_cancel';
+  type: "work_item_cancel";
   id: string;
 }
 
 // === Server → Client ===
 
 export interface WorkItemsListResponse {
-  type: 'work_items_list_response';
+  type: "work_items_list_response";
   items: Array<{
     id: string;
     taskId: string;
@@ -81,7 +81,7 @@ export interface WorkItemsListResponse {
 }
 
 export interface WorkItemGetResponse {
-  type: 'work_item_get_response';
+  type: "work_item_get_response";
   item: {
     id: string;
     taskId: string;
@@ -101,7 +101,7 @@ export interface WorkItemGetResponse {
 }
 
 export interface WorkItemUpdateResponse {
-  type: 'work_item_update_response';
+  type: "work_item_update_response";
   item: {
     id: string;
     taskId: string;
@@ -121,15 +121,20 @@ export interface WorkItemUpdateResponse {
 }
 
 export interface WorkItemDeleteResponse {
-  type: 'work_item_delete_response';
+  type: "work_item_delete_response";
   id: string;
   success: boolean;
 }
 
-export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task' | 'permission_required';
+export type WorkItemRunTaskErrorCode =
+  | "not_found"
+  | "already_running"
+  | "invalid_status"
+  | "no_task"
+  | "permission_required";
 
 export interface WorkItemRunTaskResponse {
-  type: 'work_item_run_task_response';
+  type: "work_item_run_task_response";
   id: string;
   lastRunId: string;
   success: boolean;
@@ -139,7 +144,7 @@ export interface WorkItemRunTaskResponse {
 }
 
 export interface WorkItemOutputResponse {
-  type: 'work_item_output_response';
+  type: "work_item_output_response";
   id: string;
   success: boolean;
   error?: string;
@@ -155,27 +160,27 @@ export interface WorkItemOutputResponse {
 }
 
 export interface WorkItemPreflightResponse {
-  type: 'work_item_preflight_response';
+  type: "work_item_preflight_response";
   id: string;
   success: boolean;
   error?: string;
   permissions?: {
     tool: string;
     description: string;
-    riskLevel: 'low' | 'medium' | 'high';
-    currentDecision: 'allow' | 'deny' | 'prompt';
+    riskLevel: "low" | "medium" | "high";
+    currentDecision: "allow" | "deny" | "prompt";
   }[];
 }
 
 export interface WorkItemApprovePermissionsResponse {
-  type: 'work_item_approve_permissions_response';
+  type: "work_item_approve_permissions_response";
   id: string;
   success: boolean;
   error?: string;
 }
 
 export interface WorkItemCancelResponse {
-  type: 'work_item_cancel_response';
+  type: "work_item_cancel_response";
   id: string;
   success: boolean;
   error?: string;
@@ -183,12 +188,12 @@ export interface WorkItemCancelResponse {
 
 /** Server push — lightweight invalidation signal: the task queue has been mutated, refetch your list. */
 export interface TasksChanged {
-  type: 'tasks_changed';
+  type: "tasks_changed";
 }
 
 /** Server push — broadcast when a work item status changes (e.g. running -> awaiting_review). */
 export interface WorkItemStatusChanged {
-  type: 'work_item_status_changed';
+  type: "work_item_status_changed";
   item: {
     id: string;
     taskId: string;
@@ -203,7 +208,7 @@ export interface WorkItemStatusChanged {
 
 /** Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread. */
 export interface TaskRunThreadCreated {
-  type: 'task_run_thread_created';
+  type: "task_run_thread_created";
   conversationId: string;
   workItemId: string;
   title: string;

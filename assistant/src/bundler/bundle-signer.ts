@@ -5,13 +5,13 @@
  * and requests an Ed25519 signature from the Swift client via IPC.
  */
 
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
-import JSZip from 'jszip';
+import JSZip from "jszip";
 
 export interface SignatureJson {
-  algorithm: 'ed25519';
+  algorithm: "ed25519";
   signer: {
     key_id: string;
     display_name: string;
@@ -35,7 +35,7 @@ export type SigningCallback = (payload: string) => Promise<{
  * Recursively sort object keys alphabetically for canonical JSON.
  */
 function sortKeysDeep(obj: unknown): unknown {
-  if (obj == null || typeof obj !== 'object') {
+  if (obj == null || typeof obj !== "object") {
     return obj;
   }
   if (Array.isArray(obj)) {
@@ -51,12 +51,14 @@ function sortKeysDeep(obj: unknown): unknown {
 /**
  * Compute SHA-256 hashes of all files in a zip archive, excluding signature.json.
  */
-async function computeContentHashes(zip: JSZip): Promise<Record<string, string>> {
+async function computeContentHashes(
+  zip: JSZip,
+): Promise<Record<string, string>> {
   const hashes: Record<string, string> = {};
   const entries: string[] = [];
 
   zip.forEach((relativePath, _file) => {
-    if (relativePath !== 'signature.json') {
+    if (relativePath !== "signature.json") {
       entries.push(relativePath);
     }
   });
@@ -67,8 +69,8 @@ async function computeContentHashes(zip: JSZip): Promise<Record<string, string>>
   for (const entryPath of entries) {
     const file = zip.file(entryPath);
     if (!file || file.dir) continue;
-    const content = await file.async('nodebuffer');
-    const hash = createHash('sha256').update(content).digest('hex');
+    const content = await file.async("nodebuffer");
+    const hash = createHash("sha256").update(content).digest("hex");
     hashes[entryPath] = hash;
   }
 
@@ -93,11 +95,11 @@ export async function signBundle(
   const contentHashes = await computeContentHashes(zip);
 
   // 2. Read manifest
-  const manifestFile = zip.file('manifest.json');
+  const manifestFile = zip.file("manifest.json");
   if (!manifestFile) {
-    throw new Error('Bundle is missing manifest.json');
+    throw new Error("Bundle is missing manifest.json");
   }
-  const manifestText = await manifestFile.async('text');
+  const manifestText = await manifestFile.async("text");
   const manifest = JSON.parse(manifestText) as Record<string, unknown>;
 
   // 3. Construct canonical signing payload with sorted keys
@@ -112,10 +114,10 @@ export async function signBundle(
 
   // 5. Build SignatureJson
   const signatureJson: SignatureJson = {
-    algorithm: 'ed25519',
+    algorithm: "ed25519",
     signer: {
       key_id: keyId,
-      display_name: 'Local Signer',
+      display_name: "Local Signer",
     },
     content_hashes: contentHashes,
     signature,

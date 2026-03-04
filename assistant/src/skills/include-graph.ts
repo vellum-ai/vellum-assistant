@@ -1,4 +1,4 @@
-import type { SkillSummary } from '../config/skills.js';
+import type { SkillSummary } from "../config/skills.js";
 
 export interface IncludeGraphResult {
   /** Ordered list of all skill IDs visited during traversal (including the root). */
@@ -8,7 +8,9 @@ export interface IncludeGraphResult {
 /**
  * Build an index of skills by their exact ID for O(1) lookup.
  */
-export function indexCatalogById(catalog: SkillSummary[]): Map<string, SkillSummary> {
+export function indexCatalogById(
+  catalog: SkillSummary[],
+): Map<string, SkillSummary> {
   const index = new Map<string, SkillSummary>();
   for (const skill of catalog) {
     index.set(skill.id, skill);
@@ -42,19 +44,22 @@ export interface IncludeValidationSuccess {
 
 export interface IncludeValidationError {
   ok: false;
-  error: 'missing';
+  error: "missing";
   missingChildId: string;
   parentId: string;
-  path: string[];  // full path from root to the parent that referenced the missing child
+  path: string[]; // full path from root to the parent that referenced the missing child
 }
 
 export interface IncludeValidationCycleError {
   ok: false;
-  error: 'cycle';
-  cyclePath: string[];  // the IDs forming the cycle, e.g. ['a', 'b', 'c', 'a']
+  error: "cycle";
+  cyclePath: string[]; // the IDs forming the cycle, e.g. ['a', 'b', 'c', 'a']
 }
 
-export type IncludeValidationResult = IncludeValidationSuccess | IncludeValidationError | IncludeValidationCycleError;
+export type IncludeValidationResult =
+  | IncludeValidationSuccess
+  | IncludeValidationError
+  | IncludeValidationCycleError;
 
 /**
  * Validate the include graph starting from the given root skill ID.
@@ -66,23 +71,25 @@ export function validateIncludes(
   catalogIndex: Map<string, SkillSummary>,
 ): IncludeValidationResult {
   const visited: string[] = [];
-  type State = 'unseen' | 'visiting' | 'done';
+  type State = "unseen" | "visiting" | "done";
   const state = new Map<string, State>();
-  const ancestry: string[] = [];  // current DFS path for cycle reporting
+  const ancestry: string[] = []; // current DFS path for cycle reporting
 
-  function dfs(id: string): IncludeValidationError | IncludeValidationCycleError | null {
-    const currentState = state.get(id) ?? 'unseen';
+  function dfs(
+    id: string,
+  ): IncludeValidationError | IncludeValidationCycleError | null {
+    const currentState = state.get(id) ?? "unseen";
 
-    if (currentState === 'done') return null;
+    if (currentState === "done") return null;
 
-    if (currentState === 'visiting') {
+    if (currentState === "visiting") {
       // Found a cycle — build the cycle path from the point where id first appears
       const cycleStart = ancestry.indexOf(id);
       const cyclePath = [...ancestry.slice(cycleStart), id];
-      return { ok: false, error: 'cycle', cyclePath };
+      return { ok: false, error: "cycle", cyclePath };
     }
 
-    state.set(id, 'visiting');
+    state.set(id, "visiting");
     ancestry.push(id);
     visited.push(id);
 
@@ -92,7 +99,7 @@ export function validateIncludes(
         if (!catalogIndex.has(childId)) {
           return {
             ok: false,
-            error: 'missing',
+            error: "missing",
             missingChildId: childId,
             parentId: id,
             path: [...ancestry],
@@ -104,7 +111,7 @@ export function validateIncludes(
     }
 
     ancestry.pop();
-    state.set(id, 'done');
+    state.set(id, "done");
     return null;
   }
 

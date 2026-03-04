@@ -1,7 +1,13 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { err,ok, resolveProvider, withProviderToken } from './shared.js';
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const types = input.types as string[] | undefined;
   const limit = input.limit as number | undefined;
@@ -10,7 +16,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
     const provider = resolveProvider(platform);
     return withProviderToken(provider, async (token) => {
       const conversations = await provider.listConversations(token, {
-        types: types as Array<'channel' | 'dm' | 'group' | 'inbox'> | undefined,
+        types: types as Array<"channel" | "dm" | "group" | "inbox"> | undefined,
         limit,
       });
       return ok(JSON.stringify(conversations, null, 2));
