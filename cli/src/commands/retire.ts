@@ -44,12 +44,20 @@ function extractHostFromUrl(url: string): string {
 async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
 
+  // Use entry resources when available; for legacy entries, derive paths
+  // from baseDataDir (which may differ from homedir if BASE_DATA_DIR was set).
   const resources = entry.resources ?? defaultLocalResources();
-  const vellumDir = join(resources.instanceDir, ".vellum");
+  const legacyDir = entry.baseDataDir;
+  const vellumDir = legacyDir ?? join(resources.instanceDir, ".vellum");
 
-  // Stop daemon via PID file
-  const daemonPidFile = resources.pidFile;
-  const socketFile = resources.socketPath;
+  // Stop daemon via PID file — prefer resources paths, but for legacy entries
+  // with a custom baseDataDir, derive from that directory instead.
+  const daemonPidFile = legacyDir
+    ? join(legacyDir, "vellum.pid")
+    : resources.pidFile;
+  const socketFile = legacyDir
+    ? join(legacyDir, "vellum.sock")
+    : resources.socketPath;
   const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [
     socketFile,
   ]);
