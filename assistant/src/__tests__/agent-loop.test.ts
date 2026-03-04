@@ -330,7 +330,7 @@ describe("AgentLoop", () => {
       // Abort from a timer while this tool is "stuck"
       setTimeout(() => controller.abort(), 50);
       // Simulate being stuck for a long time
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       return { content: "should never return", isError: false };
     };
 
