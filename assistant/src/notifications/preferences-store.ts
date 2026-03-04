@@ -7,11 +7,11 @@
  * resolution.
  */
 
-import { desc, eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { desc, eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb, rawChanges } from '../memory/db.js';
-import { notificationPreferences } from '../memory/schema.js';
+import { getDb, rawChanges } from "../memory/db.js";
+import { notificationPreferences } from "../memory/schema.js";
 
 // ── Row type ────────────────────────────────────────────────────────────
 
@@ -25,7 +25,9 @@ export interface NotificationPreferenceRow {
   updatedAt: number;
 }
 
-function rowToPreference(row: typeof notificationPreferences.$inferSelect): NotificationPreferenceRow {
+function rowToPreference(
+  row: typeof notificationPreferences.$inferSelect,
+): NotificationPreferenceRow {
   return {
     id: row.id,
     assistantId: row.assistantId,
@@ -41,9 +43,9 @@ function rowToPreference(row: typeof notificationPreferences.$inferSelect): Noti
 
 export interface AppliesWhenConditions {
   timeRange?: { after?: string; before?: string }; // e.g. "22:00", "06:00"
-  channels?: string[];        // e.g. ["telegram", "vellum"]
-  urgencyLevels?: string[];   // e.g. ["high", "critical"]
-  contexts?: string[];        // e.g. ["work_calls", "meetings"]
+  channels?: string[]; // e.g. ["telegram", "vellum"]
+  urgencyLevels?: string[]; // e.g. ["high", "critical"]
+  contexts?: string[]; // e.g. ["work_calls", "meetings"]
   [key: string]: unknown;
 }
 
@@ -56,7 +58,9 @@ export interface CreatePreferenceParams {
   priority?: number;
 }
 
-export function createPreference(params: CreatePreferenceParams): NotificationPreferenceRow {
+export function createPreference(
+  params: CreatePreferenceParams,
+): NotificationPreferenceRow {
   const db = getDb();
   const now = Date.now();
 
@@ -77,7 +81,9 @@ export function createPreference(params: CreatePreferenceParams): NotificationPr
 
 // ── List ────────────────────────────────────────────────────────────────
 
-export function listPreferences(assistantId: string): NotificationPreferenceRow[] {
+export function listPreferences(
+  assistantId: string,
+): NotificationPreferenceRow[] {
   const db = getDb();
 
   const rows = db
@@ -98,17 +104,21 @@ export interface UpdatePreferenceParams {
   priority?: number;
 }
 
-export function updatePreference(id: string, params: UpdatePreferenceParams): boolean {
+export function updatePreference(
+  id: string,
+  params: UpdatePreferenceParams,
+): boolean {
   const db = getDb();
   const now = Date.now();
 
   const updates: Record<string, unknown> = { updatedAt: now };
-  if (params.preferenceText !== undefined) updates.preferenceText = params.preferenceText;
-  if (params.appliesWhen !== undefined) updates.appliesWhenJson = JSON.stringify(params.appliesWhen);
+  if (params.preferenceText !== undefined)
+    updates.preferenceText = params.preferenceText;
+  if (params.appliesWhen !== undefined)
+    updates.appliesWhenJson = JSON.stringify(params.appliesWhen);
   if (params.priority !== undefined) updates.priority = params.priority;
 
-  db
-    .update(notificationPreferences)
+  db.update(notificationPreferences)
     .set(updates)
     .where(eq(notificationPreferences.id, id))
     .run();
@@ -121,8 +131,7 @@ export function updatePreference(id: string, params: UpdatePreferenceParams): bo
 export function deletePreference(id: string): boolean {
   const db = getDb();
 
-  db
-    .delete(notificationPreferences)
+  db.delete(notificationPreferences)
     .where(eq(notificationPreferences.id, id))
     .run();
 
@@ -131,7 +140,9 @@ export function deletePreference(id: string): boolean {
 
 // ── Get by ID ───────────────────────────────────────────────────────────
 
-export function getPreferenceById(id: string): NotificationPreferenceRow | null {
+export function getPreferenceById(
+  id: string,
+): NotificationPreferenceRow | null {
   const db = getDb();
   const row = db
     .select()

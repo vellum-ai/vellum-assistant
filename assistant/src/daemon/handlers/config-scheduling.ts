@@ -1,21 +1,38 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { createConversation } from '../../memory/conversation-store.js';
-import { GENERATING_TITLE, queueGenerateConversationTitle } from '../../memory/conversation-title-service.js';
-import { completeScheduleRun,createScheduleRun, deleteSchedule, describeCronExpression, getSchedule, listSchedules, updateSchedule } from '../../schedule/schedule-store.js';
-import { cancelReminder,listReminders } from '../../tools/reminder/reminder-store.js';
+import { createConversation } from "../../memory/conversation-store.js";
+import {
+  GENERATING_TITLE,
+  queueGenerateConversationTitle,
+} from "../../memory/conversation-title-service.js";
+import {
+  completeScheduleRun,
+  createScheduleRun,
+  deleteSchedule,
+  describeCronExpression,
+  getSchedule,
+  listSchedules,
+  updateSchedule,
+} from "../../schedule/schedule-store.js";
+import {
+  cancelReminder,
+  listReminders,
+} from "../../tools/reminder/reminder-store.js";
 import type {
   ReminderCancel,
   ScheduleRemove,
   ScheduleRunNow,
   ScheduleToggle,
-} from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+} from "../ipc-protocol.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
-export function handleSchedulesList(socket: net.Socket, ctx: HandlerContext): void {
+export function handleSchedulesList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
   const jobs = listSchedules();
   ctx.send(socket, {
-    type: 'schedules_list_response',
+    type: "schedules_list_response",
     schedules: jobs.map((j) => ({
       id: j.id,
       name: j.name,
@@ -28,7 +45,10 @@ export function handleSchedulesList(socket: net.Socket, ctx: HandlerContext): vo
       nextRunAt: j.nextRunAt,
       lastRunAt: j.lastRunAt,
       lastStatus: j.lastStatus,
-      description: j.syntax === 'cron' ? describeCronExpression(j.cronExpression) : j.expression,
+      description:
+        j.syntax === "cron"
+          ? describeCronExpression(j.cronExpression)
+          : j.expression,
     })),
   });
 }
@@ -40,9 +60,12 @@ export function handleScheduleToggle(
 ): void {
   try {
     updateSchedule(msg.id, { enabled: msg.enabled });
-    log.info({ id: msg.id, enabled: msg.enabled }, 'Schedule toggled via client');
+    log.info(
+      { id: msg.id, enabled: msg.enabled },
+      "Schedule toggled via client",
+    );
   } catch (err) {
-    log.error({ err }, 'Failed to toggle schedule');
+    log.error({ err }, "Failed to toggle schedule");
   }
   handleSchedulesList(socket, ctx);
 }
@@ -55,12 +78,12 @@ export function handleScheduleRemove(
   try {
     const removed = deleteSchedule(msg.id);
     if (!removed) {
-      log.warn({ id: msg.id }, 'Schedule not found for removal');
+      log.warn({ id: msg.id }, "Schedule not found for removal");
     } else {
-      log.info({ id: msg.id }, 'Schedule removed via client');
+      log.info({ id: msg.id }, "Schedule removed via client");
     }
   } catch (err) {
-    log.error({ err }, 'Failed to remove schedule');
+    log.error({ err }, "Failed to remove schedule");
   }
   handleSchedulesList(socket, ctx);
 }
@@ -72,7 +95,7 @@ export async function handleScheduleRunNow(
 ): Promise<void> {
   const schedule = getSchedule(msg.id);
   if (!schedule) {
-    log.warn({ id: msg.id }, 'Schedule not found for run-now');
+    log.warn({ id: msg.id }, "Schedule not found for run-now");
     return;
   }
 
@@ -81,66 +104,120 @@ export async function handleScheduleRunNow(
   if (taskMatch) {
     const taskId = taskMatch[1];
     try {
-      log.info({ jobId: schedule.id, name: schedule.name, taskId }, 'Executing scheduled task manually (run now)');
-      const { runTask } = await import('../../tasks/task-runner.js');
+      log.info(
+        { jobId: schedule.id, name: schedule.name, taskId },
+        "Executing scheduled task manually (run now)",
+      );
+      const { runTask } = await import("../../tasks/task-runner.js");
       const result = await runTask(
-        { taskId, workingDir: process.cwd(), source: 'schedule' },
+        { taskId, workingDir: process.cwd(), source: "schedule" },
         async (conversationId, message, taskRunId) => {
-          const session = await ctx.getOrCreateSession(conversationId, socket, true);
+          const session = await ctx.getOrCreateSession(
+            conversationId,
+            socket,
+            true,
+          );
           session.taskRunId = taskRunId;
-          await session.processMessage(message, [], (event) => {
-            ctx.send(socket, event);
-          }, undefined, undefined, undefined, { isInteractive: false });
+          await session.processMessage(
+            message,
+            [],
+            (event) => {
+              ctx.send(socket, event);
+            },
+            undefined,
+            undefined,
+            undefined,
+            { isInteractive: false },
+          );
         },
       );
 
       const runId = createScheduleRun(schedule.id, result.conversationId);
-      if (result.status === 'failed') {
-        completeScheduleRun(runId, { status: 'error', error: result.error ?? 'Task run failed' });
+      if (result.status === "failed") {
+        completeScheduleRun(runId, {
+          status: "error",
+          error: result.error ?? "Task run failed",
+        });
       } else {
-        completeScheduleRun(runId, { status: 'ok' });
+        completeScheduleRun(runId, { status: "ok" });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.warn({ err, jobId: schedule.id, name: schedule.name, taskId }, 'Manual scheduled task execution failed');
-      const fallbackConversation = createConversation({ title: GENERATING_TITLE, source: 'schedule' });
+      log.warn(
+        { err, jobId: schedule.id, name: schedule.name, taskId },
+        "Manual scheduled task execution failed",
+      );
+      const fallbackConversation = createConversation({
+        title: GENERATING_TITLE,
+        source: "schedule",
+      });
       queueGenerateConversationTitle({
         conversationId: fallbackConversation.id,
-        context: { origin: 'schedule', systemHint: `Schedule (manual): ${schedule.name}` },
+        context: {
+          origin: "schedule",
+          systemHint: `Schedule (manual): ${schedule.name}`,
+        },
       });
       const runId = createScheduleRun(schedule.id, fallbackConversation.id);
-      completeScheduleRun(runId, { status: 'error', error: message });
+      completeScheduleRun(runId, { status: "error", error: message });
     }
     handleSchedulesList(socket, ctx);
     return;
   }
 
-  const conversation = createConversation({ title: GENERATING_TITLE, source: 'schedule' });
+  const conversation = createConversation({
+    title: GENERATING_TITLE,
+    source: "schedule",
+  });
   queueGenerateConversationTitle({
     conversationId: conversation.id,
-    context: { origin: 'schedule', systemHint: `Schedule (manual): ${schedule.name}` },
+    context: {
+      origin: "schedule",
+      systemHint: `Schedule (manual): ${schedule.name}`,
+    },
   });
   const runId = createScheduleRun(schedule.id, conversation.id);
 
   try {
-    log.info({ jobId: schedule.id, name: schedule.name, conversationId: conversation.id }, 'Executing schedule manually (run now)');
+    log.info(
+      {
+        jobId: schedule.id,
+        name: schedule.name,
+        conversationId: conversation.id,
+      },
+      "Executing schedule manually (run now)",
+    );
     const session = await ctx.getOrCreateSession(conversation.id, socket, true);
-    await session.processMessage(schedule.message, [], (event) => {
-      ctx.send(socket, event);
-    }, undefined, undefined, undefined, { isInteractive: false });
-    completeScheduleRun(runId, { status: 'ok' });
+    await session.processMessage(
+      schedule.message,
+      [],
+      (event) => {
+        ctx.send(socket, event);
+      },
+      undefined,
+      undefined,
+      undefined,
+      { isInteractive: false },
+    );
+    completeScheduleRun(runId, { status: "ok" });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.warn({ err, jobId: schedule.id, name: schedule.name }, 'Manual schedule execution failed');
-    completeScheduleRun(runId, { status: 'error', error: message });
+    log.warn(
+      { err, jobId: schedule.id, name: schedule.name },
+      "Manual schedule execution failed",
+    );
+    completeScheduleRun(runId, { status: "error", error: message });
   }
   handleSchedulesList(socket, ctx);
 }
 
-export function handleRemindersList(socket: net.Socket, ctx: HandlerContext): void {
+export function handleRemindersList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
   const items = listReminders();
   ctx.send(socket, {
-    type: 'reminders_list_response',
+    type: "reminders_list_response",
     reminders: items.map((r) => ({
       id: r.id,
       label: r.label,
@@ -162,12 +239,12 @@ export function handleReminderCancel(
   try {
     const cancelled = cancelReminder(msg.id);
     if (!cancelled) {
-      log.warn({ id: msg.id }, 'Reminder not found or already fired/cancelled');
+      log.warn({ id: msg.id }, "Reminder not found or already fired/cancelled");
     } else {
-      log.info({ id: msg.id }, 'Reminder cancelled via client');
+      log.info({ id: msg.id }, "Reminder cancelled via client");
     }
   } catch (err) {
-    log.error({ err }, 'Failed to cancel reminder');
+    log.error({ err }, "Failed to cancel reminder");
   }
   handleRemindersList(socket, ctx);
 }

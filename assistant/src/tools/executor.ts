@@ -1,26 +1,30 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync } from "node:fs";
 
-import { getConfig } from '../config/loader.js';
-import { getHookManager } from '../hooks/manager.js';
-import { PermissionPrompter } from '../permissions/prompter.js';
-import { RiskLevel } from '../permissions/types.js';
-import { redactSensitiveFields } from '../security/redaction.js';
-import { TokenExpiredError } from '../security/token-manager.js';
-import { PermissionDeniedError,ToolError } from '../util/errors.js';
-import { pathExists, safeStatSync } from '../util/fs.js';
-import { getLogger } from '../util/logger.js';
-import { resolveExecutionTarget } from './execution-target.js';
-import { executeWithTimeout,safeTimeoutMs } from './execution-timeout.js';
-import { PermissionChecker } from './permission-checker.js';
-import { SecretDetectionHandler } from './secret-detection-handler.js';
-import { extractAndSanitize } from './sensitive-output-placeholders.js';
-import { applyEdit } from './shared/filesystem/edit-engine.js';
-import { sandboxPolicy } from './shared/filesystem/path-policy.js';
-import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
-import { ToolApprovalHandler } from './tool-approval-handler.js';
-import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
+import { getConfig } from "../config/loader.js";
+import { getHookManager } from "../hooks/manager.js";
+import { PermissionPrompter } from "../permissions/prompter.js";
+import { RiskLevel } from "../permissions/types.js";
+import { redactSensitiveFields } from "../security/redaction.js";
+import { TokenExpiredError } from "../security/token-manager.js";
+import { PermissionDeniedError, ToolError } from "../util/errors.js";
+import { pathExists, safeStatSync } from "../util/fs.js";
+import { getLogger } from "../util/logger.js";
+import { resolveExecutionTarget } from "./execution-target.js";
+import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
+import { PermissionChecker } from "./permission-checker.js";
+import { SecretDetectionHandler } from "./secret-detection-handler.js";
+import { extractAndSanitize } from "./sensitive-output-placeholders.js";
+import { applyEdit } from "./shared/filesystem/edit-engine.js";
+import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
+import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
+import { ToolApprovalHandler } from "./tool-approval-handler.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+  ToolLifecycleEvent,
+} from "./types.js";
 
-const log = getLogger('tool-executor');
+const log = getLogger("tool-executor");
 
 export class ToolExecutor {
   private prompter: PermissionPrompter;
@@ -41,12 +45,12 @@ export class ToolExecutor {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const startTime = Date.now();
-    let decision = 'allow';
+    let decision = "allow";
     let riskLevel: string = RiskLevel.Low;
     const executionTarget = resolveExecutionTarget(name);
 
     emitLifecycleEvent(context, {
-      type: 'start',
+      type: "start",
       toolName: name,
       executionTarget,
       input,
@@ -60,7 +64,12 @@ export class ToolExecutor {
     // Run pre-execution approval gates (abort, guardian policy,
     // allowed-tool-set, task-run preflight, tool registry lookup).
     const gateResult = await this.approvalHandler.checkPreExecutionGates(
-      name, input, context, executionTarget, riskLevel, startTime,
+      name,
+      input,
+      context,
+      executionTarget,
+      riskLevel,
+      startTime,
       (event) => emitLifecycleEvent(context, event),
     );
 
@@ -96,7 +105,7 @@ export class ToolExecutor {
         }
       }
 
-      const hookResult = await getHookManager().trigger('pre-tool-execute', {
+      const hookResult = await getHookManager().trigger("pre-tool-execute", {
         toolName: name,
         input: sanitizeToolInput(name, input),
         riskLevel,
@@ -109,7 +118,7 @@ export class ToolExecutor {
         const msg = `Tool execution blocked by hook "${hookResult.blockedBy}"`;
         const durationMs = Date.now() - startTime;
         emitLifecycleEvent(context, {
-          type: 'error',
+          type: "error",
           toolName: name,
           executionTarget,
           input,
@@ -118,11 +127,11 @@ export class ToolExecutor {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
-          decision: 'blocked',
+          decision: "blocked",
           durationMs,
           errorMessage: msg,
           isExpected: true,
-          errorCategory: 'tool_failure',
+          errorCategory: "tool_failure",
         });
         return { content: msg, isError: true };
       }
@@ -130,15 +139,20 @@ export class ToolExecutor {
       // Execute the tool — proxy tools delegate to an external resolver
       let execResult: ToolExecutionResult;
       let toolTimeoutMs: number;
-      if (name === 'bash' || name === 'host_bash') {
+      if (name === "bash" || name === "host_bash") {
         // Shell tools manage their own timeouts (SIGKILL on expiry).
         // Compute the same effective timeout so the executor wrapper
         // doesn't prematurely kill them with the generic toolExecutionTimeoutSec.
-        const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = getConfig().timeouts;
-        const requestedSec = typeof input.timeout_seconds === 'number'
-          ? input.timeout_seconds
-          : shellDefaultTimeoutSec;
-        const shellTimeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
+        const { shellDefaultTimeoutSec, shellMaxTimeoutSec } =
+          getConfig().timeouts;
+        const requestedSec =
+          typeof input.timeout_seconds === "number"
+            ? input.timeout_seconds
+            : shellDefaultTimeoutSec;
+        const shellTimeoutSec = Math.max(
+          1,
+          Math.min(requestedSec, shellMaxTimeoutSec),
+        );
         // Buffer so the shell's own timeout fires first and handles cleanup
         toolTimeoutMs = (shellTimeoutSec + 5) * 1000;
       } else {
@@ -148,12 +162,12 @@ export class ToolExecutor {
 
       const execContext = context;
 
-      if (tool.executionMode === 'proxy') {
+      if (tool.executionMode === "proxy") {
         if (!context.proxyToolResolver) {
           const msg = `No proxy resolver configured for proxy tool "${name}". This tool requires an external resolver (e.g. a connected macOS client for computer-use tools).`;
           const durationMs = Date.now() - startTime;
           emitLifecycleEvent(context, {
-            type: 'error',
+            type: "error",
             toolName: name,
             executionTarget,
             input,
@@ -162,11 +176,11 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
-            decision: 'error',
+            decision: "error",
             durationMs,
             errorMessage: msg,
             isExpected: true,
-            errorCategory: 'tool_failure',
+            errorCategory: "tool_failure",
           });
           return { content: msg, isError: true };
         }
@@ -187,15 +201,29 @@ export class ToolExecutor {
       // with placeholders, and attach bindings for agent-loop substitution.
       // Runs before secret detection so that raw sensitive values are already
       // replaced and won't trigger entropy-based redaction.
-      const { sanitizedContent, bindings } = extractAndSanitize(execResult.content);
+      const { sanitizedContent, bindings } = extractAndSanitize(
+        execResult.content,
+      );
       if (bindings.length > 0) {
-        execResult = { ...execResult, content: sanitizedContent, sensitiveBindings: bindings };
+        execResult = {
+          ...execResult,
+          content: sanitizedContent,
+          sensitiveBindings: bindings,
+        };
       }
 
       // Secret detection on tool output
       const secretResult = await this.secretDetectionHandler.handle(
-        execResult, name, input, context, executionTarget,
-        riskLevel, decision, startTime, emitLifecycleEvent, sanitizeToolInput,
+        execResult,
+        name,
+        input,
+        context,
+        executionTarget,
+        riskLevel,
+        decision,
+        startTime,
+        emitLifecycleEvent,
+        sanitizeToolInput,
       );
       if (secretResult.earlyReturn) {
         return secretResult.result;
@@ -206,7 +234,7 @@ export class ToolExecutor {
       // Strip sensitiveBindings from lifecycle event to prevent raw values leaking
       const { sensitiveBindings: _sb, ...safeResult } = execResult;
       emitLifecycleEvent(context, {
-        type: 'executed',
+        type: "executed",
         toolName: name,
         executionTarget,
         input,
@@ -220,7 +248,7 @@ export class ToolExecutor {
         result: safeResult,
       });
 
-      void getHookManager().trigger('post-tool-execute', {
+      void getHookManager().trigger("post-tool-execute", {
         toolName: name,
         input: sanitizeToolInput(name, input),
         riskLevel,
@@ -234,27 +262,34 @@ export class ToolExecutor {
       // Extract classified risk level if the PermissionChecker attached it
       // before re-throwing. This preserves audit accuracy for high-risk
       // tool attempts that fail mid-permission-evaluation.
-      if (err instanceof Error && typeof (err as Error & { riskLevel?: string }).riskLevel === 'string') {
+      if (
+        err instanceof Error &&
+        typeof (err as Error & { riskLevel?: string }).riskLevel === "string"
+      ) {
         riskLevel = (err as Error & { riskLevel?: string }).riskLevel!;
       }
 
       const durationMs = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
-      const isAbort = err instanceof Error && err.name === 'AbortError';
-      const isExpected = isAbort || err instanceof PermissionDeniedError || err instanceof ToolError || err instanceof TokenExpiredError;
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      const isExpected =
+        isAbort ||
+        err instanceof PermissionDeniedError ||
+        err instanceof ToolError ||
+        err instanceof TokenExpiredError;
 
       const errorCategory = isAbort
-        ? 'tool_failure' as const
+        ? ("tool_failure" as const)
         : err instanceof PermissionDeniedError
-          ? 'permission_denied' as const
+          ? ("permission_denied" as const)
           : err instanceof TokenExpiredError
-            ? 'auth' as const
+            ? ("auth" as const)
             : err instanceof ToolError
-              ? 'tool_failure' as const
-              : 'unexpected' as const;
+              ? ("tool_failure" as const)
+              : ("unexpected" as const);
 
       emitLifecycleEvent(context, {
-        type: 'error',
+        type: "error",
         toolName: name,
         executionTarget,
         input,
@@ -263,7 +298,7 @@ export class ToolExecutor {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        decision: 'error',
+        decision: "error",
         durationMs,
         errorMessage: msg,
         isExpected,
@@ -272,7 +307,7 @@ export class ToolExecutor {
         errorStack: err instanceof Error ? err.stack : undefined,
       });
 
-      void getHookManager().trigger('post-tool-execute', {
+      void getHookManager().trigger("post-tool-execute", {
         toolName: name,
         input: sanitizeToolInput(name, input),
         riskLevel,
@@ -284,32 +319,44 @@ export class ToolExecutor {
       if (isExpected) {
         return { content: msg, isError: true };
       }
-      return { content: `Tool "${name}" encountered an unexpected error: ${msg}`, isError: true };
+      return {
+        content: `Tool "${name}" encountered an unexpected error: ${msg}`,
+        isError: true,
+      };
     }
   }
 }
 
 // Re-export from the canonical source so existing consumers of
 // `executor.ts` continue to work without changing their imports.
-export { isSideEffectTool } from './side-effects.js';
+export { isSideEffectTool } from "./side-effects.js";
 
 // Re-export PermissionChecker for consumers that need direct access
-export { PermissionChecker } from './permission-checker.js';
+export { PermissionChecker } from "./permission-checker.js";
 
 /**
  * Sanitize tool inputs before they are emitted in lifecycle events and hooks.
  * Applies recursive field-level redaction for known-sensitive keys.
  */
-function sanitizeToolInput(_toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+function sanitizeToolInput(
+  _toolName: string,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
   return redactSensitiveFields(input);
 }
 
-function emitLifecycleEvent(context: ToolContext, event: ToolLifecycleEvent): void {
+function emitLifecycleEvent(
+  context: ToolContext,
+  event: ToolLifecycleEvent,
+): void {
   const handler = context.onToolLifecycleEvent;
   if (!handler) return;
 
   // Redact sensitive fields from tool inputs before they reach audit listeners
-  const sanitizedEvent = { ...event, input: sanitizeToolInput(event.toolName, event.input) };
+  const sanitizedEvent = {
+    ...event,
+    input: sanitizeToolInput(event.toolName, event.input),
+  };
 
   try {
     const maybePromise = handler(sanitizedEvent as ToolLifecycleEvent);
@@ -317,14 +364,14 @@ function emitLifecycleEvent(context: ToolContext, event: ToolLifecycleEvent): vo
       void maybePromise.catch((err) => {
         log.warn(
           { err, eventType: event.type, toolName: event.toolName },
-          'Tool lifecycle event handler failed (non-fatal, tool execution was not affected)',
+          "Tool lifecycle event handler failed (non-fatal, tool execution was not affected)",
         );
       });
     }
   } catch (err) {
     log.warn(
       { err, eventType: event.type, toolName: event.toolName },
-      'Tool lifecycle event handler failed (non-fatal, tool execution was not affected)',
+      "Tool lifecycle event handler failed (non-fatal, tool execution was not affected)",
     );
   }
 }
@@ -337,13 +384,22 @@ function computePreviewDiff(
   toolName: string,
   input: Record<string, unknown>,
   workingDir: string,
-): { filePath: string; oldContent: string; newContent: string; isNewFile: boolean } | undefined {
+):
+  | {
+      filePath: string;
+      oldContent: string;
+      newContent: string;
+      isNewFile: boolean;
+    }
+  | undefined {
   try {
-    if (toolName === 'file_write') {
+    if (toolName === "file_write") {
       const rawPath = input.path as string;
       const content = input.content as string;
-      if (!rawPath || typeof content !== 'string') return undefined;
-      const pathCheck = sandboxPolicy(rawPath, workingDir, { mustExist: false });
+      if (!rawPath || typeof content !== "string") return undefined;
+      const pathCheck = sandboxPolicy(rawPath, workingDir, {
+        mustExist: false,
+      });
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
       const isNewFile = !pathExists(filePath);
@@ -351,26 +407,37 @@ function computePreviewDiff(
         const stat = safeStatSync(filePath);
         if (!stat || stat.size > MAX_FILE_SIZE_BYTES) return undefined;
       }
-      const oldContent = isNewFile ? '' : readFileSync(filePath, 'utf-8');
+      const oldContent = isNewFile ? "" : readFileSync(filePath, "utf-8");
       return { filePath, oldContent, newContent: content, isNewFile };
     }
 
-    if (toolName === 'file_edit') {
+    if (toolName === "file_edit") {
       const rawPath = input.path as string;
       const oldString = input.old_string as string;
       const newString = input.new_string as string;
-      if (!rawPath || typeof oldString !== 'string' || typeof newString !== 'string' || oldString.length === 0) return undefined;
+      if (
+        !rawPath ||
+        typeof oldString !== "string" ||
+        typeof newString !== "string" ||
+        oldString.length === 0
+      )
+        return undefined;
       const pathCheck = sandboxPolicy(rawPath, workingDir);
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
       const stat = safeStatSync(filePath);
       if (!stat) return undefined;
       if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
-      const content = readFileSync(filePath, 'utf-8');
+      const content = readFileSync(filePath, "utf-8");
       const replaceAll = input.replace_all === true;
       const result = applyEdit(content, oldString, newString, replaceAll);
       if (!result.ok) return undefined;
-      return { filePath, oldContent: content, newContent: result.updatedContent, isNewFile: false };
+      return {
+        filePath,
+        oldContent: content,
+        newContent: result.updatedContent,
+        isNewFile: false,
+      };
     }
   } catch {
     // Preview is best-effort — don't block the prompt on errors

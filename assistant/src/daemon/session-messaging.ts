@@ -5,22 +5,30 @@
  * Extracted from Session to keep the class focused on coordination.
  */
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { createUserMessage } from '../agent/message-types.js';
-import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
-import { parseChannelId, parseInterfaceId } from '../channels/types.js';
-import { AttachmentUploadError, linkAttachmentToMessage, uploadAttachment, validateAttachmentUpload } from '../memory/attachments-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromTrustContext } from '../memory/conversation-store.js';
-import type { SecretPrompter } from '../permissions/secret-prompter.js';
-import type { Message } from '../providers/types.js';
-import { getLogger } from '../util/logger.js';
-import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
-import type { MessageQueue } from './session-queue-manager.js';
-import type { TrustContext } from './session-runtime-assembly.js';
+import { createUserMessage } from "../agent/message-types.js";
+import type {
+  TurnChannelContext,
+  TurnInterfaceContext,
+} from "../channels/types.js";
+import { parseChannelId, parseInterfaceId } from "../channels/types.js";
+import {
+  AttachmentUploadError,
+  linkAttachmentToMessage,
+  uploadAttachment,
+  validateAttachmentUpload,
+} from "../memory/attachments-store.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import type { Message } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
+import type { ServerMessage, UserMessageAttachment } from "./ipc-protocol.js";
+import type { MessageQueue } from "./session-queue-manager.js";
+import type { TrustContext } from "./session-runtime-assembly.js";
 
-const log = getLogger('session-messaging');
+const log = getLogger("session-messaging");
 
 interface IngressSecretTarget {
   service: string;
@@ -29,32 +37,96 @@ interface IngressSecretTarget {
 }
 
 const INGRESS_SECRET_TARGETS: Record<string, IngressSecretTarget> = {
-  'Anthropic API Key': { service: 'anthropic', field: 'api_key', label: 'Anthropic API Key' },
-  'GitHub Fine-Grained PAT': { service: 'github', field: 'token', label: 'GitHub Token' },
-  'GitHub Token': { service: 'github', field: 'token', label: 'GitHub Token' },
-  'GitLab Token': { service: 'gitlab', field: 'token', label: 'GitLab Token' },
-  'Google API Key': { service: 'google', field: 'api_key', label: 'Google API Key' },
-  'Google OAuth Client Secret': { service: 'google', field: 'client_secret', label: 'Google OAuth Client Secret' },
-  'Mailgun API Key': { service: 'mailgun', field: 'api_key', label: 'Mailgun API Key' },
-  'OpenAI API Key': { service: 'openai', field: 'api_key', label: 'OpenAI API Key' },
-  'OpenAI Project Key': { service: 'openai', field: 'api_key', label: 'OpenAI API Key' },
-  'PyPI API Token': { service: 'pypi', field: 'api_token', label: 'PyPI API Token' },
-  'SendGrid API Key': { service: 'sendgrid', field: 'api_key', label: 'SendGrid API Key' },
-  'Slack Bot Token': { service: 'slack', field: 'bot_token', label: 'Slack Bot Token' },
-  'Slack User Token': { service: 'slack', field: 'user_token', label: 'Slack User Token' },
-  'Slack Webhook': { service: 'slack', field: 'webhook_url', label: 'Slack Webhook URL' },
-  'Stripe Restricted Key': { service: 'stripe', field: 'restricted_key', label: 'Stripe Restricted Key' },
-  'Stripe Secret Key': { service: 'stripe', field: 'secret_key', label: 'Stripe Secret Key' },
-  'Telegram Bot Token': { service: 'telegram', field: 'bot_token', label: 'Telegram Bot Token' },
-  'Twilio API Key': { service: 'twilio', field: 'api_key', label: 'Twilio API Key' },
-  'npm Token': { service: 'npm', field: 'token', label: 'npm Token' },
+  "Anthropic API Key": {
+    service: "anthropic",
+    field: "api_key",
+    label: "Anthropic API Key",
+  },
+  "GitHub Fine-Grained PAT": {
+    service: "github",
+    field: "token",
+    label: "GitHub Token",
+  },
+  "GitHub Token": { service: "github", field: "token", label: "GitHub Token" },
+  "GitLab Token": { service: "gitlab", field: "token", label: "GitLab Token" },
+  "Google API Key": {
+    service: "google",
+    field: "api_key",
+    label: "Google API Key",
+  },
+  "Google OAuth Client Secret": {
+    service: "google",
+    field: "client_secret",
+    label: "Google OAuth Client Secret",
+  },
+  "Mailgun API Key": {
+    service: "mailgun",
+    field: "api_key",
+    label: "Mailgun API Key",
+  },
+  "OpenAI API Key": {
+    service: "openai",
+    field: "api_key",
+    label: "OpenAI API Key",
+  },
+  "OpenAI Project Key": {
+    service: "openai",
+    field: "api_key",
+    label: "OpenAI API Key",
+  },
+  "PyPI API Token": {
+    service: "pypi",
+    field: "api_token",
+    label: "PyPI API Token",
+  },
+  "SendGrid API Key": {
+    service: "sendgrid",
+    field: "api_key",
+    label: "SendGrid API Key",
+  },
+  "Slack Bot Token": {
+    service: "slack",
+    field: "bot_token",
+    label: "Slack Bot Token",
+  },
+  "Slack User Token": {
+    service: "slack",
+    field: "user_token",
+    label: "Slack User Token",
+  },
+  "Slack Webhook": {
+    service: "slack",
+    field: "webhook_url",
+    label: "Slack Webhook URL",
+  },
+  "Stripe Restricted Key": {
+    service: "stripe",
+    field: "restricted_key",
+    label: "Stripe Restricted Key",
+  },
+  "Stripe Secret Key": {
+    service: "stripe",
+    field: "secret_key",
+    label: "Stripe Secret Key",
+  },
+  "Telegram Bot Token": {
+    service: "telegram",
+    field: "bot_token",
+    label: "Telegram Bot Token",
+  },
+  "Twilio API Key": {
+    service: "twilio",
+    field: "api_key",
+    label: "Twilio API Key",
+  },
+  "npm Token": { service: "npm", field: "token", label: "npm Token" },
 };
 
 export interface RedirectedSecretRecord {
   service: string;
   field: string;
   label: string;
-  delivery: 'store' | 'transient_send';
+  delivery: "store" | "transient_send";
 }
 
 export interface RedirectToSecurePromptOptions {
@@ -63,10 +135,12 @@ export interface RedirectToSecurePromptOptions {
 }
 
 function normalizeIngressSecretTypeLabel(detectedType: string): string {
-  return detectedType.replace(/\s+\([^)]+\)$/u, '');
+  return detectedType.replace(/\s+\([^)]+\)$/u, "");
 }
 
-function resolveIngressSecretTarget(detectedTypes: string[]): IngressSecretTarget {
+function resolveIngressSecretTarget(
+  detectedTypes: string[],
+): IngressSecretTarget {
   const mappedTargets = new Map<string, IngressSecretTarget>();
   for (const detectedType of detectedTypes) {
     const normalizedType = normalizeIngressSecretTypeLabel(detectedType);
@@ -77,9 +151,9 @@ function resolveIngressSecretTarget(detectedTypes: string[]): IngressSecretTarge
   if (mappedTargets.size === 1) return mappedTargets.values().next().value!;
 
   return {
-    service: 'detected',
-    field: detectedTypes.join(','),
-    label: 'Secure Credential Entry',
+    service: "detected",
+    field: detectedTypes.join(","),
+    label: "Secure Credential Entry",
   };
 }
 
@@ -97,18 +171,26 @@ export interface MessagingSessionContext {
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
 
-function extractTurnChannelContext(metadata?: Record<string, unknown>): TurnChannelContext | null {
+function extractTurnChannelContext(
+  metadata?: Record<string, unknown>,
+): TurnChannelContext | null {
   if (!metadata) return null;
   const userMessageChannel = parseChannelId(metadata.userMessageChannel);
-  const assistantMessageChannel = parseChannelId(metadata.assistantMessageChannel);
+  const assistantMessageChannel = parseChannelId(
+    metadata.assistantMessageChannel,
+  );
   if (!userMessageChannel || !assistantMessageChannel) return null;
   return { userMessageChannel, assistantMessageChannel };
 }
 
-function extractTurnInterfaceContext(metadata?: Record<string, unknown>): TurnInterfaceContext | null {
+function extractTurnInterfaceContext(
+  metadata?: Record<string, unknown>,
+): TurnInterfaceContext | null {
   if (!metadata) return null;
   const userMessageInterface = parseInterfaceId(metadata.userMessageInterface);
-  const assistantMessageInterface = parseInterfaceId(metadata.assistantMessageInterface);
+  const assistantMessageInterface = parseInterfaceId(
+    metadata.assistantMessageInterface,
+  );
   if (!userMessageInterface || !assistantMessageInterface) return null;
   return { userMessageInterface, assistantMessageInterface };
 }
@@ -131,8 +213,14 @@ export function enqueueMessage(
     return { queued: false, requestId };
   }
 
-  const turnChannelContext = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext() ?? undefined;
-  const turnInterfaceContext = extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext() ?? undefined;
+  const turnChannelContext =
+    extractTurnChannelContext(metadata) ??
+    ctx.getTurnChannelContext() ??
+    undefined;
+  const turnInterfaceContext =
+    extractTurnInterfaceContext(metadata) ??
+    ctx.getTurnInterfaceContext() ??
+    undefined;
   const pushed = ctx.queue.push({
     content,
     attachments,
@@ -164,11 +252,11 @@ export async function persistUserMessage(
   displayContent?: string,
 ): Promise<string> {
   if (ctx.processing) {
-    throw new Error('Session is already processing a message');
+    throw new Error("Session is already processing a message");
   }
 
   if (!content.trim() && attachments.length === 0) {
-    throw new Error('Message content or attachments are required');
+    throw new Error("Message content or attachments are required");
   }
 
   const reqId = requestId ?? uuid();
@@ -176,18 +264,23 @@ export async function persistUserMessage(
   ctx.processing = true;
   ctx.abortController = new AbortController();
 
-  const userMessage = createUserMessage(content, attachments.map((attachment) => ({
-    id: attachment.id,
-    filename: attachment.filename,
-    mimeType: attachment.mimeType,
-    data: attachment.data,
-    extractedText: attachment.extractedText,
-  })));
+  const userMessage = createUserMessage(
+    content,
+    attachments.map((attachment) => ({
+      id: attachment.id,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      data: attachment.data,
+      extractedText: attachment.extractedText,
+    })),
+  );
   ctx.messages.push(userMessage);
 
   try {
-    const turnCtx = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
-    const turnIfCtx = extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
+    const turnCtx =
+      extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
+    const turnIfCtx =
+      extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
     const provenance = provenanceFromTrustContext(ctx.trustContext);
     const mergedMetadata = {
       ...(metadata ?? {}),
@@ -211,26 +304,41 @@ export async function persistUserMessage(
     // after restart. The in-memory userMessage (sent to the LLM) still uses
     // the stripped content.
     const contentToPersist = displayContent
-      ? JSON.stringify(createUserMessage(displayContent, attachments.map((a) => ({
-          id: a.id, filename: a.filename, mimeType: a.mimeType, data: a.data, extractedText: a.extractedText,
-        }))).content)
+      ? JSON.stringify(
+          createUserMessage(
+            displayContent,
+            attachments.map((a) => ({
+              id: a.id,
+              filename: a.filename,
+              mimeType: a.mimeType,
+              data: a.data,
+              extractedText: a.extractedText,
+            })),
+          ).content,
+        )
       : JSON.stringify(userMessage.content);
     const persistedUserMessage = await conversationStore.addMessage(
       ctx.conversationId,
-      'user',
+      "user",
       contentToPersist,
       mergedMetadata,
     );
 
     if (turnCtx) {
-      conversationStore.setConversationOriginChannelIfUnset(ctx.conversationId, turnCtx.userMessageChannel);
+      conversationStore.setConversationOriginChannelIfUnset(
+        ctx.conversationId,
+        turnCtx.userMessageChannel,
+      );
     }
     if (turnIfCtx) {
-      conversationStore.setConversationOriginInterfaceIfUnset(ctx.conversationId, turnIfCtx.userMessageInterface);
+      conversationStore.setConversationOriginInterfaceIfUnset(
+        ctx.conversationId,
+        turnIfCtx.userMessageInterface,
+      );
     }
 
     if (!persistedUserMessage.id) {
-      throw new Error('Failed to persist user message');
+      throw new Error("Failed to persist user message");
     }
 
     // Index user attachments in the attachments table so asset_search can find them.
@@ -240,16 +348,25 @@ export async function persistUserMessage(
       try {
         const validation = validateAttachmentUpload(a.filename, a.mimeType);
         if (!validation.ok) {
-          log.warn({ filename: a.filename, error: validation.error }, 'Skipping user attachment indexing: validation failed');
+          log.warn(
+            { filename: a.filename, error: validation.error },
+            "Skipping user attachment indexing: validation failed",
+          );
           continue;
         }
         const stored = uploadAttachment(a.filename, a.mimeType, a.data);
         linkAttachmentToMessage(persistedUserMessage.id, stored.id, i);
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
-          log.warn({ filename: a.filename, error: err.message }, 'Skipping user attachment indexing');
+          log.warn(
+            { filename: a.filename, error: err.message },
+            "Skipping user attachment indexing",
+          );
         } else {
-          log.error({ filename: a.filename, err }, 'Failed to index user attachment');
+          log.error(
+            { filename: a.filename, err },
+            "Failed to index user attachment",
+          );
         }
       }
     }
@@ -274,53 +391,86 @@ export function redirectToSecurePrompt(
 ): void {
   const target = resolveIngressSecretTarget(detectedTypes);
 
-  secretPrompter.prompt(
-    target.service, target.field,
-    target.label,
-    'Your message contained a secret. Please enter it here instead — it will be stored securely and never sent to the AI.',
-    undefined, conversationId,
-  ).then(async (result): Promise<void> => {
-    if (!result.value) return;
+  secretPrompter
+    .prompt(
+      target.service,
+      target.field,
+      target.label,
+      "Your message contained a secret. Please enter it here instead — it will be stored securely and never sent to the AI.",
+      undefined,
+      conversationId,
+    )
+    .then(async (result): Promise<void> => {
+      if (!result.value) return;
 
-    const { setSecureKey } = await import('../security/secure-keys.js');
-    const { upsertCredentialMetadata } = await import('../tools/credentials/metadata-store.js');
+      const { setSecureKey } = await import("../security/secure-keys.js");
+      const { upsertCredentialMetadata } =
+        await import("../tools/credentials/metadata-store.js");
 
-    let wasStored = false;
-    if (result.delivery === 'transient_send') {
-      const { credentialBroker } = await import('../tools/credentials/broker.js');
-      credentialBroker.injectTransient(target.service, target.field, result.value);
-      try {
-        upsertCredentialMetadata(target.service, target.field, {});
-      } catch (e) {
-        log.debug({ err: e, service: target.service, field: target.field }, 'Non-critical credential metadata upsert failed');
-      }
-      wasStored = true;
-      log.info({ service: target.service, field: target.field, delivery: 'transient_send' }, 'Ingress redirect: transient credential injected');
-    } else {
-      const key = `credential:${target.service}:${target.field}`;
-      const stored = setSecureKey(key, result.value);
-      if (stored) {
+      let wasStored = false;
+      if (result.delivery === "transient_send") {
+        const { credentialBroker } =
+          await import("../tools/credentials/broker.js");
+        credentialBroker.injectTransient(
+          target.service,
+          target.field,
+          result.value,
+        );
         try {
           upsertCredentialMetadata(target.service, target.field, {});
         } catch (e) {
-          log.debug({ err: e, service: target.service, field: target.field }, 'Non-critical credential metadata upsert failed');
+          log.debug(
+            { err: e, service: target.service, field: target.field },
+            "Non-critical credential metadata upsert failed",
+          );
         }
         wasStored = true;
-        log.info({ service: target.service, field: target.field }, 'Ingress redirect: credential stored');
+        log.info(
+          {
+            service: target.service,
+            field: target.field,
+            delivery: "transient_send",
+          },
+          "Ingress redirect: transient credential injected",
+        );
       } else {
-        log.warn({ service: target.service, field: target.field }, 'Ingress redirect: secure storage write failed');
+        const key = `credential:${target.service}:${target.field}`;
+        const stored = setSecureKey(key, result.value);
+        if (stored) {
+          try {
+            upsertCredentialMetadata(target.service, target.field, {});
+          } catch (e) {
+            log.debug(
+              { err: e, service: target.service, field: target.field },
+              "Non-critical credential metadata upsert failed",
+            );
+          }
+          wasStored = true;
+          log.info(
+            { service: target.service, field: target.field },
+            "Ingress redirect: credential stored",
+          );
+        } else {
+          log.warn(
+            { service: target.service, field: target.field },
+            "Ingress redirect: secure storage write failed",
+          );
+        }
       }
-    }
 
-    if (wasStored) {
-      await options?.onStored?.({
-        service: target.service,
-        field: target.field,
-        label: target.label,
-        delivery: result.delivery,
-      });
-    }
-  }).catch(() => { /* prompt timeout or cancel is fine */ }).finally(() => {
-    options?.onComplete?.();
-  });
+      if (wasStored) {
+        await options?.onStored?.({
+          service: target.service,
+          field: target.field,
+          label: target.label,
+          delivery: result.delivery,
+        });
+      }
+    })
+    .catch(() => {
+      /* prompt timeout or cancel is fine */
+    })
+    .finally(() => {
+      options?.onComplete?.();
+    });
 }

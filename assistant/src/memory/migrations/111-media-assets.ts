@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Media assets, processing stages, keyframes, vision outputs,
@@ -23,8 +23,12 @@ export function createMediaAssetsTables(database: DrizzleDb): void {
 
   // Drop the old non-unique index so it can be recreated as UNIQUE (migration for existing databases)
   database.run(/*sql*/ `DROP INDEX IF EXISTS idx_media_assets_file_hash`);
-  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_assets_file_hash ON media_assets(file_hash)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_assets_status ON media_assets(status)`);
+  database.run(
+    /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_assets_file_hash ON media_assets(file_hash)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_assets_status ON media_assets(status)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS processing_stages (
@@ -39,7 +43,9 @@ export function createMediaAssetsTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_processing_stages_asset_id ON processing_stages(asset_id)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_processing_stages_asset_id ON processing_stages(asset_id)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS media_keyframes (
@@ -52,8 +58,12 @@ export function createMediaAssetsTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_keyframes_asset_id ON media_keyframes(asset_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_keyframes_asset_timestamp ON media_keyframes(asset_id, timestamp)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_keyframes_asset_id ON media_keyframes(asset_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_keyframes_asset_timestamp ON media_keyframes(asset_id, timestamp)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS media_vision_outputs (
@@ -67,9 +77,15 @@ export function createMediaAssetsTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_vision_outputs_asset_id ON media_vision_outputs(asset_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_vision_outputs_keyframe_id ON media_vision_outputs(keyframe_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_vision_outputs_asset_type ON media_vision_outputs(asset_id, analysis_type)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_vision_outputs_asset_id ON media_vision_outputs(asset_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_vision_outputs_keyframe_id ON media_vision_outputs(keyframe_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_vision_outputs_asset_type ON media_vision_outputs(asset_id, analysis_type)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS media_timelines (
@@ -84,8 +100,12 @@ export function createMediaAssetsTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_timelines_asset_id ON media_timelines(asset_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_timelines_asset_time ON media_timelines(asset_id, start_time)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_timelines_asset_id ON media_timelines(asset_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_timelines_asset_time ON media_timelines(asset_id, start_time)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS media_events (
@@ -101,9 +121,15 @@ export function createMediaAssetsTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_asset_id ON media_events(asset_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_asset_type ON media_events(asset_id, event_type)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_confidence ON media_events(confidence DESC)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_asset_id ON media_events(asset_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_asset_type ON media_events(asset_id, event_type)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_confidence ON media_events(confidence DESC)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS media_tracking_profiles (
@@ -114,7 +140,9 @@ export function createMediaAssetsTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_tracking_profiles_asset_id ON media_tracking_profiles(asset_id)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_tracking_profiles_asset_id ON media_tracking_profiles(asset_id)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS media_event_feedback (
@@ -131,7 +159,13 @@ export function createMediaAssetsTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_asset_id ON media_event_feedback(asset_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_event_id ON media_event_feedback(event_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_type ON media_event_feedback(asset_id, feedback_type)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_asset_id ON media_event_feedback(asset_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_event_id ON media_event_feedback(event_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_type ON media_event_feedback(asset_id, feedback_type)`,
+  );
 }

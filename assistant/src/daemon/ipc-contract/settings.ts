@@ -4,14 +4,14 @@
 
 /** Request from a session or IPC client to change the voice activation key. */
 export interface VoiceConfigUpdateRequest {
-  type: 'voice_config_update';
+  type: "voice_config_update";
   /** The desired activation key (enum value or natural-language name). */
   activationKey: string;
 }
 
 /** Request from the client to generate a custom avatar via Gemini. */
 export interface GenerateAvatarRequest {
-  type: 'generate_avatar';
+  type: "generate_avatar";
   /** Text description of the desired avatar appearance. */
   description: string;
 }
@@ -20,7 +20,7 @@ export interface GenerateAvatarRequest {
 
 /** Sent by the daemon to update a client-side setting (e.g. activation key). */
 export interface ClientSettingsUpdate {
-  type: 'client_settings_update';
+  type: "client_settings_update";
   /** The setting key to update (e.g. "activationKey"). */
   key: string;
   /** The new value for the setting. */
@@ -29,14 +29,14 @@ export interface ClientSettingsUpdate {
 
 /** Sent by the daemon after the avatar image has been regenerated and saved to disk. */
 export interface AvatarUpdated {
-  type: 'avatar_updated';
+  type: "avatar_updated";
   /** Absolute path to the updated avatar image file. */
   avatarPath: string;
 }
 
 /** Response to a generate_avatar request indicating success or failure. */
 export interface GenerateAvatarResponse {
-  type: 'generate_avatar_response';
+  type: "generate_avatar_response";
   /** Whether the avatar was generated successfully. */
   success: boolean;
   /** Error message when success is false. */
@@ -45,5 +45,10 @@ export interface GenerateAvatarResponse {
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _SettingsClientMessages = VoiceConfigUpdateRequest | GenerateAvatarRequest;
-export type _SettingsServerMessages = ClientSettingsUpdate | AvatarUpdated | GenerateAvatarResponse;
+export type _SettingsClientMessages =
+  | VoiceConfigUpdateRequest
+  | GenerateAvatarRequest;
+export type _SettingsServerMessages =
+  | ClientSettingsUpdate
+  | AvatarUpdated
+  | GenerateAvatarResponse;

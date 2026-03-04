@@ -1,5 +1,5 @@
-import { loadConfig } from '../config/loader.js';
-import { getFailoverProvider, listProviders } from '../providers/registry.js';
+import { loadConfig } from "../config/loader.js";
+import { getFailoverProvider, listProviders } from "../providers/registry.js";
 import {
   APPROVAL_COPY_MAX_TOKENS,
   APPROVAL_COPY_SYSTEM_PROMPT,
@@ -7,8 +7,13 @@ import {
   buildGenerationPrompt,
   getFallbackMessage,
   includesRequiredKeywords,
-} from '../runtime/approval-message-composer.js';
-import type { ApprovalConversationDisposition,ApprovalConversationGenerator, ApprovalConversationResult, ApprovalCopyGenerator } from '../runtime/http-types.js';
+} from "../runtime/approval-message-composer.js";
+import type {
+  ApprovalConversationDisposition,
+  ApprovalConversationGenerator,
+  ApprovalConversationResult,
+  ApprovalCopyGenerator,
+} from "../runtime/http-types.js";
 
 // ---------------------------------------------------------------------------
 // Approval conversation generator constants
@@ -18,54 +23,61 @@ const APPROVAL_CONVERSATION_TIMEOUT_MS = 8_000;
 const APPROVAL_CONVERSATION_MAX_TOKENS = 300;
 
 const APPROVAL_CONVERSATION_SYSTEM_PROMPT =
-  'You are an assistant helping a user manage a pending tool approval request. '
-  + 'Analyze the user\'s message to determine if they are making a decision '
-  + '(approve, reject, or cancel) or just asking a question / making conversation. '
-  + 'When uncertain, default to keep_pending — never approve or reject without clear intent. '
-  + 'For guardians: explain what tool is requesting approval and from whom. '
-  + 'Always provide a natural, helpful reply along with your decision.';
+  "You are an assistant helping a user manage a pending tool approval request. " +
+  "Analyze the user's message to determine if they are making a decision " +
+  "(approve, reject, or cancel) or just asking a question / making conversation. " +
+  "When uncertain, default to keep_pending — never approve or reject without clear intent. " +
+  "For guardians: explain what tool is requesting approval and from whom. " +
+  "Always provide a natural, helpful reply along with your decision.";
 
-const APPROVAL_CONVERSATION_TOOL_NAME = 'approval_decision';
+const APPROVAL_CONVERSATION_TOOL_NAME = "approval_decision";
 
 const APPROVAL_CONVERSATION_TOOL_SCHEMA = {
   name: APPROVAL_CONVERSATION_TOOL_NAME,
   description:
-    'Record the disposition of the approval conversation turn. '
-    + 'Call this tool with the determined disposition and a natural reply to the user.',
+    "Record the disposition of the approval conversation turn. " +
+    "Call this tool with the determined disposition and a natural reply to the user.",
   input_schema: {
-    type: 'object' as const,
+    type: "object" as const,
     properties: {
       disposition: {
-        type: 'string',
-        enum: ['keep_pending', 'approve_once', 'approve_10m', 'approve_thread', 'approve_always', 'reject'],
+        type: "string",
+        enum: [
+          "keep_pending",
+          "approve_once",
+          "approve_10m",
+          "approve_thread",
+          "approve_always",
+          "reject",
+        ],
         description:
-          'The decision: keep_pending if the user is asking questions or unclear, '
-          + 'approve_once to approve this single request, approve_10m to approve all '
-          + 'requests for 10 minutes, approve_thread to approve all requests in this '
-          + 'thread, approve_always to approve this tool permanently, reject to deny the request.',
+          "The decision: keep_pending if the user is asking questions or unclear, " +
+          "approve_once to approve this single request, approve_10m to approve all " +
+          "requests for 10 minutes, approve_thread to approve all requests in this " +
+          "thread, approve_always to approve this tool permanently, reject to deny the request.",
       },
       replyText: {
-        type: 'string',
-        description: 'A natural language reply to send back to the user.',
+        type: "string",
+        description: "A natural language reply to send back to the user.",
       },
       targetRequestId: {
-        type: 'string',
+        type: "string",
         description:
-          'The request ID of the specific pending approval being acted on. '
-          + 'Required when there are multiple pending approvals and the disposition is decision-bearing.',
+          "The request ID of the specific pending approval being acted on. " +
+          "Required when there are multiple pending approvals and the disposition is decision-bearing.",
       },
     },
-    required: ['disposition', 'replyText'],
+    required: ["disposition", "replyText"],
   },
 };
 
 const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
-  'keep_pending',
-  'approve_once',
-  'approve_10m',
-  'approve_thread',
-  'approve_always',
-  'reject',
+  "keep_pending",
+  "approve_once",
+  "approve_10m",
+  "approve_thread",
+  "approve_always",
+  "reject",
 ]);
 
 /**
@@ -84,28 +96,37 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
       return null;
     }
 
-    const fallbackText = options.fallbackText?.trim() || getFallbackMessage(context);
-    const requiredKeywords = options.requiredKeywords?.map((kw) => kw.trim()).filter((kw) => kw.length > 0);
-    const prompt = buildGenerationPrompt(context, fallbackText, requiredKeywords);
+    const fallbackText =
+      options.fallbackText?.trim() || getFallbackMessage(context);
+    const requiredKeywords = options.requiredKeywords
+      ?.map((kw) => kw.trim())
+      .filter((kw) => kw.length > 0);
+    const prompt = buildGenerationPrompt(
+      context,
+      fallbackText,
+      requiredKeywords,
+    );
 
     const response = await provider.sendMessage(
-      [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+      [{ role: "user", content: [{ type: "text", text: prompt }] }],
       [],
       APPROVAL_COPY_SYSTEM_PROMPT,
       {
         config: {
           max_tokens: options.maxTokens ?? APPROVAL_COPY_MAX_TOKENS,
         },
-        signal: AbortSignal.timeout(options.timeoutMs ?? APPROVAL_COPY_TIMEOUT_MS),
+        signal: AbortSignal.timeout(
+          options.timeoutMs ?? APPROVAL_COPY_TIMEOUT_MS,
+        ),
       },
     );
 
-    const block = response.content.find((entry) => entry.type === 'text');
-    const text = block && 'text' in block ? block.text.trim() : '';
+    const block = response.content.find((entry) => entry.type === "text");
+    const text = block && "text" in block ? block.text.trim() : "";
     if (!text) return null;
     const cleaned = text
-      .replace(/^["'`]+/, '')
-      .replace(/["'`]+$/, '')
+      .replace(/^["'`]+/, "")
+      .replace(/["'`]+$/, "")
       .trim();
     if (!cleaned) return null;
     if (!includesRequiredKeywords(cleaned, requiredKeywords)) return null;
@@ -122,24 +143,24 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
   return async (context) => {
     const config = loadConfig();
     if (!listProviders().includes(config.provider)) {
-      throw new Error('No provider available for approval conversation');
+      throw new Error("No provider available for approval conversation");
     }
     const provider = getFailoverProvider(config.provider, config.providerOrder);
 
     const pendingDescription = context.pendingApprovals
       .map((p) => `- Request ${p.requestId}: tool "${p.toolName}"`)
-      .join('\n');
+      .join("\n");
 
     const userPrompt = [
       `Role: ${context.role}`,
       `Tool requesting approval: "${context.toolName}"`,
-      `Allowed actions: ${context.allowedActions.join(', ')}`,
+      `Allowed actions: ${context.allowedActions.join(", ")}`,
       `Pending approvals:\n${pendingDescription}`,
       `\nUser message: ${context.userMessage}`,
-    ].join('\n');
+    ].join("\n");
 
     const response = await provider.sendMessage(
-      [{ role: 'user', content: [{ type: 'text', text: userPrompt }] }],
+      [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
       [APPROVAL_CONVERSATION_TOOL_SCHEMA],
       APPROVAL_CONVERSATION_SYSTEM_PROMPT,
       {
@@ -152,36 +173,43 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
 
     // Extract the tool_use block from the response
     const toolUseBlock = response.content.find(
-      (block) => block.type === 'tool_use' && block.name === APPROVAL_CONVERSATION_TOOL_NAME,
+      (block) =>
+        block.type === "tool_use" &&
+        block.name === APPROVAL_CONVERSATION_TOOL_NAME,
     );
 
-    if (!toolUseBlock || toolUseBlock.type !== 'tool_use') {
-      throw new Error('Provider did not return a tool_use block for approval decision');
+    if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
+      throw new Error(
+        "Provider did not return a tool_use block for approval decision",
+      );
     }
 
     const input = toolUseBlock.input as Record<string, unknown>;
 
     // Strict validation of the structured output
     const disposition = input.disposition;
-    if (typeof disposition !== 'string' || !VALID_DISPOSITIONS.has(disposition)) {
+    if (
+      typeof disposition !== "string" ||
+      !VALID_DISPOSITIONS.has(disposition)
+    ) {
       throw new Error(`Invalid disposition: ${String(disposition)}`);
     }
 
     const replyText = input.replyText;
-    if (typeof replyText !== 'string' || replyText.trim().length === 0) {
-      throw new Error('Missing or empty replyText in tool_use response');
+    if (typeof replyText !== "string" || replyText.trim().length === 0) {
+      throw new Error("Missing or empty replyText in tool_use response");
     }
 
     const targetRequestId = input.targetRequestId;
-    if (targetRequestId !== undefined && typeof targetRequestId !== 'string') {
-      throw new Error('Invalid targetRequestId in tool_use response');
+    if (targetRequestId !== undefined && typeof targetRequestId !== "string") {
+      throw new Error("Invalid targetRequestId in tool_use response");
     }
 
     const result: ApprovalConversationResult = {
       disposition: disposition as ApprovalConversationDisposition,
       replyText: replyText.trim(),
     };
-    if (typeof targetRequestId === 'string' && targetRequestId.length > 0) {
+    if (typeof targetRequestId === "string" && targetRequestId.length > 0) {
       result.targetRequestId = targetRequestId;
     }
     return result;

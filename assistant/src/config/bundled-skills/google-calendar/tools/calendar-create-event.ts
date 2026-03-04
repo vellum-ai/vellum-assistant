@@ -1,8 +1,14 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import * as calendar from '../calendar-client.js';
-import { ok,withCalendarToken } from './shared.js';
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import * as calendar from "../calendar-client.js";
+import { ok, withCalendarToken } from "./shared.js";
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
   const summary = input.summary as string;
   const startRaw = input.start as string;
   const endRaw = input.end as string;
@@ -10,10 +16,10 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   const location = input.location as string | undefined;
   const attendees = input.attendees as string[] | undefined;
   const timezone = input.timezone as string | undefined;
-  const calendarId = (input.calendar_id as string) ?? 'primary';
+  const calendarId = (input.calendar_id as string) ?? "primary";
 
   // Determine if these are all-day events (date-only) or timed events
-  const isAllDay = !startRaw.includes('T');
+  const isAllDay = !startRaw.includes("T");
 
   const start = isAllDay
     ? { date: startRaw }
@@ -36,7 +42,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
 
   return withCalendarToken(async (token) => {
     const event = await calendar.createEvent(token, eventBody, calendarId);
-    const link = event.htmlLink ? ` View it here: ${event.htmlLink}` : '';
+    const link = event.htmlLink ? ` View it here: ${event.htmlLink}` : "";
     return ok(`Event created (ID: ${event.id}).${link}`);
   });
 }

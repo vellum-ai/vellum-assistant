@@ -3,7 +3,7 @@
  * and gateway-origin verification.
  */
 
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from "node:crypto";
 
 /**
  * Constant-time comparison of two bearer tokens to prevent timing attacks.
@@ -19,7 +19,9 @@ export function verifyBearerToken(provided: string, expected: string): boolean {
  * Check if a hostname is a loopback address.
  */
 export function isLoopbackHost(hostname: string): boolean {
-  return hostname === '127.0.0.1' || hostname === '::1' || hostname === 'localhost';
+  return (
+    hostname === "127.0.0.1" || hostname === "::1" || hostname === "localhost"
+  );
 }
 
 /**
@@ -39,9 +41,10 @@ export function isPrivateAddress(addr: string): boolean {
   const normalized = v4Mapped ? v4Mapped[1] : addr;
 
   // IPv4 checks
-  if (normalized.includes('.')) {
-    const parts = normalized.split('.').map(Number);
-    if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) return false;
+  if (normalized.includes(".")) {
+    const parts = normalized.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255))
+      return false;
 
     // Loopback: 127.0.0.0/8
     if (parts[0] === 127) return true;
@@ -60,11 +63,11 @@ export function isPrivateAddress(addr: string): boolean {
   // IPv6 checks
   const lower = normalized.toLowerCase();
   // Loopback
-  if (lower === '::1') return true;
+  if (lower === "::1") return true;
   // Unique local: fc00::/7 (fc00:: through fdff::)
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
   // Link-local: fe80::/10
-  if (lower.startsWith('fe80')) return true;
+  if (lower.startsWith("fe80")) return true;
 
   return false;
 }
@@ -79,7 +82,14 @@ export function isPrivateAddress(addr: string): boolean {
  * supports container/pod deployments (e.g. Kubernetes sidecars) where
  * gateway and runtime communicate over pod-internal private IPs.
  */
-export function isPrivateNetworkPeer(server: { requestIP(req: Request): { address: string; family: string; port: number } | null }, req: Request): boolean {
+export function isPrivateNetworkPeer(
+  server: {
+    requestIP(
+      req: Request,
+    ): { address: string; family: string; port: number } | null;
+  },
+  req: Request,
+): boolean {
   const ip = server.requestIP(req);
   if (!ip) return false;
   return isPrivateAddress(ip.address);
@@ -91,15 +101,16 @@ export function isPrivateNetworkPeer(server: { requestIP(req: Request): { addres
  * isPrivateAddress(), consistent with the isPrivateNetworkPeer check.
  */
 export function isPrivateNetworkOrigin(req: Request): boolean {
-  const origin = req.headers.get('origin');
+  const origin = req.headers.get("origin");
   // No origin header (e.g., server-initiated or same-origin) -- allow
   if (!origin) return true;
   try {
     const url = new URL(origin);
     const host = url.hostname;
-    if (host === 'localhost') return true;
+    if (host === "localhost") return true;
     // URL.hostname wraps IPv6 addresses in brackets (e.g. "[::1]") -- strip them
-    const rawHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+    const rawHost =
+      host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
     return isPrivateAddress(rawHost);
   } catch {
     return false;
@@ -111,6 +122,6 @@ export function isPrivateNetworkOrigin(req: Request): boolean {
  * Returns the token string if present, or null.
  */
 export function extractBearerToken(req: Request): string | null {
-  const authHeader = req.headers.get('authorization');
-  return authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const authHeader = req.headers.get("authorization");
+  return authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 }

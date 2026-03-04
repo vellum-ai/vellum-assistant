@@ -9,36 +9,50 @@
  * invalid output.
  */
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { getDeliverableChannels } from '../channels/config.js';
-import { getConfig } from '../config/loader.js';
-import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
-import type { ModelIntent } from '../providers/types.js';
-import { getLogger } from '../util/logger.js';
+import { getDeliverableChannels } from "../channels/config.js";
+import { getConfig } from "../config/loader.js";
+import {
+  createTimeout,
+  extractToolUse,
+  getConfiguredProvider,
+  userMessage,
+} from "../providers/provider-send-message.js";
+import type { ModelIntent } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
 import {
   buildAccessRequestContractText,
   buildAccessRequestInviteDirective,
   composeFallbackCopy,
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
-} from './copy-composer.js';
-import { createDecision } from './decisions-store.js';
+} from "./copy-composer.js";
+import { createDecision } from "./decisions-store.js";
 import {
   buildGuardianRequestCodeInstruction,
   hasGuardianRequestCodeInstruction,
   resolveGuardianQuestionInstructionMode,
   stripConflictingGuardianRequestInstructions,
-} from './guardian-question-mode.js';
-import { getPreferenceSummary } from './preference-summary.js';
-import type { NotificationSignal, RoutingIntent } from './signal.js';
-import { buildThreadCandidates, serializeCandidatesForPrompt,type ThreadCandidateSet } from './thread-candidates.js';
-import type { NotificationChannel, NotificationDecision, RenderedChannelCopy, ThreadAction } from './types.js';
+} from "./guardian-question-mode.js";
+import { getPreferenceSummary } from "./preference-summary.js";
+import type { NotificationSignal, RoutingIntent } from "./signal.js";
+import {
+  buildThreadCandidates,
+  serializeCandidatesForPrompt,
+  type ThreadCandidateSet,
+} from "./thread-candidates.js";
+import type {
+  NotificationChannel,
+  NotificationDecision,
+  RenderedChannelCopy,
+  ThreadAction,
+} from "./types.js";
 
-const log = getLogger('notification-decision-engine');
+const log = getLogger("notification-decision-engine");
 
 const DECISION_TIMEOUT_MS = 15_000;
-const PROMPT_VERSION = 'v4';
+const PROMPT_VERSION = "v4";
 
 // ── System prompt ──────────────────────────────────────────────────────
 
@@ -50,7 +64,7 @@ function buildSystemPrompt(
   const sections: string[] = [
     `You are a notification routing engine. Given a signal describing an event, decide whether the user should be notified, on which channel(s), and compose the notification copy.`,
     ``,
-    `Available notification channels: ${availableChannels.join(', ')}`,
+    `Available notification channels: ${availableChannels.join(", ")}`,
   ];
 
   if (preferenceContext) {
@@ -112,7 +126,7 @@ function buildSystemPrompt(
     `You MUST respond using the \`record_notification_decision\` tool. Do not respond with text.`,
   );
 
-  return sections.join('\n');
+  return sections.join("\n");
 }
 
 // ── User prompt ────────────────────────────────────────────────────────
@@ -129,10 +143,12 @@ function buildUserPrompt(signal: NotificationSignal): string {
   ];
 
   if (signal.attentionHints.deadlineAt) {
-    parts.push(`Deadline: ${new Date(signal.attentionHints.deadlineAt).toISOString()}`);
+    parts.push(
+      `Deadline: ${new Date(signal.attentionHints.deadlineAt).toISOString()}`,
+    );
   }
 
-  if (signal.routingIntent && signal.routingIntent !== 'single_channel') {
+  if (signal.routingIntent && signal.routingIntent !== "single_channel") {
     parts.push(`Routing intent: ${signal.routingIntent}`);
   }
 
@@ -145,92 +161,124 @@ function buildUserPrompt(signal: NotificationSignal): string {
     parts.push(``, `Context payload:`, payloadStr);
   }
 
-  return `Evaluate this notification signal:\n\n${parts.join('\n')}`;
+  return `Evaluate this notification signal:\n\n${parts.join("\n")}`;
 }
 
 // ── Tool definition ────────────────────────────────────────────────────
 
 function buildDecisionTool(availableChannels: NotificationChannel[]) {
   return {
-    name: 'record_notification_decision',
-    description: 'Record the notification routing decision for this signal',
+    name: "record_notification_decision",
+    description: "Record the notification routing decision for this signal",
     input_schema: {
-      type: 'object' as const,
+      type: "object" as const,
       properties: {
         shouldNotify: {
-          type: 'boolean',
-          description: 'Whether the user should be notified about this signal',
+          type: "boolean",
+          description: "Whether the user should be notified about this signal",
         },
         selectedChannels: {
-          type: 'array',
+          type: "array",
           items: {
-            type: 'string',
+            type: "string",
             enum: availableChannels,
           },
-          description: 'Which channels to deliver the notification on',
+          description: "Which channels to deliver the notification on",
         },
         reasoningSummary: {
-          type: 'string',
-          description: 'Brief explanation of why this routing decision was made',
+          type: "string",
+          description:
+            "Brief explanation of why this routing decision was made",
         },
         renderedCopy: {
-          type: 'object',
-          description: 'Notification copy keyed by channel name',
+          type: "object",
+          description: "Notification copy keyed by channel name",
           properties: Object.fromEntries(
             availableChannels.map((ch) => [
               ch,
               {
-                type: 'object',
+                type: "object",
                 properties: {
-                  title: { type: 'string', description: 'Short notification popup title (≤ 8 words)' },
-                  body: { type: 'string', description: 'Concise notification popup body (≤ 2 sentences)' },
-                  deliveryText: { type: 'string', description: 'Channel-native chat message text (for example Telegram). Must stand alone naturally.' },
-                  threadTitle: { type: 'string', description: 'Optional thread title for grouped notifications' },
-                  threadSeedMessage: { type: 'string', description: 'Richer opening message for the notification thread. More contextual than title/body. For vellum: 2-4 sentences. For telegram: 1-2 sentences. Never raw JSON.' },
+                  title: {
+                    type: "string",
+                    description: "Short notification popup title (≤ 8 words)",
+                  },
+                  body: {
+                    type: "string",
+                    description:
+                      "Concise notification popup body (≤ 2 sentences)",
+                  },
+                  deliveryText: {
+                    type: "string",
+                    description:
+                      "Channel-native chat message text (for example Telegram). Must stand alone naturally.",
+                  },
+                  threadTitle: {
+                    type: "string",
+                    description:
+                      "Optional thread title for grouped notifications",
+                  },
+                  threadSeedMessage: {
+                    type: "string",
+                    description:
+                      "Richer opening message for the notification thread. More contextual than title/body. For vellum: 2-4 sentences. For telegram: 1-2 sentences. Never raw JSON.",
+                  },
                 },
-                required: ['title', 'body'],
+                required: ["title", "body"],
               },
             ]),
           ),
         },
         threadActions: {
-          type: 'object',
-          description: 'Per-channel thread action: start a new thread or reuse an existing candidate. Keyed by channel name.',
+          type: "object",
+          description:
+            "Per-channel thread action: start a new thread or reuse an existing candidate. Keyed by channel name.",
           properties: Object.fromEntries(
             availableChannels.map((ch) => [
               ch,
               {
-                type: 'object',
+                type: "object",
                 properties: {
                   action: {
-                    type: 'string',
-                    enum: ['start_new', 'reuse_existing'],
-                    description: 'Whether to start a new thread or reuse an existing one.',
+                    type: "string",
+                    enum: ["start_new", "reuse_existing"],
+                    description:
+                      "Whether to start a new thread or reuse an existing one.",
                   },
                   conversationId: {
-                    type: 'string',
-                    description: 'Required when action is reuse_existing. Must be a conversationId from the provided thread candidates.',
+                    type: "string",
+                    description:
+                      "Required when action is reuse_existing. Must be a conversationId from the provided thread candidates.",
                   },
                 },
-                required: ['action'],
+                required: ["action"],
               },
             ]),
           ),
         },
         deepLinkTarget: {
-          type: 'object',
-          description: 'Optional deep link metadata for navigating to the source context',
+          type: "object",
+          description:
+            "Optional deep link metadata for navigating to the source context",
         },
         dedupeKey: {
-          type: 'string',
-          description: 'A stable key derived from the signal to deduplicate repeated notifications for the same event',
+          type: "string",
+          description:
+            "A stable key derived from the signal to deduplicate repeated notifications for the same event",
         },
         confidence: {
-          type: 'number',
-          description: 'Confidence in the decision (0.0-1.0)',
+          type: "number",
+          description: "Confidence in the decision (0.0-1.0)",
         },
       },
-      required: ['shouldNotify', 'selectedChannels', 'reasoningSummary', 'renderedCopy', 'dedupeKey', 'confidence'],
+      required: [
+        "shouldNotify",
+        "selectedChannels",
+        "reasoningSummary",
+        "renderedCopy",
+        "dedupeKey",
+        "confidence",
+      ],
     },
   };
 }
@@ -242,7 +290,8 @@ function buildFallbackDecision(
   availableChannels: NotificationChannel[],
 ): NotificationDecision {
   const isHighUrgencyAction =
-    signal.attentionHints.urgency === 'high' && signal.attentionHints.requiresAction;
+    signal.attentionHints.urgency === "high" &&
+    signal.attentionHints.requiresAction;
 
   // Always include the vellum channel in the fallback — it's a local IPC
   // broadcast with no cost, so desktop notifications should never be lost
@@ -250,13 +299,13 @@ function buildFallbackDecision(
   // only included for high-urgency actionable signals.
   const selectedChannels: NotificationChannel[] = isHighUrgencyAction
     ? [...availableChannels]
-    : availableChannels.filter((ch) => ch === 'vellum');
+    : availableChannels.filter((ch) => ch === "vellum");
 
   if (selectedChannels.length === 0) {
     return {
       shouldNotify: false,
       selectedChannels: [],
-      reasoningSummary: 'Fallback: suppressed (vellum channel not available)',
+      reasoningSummary: "Fallback: suppressed (vellum channel not available)",
       renderedCopy: {},
       dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}:${signal.createdAt}`,
       confidence: 0.3,
@@ -270,8 +319,8 @@ function buildFallbackDecision(
     shouldNotify: true,
     selectedChannels,
     reasoningSummary: isHighUrgencyAction
-      ? 'Fallback: high urgency + requires action — all channels'
-      : 'Fallback: vellum-only (local IPC, always delivered)',
+      ? "Fallback: high urgency + requires action — all channels"
+      : "Fallback: vellum-only (local IPC, always delivered)",
     renderedCopy: copy,
     dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}:${signal.createdAt}`,
     confidence: 0.3,
@@ -288,39 +337,52 @@ function validateDecisionOutput(
   availableChannels: NotificationChannel[],
   candidateSet?: ThreadCandidateSet,
 ): NotificationDecision | null {
-  if (typeof input.shouldNotify !== 'boolean') return null;
-  if (typeof input.reasoningSummary !== 'string') return null;
-  if (typeof input.dedupeKey !== 'string') return null;
+  if (typeof input.shouldNotify !== "boolean") return null;
+  if (typeof input.reasoningSummary !== "string") return null;
+  if (typeof input.dedupeKey !== "string") return null;
 
   if (!Array.isArray(input.selectedChannels)) return null;
   const validatedChannels = (input.selectedChannels as unknown[]).filter(
     (ch): ch is NotificationChannel =>
-      typeof ch === 'string' && VALID_CHANNELS.has(ch) && availableChannels.includes(ch as NotificationChannel),
+      typeof ch === "string" &&
+      VALID_CHANNELS.has(ch) &&
+      availableChannels.includes(ch as NotificationChannel),
   );
   const validChannels = [...new Set(validatedChannels)];
 
-  const confidence = typeof input.confidence === 'number'
-    ? Math.max(0, Math.min(1, input.confidence))
-    : 0.5;
+  const confidence =
+    typeof input.confidence === "number"
+      ? Math.max(0, Math.min(1, input.confidence))
+      : 0.5;
 
   // Validate renderedCopy
-  const renderedCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
-  if (input.renderedCopy && typeof input.renderedCopy === 'object') {
+  const renderedCopy: Partial<
+    Record<NotificationChannel, RenderedChannelCopy>
+  > = {};
+  if (input.renderedCopy && typeof input.renderedCopy === "object") {
     const copyObj = input.renderedCopy as Record<string, unknown>;
     for (const ch of validChannels) {
       const chCopy = copyObj[ch];
-      if (chCopy && typeof chCopy === 'object') {
+      if (chCopy && typeof chCopy === "object") {
         const c = chCopy as Record<string, unknown>;
-        if (typeof c.title === 'string' && typeof c.body === 'string') {
+        if (typeof c.title === "string" && typeof c.body === "string") {
           if (!c.title.trim() && !c.body.trim()) {
-            log.warn({ channel: ch }, 'LLM returned empty title and body for channel copy — broadcaster will use fallback');
+            log.warn(
+              { channel: ch },
+              "LLM returned empty title and body for channel copy — broadcaster will use fallback",
+            );
           }
           renderedCopy[ch] = {
             title: c.title,
             body: c.body,
-            deliveryText: typeof c.deliveryText === 'string' ? c.deliveryText : undefined,
-            threadTitle: typeof c.threadTitle === 'string' ? c.threadTitle : undefined,
-            threadSeedMessage: typeof c.threadSeedMessage === 'string' ? c.threadSeedMessage : undefined,
+            deliveryText:
+              typeof c.deliveryText === "string" ? c.deliveryText : undefined,
+            threadTitle:
+              typeof c.threadTitle === "string" ? c.threadTitle : undefined,
+            threadSeedMessage:
+              typeof c.threadSeedMessage === "string"
+                ? c.threadSeedMessage
+                : undefined,
           };
         }
       }
@@ -328,18 +390,24 @@ function validateDecisionOutput(
   }
 
   // Validate threadActions — strictly against the provided candidate set
-  const threadActions = validateThreadActions(input.threadActions, validChannels, candidateSet);
+  const threadActions = validateThreadActions(
+    input.threadActions,
+    validChannels,
+    candidateSet,
+  );
 
-  const deepLinkTarget = input.deepLinkTarget && typeof input.deepLinkTarget === 'object'
-    ? input.deepLinkTarget as Record<string, unknown>
-    : undefined;
+  const deepLinkTarget =
+    input.deepLinkTarget && typeof input.deepLinkTarget === "object"
+      ? (input.deepLinkTarget as Record<string, unknown>)
+      : undefined;
 
   return {
     shouldNotify: input.shouldNotify,
     selectedChannels: validChannels,
     reasoningSummary: input.reasoningSummary,
     renderedCopy,
-    threadActions: Object.keys(threadActions).length > 0 ? threadActions : undefined,
+    threadActions:
+      Object.keys(threadActions).length > 0 ? threadActions : undefined,
     deepLinkTarget,
     dedupeKey: input.dedupeKey,
     confidence,
@@ -365,7 +433,7 @@ export function validateThreadActions(
 ): Partial<Record<NotificationChannel, ThreadAction>> {
   const result: Partial<Record<NotificationChannel, ThreadAction>> = {};
 
-  if (!raw || typeof raw !== 'object') return result;
+  if (!raw || typeof raw !== "object") return result;
 
   const actionsObj = raw as Record<string, unknown>;
   const channelSet = new Set(validChannels);
@@ -373,25 +441,34 @@ export function validateThreadActions(
   // Build a lookup of valid candidate conversationIds per channel
   const validCandidateIds = new Map<NotificationChannel, Set<string>>();
   if (candidateSet) {
-    for (const [ch, candidates] of Object.entries(candidateSet) as [NotificationChannel, { conversationId: string }[]][]) {
-      validCandidateIds.set(ch, new Set(candidates.map((c) => c.conversationId)));
+    for (const [ch, candidates] of Object.entries(candidateSet) as [
+      NotificationChannel,
+      { conversationId: string }[],
+    ][]) {
+      validCandidateIds.set(
+        ch,
+        new Set(candidates.map((c) => c.conversationId)),
+      );
     }
   }
 
   for (const [ch, actionRaw] of Object.entries(actionsObj)) {
     if (!channelSet.has(ch as NotificationChannel)) continue;
-    if (!actionRaw || typeof actionRaw !== 'object') continue;
+    if (!actionRaw || typeof actionRaw !== "object") continue;
 
     const channel = ch as NotificationChannel;
     const action = actionRaw as Record<string, unknown>;
 
-    if (action.action === 'start_new') {
-      result[channel] = { action: 'start_new' };
-    } else if (action.action === 'reuse_existing') {
+    if (action.action === "start_new") {
+      result[channel] = { action: "start_new" };
+    } else if (action.action === "reuse_existing") {
       const rawConversationId = action.conversationId;
-      if (typeof rawConversationId !== 'string' || !rawConversationId.trim()) {
-        log.warn({ channel }, 'LLM returned reuse_existing without conversationId — downgrading to start_new');
-        result[channel] = { action: 'start_new' };
+      if (typeof rawConversationId !== "string" || !rawConversationId.trim()) {
+        log.warn(
+          { channel },
+          "LLM returned reuse_existing without conversationId — downgrading to start_new",
+        );
+        result[channel] = { action: "start_new" };
         continue;
       }
 
@@ -403,13 +480,13 @@ export function validateThreadActions(
       if (!candidateIds || !candidateIds.has(conversationId)) {
         log.warn(
           { channel, conversationId },
-          'LLM returned reuse_existing with conversationId not in candidate set — downgrading to start_new',
+          "LLM returned reuse_existing with conversationId not in candidate set — downgrading to start_new",
         );
-        result[channel] = { action: 'start_new' };
+        result[channel] = { action: "start_new" };
         continue;
       }
 
-      result[channel] = { action: 'reuse_existing', conversationId };
+      result[channel] = { action: "reuse_existing", conversationId };
     }
     // Unknown action values are silently ignored — the channel will default
     // to start_new downstream.
@@ -421,22 +498,33 @@ export function validateThreadActions(
 function ensureGuardianRequestCodeInCopy(
   copy: RenderedChannelCopy,
   requestCode: string,
-  mode: 'approval' | 'answer',
+  mode: "approval" | "answer",
 ): RenderedChannelCopy {
   const instruction = buildGuardianRequestCodeInstruction(requestCode, mode);
 
   const ensureText = (text: string | undefined): string => {
-    const base = typeof text === 'string' ? text.trim() : '';
-    const sanitized = stripConflictingGuardianRequestInstructions(base, requestCode, mode);
-    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode)) return sanitized;
-    return sanitized.length > 0 ? `${sanitized}\n\n${instruction}` : instruction;
+    const base = typeof text === "string" ? text.trim() : "";
+    const sanitized = stripConflictingGuardianRequestInstructions(
+      base,
+      requestCode,
+      mode,
+    );
+    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode))
+      return sanitized;
+    return sanitized.length > 0
+      ? `${sanitized}\n\n${instruction}`
+      : instruction;
   };
 
   return {
     ...copy,
     body: ensureText(copy.body),
-    deliveryText: copy.deliveryText ? ensureText(copy.deliveryText) : copy.deliveryText,
-    threadSeedMessage: copy.threadSeedMessage ? ensureText(copy.threadSeedMessage) : copy.threadSeedMessage,
+    deliveryText: copy.deliveryText
+      ? ensureText(copy.deliveryText)
+      : copy.deliveryText,
+    threadSeedMessage: copy.threadSeedMessage
+      ? ensureText(copy.threadSeedMessage)
+      : copy.threadSeedMessage,
   };
 }
 
@@ -449,19 +537,22 @@ function enforceGuardianRequestCode(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== 'guardian.question') return decision;
+  if (signal.sourceEventName !== "guardian.question") return decision;
   const rawCode = signal.contextPayload.requestCode;
-  if (typeof rawCode !== 'string' || rawCode.trim().length === 0) return decision;
+  if (typeof rawCode !== "string" || rawCode.trim().length === 0)
+    return decision;
 
   const requestCode = rawCode.trim().toUpperCase();
-  const modeResolution = resolveGuardianQuestionInstructionMode(signal.contextPayload);
+  const modeResolution = resolveGuardianQuestionInstructionMode(
+    signal.contextPayload,
+  );
   if (modeResolution.legacyFallbackUsed) {
     log.warn(
       {
         signalId: signal.signalId,
         requestKind: modeResolution.requestKind,
       },
-      'guardian.question payload missing/invalid typed fields; using legacy instruction-mode fallback',
+      "guardian.question payload missing/invalid typed fields; using legacy instruction-mode fallback",
     );
   }
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
@@ -471,7 +562,11 @@ function enforceGuardianRequestCode(
   for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
     const copy = nextCopy[channel];
     if (!copy) continue;
-    nextCopy[channel] = ensureGuardianRequestCodeInCopy(copy, requestCode, modeResolution.mode);
+    nextCopy[channel] = ensureGuardianRequestCodeInCopy(
+      copy,
+      requestCode,
+      modeResolution.mode,
+    );
   }
 
   return {
@@ -497,10 +592,11 @@ function enforceAccessRequestInstructions(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== 'ingress.access_request') return decision;
+  if (signal.sourceEventName !== "ingress.access_request") return decision;
 
   const rawCode = signal.contextPayload.requestCode;
-  const hasRequestCode = typeof rawCode === 'string' && rawCode.trim().length > 0;
+  const hasRequestCode =
+    typeof rawCode === "string" && rawCode.trim().length > 0;
 
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
@@ -513,7 +609,11 @@ function enforceAccessRequestInstructions(
     for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
       const copy = nextCopy[channel];
       if (!copy) continue;
-      nextCopy[channel] = ensureAccessRequestInstructionsInCopy(copy, requestCode, contractText);
+      nextCopy[channel] = ensureAccessRequestInstructionsInCopy(
+        copy,
+        requestCode,
+        contractText,
+      );
     }
   } else {
     // No requestCode — still enforce the invite-flow directive.
@@ -522,7 +622,10 @@ function enforceAccessRequestInstructions(
     for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
       const copy = nextCopy[channel];
       if (!copy) continue;
-      nextCopy[channel] = ensureInviteFlowDirectiveInCopy(copy, inviteDirective);
+      nextCopy[channel] = ensureInviteFlowDirectiveInCopy(
+        copy,
+        inviteDirective,
+      );
     }
   }
 
@@ -538,7 +641,7 @@ function ensureAccessRequestInstructionsInCopy(
   contractText: string,
 ): RenderedChannelCopy {
   const ensureText = (text: string | undefined): string => {
-    const base = typeof text === 'string' ? text.trim() : '';
+    const base = typeof text === "string" ? text.trim() : "";
     if (hasAccessRequestInstructions(base, requestCode)) return base;
     return base.length > 0 ? `${base}\n\n${contractText}` : contractText;
   };
@@ -546,8 +649,12 @@ function ensureAccessRequestInstructionsInCopy(
   return {
     ...copy,
     body: ensureText(copy.body),
-    deliveryText: copy.deliveryText ? ensureText(copy.deliveryText) : copy.deliveryText,
-    threadSeedMessage: copy.threadSeedMessage ? ensureText(copy.threadSeedMessage) : copy.threadSeedMessage,
+    deliveryText: copy.deliveryText
+      ? ensureText(copy.deliveryText)
+      : copy.deliveryText,
+    threadSeedMessage: copy.threadSeedMessage
+      ? ensureText(copy.threadSeedMessage)
+      : copy.threadSeedMessage,
   };
 }
 
@@ -556,7 +663,7 @@ function ensureInviteFlowDirectiveInCopy(
   inviteDirective: string,
 ): RenderedChannelCopy {
   const ensureText = (text: string | undefined): string => {
-    const base = typeof text === 'string' ? text.trim() : '';
+    const base = typeof text === "string" ? text.trim() : "";
     if (hasInviteFlowDirective(base)) return base;
     return base.length > 0 ? `${base}\n\n${inviteDirective}` : inviteDirective;
   };
@@ -564,8 +671,12 @@ function ensureInviteFlowDirectiveInCopy(
   return {
     ...copy,
     body: ensureText(copy.body),
-    deliveryText: copy.deliveryText ? ensureText(copy.deliveryText) : copy.deliveryText,
-    threadSeedMessage: copy.threadSeedMessage ? ensureText(copy.threadSeedMessage) : copy.threadSeedMessage,
+    deliveryText: copy.deliveryText
+      ? ensureText(copy.deliveryText)
+      : copy.deliveryText,
+    threadSeedMessage: copy.threadSeedMessage
+      ? ensureText(copy.threadSeedMessage)
+      : copy.threadSeedMessage,
   };
 }
 
@@ -585,10 +696,14 @@ export async function evaluateSignal(
   let resolvedPreferenceContext = preferenceContext;
   if (resolvedPreferenceContext === undefined) {
     try {
-      resolvedPreferenceContext = getPreferenceSummary(signal.assistantId) ?? undefined;
+      resolvedPreferenceContext =
+        getPreferenceSummary(signal.assistantId) ?? undefined;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      log.warn({ err: errMsg, assistantId: signal.assistantId }, 'Failed to load preference summary, proceeding without preferences');
+      log.warn(
+        { err: errMsg, assistantId: signal.assistantId },
+        "Failed to load preference summary, proceeding without preferences",
+      );
       resolvedPreferenceContext = undefined;
     }
   }
@@ -600,34 +715,54 @@ export async function evaluateSignal(
     candidateSet = buildThreadCandidates(availableChannels, signal.assistantId);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn({ err: errMsg }, 'Failed to build thread candidates, proceeding without candidates');
+    log.warn(
+      { err: errMsg },
+      "Failed to build thread candidates, proceeding without candidates",
+    );
   }
 
   const provider = getConfiguredProvider();
   if (!provider) {
-    log.warn('Configured provider unavailable for notification decision, using fallback');
+    log.warn(
+      "Configured provider unavailable for notification decision, using fallback",
+    );
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
     decision = enforceGuardianCallThreadAffinity(decision, signal);
-    decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
+    decision = enforceConversationAffinity(
+      decision,
+      signal.conversationAffinityHint,
+    );
     decision.persistedDecisionId = persistDecision(signal, decision);
     return decision;
   }
 
   let decision: NotificationDecision;
   try {
-    decision = await classifyWithLLM(signal, availableChannels, resolvedPreferenceContext, decisionModelIntent, candidateSet);
+    decision = await classifyWithLLM(
+      signal,
+      availableChannels,
+      resolvedPreferenceContext,
+      decisionModelIntent,
+      candidateSet,
+    );
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn({ err: errMsg }, 'Notification decision LLM call failed, using fallback');
+    log.warn(
+      { err: errMsg },
+      "Notification decision LLM call failed, using fallback",
+    );
     decision = buildFallbackDecision(signal, availableChannels);
   }
 
   decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
   decision = enforceGuardianCallThreadAffinity(decision, signal);
-  decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
+  decision = enforceConversationAffinity(
+    decision,
+    signal.conversationAffinityHint,
+  );
   decision.persistedDecisionId = persistDecision(signal, decision);
 
   return decision;
@@ -645,8 +780,14 @@ async function classifyWithLLM(
   const provider = getConfiguredProvider()!;
   const { signal: abortSignal, cleanup } = createTimeout(DECISION_TIMEOUT_MS);
 
-  const candidateContext = candidateSet ? serializeCandidatesForPrompt(candidateSet) ?? undefined : undefined;
-  const systemPrompt = buildSystemPrompt(availableChannels, preferenceContext, candidateContext);
+  const candidateContext = candidateSet
+    ? (serializeCandidatesForPrompt(candidateSet) ?? undefined)
+    : undefined;
+  const systemPrompt = buildSystemPrompt(
+    availableChannels,
+    preferenceContext,
+    candidateContext,
+  );
   const prompt = buildUserPrompt(signal);
   const tool = buildDecisionTool(availableChannels);
 
@@ -659,7 +800,10 @@ async function classifyWithLLM(
         config: {
           modelIntent,
           max_tokens: 2048,
-          tool_choice: { type: 'tool' as const, name: 'record_notification_decision' },
+          tool_choice: {
+            type: "tool" as const,
+            name: "record_notification_decision",
+          },
         },
         signal: abortSignal,
       },
@@ -668,7 +812,9 @@ async function classifyWithLLM(
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) {
-      log.warn('No tool_use block in notification decision response, using fallback');
+      log.warn(
+        "No tool_use block in notification decision response, using fallback",
+      );
       return buildFallbackDecision(signal, availableChannels);
     }
 
@@ -678,7 +824,7 @@ async function classifyWithLLM(
       candidateSet,
     );
     if (!validated) {
-      log.warn('Invalid notification decision output from LLM, using fallback');
+      log.warn("Invalid notification decision output from LLM, using fallback");
       return buildFallbackDecision(signal, availableChannels);
     }
 
@@ -704,7 +850,7 @@ export function enforceRoutingIntent(
   routingIntent: RoutingIntent | undefined,
   connectedChannels: NotificationChannel[],
 ): NotificationDecision {
-  if (!routingIntent || routingIntent === 'single_channel') {
+  if (!routingIntent || routingIntent === "single_channel") {
     return decision;
   }
 
@@ -712,25 +858,31 @@ export function enforceRoutingIntent(
     return decision;
   }
 
-  if (routingIntent === 'all_channels') {
+  if (routingIntent === "all_channels") {
     // Force all connected channels
     if (connectedChannels.length > 0) {
       const enforced = { ...decision };
       enforced.selectedChannels = [...connectedChannels];
-      enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=all_channels enforced: ${connectedChannels.join(', ')}]`;
+      enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=all_channels enforced: ${connectedChannels.join(", ")}]`;
       log.info(
-        { routingIntent, connectedChannels, originalChannels: decision.selectedChannels },
-        'Routing intent enforcement: all_channels → forced all connected channels',
+        {
+          routingIntent,
+          connectedChannels,
+          originalChannels: decision.selectedChannels,
+        },
+        "Routing intent enforcement: all_channels → forced all connected channels",
       );
       return enforced;
     }
   }
 
-  if (routingIntent === 'multi_channel') {
+  if (routingIntent === "multi_channel") {
     // Ensure at least 2 channels when 2+ are connected
     if (connectedChannels.length >= 2 && decision.selectedChannels.length < 2) {
       const connectedSet = new Set<NotificationChannel>(connectedChannels);
-      const selectedConnected = decision.selectedChannels.filter((ch) => connectedSet.has(ch));
+      const selectedConnected = decision.selectedChannels.filter((ch) =>
+        connectedSet.has(ch),
+      );
       const expanded: NotificationChannel[] = [];
       const seen = new Set<NotificationChannel>();
 
@@ -750,10 +902,15 @@ export function enforceRoutingIntent(
 
       const enforced = { ...decision };
       enforced.selectedChannels = expanded;
-      enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=multi_channel enforced: expanded to ${expanded.join(', ')}]`;
+      enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=multi_channel enforced: expanded to ${expanded.join(", ")}]`;
       log.info(
-        { routingIntent, connectedChannels, originalChannels: decision.selectedChannels, enforcedChannels: expanded },
-        'Routing intent enforcement: multi_channel → expanded to at least two channels',
+        {
+          routingIntent,
+          connectedChannels,
+          originalChannels: decision.selectedChannels,
+          enforcedChannels: expanded,
+        },
+        "Routing intent enforcement: multi_channel → expanded to at least two channels",
       );
       return enforced;
     }
@@ -778,10 +935,11 @@ export function enforceGuardianCallThreadAffinity(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== 'guardian.question') return decision;
+  if (signal.sourceEventName !== "guardian.question") return decision;
 
   const callSessionId = signal.contextPayload?.callSessionId;
-  if (typeof callSessionId !== 'string' || callSessionId.trim().length === 0) return decision;
+  if (typeof callSessionId !== "string" || callSessionId.trim().length === 0)
+    return decision;
 
   // If an affinity hint already exists for vellum, the second+ dispatch
   // will be handled by enforceConversationAffinity — nothing to do here.
@@ -791,12 +949,12 @@ export function enforceGuardianCallThreadAffinity(
   const threadActions: Partial<Record<NotificationChannel, ThreadAction>> = {
     ...(decision.threadActions ?? {}),
   };
-  threadActions.vellum = { action: 'start_new' };
+  threadActions.vellum = { action: "start_new" };
   enforced.threadActions = threadActions;
 
   log.info(
     { callSessionId },
-    'Guardian call thread affinity: first question in call — forcing start_new for vellum',
+    "Guardian call thread affinity: first question in call — forcing start_new for vellum",
   );
 
   return enforced;
@@ -820,7 +978,8 @@ export function enforceConversationAffinity(
   if (!affinityHint) return decision;
 
   const entries = Object.entries(affinityHint).filter(
-    ([, conversationId]) => typeof conversationId === 'string' && conversationId.length > 0,
+    ([, conversationId]) =>
+      typeof conversationId === "string" && conversationId.length > 0,
   );
   if (entries.length === 0) return decision;
 
@@ -831,7 +990,7 @@ export function enforceConversationAffinity(
 
   for (const [channel, conversationId] of entries) {
     threadActions[channel as NotificationChannel] = {
-      action: 'reuse_existing',
+      action: "reuse_existing",
       conversationId: conversationId!,
     };
   }
@@ -840,7 +999,7 @@ export function enforceConversationAffinity(
 
   log.info(
     { affinityHint },
-    'Conversation affinity enforcement: overrode threadActions for hinted channels',
+    "Conversation affinity enforcement: overrode threadActions for hinted channels",
   );
 
   return enforced;
@@ -848,7 +1007,10 @@ export function enforceConversationAffinity(
 
 // ── Persistence ────────────────────────────────────────────────────────
 
-function persistDecision(signal: NotificationSignal, decision: NotificationDecision): string | undefined {
+function persistDecision(
+  signal: NotificationSignal,
+  decision: NotificationDecision,
+): string | undefined {
   try {
     const decisionId = uuid();
 
@@ -856,10 +1018,10 @@ function persistDecision(signal: NotificationSignal, decision: NotificationDecis
     const threadActionSummary: Record<string, string> = {};
     if (decision.threadActions) {
       for (const [ch, ta] of Object.entries(decision.threadActions)) {
-        if (ta.action === 'reuse_existing') {
+        if (ta.action === "reuse_existing") {
           threadActionSummary[ch] = `reuse:${ta.conversationId}`;
         } else {
-          threadActionSummary[ch] = 'start_new';
+          threadActionSummary[ch] = "start_new";
         }
       }
     }
@@ -877,13 +1039,15 @@ function persistDecision(signal: NotificationSignal, decision: NotificationDecis
         dedupeKey: decision.dedupeKey,
         channelCount: decision.selectedChannels.length,
         hasCopy: Object.keys(decision.renderedCopy).length > 0,
-        ...(Object.keys(threadActionSummary).length > 0 ? { threadActions: threadActionSummary } : {}),
+        ...(Object.keys(threadActionSummary).length > 0
+          ? { threadActions: threadActionSummary }
+          : {}),
       },
     });
     return decisionId;
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn({ err: errMsg }, 'Failed to persist notification decision');
+    log.warn({ err: errMsg }, "Failed to persist notification decision");
     return undefined;
   }
 }

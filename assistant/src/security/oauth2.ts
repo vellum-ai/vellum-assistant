@@ -16,18 +16,20 @@
  * are now inlined here since the integration framework is removed.
  */
 
-import { createHash,randomBytes } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import { createHash, randomBytes } from "node:crypto";
+import { createServer, type Server } from "node:http";
 
-import { getLogger } from '../util/logger.js';
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('oauth2');
+const log = getLogger("oauth2");
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post';
+export type TokenEndpointAuthMethod =
+  | "client_secret_basic"
+  | "client_secret_post";
 
 export interface OAuth2Config {
   authUrl: string;
@@ -63,7 +65,7 @@ export interface OAuth2FlowCallbacks {
 
 export interface OAuth2FlowOptions {
   /** Which callback transport to use. When omitted, auto-detected from config. */
-  callbackTransport?: 'loopback' | 'gateway';
+  callbackTransport?: "loopback" | "gateway";
   /** Fixed port for the loopback server. When set, the server binds to this port
    *  instead of an OS-assigned random port. Required for providers like Slack that
    *  need pre-registered redirect URIs. */
@@ -81,15 +83,15 @@ export interface OAuth2FlowResult {
 // ---------------------------------------------------------------------------
 
 function generateCodeVerifier(): string {
-  return randomBytes(32).toString('base64url');
+  return randomBytes(32).toString("base64url");
 }
 
 function generateCodeChallenge(verifier: string): string {
-  return createHash('sha256').update(verifier).digest('base64url');
+  return createHash("sha256").update(verifier).digest("base64url");
 }
 
 function generateState(): string {
-  return randomBytes(16).toString('hex');
+  return randomBytes(16).toString("hex");
 }
 
 // ---------------------------------------------------------------------------
@@ -102,22 +104,24 @@ async function exchangeCodeForTokens(
   redirectUri: string,
   codeVerifier: string,
 ): Promise<OAuth2FlowResult> {
-  const authMethod = config.tokenEndpointAuthMethod ?? 'client_secret_post';
+  const authMethod = config.tokenEndpointAuthMethod ?? "client_secret_post";
 
   const tokenBody: Record<string, string> = {
-    grant_type: 'authorization_code',
+    grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri,
     code_verifier: codeVerifier,
   };
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/x-www-form-urlencoded',
+    "Content-Type": "application/x-www-form-urlencoded",
   };
 
-  if (config.clientSecret && authMethod === 'client_secret_basic') {
-    const credentials = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64');
-    headers['Authorization'] = `Basic ${credentials}`;
+  if (config.clientSecret && authMethod === "client_secret_basic") {
+    const credentials = Buffer.from(
+      `${config.clientId}:${config.clientSecret}`,
+    ).toString("base64");
+    headers["Authorization"] = `Basic ${credentials}`;
   } else {
     tokenBody.client_id = config.clientId;
     if (config.clientSecret) {
@@ -126,44 +130,66 @@ async function exchangeCodeForTokens(
   }
 
   const tokenResp = await fetch(config.tokenUrl, {
-    method: 'POST',
+    method: "POST",
     headers,
     body: new URLSearchParams(tokenBody),
   });
 
   if (!tokenResp.ok) {
-    const rawBody = await tokenResp.text().catch(() => '');
+    const rawBody = await tokenResp.text().catch(() => "");
     const safeDetail: Record<string, unknown> = {};
-    let errorCode = '';
+    let errorCode = "";
     try {
       const parsed = JSON.parse(rawBody) as Record<string, unknown>;
-      if (parsed.error) { safeDetail.error = String(parsed.error); errorCode = String(parsed.error); }
-      if (parsed.error_description) safeDetail.error_description = String(parsed.error_description);
+      if (parsed.error) {
+        safeDetail.error = String(parsed.error);
+        errorCode = String(parsed.error);
+      }
+      if (parsed.error_description)
+        safeDetail.error_description = String(parsed.error_description);
     } catch {
-      safeDetail.error = '[non-JSON response]';
+      safeDetail.error = "[non-JSON response]";
     }
-    log.error({ status: tokenResp.status, ...safeDetail }, 'OAuth2 token exchange failed');
-    const detail = errorCode ? `HTTP ${tokenResp.status}: ${errorCode}` : `HTTP ${tokenResp.status}`;
+    log.error(
+      { status: tokenResp.status, ...safeDetail },
+      "OAuth2 token exchange failed",
+    );
+    const detail = errorCode
+      ? `HTTP ${tokenResp.status}: ${errorCode}`
+      : `HTTP ${tokenResp.status}`;
     throw new Error(`OAuth2 token exchange failed (${detail})`);
   }
 
-  const tokenData = await tokenResp.json() as Record<string, unknown>;
+  const tokenData = (await tokenResp.json()) as Record<string, unknown>;
 
   // Slack V2 OAuth returns user tokens nested under `authed_user`
-  const authedUser = tokenData.authed_user as Record<string, unknown> | undefined;
+  const authedUser = tokenData.authed_user as
+    | Record<string, unknown>
+    | undefined;
   const tokenSource = authedUser?.access_token ? authedUser : tokenData;
 
   const tokens: OAuth2TokenResult = {
-    accessToken: (tokenSource.access_token as string) ?? (tokenData.access_token as string),
-    refreshToken: (tokenSource.refresh_token as string | undefined) ?? (tokenData.refresh_token as string | undefined),
-    expiresIn: (tokenSource.expires_in as number | undefined) ?? (tokenData.expires_in as number | undefined),
-    scope: (tokenSource.scope as string | undefined) ?? (tokenData.scope as string | undefined),
-    tokenType: (tokenSource.token_type as string | undefined) ?? (tokenData.token_type as string | undefined),
+    accessToken:
+      (tokenSource.access_token as string) ??
+      (tokenData.access_token as string),
+    refreshToken:
+      (tokenSource.refresh_token as string | undefined) ??
+      (tokenData.refresh_token as string | undefined),
+    expiresIn:
+      (tokenSource.expires_in as number | undefined) ??
+      (tokenData.expires_in as number | undefined),
+    scope:
+      (tokenSource.scope as string | undefined) ??
+      (tokenData.scope as string | undefined),
+    tokenType:
+      (tokenSource.token_type as string | undefined) ??
+      (tokenData.token_type as string | undefined),
   };
 
-  const grantedScopes = typeof tokens.scope === 'string'
-    ? tokens.scope.split(/[ ,]/).filter(Boolean)
-    : [...config.scopes];
+  const grantedScopes =
+    typeof tokens.scope === "string"
+      ? tokens.scope.split(/[ ,]/).filter(Boolean)
+      : [...config.scopes];
 
   return { tokens, grantedScopes, rawTokenResponse: tokenData };
 }
@@ -181,16 +207,19 @@ async function runGatewayFlow(
 ): Promise<OAuth2FlowResult> {
   // Dynamic imports required here to avoid circular dependencies with
   // config/loader → security → oauth2 module chains.
-  const { loadConfig } = await import('../config/loader.js');
-  const { getOAuthCallbackUrl } = await import('../inbound/public-ingress-urls.js');
-  const { resolveCallbackUrl } = await import('../inbound/platform-callback-registration.js');
-  const { registerPendingCallback } = await import('./oauth-callback-registry.js');
+  const { loadConfig } = await import("../config/loader.js");
+  const { getOAuthCallbackUrl } =
+    await import("../inbound/public-ingress-urls.js");
+  const { resolveCallbackUrl } =
+    await import("../inbound/platform-callback-registration.js");
+  const { registerPendingCallback } =
+    await import("./oauth-callback-registry.js");
 
   const appConfig = loadConfig();
   const redirectUri = await resolveCallbackUrl(
     () => getOAuthCallbackUrl(appConfig),
-    'webhooks/oauth/callback',
-    'oauth',
+    "webhooks/oauth/callback",
+    "oauth",
   );
 
   const codePromise = new Promise<string>((resolve, reject) => {
@@ -201,11 +230,11 @@ async function runGatewayFlow(
     ...config.extraParams,
     client_id: config.clientId,
     redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: config.scopes.join(' '),
+    response_type: "code",
+    scope: config.scopes.join(" "),
     state,
     code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
+    code_challenge_method: "S256",
   });
 
   const authUrl = `${config.authUrl}?${authParams}`;
@@ -220,7 +249,7 @@ async function runGatewayFlow(
 // Loopback transport
 // ---------------------------------------------------------------------------
 
-const LOOPBACK_CALLBACK_PATH = '/oauth/callback';
+const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
 const LOOPBACK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 async function runLoopbackFlow(
@@ -232,7 +261,11 @@ async function runLoopbackFlow(
   loopbackPort?: number,
 ): Promise<OAuth2FlowResult> {
   const { code, redirectUri } = await startLoopbackServerAndWaitForCode(
-    config, callbacks, codeChallenge, state, loopbackPort,
+    config,
+    callbacks,
+    codeChallenge,
+    state,
+    loopbackPort,
   );
 
   return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
@@ -253,54 +286,61 @@ function startLoopbackServerAndWaitForCode(
 ): Promise<{ code: string; redirectUri: string }> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    let boundRedirectUri = '';
+    let boundRedirectUri = "";
 
     const server: Server = createServer((req, res) => {
       if (settled) {
-        res.writeHead(400, { 'Content-Type': 'text/html' });
-        res.end(renderLoopbackPage('Authorization already completed', false));
+        res.writeHead(400, { "Content-Type": "text/html" });
+        res.end(renderLoopbackPage("Authorization already completed", false));
         return;
       }
 
-      const url = new URL(req.url ?? '/', `http://127.0.0.1`);
+      const url = new URL(req.url ?? "/", `http://127.0.0.1`);
 
       if (url.pathname !== LOOPBACK_CALLBACK_PATH) {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not found');
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found");
         return;
       }
 
-      const callbackState = url.searchParams.get('state');
-      const code = url.searchParams.get('code');
-      const error = url.searchParams.get('error');
+      const callbackState = url.searchParams.get("state");
+      const code = url.searchParams.get("code");
+      const error = url.searchParams.get("error");
 
       if (callbackState !== state) {
-        res.writeHead(400, { 'Content-Type': 'text/html' });
-        res.end(renderLoopbackPage('Invalid state parameter', false));
+        res.writeHead(400, { "Content-Type": "text/html" });
+        res.end(renderLoopbackPage("Invalid state parameter", false));
         return;
       }
 
       settled = true;
 
       if (error) {
-        const errorDesc = url.searchParams.get('error_description') ?? error;
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(renderLoopbackPage(`Authorization failed: ${errorDesc}`, false));
+        const errorDesc = url.searchParams.get("error_description") ?? error;
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(
+          renderLoopbackPage(`Authorization failed: ${errorDesc}`, false),
+        );
         cleanup();
         reject(new Error(`OAuth2 authorization denied: ${error}`));
         return;
       }
 
       if (!code) {
-        res.writeHead(400, { 'Content-Type': 'text/html' });
-        res.end(renderLoopbackPage('Missing authorization code', false));
+        res.writeHead(400, { "Content-Type": "text/html" });
+        res.end(renderLoopbackPage("Missing authorization code", false));
         cleanup();
-        reject(new Error('OAuth2 callback missing authorization code'));
+        reject(new Error("OAuth2 callback missing authorization code"));
         return;
       }
 
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(renderLoopbackPage('Authorization successful! You can close this tab.', true));
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(
+        renderLoopbackPage(
+          "Authorization successful! You can close this tab.",
+          true,
+        ),
+      );
       cleanup();
       resolve({ code, redirectUri: boundRedirectUri });
     });
@@ -309,17 +349,17 @@ function startLoopbackServerAndWaitForCode(
       if (!settled) {
         settled = true;
         cleanup();
-        reject(new Error('OAuth2 loopback callback timed out'));
+        reject(new Error("OAuth2 loopback callback timed out"));
       }
     }, LOOPBACK_TIMEOUT_MS);
-    if (typeof timeout === 'object' && 'unref' in timeout) timeout.unref();
+    if (typeof timeout === "object" && "unref" in timeout) timeout.unref();
 
     function cleanup() {
       clearTimeout(timeout);
       server.close();
     }
 
-    server.listen(loopbackPort ?? 0, '127.0.0.1', () => {
+    server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
       const addr = server.address() as { port: number };
       boundRedirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
 
@@ -327,18 +367,18 @@ function startLoopbackServerAndWaitForCode(
         ...config.extraParams,
         client_id: config.clientId,
         redirect_uri: boundRedirectUri,
-        response_type: 'code',
-        scope: config.scopes.join(' '),
+        response_type: "code",
+        scope: config.scopes.join(" "),
         state,
         code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
+        code_challenge_method: "S256",
       });
 
       const authUrl = `${config.authUrl}?${authParams}`;
       callbacks.openUrl(authUrl);
     });
 
-    server.on('error', (err) => {
+    server.on("error", (err) => {
       if (!settled) {
         settled = true;
         cleanup();
@@ -349,12 +389,17 @@ function startLoopbackServerAndWaitForCode(
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function renderLoopbackPage(message: string, success: boolean): string {
-  const title = success ? 'Authorization Successful' : 'Authorization Failed';
-  const color = success ? '#4CAF50' : '#f44336';
+  const title = success ? "Authorization Successful" : "Authorization Failed";
+  const color = success ? "#4CAF50" : "#f44336";
   return `<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title><style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}div{text-align:center;padding:2rem;background:white;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}h1{color:${color}}</style></head><body><div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></div></body></html>`;
 }
 
@@ -386,24 +431,27 @@ export async function prepareOAuth2Flow(
   config: OAuth2Config,
   options?: OAuth2FlowOptions,
 ): Promise<OAuth2PreparedFlow> {
-  const transport = options?.callbackTransport ?? 'gateway';
+  const transport = options?.callbackTransport ?? "gateway";
 
-  if (transport === 'loopback') {
+  if (transport === "loopback") {
     return prepareLoopbackFlow(config, options?.loopbackPort);
   }
 
   // Dynamic imports required here to avoid circular dependencies with
   // config/loader → security → oauth2 module chains.
-  const { loadConfig } = await import('../config/loader.js');
-  const { getOAuthCallbackUrl } = await import('../inbound/public-ingress-urls.js');
-  const { resolveCallbackUrl } = await import('../inbound/platform-callback-registration.js');
-  const { registerPendingCallback } = await import('./oauth-callback-registry.js');
+  const { loadConfig } = await import("../config/loader.js");
+  const { getOAuthCallbackUrl } =
+    await import("../inbound/public-ingress-urls.js");
+  const { resolveCallbackUrl } =
+    await import("../inbound/platform-callback-registration.js");
+  const { registerPendingCallback } =
+    await import("./oauth-callback-registry.js");
 
   const appConfig = loadConfig();
   const redirectUri = await resolveCallbackUrl(
     () => getOAuthCallbackUrl(appConfig),
-    'webhooks/oauth/callback',
-    'oauth',
+    "webhooks/oauth/callback",
+    "oauth",
   );
 
   const codeVerifier = generateCodeVerifier();
@@ -418,11 +466,11 @@ export async function prepareOAuth2Flow(
     ...config.extraParams,
     client_id: config.clientId,
     redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: config.scopes.join(' '),
+    response_type: "code",
+    scope: config.scopes.join(" "),
     state,
     code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
+    code_challenge_method: "S256",
   });
 
   const authUrl = `${config.authUrl}?${authParams}`;
@@ -431,7 +479,7 @@ export async function prepareOAuth2Flow(
     return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
   });
 
-  log.debug({ transport: 'gateway', state }, 'Prepared deferred OAuth2 flow');
+  log.debug({ transport: "gateway", state }, "Prepared deferred OAuth2 flow");
 
   return { authUrl, state, completion };
 }
@@ -450,18 +498,19 @@ async function prepareLoopbackFlow(
   const state = generateState();
 
   const { redirectUri, codePromise } = await startLoopbackServerForPreparedFlow(
-    state, loopbackPort,
+    state,
+    loopbackPort,
   );
 
   const authParams = new URLSearchParams({
     ...config.extraParams,
     client_id: config.clientId,
     redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: config.scopes.join(' '),
+    response_type: "code",
+    scope: config.scopes.join(" "),
     state,
     code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
+    code_challenge_method: "S256",
   });
 
   const authUrl = `${config.authUrl}?${authParams}`;
@@ -470,7 +519,10 @@ async function prepareLoopbackFlow(
     return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
   });
 
-  log.debug({ transport: 'loopback', loopbackPort, state }, 'Prepared deferred OAuth2 flow (loopback)');
+  log.debug(
+    { transport: "loopback", loopbackPort, state },
+    "Prepared deferred OAuth2 flow (loopback)",
+  );
 
   return { authUrl, state, completion };
 }
@@ -497,50 +549,57 @@ function startLoopbackServerForPreparedFlow(
 
     const server: Server = createServer((req, res) => {
       if (settled) {
-        res.writeHead(400, { 'Content-Type': 'text/html' });
-        res.end(renderLoopbackPage('Authorization already completed', false));
+        res.writeHead(400, { "Content-Type": "text/html" });
+        res.end(renderLoopbackPage("Authorization already completed", false));
         return;
       }
 
-      const url = new URL(req.url ?? '/', `http://127.0.0.1`);
+      const url = new URL(req.url ?? "/", `http://127.0.0.1`);
 
       if (url.pathname !== LOOPBACK_CALLBACK_PATH) {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not found');
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found");
         return;
       }
 
-      const callbackState = url.searchParams.get('state');
-      const code = url.searchParams.get('code');
-      const error = url.searchParams.get('error');
+      const callbackState = url.searchParams.get("state");
+      const code = url.searchParams.get("code");
+      const error = url.searchParams.get("error");
 
       if (callbackState !== state) {
-        res.writeHead(400, { 'Content-Type': 'text/html' });
-        res.end(renderLoopbackPage('Invalid state parameter', false));
+        res.writeHead(400, { "Content-Type": "text/html" });
+        res.end(renderLoopbackPage("Invalid state parameter", false));
         return;
       }
 
       settled = true;
 
       if (error) {
-        const errorDesc = url.searchParams.get('error_description') ?? error;
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(renderLoopbackPage(`Authorization failed: ${errorDesc}`, false));
+        const errorDesc = url.searchParams.get("error_description") ?? error;
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(
+          renderLoopbackPage(`Authorization failed: ${errorDesc}`, false),
+        );
         cleanup();
         codeReject(new Error(`OAuth2 authorization denied: ${error}`));
         return;
       }
 
       if (!code) {
-        res.writeHead(400, { 'Content-Type': 'text/html' });
-        res.end(renderLoopbackPage('Missing authorization code', false));
+        res.writeHead(400, { "Content-Type": "text/html" });
+        res.end(renderLoopbackPage("Missing authorization code", false));
         cleanup();
-        codeReject(new Error('OAuth2 callback missing authorization code'));
+        codeReject(new Error("OAuth2 callback missing authorization code"));
         return;
       }
 
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(renderLoopbackPage('Authorization successful! You can close this tab.', true));
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(
+        renderLoopbackPage(
+          "Authorization successful! You can close this tab.",
+          true,
+        ),
+      );
       cleanup();
       codeResolve(code);
     });
@@ -549,24 +608,24 @@ function startLoopbackServerForPreparedFlow(
       if (!settled) {
         settled = true;
         cleanup();
-        codeReject(new Error('OAuth2 loopback callback timed out'));
+        codeReject(new Error("OAuth2 loopback callback timed out"));
       }
     }, LOOPBACK_TIMEOUT_MS);
-    if (typeof timeout === 'object' && 'unref' in timeout) timeout.unref();
+    if (typeof timeout === "object" && "unref" in timeout) timeout.unref();
 
     function cleanup() {
       clearTimeout(timeout);
       server.close();
     }
 
-    server.listen(loopbackPort ?? 0, '127.0.0.1', () => {
+    server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
       const addr = server.address() as { port: number };
       const redirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
       listening = true;
       resolveSetup({ redirectUri, codePromise });
     });
 
-    server.on('error', (err) => {
+    server.on("error", (err) => {
       const message = `OAuth2 loopback server error: ${err.message}`;
       if (!listening) {
         // Pre-startup error (e.g. port in use): resolveSetup was never called,
@@ -606,8 +665,9 @@ export async function startOAuth2Flow(
   try {
     // Dynamic imports required here to avoid circular dependencies with
     // config/loader → security → oauth2 module chains.
-    const { loadConfig } = await import('../config/loader.js');
-    const { getPublicBaseUrl } = await import('../inbound/public-ingress-urls.js');
+    const { loadConfig } = await import("../config/loader.js");
+    const { getPublicBaseUrl } =
+      await import("../inbound/public-ingress-urls.js");
     getPublicBaseUrl(loadConfig());
     hasPublicUrl = true;
   } catch {
@@ -617,28 +677,45 @@ export async function startOAuth2Flow(
   // When containerized with a platform, callback routes are registered
   // through the platform gateway — treat as having a public URL.
   if (!hasPublicUrl) {
-    const { shouldUsePlatformCallbacks } = await import('../inbound/platform-callback-registration.js');
+    const { shouldUsePlatformCallbacks } =
+      await import("../inbound/platform-callback-registration.js");
     if (shouldUsePlatformCallbacks()) {
       hasPublicUrl = true;
     }
   }
 
   // Determine transport: explicit option > auto-detect from config
-  const transport = options?.callbackTransport
-    ?? (hasPublicUrl ? 'gateway' : 'loopback');
+  const transport =
+    options?.callbackTransport ?? (hasPublicUrl ? "gateway" : "loopback");
 
-  if (transport === 'gateway') {
+  if (transport === "gateway") {
     if (!hasPublicUrl) {
       throw new Error(
-        'Gateway transport requires a public ingress URL. Set ingress.publicBaseUrl or INGRESS_PUBLIC_BASE_URL, or use loopback transport.',
+        "Gateway transport requires a public ingress URL. Set ingress.publicBaseUrl or INGRESS_PUBLIC_BASE_URL, or use loopback transport.",
       );
     }
-    log.debug({ transport: 'gateway' }, 'OAuth2 flow starting');
-    return runGatewayFlow(config, callbacks, codeVerifier, codeChallenge, state);
+    log.debug({ transport: "gateway" }, "OAuth2 flow starting");
+    return runGatewayFlow(
+      config,
+      callbacks,
+      codeVerifier,
+      codeChallenge,
+      state,
+    );
   }
 
-  log.debug({ transport: 'loopback', loopbackPort: options?.loopbackPort }, 'OAuth2 flow starting');
-  return runLoopbackFlow(config, callbacks, codeVerifier, codeChallenge, state, options?.loopbackPort);
+  log.debug(
+    { transport: "loopback", loopbackPort: options?.loopbackPort },
+    "OAuth2 flow starting",
+  );
+  return runLoopbackFlow(
+    config,
+    callbacks,
+    codeVerifier,
+    codeChallenge,
+    state,
+    options?.loopbackPort,
+  );
 }
 
 /**
@@ -652,20 +729,22 @@ export async function refreshOAuth2Token(
   clientSecret?: string,
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod,
 ): Promise<OAuth2TokenResult> {
-  const authMethod = tokenEndpointAuthMethod ?? 'client_secret_post';
+  const authMethod = tokenEndpointAuthMethod ?? "client_secret_post";
 
   const body: Record<string, string> = {
-    grant_type: 'refresh_token',
+    grant_type: "refresh_token",
     refresh_token: refreshToken,
   };
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/x-www-form-urlencoded',
+    "Content-Type": "application/x-www-form-urlencoded",
   };
 
-  if (clientSecret && authMethod === 'client_secret_basic') {
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    headers['Authorization'] = `Basic ${credentials}`;
+  if (clientSecret && authMethod === "client_secret_basic") {
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
+      "base64",
+    );
+    headers["Authorization"] = `Basic ${credentials}`;
   } else {
     body.client_id = clientId;
     if (clientSecret) {
@@ -674,28 +753,37 @@ export async function refreshOAuth2Token(
   }
 
   const resp = await fetch(tokenUrl, {
-    method: 'POST',
+    method: "POST",
     headers,
     body: new URLSearchParams(body),
   });
 
   if (!resp.ok) {
-    const rawBody = await resp.text().catch(() => '');
+    const rawBody = await resp.text().catch(() => "");
     const safeDetail: Record<string, unknown> = {};
-    let errorCode = '';
+    let errorCode = "";
     try {
       const parsed = JSON.parse(rawBody) as Record<string, unknown>;
-      if (parsed.error) { safeDetail.error = String(parsed.error); errorCode = String(parsed.error); }
-      if (parsed.error_description) safeDetail.error_description = String(parsed.error_description);
+      if (parsed.error) {
+        safeDetail.error = String(parsed.error);
+        errorCode = String(parsed.error);
+      }
+      if (parsed.error_description)
+        safeDetail.error_description = String(parsed.error_description);
     } catch {
-      safeDetail.error = '[non-JSON response]';
+      safeDetail.error = "[non-JSON response]";
     }
-    log.error({ status: resp.status, ...safeDetail }, 'OAuth2 token refresh failed');
-    const detail = errorCode ? `HTTP ${resp.status}: ${errorCode}` : `HTTP ${resp.status}`;
+    log.error(
+      { status: resp.status, ...safeDetail },
+      "OAuth2 token refresh failed",
+    );
+    const detail = errorCode
+      ? `HTTP ${resp.status}: ${errorCode}`
+      : `HTTP ${resp.status}`;
     throw new Error(`OAuth2 token refresh failed (${detail})`);
   }
 
-  const data = await resp.json() as Record<string, unknown>;
+  const data = (await resp.json()) as Record<string, unknown>;
 
   return {
     accessToken: data.access_token as string,

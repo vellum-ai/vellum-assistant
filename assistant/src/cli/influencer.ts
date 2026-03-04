@@ -5,14 +5,14 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
-import { Command } from 'commander';
+import { Command } from "commander";
 
 import {
   compareInfluencers,
   getInfluencerProfile,
   type InfluencerSearchCriteria,
   searchInfluencers,
-} from '../influencer/client.js';
+} from "../influencer/client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,7 +20,7 @@ import {
 
 function output(data: unknown, json: boolean): void {
   process.stdout.write(
-    json ? JSON.stringify(data) + '\n' : JSON.stringify(data, null, 2) + '\n',
+    json ? JSON.stringify(data) + "\n" : JSON.stringify(data, null, 2) + "\n",
   );
 }
 
@@ -41,10 +41,7 @@ function getJson(cmd: Command): boolean {
 async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
   try {
     const result = await fn();
-    output(
-      { ok: true, ...(result as Record<string, unknown>) },
-      getJson(cmd),
-    );
+    output({ ok: true, ...(result as Record<string, unknown>) }, getJson(cmd));
   } catch (err) {
     outputError(err instanceof Error ? err.message : String(err));
   }
@@ -56,32 +53,41 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
 
 export function registerInfluencerCommand(program: Command): void {
   const inf = program
-    .command('influencer')
+    .command("influencer")
     .description(
-      'Research influencers on Instagram, TikTok, and X/Twitter. ' +
-      'Uses the Chrome extension relay to browse each platform. ' +
-      'Requires the user to be logged in on each platform in Chrome.',
+      "Research influencers on Instagram, TikTok, and X/Twitter. " +
+        "Uses the Chrome extension relay to browse each platform. " +
+        "Requires the user to be logged in on each platform in Chrome.",
     )
-    .option('--json', 'Machine-readable JSON output');
+    .option("--json", "Machine-readable JSON output");
 
   // =========================================================================
   // search — search for influencers across platforms
   // =========================================================================
   inf
-    .command('search')
+    .command("search")
     .description(
-      'Search for influencers matching criteria across Instagram, TikTok, and X/Twitter',
+      "Search for influencers matching criteria across Instagram, TikTok, and X/Twitter",
     )
-    .argument('<query>', 'Search query — niche, topic, or keywords (e.g. "fitness coach", "vegan food")')
+    .argument(
+      "<query>",
+      'Search query — niche, topic, or keywords (e.g. "fitness coach", "vegan food")',
+    )
     .option(
-      '--platforms <platforms>',
-      'Comma-separated list of platforms to search (instagram,tiktok,twitter)',
-      'instagram,tiktok,twitter',
+      "--platforms <platforms>",
+      "Comma-separated list of platforms to search (instagram,tiktok,twitter)",
+      "instagram,tiktok,twitter",
     )
-    .option('--min-followers <n>', 'Minimum follower count (e.g. 10000, 10k, 1m)')
-    .option('--max-followers <n>', 'Maximum follower count (e.g. 100000, 100k, 1m)')
-    .option('--limit <n>', 'Max results per platform', '10')
-    .option('--verified', 'Only return verified accounts')
+    .option(
+      "--min-followers <n>",
+      "Minimum follower count (e.g. 10000, 10k, 1m)",
+    )
+    .option(
+      "--max-followers <n>",
+      "Maximum follower count (e.g. 100000, 100k, 1m)",
+    )
+    .option("--limit <n>", "Max results per platform", "10")
+    .option("--verified", "Only return verified accounts")
     .action(
       async (
         query: string,
@@ -96,10 +102,10 @@ export function registerInfluencerCommand(program: Command): void {
       ) => {
         await run(cmd, async () => {
           const platforms = opts.platforms
-            .split(',')
+            .split(",")
             .map((p) => p.trim().toLowerCase())
-            .filter((p): p is 'instagram' | 'tiktok' | 'twitter' =>
-              ['instagram', 'tiktok', 'twitter'].includes(p),
+            .filter((p): p is "instagram" | "tiktok" | "twitter" =>
+              ["instagram", "tiktok", "twitter"].includes(p),
             );
 
           const criteria: InfluencerSearchCriteria = {
@@ -133,32 +139,28 @@ export function registerInfluencerCommand(program: Command): void {
   // profile — get detailed profile data for a specific influencer
   // =========================================================================
   inf
-    .command('profile')
-    .description('Get detailed profile data for a specific influencer')
-    .argument('<username>', 'Username/handle (without @ prefix)')
+    .command("profile")
+    .description("Get detailed profile data for a specific influencer")
+    .argument("<username>", "Username/handle (without @ prefix)")
     .option(
-      '--platform <platform>',
-      'Platform (instagram, tiktok, or twitter)',
-      'instagram',
+      "--platform <platform>",
+      "Platform (instagram, tiktok, or twitter)",
+      "instagram",
     )
     .action(
-      async (
-        username: string,
-        opts: { platform: string },
-        cmd: Command,
-      ) => {
+      async (username: string, opts: { platform: string }, cmd: Command) => {
         await run(cmd, async () => {
           const platform = opts.platform.toLowerCase() as
-            | 'instagram'
-            | 'tiktok'
-            | 'twitter';
-          if (!['instagram', 'tiktok', 'twitter'].includes(platform)) {
+            | "instagram"
+            | "tiktok"
+            | "twitter";
+          if (!["instagram", "tiktok", "twitter"].includes(platform)) {
             throw new Error(
               `Invalid platform: ${opts.platform}. Use instagram, tiktok, or twitter.`,
             );
           }
 
-          const cleanUsername = username.replace(/^@/, '');
+          const cleanUsername = username.replace(/^@/, "");
           const profile = await getInfluencerProfile(platform, cleanUsername);
 
           if (!profile) {
@@ -176,27 +178,27 @@ export function registerInfluencerCommand(program: Command): void {
   // compare — compare multiple influencers side by side
   // =========================================================================
   inf
-    .command('compare')
+    .command("compare")
     .description(
-      'Compare multiple influencers side by side. ' +
-      'Provide usernames as platform:username pairs.',
+      "Compare multiple influencers side by side. " +
+        "Provide usernames as platform:username pairs.",
     )
     .argument(
-      '<influencers...>',
-      'Space-separated list of platform:username pairs (e.g. instagram:nike twitter:nike tiktok:nike)',
+      "<influencers...>",
+      "Space-separated list of platform:username pairs (e.g. instagram:nike twitter:nike tiktok:nike)",
     )
     .action(async (influencers: string[], _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const parsed = influencers.map((inf) => {
-          const [platform, username] = inf.includes(':')
-            ? inf.split(':', 2)
-            : ['instagram', inf];
+          const [platform, username] = inf.includes(":")
+            ? inf.split(":", 2)
+            : ["instagram", inf];
 
           const cleanPlatform = platform.toLowerCase() as
-            | 'instagram'
-            | 'tiktok'
-            | 'twitter';
-          if (!['instagram', 'tiktok', 'twitter'].includes(cleanPlatform)) {
+            | "instagram"
+            | "tiktok"
+            | "twitter";
+          if (!["instagram", "tiktok", "twitter"].includes(cleanPlatform)) {
             throw new Error(
               `Invalid platform "${platform}" in "${inf}". Use instagram, tiktok, or twitter.`,
             );
@@ -204,7 +206,7 @@ export function registerInfluencerCommand(program: Command): void {
 
           return {
             platform: cleanPlatform,
-            username: username.replace(/^@/, ''),
+            username: username.replace(/^@/, ""),
           };
         });
 
@@ -227,14 +229,14 @@ export function registerInfluencerCommand(program: Command): void {
  * Parse human-friendly numbers like "10k", "1.5m", "100000" into integers.
  */
 function parseHumanNumber(text: string): number {
-  const cleaned = text.toLowerCase().replace(/,/g, '').trim();
+  const cleaned = text.toLowerCase().replace(/,/g, "").trim();
   const match = cleaned.match(/^([\d.]+)\s*([kmbt]?)$/);
   if (!match) return parseInt(text, 10) || 0;
 
   const num = parseFloat(match[1]);
   const suffix = match[2];
   const multipliers: Record<string, number> = {
-    '': 1,
+    "": 1,
     k: 1_000,
     m: 1_000_000,
     b: 1_000_000_000,

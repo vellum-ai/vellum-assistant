@@ -5,17 +5,17 @@
  * device binding, and dual expiry (absolute + inactivity).
  */
 
-import { and, eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb } from '../memory/db.js';
-import { rawChanges } from '../memory/raw-query.js';
-import { actorRefreshTokenRecords } from '../memory/schema.js';
-import { getLogger } from '../util/logger.js';
+import { getDb } from "../memory/db.js";
+import { rawChanges } from "../memory/raw-query.js";
+import { actorRefreshTokenRecords } from "../memory/schema.js";
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('actor-refresh-token-store');
+const log = getLogger("actor-refresh-token-store");
 
-export type RefreshTokenStatus = 'active' | 'rotated' | 'revoked';
+export type RefreshTokenStatus = "active" | "rotated" | "revoked";
 
 export interface RefreshTokenRecord {
   id: string;
@@ -58,7 +58,7 @@ export function createRefreshTokenRecord(params: {
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
-    status: 'active' as const,
+    status: "active" as const,
     issuedAt: params.issuedAt,
     absoluteExpiresAt: params.absoluteExpiresAt,
     inactivityExpiresAt: params.inactivityExpiresAt,
@@ -68,7 +68,10 @@ export function createRefreshTokenRecord(params: {
   };
 
   db.insert(actorRefreshTokenRecords).values(row).run();
-  log.info({ id, familyId: params.familyId, platform: params.platform }, 'Refresh token record created');
+  log.info(
+    { id, familyId: params.familyId, platform: params.platform },
+    "Refresh token record created",
+  );
   return row;
 }
 
@@ -93,11 +96,11 @@ export function markRotated(tokenHash: string): boolean {
   const db = getDb();
   const now = Date.now();
   db.update(actorRefreshTokenRecords)
-    .set({ status: 'rotated', lastUsedAt: now, updatedAt: now })
+    .set({ status: "rotated", lastUsedAt: now, updatedAt: now })
     .where(
       and(
         eq(actorRefreshTokenRecords.tokenHash, tokenHash),
-        eq(actorRefreshTokenRecords.status, 'active'),
+        eq(actorRefreshTokenRecords.status, "active"),
       ),
     )
     .run();
@@ -109,7 +112,7 @@ export function revokeFamily(familyId: string): number {
   const db = getDb();
   const now = Date.now();
   db.update(actorRefreshTokenRecords)
-    .set({ status: 'revoked', updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(eq(actorRefreshTokenRecords.familyId, familyId))
     .run();
   return rawChanges();
@@ -124,20 +127,22 @@ export function revokeByDeviceBinding(
   const db = getDb();
   const now = Date.now();
   db.update(actorRefreshTokenRecords)
-    .set({ status: 'revoked', updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(
       and(
         eq(actorRefreshTokenRecords.assistantId, assistantId),
         eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
-        eq(actorRefreshTokenRecords.status, 'active'),
+        eq(actorRefreshTokenRecords.status, "active"),
       ),
     )
     .run();
   return rawChanges();
 }
 
-function rowToRecord(row: typeof actorRefreshTokenRecords.$inferSelect): RefreshTokenRecord {
+function rowToRecord(
+  row: typeof actorRefreshTokenRecords.$inferSelect,
+): RefreshTokenRecord {
   return {
     id: row.id,
     tokenHash: row.tokenHash,

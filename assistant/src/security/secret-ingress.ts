@@ -1,8 +1,8 @@
-import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
-import { compileCustomPatterns, scanText } from './secret-scanner.js';
+import { getConfig } from "../config/loader.js";
+import { getLogger } from "../util/logger.js";
+import { compileCustomPatterns, scanText } from "./secret-scanner.js";
 
-const log = getLogger('secret-ingress');
+const log = getLogger("secret-ingress");
 
 export interface IngressCheckResult {
   /** Whether the message should be blocked from entering the model context. */
@@ -36,7 +36,10 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
     return { blocked: false, detectedTypes: [] };
   }
 
-  const entropyConfig = { enabled: true, base64Threshold: config.secretDetection.entropyThreshold };
+  const entropyConfig = {
+    enabled: true,
+    base64Threshold: config.secretDetection.entropyThreshold,
+  };
   const compiledCustom = config.secretDetection.customPatterns?.length
     ? compileCustomPatterns(config.secretDetection.customPatterns)
     : undefined;
@@ -47,13 +50,18 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
   }
 
   const detectedTypes = [...new Set(matches.map((m) => m.type))];
-  log.warn({ detectedTypes, matchCount: matches.length }, 'Blocked inbound message containing secrets');
+  log.warn(
+    { detectedTypes, matchCount: matches.length },
+    "Blocked inbound message containing secrets",
+  );
 
   return {
     blocked: true,
     detectedTypes,
     userNotice:
-      `Your message appears to contain sensitive information (${detectedTypes.join(', ')}). ` +
+      `Your message appears to contain sensitive information (${detectedTypes.join(
+        ", ",
+      )}). ` +
       `For security, it was not sent to the AI. ` +
       `Please use the secure credential prompt instead — the assistant will ask for secrets when it needs them.`,
   };

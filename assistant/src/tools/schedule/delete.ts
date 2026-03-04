@@ -1,13 +1,13 @@
-import { deleteSchedule, getSchedule } from '../../schedule/schedule-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { deleteSchedule, getSchedule } from "../../schedule/schedule-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeScheduleDelete(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const jobId = input.job_id as string;
-  if (!jobId || typeof jobId !== 'string') {
-    return { content: 'Error: job_id is required', isError: true };
+  if (!jobId || typeof jobId !== "string") {
+    return { content: "Error: job_id is required", isError: true };
   }
 
   // Fetch the job first for the confirmation message
@@ -18,7 +18,10 @@ export async function executeScheduleDelete(
 
   const deleted = deleteSchedule(jobId);
   if (!deleted) {
-    return { content: `Error: Failed to delete schedule: ${jobId}`, isError: true };
+    return {
+      content: `Error: Failed to delete schedule: ${jobId}`,
+      isError: true,
+    };
   }
 
   return {

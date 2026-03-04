@@ -10,7 +10,10 @@
  * - Tables, task lists, and rich formatting
  */
 
-export function generateEditorHTML(title: string, initialContent: string): string {
+export function generateEditorHTML(
+  title: string,
+  initialContent: string,
+): string {
   return `
 <!DOCTYPE html>
 <html>
@@ -116,7 +119,9 @@ export function generateEditorHTML(title: string, initialContent: string): strin
 </head>
 <body>
   <div class="header">
-    <input type="text" class="title-input" placeholder="Untitled Document" value="${escapeHtml(title)}" id="title-input" />
+    <input type="text" class="title-input" placeholder="Untitled Document" value="${escapeHtml(
+      title,
+    )}" id="title-input" />
     <div class="status" id="status">Ready</div>
   </div>
 
@@ -229,9 +234,9 @@ export function generateEditorHTML(title: string, initialContent: string): strin
 
 export function escapeHtml(str: string): string {
   return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }

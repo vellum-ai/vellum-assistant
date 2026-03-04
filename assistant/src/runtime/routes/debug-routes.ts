@@ -2,15 +2,15 @@
  * Debug introspection endpoint for monitoring and troubleshooting.
  */
 
-import { statSync } from 'node:fs';
+import { statSync } from "node:fs";
 
-import { getConfig } from '../../config/loader.js';
-import { countConversations } from '../../memory/conversation-store.js';
-import { rawAll } from '../../memory/db.js';
-import { getMemoryJobCounts } from '../../memory/jobs-store.js';
-import { getProviderDebugStatus } from '../../providers/registry.js';
-import { countSchedules } from '../../schedule/schedule-store.js';
-import { getDbPath } from '../../util/platform.js';
+import { getConfig } from "../../config/loader.js";
+import { countConversations } from "../../memory/conversation-store.js";
+import { rawAll } from "../../memory/db.js";
+import { getMemoryJobCounts } from "../../memory/jobs-store.js";
+import { getProviderDebugStatus } from "../../providers/registry.js";
+import { countSchedules } from "../../schedule/schedule-store.js";
+import { getDbPath } from "../../util/platform.js";
 
 /** Process start time — used to calculate uptime. */
 const startedAt = Date.now();
@@ -25,7 +25,9 @@ function getDatabaseSizeBytes(): number | null {
 
 function getMemoryItemCount(): number {
   try {
-    const rows = rawAll<{ c: number }>('SELECT COUNT(*) AS c FROM memory_items');
+    const rows = rawAll<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM memory_items",
+    );
     return rows[0]?.c ?? 0;
   } catch {
     return 0;
@@ -45,7 +47,9 @@ export function handleDebug(): Response {
   const scheduleCounts = countSchedules();
 
   const config = getConfig();
-  const providerOrder = Array.isArray(config.providerOrder) ? config.providerOrder : [];
+  const providerOrder = Array.isArray(config.providerOrder)
+    ? config.providerOrder
+    : [];
   const providerStatus = getProviderDebugStatus(config.provider, providerOrder);
 
   return Response.json({

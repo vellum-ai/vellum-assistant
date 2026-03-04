@@ -1,17 +1,20 @@
-import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
-import { listPendingConflictDetails, resolveConflict } from './conflict-store.js';
-import { rawGet } from './db.js';
-import { getMemoryBackendStatus } from './embedding-backend.js';
-import { enqueueBackfillJob, enqueueRebuildIndexJob } from './indexer.js';
+import { getConfig } from "../config/loader.js";
+import { getLogger } from "../util/logger.js";
+import {
+  listPendingConflictDetails,
+  resolveConflict,
+} from "./conflict-store.js";
+import { rawGet } from "./db.js";
+import { getMemoryBackendStatus } from "./embedding-backend.js";
+import { enqueueBackfillJob, enqueueRebuildIndexJob } from "./indexer.js";
 import {
   enqueueCleanupResolvedConflictsJob,
   enqueueCleanupStaleSupersededItemsJob,
   getMemoryJobCounts,
-} from './jobs-store.js';
-import { queryMemoryForCli } from './retriever.js';
+} from "./jobs-store.js";
+import { queryMemoryForCli } from "./retriever.js";
 
-const log = getLogger('memory-admin');
+const log = getLogger("memory-admin");
 
 export interface MemorySystemStatus {
   enabled: boolean;
@@ -40,8 +43,8 @@ export interface MemorySystemStatus {
 }
 
 export interface MemoryConflictAndCleanupStats {
-  conflicts: MemorySystemStatus['conflicts'];
-  cleanup: MemorySystemStatus['cleanup'];
+  conflicts: MemorySystemStatus["conflicts"];
+  cleanup: MemorySystemStatus["cleanup"];
 }
 
 interface ConflictStatsRow {
@@ -67,12 +70,15 @@ export function getMemoryConflictAndCleanupStats(): MemoryConflictAndCleanupStat
     FROM memory_item_conflicts
   `);
   const pending = conflictStats?.pending_count ?? 0;
-  const oldestPendingCreatedAt = conflictStats?.oldest_pending_created_at ?? null;
-  const oldestPendingAgeMs = oldestPendingCreatedAt == null
-    ? null
-    : Math.max(0, Date.now() - oldestPendingCreatedAt);
-  const throughputWindowStartMs = Date.now() - (24 * 60 * 60 * 1000);
-  const cleanupStats = rawGet<CleanupStatsRow>(`
+  const oldestPendingCreatedAt =
+    conflictStats?.oldest_pending_created_at ?? null;
+  const oldestPendingAgeMs =
+    oldestPendingCreatedAt == null
+      ? null
+      : Math.max(0, Date.now() - oldestPendingCreatedAt);
+  const throughputWindowStartMs = Date.now() - 24 * 60 * 60 * 1000;
+  const cleanupStats = rawGet<CleanupStatsRow>(
+    `
     SELECT
       SUM(CASE
         WHEN type = 'cleanup_resolved_conflicts' AND status IN ('pending', 'running')
@@ -91,7 +97,10 @@ export function getMemoryConflictAndCleanupStats(): MemoryConflictAndCleanupStat
         THEN 1 ELSE 0 END
       ) AS superseded_completed_24h
     FROM memory_jobs
-  `, throughputWindowStartMs, throughputWindowStartMs);
+  `,
+    throughputWindowStartMs,
+    throughputWindowStartMs,
+  );
   return {
     conflicts: {
       pending,
@@ -111,10 +120,10 @@ export function getMemorySystemStatus(): MemorySystemStatus {
   const config = getConfig();
   const backend = getMemoryBackendStatus(config);
   const counts = {
-    segments: countTable('memory_segments'),
-    items: countTable('memory_items'),
-    summaries: countTable('memory_summaries'),
-    embeddings: countTable('memory_embeddings'),
+    segments: countTable("memory_segments"),
+    items: countTable("memory_items"),
+    summaries: countTable("memory_summaries"),
+    embeddings: countTable("memory_embeddings"),
   };
   const conflictStats = rawGet<ConflictStatsRow>(`
     SELECT
@@ -124,12 +133,15 @@ export function getMemorySystemStatus(): MemorySystemStatus {
     FROM memory_item_conflicts
   `);
   const pending = conflictStats?.pending_count ?? 0;
-  const oldestPendingCreatedAt = conflictStats?.oldest_pending_created_at ?? null;
-  const oldestPendingAgeMs = oldestPendingCreatedAt == null
-    ? null
-    : Math.max(0, Date.now() - oldestPendingCreatedAt);
-  const throughputWindowStartMs = Date.now() - (24 * 60 * 60 * 1000);
-  const cleanupStats = rawGet<CleanupStatsRow>(`
+  const oldestPendingCreatedAt =
+    conflictStats?.oldest_pending_created_at ?? null;
+  const oldestPendingAgeMs =
+    oldestPendingCreatedAt == null
+      ? null
+      : Math.max(0, Date.now() - oldestPendingCreatedAt);
+  const throughputWindowStartMs = Date.now() - 24 * 60 * 60 * 1000;
+  const cleanupStats = rawGet<CleanupStatsRow>(
+    `
     SELECT
       SUM(CASE
         WHEN type = 'cleanup_resolved_conflicts' AND status IN ('pending', 'running')
@@ -148,7 +160,10 @@ export function getMemorySystemStatus(): MemorySystemStatus {
         THEN 1 ELSE 0 END
       ) AS superseded_completed_24h
     FROM memory_jobs
-  `, throughputWindowStartMs, throughputWindowStartMs);
+  `,
+    throughputWindowStartMs,
+    throughputWindowStartMs,
+  );
   return {
     enabled: backend.enabled,
     degraded: backend.degraded,
@@ -177,34 +192,43 @@ export function getMemorySystemStatus(): MemorySystemStatus {
 
 export function requestMemoryBackfill(force = false): string {
   const id = enqueueBackfillJob(force);
-  log.info({ jobId: id }, 'Queued memory backfill job');
+  log.info({ jobId: id }, "Queued memory backfill job");
   return id;
 }
 
 export function requestMemoryRebuildIndex(): string {
   const id = enqueueRebuildIndexJob();
-  log.info({ jobId: id }, 'Queued memory index rebuild job');
+  log.info({ jobId: id }, "Queued memory index rebuild job");
   return id;
 }
 
-export function requestMemoryCleanup(retentionMs?: number): { resolvedConflictsJobId: string; staleSupersededItemsJobId: string } {
-  const resolvedConflictsJobId = enqueueCleanupResolvedConflictsJob(retentionMs);
-  const staleSupersededItemsJobId = enqueueCleanupStaleSupersededItemsJob(retentionMs);
-  log.info({ resolvedConflictsJobId, staleSupersededItemsJobId, retentionMs }, 'Queued memory cleanup jobs');
+export function requestMemoryCleanup(retentionMs?: number): {
+  resolvedConflictsJobId: string;
+  staleSupersededItemsJobId: string;
+} {
+  const resolvedConflictsJobId =
+    enqueueCleanupResolvedConflictsJob(retentionMs);
+  const staleSupersededItemsJobId =
+    enqueueCleanupStaleSupersededItemsJob(retentionMs);
+  log.info(
+    { resolvedConflictsJobId, staleSupersededItemsJobId, retentionMs },
+    "Queued memory cleanup jobs",
+  );
   return { resolvedConflictsJobId, staleSupersededItemsJobId };
 }
 
-export async function queryMemory(
-  query: string,
-  conversationId: string,
-) {
+export async function queryMemory(query: string, conversationId: string) {
   return queryMemoryForCli(query, conversationId, getConfig());
 }
 
 export interface DismissConflictsResult {
   dismissed: number;
   remaining: number;
-  details: Array<{ id: string; existingStatement: string; candidateStatement: string }>;
+  details: Array<{
+    id: string;
+    existingStatement: string;
+    candidateStatement: string;
+  }>;
 }
 
 /**
@@ -212,11 +236,13 @@ export interface DismissConflictsResult {
  * pending conflict. Otherwise, dismisses only conflicts matching the
  * given `pattern` regex against either statement.
  */
-export function dismissPendingConflicts(
-  options: { all?: boolean; pattern?: RegExp; scopeId?: string },
-): DismissConflictsResult {
-  const scopeId = options.scopeId ?? 'default';
-  const dismissed: DismissConflictsResult['details'] = [];
+export function dismissPendingConflicts(options: {
+  all?: boolean;
+  pattern?: RegExp;
+  scopeId?: string;
+}): DismissConflictsResult {
+  const scopeId = options.scopeId ?? "default";
+  const dismissed: DismissConflictsResult["details"] = [];
   const BATCH_SIZE = 1000;
 
   // Cursor-based pagination: track last seen (createdAt, id) to advance past
@@ -226,17 +252,17 @@ export function dismissPendingConflicts(
   let batch = listPendingConflictDetails(scopeId, BATCH_SIZE);
   while (batch.length > 0) {
     for (const conflict of batch) {
-      const matches = options.all
-        || (options.pattern && (
-          options.pattern.test(conflict.existingStatement)
-          || options.pattern.test(conflict.candidateStatement)
-        ));
+      const matches =
+        options.all ||
+        (options.pattern &&
+          (options.pattern.test(conflict.existingStatement) ||
+            options.pattern.test(conflict.candidateStatement)));
       if (!matches) continue;
 
       resolveConflict(conflict.id, {
-        status: 'dismissed',
+        status: "dismissed",
         resolutionNote: options.all
-          ? 'Bulk dismissed via CLI (dismiss-conflicts --all).'
+          ? "Bulk dismissed via CLI (dismiss-conflicts --all)."
           : `Dismissed via CLI (pattern: ${options.pattern?.source}).`,
       });
       dismissed.push({
@@ -253,12 +279,16 @@ export function dismissPendingConflicts(
   }
 
   // Get true remaining count via SQL to avoid batch-size truncation
-  const remaining = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM memory_item_conflicts WHERE scope_id = ? AND status = 'pending_clarification'`,
-    scopeId,
-  )?.c ?? 0;
+  const remaining =
+    rawGet<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM memory_item_conflicts WHERE scope_id = ? AND status = 'pending_clarification'`,
+      scopeId,
+    )?.c ?? 0;
 
-  log.info({ dismissed: dismissed.length, remaining, scopeId }, 'Dismissed pending conflicts');
+  log.info(
+    { dismissed: dismissed.length, remaining, scopeId },
+    "Dismissed pending conflicts",
+  );
   return {
     dismissed: dismissed.length,
     remaining,

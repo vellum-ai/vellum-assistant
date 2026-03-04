@@ -7,8 +7,8 @@
  * and messages references even after updateClient().
  */
 
-import { createAssistantMessage } from '../agent/message-types.js';
-import { buildCallCompletionMessage } from '../calls/call-conversation-messages.js';
+import { createAssistantMessage } from "../agent/message-types.js";
+import { buildCallCompletionMessage } from "../calls/call-conversation-messages.js";
 import {
   registerCallCompletionNotifier,
   registerCallQuestionNotifier,
@@ -16,12 +16,12 @@ import {
   unregisterCallCompletionNotifier,
   unregisterCallQuestionNotifier,
   unregisterCallTranscriptNotifier,
-} from '../calls/call-state.js';
-import { getCallSession } from '../calls/call-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromTrustContext } from '../memory/conversation-store.js';
-import type { Message } from '../providers/types.js';
-import type { WatchSession } from '../tools/watch/watch-state.js';
+} from "../calls/call-state.js";
+import { getCallSession } from "../calls/call-store.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import type { Message } from "../providers/types.js";
+import type { WatchSession } from "../tools/watch/watch-state.js";
 import {
   pruneWatchSessions,
   registerWatchCommentaryNotifier,
@@ -30,10 +30,13 @@ import {
   unregisterWatchCommentaryNotifier,
   unregisterWatchCompletionNotifier,
   unregisterWatchStartNotifier,
-} from '../tools/watch/watch-state.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import type { TrustContext } from './session-runtime-assembly.js';
-import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.js';
+} from "../tools/watch/watch-state.js";
+import type { ServerMessage } from "./ipc-protocol.js";
+import type { TrustContext } from "./session-runtime-assembly.js";
+import {
+  lastCommentaryBySession,
+  lastSummaryBySession,
+} from "./watch-handler.js";
 
 /**
  * Subset of Session state that notifier callbacks need to read at
@@ -56,7 +59,7 @@ export function registerSessionNotifiers(
 ): void {
   registerWatchStartNotifier(conversationId, (session: WatchSession) => {
     ctx.sendToClient({
-      type: 'watch_started',
+      type: "watch_started",
       sessionId: conversationId,
       watchId: session.watchId,
       durationSeconds: session.durationSeconds,
@@ -69,12 +72,12 @@ export function registerSessionNotifiers(
     if (commentary) {
       lastCommentaryBySession.delete(conversationId);
       ctx.sendToClient({
-        type: 'assistant_text_delta',
+        type: "assistant_text_delta",
         text: commentary,
         sessionId: conversationId,
       });
       ctx.sendToClient({
-        type: 'message_complete',
+        type: "message_complete",
         sessionId: conversationId,
       });
     }
@@ -85,55 +88,64 @@ export function registerSessionNotifiers(
     if (summary) {
       lastSummaryBySession.delete(conversationId);
       ctx.sendToClient({
-        type: 'assistant_text_delta',
+        type: "assistant_text_delta",
         text: summary,
         sessionId: conversationId,
       });
       ctx.sendToClient({
-        type: 'message_complete',
+        type: "message_complete",
         sessionId: conversationId,
       });
     }
   });
 
-  registerCallQuestionNotifier(conversationId, async (callSessionId: string, question: string) => {
-    const callSession = getCallSession(callSessionId);
-    const callee = callSession?.toNumber ?? 'the caller';
-    const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Use the call answer API to respond._`;
+  registerCallQuestionNotifier(
+    conversationId,
+    async (callSessionId: string, question: string) => {
+      const callSession = getCallSession(callSessionId);
+      const callee = callSession?.toNumber ?? "the caller";
+      const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Use the call answer API to respond._`;
 
-    await conversationStore.addMessage(
-      conversationId,
-      'assistant',
-      JSON.stringify([{ type: 'text', text: questionText }]),
-      { ...provenanceFromTrustContext(ctx.trustContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
-    );
+      await conversationStore.addMessage(
+        conversationId,
+        "assistant",
+        JSON.stringify([{ type: "text", text: questionText }]),
+        {
+          ...provenanceFromTrustContext(ctx.trustContext),
+          userMessageChannel: "voice",
+          assistantMessageChannel: "voice",
+          userMessageInterface: "voice",
+          assistantMessageInterface: "voice",
+        },
+      );
 
-    ctx.messages.push(createAssistantMessage(questionText));
+      ctx.messages.push(createAssistantMessage(questionText));
 
-    ctx.sendToClient({
-      type: 'assistant_text_delta',
-      text: questionText,
-      sessionId: conversationId,
-    });
-    ctx.sendToClient({
-      type: 'message_complete',
-      sessionId: conversationId,
-    });
-  });
+      ctx.sendToClient({
+        type: "assistant_text_delta",
+        text: questionText,
+        sessionId: conversationId,
+      });
+      ctx.sendToClient({
+        type: "message_complete",
+        sessionId: conversationId,
+      });
+    },
+  );
 
   registerCallTranscriptNotifier(
     conversationId,
-    (_callSessionId: string, speaker: 'caller' | 'assistant', text: string) => {
-      const speakerLabel = speaker === 'caller' ? 'Caller' : 'Assistant';
+    (_callSessionId: string, speaker: "caller" | "assistant", text: string) => {
+      const speakerLabel = speaker === "caller" ? "Caller" : "Assistant";
       const transcriptText = `**Live call transcript**\n${speakerLabel}: ${text}`;
 
       ctx.sendToClient({
-        type: 'assistant_text_delta',
+        type: "assistant_text_delta",
         text: transcriptText,
         sessionId: conversationId,
       });
       ctx.sendToClient({
-        type: 'message_complete',
+        type: "message_complete",
         sessionId: conversationId,
       });
     },
@@ -143,12 +155,12 @@ export function registerSessionNotifiers(
     const summaryText = buildCallCompletionMessage(callSessionId);
 
     ctx.sendToClient({
-      type: 'assistant_text_delta',
+      type: "assistant_text_delta",
       text: summaryText,
       sessionId: conversationId,
     });
     ctx.sendToClient({
-      type: 'message_complete',
+      type: "message_complete",
       sessionId: conversationId,
     });
   });

@@ -2,20 +2,20 @@
  * Manages daemon-level authentication: session token lifecycle,
  * per-socket auth state, and auth timeouts.
  */
-import { randomBytes } from 'node:crypto';
-import { chmodSync,readFileSync, writeFileSync } from 'node:fs';
-import * as net from 'node:net';
+import { randomBytes } from "node:crypto";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import * as net from "node:net";
 
-import { getLogger } from '../util/logger.js';
-import { getSessionTokenPath } from '../util/platform.js';
-import { hasNoAuthOverride } from './connection-policy.js';
+import { getLogger } from "../util/logger.js";
+import { getSessionTokenPath } from "../util/platform.js";
+import { hasNoAuthOverride } from "./connection-policy.js";
 
-const log = getLogger('auth-manager');
+const log = getLogger("auth-manager");
 
 export const AUTH_TIMEOUT_MS = 5_000;
 
 export class AuthManager {
-  private sessionToken = '';
+  private sessionToken = "";
   private authenticatedSockets = new Set<net.Socket>();
   private authTimeouts = new Map<net.Socket, ReturnType<typeof setTimeout>>();
 
@@ -24,18 +24,20 @@ export class AuthManager {
     const tokenPath = getSessionTokenPath();
     let existingToken: string | null = null;
     try {
-      const raw = readFileSync(tokenPath, 'utf-8').trim();
+      const raw = readFileSync(tokenPath, "utf-8").trim();
       if (raw.length >= 32) existingToken = raw;
-    } catch { /* file doesn't exist yet */ }
+    } catch {
+      /* file doesn't exist yet */
+    }
 
     if (existingToken) {
       this.sessionToken = existingToken;
-      log.info({ tokenPath }, 'Reusing existing session token');
+      log.info({ tokenPath }, "Reusing existing session token");
     } else {
-      this.sessionToken = randomBytes(32).toString('hex');
+      this.sessionToken = randomBytes(32).toString("hex");
       writeFileSync(tokenPath, this.sessionToken, { mode: 0o600 });
       chmodSync(tokenPath, 0o600);
-      log.info({ tokenPath }, 'New session token generated');
+      log.info({ tokenPath }, "New session token generated");
     }
   }
 
@@ -58,7 +60,7 @@ export class AuthManager {
       this.authenticatedSockets.add(socket);
       return true;
     }
-    log.warn('Client provided invalid auth token');
+    log.warn("Client provided invalid auth token");
     return false;
   }
 
@@ -66,7 +68,7 @@ export class AuthManager {
   startTimeout(socket: net.Socket, onTimeout: () => void): void {
     const timer = setTimeout(() => {
       if (!this.authenticatedSockets.has(socket)) {
-        log.warn('Client failed to authenticate within timeout, disconnecting');
+        log.warn("Client failed to authenticate within timeout, disconnecting");
         onTimeout();
       }
     }, AUTH_TIMEOUT_MS);

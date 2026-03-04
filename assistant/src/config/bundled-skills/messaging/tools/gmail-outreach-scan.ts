@@ -1,12 +1,21 @@
-import type { EmailMetadata } from '../../../../messaging/email-classifier.js';
-import { classifyOutreach, type OutreachClassification } from '../../../../messaging/outreach-classifier.js';
-import { batchGetMessages,listMessages } from '../../../../messaging/providers/gmail/client.js';
-import type { GmailMessage } from '../../../../messaging/providers/gmail/types.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { storeScanResult } from './scan-result-store.js';
-import { err,ok } from './shared.js';
+import type { EmailMetadata } from "../../../../messaging/email-classifier.js";
+import {
+  classifyOutreach,
+  type OutreachClassification,
+} from "../../../../messaging/outreach-classifier.js";
+import {
+  batchGetMessages,
+  listMessages,
+} from "../../../../messaging/providers/gmail/client.js";
+import type { GmailMessage } from "../../../../messaging/providers/gmail/types.js";
+import { getMessagingProvider } from "../../../../messaging/registry.js";
+import { withValidToken } from "../../../../security/token-manager.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { storeScanResult } from "./scan-result-store.js";
+import { err, ok } from "./shared.js";
 
 const MAX_MESSAGES_CAP = 5000;
 const MAX_IDS_PER_SENDER = 5000;
@@ -30,10 +39,13 @@ interface OutreachSenderAggregation {
 function parseFrom(from: string): { displayName: string; email: string } {
   const match = from.match(/^(.+?)\s*<([^>]+)>$/);
   if (match) {
-    return { displayName: match[1].replace(/^["']|["']$/g, '').trim(), email: match[2].toLowerCase() };
+    return {
+      displayName: match[1].replace(/^["']|["']$/g, "").trim(),
+      email: match[2].toLowerCase(),
+    };
   }
   const bare = from.trim().toLowerCase();
-  return { displayName: '', email: bare };
+  return { displayName: "", email: bare };
 }
 
 function buildSuggestedActions(email: string, count: number): string[] {
@@ -42,9 +54,11 @@ function buildSuggestedActions(email: string, count: number): string[] {
     actions.push(`Create filter to auto-archive future emails from ${email}`);
   }
   if (count >= 3) {
-    const domain = email.split('@')[1];
+    const domain = email.split("@")[1];
     if (domain) {
-      actions.push(`Create filter to auto-archive future emails from @${domain}`);
+      actions.push(
+        `Create filter to auto-archive future emails from @${domain}`,
+      );
     }
   }
   return actions;
@@ -56,7 +70,7 @@ function mostCommon(items: string[]): string {
   for (const item of items) {
     counts.set(item, (counts.get(item) ?? 0) + 1);
   }
-  let best = items[0] ?? 'other';
+  let best = items[0] ?? "other";
   let bestCount = 0;
   for (const [item, count] of counts) {
     if (count > bestCount) {
@@ -67,17 +81,23 @@ function mostCommon(items: string[]): string {
   return best;
 }
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-  const maxMessages = Math.min((input.max_messages as number) ?? 2000, MAX_MESSAGES_CAP);
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const maxMessages = Math.min(
+    (input.max_messages as number) ?? 2000,
+    MAX_MESSAGES_CAP,
+  );
   const maxSenders = (input.max_senders as number) ?? 30;
-  const timeRange = (input.time_range as string) ?? '90d';
+  const timeRange = (input.time_range as string) ?? "90d";
   const minConfidence = (input.min_confidence as number) ?? 0.5;
   const inputPageToken = input.page_token as string | undefined;
 
   const query = `in:inbox -has:unsubscribe newer_than:${timeRange}`;
 
   try {
-    const provider = getMessagingProvider('gmail');
+    const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       // Pipeline: fire metadata fetches for each page of IDs as they arrive
       const allMessageIds: string[] = [];
@@ -85,7 +105,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       let pageToken: string | undefined = inputPageToken;
       let truncated = false;
       let timeBudgetExceeded = false;
-      const metadataHeaders = ['From', 'Subject', 'Date'];
+      const metadataHeaders = ["From", "Subject", "Date"];
       const startTime = Date.now();
       const TIME_BUDGET_MS = 90_000;
 
@@ -100,7 +120,15 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         const ids = (listResp.messages ?? []).map((m) => m.id);
         if (ids.length === 0) break;
         allMessageIds.push(...ids);
-        fetchPromises.push(batchGetMessages(token, ids, 'metadata', metadataHeaders, 'id,internalDate,payload/headers'));
+        fetchPromises.push(
+          batchGetMessages(
+            token,
+            ids,
+            "metadata",
+            metadataHeaders,
+            "id,internalDate,payload/headers",
+          ),
+        );
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
       }
@@ -110,7 +138,14 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       }
 
       if (allMessageIds.length === 0) {
-        return ok(JSON.stringify({ senders: [], total_scanned: 0, outreach_detected: 0, message: 'No emails found matching the query.' }));
+        return ok(
+          JSON.stringify({
+            senders: [],
+            total_scanned: 0,
+            outreach_detected: 0,
+            message: "No emails found matching the query.",
+          }),
+        );
       }
 
       const messages = (await Promise.all(fetchPromises)).flat();
@@ -118,9 +153,11 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       // Build EmailMetadata for the classifier
       const emailMetadata: EmailMetadata[] = messages.map((msg) => {
         const headers = msg.payload?.headers ?? [];
-        const from = headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
-        const subject = headers.find((h) => h.name.toLowerCase() === 'subject')?.value ?? '';
-        return { id: msg.id, from, subject, snippet: '', labels: [] };
+        const from =
+          headers.find((h) => h.name.toLowerCase() === "from")?.value ?? "";
+        const subject =
+          headers.find((h) => h.name.toLowerCase() === "subject")?.value ?? "";
+        return { id: msg.id, from, subject, snippet: "", labels: [] };
       });
 
       // Classify in batches
@@ -142,9 +179,12 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         if (!classification) continue;
 
         const headers = msg.payload?.headers ?? [];
-        const fromHeader = headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
-        const subject = headers.find((h) => h.name.toLowerCase() === 'subject')?.value ?? '';
-        const dateStr = headers.find((h) => h.name.toLowerCase() === 'date')?.value ?? '';
+        const fromHeader =
+          headers.find((h) => h.name.toLowerCase() === "from")?.value ?? "";
+        const subject =
+          headers.find((h) => h.name.toLowerCase() === "subject")?.value ?? "";
+        const dateStr =
+          headers.find((h) => h.name.toLowerCase() === "date")?.value ?? "";
 
         const { displayName, email } = parseFrom(fromHeader);
         if (!email) continue;
@@ -181,8 +221,12 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
 
         // Track date range
         const msgEpoch = msg.internalDate ? Number(msg.internalDate) : 0;
-        const oldestEpoch = agg.oldestDate ? new Date(agg.oldestDate).getTime() : Infinity;
-        const newestEpoch = agg.newestDate ? new Date(agg.newestDate).getTime() : 0;
+        const oldestEpoch = agg.oldestDate
+          ? new Date(agg.oldestDate).getTime()
+          : Infinity;
+        const newestEpoch = agg.newestDate
+          ? new Date(agg.newestDate).getTime()
+          : 0;
 
         if (msgEpoch > 0 && msgEpoch < oldestEpoch) {
           agg.oldestDate = dateStr || agg.oldestDate;
@@ -201,7 +245,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       const qualified = [...senderMap.values()]
         .map((s) => ({
           ...s,
-          avgConfidence: s.messageCount > 0 ? s.confidenceSum / s.messageCount : 0,
+          avgConfidence:
+            s.messageCount > 0 ? s.confidenceSum / s.messageCount : 0,
           outreachType: mostCommon(s.outreachTypes),
         }))
         .filter((s) => s.avgConfidence >= minConfidence)
@@ -211,8 +256,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       const sorted = qualified.slice(0, maxSenders);
 
       const senders = sorted.map((s) => ({
-        id: Buffer.from(s.email).toString('base64url'),
-        display_name: s.displayName || s.email.split('@')[0],
+        id: Buffer.from(s.email).toString("base64url"),
+        display_name: s.displayName || s.email.split("@")[0],
         email: s.email,
         message_count: s.messageCount,
         outreach_type: s.outreachType,
@@ -226,21 +271,25 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       }));
 
       // Store message IDs server-side to keep them out of LLM context
-      const scanId = storeScanResult(sorted.map((s) => ({
-        id: Buffer.from(s.email).toString('base64url'),
-        messageIds: s.messageIds,
-        newestMessageId: s.newestMessageId,
-        newestUnsubscribableMessageId: null,
-      })));
+      const scanId = storeScanResult(
+        sorted.map((s) => ({
+          id: Buffer.from(s.email).toString("base64url"),
+          messageIds: s.messageIds,
+          newestMessageId: s.newestMessageId,
+          newestUnsubscribableMessageId: null,
+        })),
+      );
 
-      return ok(JSON.stringify({
-        scan_id: scanId,
-        senders,
-        total_scanned: allMessageIds.length,
-        outreach_detected: totalOutreachDetected,
-        ...(truncated ? { truncated: true } : {}),
-        ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
-      }));
+      return ok(
+        JSON.stringify({
+          scan_id: scanId,
+          senders,
+          total_scanned: allMessageIds.length,
+          outreach_detected: totalOutreachDetected,
+          ...(truncated ? { truncated: true } : {}),
+          ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
+        }),
+      );
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));

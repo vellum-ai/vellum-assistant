@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, renameSync } from 'node:fs';
-import { dirname,join } from 'node:path';
+import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-import { getRootDir } from '../util/platform.js';
-import { migrationLog } from './log.js';
+import { getRootDir } from "../util/platform.js";
+import { migrationLog } from "./log.js";
 
 /**
  * Migrate files from the old flat ~/.vellum layout to the new structured
@@ -13,7 +13,7 @@ import { migrationLog } from './log.js';
  */
 export function migrateToDataLayout(): void {
   const root = getRootDir();
-  const data = join(root, 'data');
+  const data = join(root, "data");
 
   if (!existsSync(root)) return;
 
@@ -26,44 +26,57 @@ export function migrateToDataLayout(): void {
         mkdirSync(newDir, { recursive: true });
       }
       renameSync(oldPath, newPath);
-      migrationLog('info', 'Migrated path', { from: oldPath, to: newPath });
+      migrationLog("info", "Migrated path", { from: oldPath, to: newPath });
     } catch (err) {
-      migrationLog('warn', 'Failed to migrate path', { err: String(err), from: oldPath, to: newPath });
+      migrationLog("warn", "Failed to migrate path", {
+        err: String(err),
+        from: oldPath,
+        to: newPath,
+      });
     }
   }
 
   // DB: ~/.vellum/data/assistant.db → ~/.vellum/data/db/assistant.db
-  migrateItem(join(data, 'assistant.db'), join(data, 'db', 'assistant.db'));
-  migrateItem(join(data, 'assistant.db-wal'), join(data, 'db', 'assistant.db-wal'));
-  migrateItem(join(data, 'assistant.db-shm'), join(data, 'db', 'assistant.db-shm'));
+  migrateItem(join(data, "assistant.db"), join(data, "db", "assistant.db"));
+  migrateItem(
+    join(data, "assistant.db-wal"),
+    join(data, "db", "assistant.db-wal"),
+  );
+  migrateItem(
+    join(data, "assistant.db-shm"),
+    join(data, "db", "assistant.db-shm"),
+  );
 
   // Qdrant PID: ~/.vellum/qdrant.pid → ~/.vellum/data/qdrant/qdrant.pid
-  migrateItem(join(root, 'qdrant.pid'), join(data, 'qdrant', 'qdrant.pid'));
+  migrateItem(join(root, "qdrant.pid"), join(data, "qdrant", "qdrant.pid"));
 
   // Qdrant binary: ~/.vellum/bin/ → ~/.vellum/data/qdrant/bin/
-  migrateItem(join(root, 'bin'), join(data, 'qdrant', 'bin'));
+  migrateItem(join(root, "bin"), join(data, "qdrant", "bin"));
 
   // Logs: ~/.vellum/logs/ → ~/.vellum/data/logs/
-  migrateItem(join(root, 'logs'), join(data, 'logs'));
+  migrateItem(join(root, "logs"), join(data, "logs"));
 
   // Memory: ~/.vellum/memory/ → ~/.vellum/data/memory/
-  migrateItem(join(root, 'memory'), join(data, 'memory'));
+  migrateItem(join(root, "memory"), join(data, "memory"));
 
   // Apps: ~/.vellum/apps/ → ~/.vellum/data/apps/
-  migrateItem(join(root, 'apps'), join(data, 'apps'));
+  migrateItem(join(root, "apps"), join(data, "apps"));
 
   // Browser auth: ~/.vellum/browser-auth/ → ~/.vellum/data/browser-auth/
-  migrateItem(join(root, 'browser-auth'), join(data, 'browser-auth'));
+  migrateItem(join(root, "browser-auth"), join(data, "browser-auth"));
 
   // Browser profile: ~/.vellum/browser-profile/ → ~/.vellum/data/browser-profile/
-  migrateItem(join(root, 'browser-profile'), join(data, 'browser-profile'));
+  migrateItem(join(root, "browser-profile"), join(data, "browser-profile"));
 
   // History: ~/.vellum/history → ~/.vellum/data/history
-  migrateItem(join(root, 'history'), join(data, 'history'));
+  migrateItem(join(root, "history"), join(data, "history"));
 
   // Protected files: ~/.vellum/X → ~/.vellum/protected/X
-  const protectedDir = join(root, 'protected');
-  migrateItem(join(root, 'trust.json'), join(protectedDir, 'trust.json'));
-  migrateItem(join(root, 'keys.enc'), join(protectedDir, 'keys.enc'));
-  migrateItem(join(root, 'secret-allowlist.json'), join(protectedDir, 'secret-allowlist.json'));
+  const protectedDir = join(root, "protected");
+  migrateItem(join(root, "trust.json"), join(protectedDir, "trust.json"));
+  migrateItem(join(root, "keys.enc"), join(protectedDir, "keys.enc"));
+  migrateItem(
+    join(root, "secret-allowlist.json"),
+    join(protectedDir, "secret-allowlist.json"),
+  );
 }

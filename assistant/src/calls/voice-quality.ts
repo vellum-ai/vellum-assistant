@@ -1,4 +1,4 @@
-import { loadConfig } from '../config/loader.js';
+import { loadConfig } from "../config/loader.js";
 
 export interface VoiceQualityProfile {
   language: string;
@@ -28,7 +28,7 @@ export function buildElevenLabsVoiceSpec(config: {
   similarityBoost?: number;
 }): string {
   const voiceId = config.voiceId?.trim();
-  if (!voiceId) return '';
+  if (!voiceId) return "";
 
   const voiceModelId = config.voiceModelId?.trim();
   if (!voiceModelId) return voiceId;
@@ -46,13 +46,15 @@ export function buildElevenLabsVoiceSpec(config: {
  * The voice ID comes from the shared `elevenlabs.voiceId` config
  * (defaults to Rachel — 21m00Tcm4TlvDq8ikWAM).
  */
-export function resolveVoiceQualityProfile(config?: ReturnType<typeof loadConfig>): VoiceQualityProfile {
+export function resolveVoiceQualityProfile(
+  config?: ReturnType<typeof loadConfig>,
+): VoiceQualityProfile {
   const cfg = config ?? loadConfig();
   const voice = cfg.calls.voice;
   return {
     language: voice.language,
     transcriptionProvider: voice.transcriptionProvider,
-    ttsProvider: 'ElevenLabs',
+    ttsProvider: "ElevenLabs",
     voice: buildElevenLabsVoiceSpec(cfg.elevenlabs),
   };
 }

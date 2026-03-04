@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * One-shot migration: rebuild llm_usage_events to drop the assistant_id column.
@@ -10,30 +10,36 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
  *
  * Safe on fresh installs (DDL guard exits early) and idempotent via checkpoint.
  */
-export function migrateLlmUsageEventsDropAssistantId(database: DrizzleDb): void {
+export function migrateLlmUsageEventsDropAssistantId(
+  database: DrizzleDb,
+): void {
   const raw = getSqliteFrom(database);
-  const checkpointKey = 'migration_remove_assistant_id_lue_v1';
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey);
+  const checkpointKey = "migration_remove_assistant_id_lue_v1";
+  const checkpoint = raw
+    .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey);
   if (checkpoint) return;
 
   // DDL guard: if the column was already removed (fresh install or migrateRemoveAssistantIdColumns
   // ran with the llm_usage_events block), just record the checkpoint and exit.
-  const lueDdl = raw.query(
-    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'llm_usage_events'`,
-  ).get() as { sql: string } | null;
+  const lueDdl = raw
+    .query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'llm_usage_events'`,
+    )
+    .get() as { sql: string } | null;
 
-  if (!lueDdl?.sql.includes('assistant_id')) {
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+  if (!lueDdl?.sql.includes("assistant_id")) {
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
     return;
   }
 
-  raw.exec('PRAGMA foreign_keys = OFF');
+  raw.exec("PRAGMA foreign_keys = OFF");
   try {
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
 
     raw.exec(/*sql*/ `
       CREATE TABLE llm_usage_events_new (
@@ -67,17 +73,25 @@ export function migrateLlmUsageEventsDropAssistantId(database: DrizzleDb): void 
       FROM llm_usage_events
     `);
     raw.exec(/*sql*/ `DROP TABLE llm_usage_events`);
-    raw.exec(/*sql*/ `ALTER TABLE llm_usage_events_new RENAME TO llm_usage_events`);
+    raw.exec(
+      /*sql*/ `ALTER TABLE llm_usage_events_new RENAME TO llm_usage_events`,
+    );
 
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
 
-    raw.exec('COMMIT');
+    raw.exec("COMMIT");
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   } finally {
-    raw.exec('PRAGMA foreign_keys = ON');
+    raw.exec("PRAGMA foreign_keys = ON");
   }
 }

@@ -1,18 +1,34 @@
-import { existsSync, readdirSync, readFileSync,rmSync } from 'node:fs';
-import * as net from 'node:net';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import * as net from "node:net";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { packageApp } from '../../bundler/app-bundler.js';
-import { defaultGallery } from '../../gallery/default-gallery.js';
-import { resolveHomeBaseAppId } from '../../home-base/bootstrap.js';
-import { isPrebuiltHomeBaseApp } from '../../home-base/prebuilt-home-base-updater.js';
-import { getAppDiff, getAppFileAtVersion, getAppHistory, restoreAppVersion } from '../../memory/app-git-service.js';
-import { createApp, createAppRecord, deleteApp, deleteAppRecord, getApp, getAppPreview, listApps, queryAppRecords, updateApp,updateAppRecord } from '../../memory/app-store.js';
-import { createSharedAppLink } from '../../memory/shared-app-links-store.js';
-import { computeContentId } from '../../util/content-id.js';
+import { packageApp } from "../../bundler/app-bundler.js";
+import { defaultGallery } from "../../gallery/default-gallery.js";
+import { resolveHomeBaseAppId } from "../../home-base/bootstrap.js";
+import { isPrebuiltHomeBaseApp } from "../../home-base/prebuilt-home-base-updater.js";
+import {
+  getAppDiff,
+  getAppFileAtVersion,
+  getAppHistory,
+  restoreAppVersion,
+} from "../../memory/app-git-service.js";
+import {
+  createApp,
+  createAppRecord,
+  deleteApp,
+  deleteAppRecord,
+  getApp,
+  getAppPreview,
+  listApps,
+  queryAppRecords,
+  updateApp,
+  updateAppRecord,
+} from "../../memory/app-store.js";
+import { createSharedAppLink } from "../../memory/shared-app-links-store.js";
+import { computeContentId } from "../../util/content-id.js";
 import type {
   AppDataRequest,
   AppDeleteRequest,
@@ -27,8 +43,14 @@ import type {
   ShareAppCloudRequest,
   SharedAppDeleteRequest,
   UiSurfaceShow,
-} from '../ipc-protocol.js';
-import { compareSemver, createSigningCallback, defineHandlers, type HandlerContext,log } from './shared.js';
+} from "../ipc-protocol.js";
+import {
+  compareSemver,
+  createSigningCallback,
+  defineHandlers,
+  type HandlerContext,
+  log,
+} from "./shared.js";
 
 export function handleAppDataRequest(
   msg: AppDataRequest,
@@ -39,20 +61,20 @@ export function handleAppDataRequest(
   try {
     let result: unknown = null;
     switch (method) {
-      case 'query':
+      case "query":
         result = queryAppRecords(appId);
         break;
-      case 'create':
-        if (!data) throw new Error('data is required for create');
+      case "create":
+        if (!data) throw new Error("data is required for create");
         result = createAppRecord(appId, data);
         break;
-      case 'update':
-        if (!recordId) throw new Error('recordId is required for update');
-        if (!data) throw new Error('data is required for update');
+      case "update":
+        if (!recordId) throw new Error("recordId is required for update");
+        if (!data) throw new Error("data is required for update");
         result = updateAppRecord(appId, recordId, data);
         break;
-      case 'delete':
-        if (!recordId) throw new Error('recordId is required for delete');
+      case "delete":
+        if (!recordId) throw new Error("recordId is required for delete");
         deleteAppRecord(appId, recordId);
         result = null;
         break;
@@ -60,7 +82,7 @@ export function handleAppDataRequest(
         throw new Error(`Unknown app data method: ${method}`);
     }
     ctx.send(socket, {
-      type: 'app_data_response',
+      type: "app_data_response",
       surfaceId,
       callId,
       success: true,
@@ -68,9 +90,12 @@ export function handleAppDataRequest(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, method, appId, recordId }, 'Error handling app_data_request');
+    log.error(
+      { err, method, appId, recordId },
+      "Error handling app_data_request",
+    );
     ctx.send(socket, {
-      type: 'app_data_response',
+      type: "app_data_response",
       surfaceId,
       callId,
       success: false,
@@ -79,11 +104,18 @@ export function handleAppDataRequest(
   }
 }
 
-export function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket, ctx: HandlerContext): void {
+export function handleAppOpenRequest(
+  msg: { appId: string },
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
   try {
     const appId = msg.appId;
     if (!appId) {
-      ctx.send(socket, { type: 'error', message: 'app_open_request requires appId' });
+      ctx.send(socket, {
+        type: "error",
+        message: "app_open_request requires appId",
+      });
       return;
     }
 
@@ -91,13 +123,13 @@ export function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket,
     if (app) {
       const surfaceId = `app-open-${uuid()}`;
       ctx.send(socket, {
-        type: 'ui_surface_show',
-        sessionId: 'app-panel',
+        type: "ui_surface_show",
+        sessionId: "app-panel",
         surfaceId,
-        surfaceType: 'dynamic_page',
+        surfaceType: "dynamic_page",
         title: app.name,
         data: { html: app.htmlDefinition, appId: app.id, appType: app.appType },
-        display: 'panel',
+        display: "panel",
       } as UiSurfaceShow);
       return;
     }
@@ -106,38 +138,54 @@ export function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket,
     // (not a persistent app). Search active sessions for cached surface data.
     for (const session of ctx.sessions.values()) {
       const cached = session.surfaceState.get(appId);
-      if (cached && cached.surfaceType === 'dynamic_page') {
+      if (cached && cached.surfaceType === "dynamic_page") {
         const newSurfaceId = `app-open-${uuid()}`;
         ctx.send(socket, {
-          type: 'ui_surface_show',
-          sessionId: 'app-panel',
+          type: "ui_surface_show",
+          sessionId: "app-panel",
           surfaceId: newSurfaceId,
-          surfaceType: 'dynamic_page',
-          title: cached.title ?? (cached.data as { preview?: { title?: string } }).preview?.title,
+          surfaceType: "dynamic_page",
+          title:
+            cached.title ??
+            (cached.data as { preview?: { title?: string } }).preview?.title,
           data: cached.data,
-          display: 'panel',
+          display: "panel",
         } as UiSurfaceShow);
         return;
       }
     }
 
-    log.warn({ appId }, 'App not found in store or session surfaces');
-    ctx.send(socket, { type: 'error', message: `App not found: ${appId}` });
+    log.warn({ appId }, "App not found in store or session surfaces");
+    ctx.send(socket, { type: "error", message: `App not found: ${appId}` });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, appId: msg.appId }, 'Failed to handle app open request');
-    ctx.send(socket, { type: 'error', message: `Failed to open app: ${message}` });
+    log.error({ err, appId: msg.appId }, "Failed to handle app open request");
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to open app: ${message}`,
+    });
   }
 }
 
-export function handleAppUpdatePreview(msg: AppUpdatePreviewRequest, socket: net.Socket, ctx: HandlerContext): void {
+export function handleAppUpdatePreview(
+  msg: AppUpdatePreviewRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
   try {
     updateApp(msg.appId, { preview: msg.preview });
-    ctx.send(socket, { type: 'app_update_preview_response', success: true, appId: msg.appId });
+    ctx.send(socket, {
+      type: "app_update_preview_response",
+      success: true,
+      appId: msg.appId,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Failed to update app preview');
-    ctx.send(socket, { type: 'error', message: `Failed to update app preview: ${message}` });
+    log.error({ err }, "Failed to update app preview");
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to update app preview: ${message}`,
+    });
   }
 }
 
@@ -173,9 +221,9 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
       return true;
     });
     ctx.send(socket, {
-      type: 'apps_list_response',
+      type: "apps_list_response",
       apps: apps.map((a) => {
-        const version = a.version ?? '1.0.0';
+        const version = a.version ?? "1.0.0";
         const contentId = computeContentId(a.name);
         return {
           id: a.id,
@@ -191,8 +239,11 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Failed to list apps');
-    ctx.send(socket, { type: 'error', message: `Failed to list apps: ${message}` });
+    log.error({ err }, "Failed to list apps");
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to list apps: ${message}`,
+    });
   }
 }
 
@@ -204,14 +255,17 @@ export function handleAppPreview(
   try {
     const preview = getAppPreview(msg.appId);
     ctx.send(socket, {
-      type: 'app_preview_response',
+      type: "app_preview_response",
       appId: msg.appId,
       preview: preview ?? undefined,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, appId: msg.appId }, 'Failed to get app preview');
-    ctx.send(socket, { type: 'error', message: `Failed to get app preview: ${message}` });
+    log.error({ err, appId: msg.appId }, "Failed to get app preview");
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to get app preview: ${message}`,
+    });
   }
 }
 
@@ -222,26 +276,35 @@ export function handleAppDelete(
 ): void {
   try {
     deleteApp(msg.appId);
-    ctx.send(socket, { type: 'app_delete_response', success: true });
+    ctx.send(socket, { type: "app_delete_response", success: true });
   } catch (err) {
-    log.error({ err, appId: msg.appId }, 'Failed to delete app');
-    ctx.send(socket, { type: 'app_delete_response', success: false });
+    log.error({ err, appId: msg.appId }, "Failed to delete app");
+    ctx.send(socket, { type: "app_delete_response", success: false });
   }
 }
 
 function getSharedAppsDir(): string {
-  return join(homedir(), 'Library', 'Application Support', 'vellum-assistant', 'shared-apps');
+  return join(
+    homedir(),
+    "Library",
+    "Application Support",
+    "vellum-assistant",
+    "shared-apps",
+  );
 }
 
-export function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): void {
+export function handleSharedAppsList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
   try {
     const dir = getSharedAppsDir();
     if (!existsSync(dir)) {
-      ctx.send(socket, { type: 'shared_apps_list_response', apps: [] });
+      ctx.send(socket, { type: "shared_apps_list_response", apps: [] });
       return;
     }
 
-    const files = readdirSync(dir).filter((f) => f.endsWith('-meta.json'));
+    const files = readdirSync(dir).filter((f) => f.endsWith("-meta.json"));
     const apps: Array<{
       uuid: string;
       name: string;
@@ -260,16 +323,16 @@ export function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): v
 
     for (const file of files) {
       try {
-        const raw = readFileSync(join(dir, file), 'utf-8');
+        const raw = readFileSync(join(dir, file), "utf-8");
         const meta = JSON.parse(raw);
 
         // Try to read version and content_id from the manifest.json inside the app dir
         let version: string | undefined;
         let contentId: string | undefined;
-        const manifestPath = join(dir, meta.uuid, 'manifest.json');
+        const manifestPath = join(dir, meta.uuid, "manifest.json");
         if (existsSync(manifestPath)) {
           try {
-            const manifestRaw = readFileSync(manifestPath, 'utf-8');
+            const manifestRaw = readFileSync(manifestPath, "utf-8");
             const manifest = JSON.parse(manifestRaw);
             version = manifest.version;
             contentId = manifest.content_id;
@@ -294,7 +357,7 @@ export function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): v
           forked: meta.forked,
         });
       } catch {
-        log.warn({ file }, 'Failed to read shared app metadata file');
+        log.warn({ file }, "Failed to read shared app metadata file");
       }
     }
 
@@ -331,11 +394,14 @@ export function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): v
       return { ...rest, updateAvailable: updateAvailable || undefined };
     });
 
-    ctx.send(socket, { type: 'shared_apps_list_response', apps: result });
+    ctx.send(socket, { type: "shared_apps_list_response", apps: result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Failed to list shared apps');
-    ctx.send(socket, { type: 'error', message: `Failed to list shared apps: ${message}` });
+    log.error({ err }, "Failed to list shared apps");
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to list shared apps: ${message}`,
+    });
   }
 }
 
@@ -347,8 +413,8 @@ export function handleSharedAppDelete(
   try {
     const uuid = msg.uuid;
     // Validate UUID to prevent path traversal
-    if (uuid.includes('/') || uuid.includes('\\') || uuid.includes('..')) {
-      ctx.send(socket, { type: 'shared_app_delete_response', success: false });
+    if (uuid.includes("/") || uuid.includes("\\") || uuid.includes("..")) {
+      ctx.send(socket, { type: "shared_app_delete_response", success: false });
       return;
     }
 
@@ -363,10 +429,10 @@ export function handleSharedAppDelete(
       rmSync(metaFile);
     }
 
-    ctx.send(socket, { type: 'shared_app_delete_response', success: true });
+    ctx.send(socket, { type: "shared_app_delete_response", success: true });
   } catch (err) {
-    log.error({ err }, 'Failed to delete shared app');
-    ctx.send(socket, { type: 'shared_app_delete_response', success: false });
+    log.error({ err }, "Failed to delete shared app");
+    ctx.send(socket, { type: "shared_app_delete_response", success: false });
   }
 }
 
@@ -378,8 +444,17 @@ export function handleForkSharedApp(
   try {
     const appUuid = msg.uuid;
     // Validate UUID to prevent path traversal
-    if (appUuid.includes('/') || appUuid.includes('\\') || appUuid.includes('..') || /\s/.test(appUuid)) {
-      ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: 'Invalid UUID' });
+    if (
+      appUuid.includes("/") ||
+      appUuid.includes("\\") ||
+      appUuid.includes("..") ||
+      /\s/.test(appUuid)
+    ) {
+      ctx.send(socket, {
+        type: "fork_shared_app_response",
+        success: false,
+        error: "Invalid UUID",
+      });
       return;
     }
 
@@ -387,44 +462,56 @@ export function handleForkSharedApp(
     const metaFile = join(dir, `${appUuid}-meta.json`);
 
     if (!existsSync(metaFile)) {
-      ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: 'Shared app not found' });
+      ctx.send(socket, {
+        type: "fork_shared_app_response",
+        success: false,
+        error: "Shared app not found",
+      });
       return;
     }
 
-    const metaRaw = readFileSync(metaFile, 'utf-8');
+    const metaRaw = readFileSync(metaFile, "utf-8");
     const meta = JSON.parse(metaRaw);
-    const appName = meta.name ?? 'Untitled';
+    const appName = meta.name ?? "Untitled";
     const appDescription = meta.description;
 
     // Read the HTML from the shared app's entry file
-    const entry = meta.entry ?? 'index.html';
+    const entry = meta.entry ?? "index.html";
     const htmlPath = join(dir, appUuid, entry);
 
     if (!existsSync(htmlPath)) {
-      ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: 'Shared app HTML not found' });
+      ctx.send(socket, {
+        type: "fork_shared_app_response",
+        success: false,
+        error: "Shared app HTML not found",
+      });
       return;
     }
 
-    const htmlContent = readFileSync(htmlPath, 'utf-8');
+    const htmlContent = readFileSync(htmlPath, "utf-8");
 
     // Create a new local app via the app store
     const newApp = createApp({
       name: `${appName} (Fork)`,
       description: appDescription,
-      schemaJson: JSON.stringify({ type: 'object', properties: {} }),
+      schemaJson: JSON.stringify({ type: "object", properties: {} }),
       htmlDefinition: htmlContent,
     });
 
     ctx.send(socket, {
-      type: 'fork_shared_app_response',
+      type: "fork_shared_app_response",
       success: true,
       appId: newApp.id,
       name: newApp.name,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Failed to fork shared app');
-    ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: message });
+    log.error({ err }, "Failed to fork shared app");
+    ctx.send(socket, {
+      type: "fork_shared_app_response",
+      success: false,
+      error: message,
+    });
   }
 }
 
@@ -434,23 +521,26 @@ export async function handleShareAppCloud(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const result = await packageApp(msg.appId, createSigningCallback(socket, ctx));
+    const result = await packageApp(
+      msg.appId,
+      createSigningCallback(socket, ctx),
+    );
     const bundleData = readFileSync(result.bundlePath);
     const { shareToken } = createSharedAppLink(bundleData, result.manifest);
 
     const shareUrl = `/v1/apps/shared/${shareToken}`;
 
     ctx.send(socket, {
-      type: 'share_app_cloud_response',
+      type: "share_app_cloud_response",
       success: true,
       shareToken,
       shareUrl,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, appId: msg.appId }, 'Failed to share app to cloud');
+    log.error({ err, appId: msg.appId }, "Failed to share app to cloud");
     ctx.send(socket, {
-      type: 'share_app_cloud_response',
+      type: "share_app_cloud_response",
       success: false,
       error: message,
     });
@@ -463,21 +553,30 @@ export async function handleBundleApp(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const result = await packageApp(msg.appId, createSigningCallback(socket, ctx));
+    const result = await packageApp(
+      msg.appId,
+      createSigningCallback(socket, ctx),
+    );
     ctx.send(socket, {
-      type: 'bundle_app_response',
+      type: "bundle_app_response",
       bundlePath: result.bundlePath,
       manifest: result.manifest,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, appId: msg.appId }, 'Failed to bundle app');
-    ctx.send(socket, { type: 'error', message: `Failed to bundle app: ${message}` });
+    log.error({ err, appId: msg.appId }, "Failed to bundle app");
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to bundle app: ${message}`,
+    });
   }
 }
 
-export function handleGalleryList(socket: net.Socket, ctx: HandlerContext): void {
-  ctx.send(socket, { type: 'gallery_list_response', gallery: defaultGallery });
+export function handleGalleryList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  ctx.send(socket, { type: "gallery_list_response", gallery: defaultGallery });
 }
 
 export function handleGalleryInstall(
@@ -486,10 +585,12 @@ export function handleGalleryInstall(
   ctx: HandlerContext,
 ): void {
   try {
-    const galleryApp = defaultGallery.apps.find((a) => a.id === msg.galleryAppId);
+    const galleryApp = defaultGallery.apps.find(
+      (a) => a.id === msg.galleryAppId,
+    );
     if (!galleryApp) {
       ctx.send(socket, {
-        type: 'gallery_install_response',
+        type: "gallery_install_response",
         success: false,
         error: `Gallery app not found: ${msg.galleryAppId}`,
       });
@@ -504,16 +605,19 @@ export function handleGalleryInstall(
     });
 
     ctx.send(socket, {
-      type: 'gallery_install_response',
+      type: "gallery_install_response",
       success: true,
       appId: app.id,
       name: app.name,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, galleryAppId: msg.galleryAppId }, 'Failed to install gallery app');
+    log.error(
+      { err, galleryAppId: msg.galleryAppId },
+      "Failed to install gallery app",
+    );
     ctx.send(socket, {
-      type: 'gallery_install_response',
+      type: "gallery_install_response",
       success: false,
       error: message,
     });
@@ -527,11 +631,18 @@ export async function handleAppHistory(
 ): Promise<void> {
   try {
     const versions = await getAppHistory(msg.appId, msg.limit);
-    ctx.send(socket, { type: 'app_history_response', appId: msg.appId, versions });
+    ctx.send(socket, {
+      type: "app_history_response",
+      appId: msg.appId,
+      versions,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, appId: msg.appId }, 'Failed to get app history');
-    ctx.send(socket, { type: 'error', message: `Failed to get app history: ${message}` });
+    log.error({ err, appId: msg.appId }, "Failed to get app history");
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to get app history: ${message}`,
+    });
   }
 }
 
@@ -542,11 +653,14 @@ export async function handleAppDiff(
 ): Promise<void> {
   try {
     const diff = await getAppDiff(msg.appId, msg.fromCommit, msg.toCommit);
-    ctx.send(socket, { type: 'app_diff_response', appId: msg.appId, diff });
+    ctx.send(socket, { type: "app_diff_response", appId: msg.appId, diff });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, appId: msg.appId }, 'Failed to get app diff');
-    ctx.send(socket, { type: 'error', message: `Failed to get app diff: ${message}` });
+    log.error({ err, appId: msg.appId }, "Failed to get app diff");
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to get app diff: ${message}`,
+    });
   }
 }
 
@@ -556,12 +670,24 @@ export async function handleAppFileAtVersion(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const content = await getAppFileAtVersion(msg.appId, msg.path, msg.commitHash);
-    ctx.send(socket, { type: 'app_file_at_version_response', appId: msg.appId, path: msg.path, content });
+    const content = await getAppFileAtVersion(
+      msg.appId,
+      msg.path,
+      msg.commitHash,
+    );
+    ctx.send(socket, {
+      type: "app_file_at_version_response",
+      appId: msg.appId,
+      path: msg.path,
+      content,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, appId: msg.appId }, 'Failed to get app file at version');
-    ctx.send(socket, { type: 'error', message: `Failed to get app file at version: ${message}` });
+    log.error({ err, appId: msg.appId }, "Failed to get app file at version");
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to get app file at version: ${message}`,
+    });
   }
 }
 
@@ -572,11 +698,15 @@ export async function handleAppRestore(
 ): Promise<void> {
   try {
     await restoreAppVersion(msg.appId, msg.commitHash);
-    ctx.send(socket, { type: 'app_restore_response', success: true });
+    ctx.send(socket, { type: "app_restore_response", success: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, appId: msg.appId }, 'Failed to restore app version');
-    ctx.send(socket, { type: 'app_restore_response', success: false, error: message });
+    log.error({ err, appId: msg.appId }, "Failed to restore app version");
+    ctx.send(socket, {
+      type: "app_restore_response",
+      success: false,
+      error: message,
+    });
   }
 }
 

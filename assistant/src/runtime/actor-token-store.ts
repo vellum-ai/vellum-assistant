@@ -8,20 +8,20 @@
  * Uses the assistant SQLite database via drizzle-orm.
  */
 
-import { and, eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb } from '../memory/db.js';
-import { actorTokenRecords } from '../memory/schema.js';
-import { getLogger } from '../util/logger.js';
+import { getDb } from "../memory/db.js";
+import { actorTokenRecords } from "../memory/schema.js";
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('actor-token-store');
+const log = getLogger("actor-token-store");
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ActorTokenStatus = 'active' | 'revoked';
+export type ActorTokenStatus = "active" | "revoked";
 
 export interface ActorTokenRecord {
   id: string;
@@ -64,7 +64,7 @@ export function createActorTokenRecord(params: {
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
-    status: 'active' as const,
+    status: "active" as const,
     issuedAt: params.issuedAt,
     expiresAt: params.expiresAt ?? null,
     createdAt: now,
@@ -72,7 +72,10 @@ export function createActorTokenRecord(params: {
   };
 
   db.insert(actorTokenRecords).values(row).run();
-  log.info({ id, assistantId: params.assistantId, platform: params.platform }, 'Actor token record created');
+  log.info(
+    { id, assistantId: params.assistantId, platform: params.platform },
+    "Actor token record created",
+  );
 
   return row;
 }
@@ -80,7 +83,9 @@ export function createActorTokenRecord(params: {
 /**
  * Look up an active actor token record by its hash.
  */
-export function findActiveByTokenHash(tokenHash: string): ActorTokenRecord | null {
+export function findActiveByTokenHash(
+  tokenHash: string,
+): ActorTokenRecord | null {
   const db = getDb();
   const row = db
     .select()
@@ -88,7 +93,7 @@ export function findActiveByTokenHash(tokenHash: string): ActorTokenRecord | nul
     .where(
       and(
         eq(actorTokenRecords.tokenHash, tokenHash),
-        eq(actorTokenRecords.status, 'active'),
+        eq(actorTokenRecords.status, "active"),
       ),
     )
     .get();
@@ -115,7 +120,7 @@ export function findActiveByDeviceBinding(
         eq(actorTokenRecords.assistantId, assistantId),
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
-        eq(actorTokenRecords.status, 'active'),
+        eq(actorTokenRecords.status, "active"),
       ),
     )
     .get();
@@ -139,7 +144,7 @@ export function revokeByDeviceBinding(
     eq(actorTokenRecords.assistantId, assistantId),
     eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
     eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
-    eq(actorTokenRecords.status, 'active'),
+    eq(actorTokenRecords.status, "active"),
   );
 
   // Count matching rows before the update since drizzle's bun-sqlite
@@ -153,7 +158,7 @@ export function revokeByDeviceBinding(
   if (matching.length === 0) return 0;
 
   db.update(actorTokenRecords)
-    .set({ status: 'revoked', updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(condition)
     .run();
 
@@ -177,7 +182,7 @@ export function findActiveByGuardianPrincipalId(
       and(
         eq(actorTokenRecords.assistantId, assistantId),
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
-        eq(actorTokenRecords.status, 'active'),
+        eq(actorTokenRecords.status, "active"),
       ),
     )
     .all();
@@ -194,7 +199,7 @@ export function revokeByTokenHash(tokenHash: string): boolean {
 
   const condition = and(
     eq(actorTokenRecords.tokenHash, tokenHash),
-    eq(actorTokenRecords.status, 'active'),
+    eq(actorTokenRecords.status, "active"),
   );
 
   // Check existence before update since drizzle's bun-sqlite .run()
@@ -208,7 +213,7 @@ export function revokeByTokenHash(tokenHash: string): boolean {
   if (!existing) return false;
 
   db.update(actorTokenRecords)
-    .set({ status: 'revoked', updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(condition)
     .run();
 
@@ -219,7 +224,9 @@ export function revokeByTokenHash(tokenHash: string): boolean {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToRecord(row: typeof actorTokenRecords.$inferSelect): ActorTokenRecord {
+function rowToRecord(
+  row: typeof actorTokenRecords.$inferSelect,
+): ActorTokenRecord {
   return {
     id: row.id,
     tokenHash: row.tokenHash,

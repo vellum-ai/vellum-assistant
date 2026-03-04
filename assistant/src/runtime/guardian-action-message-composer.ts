@@ -8,39 +8,39 @@
  *
  * Follows the same pattern as approval-message-composer.ts.
  */
-import { getLogger } from '../util/logger.js';
-import type { GuardianActionCopyGenerator } from './http-types.js';
+import { getLogger } from "../util/logger.js";
+import type { GuardianActionCopyGenerator } from "./http-types.js";
 
-const log = getLogger('guardian-action-message-composer');
+const log = getLogger("guardian-action-message-composer");
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type GuardianActionMessageScenario =
-  | 'caller_timeout_acknowledgment'
-  | 'caller_timeout_continue'
-  | 'guardian_late_answer_followup'
-  | 'guardian_followup_dispatching'
-  | 'guardian_followup_completed'
-  | 'guardian_followup_failed'
-  | 'guardian_followup_declined_ack'
-  | 'guardian_followup_clarification'
-  | 'guardian_pending_disambiguation'
-  | 'guardian_expired_disambiguation'
-  | 'guardian_followup_disambiguation'
-  | 'guardian_stale_answered'
-  | 'guardian_stale_expired'
-  | 'guardian_stale_followup'
-  | 'guardian_stale_superseded'
-  | 'guardian_superseded_remap'
-  | 'guardian_unknown_code'
-  | 'guardian_auto_matched'
-  | 'outbound_message_copy'
-  | 'followup_message_sent'
-  | 'followup_call_started'
-  | 'followup_action_failed'
-  | 'guardian_answer_delivery_failed';
+  | "caller_timeout_acknowledgment"
+  | "caller_timeout_continue"
+  | "guardian_late_answer_followup"
+  | "guardian_followup_dispatching"
+  | "guardian_followup_completed"
+  | "guardian_followup_failed"
+  | "guardian_followup_declined_ack"
+  | "guardian_followup_clarification"
+  | "guardian_pending_disambiguation"
+  | "guardian_expired_disambiguation"
+  | "guardian_followup_disambiguation"
+  | "guardian_stale_answered"
+  | "guardian_stale_expired"
+  | "guardian_stale_followup"
+  | "guardian_stale_superseded"
+  | "guardian_superseded_remap"
+  | "guardian_unknown_code"
+  | "guardian_auto_matched"
+  | "outbound_message_copy"
+  | "followup_message_sent"
+  | "followup_call_started"
+  | "followup_action_failed"
+  | "guardian_answer_delivery_failed";
 
 export interface GuardianActionMessageContext {
   scenario: GuardianActionMessageScenario;
@@ -73,11 +73,11 @@ export interface ComposeGuardianActionMessageOptions {
 export const GUARDIAN_ACTION_COPY_TIMEOUT_MS = 4_000;
 export const GUARDIAN_ACTION_COPY_MAX_TOKENS = 200;
 export const GUARDIAN_ACTION_COPY_SYSTEM_PROMPT =
-  'You are an assistant writing one user-facing message about a guardian action in a voice call scenario. '
-  + 'Keep it concise, natural, and conversational. Preserve factual details exactly. '
-  + 'These messages are spoken aloud or sent as SMS, so use a warm, human tone. '
-  + 'Do not mention internal systems, scenario IDs, or technical details. '
-  + 'Return plain text only.';
+  "You are an assistant writing one user-facing message about a guardian action in a voice call scenario. " +
+  "Keep it concise, natural, and conversational. Preserve factual details exactly. " +
+  "These messages are spoken aloud or sent as SMS, so use a warm, human tone. " +
+  "Do not mention internal systems, scenario IDs, or technical details. " +
+  "Return plain text only.";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -96,9 +96,10 @@ export async function composeGuardianActionMessageGenerative(
   options: ComposeGuardianActionMessageOptions = {},
   generator?: GuardianActionCopyGenerator,
 ): Promise<string> {
-  const fallbackText = options.fallbackText?.trim() || getGuardianActionFallbackMessage(context);
+  const fallbackText =
+    options.fallbackText?.trim() || getGuardianActionFallbackMessage(context);
 
-  if (process.env.NODE_ENV === 'test') {
+  if (process.env.NODE_ENV === "test") {
     return fallbackText;
   }
 
@@ -107,7 +108,10 @@ export async function composeGuardianActionMessageGenerative(
       const generated = await generator(context, options);
       if (generated) return generated;
     } catch (err) {
-      log.warn({ err, scenario: context.scenario }, 'Failed to generate guardian action copy, using fallback');
+      log.warn(
+        { err, scenario: context.scenario },
+        "Failed to generate guardian action copy, using fallback",
+      );
     }
   }
 
@@ -120,24 +124,35 @@ export function buildGuardianActionGenerationPrompt(
   fallbackText: string,
   requiredKeywords: string[] | undefined,
 ): string {
-  const keywordClause = requiredKeywords && requiredKeywords.length > 0
-    ? `Required words to include (as standalone words): ${requiredKeywords.join(', ')}.\n`
-    : '';
+  const keywordClause =
+    requiredKeywords && requiredKeywords.length > 0
+      ? `Required words to include (as standalone words): ${requiredKeywords.join(
+          ", ",
+        )}.\n`
+      : "";
   return [
-    'Rewrite the following guardian action message as a natural, conversational reply.',
-    'These messages are for voice call scenarios and may be spoken aloud or sent as SMS.',
-    'Keep the same concrete facts and next-step guidance.',
+    "Rewrite the following guardian action message as a natural, conversational reply.",
+    "These messages are for voice call scenarios and may be spoken aloud or sent as SMS.",
+    "Keep the same concrete facts and next-step guidance.",
     keywordClause,
     `Context JSON: ${JSON.stringify(context)}`,
     `Fallback message: ${fallbackText}`,
-  ].filter(Boolean).join('\n\n');
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /** @internal Exported for use by the daemon-injected generator implementation. */
-export function includesRequiredKeywords(text: string, requiredKeywords: string[] | undefined): boolean {
+export function includesRequiredKeywords(
+  text: string,
+  requiredKeywords: string[] | undefined,
+): boolean {
   if (!requiredKeywords || requiredKeywords.length === 0) return true;
   return requiredKeywords.every((keyword) => {
-    const re = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    const re = new RegExp(
+      `\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+      "i",
+    );
     return re.test(text);
   });
 }
@@ -152,85 +167,87 @@ export function includesRequiredKeywords(text: string, requiredKeywords: string[
  * Each template produces natural, conversational text suitable for voice
  * or SMS delivery.
  */
-export function getGuardianActionFallbackMessage(context: GuardianActionMessageContext): string {
+export function getGuardianActionFallbackMessage(
+  context: GuardianActionMessageContext,
+): string {
   const listedCodes = formatGuardianRequestCodes(context.requestCodes);
 
   switch (context.scenario) {
-    case 'caller_timeout_acknowledgment':
+    case "caller_timeout_acknowledgment":
       return context.guardianIdentifier
         ? `I wasn't able to reach ${context.guardianIdentifier} right now. I'm sorry about that.`
         : "I wasn't able to reach the guardian right now. I'm sorry about that.";
 
-    case 'caller_timeout_continue':
-      return 'Would you like me to leave a message for them to get back to you, or is there anything else I can help with?';
+    case "caller_timeout_continue":
+      return "Would you like me to leave a message for them to get back to you, or is there anything else I can help with?";
 
-    case 'guardian_late_answer_followup':
+    case "guardian_late_answer_followup":
       return context.callerIdentifier
         ? `${context.callerIdentifier} called earlier with a question, but I wasn't able to connect them. Would you like to call them back or send them a message?`
-        : 'Someone called earlier with a question, but I wasn\'t able to connect them. Would you like to call them back or send them a message?';
+        : "Someone called earlier with a question, but I wasn't able to connect them. Would you like to call them back or send them a message?";
 
-    case 'guardian_followup_dispatching':
+    case "guardian_followup_dispatching":
       return context.followupAction
         ? `Got it, I'll ${context.followupAction} now.`
         : "Got it, I'm taking care of that now.";
 
-    case 'guardian_followup_completed':
+    case "guardian_followup_completed":
       return context.followupAction
         ? `Done! I've ${context.followupAction} successfully.`
         : "Done! That's been taken care of.";
 
-    case 'guardian_followup_failed':
+    case "guardian_followup_failed":
       return context.failureReason
         ? `I'm sorry, I wasn't able to complete that. ${context.failureReason}`
         : "I'm sorry, I wasn't able to complete that. Please try again later.";
 
-    case 'guardian_followup_declined_ack':
-      return 'No problem. Let me know if you change your mind or need anything else.';
+    case "guardian_followup_declined_ack":
+      return "No problem. Let me know if you change your mind or need anything else.";
 
-    case 'guardian_followup_clarification':
+    case "guardian_followup_clarification":
       return "Sorry, I didn't quite catch that. Would you like to call them back, send them a message, or skip it for now?";
 
-    case 'guardian_pending_disambiguation':
+    case "guardian_pending_disambiguation":
       return listedCodes
         ? `You have multiple pending guardian questions. Please prefix your reply with the reference code (${listedCodes}) so I know which question you're answering.`
-        : 'You have multiple pending guardian questions. Please prefix your reply with the reference code so I know which question you\'re answering.';
+        : "You have multiple pending guardian questions. Please prefix your reply with the reference code so I know which question you're answering.";
 
-    case 'guardian_expired_disambiguation':
+    case "guardian_expired_disambiguation":
       return listedCodes
         ? `You have multiple expired guardian questions. Please prefix your reply with the reference code (${listedCodes}) so I know which question you're answering.`
-        : 'You have multiple expired guardian questions. Please prefix your reply with the reference code so I know which question you\'re answering.';
+        : "You have multiple expired guardian questions. Please prefix your reply with the reference code so I know which question you're answering.";
 
-    case 'guardian_followup_disambiguation':
+    case "guardian_followup_disambiguation":
       return listedCodes
         ? `You have multiple pending follow-up questions. Please prefix your reply with the reference code (${listedCodes}) so I know which question you're responding to.`
-        : 'You have multiple pending follow-up questions. Please prefix your reply with the reference code so I know which question you\'re responding to.';
+        : "You have multiple pending follow-up questions. Please prefix your reply with the reference code so I know which question you're responding to.";
 
-    case 'guardian_stale_answered':
-      return 'This question has already been answered from another channel.';
+    case "guardian_stale_answered":
+      return "This question has already been answered from another channel.";
 
-    case 'guardian_stale_expired':
-      return 'That request has already expired. No further action is needed.';
+    case "guardian_stale_expired":
+      return "That request has already expired. No further action is needed.";
 
-    case 'guardian_stale_followup':
-      return 'It looks like this follow-up has already been handled. No further action is needed.';
+    case "guardian_stale_followup":
+      return "It looks like this follow-up has already been handled. No further action is needed.";
 
-    case 'guardian_stale_superseded':
-      return 'This request is no longer active. The call has ended and no further action is needed.';
+    case "guardian_stale_superseded":
+      return "This request is no longer active. The call has ended and no further action is needed.";
 
-    case 'guardian_unknown_code':
+    case "guardian_unknown_code":
       return context.unknownCode
         ? `I don't recognize the code "${context.unknownCode}". Please check the reference code and try again.`
         : "I don't recognize that reference code. Please check the code and try again.";
 
-    case 'guardian_auto_matched':
-      return 'Got it, routing your answer to the active request.';
+    case "guardian_auto_matched":
+      return "Got it, routing your answer to the active request.";
 
-    case 'guardian_superseded_remap':
+    case "guardian_superseded_remap":
       return context.questionText
         ? `Got it! Your answer has been applied to the current active request: "${context.questionText}"`
-        : 'Got it! Your answer has been applied to the current active request on the call.';
+        : "Got it! Your answer has been applied to the current active request on the call.";
 
-    case 'outbound_message_copy':
+    case "outbound_message_copy":
       // This SMS is sent TO the original caller relaying the guardian's answer.
       // When lateAnswerText is available, include it — that's the whole point of message_back.
       if (context.lateAnswerText && context.questionText) {
@@ -241,24 +258,24 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
       }
       return context.questionText
         ? `Hi! You asked "${context.questionText}" earlier. We'll get back to you with an answer soon.`
-        : 'Hi! Thanks for calling earlier. We\'ll get back to you soon.';
+        : "Hi! Thanks for calling earlier. We'll get back to you soon.";
 
-    case 'followup_message_sent':
+    case "followup_message_sent":
       return context.counterpartyPhone
         ? `Done! I've sent a text message to ${context.counterpartyPhone} with your answer.`
         : "Done! I've sent them a text message with your answer.";
 
-    case 'followup_call_started':
+    case "followup_call_started":
       return context.counterpartyPhone
         ? `Got it! I'm calling ${context.counterpartyPhone} back now to relay your answer.`
         : "Got it! I'm calling them back now to relay your answer.";
 
-    case 'followup_action_failed':
+    case "followup_action_failed":
       return context.failureReason
         ? `I'm sorry, I wasn't able to complete that. ${context.failureReason}`
         : "I'm sorry, something went wrong and I couldn't complete that action. Please try again later.";
 
-    case 'guardian_answer_delivery_failed':
+    case "guardian_answer_delivery_failed":
       return "I wasn't able to deliver your answer to the call. The call may have ended. Please try again or follow up directly.";
 
     default: {
@@ -268,8 +285,12 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
   }
 }
 
-function formatGuardianRequestCodes(requestCodes: string[] | undefined): string {
-  if (!Array.isArray(requestCodes)) return '';
-  const cleaned = requestCodes.map((code) => code.trim()).filter((code) => code.length > 0);
-  return cleaned.join(', ');
+function formatGuardianRequestCodes(
+  requestCodes: string[] | undefined,
+): string {
+  if (!Array.isArray(requestCodes)) return "";
+  const cleaned = requestCodes
+    .map((code) => code.trim())
+    .filter((code) => code.length > 0);
+  return cleaned.join(", ");
 }

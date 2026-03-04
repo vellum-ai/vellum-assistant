@@ -5,13 +5,17 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, desc, eq, isNotNull } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { getConversationByKey, getOrCreateConversation, setConversationKeyIfAbsent } from './conversation-key-store.js';
-import { getDb } from './db.js';
-import { channelInboundEvents, conversations } from './schema.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import {
+  getConversationByKey,
+  getOrCreateConversation,
+  setConversationKeyIfAbsent,
+} from "./conversation-key-store.js";
+import { getDb } from "./db.js";
+import { channelInboundEvents, conversations } from "./schema.js";
 
 export interface InboundResult {
   accepted: boolean;
@@ -63,7 +67,9 @@ export function recordInbound(
 
   const assistantId = options?.assistantId;
   const legacyKey = `${sourceChannel}:${externalChatId}`;
-  const scopedKey = assistantId ? `asst:${assistantId}:${sourceChannel}:${externalChatId}` : legacyKey;
+  const scopedKey = assistantId
+    ? `asst:${assistantId}:${sourceChannel}:${externalChatId}`
+    : legacyKey;
 
   // Resolve conversation mapping with assistant-scoped keying:
   // 1. If scoped key exists, use it directly.
@@ -77,7 +83,10 @@ export function recordInbound(
   } else if (assistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
     const legacyMapping = getConversationByKey(legacyKey);
     if (legacyMapping) {
-      mapping = { conversationId: legacyMapping.conversationId, created: false };
+      mapping = {
+        conversationId: legacyMapping.conversationId,
+        created: false,
+      };
       setConversationKeyIfAbsent(scopedKey, legacyMapping.conversationId);
     } else {
       mapping = getOrCreateConversation(scopedKey);
@@ -101,7 +110,7 @@ export function recordInbound(
         externalMessageId,
         sourceMessageId: options?.sourceMessageId ?? null,
         conversationId: mapping.conversationId,
-        deliveryStatus: 'pending',
+        deliveryStatus: "pending",
         createdAt: now,
         updatedAt: now,
       })
@@ -162,7 +171,10 @@ export function findMessageBySourceId(
  * Store the raw request payload on an inbound event so it can be
  * replayed later if processing fails.
  */
-export function storePayload(eventId: string, payload: Record<string, unknown>): void {
+export function storePayload(
+  eventId: string,
+  payload: Record<string, unknown>,
+): void {
   const db = getDb();
   db.update(channelInboundEvents)
     .set({ rawPayload: JSON.stringify(payload), updatedAt: Date.now() })
@@ -187,7 +199,9 @@ export function clearPayload(eventId: string): void {
  * inbound event. Used by the escalation decide flow to recover the
  * original message content after an approve/deny decision.
  */
-export function getLatestStoredPayload(conversationId: string): Record<string, unknown> | null {
+export function getLatestStoredPayload(
+  conversationId: string,
+): Record<string, unknown> | null {
   const db = getDb();
   const row = db
     .select({

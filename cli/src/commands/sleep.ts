@@ -37,7 +37,10 @@ export async function sleep(): Promise<void> {
   }
 
   // Stop outbound proxy
-  const outboundProxyStopped = await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
+  const outboundProxyStopped = await stopProcessByPidFile(
+    outboundProxyPidFile,
+    "outbound-proxy",
+  );
   if (!outboundProxyStopped) {
     console.log("Outbound proxy is not running.");
   } else {

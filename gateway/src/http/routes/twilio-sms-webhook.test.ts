@@ -26,7 +26,8 @@ mock.module("../../twilio/send-sms.js", () => ({
 }));
 
 // Import after mocks are registered
-const { createTwilioSmsWebhookHandler } = await import("./twilio-sms-webhook.js");
+const { createTwilioSmsWebhookHandler } =
+  await import("./twilio-sms-webhook.js");
 
 // --- Helpers ---------------------------------------------------------------
 
@@ -69,10 +70,10 @@ const baseConfig: GatewayConfig = {
   whatsappTimeoutMs: 15000,
   whatsappMaxRetries: 3,
   whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
-    trustProxy: false,
+  slackChannelBotToken: undefined,
+  slackChannelAppToken: undefined,
+  slackDeliverAuthBypass: false,
+  trustProxy: false,
 };
 
 function computeSignature(
@@ -197,13 +198,22 @@ describe("twilio-sms-webhook", () => {
     // Verify handleInbound was called with correct parameters
     expect(handleInboundMock).toHaveBeenCalledTimes(1);
     const [, event, options] = handleInboundMock.mock.calls[0] as unknown[];
-    const typedEvent = event as { sourceChannel: string; message: { conversationExternalId: string; content: string; externalMessageId: string } };
+    const typedEvent = event as {
+      sourceChannel: string;
+      message: {
+        conversationExternalId: string;
+        content: string;
+        externalMessageId: string;
+      };
+    };
     expect(typedEvent.sourceChannel).toBe("sms");
     expect(typedEvent.message.content).toBe("Hello from SMS");
     expect(typedEvent.message.conversationExternalId).toBe("+15551234567");
     expect(typedEvent.message.externalMessageId).toBe("SM-test-123");
     const typedOptions = options as { replyCallbackUrl: string };
-    expect(typedOptions.replyCallbackUrl).toBe("http://127.0.0.1:7830/deliver/sms");
+    expect(typedOptions.replyCallbackUrl).toBe(
+      "http://127.0.0.1:7830/deliver/sms",
+    );
   });
 
   it("deduplicates by MessageSid", async () => {
@@ -314,7 +324,11 @@ describe("twilio-sms-webhook", () => {
 
   it("returns 200 when routing rejects the SMS", async () => {
     handleInboundMock.mockImplementation(() =>
-      Promise.resolve({ forwarded: false, rejected: true, rejectionReason: "No route" }),
+      Promise.resolve({
+        forwarded: false,
+        rejected: true,
+        rejectionReason: "No route",
+      }),
     );
 
     const { handler } = createTwilioSmsWebhookHandler(baseConfig);
@@ -368,14 +382,15 @@ describe("twilio-sms-webhook", () => {
 
     // resetConversation should have been called
     expect(resetConversationMock).toHaveBeenCalledTimes(1);
-    const [, sourceChannel, conversationExternalId] =
-      resetConversationMock.mock.calls[0] as unknown[];
+    const [, sourceChannel, conversationExternalId] = resetConversationMock.mock
+      .calls[0] as unknown[];
     expect(sourceChannel).toBe("sms");
     expect(conversationExternalId).toBe("+15551234567");
 
     // Confirmation SMS should have been sent
     expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
-    const [, to, text, replyAssistantId] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    const [, to, text, replyAssistantId] = sendSmsReplyMock.mock
+      .calls[0] as unknown[];
     expect(to).toBe("+15551234567");
     expect(text).toBe("Starting a new conversation!");
     expect(replyAssistantId).toBe("ast-default");
@@ -427,7 +442,8 @@ describe("twilio-sms-webhook", () => {
 
     // Rejection notice SMS should have been sent
     expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
-    const [, to, text, assistantId] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    const [, to, text, assistantId] = sendSmsReplyMock.mock
+      .calls[0] as unknown[];
     expect(to).toBe("+15551234567");
     expect(typeof text).toBe("string");
     expect((text as string).toLowerCase()).toContain("could not be routed");
@@ -458,7 +474,8 @@ describe("twilio-sms-webhook", () => {
 
     // Unsupported notice should have been sent
     expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
-    const [, to, text, assistantId] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    const [, to, text, assistantId] = sendSmsReplyMock.mock
+      .calls[0] as unknown[];
     expect(to).toBe("+15551234567");
     expect(typeof text).toBe("string");
     expect((text as string).toLowerCase()).toContain("not supported");
@@ -490,7 +507,8 @@ describe("twilio-sms-webhook", () => {
 
     // Unsupported notice should have been sent
     expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
-    const [, to, text, assistantId] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    const [, to, text, assistantId] = sendSmsReplyMock.mock
+      .calls[0] as unknown[];
     expect(to).toBe("+15551234567");
     expect(typeof text).toBe("string");
     expect((text as string).toLowerCase()).toContain("not supported");
@@ -553,7 +571,8 @@ describe("twilio-sms-webhook", () => {
     const [, sourceChannel] = resetConversationMock.mock.calls[0] as unknown[];
     expect(sourceChannel).toBe("sms");
     expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
-    const [, , , replyAssistantId] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    const [, , , replyAssistantId] = sendSmsReplyMock.mock
+      .calls[0] as unknown[];
     expect(replyAssistantId).toBe("ast-beta");
   });
 
@@ -633,7 +652,9 @@ describe("twilio-sms-webhook", () => {
 
     // Verify the routingOverride was passed to handleInbound
     const [, , options] = handleInboundMock.mock.calls[0] as unknown[];
-    const typedOptions = options as { routingOverride?: { assistantId: string; routeSource: string } };
+    const typedOptions = options as {
+      routingOverride?: { assistantId: string; routeSource: string };
+    };
     expect(typedOptions.routingOverride).toBeDefined();
     expect(typedOptions.routingOverride!.assistantId).toBe("ast-alpha");
     expect(typedOptions.routingOverride!.routeSource).toBe("phone_number");
@@ -656,7 +677,9 @@ describe("twilio-sms-webhook", () => {
 
     // Verify the routingOverride uses default routing
     const [, , options] = handleInboundMock.mock.calls[0] as unknown[];
-    const typedOptions = options as { routingOverride?: { assistantId: string; routeSource: string } };
+    const typedOptions = options as {
+      routingOverride?: { assistantId: string; routeSource: string };
+    };
     expect(typedOptions.routingOverride).toBeDefined();
     expect(typedOptions.routingOverride!.assistantId).toBe("ast-default");
     expect(typedOptions.routingOverride!.routeSource).toBe("default");
@@ -698,7 +721,11 @@ describe("twilio-sms-webhook", () => {
 
   it("runtime rejection (handleInbound rejected) sends rejection notice", async () => {
     handleInboundMock.mockImplementation(() =>
-      Promise.resolve({ forwarded: false, rejected: true, rejectionReason: "test" }),
+      Promise.resolve({
+        forwarded: false,
+        rejected: true,
+        rejectionReason: "test",
+      }),
     );
 
     const { handler } = createTwilioSmsWebhookHandler(baseConfig);
@@ -748,7 +775,8 @@ describe("twilio-sms-webhook", () => {
 
     // Unsupported notice should have been sent
     expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
-    const [, to, text, assistantId] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    const [, to, text, assistantId] = sendSmsReplyMock.mock
+      .calls[0] as unknown[];
     expect(to).toBe("+15551234567");
     expect(typeof text).toBe("string");
     expect((text as string).toLowerCase()).toContain("not supported");

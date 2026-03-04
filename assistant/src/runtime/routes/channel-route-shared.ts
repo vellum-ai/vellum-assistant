@@ -1,15 +1,15 @@
 /**
  * Shared types, constants, and utilities used across channel route modules.
  */
-import type { ChannelId } from '../../channels/types.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import type { ChannelId } from "../../channels/types.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
   ApprovalUIMetadata,
-} from '../channel-approval-types.js';
-import type { DenialReason } from '../trust-context-resolver.js';
-export type { DenialReason } from '../trust-context-resolver.js';
+} from "../channel-approval-types.js";
+import type { DenialReason } from "../trust-context-resolver.js";
+export type { DenialReason } from "../trust-context-resolver.js";
 
 /** Canonicalize assistantId for channel ingress paths. */
 export function canonicalChannelAssistantId(_assistantId: string): string {
@@ -27,14 +27,16 @@ export const GUARDIAN_APPROVAL_TTL_MS = 30 * 60 * 1000;
  * Keywords the plain-text parser accepts for approval decisions. We require
  * these in generated plain-text prompts so text fallback remains actionable.
  */
-export function requiredDecisionKeywords(actions: ApprovalUIMetadata['actions']): string[] {
-  const hasAlways = actions.some((action) => action.id === 'approve_always');
-  const has10m = actions.some((action) => action.id === 'approve_10m');
-  const hasThread = actions.some((action) => action.id === 'approve_thread');
-  const keywords = ['yes', 'no'];
-  if (has10m) keywords.push('approve for 10 minutes');
-  if (hasThread) keywords.push('approve for thread');
-  if (hasAlways) keywords.push('always');
+export function requiredDecisionKeywords(
+  actions: ApprovalUIMetadata["actions"],
+): string[] {
+  const hasAlways = actions.some((action) => action.id === "approve_always");
+  const has10m = actions.some((action) => action.id === "approve_10m");
+  const hasThread = actions.some((action) => action.id === "approve_thread");
+  const keywords = ["yes", "no"];
+  if (has10m) keywords.push("approve for 10 minutes");
+  if (hasThread) keywords.push("approve for thread");
+  if (hasAlways) keywords.push("always");
   return keywords;
 }
 
@@ -43,20 +45,26 @@ export function requiredDecisionKeywords(actions: ApprovalUIMetadata['actions'])
 // ---------------------------------------------------------------------------
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
-  'approve_once',
-  'approve_10m',
-  'approve_thread',
-  'approve_always',
-  'reject',
+  "approve_once",
+  "approve_10m",
+  "approve_thread",
+  "approve_always",
+  "reject",
 ]);
 
-export function parseCallbackData(data: string, sourceChannel?: string): ApprovalDecisionResult | null {
-  const parts = data.split(':');
-  if (parts.length < 3 || parts[0] !== 'apr') return null;
+export function parseCallbackData(
+  data: string,
+  sourceChannel?: string,
+): ApprovalDecisionResult | null {
+  const parts = data.split(":");
+  if (parts.length < 3 || parts[0] !== "apr") return null;
   const requestId = parts[1];
-  const action = parts.slice(2).join(':');
+  const action = parts.slice(2).join(":");
   if (!requestId || !VALID_ACTIONS.has(action)) return null;
-  const source = sourceChannel === 'whatsapp' ? 'whatsapp_button' as const : 'telegram_button' as const;
+  const source =
+    sourceChannel === "whatsapp"
+      ? ("whatsapp_button" as const)
+      : ("telegram_button" as const);
   return { action: action as ApprovalAction, source, requestId };
 }
 
@@ -74,7 +82,7 @@ export function buildGuardianDenyContext(
   denialReason: DenialReason,
   _sourceChannel: ChannelId,
 ): string {
-  if (denialReason === 'no_identity') {
+  if (denialReason === "no_identity") {
     return `Permission denied for "${toolName}": guardian approval was required, but requester identity could not be verified for this channel. In your next assistant reply, explain this clearly, avoid retrying yet, and ask the user to message from a verifiable direct account/chat before retrying.`;
   }
 
@@ -87,7 +95,7 @@ export function buildPromptDeliveryFailureContext(toolName: string): string {
 
 export function stripVerificationFailurePrefix(reason: string): string {
   const trimmed = reason.trim();
-  return trimmed.replace(/^verification failed\.?\s*/i, '').trim() || trimmed;
+  return trimmed.replace(/^verification failed\.?\s*/i, "").trim() || trimmed;
 }
 
 // ---------------------------------------------------------------------------

@@ -3,11 +3,16 @@ import type { RuntimeAttachmentMeta } from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
@@ -73,7 +78,12 @@ describe("sendTelegramAttachments", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(url);
       // Runtime download endpoint
       if (url.includes("/attachments/att-1")) {
@@ -113,7 +123,12 @@ describe("sendTelegramAttachments", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-2")) {
         return new Response(
@@ -150,7 +165,12 @@ describe("sendTelegramAttachments", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(url);
       return new Response(JSON.stringify(telegramOk));
     });
@@ -175,7 +195,12 @@ describe("sendTelegramAttachments", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-no-assist")) {
         return new Response(
@@ -215,7 +240,12 @@ describe("sendTelegramAttachments", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-id-only")) {
         return new Response(
@@ -248,7 +278,12 @@ describe("sendTelegramAttachments", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-bare")) {
         return new Response(
@@ -276,7 +311,12 @@ describe("sendTelegramAttachments", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-big")) {
         return new Response(
@@ -300,7 +340,9 @@ describe("sendTelegramAttachments", () => {
     await sendTelegramAttachments(config, "chat-1", [meta]);
 
     // Should download, discover size exceeds limit, skip, then send failure notice
-    expect(calls.filter((u) => u.includes("/attachments/att-big"))).toHaveLength(1);
+    expect(
+      calls.filter((u) => u.includes("/attachments/att-big")),
+    ).toHaveLength(1);
     expect(calls.filter((u) => u.includes("sendMessage"))).toHaveLength(1);
     expect(calls.filter((u) => u.includes("sendPhoto"))).toHaveLength(0);
     expect(calls.filter((u) => u.includes("sendDocument"))).toHaveLength(0);
@@ -309,21 +351,28 @@ describe("sendTelegramAttachments", () => {
   test("ID-only attachment uses id as filename fallback", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
 
-    fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
-      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      calls.push({ url: urlStr, init });
-      if (urlStr.includes("/attachments/my-attachment-id")) {
-        return new Response(
-          JSON.stringify({
-            id: "my-attachment-id",
-            mimeType: "application/pdf",
-            sizeBytes: 50,
-            data: "JVBER",
-          }),
-        );
-      }
-      return new Response(JSON.stringify(telegramOk));
-    });
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const urlStr =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        calls.push({ url: urlStr, init });
+        if (urlStr.includes("/attachments/my-attachment-id")) {
+          return new Response(
+            JSON.stringify({
+              id: "my-attachment-id",
+              mimeType: "application/pdf",
+              sizeBytes: 50,
+              data: "JVBER",
+            }),
+          );
+        }
+        return new Response(JSON.stringify(telegramOk));
+      },
+    );
 
     const config = makeConfig();
     const meta: RuntimeAttachmentMeta = { id: "my-attachment-id" };
@@ -340,7 +389,12 @@ describe("sendTelegramAttachments", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-full")) {
         return new Response(
@@ -377,7 +431,12 @@ describe("sendTelegramAttachments", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(url);
       // First attachment download fails
       if (url.includes("/attachments/att-fail")) {
@@ -401,8 +460,20 @@ describe("sendTelegramAttachments", () => {
 
     const config = makeConfig();
     const attachments: RuntimeAttachmentMeta[] = [
-      { id: "att-fail", filename: "bad.png", mimeType: "image/png", sizeBytes: 50, kind: "generated_image" },
-      { id: "att-ok", filename: "good.png", mimeType: "image/png", sizeBytes: 50, kind: "generated_image" },
+      {
+        id: "att-fail",
+        filename: "bad.png",
+        mimeType: "image/png",
+        sizeBytes: 50,
+        kind: "generated_image",
+      },
+      {
+        id: "att-ok",
+        filename: "good.png",
+        mimeType: "image/png",
+        sizeBytes: 50,
+        kind: "generated_image",
+      },
     ];
 
     await sendTelegramAttachments(config, "chat-1", attachments);

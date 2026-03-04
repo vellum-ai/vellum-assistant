@@ -2,8 +2,8 @@
 // Tracks request counts per key and returns 429 when the limit is exceeded.
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
-import type { HttpErrorResponse } from '../http-errors.js';
-import { isPrivateAddress } from './auth.js';
+import type { HttpErrorResponse } from "../http-errors.js";
+import { isPrivateAddress } from "./auth.js";
 
 const DEFAULT_MAX_REQUESTS = 60;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
@@ -58,9 +58,10 @@ export class TokenRateLimiter {
     }
 
     const remaining = Math.max(0, this.maxRequests - timestamps.length);
-    const resetAt = timestamps.length > 0
-      ? Math.ceil((timestamps[0] + this.windowMs) / 1000)
-      : Math.ceil((now + this.windowMs) / 1000);
+    const resetAt =
+      timestamps.length > 0
+        ? Math.ceil((timestamps[0] + this.windowMs) / 1000)
+        : Math.ceil((now + this.windowMs) / 1000);
 
     if (timestamps.length >= this.maxRequests) {
       return {
@@ -103,11 +104,13 @@ export interface RateLimitResult {
 }
 
 /** Build standard rate limit headers from a check result. */
-export function rateLimitHeaders(result: RateLimitResult): Record<string, string> {
+export function rateLimitHeaders(
+  result: RateLimitResult,
+): Record<string, string> {
   return {
-    'X-RateLimit-Limit': String(result.limit),
-    'X-RateLimit-Remaining': String(result.remaining),
-    'X-RateLimit-Reset': String(result.resetAt),
+    "X-RateLimit-Limit": String(result.limit),
+    "X-RateLimit-Remaining": String(result.remaining),
+    "X-RateLimit-Reset": String(result.resetAt),
   };
 }
 
@@ -115,13 +118,13 @@ export function rateLimitHeaders(result: RateLimitResult): Record<string, string
 export function rateLimitResponse(result: RateLimitResult): Response {
   const retryAfter = Math.max(1, result.resetAt - Math.ceil(Date.now() / 1000));
   const body: HttpErrorResponse = {
-    error: { code: 'RATE_LIMITED', message: 'Too Many Requests' },
+    error: { code: "RATE_LIMITED", message: "Too Many Requests" },
   };
   return Response.json(body, {
     status: 429,
     headers: {
       ...rateLimitHeaders(result),
-      'Retry-After': String(retryAfter),
+      "Retry-After": String(retryAfter),
     },
   });
 }
@@ -130,7 +133,11 @@ export function rateLimitResponse(result: RateLimitResult): Response {
 export const apiRateLimiter = new TokenRateLimiter();
 
 /** Singleton rate limiter for unauthenticated requests (per-IP, lower limits). */
-export const ipRateLimiter = new TokenRateLimiter(DEFAULT_IP_MAX_REQUESTS, DEFAULT_IP_WINDOW_MS, MAX_TRACKED_IPS);
+export const ipRateLimiter = new TokenRateLimiter(
+  DEFAULT_IP_MAX_REQUESTS,
+  DEFAULT_IP_WINDOW_MS,
+  MAX_TRACKED_IPS,
+);
 
 /**
  * Extract the client IP from a request. Only trusts proxy headers
@@ -142,19 +149,18 @@ export function extractClientIp(
   req: Request,
   server: { requestIP(req: Request): { address: string } | null },
 ): string {
-  const peerIp = server.requestIP(req)?.address ?? '0.0.0.0';
+  const peerIp = server.requestIP(req)?.address ?? "0.0.0.0";
 
   if (isPrivateAddress(peerIp)) {
-    const forwarded = req.headers.get('x-forwarded-for');
+    const forwarded = req.headers.get("x-forwarded-for");
     if (forwarded) {
-      const first = forwarded.split(',')[0].trim();
+      const first = forwarded.split(",")[0].trim();
       if (first) return first;
     }
 
-    const realIp = req.headers.get('x-real-ip');
+    const realIp = req.headers.get("x-real-ip");
     if (realIp) return realIp.trim();
   }
 
   return peerIp;
 }
-

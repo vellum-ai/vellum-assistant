@@ -1,7 +1,13 @@
-export type RemoteSkillProvider = 'clawhub' | 'skillssh';
+export type RemoteSkillProvider = "clawhub" | "skillssh";
 
-export type SkillsShRisk = 'safe' | 'low' | 'medium' | 'high' | 'critical' | 'unknown';
-export type SkillsShRiskThreshold = Exclude<SkillsShRisk, 'unknown'>;
+export type SkillsShRisk =
+  | "safe"
+  | "low"
+  | "medium"
+  | "high"
+  | "critical"
+  | "unknown";
+export type SkillsShRiskThreshold = Exclude<SkillsShRisk, "unknown">;
 
 export interface RemoteSkillPolicy {
   /**
@@ -35,12 +41,12 @@ interface RemoteSkillCandidateBase {
 }
 
 export interface ClawhubRemoteSkillCandidate extends RemoteSkillCandidateBase {
-  provider: 'clawhub';
+  provider: "clawhub";
   moderation?: ClawhubModerationState | null;
 }
 
 export interface SkillsShRemoteSkillCandidate extends RemoteSkillCandidateBase {
-  provider: 'skillssh';
+  provider: "skillssh";
   audit?: SkillsShAuditState | null;
 }
 
@@ -49,20 +55,21 @@ export type RemoteSkillCandidate =
   | SkillsShRemoteSkillCandidate;
 
 export type RemoteSkillDenyReason =
-  | 'clawhub_suspicious'
-  | 'clawhub_malware_blocked'
-  | 'clawhub_moderation_missing'
-  | 'skillssh_risk_exceeds_threshold';
+  | "clawhub_suspicious"
+  | "clawhub_malware_blocked"
+  | "clawhub_moderation_missing"
+  | "skillssh_risk_exceeds_threshold";
 
 export type RemoteSkillInstallDecision =
   | { ok: true }
   | { ok: false; reason: RemoteSkillDenyReason };
 
-export const DEFAULT_REMOTE_SKILL_POLICY: Readonly<RemoteSkillPolicy> = Object.freeze({
-  blockSuspicious: true,
-  blockMalware: true,
-  maxSkillsShRisk: 'medium',
-});
+export const DEFAULT_REMOTE_SKILL_POLICY: Readonly<RemoteSkillPolicy> =
+  Object.freeze({
+    blockSuspicious: true,
+    blockMalware: true,
+    maxSkillsShRisk: "medium",
+  });
 
 const SKILLS_SH_RISK_RANK: Record<SkillsShRisk, number> = {
   safe: 0,
@@ -74,11 +81,13 @@ const SKILLS_SH_RISK_RANK: Record<SkillsShRisk, number> = {
   unknown: 5,
 };
 
-function normalizeSkillsShRisk(audit: SkillsShAuditState | null | undefined): SkillsShRisk {
+function normalizeSkillsShRisk(
+  audit: SkillsShAuditState | null | undefined,
+): SkillsShRisk {
   const risk = audit?.risk;
-  if (risk == null) return 'unknown';
+  if (risk == null) return "unknown";
   // Coerce unrecognized risk labels to 'unknown' so we fail closed.
-  if (!Object.hasOwn(SKILLS_SH_RISK_RANK, risk)) return 'unknown';
+  if (!Object.hasOwn(SKILLS_SH_RISK_RANK, risk)) return "unknown";
   return risk;
 }
 
@@ -94,23 +103,23 @@ export function evaluateRemoteSkillInstall(
   candidate: RemoteSkillCandidate,
   policy: RemoteSkillPolicy = DEFAULT_REMOTE_SKILL_POLICY,
 ): RemoteSkillInstallDecision {
-  if (candidate.provider === 'clawhub') {
+  if (candidate.provider === "clawhub") {
     // Fail closed: block Clawhub skills when moderation data is missing.
     if (candidate.moderation == null) {
-      return { ok: false, reason: 'clawhub_moderation_missing' };
+      return { ok: false, reason: "clawhub_moderation_missing" };
     }
 
     if (policy.blockMalware && candidate.moderation.isMalwareBlocked === true) {
-      return { ok: false, reason: 'clawhub_malware_blocked' };
+      return { ok: false, reason: "clawhub_malware_blocked" };
     }
     if (policy.blockSuspicious && candidate.moderation.isSuspicious === true) {
-      return { ok: false, reason: 'clawhub_suspicious' };
+      return { ok: false, reason: "clawhub_suspicious" };
     }
     return { ok: true };
   }
 
   if (exceedsSkillsShRiskThreshold(candidate.audit, policy.maxSkillsShRisk)) {
-    return { ok: false, reason: 'skillssh_risk_exceeds_threshold' };
+    return { ok: false, reason: "skillssh_risk_exceeds_threshold" };
   }
 
   return { ok: true };

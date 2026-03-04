@@ -1,10 +1,10 @@
-import * as net from 'node:net';
-import { join } from 'node:path';
+import * as net from "node:net";
+import { join } from "node:path";
 
-import { setAvatarTool } from '../../tools/system/avatar-generator.js';
-import { getWorkspaceDir } from '../../util/platform.js';
-import type { GenerateAvatarRequest } from '../ipc-contract/settings.js';
-import { defineHandlers, type HandlerContext, log } from './shared.js';
+import { setAvatarTool } from "../../tools/system/avatar-generator.js";
+import { getWorkspaceDir } from "../../util/platform.js";
+import type { GenerateAvatarRequest } from "../ipc-contract/settings.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 /**
  * Handle a client request to generate a custom avatar via Gemini.
@@ -19,14 +19,14 @@ async function handleGenerateAvatar(
   const description = msg.description?.trim();
   if (!description) {
     ctx.send(socket, {
-      type: 'generate_avatar_response',
+      type: "generate_avatar_response",
       success: false,
-      error: 'Description is required.',
+      error: "Description is required.",
     });
     return;
   }
 
-  log.info({ description }, 'Generating avatar via IPC request');
+  log.info({ description }, "Generating avatar via IPC request");
 
   try {
     const result = await setAvatarTool.execute(
@@ -37,7 +37,7 @@ async function handleGenerateAvatar(
 
     if (result.isError) {
       ctx.send(socket, {
-        type: 'generate_avatar_response',
+        type: "generate_avatar_response",
         success: false,
         error: result.content,
       });
@@ -45,18 +45,23 @@ async function handleGenerateAvatar(
     }
 
     // Broadcast avatar change to all connected clients
-    const avatarPath = join(getWorkspaceDir(), 'data', 'avatar', 'custom-avatar.png');
-    ctx.broadcast({ type: 'avatar_updated', avatarPath });
+    const avatarPath = join(
+      getWorkspaceDir(),
+      "data",
+      "avatar",
+      "custom-avatar.png",
+    );
+    ctx.broadcast({ type: "avatar_updated", avatarPath });
 
     ctx.send(socket, {
-      type: 'generate_avatar_response',
+      type: "generate_avatar_response",
       success: true,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ error: message }, 'Avatar generation failed unexpectedly');
+    log.error({ error: message }, "Avatar generation failed unexpectedly");
     ctx.send(socket, {
-      type: 'generate_avatar_response',
+      type: "generate_avatar_response",
       success: false,
       error: message,
     });

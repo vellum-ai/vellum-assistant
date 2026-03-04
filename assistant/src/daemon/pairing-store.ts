@@ -10,19 +10,31 @@
  * so that device bindings survive daemon restarts.
  */
 
-import { createHash, timingSafeEqual } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { createHash, timingSafeEqual } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
-import { getLogger } from '../util/logger.js';
-import { getRootDir } from '../util/platform.js';
+import { getLogger } from "../util/logger.js";
+import { getRootDir } from "../util/platform.js";
 
-const log = getLogger('pairing-store');
+const log = getLogger("pairing-store");
 
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
 const SWEEP_INTERVAL_MS = 30_000; // 30 seconds
 
-export type PairingStatus = 'registered' | 'pending' | 'approved' | 'denied' | 'expired';
+export type PairingStatus =
+  | "registered"
+  | "pending"
+  | "approved"
+  | "denied"
+  | "expired";
 
 export interface PairingRequest {
   pairingRequestId: string;
@@ -37,7 +49,7 @@ export interface PairingRequest {
 }
 
 function hashValue(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function timingSafeCompare(a: string, b: string): boolean {
@@ -53,7 +65,7 @@ interface PairingStoreFile {
 }
 
 function getStorePath(): string {
-  return join(getRootDir(), 'protected', 'pairing-requests.json');
+  return join(getRootDir(), "protected", "pairing-requests.json");
 }
 
 function loadFromDisk(): Map<string, PairingRequest> {
@@ -62,10 +74,10 @@ function loadFromDisk(): Map<string, PairingRequest> {
     return new Map();
   }
   try {
-    const raw = readFileSync(path, 'utf-8');
+    const raw = readFileSync(path, "utf-8");
     const data = JSON.parse(raw) as PairingStoreFile;
     if (data.version !== 1 || !Array.isArray(data.requests)) {
-      log.warn('Invalid pairing-requests.json format, starting fresh');
+      log.warn("Invalid pairing-requests.json format, starting fresh");
       return new Map();
     }
     const map = new Map<string, PairingRequest>();
@@ -74,7 +86,7 @@ function loadFromDisk(): Map<string, PairingRequest> {
     }
     return map;
   } catch (err) {
-    log.error({ err }, 'Failed to load pairing-requests.json');
+    log.error({ err }, "Failed to load pairing-requests.json");
     return new Map();
   }
 }
@@ -89,7 +101,7 @@ function saveToDisk(requests: Map<string, PairingRequest>): void {
     version: 1,
     requests: Array.from(requests.values()),
   };
-  const tmpPath = path + '.tmp.' + process.pid;
+  const tmpPath = path + ".tmp." + process.pid;
   writeFileSync(tmpPath, JSON.stringify(data, null, 2), { mode: 0o600 });
   renameSync(tmpPath, path);
   chmodSync(path, 0o600);
@@ -123,39 +135,45 @@ export class PairingStore {
     pairingSecret: string;
     gatewayUrl: string;
     localLanUrl?: string | null;
-  }): { ok: true } | { ok: false; reason: 'conflict' | 'active_pairing' } {
+  }): { ok: true } | { ok: false; reason: "conflict" | "active_pairing" } {
     const hashedSecret = hashValue(params.pairingSecret);
     const existing = this.requests.get(params.pairingRequestId);
 
     if (existing) {
       if (!timingSafeCompare(existing.hashedPairingSecret, hashedSecret)) {
-        return { ok: false, reason: 'conflict' };
+        return { ok: false, reason: "conflict" };
       }
     }
 
     // Reject if another pairing request is already active (registered or pending).
     for (const entry of this.requests.values()) {
       if (entry.pairingRequestId === params.pairingRequestId) continue;
-      if (entry.status === 'registered' || entry.status === 'pending') {
+      if (entry.status === "registered" || entry.status === "pending") {
         log.warn(
-          { existingPairingRequestId: entry.pairingRequestId, newPairingRequestId: params.pairingRequestId },
-          'Rejected pairing registration — another pairing is already in progress',
+          {
+            existingPairingRequestId: entry.pairingRequestId,
+            newPairingRequestId: params.pairingRequestId,
+          },
+          "Rejected pairing registration — another pairing is already in progress",
         );
-        return { ok: false, reason: 'active_pairing' };
+        return { ok: false, reason: "active_pairing" };
       }
     }
 
     this.requests.set(params.pairingRequestId, {
       pairingRequestId: params.pairingRequestId,
       hashedPairingSecret: hashedSecret,
-      status: 'registered',
+      status: "registered",
       gatewayUrl: params.gatewayUrl,
       localLanUrl: params.localLanUrl ?? null,
       createdAt: Date.now(),
     });
     this.persist();
 
-    log.info({ pairingRequestId: params.pairingRequestId }, 'Pairing request registered');
+    log.info(
+      { pairingRequestId: params.pairingRequestId },
+      "Pairing request registered",
+    );
     return { ok: true };
   }
 
@@ -168,34 +186,45 @@ export class PairingStore {
     pairingSecret: string;
     deviceId: string;
     deviceName: string;
-  }): { ok: true; entry: PairingRequest } | { ok: false; reason: 'not_found' | 'invalid_secret' | 'expired' | 'already_paired' } {
+  }):
+    | { ok: true; entry: PairingRequest }
+    | {
+        ok: false;
+        reason: "not_found" | "invalid_secret" | "expired" | "already_paired";
+      } {
     const entry = this.requests.get(params.pairingRequestId);
     if (!entry) {
-      return { ok: false, reason: 'not_found' };
+      return { ok: false, reason: "not_found" };
     }
 
-    if (entry.status === 'expired' || entry.status === 'denied') {
-      return { ok: false, reason: 'expired' };
+    if (entry.status === "expired" || entry.status === "denied") {
+      return { ok: false, reason: "expired" };
     }
 
     const hashedSecret = hashValue(params.pairingSecret);
     if (!timingSafeCompare(entry.hashedPairingSecret, hashedSecret)) {
-      return { ok: false, reason: 'invalid_secret' };
+      return { ok: false, reason: "invalid_secret" };
     }
 
     const hashedDeviceId = hashValue(params.deviceId);
 
     // If a device has already been bound to this pairing request, reject
     // attempts from a different device to prevent hijacking.
-    if (entry.hashedDeviceId && !timingSafeCompare(entry.hashedDeviceId, hashedDeviceId)) {
-      log.warn({ pairingRequestId: params.pairingRequestId }, 'Pairing request already bound to a different device');
-      return { ok: false, reason: 'already_paired' };
+    if (
+      entry.hashedDeviceId &&
+      !timingSafeCompare(entry.hashedDeviceId, hashedDeviceId)
+    ) {
+      log.warn(
+        { pairingRequestId: params.pairingRequestId },
+        "Pairing request already bound to a different device",
+      );
+      return { ok: false, reason: "already_paired" };
     }
 
     entry.hashedDeviceId = hashedDeviceId;
     entry.deviceName = params.deviceName;
-    if (entry.status === 'registered') {
-      entry.status = 'pending';
+    if (entry.status === "registered") {
+      entry.status = "pending";
     }
     this.persist();
 
@@ -205,10 +234,13 @@ export class PairingStore {
   /**
    * Approve a pairing request. Sets the bearer token for iOS to retrieve.
    */
-  approve(pairingRequestId: string, bearerToken: string): PairingRequest | null {
+  approve(
+    pairingRequestId: string,
+    bearerToken: string,
+  ): PairingRequest | null {
     const entry = this.requests.get(pairingRequestId);
     if (!entry) return null;
-    entry.status = 'approved';
+    entry.status = "approved";
     entry.bearerToken = bearerToken;
     this.persist();
     return entry;
@@ -220,7 +252,7 @@ export class PairingStore {
   deny(pairingRequestId: string): PairingRequest | null {
     const entry = this.requests.get(pairingRequestId);
     if (!entry) return null;
-    entry.status = 'denied';
+    entry.status = "denied";
     this.persist();
     return entry;
   }
@@ -246,7 +278,7 @@ export class PairingStore {
     try {
       saveToDisk(this.requests);
     } catch (err) {
-      log.error({ err }, 'Failed to persist pairing requests to disk');
+      log.error({ err }, "Failed to persist pairing requests to disk");
     }
   }
 
@@ -255,15 +287,15 @@ export class PairingStore {
     let changed = false;
     for (const [id, entry] of this.requests) {
       if (now - entry.createdAt > TTL_MS) {
-        if (entry.status !== 'approved') {
-          entry.status = 'expired';
+        if (entry.status !== "approved") {
+          entry.status = "expired";
           changed = true;
         }
         // Remove entries older than 2x TTL regardless of status
         if (now - entry.createdAt > TTL_MS * 2) {
           this.requests.delete(id);
           changed = true;
-          log.debug({ pairingRequestId: id }, 'Pairing request swept');
+          log.debug({ pairingRequestId: id }, "Pairing request swept");
         }
       }
     }

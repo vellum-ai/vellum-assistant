@@ -1,1 +1,9 @@
-export type { GatewayInboundEvent, GatewayInboundEvent as GatewayInboundEventV1, InboundChannelId, TelegramInboundEvent, SmsInboundEvent, WhatsAppInboundEvent, SlackInboundEvent } from './channels/inbound-event.js';
+export type {
+  GatewayInboundEvent,
+  GatewayInboundEvent as GatewayInboundEventV1,
+  InboundChannelId,
+  TelegramInboundEvent,
+  SmsInboundEvent,
+  WhatsAppInboundEvent,
+  SlackInboundEvent,
+} from "./channels/inbound-event.js";

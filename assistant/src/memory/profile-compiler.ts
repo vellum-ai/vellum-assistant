@@ -1,11 +1,17 @@
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 
-import { getConfig } from '../config/loader.js';
-import { estimateTextTokens } from '../context/token-estimator.js';
-import { getDb } from './db.js';
-import { memoryItems } from './schema.js';
+import { getConfig } from "../config/loader.js";
+import { estimateTextTokens } from "../context/token-estimator.js";
+import { getDb } from "./db.js";
+import { memoryItems } from "./schema.js";
 
-const PROFILE_KIND_ALLOWLIST = ['profile', 'preference', 'constraint', 'instruction', 'style'] as const;
+const PROFILE_KIND_ALLOWLIST = [
+  "profile",
+  "preference",
+  "constraint",
+  "instruction",
+  "style",
+] as const;
 
 const TRUST_RANK: Record<string, number> = {
   user_confirmed: 3,
@@ -40,19 +46,33 @@ interface ProfileCandidate {
   scopeId: string;
 }
 
-export function compileDynamicProfile(options?: CompileProfileOptions): CompiledProfile {
+export function compileDynamicProfile(
+  options?: CompileProfileOptions,
+): CompiledProfile {
   const config = getConfig();
   const profileConfig = config.memory.profile;
-  const scopeId = options?.scopeId ?? 'default';
-  const budgetTokens = Math.max(0, Math.floor(options?.maxInjectTokensOverride ?? profileConfig.maxInjectTokens));
+  const scopeId = options?.scopeId ?? "default";
+  const budgetTokens = Math.max(
+    0,
+    Math.floor(
+      options?.maxInjectTokensOverride ?? profileConfig.maxInjectTokens,
+    ),
+  );
   if (!profileConfig.enabled || budgetTokens <= 0) {
-    return { text: '', sourceCount: 0, selectedCount: 0, budgetTokens, tokenEstimate: 0 };
+    return {
+      text: "",
+      sourceCount: 0,
+      selectedCount: 0,
+      budgetTokens,
+      tokenEstimate: 0,
+    };
   }
 
   const db = getDb();
-  const shouldFallback = options?.includeDefaultFallback === true && scopeId !== 'default';
+  const shouldFallback =
+    options?.includeDefaultFallback === true && scopeId !== "default";
   const scopeFilter = shouldFallback
-    ? inArray(memoryItems.scopeId, [scopeId, 'default'])
+    ? inArray(memoryItems.scopeId, [scopeId, "default"])
     : eq(memoryItems.scopeId, scopeId);
   const rows = db
     .select({
@@ -67,19 +87,28 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
       scopeId: memoryItems.scopeId,
     })
     .from(memoryItems)
-    .where(and(
-      scopeFilter,
-      eq(memoryItems.status, 'active'),
-      isNull(memoryItems.invalidAt),
-      inArray(memoryItems.kind, [...PROFILE_KIND_ALLOWLIST]),
-    ))
+    .where(
+      and(
+        scopeFilter,
+        eq(memoryItems.status, "active"),
+        isNull(memoryItems.invalidAt),
+        inArray(memoryItems.kind, [...PROFILE_KIND_ALLOWLIST]),
+      ),
+    )
     .orderBy(desc(memoryItems.lastSeenAt))
     .all();
 
   const nowMs = Date.now();
   const trusted = rows
     .filter((row) => TRUST_RANK[row.verificationState] !== undefined)
-    .sort((a, b) => compareProfileCandidates(a, b, nowMs, shouldFallback ? scopeId : undefined));
+    .sort((a, b) =>
+      compareProfileCandidates(
+        a,
+        b,
+        nowMs,
+        shouldFallback ? scopeId : undefined,
+      ),
+    );
 
   const selectedLines: string[] = [];
   const seenKeys = new Set<string>();
@@ -139,10 +168,13 @@ function compareProfileCandidates(
     if (!leftIsPreferred && rightIsPreferred) return 1;
   }
 
-  const trustDelta = (TRUST_RANK[right.verificationState] ?? 0) - (TRUST_RANK[left.verificationState] ?? 0);
+  const trustDelta =
+    (TRUST_RANK[right.verificationState] ?? 0) -
+    (TRUST_RANK[left.verificationState] ?? 0);
   if (trustDelta !== 0) return trustDelta;
 
-  const scoreDelta = candidateRankScore(right, nowMs) - candidateRankScore(left, nowMs);
+  const scoreDelta =
+    candidateRankScore(right, nowMs) - candidateRankScore(left, nowMs);
   if (scoreDelta !== 0) return scoreDelta;
 
   const confidenceDelta = right.confidence - left.confidence;
@@ -152,10 +184,12 @@ function compareProfileCandidates(
 }
 
 function normalizeWhitespace(input: string, maxLength: number): string {
-  return input.replace(/\s+/g, ' ').trim().slice(0, maxLength);
+  return input.replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
 function renderProfileText(lines: string[]): string {
-  if (lines.length === 0) return '';
-  return ['<dynamic-user-profile>', ...lines, '</dynamic-user-profile>'].join('\n');
+  if (lines.length === 0) return "";
+  return ["<dynamic-user-profile>", ...lines, "</dynamic-user-profile>"].join(
+    "\n",
+  );
 }

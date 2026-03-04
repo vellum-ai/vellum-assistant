@@ -55,7 +55,9 @@ export function initSentry(): void {
         event.breadcrumbs = event.breadcrumbs.map((bc) => ({
           ...bc,
           message: bc.message ? redactString(bc.message) : bc.message,
-          data: bc.data ? (redactObject(bc.data) as Record<string, unknown>) : bc.data,
+          data: bc.data
+            ? (redactObject(bc.data) as Record<string, unknown>)
+            : bc.data,
         }));
       }
       if (event.extra) {

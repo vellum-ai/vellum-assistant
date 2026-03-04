@@ -13,7 +13,8 @@ const logCalls: { level: string; args: unknown[] }[] = [];
 mock.module("../logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
-      get: (_target, prop) =>
+      get:
+        (_target, prop) =>
         (...args: unknown[]) => {
           logCalls.push({ level: String(prop), args });
         },
@@ -42,13 +43,18 @@ import {
 // Temp directory for metadata / encrypted store fixtures
 // ---------------------------------------------------------------------------
 
-const testDir = join(tmpdir(), `cred-reader-test-${randomBytes(4).toString("hex")}`);
+const testDir = join(
+  tmpdir(),
+  `cred-reader-test-${randomBytes(4).toString("hex")}`,
+);
 
 function metadataDir(): string {
   return join(testDir, ".vellum", "workspace", "data", "credentials");
 }
 
-function writeMetadata(credentials: { service: string; field: string }[]): void {
+function writeMetadata(
+  credentials: { service: string; field: string }[],
+): void {
   const dir = metadataDir();
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "metadata.json"), JSON.stringify({ credentials }));
@@ -94,13 +100,19 @@ function writeEncryptedStore(entries: Record<string, string>): void {
     KEY_LENGTH,
     "sha512",
   );
-  const encryptedEntries: Record<string, { iv: string; tag: string; data: string }> = {};
+  const encryptedEntries: Record<
+    string,
+    { iv: string; tag: string; data: string }
+  > = {};
   for (const [account, value] of Object.entries(entries)) {
     const iv = randomBytes(12);
     const cipher = createCipheriv(ALGORITHM, key, iv, {
       authTagLength: AUTH_TAG_LENGTH,
     });
-    const encrypted = Buffer.concat([cipher.update(value, "utf-8"), cipher.final()]);
+    const encrypted = Buffer.concat([
+      cipher.update(value, "utf-8"),
+      cipher.final(),
+    ]);
     const tag = cipher.getAuthTag();
     encryptedEntries[account] = {
       iv: iv.toString("hex"),
@@ -139,7 +151,10 @@ afterEach(() => {
     // best-effort cleanup
   }
   // Restore platform in case a test changed it
-  Object.defineProperty(process, "platform", { value: originalPlatform, writable: true });
+  Object.defineProperty(process, "platform", {
+    value: originalPlatform,
+    writable: true,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -172,7 +187,10 @@ describe("readTelegramCredentials: encrypted store only (existing behavior)", ()
 
 describe("readTelegramCredentials: keychain on macOS", () => {
   beforeEach(() => {
-    Object.defineProperty(process, "platform", { value: "darwin", writable: true });
+    Object.defineProperty(process, "platform", {
+      value: "darwin",
+      writable: true,
+    });
   });
 
   test("returns credentials from keychain when available on macOS", () => {
@@ -186,7 +204,8 @@ describe("readTelegramCredentials: keychain on macOS", () => {
       const aIdx = (args as string[]).indexOf("-a");
       const account = (args as string[])[aIdx + 1];
       if (account === "credential:telegram:bot_token") return "kc-bot-token\n";
-      if (account === "credential:telegram:webhook_secret") return "kc-webhook-secret\n";
+      if (account === "credential:telegram:webhook_secret")
+        return "kc-webhook-secret\n";
       throw new Error("not found");
     });
 
@@ -207,8 +226,10 @@ describe("readTelegramCredentials: keychain on macOS", () => {
     execFileSyncMock.mockImplementation((_cmd: string, args: string[]) => {
       const aIdx = (args as string[]).indexOf("-a");
       const account = (args as string[])[aIdx + 1];
-      if (account === "credential:telegram:bot_token") return "keychain-token\n";
-      if (account === "credential:telegram:webhook_secret") return "keychain-secret\n";
+      if (account === "credential:telegram:bot_token")
+        return "keychain-token\n";
+      if (account === "credential:telegram:webhook_secret")
+        return "keychain-secret\n";
       throw new Error("not found");
     });
 
@@ -240,7 +261,10 @@ describe("readTelegramCredentials: keychain on macOS", () => {
 
 describe("readTelegramCredentials: non-macOS platforms", () => {
   test("skips keychain on non-macOS and uses encrypted store", () => {
-    Object.defineProperty(process, "platform", { value: "linux", writable: true });
+    Object.defineProperty(process, "platform", {
+      value: "linux",
+      writable: true,
+    });
 
     writeMetadata([
       { service: "telegram", field: "bot_token" },
@@ -248,7 +272,9 @@ describe("readTelegramCredentials: non-macOS platforms", () => {
     ]);
 
     // readKeychainCredential should return undefined on linux
-    const keychainResult = readKeychainCredential("credential:telegram:bot_token");
+    const keychainResult = readKeychainCredential(
+      "credential:telegram:bot_token",
+    );
     expect(keychainResult).toBeUndefined();
 
     // execFileSync should NOT have been called since platform is not darwin
@@ -271,7 +297,10 @@ describe("readTelegramCredentials: neither backend has credentials", () => {
 
 describe("readKeychainCredential", () => {
   beforeEach(() => {
-    Object.defineProperty(process, "platform", { value: "darwin", writable: true });
+    Object.defineProperty(process, "platform", {
+      value: "darwin",
+      writable: true,
+    });
   });
 
   test("returns credential value from keychain on macOS", () => {
@@ -283,7 +312,9 @@ describe("readKeychainCredential", () => {
 
   test("returns undefined when keychain item not found (exit code 44)", () => {
     execFileSyncMock.mockImplementation(() => {
-      const err = new Error("security: SecKeychainSearchCopyNext: The specified item could not be found") as Error & { status: number };
+      const err = new Error(
+        "security: SecKeychainSearchCopyNext: The specified item could not be found",
+      ) as Error & { status: number };
       err.status = 44;
       throw err;
     });
@@ -294,7 +325,9 @@ describe("readKeychainCredential", () => {
 
   test("returns undefined for transient keychain errors (non-44 exit code)", () => {
     execFileSyncMock.mockImplementation(() => {
-      const err = new Error("security: The user name or passphrase you entered is not correct.") as Error & { status: number };
+      const err = new Error(
+        "security: The user name or passphrase you entered is not correct.",
+      ) as Error & { status: number };
       err.status = 51;
       throw err;
     });
@@ -305,7 +338,10 @@ describe("readKeychainCredential", () => {
   });
 
   test("returns undefined on non-darwin platforms", () => {
-    Object.defineProperty(process, "platform", { value: "linux", writable: true });
+    Object.defineProperty(process, "platform", {
+      value: "linux",
+      writable: true,
+    });
 
     const result = readKeychainCredential("credential:telegram:bot_token");
     expect(result).toBeUndefined();
@@ -319,7 +355,14 @@ describe("readKeychainCredential", () => {
 
     expect(execFileSyncMock).toHaveBeenCalledWith(
       "security",
-      ["find-generic-password", "-s", "vellum-assistant", "-a", "credential:telegram:bot_token", "-w"],
+      [
+        "find-generic-password",
+        "-s",
+        "vellum-assistant",
+        "-a",
+        "credential:telegram:bot_token",
+        "-w",
+      ],
       expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
     );
   });
@@ -327,7 +370,10 @@ describe("readKeychainCredential", () => {
 
 describe("log output: no plaintext secrets", () => {
   beforeEach(() => {
-    Object.defineProperty(process, "platform", { value: "darwin", writable: true });
+    Object.defineProperty(process, "platform", {
+      value: "darwin",
+      writable: true,
+    });
   });
 
   test("log messages never contain secret values", () => {
@@ -339,8 +385,10 @@ describe("log output: no plaintext secrets", () => {
     execFileSyncMock.mockImplementation((_cmd: string, args: string[]) => {
       const aIdx = (args as string[]).indexOf("-a");
       const account = (args as string[])[aIdx + 1];
-      if (account === "credential:telegram:bot_token") return "SUPER_SECRET_TOKEN_123\n";
-      if (account === "credential:telegram:webhook_secret") return "SUPER_SECRET_WEBHOOK_456\n";
+      if (account === "credential:telegram:bot_token")
+        return "SUPER_SECRET_TOKEN_123\n";
+      if (account === "credential:telegram:webhook_secret")
+        return "SUPER_SECRET_WEBHOOK_456\n";
       throw new Error("not found");
     });
 

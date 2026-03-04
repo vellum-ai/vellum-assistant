@@ -11,7 +11,7 @@
  * `invite-redemption-service.ts`.
  */
 
-import type { ChannelId } from '../channels/types.js';
+import type { ChannelId } from "../channels/types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,7 +72,9 @@ export function registerTransport(transport: ChannelInviteTransport): void {
  * Look up the registered transport for a channel. Returns `undefined` when
  * no transport has been registered for the given channel.
  */
-export function getTransport(channel: ChannelId): ChannelInviteTransport | undefined {
+export function getTransport(
+  channel: ChannelId,
+): ChannelInviteTransport | undefined {
   return registry.get(channel);
 }
 

@@ -4,20 +4,20 @@
  * decision engine route contextually.
  */
 
-import type { GuardianQuestionPayload } from './guardian-question-mode.js';
+import type { GuardianQuestionPayload } from "./guardian-question-mode.js";
 
 export interface AttentionHints {
   requiresAction: boolean;
-  urgency: 'low' | 'medium' | 'high';
+  urgency: "low" | "medium" | "high";
   deadlineAt?: number; // epoch ms
   isAsyncBackground: boolean;
   visibleInSourceNow: boolean;
 }
 
-export type RoutingIntent = 'single_channel' | 'multi_channel' | 'all_channels';
+export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 
 export interface NotificationEventContextPayloadMap {
-  'guardian.question': GuardianQuestionPayload;
+  "guardian.question": GuardianQuestionPayload;
 }
 
 export type NotificationContextPayload<TEventName extends string = string> =

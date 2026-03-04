@@ -4,10 +4,10 @@
  * from gitleaks and detect-secrets.
  */
 
-import { getLogger } from '../util/logger.js';
-import { isAllowlisted } from './secret-allowlist.js';
+import { getLogger } from "../util/logger.js";
+import { isAllowlisted } from "./secret-allowlist.js";
 
-const log = getLogger('secret-scanner');
+const log = getLogger("secret-scanner");
 
 export interface SecretMatch {
   /** Human-readable type label, e.g. "AWS Access Key" */
@@ -32,11 +32,11 @@ export interface SecretPattern {
 const PATTERNS: SecretPattern[] = [
   // -- AWS --
   {
-    type: 'AWS Access Key',
+    type: "AWS Access Key",
     regex: /\b(AKIA[0-9A-Z]{16})\b/g,
   },
   {
-    type: 'AWS Secret Key',
+    type: "AWS Secret Key",
     // 40 chars of base-64 alphabet, preceded by a key-value separator.
     // Must contain mixed case AND special chars (+/) to distinguish from
     // hex strings like git SHAs.
@@ -45,142 +45,148 @@ const PATTERNS: SecretPattern[] = [
 
   // -- GitHub --
   {
-    type: 'GitHub Token',
+    type: "GitHub Token",
     // ghp_ (PAT), gho_ (OAuth), ghu_ (user-to-server), ghs_ (server-to-server), ghr_ (refresh)
     regex: /\b(gh[pousr]_[A-Za-z0-9_]{36,255})\b/g,
   },
   {
-    type: 'GitHub Fine-Grained PAT',
+    type: "GitHub Fine-Grained PAT",
     regex: /\b(github_pat_[A-Za-z0-9_]{22,255})\b/g,
   },
 
   // -- GitLab --
   {
-    type: 'GitLab Token',
+    type: "GitLab Token",
     regex: /\b(glpat-[A-Za-z0-9\-_]{20,})\b/g,
   },
 
   // -- Stripe --
   {
-    type: 'Stripe Secret Key',
+    type: "Stripe Secret Key",
     regex: /\b(sk_live_[A-Za-z0-9]{24,})\b/g,
   },
   {
-    type: 'Stripe Restricted Key',
+    type: "Stripe Restricted Key",
     regex: /\b(rk_live_[A-Za-z0-9]{24,})\b/g,
   },
 
   // -- Slack --
   {
-    type: 'Slack Bot Token',
+    type: "Slack Bot Token",
     regex: /\b(xoxb-[0-9]{10,}-[0-9]{10,}-[A-Za-z0-9]{24,})\b/g,
   },
   {
-    type: 'Slack User Token',
+    type: "Slack User Token",
     regex: /\b(xoxp-[0-9]{10,}-[0-9]{10,}-[0-9]{10,}-[a-f0-9]{32})\b/g,
   },
   {
-    type: 'Slack Webhook',
-    regex: /(https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]+)/g,
+    type: "Slack Webhook",
+    regex:
+      /(https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]+)/g,
   },
 
   // -- Telegram --
   {
-    type: 'Telegram Bot Token',
+    type: "Telegram Bot Token",
     // Format: <bot_id>:<secret> where bot_id is 8-10 digits and secret is 35 alphanumeric/dash/underscore chars
     regex: /\b([0-9]{8,10}:[A-Za-z0-9_-]{35})(?=[^A-Za-z0-9_-]|$)/g,
   },
 
   // -- Anthropic --
   {
-    type: 'Anthropic API Key',
+    type: "Anthropic API Key",
     regex: /\b(sk-ant-[A-Za-z0-9\-_]{80,})\b/g,
   },
 
   // -- OpenAI --
   {
-    type: 'OpenAI API Key',
+    type: "OpenAI API Key",
     regex: /\b(sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20})\b/g,
   },
   {
-    type: 'OpenAI Project Key',
+    type: "OpenAI Project Key",
     regex: /\b(sk-proj-[A-Za-z0-9\-_]{40,})\b/g,
   },
 
   // -- Google --
   {
-    type: 'Google API Key',
+    type: "Google API Key",
     regex: /\b(AIza[A-Za-z0-9\-_]{35})\b/g,
   },
   {
-    type: 'Google OAuth Client Secret',
+    type: "Google OAuth Client Secret",
     regex: /\b(GOCSPX-[A-Za-z0-9\-_]{28})\b/g,
   },
 
   // -- Twilio --
   {
-    type: 'Twilio API Key',
+    type: "Twilio API Key",
     regex: /\b(SK[0-9a-f]{32})\b/g,
   },
 
   // -- SendGrid --
   {
-    type: 'SendGrid API Key',
+    type: "SendGrid API Key",
     regex: /\b(SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43})\b/g,
   },
 
   // -- Mailgun --
   {
-    type: 'Mailgun API Key',
+    type: "Mailgun API Key",
     regex: /\b(key-[A-Za-z0-9]{32})\b/g,
   },
 
   // -- npm --
   {
-    type: 'npm Token',
+    type: "npm Token",
     regex: /\b(npm_[A-Za-z0-9]{36})\b/g,
   },
 
   // -- PyPI --
   {
-    type: 'PyPI API Token',
+    type: "PyPI API Token",
     regex: /\b(pypi-[A-Za-z0-9\-_]{50,})\b/g,
   },
 
   // -- Heroku --
   {
-    type: 'Heroku API Key',
+    type: "Heroku API Key",
     // Require a heroku-related keyword prefix to avoid flagging every UUID
-    regex: /(?:heroku[_-]?api[_-]?key|HEROKU[_-]?API[_-]?KEY|heroku[_-]?auth[_-]?token)\s*[:=]\s*['"]?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})['"]?/gi,
+    regex:
+      /(?:heroku[_-]?api[_-]?key|HEROKU[_-]?API[_-]?KEY|heroku[_-]?auth[_-]?token)\s*[:=]\s*['"]?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})['"]?/gi,
   },
 
   // -- Private keys --
   {
-    type: 'Private Key',
-    regex: /(-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY(?:\s+BLOCK)?-----)/g,
+    type: "Private Key",
+    regex:
+      /(-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY(?:\s+BLOCK)?-----)/g,
   },
 
   // -- JWT --
   {
-    type: 'JSON Web Token',
+    type: "JSON Web Token",
     regex: /\b(eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_.+/=]+)/g,
   },
 
   // -- Connection strings --
   {
-    type: 'Database Connection String',
-    regex: /((?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|mssql|redis|amqp|amqps):\/\/[^\s'"]+)/g,
+    type: "Database Connection String",
+    regex:
+      /((?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|mssql|redis|amqp|amqps):\/\/[^\s'"]+)/g,
   },
 
   // -- Generic "password" / "secret" / "token" assignments (quoted) --
   {
-    type: 'Generic Secret Assignment',
-    regex: /(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|credentials)\s*[:=]\s*['"]([^'"]{8,})['"]/gi,
+    type: "Generic Secret Assignment",
+    regex:
+      /(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|credentials)\s*[:=]\s*['"]([^'"]{8,})['"]/gi,
   },
   // -- Generic assignments (unquoted, e.g. .env files) --
   {
-    type: 'Generic Secret Assignment',
-    regex: /(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|credentials)\s*=\s*([^\s'"]{8,})/gi,
+    type: "Generic Secret Assignment",
+    regex:
+      /(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|credentials)\s*=\s*([^\s'"]{8,})/gi,
   },
 ];
 
@@ -190,32 +196,32 @@ const PATTERNS: SecretPattern[] = [
 
 const PLACEHOLDER_VALUES = new Set([
   // AWS
-  'AKIAIOSFODNN7EXAMPLE',
-  'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  "AKIAIOSFODNN7EXAMPLE",
+  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
   // Generic
-  'your-api-key-here',
-  'your-secret-key-here',
-  'your_api_key_here',
-  'your_secret_key_here',
-  'INSERT_YOUR_API_KEY',
-  'INSERT_YOUR_SECRET_KEY',
-  'REPLACE_ME',
-  'changeme',
-  'password',
-  'xxxxxxxx',
-  'TODO',
+  "your-api-key-here",
+  "your-secret-key-here",
+  "your_api_key_here",
+  "your_secret_key_here",
+  "INSERT_YOUR_API_KEY",
+  "INSERT_YOUR_SECRET_KEY",
+  "REPLACE_ME",
+  "changeme",
+  "password",
+  "xxxxxxxx",
+  "TODO",
 ]);
 
 const PLACEHOLDER_PREFIXES = [
-  'sk-test-',
-  'sk_test_',
-  'pk_test_',
-  'rk_test_',
-  'test_',
-  'fake_',
-  'dummy_',
-  'example_',
-  'sample_',
+  "sk-test-",
+  "sk_test_",
+  "pk_test_",
+  "rk_test_",
+  "test_",
+  "fake_",
+  "dummy_",
+  "example_",
+  "sample_",
 ];
 
 // Heroku-style UUIDs that are just zeros or sequential
@@ -227,11 +233,13 @@ const SEQUENTIAL_UUID = /^01234567-/;
 // ---------------------------------------------------------------------------
 
 function redact(value: string): string {
-  if (value.length <= 8) return '***';
+  if (value.length <= 8) return "***";
   const visiblePrefix = Math.min(4, Math.floor(value.length * 0.15));
   const visibleSuffix = Math.min(4, Math.floor(value.length * 0.15));
   const masked = value.length - visiblePrefix - visibleSuffix;
-  return `${value.slice(0, visiblePrefix)}${'*'.repeat(Math.min(masked, 20))}${value.slice(-visibleSuffix)}`;
+  return `${value.slice(0, visiblePrefix)}${"*".repeat(
+    Math.min(masked, 20),
+  )}${value.slice(-visibleSuffix)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,13 +270,17 @@ function isPlaceholder(value: string): boolean {
   // not be suppressed).  Require that placeholder words appear at a word
   // boundary and the value doesn't look like a URL.
   if (!/^[a-z]+:\/\//i.test(value)) {
-    if (/(?:^|[_\-\s])(?:example|placeholder|dummy|fake|your|insert|replace)(?:[_\-\s]|$)/i.test(value)) {
+    if (
+      /(?:^|[_\-\s])(?:example|placeholder|dummy|fake|your|insert|replace)(?:[_\-\s]|$)/i.test(
+        value,
+      )
+    ) {
       return true;
     }
   }
 
   // Repeated 'x' sequences (4+) as obvious placeholders
-  if (/x{4,}/i.test(value) && !/[0-9a-wyz]/i.test(value.replace(/x/gi, ''))) {
+  if (/x{4,}/i.test(value) && !/[0-9a-wyz]/i.test(value.replace(/x/gi, ""))) {
     return true;
   }
 
@@ -330,16 +342,33 @@ export function shannonEntropy(s: string): number {
 
 /** Keywords that, when adjacent to a high-entropy token, boost confidence. */
 const SECRET_CONTEXT_KEYWORDS = [
-  'key', 'token', 'secret', 'password', 'passwd', 'pwd',
-  'api_key', 'api-key', 'apikey',
-  'access_key', 'access-key', 'accesskey',
-  'auth_token', 'auth-token', 'authtoken',
-  'bearer', 'authorization',
-  'credential', 'credentials',
-  'private_key', 'private-key',
-  'client_secret', 'client-secret',
-  'signing_key', 'signing-key',
-  'encryption_key', 'encryption-key',
+  "key",
+  "token",
+  "secret",
+  "password",
+  "passwd",
+  "pwd",
+  "api_key",
+  "api-key",
+  "apikey",
+  "access_key",
+  "access-key",
+  "accesskey",
+  "auth_token",
+  "auth-token",
+  "authtoken",
+  "bearer",
+  "authorization",
+  "credential",
+  "credentials",
+  "private_key",
+  "private-key",
+  "client_secret",
+  "client-secret",
+  "signing_key",
+  "signing-key",
+  "encryption_key",
+  "encryption-key",
 ];
 
 /** Match hex strings (20+ chars of [0-9a-fA-F]) */
@@ -355,7 +384,11 @@ const BASE64_TOKEN_RE = /\b([A-Za-z0-9+/\-_]{20,}={0,3})(?=\W|$)/g;
  */
 /** Pre-compiled word-boundary regex for each context keyword. */
 const SECRET_CONTEXT_RES = SECRET_CONTEXT_KEYWORDS.map(
-  (kw) => new RegExp(`(?:^|[^a-z0-9])${kw.replace(/[-]/g, '\\$&')}(?:[^a-z0-9]|$)`, 'i'),
+  (kw) =>
+    new RegExp(
+      `(?:^|[^a-z0-9])${kw.replace(/[-]/g, "\\$&")}(?:[^a-z0-9]|$)`,
+      "i",
+    ),
 );
 
 function hasSecretContext(text: string, matchStart: number): boolean {
@@ -418,7 +451,7 @@ function scanEntropy(
 
     existingRanges.add(key);
     matches.push({
-      type: 'High-Entropy Hex Token',
+      type: "High-Entropy Hex Token",
       startIndex,
       endIndex,
       redactedValue: redact(value),
@@ -450,7 +483,7 @@ function scanEntropy(
 
     existingRanges.add(key);
     matches.push({
-      type: 'High-Entropy Base64 Token',
+      type: "High-Entropy Base64 Token",
       startIndex,
       endIndex,
       redactedValue: redact(value),
@@ -469,7 +502,9 @@ function scanEntropy(
  * scan instead of a regex with nested quantifiers (which caused catastrophic
  * backtracking on long near-miss inputs).
  */
-function findPercentEncodedSegments(text: string): Array<{ start: number; end: number; match: string }> {
+function findPercentEncodedSegments(
+  text: string,
+): Array<{ start: number; end: number; match: string }> {
   const results: Array<{ start: number; end: number; match: string }> = [];
   const len = text.length;
   const isUrlChar = (ch: string) => /[A-Za-z0-9_.~+/\-]/.test(ch);
@@ -478,13 +513,21 @@ function findPercentEncodedSegments(text: string): Array<{ start: number; end: n
   let i = 0;
   while (i < len) {
     // Look for the start of a percent-encoded segment
-    if (text[i] !== '%' && !isUrlChar(text[i])) { i++; continue; }
+    if (text[i] !== "%" && !isUrlChar(text[i])) {
+      i++;
+      continue;
+    }
 
     // Walk a candidate segment of URL-safe chars and %XX sequences
     const start = i;
     let pctCount = 0;
     while (i < len) {
-      if (text[i] === '%' && i + 2 < len && isHexDigit(text[i + 1]) && isHexDigit(text[i + 2])) {
+      if (
+        text[i] === "%" &&
+        i + 2 < len &&
+        isHexDigit(text[i + 1]) &&
+        isHexDigit(text[i + 2])
+      ) {
         pctCount++;
         i += 3;
       } else if (isUrlChar(text[i])) {
@@ -520,12 +563,14 @@ function isPrintableText(s: string): boolean {
 function tryDecodeBase64(encoded: string): string | null {
   try {
     // Handle both standard and URL-safe base64
-    const standardized = encoded.replace(/-/g, '+').replace(/_/g, '/');
-    const decoded = Buffer.from(standardized, 'base64').toString('utf-8');
+    const standardized = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = Buffer.from(standardized, "base64").toString("utf-8");
     if (!isPrintableText(decoded)) return null;
     // Verify round-trip to reject garbage decodes
-    const reEncoded = Buffer.from(decoded, 'utf-8').toString('base64').replace(/=+$/, '');
-    if (standardized.replace(/=+$/, '') !== reEncoded) return null;
+    const reEncoded = Buffer.from(decoded, "utf-8")
+      .toString("base64")
+      .replace(/=+$/, "");
+    if (standardized.replace(/=+$/, "") !== reEncoded) return null;
     return decoded;
   } catch {
     return null;
@@ -574,9 +619,13 @@ function tryDecodeContinuousHex(encoded: string): string | null {
 }
 
 /** Check if an encoded segment overlaps with any existing match range */
-function overlapsExisting(start: number, end: number, ranges: Set<string>): boolean {
+function overlapsExisting(
+  start: number,
+  end: number,
+  ranges: Set<string>,
+): boolean {
   for (const rangeKey of ranges) {
-    const sep = rangeKey.indexOf(':');
+    const sep = rangeKey.indexOf(":");
     const rStart = Number(rangeKey.slice(0, sep));
     const rEnd = Number(rangeKey.slice(sep + 1));
     if (start < rEnd && end > rStart) return true;
@@ -595,7 +644,9 @@ function scanEncoded(
   customPatterns?: SecretPattern[],
 ): SecretMatch[] {
   const matches: SecretMatch[] = [];
-  const allPatterns = customPatterns?.length ? [...PATTERNS, ...customPatterns] : PATTERNS;
+  const allPatterns = customPatterns?.length
+    ? [...PATTERNS, ...customPatterns]
+    : PATTERNS;
 
   // Helper: try to match decoded content against known secret patterns
   const tryMatchDecoded = (
@@ -616,7 +667,8 @@ function scanEncoded(
         const value = pm[1] ?? pm[0];
         if (isPlaceholder(value)) continue;
         if (isAllowlisted(value)) continue;
-        if (pattern.type === 'AWS Secret Key' && !isLikelyAwsSecret(value)) continue;
+        if (pattern.type === "AWS Secret Key" && !isLikelyAwsSecret(value))
+          continue;
 
         const key = `${startIndex}:${endIndex}`;
         existingRanges.add(key);
@@ -632,13 +684,19 @@ function scanEncoded(
   };
 
   // Percent-encoded segments: use linear-time scanner instead of regex
-  if (text.includes('%')) {
+  if (text.includes("%")) {
     for (const seg of findPercentEncodedSegments(text)) {
       if (seg.match.length > 1000) continue;
       if (overlapsExisting(seg.start, seg.end, existingRanges)) continue;
       const decoded = tryDecodePercentEncoded(seg.match);
       if (!decoded) continue;
-      tryMatchDecoded(seg.match, decoded, seg.start, seg.end, 'percent-encoded');
+      tryMatchDecoded(
+        seg.match,
+        decoded,
+        seg.start,
+        seg.end,
+        "percent-encoded",
+      );
     }
   }
 
@@ -649,9 +707,22 @@ function scanEncoded(
     encoding: string;
     quickCheck?: (t: string) => boolean;
   }> = [
-    { regex: HEX_ESCAPE_RE, decode: tryDecodeHexEscapes, encoding: 'hex-escaped', quickCheck: (t) => t.includes('\\x') },
-    { regex: ENCODED_BASE64_RE, decode: tryDecodeBase64, encoding: 'base64-encoded' },
-    { regex: CONTINUOUS_HEX_RE, decode: tryDecodeContinuousHex, encoding: 'hex-encoded' },
+    {
+      regex: HEX_ESCAPE_RE,
+      decode: tryDecodeHexEscapes,
+      encoding: "hex-escaped",
+      quickCheck: (t) => t.includes("\\x"),
+    },
+    {
+      regex: ENCODED_BASE64_RE,
+      decode: tryDecodeBase64,
+      encoding: "base64-encoded",
+    },
+    {
+      regex: CONTINUOUS_HEX_RE,
+      decode: tryDecodeContinuousHex,
+      encoding: "hex-encoded",
+    },
   ];
 
   for (const { regex, decode, encoding, quickCheck } of decoders) {
@@ -661,7 +732,7 @@ function scanEncoded(
     while ((m = regex.exec(text)) != null) {
       const encoded = m[1] ?? m[0];
       if (encoded.length > 1000) continue;
-      const startIndex = m.index + (m[0].indexOf(encoded));
+      const startIndex = m.index + m[0].indexOf(encoded);
       const endIndex = startIndex + encoded.length;
 
       if (overlapsExisting(startIndex, endIndex, existingRanges)) continue;
@@ -691,27 +762,40 @@ export interface CustomPatternInput {
  * logged and skipped — an empty-match pattern would cause infinite loops
  * in the `while (regex.exec(...))` scanning loops.
  */
-export function compileCustomPatterns(inputs: CustomPatternInput[]): SecretPattern[] {
+export function compileCustomPatterns(
+  inputs: CustomPatternInput[],
+): SecretPattern[] {
   const compiled: SecretPattern[] = [];
   for (const { label, pattern } of inputs) {
     try {
-      const regex = new RegExp(pattern, 'g');
-      if (regex.test('')) {
-        log.warn({ label, pattern }, 'Skipping custom secret pattern that matches empty strings');
+      const regex = new RegExp(pattern, "g");
+      if (regex.test("")) {
+        log.warn(
+          { label, pattern },
+          "Skipping custom secret pattern that matches empty strings",
+        );
         continue;
       }
       // Zero-width assertions (lookaheads, \b, etc.) pass the empty-string check
       // but still produce zero-length matches on real text, stalling the exec loop.
       regex.lastIndex = 0;
-      const sampleMatch = regex.exec('abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-/+=');
+      const sampleMatch = regex.exec(
+        "abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-/+=",
+      );
       regex.lastIndex = 0;
       if (sampleMatch && sampleMatch[0].length === 0) {
-        log.warn({ label, pattern }, 'Skipping custom secret pattern that produces zero-length matches');
+        log.warn(
+          { label, pattern },
+          "Skipping custom secret pattern that produces zero-length matches",
+        );
         continue;
       }
       compiled.push({ type: label, regex });
     } catch (err) {
-      log.warn({ label, pattern, error: String(err) }, 'Skipping invalid custom secret pattern');
+      log.warn(
+        { label, pattern, error: String(err) },
+        "Skipping invalid custom secret pattern",
+      );
     }
   }
   return compiled;
@@ -739,7 +823,9 @@ export function scanText(
   // De-duplicate overlapping ranges (a match can fire on multiple patterns)
   const seen = new Set<string>();
 
-  const allPatterns = customPatterns?.length ? [...PATTERNS, ...customPatterns] : PATTERNS;
+  const allPatterns = customPatterns?.length
+    ? [...PATTERNS, ...customPatterns]
+    : PATTERNS;
 
   for (const pattern of allPatterns) {
     // Reset lastIndex for global regexes
@@ -753,14 +839,15 @@ export function scanText(
       }
       // Use first capturing group if present, otherwise full match
       const value = m[1] ?? m[0];
-      const startIndex = m.index + (m[0].indexOf(value));
+      const startIndex = m.index + m[0].indexOf(value);
       const endIndex = startIndex + value.length;
 
       if (isPlaceholder(value)) continue;
       if (isAllowlisted(value)) continue;
 
       // Extra validation for AWS Secret Keys to avoid hex-string false positives
-      if (pattern.type === 'AWS Secret Key' && !isLikelyAwsSecret(value)) continue;
+      if (pattern.type === "AWS Secret Key" && !isLikelyAwsSecret(value))
+        continue;
 
       const key = `${startIndex}:${endIndex}`;
       if (seen.has(key)) continue;
@@ -785,7 +872,9 @@ export function scanText(
   matches.push(...encodedMatches);
 
   // Sort by position; at same start, wider match first so redaction covers the full span
-  matches.sort((a, b) => a.startIndex - b.startIndex || b.endIndex - a.endIndex);
+  matches.sort(
+    (a, b) => a.startIndex - b.startIndex || b.endIndex - a.endIndex,
+  );
   return matches;
 }
 
@@ -801,7 +890,7 @@ export function redactSecrets(
   const matches = scanText(text, entropyConfig, customPatterns);
   if (matches.length === 0) return text;
 
-  let result = '';
+  let result = "";
   let lastIndex = 0;
 
   for (const match of matches) {

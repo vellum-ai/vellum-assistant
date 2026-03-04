@@ -1,13 +1,16 @@
-import { cancelCall } from '../../calls/call-domain.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { cancelCall } from "../../calls/call-domain.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeCallEnd(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const callSessionId = input.call_session_id as string | undefined;
-  if (!callSessionId || typeof callSessionId !== 'string') {
-    return { content: 'Error: call_session_id is required and must be a string', isError: true };
+  if (!callSessionId || typeof callSessionId !== "string") {
+    return {
+      content: "Error: call_session_id is required and must be a string",
+      isError: true,
+    };
   }
 
   const reason = input.reason as string | undefined;
@@ -23,7 +26,7 @@ export async function executeCallEnd(
   }
 
   const lines = [
-    'Call ended successfully.',
+    "Call ended successfully.",
     `  Call Session ID: ${callSessionId}`,
     `  Status: cancelled`,
   ];
@@ -31,5 +34,5 @@ export async function executeCallEnd(
     lines.push(`  Reason: ${reason}`);
   }
 
-  return { content: lines.join('\n'), isError: false };
+  return { content: lines.join("\n"), isError: false };
 }

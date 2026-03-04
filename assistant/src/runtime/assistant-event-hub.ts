@@ -6,7 +6,7 @@
  * integration is wired here.
  */
 
-import type { AssistantEvent } from './assistant-event.js';
+import type { AssistantEvent } from "./assistant-event.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,7 +18,9 @@ export type AssistantEventFilter = {
   sessionId?: string;
 };
 
-export type AssistantEventCallback = (event: AssistantEvent) => void | Promise<void>;
+export type AssistantEventCallback = (
+  event: AssistantEvent,
+) => void | Promise<void>;
 
 /** Opaque handle returned by `subscribe`. Call `dispose()` to remove the subscription. */
 export interface AssistantEventSubscription {
@@ -83,9 +85,18 @@ export class AssistantEventHub {
       }
       oldest.active = false;
       this.subscribers.delete(oldest);
-      try { oldest.onEvict?.(); } catch { /* ignore eviction callback errors */ }
+      try {
+        oldest.onEvict?.();
+      } catch {
+        /* ignore eviction callback errors */
+      }
     }
-    const entry: SubscriberEntry = { filter, callback, active: true, onEvict: options?.onEvict };
+    const entry: SubscriberEntry = {
+      filter,
+      callback,
+      active: true,
+      onEvict: options?.onEvict,
+    };
     this.subscribers.add(entry);
 
     return {
@@ -125,7 +136,12 @@ export class AssistantEventHub {
       if (entry.filter.assistantId !== event.assistantId) continue;
       // System events (no sessionId) match all subscribers; scoped events
       // must match the subscriber's sessionId filter when present.
-      if (event.sessionId != null && entry.filter.sessionId != null && entry.filter.sessionId !== event.sessionId) continue;
+      if (
+        event.sessionId != null &&
+        entry.filter.sessionId != null &&
+        entry.filter.sessionId !== event.sessionId
+      )
+        continue;
       try {
         await entry.callback(event);
       } catch (err) {
@@ -134,7 +150,10 @@ export class AssistantEventHub {
     }
 
     if (errors.length > 0) {
-      throw new AggregateError(errors, 'One or more assistant-event subscribers threw');
+      throw new AggregateError(
+        errors,
+        "One or more assistant-event subscribers threw",
+      );
     }
   }
 

@@ -1,11 +1,13 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Unit interval [0, 1] — used for confidence and importance fields on memory items.
  * Coerces out-of-range numbers to the nearest bound rather than rejecting,
  * since LLM-generated values occasionally exceed the range.
  */
-export const unitInterval = z.number().transform((v) => Math.min(1, Math.max(0, v)));
+export const unitInterval = z
+  .number()
+  .transform((v) => Math.min(1, Math.max(0, v)));
 
 /** Zod schema for validating confidence/importance values on memory items. */
 export const memoryItemScores = z.object({

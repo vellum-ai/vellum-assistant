@@ -5,8 +5,8 @@
  * persistence module, and the credential vault orchestrator.
  */
 
-import type { TokenEndpointAuthMethod } from '../security/oauth2.js';
-import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
+import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
+import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 
 // ---------------------------------------------------------------------------
 // Scope policy
@@ -41,7 +41,7 @@ export interface OAuthProviderProfile {
   /** How to send client credentials at the token endpoint. */
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
   /** Force a specific callback transport. */
-  callbackTransport?: 'loopback' | 'gateway';
+  callbackTransport?: "loopback" | "gateway";
   /** Fixed port for loopback transport (e.g. Slack). */
   loopbackPort?: number;
   /** Endpoint to fetch user identity info after authorization. */

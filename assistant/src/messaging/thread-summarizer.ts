@@ -1,11 +1,16 @@
-import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
-import { getLogger } from '../util/logger.js';
-import { truncate } from '../util/truncate.js';
-import type { ThreadMessage, ThreadSummary } from './types.js';
+import {
+  createTimeout,
+  extractToolUse,
+  getConfiguredProvider,
+  userMessage,
+} from "../providers/provider-send-message.js";
+import { getLogger } from "../util/logger.js";
+import { truncate } from "../util/truncate.js";
+import type { ThreadMessage, ThreadSummary } from "./types.js";
 
-const log = getLogger('thread-summarizer');
+const log = getLogger("thread-summarizer");
 
-const SUMMARIZATION_MODEL_INTENT = 'latency-optimized' as const;
+const SUMMARIZATION_MODEL_INTENT = "latency-optimized" as const;
 const SUMMARIZATION_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_TOKENS = 4000;
 const CHARS_PER_TOKEN = 4;
@@ -15,11 +20,11 @@ const KEEP_FIRST = 2;
 const KEEP_LAST = 3;
 
 const EMPTY_SUMMARY: ThreadSummary = {
-  summary: '',
+  summary: "",
   participants: [],
   openQuestions: [],
-  lastAction: '',
-  sentiment: 'neutral',
+  lastAction: "",
+  sentiment: "neutral",
   messageCount: 0,
 };
 
@@ -35,56 +40,73 @@ Analyze the conversation and provide:
 You MUST respond using the \`store_thread_summary\` tool. Do not respond with text.`;
 
 const STORE_SUMMARY_TOOL = {
-  name: 'store_thread_summary',
-  description: 'Store the extracted thread summary',
+  name: "store_thread_summary",
+  description: "Store the extracted thread summary",
   input_schema: {
-    type: 'object' as const,
+    type: "object" as const,
     properties: {
       summary: {
-        type: 'string',
-        description: 'Concise overview of the conversation (2-4 sentences)',
+        type: "string",
+        description: "Concise overview of the conversation (2-4 sentences)",
       },
       participants: {
-        type: 'array',
+        type: "array",
         items: {
-          type: 'object',
+          type: "object",
           properties: {
-            name: { type: 'string' },
-            role: { type: 'string', description: 'Optional role inferred from context' },
+            name: { type: "string" },
+            role: {
+              type: "string",
+              description: "Optional role inferred from context",
+            },
           },
-          required: ['name'],
+          required: ["name"],
         },
-        description: 'List of conversation participants',
+        description: "List of conversation participants",
       },
       openQuestions: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Unresolved questions or pending items',
+        type: "array",
+        items: { type: "string" },
+        description: "Unresolved questions or pending items",
       },
       lastAction: {
-        type: 'string',
-        description: 'The most recent meaningful action or statement',
+        type: "string",
+        description: "The most recent meaningful action or statement",
       },
       sentiment: {
-        type: 'string',
-        enum: ['positive', 'neutral', 'negative', 'mixed'],
-        description: 'Overall emotional tone of the conversation',
+        type: "string",
+        enum: ["positive", "neutral", "negative", "mixed"],
+        description: "Overall emotional tone of the conversation",
       },
     },
-    required: ['summary', 'participants', 'openQuestions', 'lastAction', 'sentiment'],
+    required: [
+      "summary",
+      "participants",
+      "openQuestions",
+      "lastAction",
+      "sentiment",
+    ],
   },
 };
 
 // ── Formatting helpers ─────────────────────────────────────────────────
 
 function formatTimestamp(ts: number): string {
-  return new Date(ts).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+  return new Date(ts)
+    .toISOString()
+    .replace("T", " ")
+    .replace(/\.\d{3}Z$/, " UTC");
 }
 
 function formatTranscript(messages: ThreadMessage[]): string {
   return messages
-    .map((m) => `[${formatTimestamp(m.timestamp)}] ${m.sender} (${m.channel}):\n${m.body}`)
-    .join('\n\n');
+    .map(
+      (m) =>
+        `[${formatTimestamp(m.timestamp)}] ${m.sender} (${m.channel}):\n${
+          m.body
+        }`,
+    )
+    .join("\n\n");
 }
 
 /**
@@ -132,7 +154,8 @@ function truncateMessages(
   // Reserve space for the last messages
   const lastTranscript = formatTranscript(last);
   const separatorOverhead = 40; // "[... N messages truncated ...]\n\n"
-  let usedChars = formatTranscript(first).length + lastTranscript.length + separatorOverhead;
+  let usedChars =
+    formatTranscript(first).length + lastTranscript.length + separatorOverhead;
 
   for (const msg of middle) {
     const msgText = formatTranscript([msg]);
@@ -145,11 +168,11 @@ function truncateMessages(
   if (truncatedCount > 0) {
     // Insert a placeholder message to indicate truncation
     kept.push({
-      id: '__truncated__',
-      sender: 'system',
+      id: "__truncated__",
+      sender: "system",
       body: `[... ${truncatedCount} message(s) omitted for brevity ...]`,
       timestamp: kept[kept.length - 1].timestamp + 1,
-      channel: 'system',
+      channel: "system",
     });
   }
 
@@ -157,7 +180,9 @@ function truncateMessages(
   return kept;
 }
 
-function extractParticipants(messages: ThreadMessage[]): Array<{ name: string }> {
+function extractParticipants(
+  messages: ThreadMessage[],
+): Array<{ name: string }> {
   const seen = new Set<string>();
   const participants: Array<{ name: string }> = [];
   for (const msg of messages) {
@@ -177,7 +202,7 @@ function summarizeSingleMessage(message: ThreadMessage): ThreadSummary {
     participants: [{ name: message.sender }],
     openQuestions: [],
     lastAction: truncate(message.body, 200),
-    sentiment: 'neutral',
+    sentiment: "neutral",
     messageCount: 1,
   };
 }
@@ -190,7 +215,9 @@ async function summarizeWithLLM(
 ): Promise<ThreadSummary> {
   const provider = getConfiguredProvider();
   if (!provider) {
-    log.warn('Configured provider unavailable for thread summarization, returning basic summary');
+    log.warn(
+      "Configured provider unavailable for thread summarization, returning basic summary",
+    );
     return buildFallbackSummary(messages);
   }
 
@@ -202,14 +229,21 @@ async function summarizeWithLLM(
 
     try {
       const response = await provider.sendMessage(
-        [userMessage(`Summarize this conversation thread (${messages.length} messages):\n\n${transcript}`)],
+        [
+          userMessage(
+            `Summarize this conversation thread (${messages.length} messages):\n\n${transcript}`,
+          ),
+        ],
         [STORE_SUMMARY_TOOL],
         SYSTEM_PROMPT,
         {
           config: {
             modelIntent: SUMMARIZATION_MODEL_INTENT,
             max_tokens: 1024,
-            tool_choice: { type: 'tool' as const, name: 'store_thread_summary' },
+            tool_choice: {
+              type: "tool" as const,
+              name: "store_thread_summary",
+            },
           },
           signal,
         },
@@ -218,7 +252,9 @@ async function summarizeWithLLM(
 
       const toolBlock = extractToolUse(response);
       if (!toolBlock) {
-        log.warn('No tool_use block in summarization response, returning fallback');
+        log.warn(
+          "No tool_use block in summarization response, returning fallback",
+        );
         return buildFallbackSummary(messages);
       }
 
@@ -230,13 +266,18 @@ async function summarizeWithLLM(
         sentiment?: string;
       };
 
-      const validSentiments = new Set(['positive', 'neutral', 'negative', 'mixed']);
-      const sentiment = validSentiments.has(input.sentiment ?? '')
-        ? (input.sentiment as ThreadSummary['sentiment'])
-        : 'neutral';
+      const validSentiments = new Set([
+        "positive",
+        "neutral",
+        "negative",
+        "mixed",
+      ]);
+      const sentiment = validSentiments.has(input.sentiment ?? "")
+        ? (input.sentiment as ThreadSummary["sentiment"])
+        : "neutral";
 
       return {
-        summary: truncate(String(input.summary ?? ''), 2000, ''),
+        summary: truncate(String(input.summary ?? ""), 2000, ""),
         participants: Array.isArray(input.participants)
           ? input.participants.map((p) => ({
               name: String(p.name),
@@ -246,7 +287,7 @@ async function summarizeWithLLM(
         openQuestions: Array.isArray(input.openQuestions)
           ? input.openQuestions.map((q) => String(q))
           : [],
-        lastAction: truncate(String(input.lastAction ?? ''), 500, ''),
+        lastAction: truncate(String(input.lastAction ?? ""), 500, ""),
         sentiment,
         messageCount: messages.length,
       };
@@ -255,7 +296,10 @@ async function summarizeWithLLM(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.warn({ err: message }, 'Thread summarization LLM call failed, returning fallback');
+    log.warn(
+      { err: message },
+      "Thread summarization LLM call failed, returning fallback",
+    );
     return buildFallbackSummary(messages);
   }
 }
@@ -267,11 +311,15 @@ function buildFallbackSummary(messages: ThreadMessage[]): ThreadSummary {
   const lastMsg = sorted[sorted.length - 1];
 
   return {
-    summary: `Thread with ${messages.length} message(s) from ${extractParticipants(messages).map((p) => p.name).join(', ')}.`,
+    summary: `Thread with ${
+      messages.length
+    } message(s) from ${extractParticipants(messages)
+      .map((p) => p.name)
+      .join(", ")}.`,
     participants: extractParticipants(messages),
     openQuestions: [],
     lastAction: truncate(lastMsg.body, 200),
-    sentiment: 'neutral',
+    sentiment: "neutral",
     messageCount: messages.length,
   };
 }

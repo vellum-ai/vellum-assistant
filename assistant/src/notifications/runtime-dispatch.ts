@@ -6,12 +6,18 @@
  * loop after the decision engine and deterministic checks have run.
  */
 
-import { getLogger } from '../util/logger.js';
-import type { BroadcastDecisionOptions, NotificationBroadcaster } from './broadcaster.js';
-import type { NotificationSignal } from './signal.js';
-import type { NotificationDecision, NotificationDeliveryResult } from './types.js';
+import { getLogger } from "../util/logger.js";
+import type {
+  BroadcastDecisionOptions,
+  NotificationBroadcaster,
+} from "./broadcaster.js";
+import type { NotificationSignal } from "./signal.js";
+import type {
+  NotificationDecision,
+  NotificationDeliveryResult,
+} from "./types.js";
 
-const log = getLogger('notification-dispatch');
+const log = getLogger("notification-dispatch");
 
 export interface DispatchResult {
   dispatched: boolean;
@@ -36,11 +42,11 @@ export async function dispatchDecision(
   if (!decision.shouldNotify) {
     log.info(
       { signalId: signal.signalId, reason: decision.reasoningSummary },
-      'Decision: do not notify',
+      "Decision: do not notify",
     );
     return {
       dispatched: false,
-      reason: 'Decision: shouldNotify=false',
+      reason: "Decision: shouldNotify=false",
       deliveryResults: [],
     };
   }
@@ -49,19 +55,23 @@ export async function dispatchDecision(
   if (decision.selectedChannels.length === 0) {
     log.info(
       { signalId: signal.signalId },
-      'No channels selected in decision — nothing to dispatch',
+      "No channels selected in decision — nothing to dispatch",
     );
     return {
       dispatched: false,
-      reason: 'No channels selected',
+      reason: "No channels selected",
       deliveryResults: [],
     };
   }
 
   // Dispatch through the broadcaster
-  const deliveryResults = await broadcaster.broadcastDecision(signal, decision, options);
+  const deliveryResults = await broadcaster.broadcastDecision(
+    signal,
+    decision,
+    options,
+  );
 
-  const sentCount = deliveryResults.filter((r) => r.status === 'sent').length;
+  const sentCount = deliveryResults.filter((r) => r.status === "sent").length;
   log.info(
     {
       signalId: signal.signalId,
@@ -69,7 +79,7 @@ export async function dispatchDecision(
       sentCount,
       totalAttempted: deliveryResults.length,
     },
-    'Dispatch complete',
+    "Dispatch complete",
   );
 
   return {

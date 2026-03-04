@@ -61,7 +61,8 @@ function readAssistants(): AssistantEntry[] {
     return [];
   }
   return entries.filter(
-    (e) => typeof e.assistantId === "string" && typeof e.runtimeUrl === "string",
+    (e) =>
+      typeof e.assistantId === "string" && typeof e.runtimeUrl === "string",
   );
 }
 
@@ -99,7 +100,9 @@ export function loadAllAssistants(): AssistantEntry[] {
 }
 
 export function saveAssistantEntry(entry: AssistantEntry): void {
-  const entries = readAssistants().filter((e) => e.assistantId !== entry.assistantId);
+  const entries = readAssistants().filter(
+    (e) => e.assistantId !== entry.assistantId,
+  );
   entries.unshift(entry);
   writeAssistants(entries);
 }
@@ -114,7 +117,10 @@ export function syncConfigToLockfile(): void {
   if (!existsSync(configPath)) return;
 
   try {
-    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
     const platform = raw.platform as Record<string, unknown> | undefined;
     const data = readLockfile();
     data.platformBaseUrl = (platform?.baseUrl as string) || undefined;

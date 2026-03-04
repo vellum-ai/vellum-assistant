@@ -6,11 +6,17 @@
  * orchestrator without duplicating storage logic.
  */
 
-import type { OAuth2FlowResult, TokenEndpointAuthMethod } from '../security/oauth2.js';
-import { deleteSecureKey, setSecureKey } from '../security/secure-keys.js';
-import { deleteCredentialMetadata, upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
-import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
-import { runPostConnectHook } from '../tools/credentials/post-connect-hooks.js';
+import type {
+  OAuth2FlowResult,
+  TokenEndpointAuthMethod,
+} from "../security/oauth2.js";
+import { deleteSecureKey, setSecureKey } from "../security/secure-keys.js";
+import {
+  deleteCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../tools/credentials/metadata-store.js";
+import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
+import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,7 +24,7 @@ import { runPostConnectHook } from '../tools/credentials/post-connect-hooks.js';
 
 export interface StoreOAuth2TokensParams {
   service: string;
-  tokens: OAuth2FlowResult['tokens'];
+  tokens: OAuth2FlowResult["tokens"];
   grantedScopes: string[];
   rawTokenResponse: Record<string, unknown>;
   clientId: string;
@@ -44,22 +50,37 @@ export interface StoreOAuth2TokensParams {
  * and credential metadata file. Runs any registered post-connect hook
  * for the service.
  */
-export async function storeOAuth2Tokens(params: StoreOAuth2TokensParams): Promise<{ accountInfo?: string }> {
+export async function storeOAuth2Tokens(
+  params: StoreOAuth2TokensParams,
+): Promise<{ accountInfo?: string }> {
   const {
-    service, tokens, grantedScopes, rawTokenResponse,
-    clientId, clientSecret, tokenUrl, tokenEndpointAuthMethod,
-    userinfoUrl, allowedTools, wellKnownInjectionTemplates,
+    service,
+    tokens,
+    grantedScopes,
+    rawTokenResponse,
+    clientId,
+    clientSecret,
+    tokenUrl,
+    tokenEndpointAuthMethod,
+    userinfoUrl,
+    allowedTools,
+    wellKnownInjectionTemplates,
   } = params;
 
-  const tokenStored = setSecureKey(`credential:${service}:access_token`, tokens.accessToken);
+  const tokenStored = setSecureKey(
+    `credential:${service}:access_token`,
+    tokens.accessToken,
+  );
   if (!tokenStored) {
-    throw new Error('Failed to store access token in secure storage');
+    throw new Error("Failed to store access token in secure storage");
   }
 
-  const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : null;
+  const expiresAt = tokens.expiresIn
+    ? Date.now() + tokens.expiresIn * 1000
+    : null;
 
   let accountInfo: string | undefined;
-  if (userinfoUrl && grantedScopes.some((s) => s.includes('userinfo'))) {
+  if (userinfoUrl && grantedScopes.some((s) => s.includes("userinfo"))) {
     try {
       const resp = await fetch(userinfoUrl, {
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
@@ -74,18 +95,24 @@ export async function storeOAuth2Tokens(params: StoreOAuth2TokensParams): Promis
   }
 
   // Persist client credentials in keychain for defense in depth
-  const clientIdStored = setSecureKey(`credential:${service}:client_id`, clientId);
+  const clientIdStored = setSecureKey(
+    `credential:${service}:client_id`,
+    clientId,
+  );
   if (!clientIdStored) {
-    throw new Error('Failed to store client_id in secure storage');
+    throw new Error("Failed to store client_id in secure storage");
   }
   if (clientSecret) {
-    const clientSecretStored = setSecureKey(`credential:${service}:client_secret`, clientSecret);
+    const clientSecretStored = setSecureKey(
+      `credential:${service}:client_secret`,
+      clientSecret,
+    );
     if (!clientSecretStored) {
-      throw new Error('Failed to store client_secret in secure storage');
+      throw new Error("Failed to store client_secret in secure storage");
     }
   }
 
-  upsertCredentialMetadata(service, 'access_token', {
+  upsertCredentialMetadata(service, "access_token", {
     allowedTools: allowedTools ?? [],
     expiresAt,
     grantedScopes,
@@ -93,21 +120,28 @@ export async function storeOAuth2Tokens(params: StoreOAuth2TokensParams): Promis
     oauth2TokenUrl: tokenUrl,
     oauth2ClientId: clientId,
     oauth2ClientSecret: clientSecret ?? null,
-    ...(tokenEndpointAuthMethod ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod } : {}),
-    ...(wellKnownInjectionTemplates ? { injectionTemplates: wellKnownInjectionTemplates } : {}),
+    ...(tokenEndpointAuthMethod
+      ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod }
+      : {}),
+    ...(wellKnownInjectionTemplates
+      ? { injectionTemplates: wellKnownInjectionTemplates }
+      : {}),
   });
 
   if (tokens.refreshToken) {
-    const refreshStored = setSecureKey(`credential:${service}:refresh_token`, tokens.refreshToken);
+    const refreshStored = setSecureKey(
+      `credential:${service}:refresh_token`,
+      tokens.refreshToken,
+    );
     if (refreshStored) {
-      upsertCredentialMetadata(service, 'refresh_token', {});
+      upsertCredentialMetadata(service, "refresh_token", {});
     }
   } else {
     // Re-auth grants that omit refresh_token must clear any stale stored
     // token — otherwise withValidToken() will attempt refresh with invalid
     // credentials.
     deleteSecureKey(`credential:${service}:refresh_token`);
-    deleteCredentialMetadata(service, 'refresh_token');
+    deleteCredentialMetadata(service, "refresh_token");
   }
 
   // Run any provider-specific post-connect actions (e.g. Slack welcome DM)

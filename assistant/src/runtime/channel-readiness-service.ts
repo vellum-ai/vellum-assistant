@@ -2,17 +2,17 @@ import {
   getPhoneNumberSid,
   getTollFreeVerificationStatus,
   hasTwilioCredentials,
-} from '../calls/twilio-rest.js';
-import { getTwilioPhoneNumberEnv } from '../config/env.js';
-import { loadRawConfig } from '../config/loader.js';
-import { getSecureKey } from '../security/secure-keys.js';
+} from "../calls/twilio-rest.js";
+import { getTwilioPhoneNumberEnv } from "../config/env.js";
+import { loadRawConfig } from "../config/loader.js";
+import { getSecureKey } from "../security/secure-keys.js";
 import type {
   ChannelId,
   ChannelProbe,
   ChannelProbeContext,
   ChannelReadinessSnapshot,
   ReadinessCheckResult,
-} from './channel-readiness-types.js';
+} from "./channel-readiness-types.js";
 
 /** Remote check results are cached for 5 minutes before being considered stale. */
 export const REMOTE_TTL_MS = 5 * 60 * 1000;
@@ -23,8 +23,10 @@ function hasIngressConfigured(): boolean {
   try {
     const raw = loadRawConfig();
     const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
-    const enabled = (ingress.enabled as boolean | undefined) ?? (publicBaseUrl ? true : false);
+    const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
+    const enabled =
+      (ingress.enabled as boolean | undefined) ??
+      (publicBaseUrl ? true : false);
     return enabled && publicBaseUrl.length > 0;
   } catch {
     return false;
@@ -39,48 +41,52 @@ function resolveSmsPhoneNumber(): string {
   try {
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    return getTwilioPhoneNumberEnv()
-      || (smsConfig.phoneNumber as string)
-      || getSecureKey('credential:twilio:phone_number')
-      || '';
+    return (
+      getTwilioPhoneNumberEnv() ||
+      (smsConfig.phoneNumber as string) ||
+      getSecureKey("credential:twilio:phone_number") ||
+      ""
+    );
   } catch {
-    return getTwilioPhoneNumberEnv()
-      || getSecureKey('credential:twilio:phone_number')
-      || '';
+    return (
+      getTwilioPhoneNumberEnv() ||
+      getSecureKey("credential:twilio:phone_number") ||
+      ""
+    );
   }
 }
 
 const smsProbe: ChannelProbe = {
-  channel: 'sms',
+  channel: "sms",
   runLocalChecks(): ReadinessCheckResult[] {
     const results: ReadinessCheckResult[] = [];
 
     const hasCreds = hasTwilioCredentials();
     results.push({
-      name: 'twilio_credentials',
+      name: "twilio_credentials",
       passed: hasCreds,
       message: hasCreds
-        ? 'Twilio credentials are configured'
-        : 'Twilio Account SID and Auth Token are not configured',
+        ? "Twilio credentials are configured"
+        : "Twilio Account SID and Auth Token are not configured",
     });
 
     const resolvedNumber = resolveSmsPhoneNumber();
     const hasPhone = !!resolvedNumber;
     results.push({
-      name: 'phone_number',
+      name: "phone_number",
       passed: hasPhone,
       message: hasPhone
-        ? 'Phone number is assigned'
-        : 'No phone number assigned',
+        ? "Phone number is assigned"
+        : "No phone number assigned",
     });
 
     const hasIngress = hasIngressConfigured();
     results.push({
-      name: 'ingress',
+      name: "ingress",
       passed: hasIngress,
       message: hasIngress
-        ? 'Public ingress URL is configured'
-        : 'Public ingress URL is not configured or disabled',
+        ? "Public ingress URL is configured"
+        : "Public ingress URL is not configured or disabled",
     });
 
     return results;
@@ -88,50 +94,77 @@ const smsProbe: ChannelProbe = {
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
     if (!hasTwilioCredentials()) return [];
 
-    const accountSid = getSecureKey('credential:twilio:account_sid');
-    const authToken = getSecureKey('credential:twilio:auth_token');
+    const accountSid = getSecureKey("credential:twilio:account_sid");
+    const authToken = getSecureKey("credential:twilio:auth_token");
     if (!accountSid || !authToken) return [];
 
     const phoneNumber = resolveSmsPhoneNumber();
     if (!phoneNumber) return [];
 
     // Only toll-free numbers need verification checks
-    const tollFreePrefixes = ['+1800', '+1833', '+1844', '+1855', '+1866', '+1877', '+1888'];
-    const isTollFree = tollFreePrefixes.some((prefix) => phoneNumber.startsWith(prefix));
+    const tollFreePrefixes = [
+      "+1800",
+      "+1833",
+      "+1844",
+      "+1855",
+      "+1866",
+      "+1877",
+      "+1888",
+    ];
+    const isTollFree = tollFreePrefixes.some((prefix) =>
+      phoneNumber.startsWith(prefix),
+    );
     if (!isTollFree) return [];
 
     try {
-      const phoneSid = await getPhoneNumberSid(accountSid, authToken, phoneNumber);
+      const phoneSid = await getPhoneNumberSid(
+        accountSid,
+        authToken,
+        phoneNumber,
+      );
       if (!phoneSid) {
-        return [{
-          name: 'toll_free_verification',
-          passed: false,
-          message: `Phone number ${phoneNumber} not found on Twilio account`,
-        }];
+        return [
+          {
+            name: "toll_free_verification",
+            passed: false,
+            message: `Phone number ${phoneNumber} not found on Twilio account`,
+          },
+        ];
       }
 
-      const verification = await getTollFreeVerificationStatus(accountSid, authToken, phoneSid);
+      const verification = await getTollFreeVerificationStatus(
+        accountSid,
+        authToken,
+        phoneSid,
+      );
       if (!verification) {
-        return [{
-          name: 'toll_free_verification',
-          passed: false,
-          message: 'No toll-free verification submitted. Verification is required for SMS sending.',
-        }];
+        return [
+          {
+            name: "toll_free_verification",
+            passed: false,
+            message:
+              "No toll-free verification submitted. Verification is required for SMS sending.",
+          },
+        ];
       }
 
-      const approved = verification.status === 'TWILIO_APPROVED';
-      return [{
-        name: 'toll_free_verification',
-        passed: approved,
-        message: `toll_free_verification: ${verification.status}`,
-      }];
+      const approved = verification.status === "TWILIO_APPROVED";
+      return [
+        {
+          name: "toll_free_verification",
+          passed: approved,
+          message: `toll_free_verification: ${verification.status}`,
+        },
+      ];
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return [{
-        name: 'toll_free_verification',
-        passed: false,
-        message: `Failed to check toll-free verification: ${message}`,
-      }];
+      return [
+        {
+          name: "toll_free_verification",
+          passed: false,
+          message: `Failed to check toll-free verification: ${message}`,
+        },
+      ];
     }
   },
 };
@@ -149,48 +182,52 @@ function resolveVoicePhoneNumber(): string {
   try {
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    return getTwilioPhoneNumberEnv()
-      || (smsConfig.phoneNumber as string)
-      || getSecureKey('credential:twilio:phone_number')
-      || '';
+    return (
+      getTwilioPhoneNumberEnv() ||
+      (smsConfig.phoneNumber as string) ||
+      getSecureKey("credential:twilio:phone_number") ||
+      ""
+    );
   } catch {
-    return getTwilioPhoneNumberEnv()
-      || getSecureKey('credential:twilio:phone_number')
-      || '';
+    return (
+      getTwilioPhoneNumberEnv() ||
+      getSecureKey("credential:twilio:phone_number") ||
+      ""
+    );
   }
 }
 
 const voiceProbe: ChannelProbe = {
-  channel: 'voice',
+  channel: "voice",
   runLocalChecks(): ReadinessCheckResult[] {
     const results: ReadinessCheckResult[] = [];
 
     const hasCreds = hasTwilioCredentials();
     results.push({
-      name: 'twilio_credentials',
+      name: "twilio_credentials",
       passed: hasCreds,
       message: hasCreds
-        ? 'Twilio credentials are configured'
-        : 'Twilio Account SID and Auth Token are not configured',
+        ? "Twilio credentials are configured"
+        : "Twilio Account SID and Auth Token are not configured",
     });
 
     const resolvedNumber = resolveVoicePhoneNumber();
     const hasPhone = !!resolvedNumber;
     results.push({
-      name: 'phone_number',
+      name: "phone_number",
       passed: hasPhone,
       message: hasPhone
-        ? 'Phone number is assigned for voice calls'
-        : 'No phone number assigned for voice calls',
+        ? "Phone number is assigned for voice calls"
+        : "No phone number assigned for voice calls",
     });
 
     const hasIngress = hasIngressConfigured();
     results.push({
-      name: 'ingress',
+      name: "ingress",
       passed: hasIngress,
       message: hasIngress
-        ? 'Public ingress URL is configured'
-        : 'Public ingress URL is not configured or disabled',
+        ? "Public ingress URL is configured"
+        : "Public ingress URL is not configured or disabled",
     });
 
     return results;
@@ -200,35 +237,37 @@ const voiceProbe: ChannelProbe = {
 // ── Telegram Probe ──────────────────────────────────────────────────────────
 
 const telegramProbe: ChannelProbe = {
-  channel: 'telegram',
+  channel: "telegram",
   runLocalChecks(): ReadinessCheckResult[] {
     const results: ReadinessCheckResult[] = [];
 
-    const hasBotToken = !!getSecureKey('credential:telegram:bot_token');
+    const hasBotToken = !!getSecureKey("credential:telegram:bot_token");
     results.push({
-      name: 'bot_token',
+      name: "bot_token",
       passed: hasBotToken,
       message: hasBotToken
-        ? 'Telegram bot token is configured'
-        : 'Telegram bot token is not configured',
+        ? "Telegram bot token is configured"
+        : "Telegram bot token is not configured",
     });
 
-    const hasWebhookSecret = !!getSecureKey('credential:telegram:webhook_secret');
+    const hasWebhookSecret = !!getSecureKey(
+      "credential:telegram:webhook_secret",
+    );
     results.push({
-      name: 'webhook_secret',
+      name: "webhook_secret",
       passed: hasWebhookSecret,
       message: hasWebhookSecret
-        ? 'Telegram webhook secret is configured'
-        : 'Telegram webhook secret is not configured',
+        ? "Telegram webhook secret is configured"
+        : "Telegram webhook secret is not configured",
     });
 
     const hasIngress = hasIngressConfigured();
     results.push({
-      name: 'ingress',
+      name: "ingress",
       passed: hasIngress,
       message: hasIngress
-        ? 'Public ingress URL is configured'
-        : 'Public ingress URL is not configured or disabled',
+        ? "Public ingress URL is configured"
+        : "Public ingress URL is not configured or disabled",
     });
 
     return results;
@@ -255,9 +294,7 @@ export class ChannelReadinessService {
     channel?: ChannelId,
     includeRemote?: boolean,
   ): Promise<ChannelReadinessSnapshot[]> {
-    const channels = channel
-      ? [channel]
-      : Array.from(this.probes.keys());
+    const channels = channel ? [channel] : Array.from(this.probes.keys());
 
     const results: ChannelReadinessSnapshot[] = [];
     for (const ch of channels) {
@@ -279,7 +316,10 @@ export class ChannelReadinessService {
       const now = Date.now();
 
       if (includeRemote && probe.runRemoteChecks) {
-        const cacheExpired = !cached || !cached.remoteChecks || (now - cached.checkedAt) >= REMOTE_TTL_MS;
+        const cacheExpired =
+          !cached ||
+          !cached.remoteChecks ||
+          now - cached.checkedAt >= REMOTE_TTL_MS;
         if (cacheExpired) {
           remoteChecks = await probe.runRemoteChecks(probeContext);
           remoteChecksFreshlyFetched = true;
@@ -293,14 +333,15 @@ export class ChannelReadinessService {
         // Surface cached remote checks for visibility but never let them affect
         // readiness when the caller explicitly opted out of remote checks.
         remoteChecks = cached.remoteChecks;
-        stale = (now - cached.checkedAt) >= REMOTE_TTL_MS;
+        stale = now - cached.checkedAt >= REMOTE_TTL_MS;
         remoteChecksAffectReadiness = false;
       }
 
       const allLocalPassed = localChecks.every((c) => c.passed);
-      const allRemotePassed = (remoteChecks && remoteChecksAffectReadiness)
-        ? remoteChecks.every((c) => c.passed)
-        : true;
+      const allRemotePassed =
+        remoteChecks && remoteChecksAffectReadiness
+          ? remoteChecks.every((c) => c.passed)
+          : true;
       const ready = allLocalPassed && allRemotePassed;
 
       const reasons: Array<{ code: string; text: string }> = [];
@@ -320,7 +361,10 @@ export class ChannelReadinessService {
       const snapshot: ChannelReadinessSnapshot = {
         channel: ch,
         ready,
-        checkedAt: (remoteChecks && cached && !remoteChecksFreshlyFetched) ? cached.checkedAt : now,
+        checkedAt:
+          remoteChecks && cached && !remoteChecksFreshlyFetched
+            ? cached.checkedAt
+            : now,
         stale,
         reasons,
         localChecks,
@@ -355,7 +399,12 @@ export class ChannelReadinessService {
       ready: false,
       checkedAt: Date.now(),
       stale: false,
-      reasons: [{ code: 'unsupported_channel', text: `Channel ${channel} is not supported` }],
+      reasons: [
+        {
+          code: "unsupported_channel",
+          text: `Channel ${channel} is not supported`,
+        },
+      ],
       localChecks: [],
     };
   }

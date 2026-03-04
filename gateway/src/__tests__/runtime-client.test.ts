@@ -1,13 +1,21 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import type { RuntimeAttachmentMeta, RuntimeInboundPayload } from "../runtime/client.js";
+import type {
+  RuntimeAttachmentMeta,
+  RuntimeInboundPayload,
+} from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
@@ -105,8 +113,8 @@ describe("forwardToRuntime", () => {
   });
 
   test("successful forward returns runtime response", async () => {
-    fetchMock = mock(async () =>
-      new Response(JSON.stringify(successBody), { status: 200 }),
+    fetchMock = mock(
+      async () => new Response(JSON.stringify(successBody), { status: 200 }),
     );
 
     const config = makeConfig();
@@ -117,14 +125,12 @@ describe("forwardToRuntime", () => {
   });
 
   test("4xx error throws immediately without retry", async () => {
-    fetchMock = mock(async () =>
-      new Response("Bad request", { status: 400 }),
-    );
+    fetchMock = mock(async () => new Response("Bad request", { status: 400 }));
 
     const config = makeConfig();
-    await expect(
-      forwardToRuntime(config, payload),
-    ).rejects.toThrow("Runtime returned 400");
+    await expect(forwardToRuntime(config, payload)).rejects.toThrow(
+      "Runtime returned 400",
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -160,19 +166,17 @@ describe("forwardToRuntime", () => {
   });
 
   test("5xx error exhausts retries and throws", async () => {
-    fetchMock = mock(async () =>
-      new Response("Server error", { status: 500 }),
-    );
+    fetchMock = mock(async () => new Response("Server error", { status: 500 }));
 
     const config = makeConfig();
-    await expect(
-      forwardToRuntime(config, payload),
-    ).rejects.toThrow("Runtime returned 500");
+    await expect(forwardToRuntime(config, payload)).rejects.toThrow(
+      "Runtime returned 500",
+    );
   });
 
   test("response includes typed attachment metadata", async () => {
-    fetchMock = mock(async () =>
-      new Response(JSON.stringify(successBody), { status: 200 }),
+    fetchMock = mock(
+      async () => new Response(JSON.stringify(successBody), { status: 200 }),
     );
 
     const config = makeConfig();
@@ -187,8 +191,8 @@ describe("forwardToRuntime", () => {
   });
 
   test("sends JWT Authorization header to runtime", async () => {
-    fetchMock = mock(async () =>
-      new Response(JSON.stringify(successBody), { status: 200 }),
+    fetchMock = mock(
+      async () => new Response(JSON.stringify(successBody), { status: 200 }),
     );
 
     const config = makeConfig({});
@@ -215,8 +219,9 @@ describe("downloadAttachment", () => {
       data: "iVBORw0KGgo=",
     };
 
-    fetchMock = mock(async () =>
-      new Response(JSON.stringify(attachmentPayload), { status: 200 }),
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify(attachmentPayload), { status: 200 }),
     );
 
     const config = makeConfig();
@@ -230,14 +235,15 @@ describe("downloadAttachment", () => {
   });
 
   test("throws on 404 not found", async () => {
-    fetchMock = mock(async () =>
-      new Response('{"error":"Attachment not found"}', { status: 404 }),
+    fetchMock = mock(
+      async () =>
+        new Response('{"error":"Attachment not found"}', { status: 404 }),
     );
 
     const config = makeConfig();
-    await expect(
-      downloadAttachment(config, "nonexistent"),
-    ).rejects.toThrow("Attachment download failed (404)");
+    await expect(downloadAttachment(config, "nonexistent")).rejects.toThrow(
+      "Attachment download failed (404)",
+    );
   });
 });
 
@@ -248,16 +254,18 @@ describe("forwardTwilioVoiceWebhook", () => {
 
   test("sends params and originalUrl to runtime internal endpoint", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    fetchMock = mock(async () =>
-      new Response(twiml, {
-        status: 200,
-        headers: { "Content-Type": "text/xml" },
-      }),
+    fetchMock = mock(
+      async () =>
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
     );
 
     const config = makeConfig({});
     const params = { CallSid: "CA123", AccountSid: "AC456" };
-    const originalUrl = "https://example.com/webhooks/twilio/voice?callSessionId=sess-1";
+    const originalUrl =
+      "https://example.com/webhooks/twilio/voice?callSessionId=sess-1";
 
     const result = await forwardTwilioVoiceWebhook(config, params, originalUrl);
     expect(result.status).toBe(200);
@@ -265,7 +273,9 @@ describe("forwardTwilioVoiceWebhook", () => {
     expect(result.headers["Content-Type"]).toBe("text/xml");
 
     const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(calledUrl).toBe("http://localhost:7821/v1/internal/twilio/voice-webhook");
+    expect(calledUrl).toBe(
+      "http://localhost:7821/v1/internal/twilio/voice-webhook",
+    );
 
     const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
     const sentBody = JSON.parse(calledInit.body as string);
@@ -307,11 +317,12 @@ describe("forwardTwilioConnectActionWebhook", () => {
 
   test("sends params to runtime internal connect-action endpoint", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    fetchMock = mock(async () =>
-      new Response(twiml, {
-        status: 200,
-        headers: { "Content-Type": "text/xml" },
-      }),
+    fetchMock = mock(
+      async () =>
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
     );
 
     const config = makeConfig({});
@@ -322,16 +333,20 @@ describe("forwardTwilioConnectActionWebhook", () => {
     expect(result.body).toBe(twiml);
 
     const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(calledUrl).toBe("http://localhost:7821/v1/internal/twilio/connect-action");
+    expect(calledUrl).toBe(
+      "http://localhost:7821/v1/internal/twilio/connect-action",
+    );
   });
 
   test("returns runtime error status and body", async () => {
-    fetchMock = mock(async () =>
-      new Response('{"error":"Not found"}', { status: 404 }),
+    fetchMock = mock(
+      async () => new Response('{"error":"Not found"}', { status: 404 }),
     );
 
     const config = makeConfig();
-    const result = await forwardTwilioConnectActionWebhook(config, { CallSid: "CA999" });
+    const result = await forwardTwilioConnectActionWebhook(config, {
+      CallSid: "CA999",
+    });
     expect(result.status).toBe(404);
     expect(result.body).toContain("Not found");
   });

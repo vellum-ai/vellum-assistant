@@ -10,51 +10,51 @@
 // ---------------------------------------------------------------------------
 
 export type ScopeProfile =
-  | 'actor_client_v1'
-  | 'gateway_ingress_v1'
-  | 'gateway_service_v1'
-  | 'ipc_v1'
-  | 'ui_page_v1';
+  | "actor_client_v1"
+  | "gateway_ingress_v1"
+  | "gateway_service_v1"
+  | "ipc_v1"
+  | "ui_page_v1";
 
 // ---------------------------------------------------------------------------
 // Individual scope strings
 // ---------------------------------------------------------------------------
 
 export type Scope =
-  | 'chat.read'
-  | 'chat.write'
-  | 'approval.read'
-  | 'approval.write'
-  | 'settings.read'
-  | 'settings.write'
-  | 'attachments.read'
-  | 'attachments.write'
-  | 'calls.read'
-  | 'calls.write'
-  | 'ingress.write'
-  | 'internal.write'
-  | 'feature_flags.read'
-  | 'feature_flags.write'
-  | 'ipc.all';
+  | "chat.read"
+  | "chat.write"
+  | "approval.read"
+  | "approval.write"
+  | "settings.read"
+  | "settings.write"
+  | "attachments.read"
+  | "attachments.write"
+  | "calls.read"
+  | "calls.write"
+  | "ingress.write"
+  | "internal.write"
+  | "feature_flags.read"
+  | "feature_flags.write"
+  | "ipc.all";
 
 // ---------------------------------------------------------------------------
 // Principal types — derived from the sub pattern
 // ---------------------------------------------------------------------------
 
-export type PrincipalType = 'actor' | 'svc_gateway' | 'ipc';
+export type PrincipalType = "actor" | "svc_gateway" | "ipc";
 
 // ---------------------------------------------------------------------------
 // Token audience — which service the JWT is intended for
 // ---------------------------------------------------------------------------
 
-export type TokenAudience = 'vellum-gateway' | 'vellum-daemon';
+export type TokenAudience = "vellum-gateway" | "vellum-daemon";
 
 // ---------------------------------------------------------------------------
 // JWT claims — the payload inside the token
 // ---------------------------------------------------------------------------
 
 export interface TokenClaims {
-  iss: 'vellum-auth';
+  iss: "vellum-auth";
   aud: TokenAudience;
   sub: string;
   scope_profile: ScopeProfile;

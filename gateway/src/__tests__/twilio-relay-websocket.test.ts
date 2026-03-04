@@ -11,15 +11,15 @@ import {
 // Auth setup — initialize signing key so JWT minting/validation works
 // ---------------------------------------------------------------------------
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
 /** Mint a valid edge JWT (aud=vellum-gateway) for test requests. */
 function mintEdgeToken(): string {
   return mintToken({
-    aud: 'vellum-gateway',
-    sub: 'svc:gateway:self',
-    scope_profile: 'gateway_service_v1',
+    aud: "vellum-gateway",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -30,8 +30,8 @@ function mintEdgeToken(): string {
 // does not clobber the static values the source code compares against.
 // ---------------------------------------------------------------------------
 const WS_CONNECTING = WebSocket.CONNECTING; // 0
-const WS_OPEN = WebSocket.OPEN;             // 1
-const WS_CLOSED = WebSocket.CLOSED;         // 3
+const WS_OPEN = WebSocket.OPEN; // 1
+const WS_CLOSED = WebSocket.CLOSED; // 3
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,9 +117,11 @@ function createFakeUpstreamWs() {
     sent,
     closes,
     listeners,
-    addEventListener: mock((event: string, cb: (...args: unknown[]) => void) => {
-      (listeners[event] ??= []).push(cb);
-    }),
+    addEventListener: mock(
+      (event: string, cb: (...args: unknown[]) => void) => {
+        (listeners[event] ??= []).push(cb);
+      },
+    ),
     send: mock((msg: unknown) => {
       sent.push(msg);
     }),
@@ -145,7 +147,9 @@ describe("createTwilioRelayWebsocketHandler", () => {
   test("returns 400 when callSessionId is missing", () => {
     const handler = createTwilioRelayWebsocketHandler(makeConfig());
     const req = new Request("http://localhost:7830/ws/twilio/relay");
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
@@ -159,16 +163,21 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       `http://localhost:7830/ws/twilio/relay?callSessionId=sess-42&token=${TEST_TOKEN}`,
     );
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeUndefined();
     expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
 
-    const call = (fakeServer.upgrade as ReturnType<typeof mock>).mock.calls[0] as unknown[];
+    const call = (fakeServer.upgrade as ReturnType<typeof mock>).mock
+      .calls[0] as unknown[];
     // First arg is the request, second is { data: ... }
     expect(call[0]).toBe(req);
-    const upgradeData = (call[1] as { data: { callSessionId: string; config: GatewayConfig } }).data;
+    const upgradeData = (
+      call[1] as { data: { callSessionId: string; config: GatewayConfig } }
+    ).data;
     expect(upgradeData.callSessionId).toBe("sess-42");
     expect(upgradeData.config).toBe(config);
   });
@@ -180,7 +189,9 @@ describe("createTwilioRelayWebsocketHandler", () => {
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-42",
       { headers: { authorization: `Bearer ${TEST_TOKEN}` } },
     );
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeUndefined();
@@ -193,7 +204,9 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       `http://localhost:7830/ws/twilio/relay?callSessionId=sess-1&token=${TEST_TOKEN}`,
     );
-    const fakeServer = { upgrade: mock(() => false) } as unknown as import("bun").Server<any>;
+    const fakeServer = {
+      upgrade: mock(() => false),
+    } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
@@ -207,7 +220,9 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
     );
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
@@ -221,7 +236,9 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
     );
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeUndefined();
@@ -234,7 +251,9 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
     );
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
@@ -248,7 +267,9 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1&token=wrong-token",
     );
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
@@ -300,17 +321,23 @@ describe("getRelayWebsocketHandlers", () => {
   });
 
   test("open creates upstream WebSocket to correct URL", () => {
-    const config = makeConfig({ assistantRuntimeBaseUrl: "http://runtime:8000" });
+    const config = makeConfig({
+      assistantRuntimeBaseUrl: "http://runtime:8000",
+    });
     const ws = createFakeDownstreamWs({
       callSessionId: "s&id=1",
       config,
     });
     handlers.open(ws as never);
 
-    const ctorCall = (globalThis.WebSocket as unknown as ReturnType<typeof mock>).mock.calls[0] as unknown[];
+    const ctorCall = (
+      globalThis.WebSocket as unknown as ReturnType<typeof mock>
+    ).mock.calls[0] as unknown[];
     const url = ctorCall[0] as string;
     // The URL includes a service JWT token parameter for runtime auth
-    expect(url).toStartWith("ws://runtime:8000/v1/calls/relay?callSessionId=s%26id%3D1&token=");
+    expect(url).toStartWith(
+      "ws://runtime:8000/v1/calls/relay?callSessionId=s%26id%3D1&token=",
+    );
   });
 
   // --- message buffering before upstream open --------------------------------

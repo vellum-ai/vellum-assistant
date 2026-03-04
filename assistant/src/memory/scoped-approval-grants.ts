@@ -11,21 +11,21 @@
  *   - Expired and revoked grants cannot be consumed.
  */
 
-import { and, eq, sql } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, eq, sql } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getLogger } from '../util/logger.js';
-import { getDb, rawChanges } from './db.js';
-import { scopedApprovalGrants } from './schema.js';
+import { getLogger } from "../util/logger.js";
+import { getDb, rawChanges } from "./db.js";
+import { scopedApprovalGrants } from "./schema.js";
 
-const log = getLogger('scoped-approval-grants');
+const log = getLogger("scoped-approval-grants");
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ScopeMode = 'request_id' | 'tool_signature';
-export type GrantStatus = 'active' | 'consumed' | 'expired' | 'revoked';
+export type ScopeMode = "request_id" | "tool_signature";
+export type GrantStatus = "active" | "consumed" | "expired" | "revoked";
 
 export interface ScopedApprovalGrant {
   id: string;
@@ -60,7 +60,9 @@ const MAX_CAS_RETRIES = 3;
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToGrant(row: typeof scopedApprovalGrants.$inferSelect): ScopedApprovalGrant {
+function rowToGrant(
+  row: typeof scopedApprovalGrants.$inferSelect,
+): ScopedApprovalGrant {
   return {
     id: row.id,
     assistantId: row.assistantId,
@@ -104,7 +106,9 @@ export interface CreateScopedApprovalGrantParams {
   expiresAt: string;
 }
 
-function createScopedApprovalGrant(params: CreateScopedApprovalGrantParams): ScopedApprovalGrant {
+function createScopedApprovalGrant(
+  params: CreateScopedApprovalGrantParams,
+): ScopedApprovalGrant {
   const db = getDb();
   const now = new Date().toISOString();
   const id = uuid();
@@ -123,7 +127,7 @@ function createScopedApprovalGrant(params: CreateScopedApprovalGrantParams): Sco
     callSessionId: params.callSessionId ?? null,
     requesterExternalUserId: params.requesterExternalUserId ?? null,
     guardianExternalUserId: params.guardianExternalUserId ?? null,
-    status: 'active' as const,
+    status: "active" as const,
     expiresAt: params.expiresAt,
     consumedAt: null,
     consumedByRequestId: null,
@@ -135,7 +139,7 @@ function createScopedApprovalGrant(params: CreateScopedApprovalGrantParams): Sco
 
   log.info(
     {
-      event: 'scoped_grant_created',
+      event: "scoped_grant_created",
       grantId: id,
       scopeMode: params.scopeMode,
       toolName: params.toolName ?? null,
@@ -145,7 +149,7 @@ function createScopedApprovalGrant(params: CreateScopedApprovalGrantParams): Sco
       executionChannel: params.executionChannel ?? null,
       expiresAt: params.expiresAt,
     },
-    'Scoped approval grant created',
+    "Scoped approval grant created",
   );
 
   return rowToGrant(row);
@@ -186,8 +190,8 @@ function consumeScopedApprovalGrantByRequestId(
         and(
           eq(scopedApprovalGrants.requestId, requestId),
           eq(scopedApprovalGrants.assistantId, assistantId),
-          eq(scopedApprovalGrants.scopeMode, 'request_id'),
-          eq(scopedApprovalGrants.status, 'active'),
+          eq(scopedApprovalGrants.scopeMode, "request_id"),
+          eq(scopedApprovalGrants.status, "active"),
           sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
         ),
       )
@@ -196,15 +200,22 @@ function consumeScopedApprovalGrantByRequestId(
 
     if (!candidate) {
       log.info(
-        { event: 'scoped_grant_consume_miss', requestId, consumingRequestId, assistantId, scopeMode: 'request_id', attempt },
-        'No matching active grant found for request ID',
+        {
+          event: "scoped_grant_consume_miss",
+          requestId,
+          consumingRequestId,
+          assistantId,
+          scopeMode: "request_id",
+          attempt,
+        },
+        "No matching active grant found for request ID",
       );
       return { ok: false, grant: null };
     }
 
     db.update(scopedApprovalGrants)
       .set({
-        status: 'consumed',
+        status: "consumed",
         consumedAt: currentTime,
         consumedByRequestId: consumingRequestId,
         updatedAt: currentTime,
@@ -212,7 +223,7 @@ function consumeScopedApprovalGrantByRequestId(
       .where(
         and(
           eq(scopedApprovalGrants.id, candidate.id),
-          eq(scopedApprovalGrants.status, 'active'),
+          eq(scopedApprovalGrants.status, "active"),
         ),
       )
       .run();
@@ -231,8 +242,15 @@ function consumeScopedApprovalGrantByRequestId(
 
     const grant = row ? rowToGrant(row) : null;
     log.info(
-      { event: 'scoped_grant_consume_success', grantId: grant?.id, requestId, consumingRequestId, assistantId, scopeMode: 'request_id' },
-      'Scoped approval grant consumed by request ID',
+      {
+        event: "scoped_grant_consume_success",
+        grantId: grant?.id,
+        requestId,
+        consumingRequestId,
+        assistantId,
+        scopeMode: "request_id",
+      },
+      "Scoped approval grant consumed by request ID",
     );
 
     return { ok: true, grant };
@@ -240,8 +258,15 @@ function consumeScopedApprovalGrantByRequestId(
 
   // All retry attempts exhausted — every candidate was stolen by concurrent consumers
   log.info(
-    { event: 'scoped_grant_consume_miss', requestId, consumingRequestId, assistantId, scopeMode: 'request_id', reason: 'cas_exhausted' },
-    'All CAS retry attempts exhausted for request ID consume',
+    {
+      event: "scoped_grant_consume_miss",
+      requestId,
+      consumingRequestId,
+      assistantId,
+      scopeMode: "request_id",
+      reason: "cas_exhausted",
+    },
+    "All CAS retry attempts exhausted for request ID consume",
   );
   return { ok: false, grant: null };
 }
@@ -289,8 +314,8 @@ function consumeScopedApprovalGrantByToolSignature(
   const conditions = [
     eq(scopedApprovalGrants.toolName, params.toolName),
     eq(scopedApprovalGrants.inputDigest, params.inputDigest),
-    eq(scopedApprovalGrants.scopeMode, 'tool_signature'),
-    eq(scopedApprovalGrants.status, 'active'),
+    eq(scopedApprovalGrants.scopeMode, "tool_signature"),
+    eq(scopedApprovalGrants.status, "active"),
     sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
   ];
 
@@ -331,7 +356,9 @@ function consumeScopedApprovalGrantByToolSignature(
       sql`(${scopedApprovalGrants.requesterExternalUserId} IS NULL OR ${scopedApprovalGrants.requesterExternalUserId} = ${params.requesterExternalUserId})`,
     );
   } else {
-    conditions.push(sql`${scopedApprovalGrants.requesterExternalUserId} IS NULL`);
+    conditions.push(
+      sql`${scopedApprovalGrants.requesterExternalUserId} IS NULL`,
+    );
   }
 
   const specificityOrder = sql`(CASE WHEN ${scopedApprovalGrants.executionChannel} IS NOT NULL THEN 1 ELSE 0 END
@@ -354,15 +381,20 @@ function consumeScopedApprovalGrantByToolSignature(
 
     if (!candidate) {
       log.info(
-        { event: 'scoped_grant_consume_miss', toolName: params.toolName, scopeMode: 'tool_signature', attempt },
-        'No matching active grant found for tool signature',
+        {
+          event: "scoped_grant_consume_miss",
+          toolName: params.toolName,
+          scopeMode: "tool_signature",
+          attempt,
+        },
+        "No matching active grant found for tool signature",
       );
       return { ok: false, grant: null };
     }
 
     db.update(scopedApprovalGrants)
       .set({
-        status: 'consumed',
+        status: "consumed",
         consumedAt: currentTime,
         consumedByRequestId: params.consumingRequestId,
         updatedAt: currentTime,
@@ -370,7 +402,7 @@ function consumeScopedApprovalGrantByToolSignature(
       .where(
         and(
           eq(scopedApprovalGrants.id, candidate.id),
-          eq(scopedApprovalGrants.status, 'active'),
+          eq(scopedApprovalGrants.status, "active"),
         ),
       )
       .run();
@@ -389,8 +421,14 @@ function consumeScopedApprovalGrantByToolSignature(
 
     const grant = row ? rowToGrant(row) : null;
     log.info(
-      { event: 'scoped_grant_consume_success', grantId: grant?.id, toolName: params.toolName, consumingRequestId: params.consumingRequestId, scopeMode: 'tool_signature' },
-      'Scoped approval grant consumed by tool signature',
+      {
+        event: "scoped_grant_consume_success",
+        grantId: grant?.id,
+        toolName: params.toolName,
+        consumingRequestId: params.consumingRequestId,
+        scopeMode: "tool_signature",
+      },
+      "Scoped approval grant consumed by tool signature",
     );
 
     return { ok: true, grant };
@@ -398,8 +436,13 @@ function consumeScopedApprovalGrantByToolSignature(
 
   // All retry attempts exhausted — every candidate was stolen by concurrent consumers
   log.info(
-    { event: 'scoped_grant_consume_miss', toolName: params.toolName, scopeMode: 'tool_signature', reason: 'cas_exhausted' },
-    'All CAS retry attempts exhausted for tool signature consume',
+    {
+      event: "scoped_grant_consume_miss",
+      toolName: params.toolName,
+      scopeMode: "tool_signature",
+      reason: "cas_exhausted",
+    },
+    "All CAS retry attempts exhausted for tool signature consume",
   );
   return { ok: false, grant: null };
 }
@@ -418,12 +461,12 @@ export function expireScopedApprovalGrants(now?: string): number {
 
   db.update(scopedApprovalGrants)
     .set({
-      status: 'expired',
+      status: "expired",
       updatedAt: currentTime,
     })
     .where(
       and(
-        eq(scopedApprovalGrants.status, 'active'),
+        eq(scopedApprovalGrants.status, "active"),
         sql`${scopedApprovalGrants.expiresAt} <= ${currentTime}`,
       ),
     )
@@ -432,7 +475,7 @@ export function expireScopedApprovalGrants(now?: string): number {
   const count = rawChanges();
   if (count > 0) {
     log.info(
-      { event: 'scoped_grant_expired', count },
+      { event: "scoped_grant_expired", count },
       `Expired ${count} scoped approval grant(s)`,
     );
   }
@@ -458,33 +501,44 @@ export interface RevokeContextParams {
  *
  * Typical use: revoke all grants for a call session when the call ends.
  */
-export function revokeScopedApprovalGrantsForContext(params: RevokeContextParams, now?: string): number {
+export function revokeScopedApprovalGrantsForContext(
+  params: RevokeContextParams,
+  now?: string,
+): number {
   const db = getDb();
   const currentTime = now ?? new Date().toISOString();
 
-  const conditions = [eq(scopedApprovalGrants.status, 'active')];
+  const conditions = [eq(scopedApprovalGrants.status, "active")];
 
   if (params.assistantId !== undefined) {
     conditions.push(eq(scopedApprovalGrants.assistantId, params.assistantId));
   }
   if (params.conversationId !== undefined) {
-    conditions.push(eq(scopedApprovalGrants.conversationId, params.conversationId));
+    conditions.push(
+      eq(scopedApprovalGrants.conversationId, params.conversationId),
+    );
   }
   if (params.callSessionId !== undefined) {
-    conditions.push(eq(scopedApprovalGrants.callSessionId, params.callSessionId));
+    conditions.push(
+      eq(scopedApprovalGrants.callSessionId, params.callSessionId),
+    );
   }
   if (params.requestChannel !== undefined) {
-    conditions.push(eq(scopedApprovalGrants.requestChannel, params.requestChannel));
+    conditions.push(
+      eq(scopedApprovalGrants.requestChannel, params.requestChannel),
+    );
   }
 
   // Guard: at least one context filter must be provided to avoid revoking ALL active grants
   if (conditions.length === 1) {
-    throw new Error('revokeScopedApprovalGrantsForContext requires at least one context filter');
+    throw new Error(
+      "revokeScopedApprovalGrantsForContext requires at least one context filter",
+    );
   }
 
   db.update(scopedApprovalGrants)
     .set({
-      status: 'revoked',
+      status: "revoked",
       updatedAt: currentTime,
     })
     .where(and(...conditions))
@@ -494,7 +548,7 @@ export function revokeScopedApprovalGrantsForContext(params: RevokeContextParams
   if (count > 0) {
     log.info(
       {
-        event: 'scoped_grant_revoked',
+        event: "scoped_grant_revoked",
         count,
         assistantId: params.assistantId,
         conversationId: params.conversationId,

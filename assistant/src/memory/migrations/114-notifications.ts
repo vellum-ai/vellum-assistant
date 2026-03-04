@@ -1,7 +1,7 @@
-import type { DrizzleDb } from '../db-connection.js';
-import { migrateNotificationTablesSchema } from './019-notification-tables-schema-migration.js';
-import { migrateNotificationDeliveryPairingColumns } from './027-notification-delivery-pairing-columns.js';
-import { migrateNotificationDeliveryClientAck } from './028-notification-delivery-client-ack.js';
+import type { DrizzleDb } from "../db-connection.js";
+import { migrateNotificationTablesSchema } from "./019-notification-tables-schema-migration.js";
+import { migrateNotificationDeliveryPairingColumns } from "./027-notification-delivery-pairing-columns.js";
+import { migrateNotificationDeliveryClientAck } from "./028-notification-delivery-client-ack.js";
 
 /**
  * Notification system tables: preferences, events, decisions, and deliveries.
@@ -24,8 +24,12 @@ export function createNotificationTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_preferences_assistant_id ON notification_preferences(assistant_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_preferences_assistant_priority ON notification_preferences(assistant_id, priority DESC)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_preferences_assistant_id ON notification_preferences(assistant_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_preferences_assistant_priority ON notification_preferences(assistant_id, priority DESC)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS notification_events (
@@ -42,8 +46,12 @@ export function createNotificationTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_events_assistant_event_created ON notification_events(assistant_id, source_event_name, created_at)`);
-  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_events_dedupe ON notification_events(assistant_id, dedupe_key) WHERE dedupe_key IS NOT NULL`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_events_assistant_event_created ON notification_events(assistant_id, source_event_name, created_at)`,
+  );
+  database.run(
+    /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_events_dedupe ON notification_events(assistant_id, dedupe_key) WHERE dedupe_key IS NOT NULL`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS notification_decisions (
@@ -60,7 +68,9 @@ export function createNotificationTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_decisions_event_id ON notification_decisions(notification_event_id)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_decisions_event_id ON notification_decisions(notification_event_id)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS notification_deliveries (
@@ -81,9 +91,15 @@ export function createNotificationTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_unique ON notification_deliveries(notification_decision_id, channel, destination, attempt)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_decision_id ON notification_deliveries(notification_decision_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_assistant_status ON notification_deliveries(assistant_id, status)`);
+  database.run(
+    /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_unique ON notification_deliveries(notification_decision_id, channel, destination, attempt)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_decision_id ON notification_deliveries(notification_decision_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_assistant_status ON notification_deliveries(assistant_id, status)`,
+  );
 
   // Add conversation pairing audit columns (idempotent ALTER TABLE)
   migrateNotificationDeliveryPairingColumns(database);

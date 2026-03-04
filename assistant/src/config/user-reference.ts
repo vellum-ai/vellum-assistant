@@ -1,7 +1,7 @@
-import { readTextFileSync } from '../util/fs.js';
-import { getWorkspacePromptPath } from '../util/platform.js';
+import { readTextFileSync } from "../util/fs.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
-const DEFAULT_USER_REFERENCE = 'my human';
+const DEFAULT_USER_REFERENCE = "my human";
 
 /**
  * Resolve the name/reference the assistant uses when referring to
@@ -12,7 +12,7 @@ const DEFAULT_USER_REFERENCE = 'my human';
  * file is missing, unreadable, or the field is empty.
  */
 export function resolveUserReference(): string {
-  const content = readTextFileSync(getWorkspacePromptPath('USER.md'));
+  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
   if (content != null) {
     const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
     if (match && match[1].trim()) {
@@ -34,10 +34,10 @@ export function resolveUserReference(): string {
  *   2. The structured `- Pronouns:` field inside the Onboarding Snapshot.
  */
 export function resolveUserPronouns(): string | null {
-  const content = readTextFileSync(getWorkspacePromptPath('USER.md'));
+  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
   if (content == null) return null;
 
-  const snapshotIdx = content.indexOf('## Onboarding Snapshot');
+  const snapshotIdx = content.indexOf("## Onboarding Snapshot");
 
   // 1. Check for a Pronouns line outside the Onboarding Snapshot section.
   //    This represents an explicit post-onboarding update and takes priority.
@@ -62,7 +62,7 @@ export function resolveUserPronouns(): string | null {
 }
 
 function cleanPronounValue(raw: string): string | null {
-  if (raw === 'declined_by_user') return null;
+  if (raw === "declined_by_user") return null;
   // Strip "inferred: " prefix for clean output
-  return raw.replace(/^inferred:\s*/i, '');
+  return raw.replace(/^inferred:\s*/i, "");
 }

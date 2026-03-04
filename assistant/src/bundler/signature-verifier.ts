@@ -4,14 +4,14 @@
  * Checks bundle integrity and Ed25519 signature validity.
  */
 
-import { createHash, verify } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { createHash, verify } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
-import JSZip from 'jszip';
+import JSZip from "jszip";
 
-import type { SignatureJson } from './bundle-signer.js';
+import type { SignatureJson } from "./bundle-signer.js";
 
-export type TrustTier = 'verified' | 'signed' | 'unsigned' | 'tampered';
+export type TrustTier = "verified" | "signed" | "unsigned" | "tampered";
 
 export interface SignatureVerificationResult {
   trustTier: TrustTier;
@@ -25,7 +25,7 @@ export interface SignatureVerificationResult {
  * Recursively sort object keys alphabetically for canonical JSON.
  */
 function sortKeysDeep(obj: unknown): unknown {
-  if (obj == null || typeof obj !== 'object') {
+  if (obj == null || typeof obj !== "object") {
     return obj;
   }
   if (Array.isArray(obj)) {
@@ -54,23 +54,23 @@ export async function verifyBundleSignature(
   const zip = await JSZip.loadAsync(zipBuffer);
 
   // 1. Check for signature.json
-  const sigFile = zip.file('signature.json');
+  const sigFile = zip.file("signature.json");
   if (!sigFile) {
     return {
-      trustTier: 'unsigned',
-      message: 'Bundle is not signed (no signature.json found)',
+      trustTier: "unsigned",
+      message: "Bundle is not signed (no signature.json found)",
     };
   }
 
   // 2. Parse signature.json
   let signatureData: SignatureJson;
   try {
-    const sigText = await sigFile.async('text');
+    const sigText = await sigFile.async("text");
     signatureData = JSON.parse(sigText) as SignatureJson;
   } catch {
     return {
-      trustTier: 'tampered',
-      message: 'signature.json is malformed',
+      trustTier: "tampered",
+      message: "signature.json is malformed",
     };
   }
 
@@ -79,7 +79,7 @@ export async function verifyBundleSignature(
   const entries: string[] = [];
 
   zip.forEach((relativePath, _file) => {
-    if (relativePath !== 'signature.json') {
+    if (relativePath !== "signature.json") {
       entries.push(relativePath);
     }
   });
@@ -88,8 +88,8 @@ export async function verifyBundleSignature(
   for (const entryPath of entries) {
     const file = zip.file(entryPath);
     if (!file || file.dir) continue;
-    const content = await file.async('nodebuffer');
-    const hash = createHash('sha256').update(content).digest('hex');
+    const content = await file.async("nodebuffer");
+    const hash = createHash("sha256").update(content).digest("hex");
     computedHashes[entryPath] = hash;
   }
 
@@ -97,20 +97,23 @@ export async function verifyBundleSignature(
   const expectedPaths = Object.keys(signatureData.content_hashes).sort();
   const actualPaths = Object.keys(computedHashes).sort();
 
-  if (expectedPaths.length !== actualPaths.length ||
-      !expectedPaths.every((p, i) => p === actualPaths[i])) {
+  if (
+    expectedPaths.length !== actualPaths.length ||
+    !expectedPaths.every((p, i) => p === actualPaths[i])
+  ) {
     return {
-      trustTier: 'tampered',
+      trustTier: "tampered",
       signerKeyId: signatureData.signer.key_id,
       signerDisplayName: signatureData.signer.display_name,
-      message: 'Bundle files do not match signed manifest (files added or removed)',
+      message:
+        "Bundle files do not match signed manifest (files added or removed)",
     };
   }
 
   for (const path of expectedPaths) {
     if (signatureData.content_hashes[path] !== computedHashes[path]) {
       return {
-        trustTier: 'tampered',
+        trustTier: "tampered",
         signerKeyId: signatureData.signer.key_id,
         signerDisplayName: signatureData.signer.display_name,
         message: `Content hash mismatch for file: ${path}`,
@@ -119,14 +122,14 @@ export async function verifyBundleSignature(
   }
 
   // 5. Reconstruct canonical signing payload
-  const manifestFile = zip.file('manifest.json');
+  const manifestFile = zip.file("manifest.json");
   if (!manifestFile) {
     return {
-      trustTier: 'tampered',
-      message: 'Bundle is missing manifest.json',
+      trustTier: "tampered",
+      message: "Bundle is missing manifest.json",
     };
   }
-  const manifestText = await manifestFile.async('text');
+  const manifestText = await manifestFile.async("text");
   const manifest = JSON.parse(manifestText) as Record<string, unknown>;
 
   const signingPayload = sortKeysDeep({
@@ -141,43 +144,43 @@ export async function verifyBundleSignature(
 
   if (publicKeyBase64) {
     try {
-      const rawKey = Buffer.from(publicKeyBase64, 'base64');
-      const signatureBuffer = Buffer.from(signatureData.signature, 'base64');
+      const rawKey = Buffer.from(publicKeyBase64, "base64");
+      const signatureBuffer = Buffer.from(signatureData.signature, "base64");
 
       // Ed25519 SPKI DER header (12 bytes) for wrapping raw 32-byte public key.
       // The Swift client sends the key as rawRepresentation (32 bytes), but
       // Node.js crypto.verify expects DER-encoded SPKI format (44 bytes).
-      const ed25519SpkiPrefix = Buffer.from('302a300506032b6570032100', 'hex');
+      const ed25519SpkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
       const derKey = Buffer.concat([ed25519SpkiPrefix, rawKey]);
 
       const isValid = verify(
         null, // Ed25519 doesn't use a separate hash algorithm
         Buffer.from(canonicalPayload),
-        { key: derKey, format: 'der', type: 'spki' },
+        { key: derKey, format: "der", type: "spki" },
         signatureBuffer,
       );
 
       if (!isValid) {
         return {
-          trustTier: 'tampered',
+          trustTier: "tampered",
           signerKeyId: keyId,
           signerDisplayName: signatureData.signer.display_name,
-          message: 'Ed25519 signature verification failed',
+          message: "Ed25519 signature verification failed",
         };
       }
     } catch {
       return {
-        trustTier: 'tampered',
+        trustTier: "tampered",
         signerKeyId: keyId,
         signerDisplayName: signatureData.signer.display_name,
-        message: 'Ed25519 signature verification failed (crypto error)',
+        message: "Ed25519 signature verification failed (crypto error)",
       };
     }
   }
 
   // For MVP, we don't have Vellum account lookup, so best we can do is 'signed'
   return {
-    trustTier: 'signed',
+    trustTier: "signed",
     signerKeyId: keyId,
     signerDisplayName: signatureData.signer.display_name,
     signerAccount: signatureData.signer.account,

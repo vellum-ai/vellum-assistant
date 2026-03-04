@@ -3,15 +3,15 @@ import {
   getAccount,
   listAccounts,
   updateAccount,
-} from '../../memory/account-store.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+} from "../../memory/account-store.js";
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class AccountManageTool implements Tool {
-  name = 'account_manage';
-  description = 'Create, list, get, or update account records';
-  category = 'credentials';
+  name = "account_manage";
+  description = "Create, list, get, or update account records";
+  category = "credentials";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
@@ -19,51 +19,58 @@ class AccountManageTool implements Tool {
       name: this.name,
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           action: {
-            type: 'string',
-            enum: ['create', 'list', 'get', 'update'],
-            description: 'CRUD operation',
+            type: "string",
+            enum: ["create", "list", "get", "update"],
+            description: "CRUD operation",
           },
           id: {
-            type: 'string',
-            description: 'Account ID (for get/update)',
+            type: "string",
+            description: "Account ID (for get/update)",
           },
           service: {
-            type: 'string',
-            description: 'Service name',
+            type: "string",
+            description: "Service name",
           },
-          username: { type: 'string' },
-          email: { type: 'string' },
-          display_name: { type: 'string' },
+          username: { type: "string" },
+          email: { type: "string" },
+          display_name: { type: "string" },
           status: {
-            type: 'string',
-            enum: ['active', 'pending_verification', 'suspended'],
+            type: "string",
+            enum: ["active", "pending_verification", "suspended"],
           },
           credential_ref: {
-            type: 'string',
-            description: 'Service name linking to credential vault',
+            type: "string",
+            description: "Service name linking to credential vault",
           },
-          metadata: { type: 'object' },
+          metadata: { type: "object" },
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
-        required: ['action'],
+        required: ["action"],
       },
     };
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    input: Record<string, unknown>,
+    _context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     const action = input.action as string;
 
     switch (action) {
-      case 'create': {
+      case "create": {
         const service = input.service as string | undefined;
-        if (!service || typeof service !== 'string') {
-          return { content: 'Error: service is required for create action', isError: true };
+        if (!service || typeof service !== "string") {
+          return {
+            content: "Error: service is required for create action",
+            isError: true,
+          };
         }
 
         const record = createAccount({
@@ -79,7 +86,7 @@ class AccountManageTool implements Tool {
         return { content: JSON.stringify(record, null, 2), isError: false };
       }
 
-      case 'list': {
+      case "list": {
         const records = listAccounts({
           service: input.service as string | undefined,
           status: input.status as string | undefined,
@@ -87,10 +94,13 @@ class AccountManageTool implements Tool {
         return { content: JSON.stringify(records, null, 2), isError: false };
       }
 
-      case 'get': {
+      case "get": {
         const id = input.id as string | undefined;
-        if (!id || typeof id !== 'string') {
-          return { content: 'Error: id is required for get action', isError: true };
+        if (!id || typeof id !== "string") {
+          return {
+            content: "Error: id is required for get action",
+            isError: true,
+          };
         }
 
         const record = getAccount(id);
@@ -100,10 +110,13 @@ class AccountManageTool implements Tool {
         return { content: JSON.stringify(record, null, 2), isError: false };
       }
 
-      case 'update': {
+      case "update": {
         const id = input.id as string | undefined;
-        if (!id || typeof id !== 'string') {
-          return { content: 'Error: id is required for update action', isError: true };
+        if (!id || typeof id !== "string") {
+          return {
+            content: "Error: id is required for update action",
+            isError: true,
+          };
         }
 
         const updated = updateAccount(id, {

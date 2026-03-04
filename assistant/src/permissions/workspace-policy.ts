@@ -1,5 +1,5 @@
-import { realpathSync } from 'node:fs';
-import { basename,dirname, normalize, resolve } from 'node:path';
+import { realpathSync } from "node:fs";
+import { basename, dirname, normalize, resolve } from "node:path";
 
 /**
  * Resolve a path to its canonical form. When the target itself doesn't
@@ -28,7 +28,10 @@ function canonicalize(p: string): string {
  * normalizing segments like `.` and `..`), then check whether it falls
  * within the given workspace root.
  */
-export function isPathWithinWorkspaceRoot(filePath: string, workspaceRoot: string): boolean {
+export function isPathWithinWorkspaceRoot(
+  filePath: string,
+  workspaceRoot: string,
+): boolean {
   if (!filePath || !workspaceRoot) return false;
 
   const canonicalPath = canonicalize(filePath);
@@ -36,50 +39,50 @@ export function isPathWithinWorkspaceRoot(filePath: string, workspaceRoot: strin
 
   // Ensure the root ends with a separator so `/workspace-extra` doesn't
   // match `/workspace`.
-  const rootPrefix = canonicalRoot.endsWith('/') ? canonicalRoot : `${canonicalRoot}/`;
+  const rootPrefix = canonicalRoot.endsWith("/")
+    ? canonicalRoot
+    : `${canonicalRoot}/`;
 
-  return canonicalPath === canonicalRoot || canonicalPath.startsWith(rootPrefix);
+  return (
+    canonicalPath === canonicalRoot || canonicalPath.startsWith(rootPrefix)
+  );
 }
 
 // ── Tool-name sets for invocation classification ──────────────────────
 
 /** File-path tools whose workspace-scoped-ness depends on the file_path input. */
-const PATH_SCOPED_TOOLS = new Set([
-  'file_read',
-  'file_write',
-  'file_edit',
-]);
+const PATH_SCOPED_TOOLS = new Set(["file_read", "file_write", "file_edit"]);
 
 /** Network-accessing tools — never workspace-scoped. */
 const NETWORK_TOOLS = new Set([
-  'web_search',
-  'web_fetch',
-  'browser_navigate',
-  'browser_click',
-  'browser_type',
-  'browser_scroll',
-  'browser_select_option',
-  'browser_hover',
-  'browser_screenshot',
-  'browser_close',
-  'network_request',
+  "web_search",
+  "web_fetch",
+  "browser_navigate",
+  "browser_click",
+  "browser_type",
+  "browser_scroll",
+  "browser_select_option",
+  "browser_hover",
+  "browser_screenshot",
+  "browser_close",
+  "network_request",
 ]);
 
 /** Host-level tools — operate outside the sandbox, never workspace-scoped. */
 const HOST_TOOLS = new Set([
-  'host_file_read',
-  'host_file_write',
-  'host_file_edit',
-  'host_bash',
+  "host_file_read",
+  "host_file_write",
+  "host_file_edit",
+  "host_bash",
 ]);
 
 /** Safe local-only tools that are always workspace-scoped. */
 const ALWAYS_SCOPED_TOOLS = new Set([
-  'skill_load',
-  'view_image',
-  'memory_search',
-  'ui_update',
-  'ui_dismiss',
+  "skill_load",
+  "view_image",
+  "memory_search",
+  "ui_update",
+  "ui_dismiss",
 ]);
 
 /**
@@ -97,19 +100,25 @@ export function isWorkspaceScopedInvocation(
   if (HOST_TOOLS.has(toolName)) return false;
 
   if (PATH_SCOPED_TOOLS.has(toolName)) {
-    const rawPath = typeof toolInput.file_path === 'string'
-      ? toolInput.file_path
-      : typeof toolInput.path === 'string'
-        ? toolInput.path
-        : '';
+    const rawPath =
+      typeof toolInput.file_path === "string"
+        ? toolInput.file_path
+        : typeof toolInput.path === "string"
+          ? toolInput.path
+          : "";
     // Resolve relative paths against workspaceRoot (not process.cwd())
-    const filePath = rawPath !== '' && !rawPath.startsWith('/') ? resolve(workspaceRoot, rawPath) : rawPath;
-    return filePath !== '' && isPathWithinWorkspaceRoot(filePath, workspaceRoot);
+    const filePath =
+      rawPath !== "" && !rawPath.startsWith("/")
+        ? resolve(workspaceRoot, rawPath)
+        : rawPath;
+    return (
+      filePath !== "" && isPathWithinWorkspaceRoot(filePath, workspaceRoot)
+    );
   }
 
   // Bash is generally workspace-scoped when sandbox isolation is active —
   // the caller handles network mode checks separately.
-  if (toolName === 'bash') return true;
+  if (toolName === "bash") return true;
 
   // Unknown tool — conservative default.
   return false;

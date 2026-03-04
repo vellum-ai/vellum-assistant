@@ -1,5 +1,8 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { executeWatcherDigest } from '../../../../tools/watcher/digest.js';
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { executeWatcherDigest } from "../../../../tools/watcher/digest.js";
 
 export async function run(
   input: Record<string, unknown>,

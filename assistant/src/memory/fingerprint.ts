@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
 /**
  * Compute a scope-salted fingerprint for a memory item.
@@ -16,5 +16,5 @@ export function computeMemoryFingerprint(
   statement: string,
 ): string {
   const normalized = `${scopeId}|${kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
-  return createHash('sha256').update(normalized).digest('hex');
+  return createHash("sha256").update(normalized).digest("hex");
 }

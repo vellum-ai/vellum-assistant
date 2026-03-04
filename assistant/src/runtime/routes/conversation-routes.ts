@@ -62,10 +62,16 @@ function collectCanonicalGuardianRequestHintIds(
   sourceChannel: string,
   session: import("../../daemon/session.js").Session,
 ): string[] {
-  const requests = listPendingRequestsByConversationScope(conversationId, sourceChannel);
+  const requests = listPendingRequestsByConversationScope(
+    conversationId,
+    sourceChannel,
+  );
 
   return requests
-    .filter((req) => req.kind !== "tool_approval" || session.hasPendingConfirmation(req.id))
+    .filter(
+      (req) =>
+        req.kind !== "tool_approval" || session.hasPendingConfirmation(req.id),
+    )
     .map((req) => req.id);
 }
 
@@ -470,7 +476,9 @@ export async function handleSendMessage(
   if (!sourceChannel) {
     return httpError(
       "BAD_REQUEST",
-      `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(", ")}`,
+      `Invalid sourceChannel: ${
+        body.sourceChannel
+      }. Valid values: ${CHANNEL_IDS.join(", ")}`,
       400,
     );
   }
@@ -482,7 +490,9 @@ export async function handleSendMessage(
   if (!sourceInterface) {
     return httpError(
       "BAD_REQUEST",
-      `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(", ")}`,
+      `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(
+        ", ",
+      )}`,
       400,
     );
   }

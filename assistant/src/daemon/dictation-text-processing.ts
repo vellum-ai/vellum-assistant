@@ -5,11 +5,14 @@
  * - applyDictionary: post-LLM, dictation + command modes (including fallback paths)
  */
 
-import type { DictationDictionaryEntry,DictationSnippet } from './dictation-profile-store.js';
+import type {
+  DictationDictionaryEntry,
+  DictationSnippet,
+} from "./dictation-profile-store.js";
 
 /** Escape a string for safe use inside a RegExp. */
 function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -20,13 +23,16 @@ function escapeRegExp(s: string): string {
  * for whitespace, punctuation, or string boundaries so matches work in contexts like
  * "C++," or "(C++)".
  */
-function wrapWordBoundary(escapedPattern: string, originalTrigger: string): string {
+function wrapWordBoundary(
+  escapedPattern: string,
+  originalTrigger: string,
+): string {
   const startsWithWord = /^\w/.test(originalTrigger);
   const endsWithWord = /\w$/.test(originalTrigger);
 
   // For non-word boundaries, allow whitespace, common punctuation, or string edges
-  const prefix = startsWithWord ? '\\b' : '(?<=[\\s,;:!?.()\\[\\]{}"\']|^)';
-  const suffix = endsWithWord ? '\\b' : '(?=[\\s,;:!?.()\\[\\]{}"\']|$)';
+  const prefix = startsWithWord ? "\\b" : "(?<=[\\s,;:!?.()\\[\\]{}\"']|^)";
+  const suffix = endsWithWord ? "\\b" : "(?=[\\s,;:!?.()\\[\\]{}\"']|$)";
 
   return `${prefix}${escapedPattern}${suffix}`;
 }
@@ -39,18 +45,25 @@ function wrapWordBoundary(escapedPattern: string, originalTrigger: string): stri
  * - Case-insensitive whole-word matching
  * - Single-pass: expansions are never re-scanned for further triggers
  */
-export function expandSnippets(text: string, snippets: DictationSnippet[] | undefined): string {
+export function expandSnippets(
+  text: string,
+  snippets: DictationSnippet[] | undefined,
+): string {
   if (!snippets || snippets.length === 0 || !text) return text;
 
   const enabled = snippets.filter((s) => s.enabled !== false);
   if (enabled.length === 0) return text;
 
   // Sort by trigger length descending so longest match wins
-  const sorted = [...enabled].sort((a, b) => b.trigger.length - a.trigger.length);
+  const sorted = [...enabled].sort(
+    (a, b) => b.trigger.length - a.trigger.length,
+  );
 
   // Build a single alternation pattern for single-pass replacement
-  const alternatives = sorted.map((s) => wrapWordBoundary(escapeRegExp(s.trigger), s.trigger));
-  const pattern = new RegExp(`(?:${alternatives.join('|')})`, 'gi');
+  const alternatives = sorted.map((s) =>
+    wrapWordBoundary(escapeRegExp(s.trigger), s.trigger),
+  );
+  const pattern = new RegExp(`(?:${alternatives.join("|")})`, "gi");
 
   // Build a lookup map (lowercase trigger → expansion)
   const expansionMap = new Map<string, string>();
@@ -74,11 +87,16 @@ export function expandSnippets(text: string, snippets: DictationSnippet[] | unde
  * - Respects wholeWord (default true) and caseSensitive (default false) per entry
  * - Single-pass: replacements are never re-scanned
  */
-export function applyDictionary(text: string, dictionary: DictationDictionaryEntry[] | undefined): string {
+export function applyDictionary(
+  text: string,
+  dictionary: DictationDictionaryEntry[] | undefined,
+): string {
   if (!dictionary || dictionary.length === 0 || !text) return text;
 
   // Sort by spoken length descending
-  const sorted = [...dictionary].sort((a, b) => b.spoken.length - a.spoken.length);
+  const sorted = [...dictionary].sort(
+    (a, b) => b.spoken.length - a.spoken.length,
+  );
 
   // Build a single pattern with named-group-free alternation for single-pass replacement
   // Each entry may have different flags, so we group entries by their flag combination
@@ -99,7 +117,10 @@ export function applyDictionary(text: string, dictionary: DictationDictionaryEnt
   });
 
   // Build single alternation (case-insensitive to catch all potential matches)
-  const combined = new RegExp(entries.map((e) => `(${e.pattern})`).join('|'), 'gi');
+  const combined = new RegExp(
+    entries.map((e) => `(${e.pattern})`).join("|"),
+    "gi",
+  );
 
   return text.replace(combined, (match, ...groups) => {
     // Find which group matched

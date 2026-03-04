@@ -11,10 +11,10 @@ import {
   extractText,
   resolveConfiguredProvider,
   userMessage,
-} from '../providers/provider-send-message.js';
-import { getLogger } from '../util/logger.js';
+} from "../providers/provider-send-message.js";
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('guardian-question-copy');
+const log = getLogger("guardian-question-copy");
 
 /** Timeout for the generative copy call (ms). */
 const GENERATION_TIMEOUT_MS = 5_000;
@@ -31,12 +31,12 @@ export function buildFallbackCopy(questionText: string): GuardianCopy {
   return {
     threadTitle: `\u26A0\uFE0F ${questionText.slice(0, 70)}`,
     initialMessage: [
-      'Your assistant needs your input during a phone call.',
-      '',
+      "Your assistant needs your input during a phone call.",
+      "",
       `Question: ${questionText}`,
-      '',
-      'Reply to this message with your answer.',
-    ].join('\n'),
+      "",
+      "Reply to this message with your answer.",
+    ].join("\n"),
   };
 }
 
@@ -54,7 +54,9 @@ export async function generateGuardianCopy(
   // If no provider is configured, return fallback immediately
   const resolved = resolveConfiguredProvider();
   if (!resolved) {
-    log.debug('No provider available for guardian copy generation, using fallback');
+    log.debug(
+      "No provider available for guardian copy generation, using fallback",
+    );
     return fallback;
   }
 
@@ -62,25 +64,25 @@ export async function generateGuardianCopy(
 
   try {
     const prompt = [
-      'Generate a thread title and initial message for a guardian question during a live phone call.',
-      '',
+      "Generate a thread title and initial message for a guardian question during a live phone call.",
+      "",
       `Question: ${questionText}`,
       ...(requestCode ? [`Reference code: ${requestCode}`] : []),
-      '',
-      'Requirements:',
+      "",
+      "Requirements:",
       '- TITLE: An emoji-prefixed, attention-oriented, concise title (under 80 characters). Do NOT start with "Guardian question:". Use a relevant warning or alert emoji.',
-      '- MESSAGE: A clear initial message that includes the question text, mentions this is a live phone call waiting for the user\'s input, and asks them to reply with their answer.',
-      '',
-      'Respond in exactly this format (no extra text):',
-      'TITLE: <your title>',
-      'MESSAGE: <your message>',
-    ].join('\n');
+      "- MESSAGE: A clear initial message that includes the question text, mentions this is a live phone call waiting for the user's input, and asks them to reply with their answer.",
+      "",
+      "Respond in exactly this format (no extra text):",
+      "TITLE: <your title>",
+      "MESSAGE: <your message>",
+    ].join("\n");
 
     const response = await resolved.provider.sendMessage(
       [userMessage(prompt)],
       undefined,
       undefined,
-      { signal, config: { modelIntent: 'latency-optimized' } },
+      { signal, config: { modelIntent: "latency-optimized" } },
     );
 
     const text = extractText(response);
@@ -90,13 +92,16 @@ export async function generateGuardianCopy(
       return parsed;
     }
 
-    log.warn({ raw: text }, 'Failed to parse generated guardian copy, using fallback');
+    log.warn(
+      { raw: text },
+      "Failed to parse generated guardian copy, using fallback",
+    );
     return fallback;
   } catch (err) {
     if (signal.aborted) {
-      log.warn('Guardian copy generation timed out, using fallback');
+      log.warn("Guardian copy generation timed out, using fallback");
     } else {
-      log.warn({ err }, 'Guardian copy generation failed, using fallback');
+      log.warn({ err }, "Guardian copy generation failed, using fallback");
     }
     return fallback;
   } finally {

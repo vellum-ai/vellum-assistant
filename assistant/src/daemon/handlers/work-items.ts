@@ -1,19 +1,23 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { getMessages } from '../../memory/conversation-store.js';
-import { check,classifyRisk } from '../../permissions/checker.js';
-import { getSubagentManager } from '../../subagent/index.js';
-import { runTask } from '../../tasks/task-runner.js';
-import { getTask, getTaskRun } from '../../tasks/task-store.js';
-import { getRegisteredToolNames, getToolDescription,sanitizeToolList } from '../../tasks/tool-sanitizer.js';
-import { truncate } from '../../util/truncate.js';
+import { getMessages } from "../../memory/conversation-store.js";
+import { check, classifyRisk } from "../../permissions/checker.js";
+import { getSubagentManager } from "../../subagent/index.js";
+import { runTask } from "../../tasks/task-runner.js";
+import { getTask, getTaskRun } from "../../tasks/task-store.js";
+import {
+  getRegisteredToolNames,
+  getToolDescription,
+  sanitizeToolList,
+} from "../../tasks/tool-sanitizer.js";
+import { truncate } from "../../util/truncate.js";
 import {
   deleteWorkItem,
   getWorkItem,
   listWorkItems,
   updateWorkItem,
   type WorkItemStatus,
-} from '../../work-items/work-item-store.js';
+} from "../../work-items/work-item-store.js";
 import type {
   WorkItemApprovePermissionsRequest,
   WorkItemCancelRequest,
@@ -25,16 +29,18 @@ import type {
   WorkItemRunTaskRequest,
   WorkItemsListRequest,
   WorkItemUpdateRequest,
-} from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+} from "../ipc-protocol.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 export function handleWorkItemsList(
   msg: WorkItemsListRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const items = listWorkItems(msg.status ? { status: msg.status as WorkItemStatus } : undefined);
-  ctx.send(socket, { type: 'work_items_list_response', items });
+  const items = listWorkItems(
+    msg.status ? { status: msg.status as WorkItemStatus } : undefined,
+  );
+  ctx.send(socket, { type: "work_items_list_response", items });
 }
 
 export function handleWorkItemGet(
@@ -43,7 +49,7 @@ export function handleWorkItemGet(
   ctx: HandlerContext,
 ): void {
   const item = getWorkItem(msg.id) ?? null;
-  ctx.send(socket, { type: 'work_item_get_response', item });
+  ctx.send(socket, { type: "work_item_get_response", item });
 }
 
 export function handleWorkItemUpdate(
@@ -54,8 +60,8 @@ export function handleWorkItemUpdate(
   // Don't allow overwriting a cancelled status (e.g. from a late chat-completion observer)
   if (msg.status !== undefined) {
     const existing = getWorkItem(msg.id);
-    if (existing?.status === 'cancelled' && msg.status !== 'cancelled') {
-      ctx.send(socket, { type: 'work_item_update_response', item: existing });
+    if (existing?.status === "cancelled" && msg.status !== "cancelled") {
+      ctx.send(socket, { type: "work_item_update_response", item: existing });
       return;
     }
   }
@@ -67,14 +73,16 @@ export function handleWorkItemUpdate(
   if (msg.priorityTier !== undefined) updates.priorityTier = msg.priorityTier;
   if (msg.sortIndex !== undefined) updates.sortIndex = msg.sortIndex;
 
-  const item = updateWorkItem(msg.id, updates as Parameters<typeof updateWorkItem>[1]) ?? null;
-  ctx.send(socket, { type: 'work_item_update_response', item });
+  const item =
+    updateWorkItem(msg.id, updates as Parameters<typeof updateWorkItem>[1]) ??
+    null;
+  ctx.send(socket, { type: "work_item_update_response", item });
 
   // Broadcast to all clients so other open task views stay in sync
   // (e.g. priority/sort changes made by one client are reflected everywhere)
   if (item) {
     broadcastWorkItemStatus(ctx, item.id);
-    ctx.broadcast({ type: 'tasks_changed' });
+    ctx.broadcast({ type: "tasks_changed" });
   }
 }
 
@@ -87,19 +95,25 @@ export function handleWorkItemComplete(
   // items go through the full run lifecycle before being marked done.
   const existing = getWorkItem(msg.id);
   if (!existing) {
-    ctx.send(socket, { type: 'error', message: `Work item not found: ${msg.id}` });
+    ctx.send(socket, {
+      type: "error",
+      message: `Work item not found: ${msg.id}`,
+    });
     return;
   }
-  if (existing.status !== 'awaiting_review') {
-    ctx.send(socket, { type: 'error', message: `Cannot complete work item: status is '${existing.status}', expected 'awaiting_review'` });
+  if (existing.status !== "awaiting_review") {
+    ctx.send(socket, {
+      type: "error",
+      message: `Cannot complete work item: status is '${existing.status}', expected 'awaiting_review'`,
+    });
     return;
   }
 
-  const item = updateWorkItem(msg.id, { status: 'done' }) ?? null;
-  ctx.send(socket, { type: 'work_item_update_response', item });
+  const item = updateWorkItem(msg.id, { status: "done" }) ?? null;
+  ctx.send(socket, { type: "work_item_update_response", item });
   if (item) {
     ctx.broadcast({
-      type: 'work_item_status_changed',
+      type: "work_item_status_changed",
       item: {
         id: item.id,
         taskId: item.taskId,
@@ -111,7 +125,7 @@ export function handleWorkItemComplete(
         updatedAt: item.updatedAt,
       },
     });
-    ctx.broadcast({ type: 'tasks_changed' });
+    ctx.broadcast({ type: "tasks_changed" });
   }
 }
 
@@ -122,19 +136,27 @@ export function handleWorkItemDelete(
 ): void {
   const existing = getWorkItem(msg.id);
   if (!existing) {
-    ctx.send(socket, { type: 'work_item_delete_response', id: msg.id, success: false });
+    ctx.send(socket, {
+      type: "work_item_delete_response",
+      id: msg.id,
+      success: false,
+    });
     return;
   }
   deleteWorkItem(msg.id);
-  ctx.send(socket, { type: 'work_item_delete_response', id: msg.id, success: true });
-  ctx.broadcast({ type: 'tasks_changed' });
+  ctx.send(socket, {
+    type: "work_item_delete_response",
+    id: msg.id,
+    success: true,
+  });
+  ctx.broadcast({ type: "tasks_changed" });
 }
 
 function broadcastWorkItemStatus(ctx: HandlerContext, id: string): void {
   const item = getWorkItem(id);
   if (item) {
     ctx.broadcast({
-      type: 'work_item_status_changed',
+      type: "work_item_status_changed",
       item: {
         id: item.id,
         taskId: item.taskId,
@@ -160,12 +182,12 @@ function extractLatestTextFromContent(content: string): string {
     if (Array.isArray(parsed)) {
       for (let i = parsed.length - 1; i >= 0; i--) {
         const block = parsed[i] as { type?: unknown; text?: unknown };
-        if (block.type !== 'text') continue;
-        if (typeof block.text !== 'string') continue;
+        if (block.type !== "text") continue;
+        if (typeof block.text !== "string") continue;
         if (!block.text.trim()) continue;
         return block.text;
       }
-      return '';
+      return "";
     }
   } catch {
     // Plain text content — use as-is
@@ -174,24 +196,36 @@ function extractLatestTextFromContent(content: string): string {
 }
 
 /** Extract tool_result blocks from a user message's content. */
-function extractToolResults(content: string): Array<{ tool_use_id: string; content: string; is_error?: boolean }> {
+function extractToolResults(
+  content: string,
+): Array<{ tool_use_id: string; content: string; is_error?: boolean }> {
   try {
     const parsed = JSON.parse(content);
     if (Array.isArray(parsed)) {
       return parsed
-        .filter((b: { type: string }) => b.type === 'tool_result')
-        .map((b: { tool_use_id: string; content?: string | Array<{ type: string; text?: string }>; is_error?: boolean }) => {
-          let text = '';
-          if (typeof b.content === 'string') {
-            text = b.content;
-          } else if (Array.isArray(b.content)) {
-            text = b.content
-              .filter((c) => c.type === 'text' && c.text)
-              .map((c) => c.text!)
-              .join('\n');
-          }
-          return { tool_use_id: b.tool_use_id, content: text, is_error: b.is_error };
-        });
+        .filter((b: { type: string }) => b.type === "tool_result")
+        .map(
+          (b: {
+            tool_use_id: string;
+            content?: string | Array<{ type: string; text?: string }>;
+            is_error?: boolean;
+          }) => {
+            let text = "";
+            if (typeof b.content === "string") {
+              text = b.content;
+            } else if (Array.isArray(b.content)) {
+              text = b.content
+                .filter((c) => c.type === "text" && c.text)
+                .map((c) => c.text!)
+                .join("\n");
+            }
+            return {
+              tool_use_id: b.tool_use_id,
+              content: text,
+              is_error: b.is_error,
+            };
+          },
+        );
     }
   } catch {
     // Not JSON — no tool_result blocks
@@ -213,43 +247,49 @@ function extractToolHighlights(
   // Build a map of tool_use_id -> tool name from assistant messages
   const toolNameById = new Map<string, string>();
   for (const m of msgs) {
-    if (m.role !== 'assistant') continue;
+    if (m.role !== "assistant") continue;
     try {
       const parsed = JSON.parse(m.content);
       if (Array.isArray(parsed)) {
         for (const block of parsed) {
-          if (block.type === 'tool_use' && block.id && block.name) {
+          if (block.type === "tool_use" && block.id && block.name) {
             toolNameById.set(block.id, block.name);
           }
         }
       }
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
 
   // Scan tool_result messages in reverse order (most recent first)
-  for (let i = msgs.length - 1; i >= 0 && highlights.length < maxHighlights; i--) {
+  for (
+    let i = msgs.length - 1;
+    i >= 0 && highlights.length < maxHighlights;
+    i--
+  ) {
     const m = msgs[i];
-    if (m.role !== 'user') continue;
+    if (m.role !== "user") continue;
 
     const results = extractToolResults(m.content);
     for (const result of results) {
       if (highlights.length >= maxHighlights) break;
 
-      const toolName = toolNameById.get(result.tool_use_id) ?? 'tool';
+      const toolName = toolNameById.get(result.tool_use_id) ?? "tool";
       const resultText = result.content.trim();
 
       if (result.is_error) {
         // Always surface errors
-        const errorSnippet = truncate(resultText, 200, '...');
+        const errorSnippet = truncate(resultText, 200, "...");
         highlights.push(`- ${toolName}: Error — ${errorSnippet}`);
       } else if (resultText) {
         // Extract notable signal from successful results: file paths, URLs, or
         // a short summary of what happened
-        const firstLine = resultText.split('\n')[0].trim();
+        const firstLine = resultText.split("\n")[0].trim();
         if (firstLine.length > 0 && firstLine.length <= 200) {
           highlights.push(`- ${toolName}: ${firstLine}`);
         } else if (firstLine.length > 200) {
-          highlights.push(`- ${toolName}: ${truncate(firstLine, 200, '...')}`);
+          highlights.push(`- ${toolName}: ${truncate(firstLine, 200, "...")}`);
         }
       }
     }
@@ -266,7 +306,12 @@ export function handleWorkItemOutput(
   try {
     const workItem = getWorkItem(msg.id);
     if (!workItem) {
-      ctx.send(socket, { type: 'work_item_output_response', id: msg.id, success: false, error: 'Work item not found' });
+      ctx.send(socket, {
+        type: "work_item_output_response",
+        id: msg.id,
+        success: false,
+        error: "Work item not found",
+      });
       return;
     }
 
@@ -280,7 +325,8 @@ export function handleWorkItemOutput(
       const run = getTaskRun(workItem.lastRunId);
       if (run) {
         conversationId = run.conversationId;
-        completedAt = run.finishedAt != null ? Math.floor(run.finishedAt / 1000) : null;
+        completedAt =
+          run.finishedAt != null ? Math.floor(run.finishedAt / 1000) : null;
       }
     }
 
@@ -292,11 +338,16 @@ export function handleWorkItemOutput(
     }
 
     if (!conversationId) {
-      ctx.send(socket, { type: 'work_item_output_response', id: msg.id, success: false, error: 'This task has not been run yet. No output is available.' });
+      ctx.send(socket, {
+        type: "work_item_output_response",
+        id: msg.id,
+        success: false,
+        error: "This task has not been run yet. No output is available.",
+      });
       return;
     }
 
-    let summary = '';
+    let summary = "";
     let highlights: string[] = [];
 
     const msgs = getMessages(conversationId);
@@ -306,18 +357,21 @@ export function handleWorkItemOutput(
     // reporting what the run actually did.
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
-      if (m.role !== 'assistant') continue;
+      if (m.role !== "assistant") continue;
 
       const text = extractLatestTextFromContent(m.content);
       if (!text.trim()) continue;
 
-      summary = truncate(text, 2000, '');
+      summary = truncate(text, 2000, "");
 
       // Extract bullet points from the assistant's prose
-      const lines = text.split('\n');
+      const lines = text.split("\n");
       for (const line of lines) {
         const trimmed = line.trim();
-        if ((trimmed.startsWith('-') || trimmed.startsWith('*')) && trimmed.length > 2) {
+        if (
+          (trimmed.startsWith("-") || trimmed.startsWith("*")) &&
+          trimmed.length > 2
+        ) {
           highlights.push(trimmed);
           if (highlights.length >= 5) break;
         }
@@ -337,14 +391,15 @@ export function handleWorkItemOutput(
     if (!summary && msgs.length > 0) {
       const toolHighlights = extractToolHighlights(msgs, 10);
       if (toolHighlights.length > 0) {
-        summary = 'Task completed. Tool outcomes:\n' + toolHighlights.join('\n');
+        summary =
+          "Task completed. Tool outcomes:\n" + toolHighlights.join("\n");
         // Use the tool highlights as the main highlights too
         highlights = toolHighlights.slice(0, 5);
       }
     }
 
     ctx.send(socket, {
-      type: 'work_item_output_response',
+      type: "work_item_output_response",
       id: msg.id,
       success: true,
       output: {
@@ -358,8 +413,13 @@ export function handleWorkItemOutput(
       },
     });
   } catch (err) {
-    log.error({ err, workItemId: msg.id }, 'handleWorkItemOutput failed');
-    ctx.send(socket, { type: 'work_item_output_response', id: msg.id, success: false, error: 'Failed to load task output' });
+    log.error({ err, workItemId: msg.id }, "handleWorkItemOutput failed");
+    ctx.send(socket, {
+      type: "work_item_output_response",
+      id: msg.id,
+      success: false,
+      error: "Failed to load task output",
+    });
   }
 }
 
@@ -370,24 +430,52 @@ export async function handleWorkItemRunTask(
 ): Promise<void> {
   const workItem = getWorkItem(msg.id);
   if (!workItem) {
-    ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: '', success: false, error: 'Work item not found', errorCode: 'not_found' });
+    ctx.send(socket, {
+      type: "work_item_run_task_response",
+      id: msg.id,
+      lastRunId: "",
+      success: false,
+      error: "Work item not found",
+      errorCode: "not_found",
+    });
     return;
   }
 
-  if (workItem.status === 'running') {
-    ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: workItem.lastRunId ?? '', success: false, error: 'Work item is already running', errorCode: 'already_running' });
+  if (workItem.status === "running") {
+    ctx.send(socket, {
+      type: "work_item_run_task_response",
+      id: msg.id,
+      lastRunId: workItem.lastRunId ?? "",
+      success: false,
+      error: "Work item is already running",
+      errorCode: "already_running",
+    });
     return;
   }
 
-  const NON_RUNNABLE_STATUSES: readonly string[] = ['archived'];
+  const NON_RUNNABLE_STATUSES: readonly string[] = ["archived"];
   if (NON_RUNNABLE_STATUSES.includes(workItem.status)) {
-    ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: workItem.lastRunId ?? '', success: false, error: `Work item has status '${workItem.status}' and cannot be run`, errorCode: 'invalid_status' });
+    ctx.send(socket, {
+      type: "work_item_run_task_response",
+      id: msg.id,
+      lastRunId: workItem.lastRunId ?? "",
+      success: false,
+      error: `Work item has status '${workItem.status}' and cannot be run`,
+      errorCode: "invalid_status",
+    });
     return;
   }
 
   const task = getTask(workItem.taskId);
   if (!task) {
-    ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: '', success: false, error: `Associated task not found: ${workItem.taskId}`, errorCode: 'no_task' });
+    ctx.send(socket, {
+      type: "work_item_run_task_response",
+      id: msg.id,
+      lastRunId: "",
+      success: false,
+      error: `Associated task not found: ${workItem.taskId}`,
+      errorCode: "no_task",
+    });
     return;
   }
 
@@ -406,31 +494,39 @@ export async function handleWorkItemRunTask(
   // Empty required tools means no approvals needed.
   let approvedTools: string[] | undefined;
   if (requiredTools.length > 0) {
-    approvedTools = workItem.approvedTools ? JSON.parse(workItem.approvedTools) : undefined;
+    approvedTools = workItem.approvedTools
+      ? JSON.parse(workItem.approvedTools)
+      : undefined;
     const approvedSet = new Set<string>(approvedTools ?? []);
     const missingApprovals = requiredTools.filter((t) => !approvedSet.has(t));
     if (missingApprovals.length > 0) {
       ctx.send(socket, {
-        type: 'work_item_run_task_response',
+        type: "work_item_run_task_response",
         id: msg.id,
-        lastRunId: '',
+        lastRunId: "",
         success: false,
-        error: 'Required tool permissions have not been approved. Run preflight first.',
-        errorCode: 'permission_required',
+        error:
+          "Required tool permissions have not been approved. Run preflight first.",
+        errorCode: "permission_required",
       });
       return;
     }
   }
 
   // Set status to running
-  updateWorkItem(msg.id, { status: 'running' });
+  updateWorkItem(msg.id, { status: "running" });
 
   // Return immediately with acknowledgment
-  ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: '', success: true });
+  ctx.send(socket, {
+    type: "work_item_run_task_response",
+    id: msg.id,
+    lastRunId: "",
+    success: true,
+  });
 
   // Broadcast the running state
   broadcastWorkItemStatus(ctx, msg.id);
-  ctx.broadcast({ type: 'tasks_changed' });
+  ctx.broadcast({ type: "tasks_changed" });
 
   // Execute task asynchronously — lazily create a session inside the callback
   // using the conversationId provided by runTask, so the session references
@@ -448,7 +544,7 @@ export async function handleWorkItemRunTask(
 
           // Notify clients so they can create a visible chat thread for this task run
           ctx.broadcast({
-            type: 'task_run_thread_created',
+            type: "task_run_thread_created",
             conversationId,
             workItemId: msg.id,
             title: workItem.title,
@@ -458,9 +554,17 @@ export async function handleWorkItemRunTask(
           // Prevent interactive clients from rebinding to this session mid-run
           session.headlessLock = true;
         }
-        await session.processMessage(message, [], (event) => {
-          ctx.broadcast(event);
-        }, undefined, undefined, undefined, { isInteractive: false });
+        await session.processMessage(
+          message,
+          [],
+          (event) => {
+            ctx.broadcast(event);
+          },
+          undefined,
+          undefined,
+          undefined,
+          { isInteractive: false },
+        );
       },
     );
 
@@ -473,8 +577,9 @@ export async function handleWorkItemRunTask(
 
     // Don't overwrite cancelled status — the cancel handler already set it
     const current = getWorkItem(msg.id);
-    if (current?.status !== 'cancelled') {
-      const finalStatus: WorkItemStatus = result.status === 'completed' ? 'awaiting_review' : 'failed';
+    if (current?.status !== "cancelled") {
+      const finalStatus: WorkItemStatus =
+        result.status === "completed" ? "awaiting_review" : "failed";
       updateWorkItem(msg.id, {
         status: finalStatus,
         lastRunId: result.taskRunId,
@@ -484,23 +589,22 @@ export async function handleWorkItemRunTask(
     }
 
     broadcastWorkItemStatus(ctx, msg.id);
-    ctx.broadcast({ type: 'tasks_changed' });
+    ctx.broadcast({ type: "tasks_changed" });
   } catch (err) {
     // Release the headless lock on failure
     const errSession = session as { headlessLock: boolean } | null;
     if (errSession) {
       errSession.headlessLock = false;
     }
-    log.error({ err, workItemId: msg.id }, 'work_item_run_task failed');
+    log.error({ err, workItemId: msg.id }, "work_item_run_task failed");
     updateWorkItem(msg.id, {
-      status: 'failed',
-      lastRunStatus: 'failed',
+      status: "failed",
+      lastRunStatus: "failed",
     });
     broadcastWorkItemStatus(ctx, msg.id);
-    ctx.broadcast({ type: 'tasks_changed' });
+    ctx.broadcast({ type: "tasks_changed" });
   }
 }
-
 
 export async function handleWorkItemPreflight(
   msg: WorkItemPreflightRequest,
@@ -509,7 +613,12 @@ export async function handleWorkItemPreflight(
 ): Promise<void> {
   const workItem = getWorkItem(msg.id);
   if (!workItem) {
-    ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: false, error: 'Work item not found' });
+    ctx.send(socket, {
+      type: "work_item_preflight_response",
+      id: msg.id,
+      success: false,
+      error: "Work item not found",
+    });
     return;
   }
 
@@ -522,7 +631,12 @@ export async function handleWorkItemPreflight(
   } else {
     const task = getTask(workItem.taskId);
     if (!task) {
-      ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: false, error: `Associated task not found: ${workItem.taskId}` });
+      ctx.send(socket, {
+        type: "work_item_preflight_response",
+        id: msg.id,
+        success: false,
+        error: `Associated task not found: ${workItem.taskId}`,
+      });
       return;
     }
     requiredTools = task.requiredTools
@@ -532,7 +646,12 @@ export async function handleWorkItemPreflight(
 
   // If the work item explicitly requires no tools, skip the dialog.
   if (requiredTools.length === 0) {
-    ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions: [] });
+    ctx.send(socket, {
+      type: "work_item_preflight_response",
+      id: msg.id,
+      success: true,
+      permissions: [],
+    });
     return;
   }
 
@@ -542,7 +661,12 @@ export async function handleWorkItemPreflight(
     const approvedSet = new Set<string>(JSON.parse(workItem.approvedTools));
     requiredTools = requiredTools.filter((t) => !approvedSet.has(t));
     if (requiredTools.length === 0) {
-      ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions: [] });
+      ctx.send(socket, {
+        type: "work_item_preflight_response",
+        id: msg.id,
+        success: true,
+        permissions: [],
+      });
       return;
     }
   }
@@ -555,13 +679,18 @@ export async function handleWorkItemPreflight(
       return {
         tool,
         description: getToolDescription(tool),
-        riskLevel: risk.toLowerCase() as 'low' | 'medium' | 'high',
-        currentDecision: result.decision as 'allow' | 'deny' | 'prompt',
+        riskLevel: risk.toLowerCase() as "low" | "medium" | "high",
+        currentDecision: result.decision as "allow" | "deny" | "prompt",
       };
     }),
   );
 
-  ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions });
+  ctx.send(socket, {
+    type: "work_item_preflight_response",
+    id: msg.id,
+    success: true,
+    permissions,
+  });
 }
 
 export function handleWorkItemApprovePermissions(
@@ -571,7 +700,12 @@ export function handleWorkItemApprovePermissions(
 ): void {
   const workItem = getWorkItem(msg.id);
   if (!workItem) {
-    ctx.send(socket, { type: 'work_item_approve_permissions_response', id: msg.id, success: false, error: 'Work item not found' });
+    ctx.send(socket, {
+      type: "work_item_approve_permissions_response",
+      id: msg.id,
+      success: false,
+      error: "Work item not found",
+    });
     return;
   }
 
@@ -586,10 +720,14 @@ export function handleWorkItemApprovePermissions(
 
   updateWorkItem(msg.id, {
     approvedTools: JSON.stringify(sanitizeToolList(merged)),
-    approvalStatus: 'approved',
+    approvalStatus: "approved",
   });
 
-  ctx.send(socket, { type: 'work_item_approve_permissions_response', id: msg.id, success: true });
+  ctx.send(socket, {
+    type: "work_item_approve_permissions_response",
+    id: msg.id,
+    success: true,
+  });
 }
 
 export function handleWorkItemCancel(
@@ -599,12 +737,22 @@ export function handleWorkItemCancel(
 ): void {
   const workItem = getWorkItem(msg.id);
   if (!workItem) {
-    ctx.send(socket, { type: 'work_item_cancel_response', id: msg.id, success: false, error: 'Work item not found' });
+    ctx.send(socket, {
+      type: "work_item_cancel_response",
+      id: msg.id,
+      success: false,
+      error: "Work item not found",
+    });
     return;
   }
 
-  if (workItem.status !== 'running') {
-    ctx.send(socket, { type: 'work_item_cancel_response', id: msg.id, success: false, error: `Work item is not running (status: ${workItem.status})` });
+  if (workItem.status !== "running") {
+    ctx.send(socket, {
+      type: "work_item_cancel_response",
+      id: msg.id,
+      success: false,
+      error: `Work item is not running (status: ${workItem.status})`,
+    });
     return;
   }
 
@@ -620,14 +768,18 @@ export function handleWorkItemCancel(
   }
 
   updateWorkItem(msg.id, {
-    status: 'cancelled',
-    lastRunStatus: 'cancelled',
+    status: "cancelled",
+    lastRunStatus: "cancelled",
   });
 
-  ctx.send(socket, { type: 'work_item_cancel_response', id: msg.id, success: true });
+  ctx.send(socket, {
+    type: "work_item_cancel_response",
+    id: msg.id,
+    success: true,
+  });
 
   broadcastWorkItemStatus(ctx, msg.id);
-  ctx.broadcast({ type: 'tasks_changed' });
+  ctx.broadcast({ type: "tasks_changed" });
 }
 
 export const workItemHandlers = defineHandlers({

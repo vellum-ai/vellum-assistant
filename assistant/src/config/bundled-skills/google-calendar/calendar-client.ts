@@ -4,9 +4,9 @@ import type {
   CalendarListResponse,
   FreeBusyRequest,
   FreeBusyResponse,
-} from './types.js';
+} from "./types.js";
 
-const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
+const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 
 export class CalendarApiError extends Error {
   constructor(
@@ -15,26 +15,34 @@ export class CalendarApiError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'CalendarApiError';
+    this.name = "CalendarApiError";
   }
 }
 
-async function request<T>(token: string, path: string, options?: RequestInit): Promise<T> {
+async function request<T>(
+  token: string,
+  path: string,
+  options?: RequestInit,
+): Promise<T> {
   const url = `${CALENDAR_API_BASE}${path}`;
   const resp = await fetch(url, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...options?.headers,
     },
   });
   if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new CalendarApiError(resp.status, resp.statusText, `Calendar API ${resp.status}: ${body}`);
+    const body = await resp.text().catch(() => "");
+    throw new CalendarApiError(
+      resp.status,
+      resp.statusText,
+      `Calendar API ${resp.status}: ${body}`,
+    );
   }
-  const contentLength = resp.headers.get('content-length');
-  if (resp.status === 204 || contentLength === '0') {
+  const contentLength = resp.headers.get("content-length");
+  if (resp.status === 204 || contentLength === "0") {
     return undefined as T;
   }
   const text = await resp.text();
@@ -45,37 +53,37 @@ async function request<T>(token: string, path: string, options?: RequestInit): P
 /** List events from a calendar. */
 export async function listEvents(
   token: string,
-  calendarId = 'primary',
+  calendarId = "primary",
   options?: {
     timeMin?: string;
     timeMax?: string;
     maxResults?: number;
     query?: string;
     singleEvents?: boolean;
-    orderBy?: 'startTime' | 'updated';
+    orderBy?: "startTime" | "updated";
     pageToken?: string;
     syncToken?: string;
   },
 ): Promise<CalendarEventsListResponse> {
   const params = new URLSearchParams();
 
-  if (options?.timeMin) params.set('timeMin', options.timeMin);
-  if (options?.timeMax) params.set('timeMax', options.timeMax);
-  params.set('maxResults', String(options?.maxResults ?? 25));
-  if (options?.query) params.set('q', options.query);
+  if (options?.timeMin) params.set("timeMin", options.timeMin);
+  if (options?.timeMax) params.set("timeMax", options.timeMax);
+  params.set("maxResults", String(options?.maxResults ?? 25));
+  if (options?.query) params.set("q", options.query);
 
   // Default to expanding recurring events into instances
   const singleEvents = options?.singleEvents ?? true;
-  params.set('singleEvents', String(singleEvents));
+  params.set("singleEvents", String(singleEvents));
 
   if (singleEvents && options?.orderBy) {
-    params.set('orderBy', options.orderBy);
+    params.set("orderBy", options.orderBy);
   } else if (singleEvents) {
-    params.set('orderBy', 'startTime');
+    params.set("orderBy", "startTime");
   }
 
-  if (options?.pageToken) params.set('pageToken', options.pageToken);
-  if (options?.syncToken) params.set('syncToken', options.syncToken);
+  if (options?.pageToken) params.set("pageToken", options.pageToken);
+  if (options?.syncToken) params.set("syncToken", options.syncToken);
 
   return request<CalendarEventsListResponse>(
     token,
@@ -87,11 +95,13 @@ export async function listEvents(
 export async function getEvent(
   token: string,
   eventId: string,
-  calendarId = 'primary',
+  calendarId = "primary",
 ): Promise<CalendarEvent> {
   return request<CalendarEvent>(
     token,
-    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(
+      eventId,
+    )}`,
   );
 }
 
@@ -106,15 +116,15 @@ export async function createEvent(
     location?: string;
     attendees?: Array<{ email: string }>;
   },
-  calendarId = 'primary',
-  sendUpdates: 'all' | 'externalOnly' | 'none' = 'all',
+  calendarId = "primary",
+  sendUpdates: "all" | "externalOnly" | "none" = "all",
 ): Promise<CalendarEvent> {
   const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
     token,
     `/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
     {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(event),
     },
   );
@@ -132,15 +142,17 @@ export async function patchEvent(
     end: { dateTime?: string; date?: string; timeZone?: string };
     attendees: Array<{ email: string; responseStatus?: string }>;
   }>,
-  calendarId = 'primary',
-  sendUpdates: 'all' | 'externalOnly' | 'none' = 'all',
+  calendarId = "primary",
+  sendUpdates: "all" | "externalOnly" | "none" = "all",
 ): Promise<CalendarEvent> {
   const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
     token,
-    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?${params}`,
+    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(
+      eventId,
+    )}?${params}`,
     {
-      method: 'PATCH',
+      method: "PATCH",
       body: JSON.stringify(updates),
     },
   );
@@ -151,8 +163,8 @@ export async function freeBusy(
   token: string,
   query: FreeBusyRequest,
 ): Promise<FreeBusyResponse> {
-  return request<FreeBusyResponse>(token, '/freeBusy', {
-    method: 'POST',
+  return request<FreeBusyResponse>(token, "/freeBusy", {
+    method: "POST",
     body: JSON.stringify(query),
   });
 }
@@ -161,5 +173,5 @@ export async function freeBusy(
 export async function listCalendars(
   token: string,
 ): Promise<CalendarListResponse> {
-  return request<CalendarListResponse>(token, '/users/me/calendarList');
+  return request<CalendarListResponse>(token, "/users/me/calendarList");
 }

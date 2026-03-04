@@ -2,8 +2,8 @@
  * Messaging provider registry — register/lookup providers by platform ID.
  */
 
-import { getSecureKey } from '../security/secure-keys.js';
-import type { MessagingProvider } from './provider.js';
+import { getSecureKey } from "../security/secure-keys.js";
+import type { MessagingProvider } from "./provider.js";
 
 const providers = new Map<string, MessagingProvider>();
 
@@ -14,8 +14,10 @@ export function registerMessagingProvider(provider: MessagingProvider): void {
 export function getMessagingProvider(id: string): MessagingProvider {
   const provider = providers.get(id);
   if (!provider) {
-    const available = Array.from(providers.keys()).join(', ') || 'none';
-    throw new Error(`Messaging provider "${id}" not found. Available: ${available}`);
+    const available = Array.from(providers.keys()).join(", ") || "none";
+    throw new Error(
+      `Messaging provider "${id}" not found. Available: ${available}`,
+    );
   }
   return provider;
 }
@@ -24,7 +26,9 @@ export function getMessagingProvider(id: string): MessagingProvider {
 export function getConnectedProviders(): MessagingProvider[] {
   return Array.from(providers.values()).filter((p) => {
     if (p.isConnected) return p.isConnected();
-    const token = getSecureKey(`credential:${p.credentialService}:access_token`);
+    const token = getSecureKey(
+      `credential:${p.credentialService}:access_token`,
+    );
     return token !== undefined;
   });
 }

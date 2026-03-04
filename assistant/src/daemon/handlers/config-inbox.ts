@@ -1,19 +1,19 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import type { ChannelId } from '../../channels/types.js';
-import { isChannelId, isInterfaceId } from '../../channels/types.js';
-import { getGatewayInternalBaseUrl } from '../../config/env.js';
-import { getLatestStoredPayload } from '../../memory/channel-delivery-store.js';
-import type { GuardianApprovalRequest } from '../../memory/channel-guardian-store.js';
+import type { ChannelId } from "../../channels/types.js";
+import { isChannelId, isInterfaceId } from "../../channels/types.js";
+import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { getLatestStoredPayload } from "../../memory/channel-delivery-store.js";
+import type { GuardianApprovalRequest } from "../../memory/channel-guardian-store.js";
 import {
   type ApprovalRequestStatus,
   listPendingApprovalRequests,
   resolveApprovalRequest,
-} from '../../memory/channel-guardian-store.js';
-import { addMessage, getMessages } from '../../memory/conversation-store.js';
-import { getBindingByConversation } from '../../memory/external-conversation-store.js';
-import { mintDaemonDeliveryToken } from '../../runtime/auth/token-service.js';
-import { deliverChannelReply } from '../../runtime/gateway-client.js';
+} from "../../memory/channel-guardian-store.js";
+import { addMessage, getMessages } from "../../memory/conversation-store.js";
+import { getBindingByConversation } from "../../memory/external-conversation-store.js";
+import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
+import { deliverChannelReply } from "../../runtime/gateway-client.js";
 import {
   blockIngressMember,
   createIngressInvite,
@@ -23,9 +23,18 @@ import {
   revokeIngressInvite,
   revokeIngressMember,
   upsertIngressMember,
-} from '../../runtime/ingress-service.js';
-import type { AssistantInboxEscalationRequest, IngressInviteRequest, IngressMemberRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext, log, renderHistoryContent } from './shared.js';
+} from "../../runtime/ingress-service.js";
+import type {
+  AssistantInboxEscalationRequest,
+  IngressInviteRequest,
+  IngressMemberRequest,
+} from "../ipc-protocol.js";
+import {
+  defineHandlers,
+  type HandlerContext,
+  log,
+  renderHistoryContent,
+} from "./shared.js";
 
 export function handleIngressInvite(
   msg: IngressInviteRequest,
@@ -34,7 +43,7 @@ export function handleIngressInvite(
 ): void {
   try {
     switch (msg.action) {
-      case 'create': {
+      case "create": {
         const result = createIngressInvite({
           sourceChannel: msg.sourceChannel,
           note: msg.note,
@@ -44,37 +53,61 @@ export function handleIngressInvite(
           guardianName: msg.guardianName,
         });
         if (!result.ok) {
-          ctx.send(socket, { type: 'ingress_invite_response', success: false, error: result.error });
+          ctx.send(socket, {
+            type: "ingress_invite_response",
+            success: false,
+            error: result.error,
+          });
           return;
         }
-        ctx.send(socket, { type: 'ingress_invite_response', success: true, invite: result.data });
+        ctx.send(socket, {
+          type: "ingress_invite_response",
+          success: true,
+          invite: result.data,
+        });
         return;
       }
 
-      case 'list': {
+      case "list": {
         const result = listIngressInvites({
           sourceChannel: msg.sourceChannel,
           status: msg.status,
         });
         if (!result.ok) {
-          ctx.send(socket, { type: 'ingress_invite_response', success: false, error: result.error });
+          ctx.send(socket, {
+            type: "ingress_invite_response",
+            success: false,
+            error: result.error,
+          });
           return;
         }
-        ctx.send(socket, { type: 'ingress_invite_response', success: true, invites: result.data });
+        ctx.send(socket, {
+          type: "ingress_invite_response",
+          success: true,
+          invites: result.data,
+        });
         return;
       }
 
-      case 'revoke': {
+      case "revoke": {
         const result = revokeIngressInvite(msg.inviteId);
         if (!result.ok) {
-          ctx.send(socket, { type: 'ingress_invite_response', success: false, error: result.error });
+          ctx.send(socket, {
+            type: "ingress_invite_response",
+            success: false,
+            error: result.error,
+          });
           return;
         }
-        ctx.send(socket, { type: 'ingress_invite_response', success: true, invite: result.data });
+        ctx.send(socket, {
+          type: "ingress_invite_response",
+          success: true,
+          invite: result.data,
+        });
         return;
       }
 
-      case 'redeem': {
+      case "redeem": {
         const result = redeemIngressInvite({
           token: msg.token,
           externalUserId: msg.externalUserId,
@@ -82,21 +115,37 @@ export function handleIngressInvite(
           sourceChannel: msg.sourceChannel,
         });
         if (!result.ok) {
-          ctx.send(socket, { type: 'ingress_invite_response', success: false, error: result.error });
+          ctx.send(socket, {
+            type: "ingress_invite_response",
+            success: false,
+            error: result.error,
+          });
           return;
         }
-        ctx.send(socket, { type: 'ingress_invite_response', success: true, invite: result.data });
+        ctx.send(socket, {
+          type: "ingress_invite_response",
+          success: true,
+          invite: result.data,
+        });
         return;
       }
 
       default: {
-        ctx.send(socket, { type: 'ingress_invite_response', success: false, error: `Unknown action: ${String(msg.action)}` });
+        ctx.send(socket, {
+          type: "ingress_invite_response",
+          success: false,
+          error: `Unknown action: ${String(msg.action)}`,
+        });
       }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'ingress_invite handler error');
-    ctx.send(socket, { type: 'ingress_invite_response', success: false, error: message });
+    log.error({ err }, "ingress_invite handler error");
+    ctx.send(socket, {
+      type: "ingress_invite_response",
+      success: false,
+      error: message,
+    });
   }
 }
 
@@ -107,7 +156,7 @@ export function handleIngressMember(
 ): void {
   try {
     switch (msg.action) {
-      case 'list': {
+      case "list": {
         const result = listIngressMembers({
           assistantId: msg.assistantId,
           sourceChannel: msg.sourceChannel,
@@ -115,14 +164,22 @@ export function handleIngressMember(
           policy: msg.policy,
         });
         if (!result.ok) {
-          ctx.send(socket, { type: 'ingress_member_response', success: false, error: result.error });
+          ctx.send(socket, {
+            type: "ingress_member_response",
+            success: false,
+            error: result.error,
+          });
           return;
         }
-        ctx.send(socket, { type: 'ingress_member_response', success: true, members: result.data });
+        ctx.send(socket, {
+          type: "ingress_member_response",
+          success: true,
+          members: result.data,
+        });
         return;
       }
 
-      case 'upsert': {
+      case "upsert": {
         const result = upsertIngressMember({
           assistantId: msg.assistantId,
           sourceChannel: msg.sourceChannel,
@@ -134,41 +191,73 @@ export function handleIngressMember(
           status: msg.status,
         });
         if (!result.ok) {
-          ctx.send(socket, { type: 'ingress_member_response', success: false, error: result.error });
+          ctx.send(socket, {
+            type: "ingress_member_response",
+            success: false,
+            error: result.error,
+          });
           return;
         }
-        ctx.send(socket, { type: 'ingress_member_response', success: true, member: result.data });
+        ctx.send(socket, {
+          type: "ingress_member_response",
+          success: true,
+          member: result.data,
+        });
         return;
       }
 
-      case 'revoke': {
+      case "revoke": {
         const result = revokeIngressMember(msg.memberId, msg.reason);
         if (!result.ok) {
-          ctx.send(socket, { type: 'ingress_member_response', success: false, error: result.error });
+          ctx.send(socket, {
+            type: "ingress_member_response",
+            success: false,
+            error: result.error,
+          });
           return;
         }
-        ctx.send(socket, { type: 'ingress_member_response', success: true, member: result.data });
+        ctx.send(socket, {
+          type: "ingress_member_response",
+          success: true,
+          member: result.data,
+        });
         return;
       }
 
-      case 'block': {
+      case "block": {
         const result = blockIngressMember(msg.memberId, msg.reason);
         if (!result.ok) {
-          ctx.send(socket, { type: 'ingress_member_response', success: false, error: result.error });
+          ctx.send(socket, {
+            type: "ingress_member_response",
+            success: false,
+            error: result.error,
+          });
           return;
         }
-        ctx.send(socket, { type: 'ingress_member_response', success: true, member: result.data });
+        ctx.send(socket, {
+          type: "ingress_member_response",
+          success: true,
+          member: result.data,
+        });
         return;
       }
 
       default: {
-        ctx.send(socket, { type: 'ingress_member_response', success: false, error: `Unknown action: ${String(msg.action)}` });
+        ctx.send(socket, {
+          type: "ingress_member_response",
+          success: false,
+          error: `Unknown action: ${String(msg.action)}`,
+        });
       }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'ingress_member handler error');
-    ctx.send(socket, { type: 'ingress_member_response', success: false, error: message });
+    log.error({ err }, "ingress_member handler error");
+    ctx.send(socket, {
+      type: "ingress_member_response",
+      success: false,
+      error: message,
+    });
   }
 }
 
@@ -179,13 +268,13 @@ export function handleInboxEscalation(
 ): void {
   try {
     switch (msg.action) {
-      case 'list': {
+      case "list": {
         const escalations = listPendingApprovalRequests({
           assistantId: msg.assistantId,
           status: (msg.status as ApprovalRequestStatus) ?? undefined,
         });
         ctx.send(socket, {
-          type: 'assistant_inbox_escalation_response',
+          type: "assistant_inbox_escalation_response",
           success: true,
           escalations: escalations.map((req) => ({
             id: req.id,
@@ -202,27 +291,43 @@ export function handleInboxEscalation(
         return;
       }
 
-      case 'decide': {
+      case "decide": {
         if (!msg.approvalRequestId) {
-          ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: 'approvalRequestId is required for decide' });
+          ctx.send(socket, {
+            type: "assistant_inbox_escalation_response",
+            success: false,
+            error: "approvalRequestId is required for decide",
+          });
           return;
         }
         if (!msg.decision) {
-          ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: 'decision is required for decide' });
+          ctx.send(socket, {
+            type: "assistant_inbox_escalation_response",
+            success: false,
+            error: "decision is required for decide",
+          });
           return;
         }
 
-        const mappedDecision = msg.decision === 'approve' ? 'approved' : 'denied';
-        const resolved = resolveApprovalRequest(msg.approvalRequestId, mappedDecision);
+        const mappedDecision =
+          msg.decision === "approve" ? "approved" : "denied";
+        const resolved = resolveApprovalRequest(
+          msg.approvalRequestId,
+          mappedDecision,
+        );
 
         if (!resolved) {
-          ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: 'Approval request not found or already resolved' });
+          ctx.send(socket, {
+            type: "assistant_inbox_escalation_response",
+            success: false,
+            error: "Approval request not found or already resolved",
+          });
           return;
         }
 
         // Respond immediately — decision execution happens in the background
         ctx.send(socket, {
-          type: 'assistant_inbox_escalation_response',
+          type: "assistant_inbox_escalation_response",
           success: true,
           decision: {
             id: resolved.id,
@@ -232,21 +337,37 @@ export function handleInboxEscalation(
         });
 
         // Fire-and-forget: execute the decision asynchronously
-        executeEscalationDecision(resolved, msg.decision, msg.reason, ctx).catch((err) => {
-          log.error({ err, approvalRequestId: resolved.id, decision: msg.decision }, 'Escalation decision execution failed');
+        executeEscalationDecision(
+          resolved,
+          msg.decision,
+          msg.reason,
+          ctx,
+        ).catch((err) => {
+          log.error(
+            { err, approvalRequestId: resolved.id, decision: msg.decision },
+            "Escalation decision execution failed",
+          );
         });
 
         return;
       }
 
       default: {
-        ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: `Unknown action: ${String(msg.action)}` });
+        ctx.send(socket, {
+          type: "assistant_inbox_escalation_response",
+          success: false,
+          error: `Unknown action: ${String(msg.action)}`,
+        });
       }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'assistant_inbox_escalation handler error');
-    ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: message });
+    log.error({ err }, "assistant_inbox_escalation handler error");
+    ctx.send(socket, {
+      type: "assistant_inbox_escalation_response",
+      success: false,
+      error: message,
+    });
   }
 }
 
@@ -260,11 +381,11 @@ export function handleInboxEscalation(
  */
 async function executeEscalationDecision(
   approval: GuardianApprovalRequest,
-  decision: 'approve' | 'deny',
+  decision: "approve" | "deny",
   reason: string | undefined,
   ctx: HandlerContext,
 ): Promise<void> {
-  if (decision === 'approve') {
+  if (decision === "approve") {
     await executeApprove(approval, ctx);
   } else {
     await executeDeny(approval, reason);
@@ -279,14 +400,20 @@ async function executeApprove(
 
   // Recover the original message content from the stored payload
   const payload = getLatestStoredPayload(conversationId);
-  const messageContent = typeof payload?.content === 'string' ? payload.content : '';
+  const messageContent =
+    typeof payload?.content === "string" ? payload.content : "";
 
   if (!messageContent) {
-    log.warn({ conversationId, approvalId: approval.id }, 'No message content found for approved escalation; skipping processing');
+    log.warn(
+      { conversationId, approvalId: approval.id },
+      "No message content found for approved escalation; skipping processing",
+    );
     return;
   }
 
-  const sourceChannel: ChannelId | undefined = isChannelId(channel) ? channel : undefined;
+  const sourceChannel: ChannelId | undefined = isChannelId(channel)
+    ? channel
+    : undefined;
 
   // Get or create a session for the conversation and process the message
   const session = await ctx.getOrCreateSession(conversationId);
@@ -296,7 +423,9 @@ async function executeApprove(
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
     });
-    const sourceInterface = isInterfaceId(sourceChannel) ? sourceChannel : undefined;
+    const sourceInterface = isInterfaceId(sourceChannel)
+      ? sourceChannel
+      : undefined;
     if (sourceInterface) {
       session.setTurnInterfaceContext({
         userMessageInterface: sourceInterface,
@@ -311,20 +440,29 @@ async function executeApprove(
   // a different channel's binding (e.g. telegram/sms), misclassifying the
   // actor as 'unknown'.
   session.setTrustContext({
-    sourceChannel: sourceChannel ?? 'vellum',
-    trustClass: 'guardian',
+    sourceChannel: sourceChannel ?? "vellum",
+    trustClass: "guardian",
   });
   session.setCommandIntent(null);
 
   // Process the message through the agent loop (no IPC event callback
   // since this is a background execution without a connected client)
   const noop = () => {};
-  await session.processMessage(messageContent, [], noop, undefined, undefined, undefined, { isInteractive: false });
+  await session.processMessage(
+    messageContent,
+    [],
+    noop,
+    undefined,
+    undefined,
+    undefined,
+    { isInteractive: false },
+  );
 
   // Deliver the assistant's reply to the external user via the gateway
-  const replyCallbackUrl = typeof payload?.replyCallbackUrl === 'string'
-    ? payload.replyCallbackUrl
-    : null;
+  const replyCallbackUrl =
+    typeof payload?.replyCallbackUrl === "string"
+      ? payload.replyCallbackUrl
+      : null;
   const bearerToken = mintDaemonDeliveryToken();
 
   if (replyCallbackUrl) {
@@ -333,23 +471,34 @@ async function executeApprove(
 
     const msgs = getMessages(conversationId);
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === 'assistant') {
+      if (msgs[i].role === "assistant") {
         let parsed: unknown;
-        try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+        try {
+          parsed = JSON.parse(msgs[i].content);
+        } catch {
+          parsed = msgs[i].content;
+        }
         const rendered = renderHistoryContent(parsed);
         if (rendered.text) {
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
-            text: rendered.text,
-            assistantId,
-          }, bearerToken);
+          await deliverChannelReply(
+            replyCallbackUrl,
+            {
+              chatId: externalChatId,
+              text: rendered.text,
+              assistantId,
+            },
+            bearerToken,
+          );
         }
         break;
       }
     }
   }
 
-  log.info({ conversationId, approvalId: approval.id }, 'Approved escalation processed successfully');
+  log.info(
+    { conversationId, approvalId: approval.id },
+    "Approved escalation processed successfully",
+  );
 }
 
 async function executeDeny(
@@ -360,13 +509,21 @@ async function executeDeny(
 
   const binding = getBindingByConversation(conversationId);
   if (!binding) {
-    log.warn({ conversationId, approvalId: approval.id }, 'No external binding found for denied escalation; cannot send refusal');
+    log.warn(
+      { conversationId, approvalId: approval.id },
+      "No external binding found for denied escalation; cannot send refusal",
+    );
     return;
   }
 
-  const sourceChannel: ChannelId | undefined = isChannelId(channel) ? channel : undefined;
+  const sourceChannel: ChannelId | undefined = isChannelId(channel)
+    ? channel
+    : undefined;
   if (!sourceChannel) {
-    log.warn({ conversationId, channel, approvalId: approval.id }, 'Invalid channel for denied escalation; cannot send refusal');
+    log.warn(
+      { conversationId, channel, approvalId: approval.id },
+      "Invalid channel for denied escalation; cannot send refusal",
+    );
     return;
   }
 
@@ -376,24 +533,38 @@ async function executeDeny(
 
   const denialText = reason
     ? `Your message was reviewed and declined. Reason: ${reason}`
-    : 'Your message was reviewed and declined.';
+    : "Your message was reviewed and declined.";
 
-  await deliverChannelReply(deliverUrl, {
-    chatId: binding.externalChatId,
-    text: denialText,
-    assistantId,
-  }, bearerToken);
+  await deliverChannelReply(
+    deliverUrl,
+    {
+      chatId: binding.externalChatId,
+      text: denialText,
+      assistantId,
+    },
+    bearerToken,
+  );
 
   // Store a system note about the denial in the conversation
-  const denialInterface = isInterfaceId(sourceChannel) ? sourceChannel : undefined;
-  await addMessage(conversationId, 'assistant', denialText, {
-    provenanceTrustClass: 'guardian' as const,
+  const denialInterface = isInterfaceId(sourceChannel)
+    ? sourceChannel
+    : undefined;
+  await addMessage(conversationId, "assistant", denialText, {
+    provenanceTrustClass: "guardian" as const,
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
-    ...(denialInterface ? { userMessageInterface: denialInterface, assistantMessageInterface: denialInterface } : {}),
+    ...(denialInterface
+      ? {
+          userMessageInterface: denialInterface,
+          assistantMessageInterface: denialInterface,
+        }
+      : {}),
   });
 
-  log.info({ conversationId, approvalId: approval.id }, 'Denied escalation refusal sent');
+  log.info(
+    { conversationId, approvalId: approval.id },
+    "Denied escalation refusal sent",
+  );
 }
 
 export const inboxInviteHandlers = defineHandlers({

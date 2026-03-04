@@ -1,19 +1,19 @@
-import { RiskLevel } from '../permissions/types.js';
-import type { ToolDefinition } from '../providers/types.js';
-import { getLogger } from '../util/logger.js';
-import { coreAppProxyTools } from './apps/definitions.js';
-import { registerAppTools } from './apps/registry.js';
-import { allComputerUseTools } from './computer-use/definitions.js';
-import { requestComputerControlTool } from './computer-use/request-computer-control.js';
-import { hostFileEditTool } from './host-filesystem/edit.js';
-import { hostFileReadTool } from './host-filesystem/read.js';
-import { hostFileWriteTool } from './host-filesystem/write.js';
-import { hostShellTool } from './host-terminal/host-shell.js';
-import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
-import { allUiSurfaceTools } from './ui-surface/definitions.js';
-import { registerUiSurfaceTools } from './ui-surface/registry.js';
+import { RiskLevel } from "../permissions/types.js";
+import type { ToolDefinition } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
+import { coreAppProxyTools } from "./apps/definitions.js";
+import { registerAppTools } from "./apps/registry.js";
+import { allComputerUseTools } from "./computer-use/definitions.js";
+import { requestComputerControlTool } from "./computer-use/request-computer-control.js";
+import { hostFileEditTool } from "./host-filesystem/edit.js";
+import { hostFileReadTool } from "./host-filesystem/read.js";
+import { hostFileWriteTool } from "./host-filesystem/write.js";
+import { hostShellTool } from "./host-terminal/host-shell.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "./types.js";
+import { allUiSurfaceTools } from "./ui-surface/definitions.js";
+import { registerUiSurfaceTools } from "./ui-surface/registry.js";
 
-const log = getLogger('tool-registry');
+const log = getLogger("tool-registry");
 
 const tools = new Map<string, Tool>();
 
@@ -63,19 +63,24 @@ class LazyTool implements Tool {
     return this.definition;
   }
 
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     if (!this.resolvedTool) {
       if (!this.loadPromise) {
         // Assign loadPromise synchronously before the async loader begins,
         // so concurrent callers see the guard immediately.
-        const promise = this.loader().then((tool) => {
-          this.resolvedTool = tool;
-          log.info({ name: this.name }, 'Lazy tool loaded');
-          return tool;
-        }).catch((err) => {
-          this.loadPromise = null;
-          throw err;
-        });
+        const promise = this.loader()
+          .then((tool) => {
+            this.resolvedTool = tool;
+            log.info({ name: this.name }, "Lazy tool loaded");
+            return tool;
+          })
+          .catch((err) => {
+            this.loadPromise = null;
+            throw err;
+          });
         this.loadPromise = promise;
       }
       await this.loadPromise;
@@ -88,10 +93,10 @@ export function registerTool(tool: Tool): void {
   const existing = tools.get(tool.name);
   if (existing) {
     if (existing === tool) return; // same object, skip
-    log.warn({ name: tool.name }, 'Tool already registered, overwriting');
+    log.warn({ name: tool.name }, "Tool already registered, overwriting");
   }
   tools.set(tool.name, tool);
-  log.info({ name: tool.name, category: tool.category }, 'Tool registered');
+  log.info({ name: tool.name, category: tool.category }, "Tool registered");
 }
 
 export function registerLazyTool(descriptor: LazyToolDescriptor): void {
@@ -121,7 +126,7 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
   for (const tool of newTools) {
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = existing.origin === 'core' || !existing.origin;
+      const existingIsCore = existing.origin === "core" || !existing.origin;
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, skillId: tool.ownerSkillId },
@@ -144,7 +149,10 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
   for (const tool of accepted) {
     tools.set(tool.name, tool);
     if (tool.ownerSkillId) skillIds.add(tool.ownerSkillId);
-    log.info({ name: tool.name, ownerSkillId: tool.ownerSkillId }, 'Skill tool registered');
+    log.info(
+      { name: tool.name, ownerSkillId: tool.ownerSkillId },
+      "Skill tool registered",
+    );
   }
 
   for (const id of skillIds) {
@@ -162,16 +170,19 @@ export function unregisterSkillTools(skillId: string): void {
   const current = skillRefCount.get(skillId) ?? 0;
   if (current > 1) {
     skillRefCount.set(skillId, current - 1);
-    log.info({ skillId, remaining: current - 1 }, 'Decremented skill ref count, tools kept');
+    log.info(
+      { skillId, remaining: current - 1 },
+      "Decremented skill ref count, tools kept",
+    );
     return;
   }
 
   // Last reference — actually remove the tools
   skillRefCount.delete(skillId);
   for (const [name, tool] of tools) {
-    if (tool.origin === 'skill' && tool.ownerSkillId === skillId) {
+    if (tool.origin === "skill" && tool.ownerSkillId === skillId) {
       tools.delete(name);
-      log.info({ name, skillId }, 'Skill tool unregistered');
+      log.info({ name, skillId }, "Skill tool unregistered");
     }
   }
 }
@@ -186,7 +197,7 @@ export function registerMcpTools(newTools: Tool[]): Tool[] {
   for (const tool of newTools) {
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = existing.origin === 'core' || !existing.origin;
+      const existingIsCore = existing.origin === "core" || !existing.origin;
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, serverId: tool.ownerMcpServerId },
@@ -194,14 +205,21 @@ export function registerMcpTools(newTools: Tool[]): Tool[] {
         );
         continue;
       }
-      if (existing.origin === 'skill') {
+      if (existing.origin === "skill") {
         log.warn(
-          { toolName: tool.name, serverId: tool.ownerMcpServerId, skillId: existing.ownerSkillId },
+          {
+            toolName: tool.name,
+            serverId: tool.ownerMcpServerId,
+            skillId: existing.ownerSkillId,
+          },
           `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with skill tool from "${existing.ownerSkillId}". Skipping.`,
         );
         continue;
       }
-      if (existing.origin === 'mcp' && existing.ownerMcpServerId !== tool.ownerMcpServerId) {
+      if (
+        existing.origin === "mcp" &&
+        existing.ownerMcpServerId !== tool.ownerMcpServerId
+      ) {
         throw new Error(
           `MCP tool "${tool.name}" is already registered by MCP server "${existing.ownerMcpServerId}"`,
         );
@@ -212,7 +230,10 @@ export function registerMcpTools(newTools: Tool[]): Tool[] {
 
   for (const tool of accepted) {
     tools.set(tool.name, tool);
-    log.info({ name: tool.name, ownerMcpServerId: tool.ownerMcpServerId }, 'MCP tool registered');
+    log.info(
+      { name: tool.name, ownerMcpServerId: tool.ownerMcpServerId },
+      "MCP tool registered",
+    );
   }
 
   return accepted;
@@ -223,9 +244,9 @@ export function registerMcpTools(newTools: Tool[]): Tool[] {
  */
 export function unregisterMcpTools(serverId: string): void {
   for (const [name, tool] of tools) {
-    if (tool.origin === 'mcp' && tool.ownerMcpServerId === serverId) {
+    if (tool.origin === "mcp" && tool.ownerMcpServerId === serverId) {
       tools.delete(name);
-      log.info({ name, serverId }, 'MCP tool unregistered');
+      log.info({ name, serverId }, "MCP tool unregistered");
     }
   }
 }
@@ -235,7 +256,7 @@ export function unregisterMcpTools(serverId: string): void {
  */
 export function getMcpToolNames(): string[] {
   return Array.from(tools.values())
-    .filter((t) => t.origin === 'mcp')
+    .filter((t) => t.origin === "mcp")
     .map((t) => t.name);
 }
 
@@ -244,7 +265,7 @@ export function getMcpToolNames(): string[] {
  */
 export function getSkillToolNames(): string[] {
   return Array.from(tools.values())
-    .filter((t) => t.origin === 'skill')
+    .filter((t) => t.origin === "skill")
     .map((t) => t.name);
 }
 
@@ -264,12 +285,13 @@ export function getAllToolDefinitions(): ToolDefinition[] {
   // registry.  Including them here causes "Tool names must be unique"
   // errors when the projection appends the same tools a second time.
   return getAllTools()
-    .filter((t) => t.executionMode !== 'proxy' && t.origin !== 'skill')
+    .filter((t) => t.executionMode !== "proxy" && t.origin !== "skill")
     .map((t) => t.getDefinition());
 }
 
 export async function initializeTools(): Promise<void> {
-  const { loadEagerModules, eagerModuleToolNames, explicitTools, lazyTools } = await import('./tool-manifest.js');
+  const { loadEagerModules, eagerModuleToolNames, explicitTools, lazyTools } =
+    await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
   // registrations.  In production this is empty; in tests a non-skill tool
@@ -286,7 +308,12 @@ export async function initializeTools(): Promise<void> {
 
   // Host tools are registered explicitly so host access stays opt-in until
   // this point in startup, rather than as module side effects.
-  const hostTools = [hostFileReadTool, hostFileWriteTool, hostFileEditTool, hostShellTool];
+  const hostTools = [
+    hostFileReadTool,
+    hostFileWriteTool,
+    hostFileEditTool,
+    hostShellTool,
+  ];
   for (const tool of hostTools) {
     registerTool(tool);
   }
@@ -324,14 +351,14 @@ export async function initializeTools(): Promise<void> {
 
     coreToolsSnapshot = new Map<string, Tool>();
     for (const [name, tool] of tools) {
-      if (tool.origin === 'skill') continue;
+      if (tool.origin === "skill") continue;
       // Exclude pre-existing tools not declared in the manifest
       if (preExisting.has(name) && !manifestToolNames.has(name)) continue;
       coreToolsSnapshot.set(name, tool);
     }
   }
 
-  log.info({ count: tools.size }, 'Tools initialized');
+  log.info({ count: tools.size }, "Tools initialized");
 }
 
 /**

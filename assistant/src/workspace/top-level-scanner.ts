@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync } from "node:fs";
 
 /** Hard cap on returned entries to keep context bounded. */
 export const MAX_TOP_LEVEL_ENTRIES = 120;
@@ -20,8 +20,14 @@ export function scanTopLevelDirectories(rootPath: string): TopLevelSnapshot {
   let fileEntries: string[];
   try {
     const all = readdirSync(rootPath, { withFileTypes: true });
-    dirEntries = all.filter((d) => d.isDirectory()).map((d) => d.name).sort();
-    fileEntries = all.filter((d) => d.isFile()).map((d) => d.name).sort();
+    dirEntries = all
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort();
+    fileEntries = all
+      .filter((d) => d.isFile())
+      .map((d) => d.name)
+      .sort();
   } catch {
     return { rootPath, directories: [], files: [], truncated: false };
   }

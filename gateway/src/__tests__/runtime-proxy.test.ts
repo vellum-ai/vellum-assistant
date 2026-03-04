@@ -2,17 +2,23 @@ import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createRuntimeProxyHandler } = await import("../http/routes/runtime-proxy.js");
+const { createRuntimeProxyHandler } =
+  await import("../http/routes/runtime-proxy.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -74,7 +80,9 @@ describe("runtime proxy handler", () => {
     });
 
     const handler = createRuntimeProxyHandler(makeConfig());
-    const req = new Request("http://localhost:7830/v1/assistants/test-assistant/channels/inbound");
+    const req = new Request(
+      "http://localhost:7830/v1/assistants/test-assistant/channels/inbound",
+    );
     await handler(req);
 
     expect(captured[0].url).toBe("http://localhost:7821/v1/channels/inbound");
@@ -82,16 +90,20 @@ describe("runtime proxy handler", () => {
 
   test("forwards request to upstream with correct path and query (legacy assistant-scoped rewrite)", async () => {
     const captured: { url: string; method: string }[] = [];
-    fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
-      captured.push({ url: String(input), method: init?.method ?? "GET" });
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    });
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        captured.push({ url: String(input), method: init?.method ?? "GET" });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
 
     const handler = createRuntimeProxyHandler(makeConfig());
-    const req = new Request("http://localhost:7830/v1/assistants/test/health?foo=bar");
+    const req = new Request(
+      "http://localhost:7830/v1/assistants/test/health?foo=bar",
+    );
     const res = await handler(req);
 
     expect(res.status).toBe(200);
@@ -104,13 +116,15 @@ describe("runtime proxy handler", () => {
 
   test("forwards POST body to upstream", async () => {
     let capturedBody = "";
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      if (init?.body) {
-        // Body is an ArrayBuffer after buffering in the proxy handler
-        capturedBody = new TextDecoder().decode(init.body as ArrayBuffer);
-      }
-      return new Response("ok", { status: 200 });
-    });
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        if (init?.body) {
+          // Body is an ArrayBuffer after buffering in the proxy handler
+          capturedBody = new TextDecoder().decode(init.body as ArrayBuffer);
+        }
+        return new Response("ok", { status: 200 });
+      },
+    );
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/chat", {
@@ -152,10 +166,12 @@ describe("runtime proxy handler", () => {
 
   test("strips hop-by-hop headers from request", async () => {
     let capturedHeaders: Headers | undefined;
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = init?.headers as unknown as Headers;
-      return new Response("ok", { status: 200 });
-    });
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
+        return new Response("ok", { status: 200 });
+      },
+    );
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {
@@ -198,12 +214,17 @@ describe("runtime proxy handler", () => {
   });
 
   test("returns 504 on upstream timeout", async () => {
-    const timeoutError = new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    const timeoutError = new DOMException(
+      "The operation was aborted due to timeout",
+      "TimeoutError",
+    );
     fetchMock = mock(async () => {
       throw timeoutError;
     });
 
-    const handler = createRuntimeProxyHandler(makeConfig({ runtimeTimeoutMs: 100 }));
+    const handler = createRuntimeProxyHandler(
+      makeConfig({ runtimeTimeoutMs: 100 }),
+    );
     const req = new Request("http://localhost:7830/v1/health");
     const res = await handler(req);
 
@@ -214,12 +235,16 @@ describe("runtime proxy handler", () => {
 
   test("passes AbortSignal.timeout to upstream fetch", async () => {
     let capturedSignal: AbortSignal | null | undefined;
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      capturedSignal = init?.signal;
-      return new Response("ok", { status: 200 });
-    });
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedSignal = init?.signal;
+        return new Response("ok", { status: 200 });
+      },
+    );
 
-    const handler = createRuntimeProxyHandler(makeConfig({ runtimeTimeoutMs: 5000 }));
+    const handler = createRuntimeProxyHandler(
+      makeConfig({ runtimeTimeoutMs: 5000 }),
+    );
     const req = new Request("http://localhost:7830/v1/health");
     await handler(req);
 
@@ -229,10 +254,12 @@ describe("runtime proxy handler", () => {
 
   test("replaces client authorization with JWT service token when auth is not required", async () => {
     let capturedHeaders: Headers | undefined;
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = init?.headers as unknown as Headers;
-      return new Response("ok", { status: 200 });
-    });
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
+        return new Response("ok", { status: 200 });
+      },
+    );
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {
@@ -246,14 +273,14 @@ describe("runtime proxy handler", () => {
 
   test("replaces client authorization with JWT token for upstream", async () => {
     let capturedHeaders: Headers | undefined;
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = init?.headers as unknown as Headers;
-      return new Response("ok", { status: 200 });
-    });
-
-    const handler = createRuntimeProxyHandler(
-      makeConfig({}),
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
+        return new Response("ok", { status: 200 });
+      },
     );
+
+    const handler = createRuntimeProxyHandler(makeConfig({}));
     const req = new Request("http://localhost:7830/v1/health", {
       headers: { authorization: "Bearer client-token" },
     });
@@ -280,10 +307,12 @@ describe("runtime proxy handler", () => {
 
   test("does not forward host header to upstream", async () => {
     let capturedHeaders: Headers | undefined;
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = init?.headers as unknown as Headers;
-      return new Response("ok", { status: 200 });
-    });
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
+        return new Response("ok", { status: 200 });
+      },
+    );
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {
@@ -359,9 +388,12 @@ describe("runtime proxy handler", () => {
       });
 
       const handler = createRuntimeProxyHandler(makeConfig());
-      const req = new Request("http://localhost:7830/webhooks/any-future-channel", {
-        method: "POST",
-      });
+      const req = new Request(
+        "http://localhost:7830/webhooks/any-future-channel",
+        {
+          method: "POST",
+        },
+      );
       const res = await handler(req);
 
       expect(res.status).toBe(404);

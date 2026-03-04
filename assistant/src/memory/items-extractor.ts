@@ -1,34 +1,44 @@
-import { and, eq, sql } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, eq, sql } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getConfig } from '../config/loader.js';
-import type { MemoryExtractionConfig } from '../config/types.js';
-import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
-import { getLogger } from '../util/logger.js';
-import { truncate } from '../util/truncate.js';
-import { getDb } from './db.js';
-import { computeMemoryFingerprint } from './fingerprint.js';
-import { enqueueMemoryJob } from './jobs-store.js';
-import { extractTextFromStoredMessageContent } from './message-content.js';
-import { memoryItemConflicts, memoryItems, memoryItemSources, messages } from './schema.js';
-import { isConversationFailed } from './task-memory-cleanup.js';
-import { clampUnitInterval } from './validation.js';
+import { getConfig } from "../config/loader.js";
+import type { MemoryExtractionConfig } from "../config/types.js";
+import {
+  createTimeout,
+  extractToolUse,
+  getConfiguredProvider,
+  userMessage,
+} from "../providers/provider-send-message.js";
+import { getLogger } from "../util/logger.js";
+import { truncate } from "../util/truncate.js";
+import { getDb } from "./db.js";
+import { computeMemoryFingerprint } from "./fingerprint.js";
+import { enqueueMemoryJob } from "./jobs-store.js";
+import { extractTextFromStoredMessageContent } from "./message-content.js";
+import {
+  memoryItemConflicts,
+  memoryItems,
+  memoryItemSources,
+  messages,
+} from "./schema.js";
+import { isConversationFailed } from "./task-memory-cleanup.js";
+import { clampUnitInterval } from "./validation.js";
 
-const log = getLogger('memory-items-extractor');
+const log = getLogger("memory-items-extractor");
 
 export type MemoryItemKind =
-  | 'preference'
-  | 'profile'
-  | 'project'
-  | 'decision'
-  | 'todo'
-  | 'fact'
-  | 'constraint'
-  | 'relationship'
-  | 'event'
-  | 'opinion'
-  | 'instruction'
-  | 'style';
+  | "preference"
+  | "profile"
+  | "project"
+  | "decision"
+  | "todo"
+  | "fact"
+  | "constraint"
+  | "relationship"
+  | "event"
+  | "opinion"
+  | "instruction"
+  | "style";
 
 interface ExtractedItem {
   kind: MemoryItemKind;
@@ -40,28 +50,76 @@ interface ExtractedItem {
 }
 
 const VALID_KINDS = new Set<string>([
-  'preference', 'profile', 'project', 'decision', 'todo',
-  'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
+  "preference",
+  "profile",
+  "project",
+  "decision",
+  "todo",
+  "fact",
+  "constraint",
+  "relationship",
+  "event",
+  "opinion",
+  "instruction",
+  "style",
 ]);
 
-const SUPERSEDE_KINDS = new Set<MemoryItemKind>(['decision', 'preference', 'constraint']);
+const SUPERSEDE_KINDS = new Set<MemoryItemKind>([
+  "decision",
+  "preference",
+  "constraint",
+]);
 
 // ── Semantic density gating ────────────────────────────────────────────
 // Skip messages that are too short or consist of low-value filler.
 
 const LOW_VALUE_PATTERNS = new Set([
-  'ok', 'okay', 'k', 'sure', 'yes', 'no', 'yep', 'nope', 'yeah', 'nah',
-  'thanks', 'thank you', 'ty', 'thx', 'thanks!', 'thank you!',
-  'got it', 'understood', 'makes sense', 'sounds good', 'sounds great',
-  'cool', 'nice', 'great', 'awesome', 'perfect', 'done', 'lgtm',
-  'agreed', 'right', 'correct', 'exactly', 'yup', 'ack',
-  'hm', 'hmm', 'hmmm', 'ah', 'oh', 'i see',
+  "ok",
+  "okay",
+  "k",
+  "sure",
+  "yes",
+  "no",
+  "yep",
+  "nope",
+  "yeah",
+  "nah",
+  "thanks",
+  "thank you",
+  "ty",
+  "thx",
+  "thanks!",
+  "thank you!",
+  "got it",
+  "understood",
+  "makes sense",
+  "sounds good",
+  "sounds great",
+  "cool",
+  "nice",
+  "great",
+  "awesome",
+  "perfect",
+  "done",
+  "lgtm",
+  "agreed",
+  "right",
+  "correct",
+  "exactly",
+  "yup",
+  "ack",
+  "hm",
+  "hmm",
+  "hmmm",
+  "ah",
+  "oh",
+  "i see",
 ]);
 
 function hasSemanticDensity(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length < 15) return false;
-  const lower = trimmed.toLowerCase().replace(/[.!?,;:\s]+$/, '');
+  const lower = trimmed.toLowerCase().replace(/[.!?,;:\s]+$/, "");
   if (LOW_VALUE_PATTERNS.has(lower)) return false;
   // Very short messages with only 1-2 words are typically not memorable
   const wordCount = trimmed.split(/\s+/).length;
@@ -120,7 +178,9 @@ async function extractItemsWithLLM(
 ): Promise<ExtractedItem[]> {
   const provider = getConfiguredProvider();
   if (!provider) {
-    log.debug('Configured provider unavailable for LLM extraction, falling back to pattern-based');
+    log.debug(
+      "Configured provider unavailable for LLM extraction, falling back to pattern-based",
+    );
     return extractItemsPatternBased(text, scopeId);
   }
 
@@ -130,52 +190,64 @@ async function extractItemsWithLLM(
     try {
       const response = await provider.sendMessage(
         [userMessage(text)],
-        [{
-          name: 'store_memory_items',
-          description: 'Store extracted memory items from the message',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              items: {
-                type: 'array',
+        [
+          {
+            name: "store_memory_items",
+            description: "Store extracted memory items from the message",
+            input_schema: {
+              type: "object" as const,
+              properties: {
                 items: {
-                  type: 'object',
-                  properties: {
-                    kind: {
-                      type: 'string',
-                      enum: [...VALID_KINDS],
-                      description: 'Category of memory item',
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      kind: {
+                        type: "string",
+                        enum: [...VALID_KINDS],
+                        description: "Category of memory item",
+                      },
+                      subject: {
+                        type: "string",
+                        description:
+                          "Short label (2-8 words) for what this is about",
+                      },
+                      statement: {
+                        type: "string",
+                        description:
+                          "Full factual statement to remember (1-2 sentences)",
+                      },
+                      confidence: {
+                        type: "number",
+                        description:
+                          "Confidence that this is accurate (0.0-1.0)",
+                      },
+                      importance: {
+                        type: "number",
+                        description:
+                          "How valuable this is to remember (0.0-1.0)",
+                      },
                     },
-                    subject: {
-                      type: 'string',
-                      description: 'Short label (2-8 words) for what this is about',
-                    },
-                    statement: {
-                      type: 'string',
-                      description: 'Full factual statement to remember (1-2 sentences)',
-                    },
-                    confidence: {
-                      type: 'number',
-                      description: 'Confidence that this is accurate (0.0-1.0)',
-                    },
-                    importance: {
-                      type: 'number',
-                      description: 'How valuable this is to remember (0.0-1.0)',
-                    },
+                    required: [
+                      "kind",
+                      "subject",
+                      "statement",
+                      "confidence",
+                      "importance",
+                    ],
                   },
-                  required: ['kind', 'subject', 'statement', 'confidence', 'importance'],
                 },
               },
+              required: ["items"],
             },
-            required: ['items'],
           },
-        }],
+        ],
         EXTRACTION_SYSTEM_PROMPT,
         {
           config: {
             modelIntent: extractionConfig.modelIntent,
             max_tokens: 1024,
-            tool_choice: { type: 'tool' as const, name: 'store_memory_items' },
+            tool_choice: { type: "tool" as const, name: "store_memory_items" },
           },
           signal,
         },
@@ -184,13 +256,17 @@ async function extractItemsWithLLM(
 
       const toolBlock = extractToolUse(response);
       if (!toolBlock) {
-        log.warn('No tool_use block in LLM extraction response, falling back to pattern-based');
+        log.warn(
+          "No tool_use block in LLM extraction response, falling back to pattern-based",
+        );
         return extractItemsPatternBased(text, scopeId);
       }
 
       const input = toolBlock.input as { items?: LLMExtractedItem[] };
       if (!Array.isArray(input.items)) {
-        log.warn('Invalid items in LLM extraction response, falling back to pattern-based');
+        log.warn(
+          "Invalid items in LLM extraction response, falling back to pattern-based",
+        );
         return extractItemsPatternBased(text, scopeId);
       }
 
@@ -198,11 +274,16 @@ async function extractItemsWithLLM(
       for (const raw of input.items) {
         if (!VALID_KINDS.has(raw.kind)) continue;
         if (!raw.subject || !raw.statement) continue;
-        const subject = truncate(String(raw.subject), 80, '');
-        const statement = truncate(String(raw.statement), 500, '');
+        const subject = truncate(String(raw.subject), 80, "");
+        const statement = truncate(String(raw.statement), 500, "");
         const confidence = clampUnitInterval(parseScore(raw.confidence, 0.5));
         const importance = clampUnitInterval(parseScore(raw.importance, 0.5));
-        const fingerprint = computeMemoryFingerprint(scopeId, raw.kind, subject, statement);
+        const fingerprint = computeMemoryFingerprint(
+          scopeId,
+          raw.kind,
+          subject,
+          statement,
+        );
         items.push({
           kind: raw.kind as MemoryItemKind,
           subject,
@@ -219,14 +300,21 @@ async function extractItemsWithLLM(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.warn({ err: message }, 'LLM extraction failed, falling back to pattern-based');
+    log.warn(
+      { err: message },
+      "LLM extraction failed, falling back to pattern-based",
+    );
     return extractItemsPatternBased(text, scopeId);
   }
 }
 
 // ── Public API ─────────────────────────────────────────────────────────
 
-export async function extractAndUpsertMemoryItemsForMessage(messageId: string, scopeId?: string, conversationId?: string): Promise<number> {
+export async function extractAndUpsertMemoryItemsForMessage(
+  messageId: string,
+  scopeId?: string,
+  conversationId?: string,
+): Promise<number> {
   const db = getDb();
   const message = db
     .select({
@@ -243,13 +331,16 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
 
   const text = extractTextFromStoredMessageContent(message.content);
   if (!hasSemanticDensity(text)) {
-    log.debug({ messageId }, 'Skipping extraction — message lacks semantic density');
+    log.debug(
+      { messageId },
+      "Skipping extraction — message lacks semantic density",
+    );
     return 0;
   }
 
   const config = getConfig();
   const extractionConfig = config.memory.extraction;
-  const effectiveScopeId = scopeId ?? 'default';
+  const effectiveScopeId = scopeId ?? "default";
   const extracted = extractionConfig.useLLM
     ? await extractItemsWithLLM(text, extractionConfig, effectiveScopeId)
     : extractItemsPatternBased(text, effectiveScopeId);
@@ -260,12 +351,16 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
   // extractItemsWithLLM, so another task could have marked the conversation
   // as failed in the meantime. Bail before writing to the DB.
   if (conversationId && isConversationFailed(conversationId)) {
-    log.info({ messageId, conversationId }, 'Skipping upsert — conversation marked failed during extraction');
+    log.info(
+      { messageId, conversationId },
+      "Skipping upsert — conversation marked failed during extraction",
+    );
     return 0;
   }
 
   // Determine verification state from message role
-  const verificationState = message.role === 'user' ? 'user_reported' : 'assistant_inferred';
+  const verificationState =
+    message.role === "user" ? "user_reported" : "assistant_inferred";
 
   let upserted = 0;
   for (const item of extracted) {
@@ -274,30 +369,39 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
     const existing = db
       .select()
       .from(memoryItems)
-      .where(and(
-        eq(memoryItems.fingerprint, item.fingerprint),
-        eq(memoryItems.scopeId, effectiveScopeId),
-      ))
+      .where(
+        and(
+          eq(memoryItems.fingerprint, item.fingerprint),
+          eq(memoryItems.scopeId, effectiveScopeId),
+        ),
+      )
       .get();
 
     let memoryItemId: string;
-    let effectiveStatus: string = 'active';
+    let effectiveStatus: string = "active";
     if (existing) {
       memoryItemId = existing.id;
       // Promote verification state if re-seen from a more trusted source
       const promotedState =
-        existing.verificationState === 'assistant_inferred' && verificationState === 'user_reported'
-          ? 'user_reported'
+        existing.verificationState === "assistant_inferred" &&
+        verificationState === "user_reported"
+          ? "user_reported"
           : existing.verificationState;
       // Preserve pending_clarification if this item has an unresolved conflict
-      effectiveStatus = existing.status === 'pending_clarification' && hasPendingConflict(existing.id)
-        ? 'pending_clarification'
-        : 'active';
+      effectiveStatus =
+        existing.status === "pending_clarification" &&
+        hasPendingConflict(existing.id)
+          ? "pending_clarification"
+          : "active";
       db.update(memoryItems)
         .set({
           status: effectiveStatus,
-          confidence: clampUnitInterval(Math.max(existing.confidence, item.confidence)),
-          importance: clampUnitInterval(Math.max(existing.importance ?? 0, item.importance)),
+          confidence: clampUnitInterval(
+            Math.max(existing.confidence, item.confidence),
+          ),
+          importance: clampUnitInterval(
+            Math.max(existing.importance ?? 0, item.importance),
+          ),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
           verificationState: promotedState,
         })
@@ -305,21 +409,23 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
         .run();
     } else {
       memoryItemId = uuid();
-      db.insert(memoryItems).values({
-        id: memoryItemId,
-        kind: item.kind,
-        subject: item.subject,
-        statement: item.statement,
-        status: 'active',
-        confidence: item.confidence,
-        importance: item.importance,
-        fingerprint: item.fingerprint,
-        verificationState,
-        scopeId: effectiveScopeId,
-        firstSeenAt: message.createdAt,
-        lastSeenAt: seenAt,
-        lastUsedAt: null,
-      }).run();
+      db.insert(memoryItems)
+        .values({
+          id: memoryItemId,
+          kind: item.kind,
+          subject: item.subject,
+          statement: item.statement,
+          status: "active",
+          confidence: item.confidence,
+          importance: item.importance,
+          fingerprint: item.fingerprint,
+          verificationState,
+          scopeId: effectiveScopeId,
+          firstSeenAt: message.createdAt,
+          lastSeenAt: seenAt,
+          lastUsedAt: null,
+        })
+        .run();
       upserted += 1;
     }
 
@@ -327,41 +433,52 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
     // pending_clarification item should not demote the existing active
     // item, since that would leave no retrievable memory until manual
     // conflict resolution occurs.
-    if (SUPERSEDE_KINDS.has(item.kind) && effectiveStatus === 'active') {
+    if (SUPERSEDE_KINDS.has(item.kind) && effectiveStatus === "active") {
       db.update(memoryItems)
-        .set({ status: 'superseded' })
-        .where(and(
-          eq(memoryItems.kind, item.kind),
-          eq(memoryItems.subject, item.subject),
-          eq(memoryItems.status, 'active'),
-          eq(memoryItems.scopeId, effectiveScopeId),
-          sql`${memoryItems.id} <> ${memoryItemId}`,
-        ))
+        .set({ status: "superseded" })
+        .where(
+          and(
+            eq(memoryItems.kind, item.kind),
+            eq(memoryItems.subject, item.subject),
+            eq(memoryItems.status, "active"),
+            eq(memoryItems.scopeId, effectiveScopeId),
+            sql`${memoryItems.id} <> ${memoryItemId}`,
+          ),
+        )
         .run();
     }
 
-    db.insert(memoryItemSources).values({
-      memoryItemId,
-      messageId,
-      evidence: truncate(item.statement, 500, ''),
-      createdAt: now,
-    }).onConflictDoNothing().run();
+    db.insert(memoryItemSources)
+      .values({
+        memoryItemId,
+        messageId,
+        evidence: truncate(item.statement, 500, ""),
+        createdAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
 
-    enqueueMemoryJob('embed_item', { itemId: memoryItemId });
+    enqueueMemoryJob("embed_item", { itemId: memoryItemId });
 
     // Queue contradiction check for newly inserted items
     if (!existing) {
-      enqueueMemoryJob('check_contradictions', { itemId: memoryItemId });
+      enqueueMemoryJob("check_contradictions", { itemId: memoryItemId });
     }
   }
 
-  log.debug({ messageId, extracted: extracted.length, upserted }, 'Extracted memory items from message');
+  log.debug(
+    { messageId, extracted: extracted.length, upserted },
+    "Extracted memory items from message",
+  );
   return upserted;
 }
 
 // ── Pattern-based extraction (fallback) ────────────────────────────────
 
-function extractItemsPatternBased(text: string, scopeId: string = 'default'): ExtractedItem[] {
+function extractItemsPatternBased(
+  text: string,
+  scopeId: string = "default",
+): ExtractedItem[] {
   const sentences = text
     .split(/[\n\r]+|(?<=[.!?])\s+/)
     .map((s) => s.trim())
@@ -373,8 +490,13 @@ function extractItemsPatternBased(text: string, scopeId: string = 'default'): Ex
     const classification = classifySentence(lower);
     if (!classification) continue;
     const subject = inferSubject(sentence, classification.kind);
-    const statement = sentence.replace(/\s+/g, ' ').trim();
-    const fingerprint = computeMemoryFingerprint(scopeId, classification.kind, subject, statement);
+    const statement = sentence.replace(/\s+/g, " ").trim();
+    const fingerprint = computeMemoryFingerprint(
+      scopeId,
+      classification.kind,
+      subject,
+      statement,
+    );
     items.push({
       kind: classification.kind,
       subject,
@@ -388,39 +510,71 @@ function extractItemsPatternBased(text: string, scopeId: string = 'default'): Ex
   return deduplicateItems(items);
 }
 
-function classifySentence(lower: string): { kind: MemoryItemKind; confidence: number; importance: number } | null {
-  if (includesAny(lower, ['i prefer', 'prefer to', 'favorite', 'i like', 'i dislike'])) {
-    return { kind: 'preference', confidence: 0.78, importance: 0.7 };
+function classifySentence(
+  lower: string,
+): { kind: MemoryItemKind; confidence: number; importance: number } | null {
+  if (
+    includesAny(lower, [
+      "i prefer",
+      "prefer to",
+      "favorite",
+      "i like",
+      "i dislike",
+    ])
+  ) {
+    return { kind: "preference", confidence: 0.78, importance: 0.7 };
   }
-  if (includesAny(lower, ['my name is', 'i am ', 'i work as', 'i live in', 'timezone'])) {
-    return { kind: 'profile', confidence: 0.72, importance: 0.8 };
+  if (
+    includesAny(lower, [
+      "my name is",
+      "i am ",
+      "i work as",
+      "i live in",
+      "timezone",
+    ])
+  ) {
+    return { kind: "profile", confidence: 0.72, importance: 0.8 };
   }
-  if (includesAny(lower, ['project', 'repository', 'repo', 'codebase'])) {
-    return { kind: 'project', confidence: 0.68, importance: 0.6 };
+  if (includesAny(lower, ["project", "repository", "repo", "codebase"])) {
+    return { kind: "project", confidence: 0.68, importance: 0.6 };
   }
-  if (includesAny(lower, ['we decided', 'decision', 'chosen approach', 'we will'])) {
-    return { kind: 'decision', confidence: 0.75, importance: 0.7 };
+  if (
+    includesAny(lower, ["we decided", "decision", "chosen approach", "we will"])
+  ) {
+    return { kind: "decision", confidence: 0.75, importance: 0.7 };
   }
-  if (includesAny(lower, ['todo', 'to do', 'next step', 'follow up', 'need to'])) {
-    return { kind: 'todo', confidence: 0.74, importance: 0.6 };
+  if (
+    includesAny(lower, ["todo", "to do", "next step", "follow up", "need to"])
+  ) {
+    return { kind: "todo", confidence: 0.74, importance: 0.6 };
   }
-  if (includesAny(lower, ['must', 'cannot', 'should not', 'constraint', 'requirement'])) {
-    return { kind: 'constraint', confidence: 0.7, importance: 0.7 };
+  if (
+    includesAny(lower, [
+      "must",
+      "cannot",
+      "should not",
+      "constraint",
+      "requirement",
+    ])
+  ) {
+    return { kind: "constraint", confidence: 0.7, importance: 0.7 };
   }
-  if (includesAny(lower, ['remember', 'important', 'fact', 'noted'])) {
-    return { kind: 'fact', confidence: 0.62, importance: 0.5 };
+  if (includesAny(lower, ["remember", "important", "fact", "noted"])) {
+    return { kind: "fact", confidence: 0.62, importance: 0.5 };
   }
   return null;
 }
 
 function inferSubject(sentence: string, kind: MemoryItemKind): string {
   const trimmed = sentence.trim();
-  if (kind === 'project') {
-    const match = trimmed.match(/(?:project|repo(?:sitory)?)\s+([A-Za-z0-9._/-]{2,80})/i);
+  if (kind === "project") {
+    const match = trimmed.match(
+      /(?:project|repo(?:sitory)?)\s+([A-Za-z0-9._/-]{2,80})/i,
+    );
     if (match) return match[1];
   }
-  const words = trimmed.split(/\s+/).slice(0, 6).join(' ');
-  return truncate(words, 80, '');
+  const words = trimmed.split(/\s+/).slice(0, 6).join(" ");
+  return truncate(words, 80, "");
 }
 
 function includesAny(text: string, needles: string[]): boolean {
@@ -445,7 +599,7 @@ function deduplicateItems(items: ExtractedItem[]): ExtractedItem[] {
 
 /** Parse a score value, returning `fallback` for null, undefined, empty strings, and non-finite numbers. */
 function parseScore(value: unknown, fallback: number): number {
-  if (value == null || value === '') return fallback;
+  if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -456,10 +610,12 @@ function hasPendingConflict(itemId: string): boolean {
   const row = db
     .select({ id: memoryItemConflicts.id })
     .from(memoryItemConflicts)
-    .where(and(
-      eq(memoryItemConflicts.candidateItemId, itemId),
-      eq(memoryItemConflicts.status, 'pending_clarification'),
-    ))
+    .where(
+      and(
+        eq(memoryItemConflicts.candidateItemId, itemId),
+        eq(memoryItemConflicts.status, "pending_clarification"),
+      ),
+    )
     .limit(1)
     .get();
   return row != null;

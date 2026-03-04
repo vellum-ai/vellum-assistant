@@ -47,12 +47,12 @@ const API_KEY_PATTERNS: RegExp[] = [
 
 // Header names whose values should always be fully redacted
 const SENSITIVE_HEADERS = new Set([
-  'authorization',
-  'proxy-authorization',
-  'cookie',
-  'set-cookie',
-  'x-api-key',
-  'x-auth-token',
+  "authorization",
+  "proxy-authorization",
+  "cookie",
+  "set-cookie",
+  "x-api-key",
+  "x-auth-token",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -63,12 +63,12 @@ function redactString(value: string): string {
   let result = value;
 
   // Redact bearer tokens
-  result = result.replace(BEARER_RE, 'Bearer [REDACTED]');
+  result = result.replace(BEARER_RE, "Bearer [REDACTED]");
 
   // Redact API key patterns
   for (const pattern of API_KEY_PATTERNS) {
     pattern.lastIndex = 0;
-    result = result.replace(pattern, '[REDACTED]');
+    result = result.replace(pattern, "[REDACTED]");
   }
 
   return result;
@@ -81,7 +81,7 @@ function redactString(value: string): string {
 function redactValue(value: unknown, depth: number): unknown {
   if (depth > 8) return value;
 
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return redactString(value);
   }
 
@@ -89,13 +89,13 @@ function redactValue(value: unknown, depth: number): unknown {
     return value.map((item) => redactValue(item, depth + 1));
   }
 
-  if (value != null && typeof value === 'object') {
+  if (value != null && typeof value === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
       const lowerKey = key.toLowerCase();
       // Fully redact sensitive header values
       if (SENSITIVE_HEADERS.has(lowerKey)) {
-        result[key] = '[REDACTED]';
+        result[key] = "[REDACTED]";
       } else {
         result[key] = redactValue(val, depth + 1);
       }
@@ -123,7 +123,7 @@ function serializeError(err: unknown, depth: number): unknown {
   };
 
   // AssistantError and subclasses carry a structured ErrorCode
-  if ('code' in err && typeof (err as { code: unknown }).code === 'string') {
+  if ("code" in err && typeof (err as { code: unknown }).code === "string") {
     serialized.code = (err as { code: string }).code;
   }
 

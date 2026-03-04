@@ -13,18 +13,18 @@
  *   declare a `cli` entry in their SKILL.md frontmatter metadata
  */
 
-import { execSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { execSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-import { loadSkillCatalog } from '../config/skills.js';
-import { getLogger } from '../util/logger.js';
+import { loadSkillCatalog } from "../config/skills.js";
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('install-cli-launchers');
+const log = getLogger("install-cli-launchers");
 
 /** Core subcommands dispatched via the main CLI entrypoint (index.ts). */
-const CORE_COMMANDS = ['map'];
+const CORE_COMMANDS = ["map"];
 
 /**
  * Resolve the absolute path to the bun binary.
@@ -33,13 +33,13 @@ const CORE_COMMANDS = ['map'];
  */
 function resolveBunPath(): string {
   // process.execPath points to the bun binary when running under bun
-  if (process.execPath && process.execPath.includes('bun')) {
+  if (process.execPath && process.execPath.includes("bun")) {
     return process.execPath;
   }
   try {
-    return execSync('which bun', { encoding: 'utf-8' }).trim();
+    return execSync("which bun", { encoding: "utf-8" }).trim();
   } catch {
-    throw new Error('Could not find bun binary');
+    throw new Error("Could not find bun binary");
   }
 }
 
@@ -51,7 +51,7 @@ function resolveCliEntrypoint(): string {
   // This file is at assistant/src/daemon/install-cli-launchers.ts
   // The CLI entrypoint is at assistant/src/index.ts
   const thisDir = import.meta.dirname ?? __dirname;
-  return join(thisDir, '..', 'index.ts');
+  return join(thisDir, "..", "index.ts");
 }
 
 /**
@@ -60,7 +60,7 @@ function resolveCliEntrypoint(): string {
  */
 function hasSystemConflict(name: string, binDir: string): boolean {
   try {
-    const result = execSync(`which ${name}`, { encoding: 'utf-8' }).trim();
+    const result = execSync(`which ${name}`, { encoding: "utf-8" }).trim();
     // If `which` resolves to our own bin dir, that's not a conflict
     if (result.startsWith(binDir)) return false;
     return true;
@@ -83,13 +83,13 @@ function hasSystemConflict(name: string, binDir: string): boolean {
  * pointing to the declared entry file within the skill directory.
  */
 export function installCliLaunchers(): void {
-  const binDir = join(homedir(), '.vellum', 'bin');
+  const binDir = join(homedir(), ".vellum", "bin");
 
   let bunPath: string;
   try {
     bunPath = resolveBunPath();
   } catch (err) {
-    log.warn({ err }, 'Cannot install CLI launchers: bun not found');
+    log.warn({ err }, "Cannot install CLI launchers: bun not found");
     return;
   }
 
@@ -99,7 +99,10 @@ export function installCliLaunchers(): void {
     // source tree isn't available.  Launcher scripts are a dev-mode
     // convenience; compiled builds use their own command dispatch, so we
     // silently skip installation.
-    log.debug({ entrypoint: mainEntrypoint }, 'CLI entrypoint not found (compiled build?) — skipping launcher installation');
+    log.debug(
+      { entrypoint: mainEntrypoint },
+      "CLI entrypoint not found (compiled build?) — skipping launcher installation",
+    );
     return;
   }
 
@@ -111,7 +114,9 @@ export function installCliLaunchers(): void {
 
   // Install core command launchers (dispatched via main CLI)
   for (const name of CORE_COMMANDS) {
-    const launcherName = hasSystemConflict(name, binDir) ? `vellum-${name}` : name;
+    const launcherName = hasSystemConflict(name, binDir)
+      ? `vellum-${name}`
+      : name;
     const launcherPath = join(binDir, launcherName);
 
     const script = `#!/bin/bash
@@ -121,7 +126,7 @@ exec "${bunPath}" "${mainEntrypoint}" ${name} "$@"
     writeFileSync(launcherPath, script);
     chmodSync(launcherPath, 0o755);
     installed.push(launcherName);
-    log.debug({ launcherName, launcherPath }, 'Installed core CLI launcher');
+    log.debug({ launcherName, launcherPath }, "Installed core CLI launcher");
   }
 
   // Discover and install skill CLI launchers from the skill catalog
@@ -133,7 +138,10 @@ exec "${bunPath}" "${mainEntrypoint}" ${name} "$@"
 
       const entrypoint = join(skill.directoryPath, cli.entry);
       if (!existsSync(entrypoint)) {
-        log.debug({ skillId: skill.id, entrypoint }, 'Skill CLI entry point not found — skipping');
+        log.debug(
+          { skillId: skill.id, entrypoint },
+          "Skill CLI entry point not found — skipping",
+        );
         continue;
       }
 
@@ -149,11 +157,14 @@ exec "${bunPath}" "${entrypoint}" "$@"
       writeFileSync(launcherPath, script);
       chmodSync(launcherPath, 0o755);
       installed.push(launcherName);
-      log.debug({ launcherName, launcherPath, skillId: skill.id }, 'Installed skill CLI launcher');
+      log.debug(
+        { launcherName, launcherPath, skillId: skill.id },
+        "Installed skill CLI launcher",
+      );
     }
   } catch (err) {
-    log.warn({ err }, 'Failed to discover skill CLI launchers');
+    log.warn({ err }, "Failed to discover skill CLI launchers");
   }
 
-  log.info({ binDir, commands: installed }, 'CLI launchers installed');
+  log.info({ binDir, commands: installed }, "CLI launchers installed");
 }

@@ -1,14 +1,25 @@
-import { inArray } from 'drizzle-orm';
+import { inArray } from "drizzle-orm";
 
-import { getDb,initializeDb } from '../../../../memory/db.js';
-import type { EntityRelationType, EntityType } from '../../../../memory/entity-extractor.js';
-import { memoryEntities } from '../../../../memory/schema.js';
-import { collectTypedNeighbors,findMatchedEntities, findNeighborEntities, getEntityLinkedItemCandidates } from '../../../../memory/search/entity.js';
-import type { TraversalStep } from '../../../../memory/search/types.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { getDb, initializeDb } from "../../../../memory/db.js";
+import type {
+  EntityRelationType,
+  EntityType,
+} from "../../../../memory/entity-extractor.js";
+import { memoryEntities } from "../../../../memory/schema.js";
+import {
+  collectTypedNeighbors,
+  findMatchedEntities,
+  findNeighborEntities,
+  getEntityLinkedItemCandidates,
+} from "../../../../memory/search/entity.js";
+import type { TraversalStep } from "../../../../memory/search/types.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 
 interface GraphQueryInput {
-  query_type: 'neighbors' | 'typed_traversal' | 'intersection';
+  query_type: "neighbors" | "typed_traversal" | "intersection";
   seeds: string[];
   steps?: Array<{
     relation_types?: string[];
@@ -51,7 +62,7 @@ export async function run(
   if (seedEntityIds.length === 0) {
     return {
       content: JSON.stringify({
-        error: 'No matching entities found for the provided seed names',
+        error: "No matching entities found for the provided seed names",
         seeds: params.seeds,
       }),
       isError: true,
@@ -60,13 +71,17 @@ export async function run(
 
   // For intersection queries, all seeds must resolve — dropping any seed silently
   // changes semantics from "reachable from ALL seeds" to "reachable from resolved seeds"
-  if (params.query_type === 'intersection' && seedEntityIds.length < params.seeds.length) {
+  if (
+    params.query_type === "intersection" &&
+    seedEntityIds.length < params.seeds.length
+  ) {
     const unresolvedSeeds = params.seeds.filter(
-      name => !resolvedSeeds.some(s => s.name === name),
+      (name) => !resolvedSeeds.some((s) => s.name === name),
     );
     return {
       content: JSON.stringify({
-        error: 'Some seed entities could not be resolved. Intersection requires all seeds to match.',
+        error:
+          "Some seed entities could not be resolved. Intersection requires all seeds to match.",
         unresolved_seeds: unresolvedSeeds,
         resolved_seeds: resolvedSeeds,
       }),
@@ -77,21 +92,23 @@ export async function run(
   let resultEntityIds: string[];
 
   switch (params.query_type) {
-    case 'neighbors': {
+    case "neighbors": {
       const steps = params.steps?.[0];
       const result = findNeighborEntities(seedEntityIds, {
         maxEdges: 40,
         maxNeighborEntities: maxResults,
         maxDepth: 1,
-        relationTypes: steps?.relation_types as EntityRelationType[] | undefined,
+        relationTypes: steps?.relation_types as
+          | EntityRelationType[]
+          | undefined,
         entityTypes: steps?.entity_types as EntityType[] | undefined,
       });
       resultEntityIds = result.neighborEntityIds;
       break;
     }
 
-    case 'typed_traversal': {
-      const traversalSteps: TraversalStep[] = (params.steps ?? []).map(s => ({
+    case "typed_traversal": {
+      const traversalSteps: TraversalStep[] = (params.steps ?? []).map((s) => ({
         relationTypes: s.relation_types as EntityRelationType[] | undefined,
         entityTypes: s.entity_types as EntityType[] | undefined,
       }));
@@ -102,9 +119,9 @@ export async function run(
       break;
     }
 
-    case 'intersection': {
+    case "intersection": {
       // Run typed traversal from each seed independently, then intersect
-      const traversalSteps: TraversalStep[] = (params.steps ?? []).map(s => ({
+      const traversalSteps: TraversalStep[] = (params.steps ?? []).map((s) => ({
         relationTypes: s.relation_types as EntityRelationType[] | undefined,
         entityTypes: s.entity_types as EntityType[] | undefined,
       }));
@@ -122,8 +139,8 @@ export async function run(
         resultEntityIds = [];
       } else {
         // Intersect all sets
-        const intersection = [...resultSets[0]].filter(id =>
-          resultSets.every(set => set.has(id))
+        const intersection = [...resultSets[0]].filter((id) =>
+          resultSets.every((set) => set.has(id)),
         );
         resultEntityIds = intersection;
       }
@@ -132,7 +149,9 @@ export async function run(
 
     default:
       return {
-        content: JSON.stringify({ error: `Unknown query_type: ${params.query_type}` }),
+        content: JSON.stringify({
+          error: `Unknown query_type: ${params.query_type}`,
+        }),
         isError: true,
       };
   }
@@ -153,19 +172,21 @@ export async function run(
         id: row.id,
         name: row.name,
         type: row.type,
-        aliases: row.aliases ? JSON.parse(row.aliases) as string[] : [],
+        aliases: row.aliases ? (JSON.parse(row.aliases) as string[]) : [],
       };
 
       if (includeItems) {
         const candidates = getEntityLinkedItemCandidates([row.id], {
-          source: 'entity_direct',
-          scopeIds: _context.memoryScopeId ? [_context.memoryScopeId] : undefined,
+          source: "entity_direct",
+          scopeIds: _context.memoryScopeId
+            ? [_context.memoryScopeId]
+            : undefined,
         });
-        entity.items = candidates.slice(0, 5).map(c => {
-          const parts = c.text.split(': ');
+        entity.items = candidates.slice(0, 5).map((c) => {
+          const parts = c.text.split(": ");
           return {
-            subject: parts[0] ?? '',
-            statement: parts.slice(1).join(': ') || c.text,
+            subject: parts[0] ?? "",
+            statement: parts.slice(1).join(": ") || c.text,
           };
         });
       }
@@ -175,12 +196,16 @@ export async function run(
   }
 
   return {
-    content: JSON.stringify({
-      query_type: params.query_type,
-      resolved_seeds: resolvedSeeds,
-      result_count: entities.length,
-      entities,
-    }, null, 2),
+    content: JSON.stringify(
+      {
+        query_type: params.query_type,
+        resolved_seeds: resolvedSeeds,
+        result_count: entities.length,
+        entities,
+      },
+      null,
+      2,
+    ),
     isError: false,
   };
 }

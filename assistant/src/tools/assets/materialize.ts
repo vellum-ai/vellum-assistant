@@ -7,21 +7,24 @@
  * regular file.
  */
 
-import { mkdirSync,writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-import { eq } from 'drizzle-orm';
+import { eq } from "drizzle-orm";
 
-import { type AttachmentContext,isAttachmentVisible } from '../../daemon/media-visibility-policy.js';
-import { getConversationThreadType } from '../../memory/conversation-store.js';
-import { getDb } from '../../memory/db.js';
-import { attachments } from '../../memory/schema.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
-import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import { getAttachmentSourceConversations } from './search.js';
+import {
+  type AttachmentContext,
+  isAttachmentVisible,
+} from "../../daemon/media-visibility-policy.js";
+import { getConversationThreadType } from "../../memory/conversation-store.js";
+import { getDb } from "../../memory/db.js";
+import { attachments } from "../../memory/schema.js";
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import { registerTool } from "../registry.js";
+import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import { getAttachmentSourceConversations } from "./search.js";
 
 // ---------------------------------------------------------------------------
 // Size limit — prevent materializing excessively large attachments
@@ -46,9 +49,13 @@ function formatBytes(bytes: number): string {
  * Not scoped by assistantId because attachment access is enforced by
  * conversation visibility checks in execute().
  */
-function loadAttachmentById(
-  attachmentId: string,
-): { id: string; originalFilename: string; mimeType: string; sizeBytes: number; dataBase64: string } | null {
+function loadAttachmentById(attachmentId: string): {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  dataBase64: string;
+} | null {
   const db = getDb();
   const row = db
     .select({
@@ -70,29 +77,31 @@ function loadAttachmentById(
 // ---------------------------------------------------------------------------
 
 const definition: ToolDefinition = {
-  name: 'asset_materialize',
+  name: "asset_materialize",
   description:
-    'Copy a stored attachment to a file on disk inside the sandbox directory. ' +
-    'Use attachment IDs from asset_search results. The file can then be used ' +
-    'as input to scripts, tools, or other processing.',
+    "Copy a stored attachment to a file on disk inside the sandbox directory. " +
+    "Use attachment IDs from asset_search results. The file can then be used " +
+    "as input to scripts, tools, or other processing.",
   input_schema: {
-    type: 'object',
+    type: "object",
     properties: {
       attachment_id: {
-        type: 'string',
-        description: 'The ID of the attachment to materialize (from asset_search results).',
+        type: "string",
+        description:
+          "The ID of the attachment to materialize (from asset_search results).",
       },
       destination_path: {
-        type: 'string',
+        type: "string",
         description:
-          'Path where the file should be written, relative to (or inside) the sandbox working directory.',
+          "Path where the file should be written, relative to (or inside) the sandbox working directory.",
       },
       reason: {
-        type: 'string',
-        description: 'Brief non-technical explanation of what you are saving and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+        type: "string",
+        description:
+          "Brief non-technical explanation of what you are saving and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
       },
     },
-    required: ['attachment_id', 'destination_path'],
+    required: ["attachment_id", "destination_path"],
   },
 };
 
@@ -101,38 +110,43 @@ const definition: ToolDefinition = {
 // ---------------------------------------------------------------------------
 
 class AssetMaterializeTool implements Tool {
-  name = 'asset_materialize';
+  name = "asset_materialize";
   description = definition.description;
-  category = 'assets';
+  category = "assets";
   defaultRiskLevel = RiskLevel.Medium;
 
   getDefinition(): ToolDefinition {
     return definition;
   }
 
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     const attachmentId = input.attachment_id as string | undefined;
     const destinationPath = input.destination_path as string | undefined;
 
     // --- Input validation ---------------------------------------------------
 
-    if (!attachmentId || typeof attachmentId !== 'string') {
+    if (!attachmentId || typeof attachmentId !== "string") {
       return {
-        content: 'Error: attachment_id is required and must be a string.',
+        content: "Error: attachment_id is required and must be a string.",
         isError: true,
       };
     }
 
-    if (!destinationPath || typeof destinationPath !== 'string') {
+    if (!destinationPath || typeof destinationPath !== "string") {
       return {
-        content: 'Error: destination_path is required and must be a string.',
+        content: "Error: destination_path is required and must be a string.",
         isError: true,
       };
     }
 
     // --- Sandbox path enforcement -------------------------------------------
 
-    const pathCheck = sandboxPolicy(destinationPath, context.workingDir, { mustExist: false });
+    const pathCheck = sandboxPolicy(destinationPath, context.workingDir, {
+      mustExist: false,
+    });
     if (!pathCheck.ok) {
       return {
         content: `Error: ${pathCheck.error}`,
@@ -159,16 +173,16 @@ class AssetMaterializeTool implements Tool {
     const currentThreadType = getConversationThreadType(context.conversationId);
     const currentContext: AttachmentContext = {
       conversationId: context.conversationId,
-      isPrivate: currentThreadType === 'private',
+      isPrivate: currentThreadType === "private",
     };
 
     const sources = getAttachmentSourceConversations(attachmentId);
     if (sources.length > 0) {
-      const hasStandard = sources.some((s) => s.threadType !== 'private');
+      const hasStandard = sources.some((s) => s.threadType !== "private");
       if (!hasStandard) {
         // All sources are private — check if the caller is in any of those threads
-        const callerInSourceThread = sources.some(
-          (s) => isAttachmentVisible(
+        const callerInSourceThread = sources.some((s) =>
+          isAttachmentVisible(
             { conversationId: s.conversationId, isPrivate: true },
             currentContext,
           ),
@@ -199,7 +213,7 @@ class AssetMaterializeTool implements Tool {
     // --- Decode and write ---------------------------------------------------
 
     try {
-      const buffer = Buffer.from(attachment.dataBase64, 'base64');
+      const buffer = Buffer.from(attachment.dataBase64, "base64");
 
       // Ensure parent directories exist
       mkdirSync(dirname(resolvedPath), { recursive: true });

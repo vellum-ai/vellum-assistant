@@ -1,56 +1,69 @@
 // External service integrations: Slack, Telegram, Twitter, Vercel, ingress, guardian.
 
-import type { ChannelId } from '../../channels/types.js';
+import type { ChannelId } from "../../channels/types.js";
 
 // === Client → Server ===
 
 export interface SlackWebhookConfigRequest {
-  type: 'slack_webhook_config';
-  action: 'get' | 'set';
+  type: "slack_webhook_config";
+  action: "get" | "set";
   webhookUrl?: string;
 }
 
 export interface IngressConfigRequest {
-  type: 'ingress_config';
-  action: 'get' | 'set';
+  type: "ingress_config";
+  action: "get" | "set";
   publicBaseUrl?: string;
   enabled?: boolean;
 }
 
 export interface PlatformConfigRequest {
-  type: 'platform_config';
-  action: 'get' | 'set';
+  type: "platform_config";
+  action: "get" | "set";
   baseUrl?: string;
 }
 
 export interface VercelApiConfigRequest {
-  type: 'vercel_api_config';
-  action: 'get' | 'set' | 'delete';
+  type: "vercel_api_config";
+  action: "get" | "set" | "delete";
   apiToken?: string;
 }
 
 export interface TwitterIntegrationConfigRequest {
-  type: 'twitter_integration_config';
-  action: 'get' | 'set_mode' | 'set_local_client' | 'clear_local_client' | 'disconnect' | 'get_strategy' | 'set_strategy';
-  mode?: 'local_byo' | 'managed';
+  type: "twitter_integration_config";
+  action:
+    | "get"
+    | "set_mode"
+    | "set_local_client"
+    | "clear_local_client"
+    | "disconnect"
+    | "get_strategy"
+    | "set_strategy";
+  mode?: "local_byo" | "managed";
   clientId?: string;
   clientSecret?: string;
   strategy?: string;
 }
 
 export interface TelegramConfigRequest {
-  type: 'telegram_config';
-  action: 'get' | 'set' | 'clear' | 'set_commands' | 'setup';
-  botToken?: string;  // Only for action: 'set' or 'setup'
-  commands?: Array<{ command: string; description: string }>;  // Only for action: 'set_commands' or 'setup'
+  type: "telegram_config";
+  action: "get" | "set" | "clear" | "set_commands" | "setup";
+  botToken?: string; // Only for action: 'set' or 'setup'
+  commands?: Array<{ command: string; description: string }>; // Only for action: 'set_commands' or 'setup'
 }
 
 export interface GuardianVerificationRequest {
-  type: 'guardian_verification';
-  action: 'create_challenge' | 'status' | 'revoke' | 'start_outbound' | 'resend_outbound' | 'cancel_outbound';
-  channel?: ChannelId;  // Defaults to 'telegram'
+  type: "guardian_verification";
+  action:
+    | "create_challenge"
+    | "status"
+    | "revoke"
+    | "start_outbound"
+    | "resend_outbound"
+    | "cancel_outbound";
+  channel?: ChannelId; // Defaults to 'telegram'
   sessionId?: string;
-  rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
+  rebind?: boolean; // When true, allows creating a challenge even if a binding already exists
   /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;
   /** Origin conversation ID so completion/failure pointers can route back. */
@@ -58,35 +71,35 @@ export interface GuardianVerificationRequest {
 }
 
 export interface TwitterAuthStartRequest {
-  type: 'twitter_auth_start';
+  type: "twitter_auth_start";
 }
 
 export interface TwitterAuthStatusRequest {
-  type: 'twitter_auth_status';
+  type: "twitter_auth_status";
 }
 
 export interface IntegrationListRequest {
-  type: 'integration_list';
+  type: "integration_list";
 }
 
 export interface IntegrationConnectRequest {
-  type: 'integration_connect';
+  type: "integration_connect";
   integrationId: string;
 }
 
 export interface IntegrationDisconnectRequest {
-  type: 'integration_disconnect';
+  type: "integration_disconnect";
   integrationId: string;
 }
 
 export interface OAuthConnectStartRequest {
-  type: 'oauth_connect_start';
+  type: "oauth_connect_start";
   service: string;
   requestedScopes?: string[];
 }
 
 export interface LinkOpenRequest {
-  type: 'link_open_request';
+  type: "link_open_request";
   url: string;
   metadata?: Record<string, unknown>;
 }
@@ -94,14 +107,14 @@ export interface LinkOpenRequest {
 // === Server → Client ===
 
 export interface SlackWebhookConfigResponse {
-  type: 'slack_webhook_config_response';
+  type: "slack_webhook_config_response";
   webhookUrl?: string;
   success: boolean;
   error?: string;
 }
 
 export interface IngressConfigResponse {
-  type: 'ingress_config_response';
+  type: "ingress_config_response";
   enabled: boolean;
   publicBaseUrl: string;
   /** Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host. */
@@ -111,35 +124,35 @@ export interface IngressConfigResponse {
 }
 
 export interface PlatformConfigResponse {
-  type: 'platform_config_response';
+  type: "platform_config_response";
   baseUrl: string;
   success: boolean;
   error?: string;
 }
 
 export interface VercelApiConfigResponse {
-  type: 'vercel_api_config_response';
+  type: "vercel_api_config_response";
   hasToken: boolean;
   success: boolean;
   error?: string;
 }
 
 export interface TwitterIntegrationConfigResponse {
-  type: 'twitter_integration_config_response';
+  type: "twitter_integration_config_response";
   success: boolean;
-  mode?: 'local_byo' | 'managed';
+  mode?: "local_byo" | "managed";
   managedAvailable: boolean;
   localClientConfigured: boolean;
   connected: boolean;
   accountInfo?: string;
-  strategy?: 'oauth' | 'browser' | 'auto';
+  strategy?: "oauth" | "browser" | "auto";
   /** Whether the user has explicitly set a strategy (vs. relying on the default 'auto'). */
   strategyConfigured?: boolean;
   error?: string;
 }
 
 export interface TelegramConfigResponse {
-  type: 'telegram_config_response';
+  type: "telegram_config_response";
   success: boolean;
   hasBotToken: boolean;
   botUsername?: string;
@@ -154,7 +167,7 @@ export interface TelegramConfigResponse {
 }
 
 export interface GuardianVerificationResponse {
-  type: 'guardian_verification_response';
+  type: "guardian_verification_response";
   success: boolean;
   secret?: string;
   instruction?: string;
@@ -191,22 +204,22 @@ export interface GuardianVerificationResponse {
 }
 
 export interface TwitterAuthResult {
-  type: 'twitter_auth_result';
+  type: "twitter_auth_result";
   success: boolean;
   accountInfo?: string;
   error?: string;
 }
 
 export interface TwitterAuthStatusResponse {
-  type: 'twitter_auth_status_response';
+  type: "twitter_auth_status_response";
   connected: boolean;
   accountInfo?: string;
-  mode?: 'local_byo' | 'managed';
+  mode?: "local_byo" | "managed";
   error?: string;
 }
 
 export interface IntegrationListResponse {
-  type: 'integration_list_response';
+  type: "integration_list_response";
   integrations: Array<{
     id: string;
     connected: boolean;
@@ -218,7 +231,7 @@ export interface IntegrationListResponse {
 }
 
 export interface IntegrationConnectResult {
-  type: 'integration_connect_result';
+  type: "integration_connect_result";
   integrationId: string;
   success: boolean;
   accountInfo?: string | null;
@@ -229,7 +242,7 @@ export interface IntegrationConnectResult {
 }
 
 export interface OAuthConnectResultResponse {
-  type: 'oauth_connect_result';
+  type: "oauth_connect_result";
   success: boolean;
   grantedScopes?: string[];
   accountInfo?: string;
@@ -237,13 +250,13 @@ export interface OAuthConnectResultResponse {
 }
 
 export interface OpenUrl {
-  type: 'open_url';
+  type: "open_url";
   url: string;
   title?: string;
 }
 
 export interface NavigateSettings {
-  type: 'navigate_settings';
+  type: "navigate_settings";
   tab: string;
 }
 

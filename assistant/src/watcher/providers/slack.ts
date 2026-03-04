@@ -7,13 +7,17 @@
  * channels, DM channels, and member channels.
  */
 
-import * as slack from '../../messaging/providers/slack/client.js';
-import { withValidToken } from '../../security/token-manager.js';
-import { getLogger } from '../../util/logger.js';
-import { truncate } from '../../util/truncate.js';
-import type { FetchResult,WatcherItem, WatcherProvider } from '../provider-types.js';
+import * as slack from "../../messaging/providers/slack/client.js";
+import { withValidToken } from "../../security/token-manager.js";
+import { getLogger } from "../../util/logger.js";
+import { truncate } from "../../util/truncate.js";
+import type {
+  FetchResult,
+  WatcherItem,
+  WatcherProvider,
+} from "../provider-types.js";
 
-const log = getLogger('watcher:slack');
+const log = getLogger("watcher:slack");
 
 /**
  * Provider-specific configuration for the Slack watcher.
@@ -38,7 +42,10 @@ function messageToItem(
   return {
     externalId: `${msg.channel}:${msg.ts}`,
     eventType,
-    summary: `Slack ${eventType.replace('slack_', '')}: ${truncate(msg.text, 100)}`,
+    summary: `Slack ${eventType.replace("slack_", "")}: ${truncate(
+      msg.text,
+      100,
+    )}`,
     payload: {
       channel: msg.channel,
       channelName,
@@ -67,27 +74,38 @@ async function pollChannel(
   let cursor: string | undefined;
 
   do {
-    const histResp = await slack.conversationHistory(token, channelId, 100, undefined, watermark, cursor);
+    const histResp = await slack.conversationHistory(
+      token,
+      channelId,
+      100,
+      undefined,
+      watermark,
+      cursor,
+    );
     for (const msg of histResp.messages) {
       if (msg.user === userId) continue;
       if (parseFloat(msg.ts) <= parseFloat(watermark)) continue;
 
-      items.push(messageToItem({ ...msg, channel: channelId }, eventType, channelName));
+      items.push(
+        messageToItem({ ...msg, channel: channelId }, eventType, channelName),
+      );
 
       if (parseFloat(msg.ts) > parseFloat(channelLatestTs)) {
         channelLatestTs = msg.ts;
       }
     }
-    cursor = histResp.has_more ? histResp.response_metadata?.next_cursor : undefined;
+    cursor = histResp.has_more
+      ? histResp.response_metadata?.next_cursor
+      : undefined;
   } while (cursor);
 
   return { items, latestTs: channelLatestTs };
 }
 
 export const slackProvider: WatcherProvider = {
-  id: 'slack',
-  displayName: 'Slack',
-  requiredCredentialService: 'integration:slack',
+  id: "slack",
+  displayName: "Slack",
+  requiredCredentialService: "integration:slack",
 
   async getInitialWatermark(_credentialService: string): Promise<string> {
     // Start from "now" — use current epoch seconds as the timestamp watermark
@@ -113,13 +131,16 @@ export const slackProvider: WatcherProvider = {
       const rawChannels = slackConfig.channels;
       const watchChannels: string[] = (
         Array.isArray(rawChannels)
-          ? rawChannels.filter((ch): ch is string => typeof ch === 'string')
-          : typeof rawChannels === 'string'
+          ? rawChannels.filter((ch): ch is string => typeof ch === "string")
+          : typeof rawChannels === "string"
             ? [rawChannels]
             : []
       ).filter((ch) => ch.trim().length > 0);
 
-      const includeDMs = typeof slackConfig.includeDMs === 'boolean' ? slackConfig.includeDMs : true;
+      const includeDMs =
+        typeof slackConfig.includeDMs === "boolean"
+          ? slackConfig.includeDMs
+          : true;
 
       const authResp = await slack.authTest(token);
       const userId = authResp.user_id;
@@ -129,18 +150,33 @@ export const slackProvider: WatcherProvider = {
 
       // ── DM / Group DM polling ──────────────────────────────────────
       if (includeDMs) {
-        const convResp = await slack.listConversations(token, 'im,mpim', false, 100);
+        const convResp = await slack.listConversations(
+          token,
+          "im,mpim",
+          false,
+          100,
+        );
         for (const channel of convResp.channels) {
           try {
             const channelName = channel.name ?? channel.user ?? channel.id;
-            const eventType = channel.is_im ? 'slack_dm' : 'slack_group_dm';
-            const result = await pollChannel(token, channel.id, channelName, eventType, watermark, userId);
+            const eventType = channel.is_im ? "slack_dm" : "slack_group_dm";
+            const result = await pollChannel(
+              token,
+              channel.id,
+              channelName,
+              eventType,
+              watermark,
+              userId,
+            );
             items.push(...result.items);
             if (parseFloat(result.latestTs) > parseFloat(latestTs)) {
               latestTs = result.latestTs;
             }
           } catch (err) {
-            log.debug({ channelId: channel.id, err }, 'Skipping channel in Slack watcher');
+            log.debug(
+              { channelId: channel.id, err },
+              "Skipping channel in Slack watcher",
+            );
           }
         }
       }
@@ -149,25 +185,52 @@ export const slackProvider: WatcherProvider = {
       if (watchChannels.length > 0) {
         for (const channelId of watchChannels) {
           try {
-            const result = await pollChannel(token, channelId, channelId, 'slack_channel_message', watermark, userId);
+            const result = await pollChannel(
+              token,
+              channelId,
+              channelId,
+              "slack_channel_message",
+              watermark,
+              userId,
+            );
             items.push(...result.items);
             if (parseFloat(result.latestTs) > parseFloat(latestTs)) {
               latestTs = result.latestTs;
             }
           } catch (err) {
-            log.debug({ channelId, err }, 'Skipping configured channel in Slack watcher');
+            log.debug(
+              { channelId, err },
+              "Skipping configured channel in Slack watcher",
+            );
           }
         }
       } else {
         // Legacy behavior: check top 20 member channels for @mentions only
-        const memberConvResp = await slack.listConversations(token, 'public_channel,private_channel', true, 50);
+        const memberConvResp = await slack.listConversations(
+          token,
+          "public_channel,private_channel",
+          true,
+          50,
+        );
         for (const channel of memberConvResp.channels.slice(0, 20)) {
           try {
-            const histResp = await slack.conversationHistory(token, channel.id, 5, undefined, watermark);
+            const histResp = await slack.conversationHistory(
+              token,
+              channel.id,
+              5,
+              undefined,
+              watermark,
+            );
             for (const msg of histResp.messages) {
               if (parseFloat(msg.ts) <= parseFloat(watermark)) continue;
               if (msg.text.includes(`<@${userId}>`)) {
-                items.push(messageToItem({ ...msg, channel: channel.id }, 'slack_mention', channel.name ?? channel.id));
+                items.push(
+                  messageToItem(
+                    { ...msg, channel: channel.id },
+                    "slack_mention",
+                    channel.name ?? channel.id,
+                  ),
+                );
                 if (parseFloat(msg.ts) > parseFloat(latestTs)) {
                   latestTs = msg.ts;
                 }
@@ -179,7 +242,10 @@ export const slackProvider: WatcherProvider = {
         }
       }
 
-      log.info({ count: items.length, watermark: latestTs }, 'Slack: fetched new messages');
+      log.info(
+        { count: items.length, watermark: latestTs },
+        "Slack: fetched new messages",
+      );
       return { items, watermark: latestTs };
     });
   },

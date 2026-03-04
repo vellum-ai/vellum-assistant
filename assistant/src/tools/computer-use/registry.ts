@@ -8,8 +8,8 @@
  * normal startup.
  */
 
-import { registerTool } from '../registry.js';
-import { allComputerUseTools } from './definitions.js';
+import { registerTool } from "../registry.js";
+import { allComputerUseTools } from "./definitions.js";
 
 /**
  * Register the 12 `computer_use_*` action proxy tools.

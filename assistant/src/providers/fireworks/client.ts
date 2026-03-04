@@ -1,4 +1,4 @@
-import { OpenAIProvider } from '../openai/client.js';
+import { OpenAIProvider } from "../openai/client.js";
 
 export interface FireworksProviderOptions {
   apiKey?: string;
@@ -6,14 +6,18 @@ export interface FireworksProviderOptions {
   streamTimeoutMs?: number;
 }
 
-const DEFAULT_FIREWORKS_BASE_URL = 'https://api.fireworks.ai/inference/v1';
+const DEFAULT_FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1";
 
 export class FireworksProvider extends OpenAIProvider {
-  constructor(apiKey: string, model: string, options: FireworksProviderOptions = {}) {
+  constructor(
+    apiKey: string,
+    model: string,
+    options: FireworksProviderOptions = {},
+  ) {
     super(apiKey, model, {
       baseURL: options.baseURL?.trim() || DEFAULT_FIREWORKS_BASE_URL,
-      providerName: 'fireworks',
-      providerLabel: 'Fireworks',
+      providerName: "fireworks",
+      providerLabel: "Fireworks",
       streamTimeoutMs: options.streamTimeoutMs,
     });
   }

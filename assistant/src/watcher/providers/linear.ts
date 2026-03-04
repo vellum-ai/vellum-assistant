@@ -13,14 +13,18 @@
  * and issues.
  */
 
-import { withValidToken } from '../../security/token-manager.js';
-import { getLogger } from '../../util/logger.js';
-import { truncate } from '../../util/truncate.js';
-import type { FetchResult,WatcherItem, WatcherProvider } from '../provider-types.js';
+import { withValidToken } from "../../security/token-manager.js";
+import { getLogger } from "../../util/logger.js";
+import { truncate } from "../../util/truncate.js";
+import type {
+  FetchResult,
+  WatcherItem,
+  WatcherProvider,
+} from "../provider-types.js";
 
-const log = getLogger('watcher:linear');
+const log = getLogger("watcher:linear");
 
-const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
+const LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
 
 // ── GraphQL response types ────────────────────────────────────────────────────
 
@@ -84,31 +88,40 @@ interface LinearViewer {
 
 // ── GraphQL helpers ───────────────────────────────────────────────────────────
 
-async function graphql<T>(token: string, query: string, variables?: Record<string, unknown>): Promise<T> {
+async function graphql<T>(
+  token: string,
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T> {
   const resp = await fetch(LINEAR_GRAPHQL_URL, {
-    method: 'POST',
+    method: "POST",
     headers: {
       // Linear accepts both personal API keys and OAuth tokens; the Bearer scheme
       // is required for all token types per Linear's API docs.
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
   });
 
   if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
+    const body = await resp.text().catch(() => "");
     throw new Error(`Linear API ${resp.status}: ${body}`);
   }
 
-  const result = await resp.json() as { data?: T; errors?: Array<{ message: string }> };
+  const result = (await resp.json()) as {
+    data?: T;
+    errors?: Array<{ message: string }>;
+  };
 
   if (result.errors?.length) {
-    throw new Error(`Linear GraphQL errors: ${result.errors.map((e) => e.message).join(', ')}`);
+    throw new Error(
+      `Linear GraphQL errors: ${result.errors.map((e) => e.message).join(", ")}`,
+    );
   }
 
   if (!result.data) {
-    throw new Error('Linear API returned no data');
+    throw new Error("Linear API returned no data");
   }
 
   return result.data;
@@ -116,15 +129,18 @@ async function graphql<T>(token: string, query: string, variables?: Record<strin
 
 /** Fetch the authenticated user's ID and name. */
 async function fetchViewer(token: string): Promise<LinearViewer> {
-  const data = await graphql<{ viewer: LinearViewer }>(token, `
-    query {
-      viewer {
-        id
-        name
-        email
+  const data = await graphql<{ viewer: LinearViewer }>(
+    token,
+    `
+      query {
+        viewer {
+          id
+          name
+          email
+        }
       }
-    }
-  `);
+    `,
+  );
   return data.viewer;
 }
 
@@ -141,72 +157,81 @@ async function fetchNotifications(
   let cursor: string | null = null;
 
   type NotificationsResponse = {
-    notifications: { nodes: LinearNotification[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+    notifications: {
+      nodes: LinearNotification[];
+      pageInfo: { hasNextPage: boolean; endCursor: string };
+    };
   };
 
   do {
-    const data: NotificationsResponse = await graphql<NotificationsResponse>(token, `
-      query FetchNotifications($after: DateTime, $cursor: String) {
-        notifications(
-          filter: { updatedAt: { gte: $after } }
-          orderBy: updatedAt
-          first: 50
-          after: $cursor
-        ) {
-          nodes {
-            id
-            type
-            createdAt
-            updatedAt
-            ... on IssueNotification {
-              issue {
-                id
-                identifier
-                title
-                url
-                state {
+    const data: NotificationsResponse = await graphql<NotificationsResponse>(
+      token,
+      `
+        query FetchNotifications($after: DateTime, $cursor: String) {
+          notifications(
+            filter: { updatedAt: { gte: $after } }
+            orderBy: updatedAt
+            first: 50
+            after: $cursor
+          ) {
+            nodes {
+              id
+              type
+              createdAt
+              updatedAt
+              ... on IssueNotification {
+                issue {
                   id
-                  name
-                  type
+                  identifier
+                  title
+                  url
+                  state {
+                    id
+                    name
+                    type
+                  }
+                  assignee {
+                    id
+                    name
+                    email
+                  }
+                  team {
+                    id
+                    name
+                  }
                 }
-                assignee {
+              }
+              ... on IssueCommentMentionNotification {
+                issue {
                   id
-                  name
-                  email
+                  identifier
+                  title
+                  url
+                  team {
+                    id
+                    name
+                  }
                 }
-                team {
+                comment {
                   id
-                  name
+                  body
                 }
               }
             }
-            ... on IssueCommentMentionNotification {
-              issue {
-                id
-                identifier
-                title
-                url
-                team {
-                  id
-                  name
-                }
-              }
-              comment {
-                id
-                body
-              }
+            pageInfo {
+              hasNextPage
+              endCursor
             }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
           }
         }
-      }
-    `, { after: since, cursor });
+      `,
+      { after: since, cursor },
+    );
 
     allNodes.push(...data.notifications.nodes);
-    cursor = data.notifications.pageInfo.hasNextPage ? data.notifications.pageInfo.endCursor : null;
+    cursor = data.notifications.pageInfo.hasNextPage
+      ? data.notifications.pageInfo.endCursor
+      : null;
   } while (cursor != null);
 
   return allNodes;
@@ -225,51 +250,64 @@ async function fetchAssignedIssueUpdates(
   let cursor: string | null = null;
 
   type IssuesResponse = {
-    issues: { nodes: LinearIssue[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+    issues: {
+      nodes: LinearIssue[];
+      pageInfo: { hasNextPage: boolean; endCursor: string };
+    };
   };
 
   do {
-    const data: IssuesResponse = await graphql<IssuesResponse>(token, `
-      query FetchAssignedIssues($assigneeId: ID, $after: DateTime, $cursor: String) {
-        issues(
-          filter: {
-            assignee: { id: { eq: $assigneeId } }
-            updatedAt: { gte: $after }
-          }
-          orderBy: updatedAt
-          first: 50
-          after: $cursor
+    const data: IssuesResponse = await graphql<IssuesResponse>(
+      token,
+      `
+        query FetchAssignedIssues(
+          $assigneeId: ID
+          $after: DateTime
+          $cursor: String
         ) {
-          nodes {
-            id
-            identifier
-            title
-            url
-            updatedAt
-            state {
-              id
-              name
-              type
+          issues(
+            filter: {
+              assignee: { id: { eq: $assigneeId } }
+              updatedAt: { gte: $after }
             }
-            team {
+            orderBy: updatedAt
+            first: 50
+            after: $cursor
+          ) {
+            nodes {
               id
-              name
+              identifier
+              title
+              url
+              updatedAt
+              state {
+                id
+                name
+                type
+              }
+              team {
+                id
+                name
+              }
+              assignee {
+                id
+                name
+              }
             }
-            assignee {
-              id
-              name
+            pageInfo {
+              hasNextPage
+              endCursor
             }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
           }
         }
-      }
-    `, { assigneeId: viewerId, after: since, cursor });
+      `,
+      { assigneeId: viewerId, after: since, cursor },
+    );
 
     allNodes.push(...data.issues.nodes);
-    cursor = data.issues.pageInfo.hasNextPage ? data.issues.pageInfo.endCursor : null;
+    cursor = data.issues.pageInfo.hasNextPage
+      ? data.issues.pageInfo.endCursor
+      : null;
   } while (cursor != null);
 
   return allNodes;
@@ -288,34 +326,41 @@ async function fetchAllAssignedIssueIds(
   let cursor: string | null = null;
 
   type IdsResponse = {
-    issues: { nodes: { id: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+    issues: {
+      nodes: { id: string }[];
+      pageInfo: { hasNextPage: boolean; endCursor: string };
+    };
   };
 
   do {
-    const data: IdsResponse = await graphql<IdsResponse>(token, `
-      query FetchAllAssignedIssueIds($assigneeId: ID, $cursor: String) {
-        issues(
-          filter: {
-            assignee: { id: { eq: $assigneeId } }
-          }
-          first: 50
-          after: $cursor
-        ) {
-          nodes {
-            id
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
+    const data: IdsResponse = await graphql<IdsResponse>(
+      token,
+      `
+        query FetchAllAssignedIssueIds($assigneeId: ID, $cursor: String) {
+          issues(
+            filter: { assignee: { id: { eq: $assigneeId } } }
+            first: 50
+            after: $cursor
+          ) {
+            nodes {
+              id
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
           }
         }
-      }
-    `, { assigneeId: viewerId, cursor });
+      `,
+      { assigneeId: viewerId, cursor },
+    );
 
     for (const node of data.issues.nodes) {
       ids.add(node.id);
     }
-    cursor = data.issues.pageInfo.hasNextPage ? data.issues.pageInfo.endCursor : null;
+    cursor = data.issues.pageInfo.hasNextPage
+      ? data.issues.pageInfo.endCursor
+      : null;
   } while (cursor != null);
 
   return ids;
@@ -375,22 +420,30 @@ export function clearLinearStateCache(watcherKey: string): void {
  * issueCommentMentionedYou, issueStatusChanged, etc.
  */
 function notificationTypeToEventType(type: string): string {
-  if (type === 'issueAssignedToYou') return 'linear_issue_assigned';
-  if (type === 'issueMentionedYou') return 'linear_mention';
-  if (type === 'issueCommentMentionedYou') return 'linear_comment_mention';
-  if (type === 'issueStatusChanged') return 'linear_status_changed';
-  return 'linear_notification';
+  if (type === "issueAssignedToYou") return "linear_issue_assigned";
+  if (type === "issueMentionedYou") return "linear_mention";
+  if (type === "issueCommentMentionedYou") return "linear_comment_mention";
+  if (type === "issueStatusChanged") return "linear_status_changed";
+  return "linear_notification";
 }
 
 function notificationToItem(n: LinearNotification): WatcherItem {
   const eventType = notificationTypeToEventType(n.type);
   const issue = n.issue;
-  const teamName = issue?.team?.name ?? 'Unknown Team';
-  const issueRef = issue ? `${issue.identifier}: ${truncate(issue.title, 60)}` : 'Unknown issue';
+  const teamName = issue?.team?.name ?? "Unknown Team";
+  const issueRef = issue
+    ? `${issue.identifier}: ${truncate(issue.title, 60)}`
+    : "Unknown issue";
 
-  const summary = eventType === 'linear_comment_mention' && n.comment
-    ? `Linear @mention in ${teamName} / ${issueRef}: ${truncate(n.comment.body, 80)}`
-    : `Linear ${n.type.replace(/([A-Z])/g, ' $1').trim()} in ${teamName} / ${issueRef}`;
+  const summary =
+    eventType === "linear_comment_mention" && n.comment
+      ? `Linear @mention in ${teamName} / ${issueRef}: ${truncate(
+          n.comment.body,
+          80,
+        )}`
+      : `Linear ${n.type
+          .replace(/([A-Z])/g, " $1")
+          .trim()} in ${teamName} / ${issueRef}`;
 
   return {
     externalId: n.id,
@@ -413,16 +466,21 @@ function notificationToItem(n: LinearNotification): WatcherItem {
   };
 }
 
-function issueToStatusChangeItem(issue: LinearIssue, previousStateId: string): WatcherItem {
+function issueToStatusChangeItem(
+  issue: LinearIssue,
+  previousStateId: string,
+): WatcherItem {
   // Composite key encodes both the old and new state so re-polling the same
   // transition doesn't generate a duplicate event via the dedup layer.
   const externalId = `status_change:${issue.id}:${previousStateId}→${issue.state.id}`;
-  const teamName = issue.team?.name ?? 'Unknown Team';
+  const teamName = issue.team?.name ?? "Unknown Team";
 
   return {
     externalId,
-    eventType: 'linear_status_changed',
-    summary: `Linear status → ${issue.state.name} in ${teamName} / ${issue.identifier}: ${truncate(issue.title, 60)}`,
+    eventType: "linear_status_changed",
+    summary: `Linear status → ${issue.state.name} in ${teamName} / ${
+      issue.identifier
+    }: ${truncate(issue.title, 60)}`,
     payload: {
       issueId: issue.id,
       issueIdentifier: issue.identifier,
@@ -440,9 +498,9 @@ function issueToStatusChangeItem(issue: LinearIssue, previousStateId: string): W
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export const linearProvider: WatcherProvider = {
-  id: 'linear',
-  displayName: 'Linear',
-  requiredCredentialService: 'integration:linear',
+  id: "linear",
+  displayName: "Linear",
+  requiredCredentialService: "integration:linear",
 
   async getInitialWatermark(_credentialService: string): Promise<string> {
     // Start from "now" so we don't replay all existing notifications
@@ -470,10 +528,10 @@ export const linearProvider: WatcherProvider = {
 
       // Only surface notification types that warrant attention
       const relevantTypes = new Set([
-        'issueAssignedToYou',
-        'issueMentionedYou',
-        'issueCommentMentionedYou',
-        'issueStatusChanged',
+        "issueAssignedToYou",
+        "issueMentionedYou",
+        "issueCommentMentionedYou",
+        "issueStatusChanged",
       ]);
 
       const items: WatcherItem[] = [];
@@ -486,7 +544,10 @@ export const linearProvider: WatcherProvider = {
       // Fetch the complete set of currently assigned issue IDs (no updatedAt
       // filter) so we can accurately evict stale cache entries and guard against
       // false-positive status change events on reassignment.
-      const currentAssignedIds = await fetchAllAssignedIssueIds(token, viewer.id);
+      const currentAssignedIds = await fetchAllAssignedIssueIds(
+        token,
+        viewer.id,
+      );
       const previousAssignedIds = lastSeenAssignedIdsByWatcher.get(watcherKey);
 
       // Also poll assigned issues directly for status changes not covered by
@@ -495,7 +556,11 @@ export const linearProvider: WatcherProvider = {
       // field update (title, description, etc.) does not constitute a status change.
       // On first sight of an issue we seed the map without emitting, so we don't
       // fire false-positive events after a daemon restart.
-      const assignedIssues = await fetchAssignedIssueUpdates(token, viewer.id, since);
+      const assignedIssues = await fetchAssignedIssueUpdates(
+        token,
+        viewer.id,
+        since,
+      );
       const stateCache = getStateCache(watcherKey);
       for (const issue of assignedIssues) {
         const previousStateId = stateCache.get(issue.id);
@@ -504,7 +569,11 @@ export const linearProvider: WatcherProvider = {
         // prevents false-positive events when an issue is unassigned, changes
         // state while unassigned, and is then reassigned.
         const wasPreviouslySeen = previousAssignedIds?.has(issue.id) ?? false;
-        if (previousStateId !== undefined && previousStateId !== issue.state.id && wasPreviouslySeen) {
+        if (
+          previousStateId !== undefined &&
+          previousStateId !== issue.state.id &&
+          wasPreviouslySeen
+        ) {
           items.push(issueToStatusChangeItem(issue, previousStateId));
         }
         stateCache.set(issue.id, issue.state.id);
@@ -525,7 +594,7 @@ export const linearProvider: WatcherProvider = {
       const newWatermark = new Date().toISOString();
       log.info(
         { count: items.length, viewer: viewer.name, watermark: newWatermark },
-        'Linear: fetched new notifications',
+        "Linear: fetched new notifications",
       );
 
       return { items, watermark: newWatermark };

@@ -15,7 +15,7 @@ export class SmsApiError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'SmsApiError';
+    this.name = "SmsApiError";
   }
 }
 
@@ -55,9 +55,9 @@ export async function sendMessage(
 
   const url = `${gatewayUrl}/deliver/sms`;
   const resp = await fetch(url, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${bearerToken}`,
     },
     body: JSON.stringify(payload),
@@ -65,7 +65,7 @@ export async function sendMessage(
   });
 
   if (!resp.ok) {
-    const body = await resp.text().catch(() => '<unreadable>');
+    const body = await resp.text().catch(() => "<unreadable>");
     throw new SmsApiError(
       resp.status,
       `Gateway /deliver/sms failed (${resp.status}): ${body}`,

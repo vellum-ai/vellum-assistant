@@ -7,14 +7,14 @@
  * consistently regardless of which channel the guardian answers on.
  */
 
-import { mintGrantFromDecision } from '../approvals/approval-primitive.js';
-import type { GuardianActionRequest } from '../memory/guardian-action-store.js';
-import { getLogger } from '../util/logger.js';
-import { runApprovalConversationTurn } from './approval-conversation-turn.js';
-import { parseApprovalDecision } from './channel-approval-parser.js';
-import type { ApprovalConversationGenerator } from './http-types.js';
+import { mintGrantFromDecision } from "../approvals/approval-primitive.js";
+import type { GuardianActionRequest } from "../memory/guardian-action-store.js";
+import { getLogger } from "../util/logger.js";
+import { runApprovalConversationTurn } from "./approval-conversation-turn.js";
+import { parseApprovalDecision } from "./channel-approval-parser.js";
+import type { ApprovalConversationGenerator } from "./http-types.js";
 
-const log = getLogger('guardian-action-grant-minter');
+const log = getLogger("guardian-action-grant-minter");
 
 /** TTL for scoped approval grants minted on guardian-action answer resolution. */
 export const GUARDIAN_ACTION_GRANT_TTL_MS = 5 * 60 * 1000;
@@ -42,7 +42,13 @@ export async function tryMintGuardianActionGrant(params: {
   guardianExternalUserId?: string;
   approvalConversationGenerator?: ApprovalConversationGenerator;
 }): Promise<void> {
-  const { request, answerText, decisionChannel, guardianExternalUserId, approvalConversationGenerator } = params;
+  const {
+    request,
+    answerText,
+    decisionChannel,
+    guardianExternalUserId,
+    approvalConversationGenerator,
+  } = params;
 
   // Only mint for requests that carry tool metadata -- informational
   // ASK_GUARDIAN consults without tool context do not produce grants.
@@ -57,7 +63,9 @@ export async function tryMintGuardianActionGrant(params: {
   // the guardian-action path aligned with the primary approval interception
   // flow where guardians are limited to approve_once / reject.
   const decision = parseApprovalDecision(answerText);
-  let isApproval = decision?.action === 'approve_once' || decision?.action === 'approve_always';
+  let isApproval =
+    decision?.action === "approve_once" ||
+    decision?.action === "approve_always";
 
   // Tier 2: LLM fallback -- when the deterministic parser found no match
   // and a generator is available, delegate to the conversational engine.
@@ -68,19 +76,21 @@ export async function tryMintGuardianActionGrant(params: {
       const llmResult = await runApprovalConversationTurn(
         {
           toolName: request.toolName,
-          allowedActions: ['approve_once', 'reject'],
-          role: 'guardian',
-          pendingApprovals: [{ requestId: request.id, toolName: request.toolName }],
+          allowedActions: ["approve_once", "reject"],
+          role: "guardian",
+          pendingApprovals: [
+            { requestId: request.id, toolName: request.toolName },
+          ],
           userMessage: answerText,
         },
         approvalConversationGenerator,
       );
 
-      isApproval = llmResult.disposition === 'approve_once';
+      isApproval = llmResult.disposition === "approve_once";
 
       log.info(
         {
-          event: 'guardian_action_grant_llm_fallback',
+          event: "guardian_action_grant_llm_fallback",
           toolName: request.toolName,
           requestId: request.id,
           answerText,
@@ -94,13 +104,13 @@ export async function tryMintGuardianActionGrant(params: {
       // Fail-closed: generator errors must not produce grants.
       log.warn(
         {
-          event: 'guardian_action_grant_llm_fallback_error',
+          event: "guardian_action_grant_llm_fallback_error",
           toolName: request.toolName,
           requestId: request.id,
           err,
           decisionChannel,
         },
-        'LLM fallback classifier threw an error; treating as non-approval (fail-closed)',
+        "LLM fallback classifier threw an error; treating as non-approval (fail-closed)",
       );
     }
   }
@@ -108,21 +118,21 @@ export async function tryMintGuardianActionGrant(params: {
   if (!isApproval) {
     log.info(
       {
-        event: 'guardian_action_grant_skipped_no_approval',
+        event: "guardian_action_grant_skipped_no_approval",
         toolName: request.toolName,
         requestId: request.id,
         answerText,
         parsedAction: decision?.action ?? null,
         decisionChannel,
       },
-      'Skipped grant minting: guardian answer not classified as approval',
+      "Skipped grant minting: guardian answer not classified as approval",
     );
     return;
   }
 
   const result = mintGrantFromDecision({
     assistantId: request.assistantId,
-    scopeMode: 'tool_signature',
+    scopeMode: "tool_signature",
     toolName: request.toolName,
     inputDigest: request.inputDigest,
     requestChannel: request.sourceChannel,
@@ -131,24 +141,30 @@ export async function tryMintGuardianActionGrant(params: {
     conversationId: request.sourceConversationId,
     callSessionId: request.callSessionId,
     guardianExternalUserId: guardianExternalUserId ?? null,
-    expiresAt: new Date(Date.now() + GUARDIAN_ACTION_GRANT_TTL_MS).toISOString(),
+    expiresAt: new Date(
+      Date.now() + GUARDIAN_ACTION_GRANT_TTL_MS,
+    ).toISOString(),
   });
 
   if (result.ok) {
     log.info(
       {
-        event: 'guardian_action_grant_minted',
+        event: "guardian_action_grant_minted",
         toolName: request.toolName,
         requestId: request.id,
         callSessionId: request.callSessionId,
         decisionChannel,
       },
-      'Minted scoped approval grant for guardian-action answer resolution',
+      "Minted scoped approval grant for guardian-action answer resolution",
     );
   } else {
     log.error(
-      { reason: result.reason, toolName: request.toolName, requestId: request.id },
-      'Failed to mint scoped approval grant for guardian-action (non-fatal)',
+      {
+        reason: result.reason,
+        toolName: request.toolName,
+        requestId: request.id,
+      },
+      "Failed to mint scoped approval grant for guardian-action (non-fatal)",
     );
   }
 }

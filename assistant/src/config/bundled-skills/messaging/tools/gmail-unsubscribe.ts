@@ -1,35 +1,59 @@
-import { getMessage, sendMessage } from '../../../../messaging/providers/gmail/client.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { isPrivateOrLocalHost, resolveHostAddresses, resolveRequestAddress } from '../../../../tools/network/url-safety.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { err, ok, pinnedHttpsRequest } from './shared.js';
+import {
+  getMessage,
+  sendMessage,
+} from "../../../../messaging/providers/gmail/client.js";
+import { getMessagingProvider } from "../../../../messaging/registry.js";
+import { withValidToken } from "../../../../security/token-manager.js";
+import {
+  isPrivateOrLocalHost,
+  resolveHostAddresses,
+  resolveRequestAddress,
+} from "../../../../tools/network/url-safety.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { err, ok, pinnedHttpsRequest } from "./shared.js";
 
-export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
   if (!context.triggeredBySurfaceAction) {
-    return err('This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.');
+    return err(
+      "This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
+    );
   }
 
   const messageId = input.message_id as string;
 
   if (!messageId) {
-    return err('message_id is required.');
+    return err("message_id is required.");
   }
 
   try {
-    const provider = getMessagingProvider('gmail');
+    const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
-      const message = await getMessage(token, messageId, 'metadata', ['List-Unsubscribe', 'List-Unsubscribe-Post']);
+      const message = await getMessage(token, messageId, "metadata", [
+        "List-Unsubscribe",
+        "List-Unsubscribe-Post",
+      ]);
       const headers = message.payload?.headers ?? [];
-      const unsubHeader = headers.find((h) => h.name.toLowerCase() === 'list-unsubscribe')?.value;
+      const unsubHeader = headers.find(
+        (h) => h.name.toLowerCase() === "list-unsubscribe",
+      )?.value;
 
       if (!unsubHeader) {
-        return err('No List-Unsubscribe header found. Manual unsubscribe may be required.');
+        return err(
+          "No List-Unsubscribe header found. Manual unsubscribe may be required.",
+        );
       }
 
       const httpsMatch = unsubHeader.match(/<(https:\/\/[^>]+)>/);
       const mailtoMatch = unsubHeader.match(/<mailto:([^>]+)>/);
-      const postHeader = headers.find((h) => h.name.toLowerCase() === 'list-unsubscribe-post')?.value;
+      const postHeader = headers.find(
+        (h) => h.name.toLowerCase() === "list-unsubscribe-post",
+      )?.value;
 
       if (httpsMatch) {
         const url = httpsMatch[1];
@@ -37,27 +61,37 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
         let validatedAddresses: string[];
         try {
           parsed = new URL(url);
-          if (parsed.protocol !== 'https:') {
-            return err('Unsubscribe URL must use HTTPS.');
+          if (parsed.protocol !== "https:") {
+            return err("Unsubscribe URL must use HTTPS.");
           }
           if (isPrivateOrLocalHost(parsed.hostname)) {
-            return err('Unsubscribe URL points to a private or local address.');
+            return err("Unsubscribe URL points to a private or local address.");
           }
-          const { addresses, blockedAddress } = await resolveRequestAddress(parsed.hostname, resolveHostAddresses, false);
+          const { addresses, blockedAddress } = await resolveRequestAddress(
+            parsed.hostname,
+            resolveHostAddresses,
+            false,
+          );
           if (blockedAddress) {
-            return err('Unsubscribe URL resolves to a private or local address.');
+            return err(
+              "Unsubscribe URL resolves to a private or local address.",
+            );
           }
           if (addresses.length === 0) {
-            return err('Unable to resolve unsubscribe URL hostname.');
+            return err("Unable to resolve unsubscribe URL hostname.");
           }
           validatedAddresses = addresses;
         } catch {
-          return err('Invalid unsubscribe URL.');
+          return err("Invalid unsubscribe URL.");
         }
 
-        const method = postHeader ? 'POST' : 'GET';
+        const method = postHeader ? "POST" : "GET";
         const reqOpts = postHeader
-          ? { method: 'POST' as const, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: postHeader }
+          ? {
+              method: "POST" as const,
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: postHeader,
+            }
           : undefined;
 
         let lastStatus = 0;
@@ -75,12 +109,14 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
       }
 
       if (mailtoMatch) {
-        const mailtoAddr = mailtoMatch[1].split('?')[0];
-        await sendMessage(token, mailtoAddr, 'Unsubscribe', 'Unsubscribe');
+        const mailtoAddr = mailtoMatch[1].split("?")[0];
+        await sendMessage(token, mailtoAddr, "Unsubscribe", "Unsubscribe");
         return ok(`Unsubscribe email sent to ${mailtoAddr}.`);
       }
 
-      return err('No supported unsubscribe method found (requires https: or mailto: URL).');
+      return err(
+        "No supported unsubscribe method found (requires https: or mailto: URL).",
+      );
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));

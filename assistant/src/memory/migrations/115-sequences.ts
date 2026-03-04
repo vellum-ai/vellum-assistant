@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 export function createSequenceTables(database: DrizzleDb): void {
   database.run(/*sql*/ `
@@ -31,7 +31,13 @@ export function createSequenceTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_seq_enrollments_status_next_step ON sequence_enrollments(status, next_step_at)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_seq_enrollments_sequence_id ON sequence_enrollments(sequence_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_seq_enrollments_contact_email ON sequence_enrollments(contact_email)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_seq_enrollments_status_next_step ON sequence_enrollments(status, next_step_at)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_seq_enrollments_sequence_id ON sequence_enrollments(sequence_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_seq_enrollments_contact_email ON sequence_enrollments(contact_email)`,
+  );
 }

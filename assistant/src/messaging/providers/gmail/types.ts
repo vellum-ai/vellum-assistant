@@ -48,9 +48,9 @@ export interface GmailMessage {
 export interface GmailLabel {
   id: string;
   name: string;
-  type?: 'system' | 'user';
-  messageListVisibility?: 'show' | 'hide';
-  labelListVisibility?: 'labelShow' | 'labelShowIfUnread' | 'labelHide';
+  type?: "system" | "user";
+  messageListVisibility?: "show" | "hide";
+  labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide";
   messagesTotal?: number;
   messagesUnread?: number;
   threadsTotal?: number;
@@ -87,7 +87,7 @@ export interface GmailModifyRequest {
 }
 
 /** Message format for GET requests */
-export type GmailMessageFormat = 'minimal' | 'full' | 'raw' | 'metadata';
+export type GmailMessageFormat = "minimal" | "full" | "raw" | "metadata";
 
 /** Attachment data from the Gmail API */
 export interface GmailAttachment {
@@ -104,7 +104,7 @@ export interface GmailFilterCriteria {
   hasAttachment?: boolean;
   excludeChats?: boolean;
   size?: number;
-  sizeComparison?: 'larger' | 'smaller';
+  sizeComparison?: "larger" | "smaller";
 }
 
 /** Gmail filter action */
@@ -135,5 +135,5 @@ export interface GmailVacationSettings {
   restrictToContacts?: boolean;
   restrictToDomain?: boolean;
   startTime?: string; // epoch ms as string
-  endTime?: string;   // epoch ms as string
+  endTime?: string; // epoch ms as string
 }

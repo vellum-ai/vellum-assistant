@@ -40,7 +40,11 @@ mock.module("../../telegram/verify.js", () => ({
 
 mock.module("../../telegram/download.js", () => ({
   downloadTelegramFile: mock(() =>
-    Promise.resolve({ buffer: Buffer.alloc(0), fileName: "f.txt", mimeType: "text/plain" }),
+    Promise.resolve({
+      buffer: Buffer.alloc(0),
+      fileName: "f.txt",
+      mimeType: "text/plain",
+    }),
   ),
 }));
 
@@ -86,10 +90,10 @@ const baseConfig: GatewayConfig = {
   whatsappTimeoutMs: 15000,
   whatsappMaxRetries: 3,
   whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
-    trustProxy: false,
+  slackChannelBotToken: undefined,
+  slackChannelAppToken: undefined,
+  slackDeliverAuthBypass: false,
+  trustProxy: false,
 };
 
 function makeCallbackQueryBody(data: string, updateId = 200) {
@@ -124,8 +128,11 @@ describe("telegram-webhook callback query acknowledgment", () => {
   beforeEach(() => {
     callTelegramApiMock.mockClear();
     callTelegramApiMock.mockImplementation(
-      (_config: GatewayConfig, _method: string, _body: Record<string, unknown>) =>
-        Promise.resolve({}),
+      (
+        _config: GatewayConfig,
+        _method: string,
+        _body: Record<string, unknown>,
+      ) => Promise.resolve({}),
     );
     sendTelegramReplyMock.mockClear();
     handleInboundMock.mockClear();
@@ -153,7 +160,11 @@ describe("telegram-webhook callback query acknowledgment", () => {
 
   it("acknowledges callback query when routing rejects the message", async () => {
     handleInboundMock.mockImplementation(() =>
-      Promise.resolve({ forwarded: false, rejected: true, rejectionReason: "No route" }),
+      Promise.resolve({
+        forwarded: false,
+        rejected: true,
+        rejectionReason: "No route",
+      }),
     );
 
     const { handler } = createTelegramWebhookHandler(baseConfig);
@@ -190,7 +201,9 @@ describe("telegram-webhook callback query acknowledgment", () => {
   });
 
   it("acknowledges callback query when forwarding throws", async () => {
-    handleInboundMock.mockImplementation(() => Promise.reject(new Error("boom")));
+    handleInboundMock.mockImplementation(() =>
+      Promise.reject(new Error("boom")),
+    );
 
     const { handler } = createTelegramWebhookHandler(baseConfig);
     const body = makeCallbackQueryBody("apr:run1:approve", 305);
@@ -262,7 +275,11 @@ describe("telegram-webhook callback query acknowledgment", () => {
       payload: "ref-123",
     });
     expect(sendTelegramReplyMock).toHaveBeenCalledTimes(1);
-    const sendArgs = sendTelegramReplyMock.mock.calls[0] as unknown as [GatewayConfig, string, string];
+    const sendArgs = sendTelegramReplyMock.mock.calls[0] as unknown as [
+      GatewayConfig,
+      string,
+      string,
+    ];
     expect(sendArgs[1]).toBe("42");
     expect(sendArgs[2]).toContain("Starting up");
   });
@@ -411,16 +428,22 @@ describe("telegram-webhook callback query acknowledgment", () => {
     );
 
     let editAttempts = 0;
-    callTelegramApiMock.mockImplementation((_config: GatewayConfig, method: string) => {
-      if (method === "editMessageReplyMarkup") {
-        editAttempts++;
-        if (editAttempts === 1) {
-          return Promise.reject(new Error("Telegram editMessageReplyMarkup failed: can't parse reply markup JSON object"));
+    callTelegramApiMock.mockImplementation(
+      (_config: GatewayConfig, method: string) => {
+        if (method === "editMessageReplyMarkup") {
+          editAttempts++;
+          if (editAttempts === 1) {
+            return Promise.reject(
+              new Error(
+                "Telegram editMessageReplyMarkup failed: can't parse reply markup JSON object",
+              ),
+            );
+          }
+          return Promise.resolve({});
         }
         return Promise.resolve({});
-      }
-      return Promise.resolve({});
-    });
+      },
+    );
 
     const { handler } = createTelegramWebhookHandler(baseConfig);
     const body = makeCallbackQueryBody("apr:run1:approve_once", 311);
@@ -461,12 +484,14 @@ describe("telegram-webhook callback query acknowledgment", () => {
         },
       }),
     );
-    callTelegramApiMock.mockImplementation((_config: GatewayConfig, method: string) => {
-      if (method === "editMessageReplyMarkup") {
-        return Promise.reject(new Error("edit failed"));
-      }
-      return Promise.resolve({});
-    });
+    callTelegramApiMock.mockImplementation(
+      (_config: GatewayConfig, method: string) => {
+        if (method === "editMessageReplyMarkup") {
+          return Promise.reject(new Error("edit failed"));
+        }
+        return Promise.resolve({});
+      },
+    );
 
     const { handler } = createTelegramWebhookHandler(baseConfig);
     const body = makeCallbackQueryBody("gapr:run1:approve", 309);
@@ -501,12 +526,14 @@ describe("telegram-webhook callback query acknowledgment", () => {
         },
       }),
     );
-    callTelegramApiMock.mockImplementation((_config: GatewayConfig, method: string) => {
-      if (method === "editMessageReplyMarkup" || method === "deleteMessage") {
-        return Promise.reject(new Error("hard failure"));
-      }
-      return Promise.resolve({});
-    });
+    callTelegramApiMock.mockImplementation(
+      (_config: GatewayConfig, method: string) => {
+        if (method === "editMessageReplyMarkup" || method === "deleteMessage") {
+          return Promise.reject(new Error("hard failure"));
+        }
+        return Promise.resolve({});
+      },
+    );
 
     const { handler } = createTelegramWebhookHandler(baseConfig);
     const body = makeCallbackQueryBody("apr:run1:approve_once", 312);

@@ -1,6 +1,6 @@
-import { getLogger } from '../util/logger.js';
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('qdrant-circuit-breaker');
+const log = getLogger("qdrant-circuit-breaker");
 
 /**
  * Circuit breaker for Qdrant operations.
@@ -14,27 +14,29 @@ const log = getLogger('qdrant-circuit-breaker');
 const FAILURE_THRESHOLD = 5;
 const COOLDOWN_MS = 30_000;
 
-type BreakerState = 'closed' | 'open' | 'half-open';
+type BreakerState = "closed" | "open" | "half-open";
 
-let breakerState: BreakerState = 'closed';
+let breakerState: BreakerState = "closed";
 let consecutiveFailures = 0;
 let openedAt = 0;
 let halfOpenProbeInFlight = false;
 
 export class QdrantCircuitOpenError extends Error {
   constructor() {
-    super('Qdrant circuit breaker open');
-    this.name = 'QdrantCircuitOpenError';
+    super("Qdrant circuit breaker open");
+    this.name = "QdrantCircuitOpenError";
   }
 }
 
 function allows(): boolean {
-  if (breakerState === 'closed') return true;
-  if (breakerState === 'open') {
+  if (breakerState === "closed") return true;
+  if (breakerState === "open") {
     if (Date.now() - openedAt >= COOLDOWN_MS) {
-      breakerState = 'half-open';
+      breakerState = "half-open";
       halfOpenProbeInFlight = true;
-      log.info('Qdrant circuit breaker entering half-open state — allowing probe request');
+      log.info(
+        "Qdrant circuit breaker entering half-open state — allowing probe request",
+      );
       return true;
     }
     return false;
@@ -46,11 +48,14 @@ function allows(): boolean {
 }
 
 function recordSuccess(): void {
-  if (breakerState !== 'closed') {
-    log.info({ previousFailures: consecutiveFailures }, 'Qdrant circuit breaker closed — operation succeeded');
+  if (breakerState !== "closed") {
+    log.info(
+      { previousFailures: consecutiveFailures },
+      "Qdrant circuit breaker closed — operation succeeded",
+    );
   }
   consecutiveFailures = 0;
-  breakerState = 'closed';
+  breakerState = "closed";
   openedAt = 0;
   halfOpenProbeInFlight = false;
 }
@@ -59,16 +64,16 @@ function recordFailure(): void {
   consecutiveFailures++;
   halfOpenProbeInFlight = false;
   if (consecutiveFailures >= FAILURE_THRESHOLD) {
-    breakerState = 'open';
+    breakerState = "open";
     openedAt = Date.now();
     log.warn(
       { consecutiveFailures, cooldownMs: COOLDOWN_MS },
-      'Qdrant circuit breaker opened — Qdrant operations disabled until probe succeeds',
+      "Qdrant circuit breaker opened — Qdrant operations disabled until probe succeeds",
     );
-  } else if (breakerState === 'half-open') {
-    breakerState = 'open';
+  } else if (breakerState === "half-open") {
+    breakerState = "open";
     openedAt = Date.now();
-    log.warn('Qdrant circuit breaker re-opened — half-open probe failed');
+    log.warn("Qdrant circuit breaker re-opened — half-open probe failed");
   }
 }
 
@@ -93,13 +98,16 @@ export async function withQdrantBreaker<T>(fn: () => Promise<T>): Promise<T> {
 
 /** @internal Test-only: reset circuit breaker state */
 export function _resetQdrantBreaker(): void {
-  breakerState = 'closed';
+  breakerState = "closed";
   consecutiveFailures = 0;
   openedAt = 0;
   halfOpenProbeInFlight = false;
 }
 
 /** @internal Test-only: get breaker state */
-export function _getQdrantBreakerState(): { state: BreakerState; consecutiveFailures: number } {
+export function _getQdrantBreakerState(): {
+  state: BreakerState;
+  consecutiveFailures: number;
+} {
   return { state: breakerState, consecutiveFailures };
 }

@@ -3,11 +3,17 @@ import { renameSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
 
-import { findAssistantByName, removeAssistantEntry } from "../lib/assistant-config";
+import {
+  findAssistantByName,
+  removeAssistantEntry,
+} from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
-import { stopOrphanedDaemonProcesses, stopProcessByPidFile } from "../lib/process";
+import {
+  stopOrphanedDaemonProcesses,
+  stopProcessByPidFile,
+} from "../lib/process";
 import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
 import { openLogFile, closeLogFile, writeToLogFile } from "../lib/xdg-log";
@@ -42,7 +48,9 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   // Stop daemon via PID file
   const daemonPidFile = join(vellumDir, "vellum.pid");
   const socketFile = join(vellumDir, "vellum.sock");
-  const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
+  const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [
+    socketFile,
+  ]);
 
   // Stop gateway via PID file
   const gatewayPidFile = join(vellumDir, "gateway.pid");
@@ -67,7 +75,9 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   try {
     renameSync(vellumDir, stagingDir);
   } catch (err) {
-    console.warn(`⚠️  Failed to move ${vellumDir}: ${err instanceof Error ? err.message : err}`);
+    console.warn(
+      `⚠️  Failed to move ${vellumDir}: ${err instanceof Error ? err.message : err}`,
+    );
     console.warn("Skipping archive.");
     console.log("\u2705 Local instance retired.");
     return;
@@ -107,10 +117,14 @@ async function retireCustom(entry: AssistantEntry): Promise<void> {
 
   try {
     await exec("ssh", [
-      "-o", "StrictHostKeyChecking=no",
-      "-o", "UserKnownHostsFile=/dev/null",
-      "-o", "ConnectTimeout=10",
-      "-o", "LogLevel=ERROR",
+      "-o",
+      "StrictHostKeyChecking=no",
+      "-o",
+      "UserKnownHostsFile=/dev/null",
+      "-o",
+      "ConnectTimeout=10",
+      "-o",
+      "LogLevel=ERROR",
       sshHost,
       remoteCmd,
     ]);
@@ -149,16 +163,24 @@ function teeConsoleToLogFile(fd: number | "ignore"): void {
   };
   console.warn = (...args: unknown[]) => {
     origWarn(...args);
-    writeToLogFile(fd, `[${timestamp()}] WARN: ${args.map(String).join(" ")}\n`);
+    writeToLogFile(
+      fd,
+      `[${timestamp()}] WARN: ${args.map(String).join(" ")}\n`,
+    );
   };
   console.error = (...args: unknown[]) => {
     origError(...args);
-    writeToLogFile(fd, `[${timestamp()}] ERROR: ${args.map(String).join(" ")}\n`);
+    writeToLogFile(
+      fd,
+      `[${timestamp()}] ERROR: ${args.map(String).join(" ")}\n`,
+    );
   };
 }
 
 export async function retire(): Promise<void> {
-  const logFd = process.env.VELLUM_DESKTOP_APP ? openLogFile("retire.log") : "ignore";
+  const logFd = process.env.VELLUM_DESKTOP_APP
+    ? openLogFile("retire.log")
+    : "ignore";
   teeConsoleToLogFile(logFd);
 
   try {
@@ -205,7 +227,9 @@ async function retireInner(): Promise<void> {
     const project = entry.project;
     const zone = entry.zone;
     if (!project || !zone) {
-      console.error("Error: GCP project and zone not found in assistant config.");
+      console.error(
+        "Error: GCP project and zone not found in assistant config.",
+      );
       process.exit(1);
     }
     await retireGcpInstance(name, project, zone, source);

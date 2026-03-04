@@ -5,12 +5,15 @@
  * and processes pending events through a background LLM conversation.
  */
 
-import { createConversation } from '../memory/conversation-store.js';
-import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
-import { checkForSequenceReplies } from '../sequence/reply-matcher.js';
-import { getLogger } from '../util/logger.js';
-import { MAX_CONSECUTIVE_ERRORS } from './constants.js';
-import { getWatcherProvider } from './provider-registry.js';
+import { createConversation } from "../memory/conversation-store.js";
+import {
+  GENERATING_TITLE,
+  queueGenerateConversationTitle,
+} from "../memory/conversation-title-service.js";
+import { checkForSequenceReplies } from "../sequence/reply-matcher.js";
+import { getLogger } from "../util/logger.js";
+import { MAX_CONSECUTIVE_ERRORS } from "./constants.js";
+import { getWatcherProvider } from "./provider-registry.js";
 import {
   claimDueWatchers,
   completeWatcherPoll,
@@ -21,9 +24,9 @@ import {
   resetStuckWatchers,
   setWatcherConversationId,
   updateEventDisposition,
-} from './watcher-store.js';
+} from "./watcher-store.js";
 
-const log = getLogger('watcher-engine');
+const log = getLogger("watcher-engine");
 
 export type WatcherMessageProcessor = (
   conversationId: string,
@@ -52,7 +55,7 @@ export interface WatcherEngineHandle {
 export function initWatcherEngine(): void {
   const reset = resetStuckWatchers();
   if (reset > 0) {
-    log.info({ count: reset }, 'Reset stuck watchers to idle on startup');
+    log.info({ count: reset }, "Reset stuck watchers to idle on startup");
   }
 }
 
@@ -83,11 +86,18 @@ export async function runWatchersOnce(
       // Initialize watermark on first poll
       let watermark = watcher.watermark;
       if (!watermark) {
-        watermark = await provider.getInitialWatermark(watcher.credentialService);
-        log.info({ watcherId: watcher.id, watermark }, 'Initialized watermark');
+        watermark = await provider.getInitialWatermark(
+          watcher.credentialService,
+        );
+        log.info({ watcherId: watcher.id, watermark }, "Initialized watermark");
       }
 
-      const result = await provider.fetchNew(watcher.credentialService, watermark, config, watcher.id);
+      const result = await provider.fetchNew(
+        watcher.credentialService,
+        watermark,
+        config,
+        watcher.id,
+      );
 
       // Store new events with dedup
       let newEvents = 0;
@@ -107,7 +117,10 @@ export async function runWatchersOnce(
       }
 
       if (newEvents > 0) {
-        log.info({ watcherId: watcher.id, name: watcher.name, newEvents }, 'Detected new events');
+        log.info(
+          { watcherId: watcher.id, name: watcher.name, newEvents },
+          "Detected new events",
+        );
       }
 
       // Check new events for replies to active sequence enrollments
@@ -121,7 +134,10 @@ export async function runWatchersOnce(
             });
           }
         } catch (replyErr) {
-          log.warn({ err: replyErr, watcherId: watcher.id }, 'Reply matcher failed');
+          log.warn(
+            { err: replyErr, watcherId: watcher.id },
+            "Reply matcher failed",
+          );
         }
       }
 
@@ -132,18 +148,24 @@ export async function runWatchersOnce(
       processed++;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.warn({ err, watcherId: watcher.id, name: watcher.name }, 'Watcher poll failed');
+      log.warn(
+        { err, watcherId: watcher.id, name: watcher.name },
+        "Watcher poll failed",
+      );
       failWatcherPoll(watcher.id, message);
 
       // Circuit breaker: disable after too many consecutive errors
-      if ((watcher.consecutiveErrors + 1) >= MAX_CONSECUTIVE_ERRORS) {
+      if (watcher.consecutiveErrors + 1 >= MAX_CONSECUTIVE_ERRORS) {
         const reason = `Disabled after ${MAX_CONSECUTIVE_ERRORS} consecutive errors. Last: ${message}`;
         disableWatcher(watcher.id, reason);
         // Do NOT call provider.cleanup() here — auto-disable is reversible.
         // If the watcher is re-enabled later, it must diff against the same
         // baseline to avoid missing events that occurred while disabled.
         // Cleanup is only correct on true deletion (see tools/watcher/delete.ts).
-        log.warn({ watcherId: watcher.id, name: watcher.name }, 'Watcher disabled by circuit breaker');
+        log.warn(
+          { watcherId: watcher.id, name: watcher.name },
+          "Watcher disabled by circuit breaker",
+        );
         notify({
           title: `Watcher disabled: ${watcher.name}`,
           body: reason,
@@ -165,39 +187,47 @@ export async function runWatchersOnce(
       if (!conversationId) {
         const conv = createConversation({
           title: GENERATING_TITLE,
-          threadType: 'background' as 'standard' | 'private',
+          threadType: "background" as "standard" | "private",
         });
         queueGenerateConversationTitle({
           conversationId: conv.id,
-          context: { origin: 'watcher', systemHint: `Watcher: ${watcher.name}` },
+          context: {
+            origin: "watcher",
+            systemHint: `Watcher: ${watcher.name}`,
+          },
         });
         conversationId = conv.id;
         setWatcherConversationId(watcher.id, conversationId);
       }
 
       // Build the LLM message with action prompt + event data
-      const eventSummaries = pendingEvents.map((e, i) =>
-        `Event ${i + 1} (id: ${e.id}):\n  Type: ${e.eventType}\n  Summary: ${e.summary}\n  Data: ${e.payloadJson}`,
-      ).join('\n\n');
+      const eventSummaries = pendingEvents
+        .map(
+          (e, i) =>
+            `Event ${i + 1} (id: ${e.id}):\n  Type: ${
+              e.eventType
+            }\n  Summary: ${e.summary}\n  Data: ${e.payloadJson}`,
+        )
+        .join("\n\n");
 
       const message = [
         watcher.actionPrompt,
-        '',
-        '---',
-        '',
+        "",
+        "---",
+        "",
         `${pendingEvents.length} new event(s) detected:`,
-        '',
+        "",
         eventSummaries,
-        '',
-        '---',
-        '',
-        'For each event, decide how to handle it and include a disposition block:',
-        '<watcher-disposition>',
+        "",
+        "---",
+        "",
+        "For each event, decide how to handle it and include a disposition block:",
+        "<watcher-disposition>",
         '{"event_id": "...", "disposition": "silent|notify|escalate", "action": "what you did", "title": "notification title", "body": "notification body"}',
-        '</watcher-disposition>',
-        '',
-        'You may include multiple disposition blocks, one per event.',
-      ].join('\n');
+        "</watcher-disposition>",
+        "",
+        "You may include multiple disposition blocks, one per event.",
+      ].join("\n");
 
       await processMessage(conversationId, message);
 
@@ -209,20 +239,27 @@ export async function runWatchersOnce(
       // tools to notify/escalate as needed.
       for (const event of pendingEvents) {
         // Default to silent if we can't parse the LLM response
-        updateEventDisposition(event.id, 'silent', 'Processed by LLM');
+        updateEventDisposition(event.id, "silent", "Processed by LLM");
       }
 
       processed++;
     } catch (err) {
-      log.warn({ err, watcherId: watcher.id }, 'Failed to process watcher events');
+      log.warn(
+        { err, watcherId: watcher.id },
+        "Failed to process watcher events",
+      );
       for (const event of pendingEvents) {
-        updateEventDisposition(event.id, 'error', err instanceof Error ? err.message : String(err));
+        updateEventDisposition(
+          event.id,
+          "error",
+          err instanceof Error ? err.message : String(err),
+        );
       }
     }
   }
 
   if (processed > 0) {
-    log.info({ processed }, 'Watcher tick complete');
+    log.info({ processed }, "Watcher tick complete");
   }
   return processed;
 }

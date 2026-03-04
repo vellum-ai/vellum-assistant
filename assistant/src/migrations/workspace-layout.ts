@@ -1,12 +1,12 @@
-import { existsSync, mkdirSync, renameSync } from 'node:fs';
-import { dirname,join } from 'node:path';
+import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-import { getRootDir, getWorkspaceDir } from '../util/platform.js';
-import { mergeSkippedConfigKeys } from './config-merge.js';
-import { mergeLegacyDataEntries } from './data-merge.js';
-import { mergeLegacyHooks } from './hooks-merge.js';
-import { migrationLog } from './log.js';
-import { mergeLegacySkills } from './skills-merge.js';
+import { getRootDir, getWorkspaceDir } from "../util/platform.js";
+import { mergeSkippedConfigKeys } from "./config-merge.js";
+import { mergeLegacyDataEntries } from "./data-merge.js";
+import { mergeLegacyHooks } from "./hooks-merge.js";
+import { migrationLog } from "./log.js";
+import { mergeLegacySkills } from "./skills-merge.js";
 
 /**
  * Idempotent move: relocates source to destination for migration.
@@ -20,7 +20,10 @@ import { mergeLegacySkills } from './skills-merge.js';
 export function migratePath(source: string, destination: string): void {
   if (!existsSync(source)) return;
   if (existsSync(destination)) {
-    migrationLog('debug', 'Migration skipped: destination already exists', { source, destination });
+    migrationLog("debug", "Migration skipped: destination already exists", {
+      source,
+      destination,
+    });
     return;
   }
   try {
@@ -29,9 +32,13 @@ export function migratePath(source: string, destination: string): void {
       mkdirSync(destDir, { recursive: true });
     }
     renameSync(source, destination);
-    migrationLog('info', 'Migrated path', { from: source, to: destination });
+    migrationLog("info", "Migrated path", { from: source, to: destination });
   } catch (err) {
-    migrationLog('warn', 'Failed to migrate path', { err: String(err), from: source, to: destination });
+    migrationLog("warn", "Failed to migrate path", {
+      err: String(err),
+      from: source,
+      to: destination,
+    });
   }
 }
 
@@ -54,27 +61,34 @@ export function migrateToWorkspaceLayout(): void {
 
   // (a) Extract data/sandbox/fs -> workspace (only when workspace doesn't exist yet)
   if (!existsSync(ws)) {
-    const sandboxFs = join(root, 'data', 'sandbox', 'fs');
+    const sandboxFs = join(root, "data", "sandbox", "fs");
     if (existsSync(sandboxFs)) {
       try {
         renameSync(sandboxFs, ws);
-        migrationLog('info', 'Extracted sandbox/fs as workspace root', { from: sandboxFs, to: ws });
+        migrationLog("info", "Extracted sandbox/fs as workspace root", {
+          from: sandboxFs,
+          to: ws,
+        });
       } catch (err) {
-        migrationLog('warn', 'Failed to extract sandbox/fs', { err: String(err), from: sandboxFs, to: ws });
+        migrationLog("warn", "Failed to extract sandbox/fs", {
+          err: String(err),
+          from: sandboxFs,
+          to: ws,
+        });
       }
     }
   }
 
   // (b)-(h) Move legacy root-level items into workspace
-  migratePath(join(root, 'config.json'), join(ws, 'config.json'));
-  mergeSkippedConfigKeys(join(root, 'config.json'), join(ws, 'config.json'));
-  migratePath(join(root, 'data'), join(ws, 'data'));
-  mergeLegacyDataEntries(join(root, 'data'), join(ws, 'data'));
-  migratePath(join(root, 'hooks'), join(ws, 'hooks'));
-  mergeLegacyHooks(join(root, 'hooks'), join(ws, 'hooks'));
-  migratePath(join(root, 'IDENTITY.md'), join(ws, 'IDENTITY.md'));
-  migratePath(join(root, 'skills'), join(ws, 'skills'));
-  mergeLegacySkills(join(root, 'skills'), join(ws, 'skills'));
-  migratePath(join(root, 'SOUL.md'), join(ws, 'SOUL.md'));
-  migratePath(join(root, 'USER.md'), join(ws, 'USER.md'));
+  migratePath(join(root, "config.json"), join(ws, "config.json"));
+  mergeSkippedConfigKeys(join(root, "config.json"), join(ws, "config.json"));
+  migratePath(join(root, "data"), join(ws, "data"));
+  mergeLegacyDataEntries(join(root, "data"), join(ws, "data"));
+  migratePath(join(root, "hooks"), join(ws, "hooks"));
+  mergeLegacyHooks(join(root, "hooks"), join(ws, "hooks"));
+  migratePath(join(root, "IDENTITY.md"), join(ws, "IDENTITY.md"));
+  migratePath(join(root, "skills"), join(ws, "skills"));
+  mergeLegacySkills(join(root, "skills"), join(ws, "skills"));
+  migratePath(join(root, "SOUL.md"), join(ws, "SOUL.md"));
+  migratePath(join(root, "USER.md"), join(ws, "USER.md"));
 }

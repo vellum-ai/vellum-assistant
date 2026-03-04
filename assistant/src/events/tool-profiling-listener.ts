@@ -1,9 +1,9 @@
-import type { TraceEmitter } from '../daemon/trace-emitter.js';
-import { getLogger } from '../util/logger.js';
-import type { EventBus, Subscription } from './bus.js';
-import type { AssistantDomainEvents } from './domain-events.js';
+import type { TraceEmitter } from "../daemon/trace-emitter.js";
+import { getLogger } from "../util/logger.js";
+import type { EventBus, Subscription } from "./bus.js";
+import type { AssistantDomainEvents } from "./domain-events.js";
 
-const log = getLogger('tool-profiler');
+const log = getLogger("tool-profiler");
 
 export interface ToolStats {
   count: number;
@@ -39,7 +39,11 @@ export class ToolProfiler {
     this.peakRssBytes = rss;
   }
 
-  recordToolCompletion(toolName: string, durationMs: number, isError: boolean): void {
+  recordToolCompletion(
+    toolName: string,
+    durationMs: number,
+    isError: boolean,
+  ): void {
     let stats = this.tools.get(toolName);
     if (!stats) {
       stats = { count: 0, totalMs: 0, maxMs: 0, errors: 0 };
@@ -66,12 +70,15 @@ export class ToolProfiler {
     }
 
     const peakRssMb = Math.round(this.peakRssBytes / 1024 / 1024);
-    const rssDeltaMb = Math.round((this.peakRssBytes - this.rssStartBytes) / 1024 / 1024);
+    const rssDeltaMb = Math.round(
+      (this.peakRssBytes - this.rssStartBytes) / 1024 / 1024,
+    );
 
     return {
       toolCount,
       totalToolTimeMs,
-      wallClockMs: this.requestStartMs > 0 ? Date.now() - this.requestStartMs : 0,
+      wallClockMs:
+        this.requestStartMs > 0 ? Date.now() - this.requestStartMs : 0,
       tools,
       peakRssMb,
       rssDeltaMb,
@@ -91,7 +98,7 @@ export class ToolProfiler {
     if (summary.toolCount === 0) return;
 
     // Find the slowest individual tool invocation
-    let slowestTool = '';
+    let slowestTool = "";
     let slowestMs = 0;
     for (const [name, stats] of Object.entries(summary.tools)) {
       if (stats.maxMs > slowestMs) {
@@ -100,23 +107,26 @@ export class ToolProfiler {
       }
     }
 
-    log.info({
-      toolCount: summary.toolCount,
-      totalToolTimeMs: summary.totalToolTimeMs,
-      wallClockMs: summary.wallClockMs,
-      peakRssMb: summary.peakRssMb,
-      rssDeltaMb: summary.rssDeltaMb,
-      slowestTool,
-      slowestToolMaxMs: slowestMs,
-      tools: summary.tools,
-    }, 'Tool execution profiling summary');
+    log.info(
+      {
+        toolCount: summary.toolCount,
+        totalToolTimeMs: summary.totalToolTimeMs,
+        wallClockMs: summary.wallClockMs,
+        peakRssMb: summary.peakRssMb,
+        rssDeltaMb: summary.rssDeltaMb,
+        slowestTool,
+        slowestToolMaxMs: slowestMs,
+        tools: summary.tools,
+      },
+      "Tool execution profiling summary",
+    );
 
     traceEmitter.emit(
-      'tool_profiling_summary',
+      "tool_profiling_summary",
       `${summary.toolCount} tool calls in ${summary.wallClockMs}ms (tool time: ${summary.totalToolTimeMs}ms, slowest: ${slowestTool} ${slowestMs}ms)`,
       {
         requestId,
-        status: 'info',
+        status: "info",
         attributes: {
           toolCount: summary.toolCount,
           totalToolTimeMs: summary.totalToolTimeMs,
@@ -137,14 +147,14 @@ export function registerToolProfilingListener(
 ): Subscription {
   return eventBus.onAny((event) => {
     switch (event.type) {
-      case 'tool.execution.finished':
+      case "tool.execution.finished":
         profiler.recordToolCompletion(
           event.payload.toolName,
           event.payload.durationMs,
           event.payload.isError,
         );
         return;
-      case 'tool.execution.failed':
+      case "tool.execution.failed":
         profiler.recordToolCompletion(
           event.payload.toolName,
           event.payload.durationMs,

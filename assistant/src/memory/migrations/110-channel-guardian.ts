@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Channel guardian tables: bindings, verification challenges, approval requests,
@@ -43,7 +43,9 @@ export function createChannelGuardianTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_challenges_lookup ON channel_guardian_verification_challenges(assistant_id, channel, challenge_hash, status)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_challenges_lookup ON channel_guardian_verification_challenges(assistant_id, channel, challenge_hash, status)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_guardian_approval_requests (
@@ -66,15 +68,31 @@ export function createChannelGuardianTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_run ON channel_guardian_approval_requests(run_id, status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_status ON channel_guardian_approval_requests(status)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_run ON channel_guardian_approval_requests(run_id, status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_status ON channel_guardian_approval_requests(status)`,
+  );
 
   // Migration: add assistant_id column to scope approval requests by assistant.
   // Existing rows default to 'self' for backward compatibility.
-  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN assistant_id TEXT NOT NULL DEFAULT 'self'`); } catch { /* already exists */ }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN assistant_id TEXT NOT NULL DEFAULT 'self'`,
+    );
+  } catch {
+    /* already exists */
+  }
 
   // Migration: add request_id column for pending-interactions lookup (replaces run_id).
-  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN request_id TEXT`); } catch { /* already exists */ }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN request_id TEXT`,
+    );
+  } catch {
+    /* already exists */
+  }
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_guardian_rate_limits (
@@ -95,13 +113,33 @@ export function createChannelGuardianTables(database: DrizzleDb): void {
   // Migration: add attempt_timestamps_json column for true sliding-window rate limiting.
   // The old invalid_attempts / window_started_at columns are left in place (SQLite
   // doesn't support DROP COLUMN in older versions) but are no longer read by the app.
-  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_rate_limits ADD COLUMN attempt_timestamps_json TEXT NOT NULL DEFAULT '[]'`); } catch { /* already exists */ }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE channel_guardian_rate_limits ADD COLUMN attempt_timestamps_json TEXT NOT NULL DEFAULT '[]'`,
+    );
+  } catch {
+    /* already exists */
+  }
 
   // Migration: re-add legacy columns for databases created during the brief window when
   // PR #6748 was live (columns were absent from CREATE TABLE). These columns are not read
   // by app logic but must exist so drizzle inserts don't fail.
-  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_rate_limits ADD COLUMN invalid_attempts INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
-  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_rate_limits ADD COLUMN window_started_at INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE channel_guardian_rate_limits ADD COLUMN invalid_attempts INTEGER NOT NULL DEFAULT 0`,
+    );
+  } catch {
+    /* already exists */
+  }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE channel_guardian_rate_limits ADD COLUMN window_started_at INTEGER NOT NULL DEFAULT 0`,
+    );
+  } catch {
+    /* already exists */
+  }
 
-  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_rate_limits_actor ON channel_guardian_rate_limits(assistant_id, channel, actor_external_user_id, actor_chat_id)`);
+  database.run(
+    /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_rate_limits_actor ON channel_guardian_rate_limits(assistant_id, channel, actor_external_user_id, actor_chat_id)`,
+  );
 }

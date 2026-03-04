@@ -16,32 +16,80 @@
  */
 
 // Re-export individual handlers for direct import by tests and other modules
-export { getReadinessService, handleGuardianVerification } from './config-channels.js';
-export { handleHeartbeatChecklistRead, handleHeartbeatChecklistWrite,handleHeartbeatConfig, handleHeartbeatRunNow, handleHeartbeatRunsList } from './config-heartbeat.js';
-export { computeGatewayTarget, handleIngressConfig, syncTwilioWebhooks,triggerGatewayReconcile } from './config-ingress.js';
-export { handleTwitterIntegrationConfig,handleVercelApiConfig } from './config-integrations.js';
-export { handleImageGenModelSet,handleModelGet, handleModelSet } from './config-model.js';
-export { handlePlatformConfig } from './config-platform.js';
-export { handleReminderCancel,handleRemindersList, handleScheduleRemove, handleScheduleRunNow, handleSchedulesList, handleScheduleToggle } from './config-scheduling.js';
-export { handleShareToSlack, handleSlackWebhookConfig } from './config-slack.js';
-export { handleTelegramConfig, summarizeTelegramError } from './config-telegram.js';
-export { handleEnvVarsRequest, handleToolNamesList,handleToolPermissionSimulate } from './config-tools.js';
-export { handleAcceptStarterBundle,handleAddTrustRule, handleRemoveTrustRule, handleTrustRulesList, handleUpdateTrustRule } from './config-trust.js';
-export { broadcastClientSettingsUpdate, handleVoiceConfigUpdate, normalizeActivationKey } from './config-voice.js';
+export {
+  getReadinessService,
+  handleGuardianVerification,
+} from "./config-channels.js";
+export {
+  handleHeartbeatChecklistRead,
+  handleHeartbeatChecklistWrite,
+  handleHeartbeatConfig,
+  handleHeartbeatRunNow,
+  handleHeartbeatRunsList,
+} from "./config-heartbeat.js";
+export {
+  computeGatewayTarget,
+  handleIngressConfig,
+  syncTwilioWebhooks,
+  triggerGatewayReconcile,
+} from "./config-ingress.js";
+export {
+  handleTwitterIntegrationConfig,
+  handleVercelApiConfig,
+} from "./config-integrations.js";
+export {
+  handleImageGenModelSet,
+  handleModelGet,
+  handleModelSet,
+} from "./config-model.js";
+export { handlePlatformConfig } from "./config-platform.js";
+export {
+  handleReminderCancel,
+  handleRemindersList,
+  handleScheduleRemove,
+  handleScheduleRunNow,
+  handleSchedulesList,
+  handleScheduleToggle,
+} from "./config-scheduling.js";
+export {
+  handleShareToSlack,
+  handleSlackWebhookConfig,
+} from "./config-slack.js";
+export {
+  handleTelegramConfig,
+  summarizeTelegramError,
+} from "./config-telegram.js";
+export {
+  handleEnvVarsRequest,
+  handleToolNamesList,
+  handleToolPermissionSimulate,
+} from "./config-tools.js";
+export {
+  handleAcceptStarterBundle,
+  handleAddTrustRule,
+  handleRemoveTrustRule,
+  handleTrustRulesList,
+  handleUpdateTrustRule,
+} from "./config-trust.js";
+export {
+  broadcastClientSettingsUpdate,
+  handleVoiceConfigUpdate,
+  normalizeActivationKey,
+} from "./config-voice.js";
 
 // Assemble the combined dispatch map from domain-specific handler groups
-import { channelHandlers } from './config-channels.js';
-import { heartbeatHandlers } from './config-heartbeat.js';
-import { ingressHandlers } from './config-ingress.js';
-import { integrationHandlers } from './config-integrations.js';
-import { modelHandlers } from './config-model.js';
-import { platformHandlers } from './config-platform.js';
-import { schedulingHandlers } from './config-scheduling.js';
-import { slackHandlers } from './config-slack.js';
-import { telegramHandlers } from './config-telegram.js';
-import { toolHandlers } from './config-tools.js';
-import { trustHandlers } from './config-trust.js';
-import { voiceHandlers } from './config-voice.js';
+import { channelHandlers } from "./config-channels.js";
+import { heartbeatHandlers } from "./config-heartbeat.js";
+import { ingressHandlers } from "./config-ingress.js";
+import { integrationHandlers } from "./config-integrations.js";
+import { modelHandlers } from "./config-model.js";
+import { platformHandlers } from "./config-platform.js";
+import { schedulingHandlers } from "./config-scheduling.js";
+import { slackHandlers } from "./config-slack.js";
+import { telegramHandlers } from "./config-telegram.js";
+import { toolHandlers } from "./config-tools.js";
+import { trustHandlers } from "./config-trust.js";
+import { voiceHandlers } from "./config-voice.js";
 
 export const configHandlers = {
   ...modelHandlers,

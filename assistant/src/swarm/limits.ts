@@ -2,7 +2,7 @@
  * Runtime limits for swarm execution, resolved from config.
  */
 
-import type { SwarmRole } from './types.js';
+import type { SwarmRole } from "./types.js";
 
 export interface SwarmLimits {
   maxWorkers: number;
@@ -40,8 +40,14 @@ export function resolveSwarmLimits(config: {
   }
 
   return {
-    maxWorkers: Math.min(Math.max(1, config.maxWorkers), SWARM_HARD_LIMITS.maxWorkers),
-    maxTasks: Math.min(Math.max(1, config.maxTasks), SWARM_HARD_LIMITS.maxTasks),
+    maxWorkers: Math.min(
+      Math.max(1, config.maxWorkers),
+      SWARM_HARD_LIMITS.maxWorkers,
+    ),
+    maxTasks: Math.min(
+      Math.max(1, config.maxTasks),
+      SWARM_HARD_LIMITS.maxTasks,
+    ),
     maxRetriesPerTask: Math.min(
       Math.max(0, config.maxRetriesPerTask),
       SWARM_HARD_LIMITS.maxRetriesPerTask,
@@ -52,6 +58,9 @@ export function resolveSwarmLimits(config: {
 }
 
 /** Get the effective timeout for a given role, falling back to the global workerTimeoutSec. */
-export function getTimeoutForRole(limits: SwarmLimits, role: SwarmRole): number {
+export function getTimeoutForRole(
+  limits: SwarmLimits,
+  role: SwarmRole,
+): number {
   return limits.roleTimeoutsSec[role] ?? limits.workerTimeoutSec;
 }

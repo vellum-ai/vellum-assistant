@@ -120,7 +120,8 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
     }
 
     const { text, approval } = body;
-    const assistantId = typeof body.assistantId === "string" ? body.assistantId : undefined;
+    const assistantId =
+      typeof body.assistantId === "string" ? body.assistantId : undefined;
     // Accept `chatId` as an alias for `to` so runtime channel callbacks
     // (which send `{ chatId, text }`) work without translation.
     const to = body.to ?? body.chatId;
@@ -132,9 +133,11 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
     // When text is missing but attachments are present, the assistant produced
     // a media-only reply that SMS cannot deliver. Use a graceful fallback
     // instead of rejecting outright so the user gets visible feedback.
-    const hasAttachments = Array.isArray(body.attachments) && body.attachments.length > 0;
+    const hasAttachments =
+      Array.isArray(body.attachments) && body.attachments.length > 0;
     const effectiveText =
-      (!text || (typeof text === "string" && text.trim().length === 0)) && hasAttachments
+      (!text || (typeof text === "string" && text.trim().length === 0)) &&
+      hasAttachments
         ? "I have a media attachment to share, but SMS currently supports text only."
         : text;
 
@@ -144,9 +147,11 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
 
     // plainTextFallback already includes the full prompt text plus reply
     // instructions, so use it as the entire SMS body to avoid duplication.
-    const smsBody = approval?.plainTextFallback && typeof approval.plainTextFallback === "string"
-      ? approval.plainTextFallback
-      : effectiveText;
+    const smsBody =
+      approval?.plainTextFallback &&
+      typeof approval.plainTextFallback === "string"
+        ? approval.plainTextFallback
+        : effectiveText;
 
     const from = resolveFromNumber(config, assistantId);
     if (!from) {
@@ -171,7 +176,15 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "SMS delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ to, textLength: smsBody.length, messageSid: result.sid, status: result.status }, "SMS accepted by Twilio");
+    tlog.info(
+      {
+        to,
+        textLength: smsBody.length,
+        messageSid: result.sid,
+        status: result.status,
+      },
+      "SMS accepted by Twilio",
+    );
     return Response.json({
       ok: true,
       messageSid: result.sid,

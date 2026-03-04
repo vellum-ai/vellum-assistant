@@ -1,14 +1,19 @@
-import { eq } from 'drizzle-orm';
+import { eq } from "drizzle-orm";
 
-import { getLogger } from '../../util/logger.js';
-import { getDb, rawExec } from '../db.js';
-import { asString, BackendUnavailableError } from '../job-utils.js';
-import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
-import { withQdrantBreaker } from '../qdrant-circuit-breaker.js';
-import { getQdrantClient } from '../qdrant-client.js';
-import { memoryEmbeddings, memoryItems, memorySegments, memorySummaries } from '../schema.js';
+import { getLogger } from "../../util/logger.js";
+import { getDb, rawExec } from "../db.js";
+import { asString, BackendUnavailableError } from "../job-utils.js";
+import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
+import { getQdrantClient } from "../qdrant-client.js";
+import {
+  memoryEmbeddings,
+  memoryItems,
+  memorySegments,
+  memorySummaries,
+} from "../schema.js";
 
-const log = getLogger('memory-jobs-worker');
+const log = getLogger("memory-jobs-worker");
 
 export function rebuildIndexJob(): void {
   const db = getDb();
@@ -22,20 +27,26 @@ export function rebuildIndexJob(): void {
   const items = db
     .select({ id: memoryItems.id })
     .from(memoryItems)
-    .where(eq(memoryItems.status, 'active'))
+    .where(eq(memoryItems.status, "active"))
     .all();
   for (const item of items) {
-    enqueueMemoryJob('embed_item', { itemId: item.id });
+    enqueueMemoryJob("embed_item", { itemId: item.id });
   }
 
-  const summaries = db.select({ id: memorySummaries.id }).from(memorySummaries).all();
+  const summaries = db
+    .select({ id: memorySummaries.id })
+    .from(memorySummaries)
+    .all();
   for (const summary of summaries) {
-    enqueueMemoryJob('embed_summary', { summaryId: summary.id });
+    enqueueMemoryJob("embed_summary", { summaryId: summary.id });
   }
 
-  const segments = db.select({ id: memorySegments.id }).from(memorySegments).all();
+  const segments = db
+    .select({ id: memorySegments.id })
+    .from(memorySegments)
+    .all();
   for (const segment of segments) {
-    enqueueMemoryJob('embed_segment', { segmentId: segment.id });
+    enqueueMemoryJob("embed_segment", { segmentId: segment.id });
   }
 }
 
@@ -48,9 +59,12 @@ export async function deleteQdrantVectorsJob(job: MemoryJob): Promise<void> {
   try {
     qdrant = getQdrantClient();
   } catch {
-    throw new BackendUnavailableError('Qdrant client not initialized');
+    throw new BackendUnavailableError("Qdrant client not initialized");
   }
 
   await withQdrantBreaker(() => qdrant.deleteByTarget(targetType, targetId));
-  log.info({ targetType, targetId }, 'Retried Qdrant vector deletion succeeded');
+  log.info(
+    { targetType, targetId },
+    "Retried Qdrant vector deletion succeeded",
+  );
 }

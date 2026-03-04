@@ -88,16 +88,11 @@ function parseCategories(raw: string | null): Set<Category> {
   const requested = raw
     .split(",")
     .map((s) => s.trim().toLowerCase())
-    .filter((s): s is Category =>
-      ALL_CATEGORIES.includes(s as Category),
-    );
+    .filter((s): s is Category => ALL_CATEGORIES.includes(s as Category));
   return requested.length > 0 ? new Set(requested) : new Set(ALL_CATEGORIES);
 }
 
-function searchMemoryItems(
-  query: string,
-  limit: number,
-): GlobalSearchMemory[] {
+function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
   const likePattern = `%${query.replace(/%/g, "").replace(/_/g, "")}%`;
 
   interface MemoryRow {
@@ -183,8 +178,7 @@ function searchScheduleJobs(
   const q = query.toLowerCase();
   const matched = all.filter(
     (s) =>
-      s.name.toLowerCase().includes(q) ||
-      s.message.toLowerCase().includes(q),
+      s.name.toLowerCase().includes(q) || s.message.toLowerCase().includes(q),
   );
   return matched.slice(0, limit).map((s) => ({
     id: s.id,

@@ -1,10 +1,16 @@
-import { batchGetMessages,listMessages } from '../../../../messaging/providers/gmail/client.js';
-import type { GmailMessage } from '../../../../messaging/providers/gmail/types.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { storeScanResult } from './scan-result-store.js';
-import { err,ok } from './shared.js';
+import {
+  batchGetMessages,
+  listMessages,
+} from "../../../../messaging/providers/gmail/client.js";
+import type { GmailMessage } from "../../../../messaging/providers/gmail/types.js";
+import { getMessagingProvider } from "../../../../messaging/registry.js";
+import { withValidToken } from "../../../../security/token-manager.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { storeScanResult } from "./scan-result-store.js";
+import { err, ok } from "./shared.js";
 
 const MAX_MESSAGES_CAP = 10000;
 const MAX_IDS_PER_SENDER = 5000;
@@ -29,21 +35,30 @@ interface SenderAggregation {
 function parseFrom(from: string): { displayName: string; email: string } {
   const match = from.match(/^(.+?)\s*<([^>]+)>$/);
   if (match) {
-    return { displayName: match[1].replace(/^["']|["']$/g, '').trim(), email: match[2].toLowerCase() };
+    return {
+      displayName: match[1].replace(/^["']|["']$/g, "").trim(),
+      email: match[2].toLowerCase(),
+    };
   }
   // Bare email address
   const bare = from.trim().toLowerCase();
-  return { displayName: '', email: bare };
+  return { displayName: "", email: bare };
 }
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-  const query = (input.query as string) ?? 'category:promotions newer_than:90d';
-  const maxMessages = Math.min((input.max_messages as number) ?? 5000, MAX_MESSAGES_CAP);
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const query = (input.query as string) ?? "category:promotions newer_than:90d";
+  const maxMessages = Math.min(
+    (input.max_messages as number) ?? 5000,
+    MAX_MESSAGES_CAP,
+  );
   const maxSenders = (input.max_senders as number) ?? 50;
   const inputPageToken = input.page_token as string | undefined;
 
   try {
-    const provider = getMessagingProvider('gmail');
+    const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       // Pipeline: fire metadata fetches for each page of IDs as they arrive,
       // overlapping fetch latency with pagination latency
@@ -52,7 +67,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       let pageToken: string | undefined = inputPageToken;
       let truncated = false;
       let timeBudgetExceeded = false;
-      const metadataHeaders = ['From', 'List-Unsubscribe', 'Subject', 'Date'];
+      const metadataHeaders = ["From", "List-Unsubscribe", "Subject", "Date"];
       const startTime = Date.now();
       const TIME_BUDGET_MS = 90_000;
 
@@ -67,7 +82,15 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         const ids = (listResp.messages ?? []).map((m) => m.id);
         if (ids.length === 0) break;
         allMessageIds.push(...ids);
-        fetchPromises.push(batchGetMessages(token, ids, 'metadata', metadataHeaders, 'id,internalDate,payload/headers'));
+        fetchPromises.push(
+          batchGetMessages(
+            token,
+            ids,
+            "metadata",
+            metadataHeaders,
+            "id,internalDate,payload/headers",
+          ),
+        );
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
       }
@@ -78,7 +101,14 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       }
 
       if (allMessageIds.length === 0) {
-        return ok(JSON.stringify({ senders: [], total_scanned: 0, message: 'No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).' }));
+        return ok(
+          JSON.stringify({
+            senders: [],
+            total_scanned: 0,
+            message:
+              "No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).",
+          }),
+        );
       }
 
       const messages = (await Promise.all(fetchPromises)).flat();
@@ -88,10 +118,15 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
 
       for (const msg of messages) {
         const headers = msg.payload?.headers ?? [];
-        const fromHeader = headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
-        const subject = headers.find((h) => h.name.toLowerCase() === 'subject')?.value ?? '';
-        const dateStr = headers.find((h) => h.name.toLowerCase() === 'date')?.value ?? '';
-        const listUnsub = headers.find((h) => h.name.toLowerCase() === 'list-unsubscribe')?.value;
+        const fromHeader =
+          headers.find((h) => h.name.toLowerCase() === "from")?.value ?? "";
+        const subject =
+          headers.find((h) => h.name.toLowerCase() === "subject")?.value ?? "";
+        const dateStr =
+          headers.find((h) => h.name.toLowerCase() === "date")?.value ?? "";
+        const listUnsub = headers.find(
+          (h) => h.name.toLowerCase() === "list-unsubscribe",
+        )?.value;
 
         const { displayName, email } = parseFrom(fromHeader);
         if (!email) continue;
@@ -131,8 +166,12 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
 
         // Track date range — compare using internalDate (epoch ms) for reliability
         const msgEpoch = msg.internalDate ? Number(msg.internalDate) : 0;
-        const oldestEpoch = agg.oldestDate ? new Date(agg.oldestDate).getTime() : Infinity;
-        const newestEpoch = agg.newestDate ? new Date(agg.newestDate).getTime() : 0;
+        const oldestEpoch = agg.oldestDate
+          ? new Date(agg.oldestDate).getTime()
+          : Infinity;
+        const newestEpoch = agg.newestDate
+          ? new Date(agg.newestDate).getTime()
+          : 0;
 
         if (msgEpoch > 0 && msgEpoch < oldestEpoch) {
           agg.oldestDate = dateStr || agg.oldestDate;
@@ -161,15 +200,16 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         .slice(0, maxSenders);
 
       const resultSenders = sorted.map((s) => ({
-        id: Buffer.from(s.email).toString('base64url'),
-        display_name: s.displayName || s.email.split('@')[0],
+        id: Buffer.from(s.email).toString("base64url"),
+        display_name: s.displayName || s.email.split("@")[0],
         email: s.email,
         message_count: s.messageCount,
         has_unsubscribe: s.hasUnsubscribe,
         // When unsubscribe is available, point to a message that carries the header
-        newest_message_id: (s.hasUnsubscribe && s.newestUnsubscribableMessageId)
-          ? s.newestUnsubscribableMessageId
-          : s.newestMessageId,
+        newest_message_id:
+          s.hasUnsubscribe && s.newestUnsubscribableMessageId
+            ? s.newestUnsubscribableMessageId
+            : s.newestMessageId,
         oldest_date: s.oldestDate,
         newest_date: s.newestDate,
         // Preserve original query filters so follow-up searches stay scoped
@@ -178,22 +218,26 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       }));
 
       // Store message IDs server-side to keep them out of LLM context
-      const scanId = storeScanResult(sorted.map((s) => ({
-        id: Buffer.from(s.email).toString('base64url'),
-        messageIds: s.messageIds,
-        newestMessageId: s.newestMessageId,
-        newestUnsubscribableMessageId: s.newestUnsubscribableMessageId,
-      })));
+      const scanId = storeScanResult(
+        sorted.map((s) => ({
+          id: Buffer.from(s.email).toString("base64url"),
+          messageIds: s.messageIds,
+          newestMessageId: s.newestMessageId,
+          newestUnsubscribableMessageId: s.newestUnsubscribableMessageId,
+        })),
+      );
 
-      return ok(JSON.stringify({
-        scan_id: scanId,
-        senders: resultSenders,
-        total_scanned: allMessageIds.length,
-        query_used: query,
-        ...(truncated ? { truncated: true } : {}),
-        ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
-        note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use scan_id with gmail_batch_archive to archive messages (pass scan_id + sender_ids instead of message_ids).`,
-      }));
+      return ok(
+        JSON.stringify({
+          scan_id: scanId,
+          senders: resultSenders,
+          total_scanned: allMessageIds.length,
+          query_used: query,
+          ...(truncated ? { truncated: true } : {}),
+          ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
+          note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use scan_id with gmail_batch_archive to archive messages (pass scan_id + sender_ids instead of message_ids).`,
+        }),
+      );
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));

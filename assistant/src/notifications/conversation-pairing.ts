@@ -11,17 +11,21 @@
  * existing thread instead of creating a new one.
  */
 
-import type { ConversationStrategy } from '../channels/config.js';
-import { getConversationStrategy } from '../channels/config.js';
-import type { ChannelId } from '../channels/types.js';
-import { addMessage, createConversation, getConversation } from '../memory/conversation-store.js';
-import { getLogger } from '../util/logger.js';
-import type { NotificationSignal } from './signal.js';
-import { composeThreadSeed, isThreadSeedSane } from './thread-seed-composer.js';
-import type { NotificationChannel, ThreadAction } from './types.js';
-import type { RenderedChannelCopy } from './types.js';
+import type { ConversationStrategy } from "../channels/config.js";
+import { getConversationStrategy } from "../channels/config.js";
+import type { ChannelId } from "../channels/types.js";
+import {
+  addMessage,
+  createConversation,
+  getConversation,
+} from "../memory/conversation-store.js";
+import { getLogger } from "../util/logger.js";
+import type { NotificationSignal } from "./signal.js";
+import { composeThreadSeed, isThreadSeedSane } from "./thread-seed-composer.js";
+import type { NotificationChannel, ThreadAction } from "./types.js";
+import type { RenderedChannelCopy } from "./types.js";
 
-const log = getLogger('notification-conversation-pairing');
+const log = getLogger("notification-conversation-pairing");
 
 export interface PairingResult {
   conversationId: string | null;
@@ -62,8 +66,14 @@ export async function pairDeliveryWithConversation(
   try {
     const strategy = getConversationStrategy(channel as ChannelId);
 
-    if (strategy === 'not_deliverable') {
-      return { conversationId: null, messageId: null, strategy: 'not_deliverable', createdNewConversation: false, threadDecisionFallbackUsed: false };
+    if (strategy === "not_deliverable") {
+      return {
+        conversationId: null,
+        messageId: null,
+        strategy: "not_deliverable",
+        createdNewConversation: false,
+        threadDecisionFallbackUsed: false,
+      };
     }
 
     const title = copy.threadTitle ?? copy.title ?? signal.sourceEventName;
@@ -72,7 +82,8 @@ export async function pairDeliveryWithConversation(
     // that intend to continue an existing external conversation (e.g. Telegram),
     // we still materialize an auditable row but keep it background-only until
     // true continuation-by-key is implemented.
-    const threadType = strategy === 'start_new_conversation' ? 'standard' : 'background';
+    const threadType =
+      strategy === "start_new_conversation" ? "standard" : "background";
 
     // Prefer model-provided threadSeedMessage when present and sane;
     // fall back to the runtime composer which adapts verbosity to the
@@ -84,13 +95,19 @@ export async function pairDeliveryWithConversation(
     const threadAction = options?.threadAction;
 
     // Attempt to reuse an existing conversation when the model requests it
-    if (threadAction?.action === 'reuse_existing') {
+    if (threadAction?.action === "reuse_existing") {
       const targetId = threadAction.conversationId;
       const existing = getConversation(targetId);
 
-      if (existing && existing.source === 'notification') {
+      if (existing && existing.source === "notification") {
         // Append the seed message to the existing conversation thread
-        const message = await addMessage(existing.id, 'assistant', messageContent, undefined, { skipIndexing: true });
+        const message = await addMessage(
+          existing.id,
+          "assistant",
+          messageContent,
+          undefined,
+          { skipIndexing: true },
+        );
 
         log.info(
           {
@@ -99,9 +116,9 @@ export async function pairDeliveryWithConversation(
             strategy,
             conversationId: existing.id,
             messageId: message.id,
-            threadAction: 'reuse_existing',
+            threadAction: "reuse_existing",
           },
-          'Reused existing notification conversation for delivery',
+          "Reused existing notification conversation for delivery",
         );
 
         return {
@@ -122,16 +139,22 @@ export async function pairDeliveryWithConversation(
           targetExists: !!existing,
           targetSource: existing?.source,
         },
-        'Thread reuse target invalid — falling back to new conversation',
+        "Thread reuse target invalid — falling back to new conversation",
       );
 
       const conversation = createConversation({
         title,
         threadType,
-        source: 'notification',
+        source: "notification",
       });
 
-      const message = await addMessage(conversation.id, 'assistant', messageContent, undefined, { skipIndexing: true });
+      const message = await addMessage(
+        conversation.id,
+        "assistant",
+        messageContent,
+        undefined,
+        { skipIndexing: true },
+      );
 
       return {
         conversationId: conversation.id,
@@ -148,12 +171,18 @@ export async function pairDeliveryWithConversation(
     const conversation = createConversation({
       title,
       threadType,
-      source: 'notification',
+      source: "notification",
     });
 
     // Skip memory indexing — notification audit messages are not conversational
     // memory and should not pollute recall or incur embedding/extraction overhead.
-    const message = await addMessage(conversation.id, 'assistant', messageContent, undefined, { skipIndexing: true });
+    const message = await addMessage(
+      conversation.id,
+      "assistant",
+      messageContent,
+      undefined,
+      { skipIndexing: true },
+    );
 
     log.info(
       {
@@ -162,9 +191,9 @@ export async function pairDeliveryWithConversation(
         strategy,
         conversationId: conversation.id,
         messageId: message.id,
-        threadAction: threadAction?.action ?? 'start_new',
+        threadAction: threadAction?.action ?? "start_new",
       },
-      'Paired notification delivery with conversation',
+      "Paired notification delivery with conversation",
     );
 
     return {
@@ -177,15 +206,21 @@ export async function pairDeliveryWithConversation(
   } catch (err) {
     log.error(
       { err, signalId: signal.signalId, channel },
-      'Failed to pair notification delivery with conversation — continuing without pairing',
+      "Failed to pair notification delivery with conversation — continuing without pairing",
     );
     const fallbackStrategy = (() => {
       try {
         return getConversationStrategy(channel as ChannelId);
       } catch {
-        return 'not_deliverable' as const;
+        return "not_deliverable" as const;
       }
     })();
-    return { conversationId: null, messageId: null, strategy: fallbackStrategy, createdNewConversation: false, threadDecisionFallbackUsed: false };
+    return {
+      conversationId: null,
+      messageId: null,
+      strategy: fallbackStrategy,
+      createdNewConversation: false,
+      threadDecisionFallbackUsed: false,
+    };
   }
 }

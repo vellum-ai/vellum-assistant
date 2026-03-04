@@ -1,10 +1,20 @@
-import { AttachmentUploadError,linkAttachmentToMessage, setAttachmentThumbnail, uploadAttachment } from '../memory/attachments-store.js';
-import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
-import type { PermissionPrompter } from '../permissions/prompter.js';
-import { addRule } from '../permissions/trust-store.js';
-import { isAllowDecision } from '../permissions/types.js';
-import type { ContentBlock } from '../providers/types.js';
-import { getLogger } from '../util/logger.js';
+import {
+  AttachmentUploadError,
+  linkAttachmentToMessage,
+  setAttachmentThumbnail,
+  uploadAttachment,
+} from "../memory/attachments-store.js";
+import {
+  check,
+  classifyRisk,
+  generateAllowlistOptions,
+  generateScopeOptions,
+} from "../permissions/checker.js";
+import type { PermissionPrompter } from "../permissions/prompter.js";
+import { addRule } from "../permissions/trust-store.js";
+import { isAllowDecision } from "../permissions/types.js";
+import type { ContentBlock } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
 import {
   type ApproveHostRead,
   type AssistantAttachmentDraft,
@@ -13,11 +23,11 @@ import {
   type DirectiveRequest,
   resolveDirectives,
   validateDrafts,
-} from './assistant-attachments.js';
-import type { UserMessageAttachment } from './ipc-protocol.js';
-import { generateVideoThumbnail } from './video-thumbnail.js';
+} from "./assistant-attachments.js";
+import type { UserMessageAttachment } from "./ipc-protocol.js";
+import { generateVideoThumbnail } from "./video-thumbnail.js";
 
-const log = getLogger('session-attachments');
+const log = getLogger("session-attachments");
 
 /**
  * Approve reading a host file for assistant attachment resolution.
@@ -30,21 +40,24 @@ export async function approveHostAttachmentRead(
   conversationId: string,
   hasNoClient: boolean,
 ): Promise<boolean> {
-  const toolName = 'host_file_read';
+  const toolName = "host_file_read";
   const input = { path: filePath };
   const decision = await check(toolName, input, workingDir);
 
-  if (decision.decision === 'allow') {
+  if (decision.decision === "allow") {
     return true;
   }
-  if (decision.decision === 'deny') {
+  if (decision.decision === "deny") {
     return false;
   }
 
   // HTTP-created sessions use a no-op sendToClient — prompting would
   // block for the full permission timeout before auto-denying.
   if (hasNoClient) {
-    log.info({ filePath }, 'Denying host attachment read: no interactive client connected');
+    log.info(
+      { filePath },
+      "Denying host attachment read: no interactive client connected",
+    );
     return false;
   }
 
@@ -57,15 +70,32 @@ export async function approveHostAttachmentRead(
     undefined,
     undefined,
     conversationId,
-    'host',
+    "host",
   );
 
-  if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
-    addRule(toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
-      response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
+  if (
+    (response.decision === "always_allow" ||
+      response.decision === "always_allow_high_risk") &&
+    response.selectedPattern &&
+    response.selectedScope
+  ) {
+    addRule(
+      toolName,
+      response.selectedPattern,
+      response.selectedScope,
+      "allow",
+      100,
+      response.decision === "always_allow_high_risk"
+        ? { allowHighRisk: true }
+        : undefined,
+    );
   }
-  if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
-    addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
+  if (
+    response.decision === "always_deny" &&
+    response.selectedPattern &&
+    response.selectedScope
+  ) {
+    addRule(toolName, response.selectedPattern, response.selectedScope, "deny");
   }
 
   return isAllowDecision(response.decision);
@@ -74,7 +104,7 @@ export async function approveHostAttachmentRead(
 export function formatAttachmentWarnings(warnings: string[]): string | null {
   if (warnings.length === 0) return null;
   const lines = warnings.map((warning) => `Attachment warning: ${warning}`);
-  return `\n\n${lines.join('\n')}`;
+  return `\n\n${lines.join("\n")}`;
 }
 
 export interface AttachmentResolutionResult {
@@ -99,39 +129,69 @@ export async function resolveAssistantAttachments(
   const emittedAttachments: UserMessageAttachment[] = [];
 
   log.info(
-    { directiveCount: accumulatedDirectives.length, toolBlockCount: accumulatedToolContentBlocks.length, workingDir },
-    'Resolving assistant attachments',
+    {
+      directiveCount: accumulatedDirectives.length,
+      toolBlockCount: accumulatedToolContentBlocks.length,
+      workingDir,
+    },
+    "Resolving assistant attachments",
   );
 
-  if (accumulatedDirectives.length > 0 || accumulatedToolContentBlocks.length > 0) {
-    const directiveDrafts = accumulatedDirectives.length > 0
-      ? await resolveDirectives(accumulatedDirectives, workingDir, approveHostRead)
-      : { drafts: [], warnings: [] };
+  if (
+    accumulatedDirectives.length > 0 ||
+    accumulatedToolContentBlocks.length > 0
+  ) {
+    const directiveDrafts =
+      accumulatedDirectives.length > 0
+        ? await resolveDirectives(
+            accumulatedDirectives,
+            workingDir,
+            approveHostRead,
+          )
+        : { drafts: [], warnings: [] };
     directiveWarnings.push(...directiveDrafts.warnings);
 
     if (directiveDrafts.warnings.length > 0) {
-      log.warn({ warnings: directiveDrafts.warnings }, 'Directive resolution warnings');
+      log.warn(
+        { warnings: directiveDrafts.warnings },
+        "Directive resolution warnings",
+      );
     }
     log.info(
-      { resolvedDrafts: directiveDrafts.drafts.length, directives: accumulatedDirectives.map(d => ({ source: d.source, path: d.path, filename: d.filename, mimeType: d.mimeType })) },
-      'Directive resolution complete',
+      {
+        resolvedDrafts: directiveDrafts.drafts.length,
+        directives: accumulatedDirectives.map((d) => ({
+          source: d.source,
+          path: d.path,
+          filename: d.filename,
+          mimeType: d.mimeType,
+        })),
+      },
+      "Directive resolution complete",
     );
 
     const toolDrafts = contentBlocksToDrafts(accumulatedToolContentBlocks);
     // Most recent tool outputs (e.g., final browser screenshot) should win
     // the MAX_ASSISTANT_ATTACHMENTS cap over older intermediate screenshots.
     toolDrafts.reverse();
-    const merged = deduplicateDrafts([...directiveDrafts.drafts, ...toolDrafts]);
+    const merged = deduplicateDrafts([
+      ...directiveDrafts.drafts,
+      ...toolDrafts,
+    ]);
     const validated = validateDrafts(merged);
     directiveWarnings.push(...validated.warnings);
     assistantAttachments = validated.accepted;
 
     log.info(
-      { merged: merged.length, accepted: validated.accepted.length, validationWarnings: validated.warnings },
-      'Attachment validation complete',
+      {
+        merged: merged.length,
+        accepted: validated.accepted.length,
+        validationWarnings: validated.warnings,
+      },
+      "Attachment validation complete",
     );
   } else {
-    log.info('No directives or tool content blocks to resolve');
+    log.info("No directives or tool content blocks to resolve");
   }
 
   // Persist resolved attachments and link to the last assistant message.
@@ -151,14 +211,19 @@ export async function resolveAssistantAttachments(
         );
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
-          log.warn({ filename: draft.filename, error: err.message }, 'Skipping attachment upload');
-          directiveWarnings.push(`Attachment ${draft.filename} skipped: ${err.message}`);
+          log.warn(
+            { filename: draft.filename, error: err.message },
+            "Skipping attachment upload",
+          );
+          directiveWarnings.push(
+            `Attachment ${draft.filename} skipped: ${err.message}`,
+          );
           continue;
         }
         throw err;
       }
       linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
-      const isVideo = draft.mimeType.startsWith('video/');
+      const isVideo = draft.mimeType.startsWith("video/");
       const omitData = isVideo && draft.dataBase64.length > MAX_INLINE_B64_SIZE;
 
       // Generate and persist a thumbnail for video attachments.
@@ -180,7 +245,7 @@ export async function resolveAssistantAttachments(
         id: stored.id,
         filename: draft.filename,
         mimeType: draft.mimeType,
-        data: omitData ? '' : draft.dataBase64,
+        data: omitData ? "" : draft.dataBase64,
         ...(omitData ? { sizeBytes: draft.sizeBytes } : {}),
         ...(thumbnailData ? { thumbnailData } : {}),
       });

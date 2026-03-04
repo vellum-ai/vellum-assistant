@@ -1,11 +1,20 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  existsSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 
 // Use an isolated temp directory so tests don't touch the real workspace config
-const testDir = join(tmpdir(), `vellum-ff-test-${randomBytes(6).toString("hex")}`);
+const testDir = join(
+  tmpdir(),
+  `vellum-ff-test-${randomBytes(6).toString("hex")}`,
+);
 const vellumRoot = join(testDir, ".vellum");
 const workspaceDir = join(vellumRoot, "workspace");
 const configPath = join(workspaceDir, "config.json");
@@ -88,12 +97,10 @@ afterEach(() => {
   resetFeatureFlagDefaultsCache();
 });
 
-const { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } = await import(
-  "../http/routes/feature-flags.js"
-);
-const { loadFeatureFlagDefaults, resetFeatureFlagDefaultsCache } = await import(
-  "../feature-flag-defaults.js"
-);
+const { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } =
+  await import("../http/routes/feature-flags.js");
+const { loadFeatureFlagDefaults, resetFeatureFlagDefaultsCache } =
+  await import("../feature-flag-defaults.js");
 
 describe("GET /v1/feature-flags handler", () => {
   test("returns all declared assistant-scope flags with defaults when config file does not exist", async () => {
@@ -103,7 +110,9 @@ describe("GET /v1/feature-flags handler", () => {
     }
 
     const handler = createFeatureFlagsGetHandler();
-    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -121,11 +130,15 @@ describe("GET /v1/feature-flags handler", () => {
       expect(typeof flag.enabled).toBe("boolean");
       expect(typeof flag.defaultEnabled).toBe("boolean");
       expect(typeof flag.description).toBe("string");
-      expect(flag.key).toMatch(/^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/);
+      expect(flag.key).toMatch(
+        /^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/,
+      );
     }
 
     // Check a specific known flag
-    const browserFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.browser.enabled");
+    const browserFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
+    );
     expect(browserFlag).toBeDefined();
     expect(browserFlag.defaultEnabled).toBe(true);
     expect(browserFlag.label).toBe("Browser");
@@ -135,7 +148,9 @@ describe("GET /v1/feature-flags handler", () => {
 
   test("returns label field for all flags", async () => {
     const handler = createFeatureFlagsGetHandler();
-    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -146,32 +161,46 @@ describe("GET /v1/feature-flags handler", () => {
     }
 
     // Verify specific labels
-    const twitterFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.twitter.enabled");
+    const twitterFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.twitter.enabled",
+    );
     expect(twitterFlag).toBeDefined();
     expect(twitterFlag.label).toBe("Twitter");
 
-    const hatchFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.hatch-new-assistant.enabled");
+    const hatchFlag = body.flags.find(
+      (f: { key: string }) =>
+        f.key === "feature_flags.hatch-new-assistant.enabled",
+    );
     expect(hatchFlag).toBeDefined();
     expect(hatchFlag.label).toBe("Hatch New Assistant");
   });
 
   test("does not include non-assistant-scope flags", async () => {
     const handler = createFeatureFlagsGetHandler();
-    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
 
     expect(res.status).toBe(200);
     const body = await res.json();
 
     // The macos-scope flag should not appear
-    const macosFlag = body.flags.find((f: { key: string }) => f.key === "user_hosted_enabled");
+    const macosFlag = body.flags.find(
+      (f: { key: string }) => f.key === "user_hosted_enabled",
+    );
     expect(macosFlag).toBeUndefined();
   });
 
   test("returns all declared flags even when config has no persisted values", async () => {
-    writeFileSync(configPath, JSON.stringify({ sms: { phoneNumber: "+1234" } }));
+    writeFileSync(
+      configPath,
+      JSON.stringify({ sms: { phoneNumber: "+1234" } }),
+    );
 
     const handler = createFeatureFlagsGetHandler();
-    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -193,17 +222,23 @@ describe("GET /v1/feature-flags handler", () => {
     );
 
     const handler = createFeatureFlagsGetHandler();
-    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
 
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    const browserFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.browser.enabled");
+    const browserFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
+    );
     expect(browserFlag).toBeDefined();
     expect(browserFlag.enabled).toBe(false); // overridden from default true
     expect(browserFlag.defaultEnabled).toBe(true);
 
-    const twitterFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.twitter.enabled");
+    const twitterFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.twitter.enabled",
+    );
     expect(twitterFlag).toBeDefined();
     expect(twitterFlag.enabled).toBe(false); // overridden from default true
   });
@@ -219,13 +254,17 @@ describe("GET /v1/feature-flags handler", () => {
     );
 
     const handler = createFeatureFlagsGetHandler();
-    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
 
     expect(res.status).toBe(200);
     const body = await res.json();
 
     // twitter should fall back to default since non-boolean was ignored
-    const twitterFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.twitter.enabled");
+    const twitterFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.twitter.enabled",
+    );
     expect(twitterFlag).toBeDefined();
     expect(twitterFlag.enabled).toBe(twitterFlag.defaultEnabled);
   });
@@ -237,21 +276,29 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request("http://gateway.test/v1/feature-flags/feature_flags.browser.enabled", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ enabled: false }),
-      }),
+      new Request(
+        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: false }),
+        },
+      ),
       "feature_flags.browser.enabled",
     );
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ key: "feature_flags.browser.enabled", enabled: false });
+    expect(body).toEqual({
+      key: "feature_flags.browser.enabled",
+      enabled: false,
+    });
 
     // Verify persistence to the assistantFeatureFlagValues section
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(false);
+    expect(
+      config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
+    ).toBe(false);
   });
 
   test("preserves existing config keys when writing", async () => {
@@ -266,11 +313,14 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const handler = createFeatureFlagsPatchHandler();
     await handler(
-      new Request("http://gateway.test/v1/feature-flags/feature_flags.browser.enabled", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ enabled: true }),
-      }),
+      new Request(
+        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        },
+      ),
       "feature_flags.browser.enabled",
     );
 
@@ -278,8 +328,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     expect(config.sms).toEqual({ phoneNumber: "+1234567890" });
     expect(config.email).toEqual({ address: "test@example.com" });
     // New section should have both old and new values
-    expect(config.assistantFeatureFlagValues["feature_flags.twitter.enabled"]).toBe(true);
-    expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
+    expect(
+      config.assistantFeatureFlagValues["feature_flags.twitter.enabled"],
+    ).toBe(true);
+    expect(
+      config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
+    ).toBe(true);
   });
 
   test("creates config file and directories when they do not exist", async () => {
@@ -288,11 +342,14 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request("http://gateway.test/v1/feature-flags/feature_flags.browser.enabled", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ enabled: true }),
-      }),
+      new Request(
+        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        },
+      ),
       "feature_flags.browser.enabled",
     );
 
@@ -300,7 +357,9 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     expect(existsSync(configPath)).toBe(true);
 
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
+    expect(
+      config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
+    ).toBe(true);
   });
 
   // Validation tests
@@ -379,11 +438,14 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const handler = createFeatureFlagsPatchHandler();
 
     const res = await handler(
-      new Request("http://gateway.test/v1/feature-flags/feature_flags.totally-unknown-flag.enabled", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ enabled: true }),
-      }),
+      new Request(
+        "http://gateway.test/v1/feature-flags/feature_flags.totally-unknown-flag.enabled",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        },
+      ),
       "feature_flags.totally-unknown-flag.enabled",
     );
 
@@ -423,11 +485,14 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const invalidValues = ["true", 1, null, undefined];
     for (const value of invalidValues) {
       const res = await handler(
-        new Request("http://gateway.test/v1/feature-flags/feature_flags.browser.enabled", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: value }),
-        }),
+        new Request(
+          "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ enabled: value }),
+          },
+        ),
         "feature_flags.browser.enabled",
       );
 
@@ -440,11 +505,14 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
   test("rejects invalid JSON body", async () => {
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request("http://gateway.test/v1/feature-flags/feature_flags.browser.enabled", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: "not json",
-      }),
+      new Request(
+        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: "not json",
+        },
+      ),
       "feature_flags.browser.enabled",
     );
 
@@ -456,9 +524,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
   test("rejects missing body", async () => {
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request("http://gateway.test/v1/feature-flags/feature_flags.browser.enabled", {
-        method: "PATCH",
-      }),
+      new Request(
+        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
+        {
+          method: "PATCH",
+        },
+      ),
       "feature_flags.browser.enabled",
     );
 
@@ -475,11 +546,14 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const handler = createFeatureFlagsPatchHandler();
     await handler(
-      new Request("http://gateway.test/v1/feature-flags/feature_flags.twitter.enabled", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ enabled: false }),
-      }),
+      new Request(
+        "http://gateway.test/v1/feature-flags/feature_flags.twitter.enabled",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: false }),
+        },
+      ),
       "feature_flags.twitter.enabled",
     );
 
@@ -487,8 +561,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const raw = readFileSync(configPath, "utf-8");
     const config = JSON.parse(raw);
     expect(config.sms).toEqual({ phoneNumber: "+1234" });
-    expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
-    expect(config.assistantFeatureFlagValues["feature_flags.twitter.enabled"]).toBe(false);
+    expect(
+      config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
+    ).toBe(true);
+    expect(
+      config.assistantFeatureFlagValues["feature_flags.twitter.enabled"],
+    ).toBe(false);
 
     // Verify no temp files left behind
     const { readdirSync } = await import("node:fs");

@@ -1,5 +1,5 @@
-import { ProviderError } from '../util/errors.js';
-import type { SessionErrorCode, SessionErrorMessage } from './ipc-protocol.js';
+import { ProviderError } from "../util/errors.js";
+import type { SessionErrorCode, SessionErrorMessage } from "./ipc-protocol.js";
 
 /**
  * Classified session error ready for IPC emission.
@@ -66,17 +66,14 @@ const PROVIDER_API_PATTERNS = [
 ];
 
 // User-initiated cancellation patterns — these should NOT produce session_error
-const CANCEL_PATTERNS = [
-  /abort/i,
-  /cancel/i,
-];
+const CANCEL_PATTERNS = [/abort/i, /cancel/i];
 
 /**
  * Context about where the error occurred, used to refine classification.
  */
 export interface ErrorContext {
   /** Where in the processing pipeline the error occurred. */
-  phase: 'agent_loop' | 'queue' | 'regenerate' | 'handler' | 'persist';
+  phase: "agent_loop" | "queue" | "regenerate" | "handler" | "persist";
   /** Whether the abort signal was active when the error occurred. */
   aborted?: boolean;
 }
@@ -88,8 +85,8 @@ export interface ErrorContext {
  */
 export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
   if (!ctx.aborted) return false;
-  if (error instanceof DOMException && error.name === 'AbortError') return true;
-  if (error instanceof Error && error.name === 'AbortError') return true;
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (error instanceof Error && error.name === "AbortError") return true;
   return false;
 }
 
@@ -101,7 +98,7 @@ const MAX_DEBUG_DETAIL_LENGTH = 4000;
  */
 function truncateDebugDetails(details: string): string {
   if (details.length <= MAX_DEBUG_DETAIL_LENGTH) return details;
-  return details.slice(0, MAX_DEBUG_DETAIL_LENGTH) + '\n… (truncated)';
+  return details.slice(0, MAX_DEBUG_DETAIL_LENGTH) + "\n… (truncated)";
 }
 
 /**
@@ -119,23 +116,24 @@ export function classifySessionError(
   ctx: ErrorContext,
 ): ClassifiedSessionError {
   const message = error instanceof Error ? error.message : String(error);
-  const rawDetails = (error instanceof Error ? error.stack : undefined) ?? message;
+  const rawDetails =
+    (error instanceof Error ? error.stack : undefined) ?? message;
   const debugDetails = truncateDebugDetails(rawDetails);
 
   // Phase-specific overrides
-  if (ctx.phase === 'queue') {
+  if (ctx.phase === "queue") {
     return {
-      code: 'QUEUE_FULL',
-      userMessage: 'Message queue is full (10 messages pending).',
+      code: "QUEUE_FULL",
+      userMessage: "Message queue is full (10 messages pending).",
       retryable: true,
       debugDetails: truncateDebugDetails(message),
     };
   }
 
-  if (ctx.phase === 'regenerate') {
+  if (ctx.phase === "regenerate") {
     const base = classifyCore(error, message);
     return {
-      code: 'REGENERATE_FAILED',
+      code: "REGENERATE_FAILED",
       userMessage: `Could not regenerate the response. ${base.userMessage}`,
       retryable: true,
       debugDetails,
@@ -157,27 +155,27 @@ export function classifySessionError(
 function classifyCore(
   error: unknown,
   message: string,
-): Omit<ClassifiedSessionError, 'debugDetails'> {
+): Omit<ClassifiedSessionError, "debugDetails"> {
   // ProviderError with statusCode — deterministic classification
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 413) {
       return {
-        code: 'CONTEXT_TOO_LARGE',
-        userMessage: 'This conversation exceeds the model\'s context limit.',
+        code: "CONTEXT_TOO_LARGE",
+        userMessage: "This conversation exceeds the model's context limit.",
         retryable: false,
       };
     }
     if (error.statusCode === 429) {
       return {
-        code: 'PROVIDER_RATE_LIMIT',
-        userMessage: 'The AI provider is rate limiting requests.',
+        code: "PROVIDER_RATE_LIMIT",
+        userMessage: "The AI provider is rate limiting requests.",
         retryable: true,
       };
     }
     if (error.statusCode >= 500) {
       return {
-        code: 'PROVIDER_API',
-        userMessage: 'The AI provider returned a server error.',
+        code: "PROVIDER_API",
+        userMessage: "The AI provider returned a server error.",
         retryable: true,
       };
     }
@@ -185,14 +183,14 @@ function classifyCore(
     if (error.statusCode >= 400) {
       if (isContextTooLarge(message)) {
         return {
-          code: 'CONTEXT_TOO_LARGE',
-          userMessage: 'This conversation exceeds the model\'s context limit.',
+          code: "CONTEXT_TOO_LARGE",
+          userMessage: "This conversation exceeds the model's context limit.",
           retryable: false,
         };
       }
       return {
-        code: 'PROVIDER_API',
-        userMessage: 'The AI provider rejected the request.',
+        code: "PROVIDER_API",
+        userMessage: "The AI provider rejected the request.",
         retryable: false,
       };
     }
@@ -207,12 +205,14 @@ export function isContextTooLarge(message: string): boolean {
   return CONTEXT_TOO_LARGE_PATTERNS.some((p) => p.test(message));
 }
 
-function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debugDetails'> {
+function classifyByMessage(
+  message: string,
+): Omit<ClassifiedSessionError, "debugDetails"> {
   // Check context-too-large before other patterns
   if (isContextTooLarge(message)) {
     return {
-      code: 'CONTEXT_TOO_LARGE',
-      userMessage: 'This conversation exceeds the model\'s context limit.',
+      code: "CONTEXT_TOO_LARGE",
+      userMessage: "This conversation exceeds the model's context limit.",
       retryable: false,
     };
   }
@@ -221,8 +221,8 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
   for (const pattern of RATE_LIMIT_PATTERNS) {
     if (pattern.test(message)) {
       return {
-        code: 'PROVIDER_RATE_LIMIT',
-        userMessage: 'The AI provider is rate limiting requests.',
+        code: "PROVIDER_RATE_LIMIT",
+        userMessage: "The AI provider is rate limiting requests.",
         retryable: true,
       };
     }
@@ -232,8 +232,8 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
   for (const pattern of NETWORK_PATTERNS) {
     if (pattern.test(message)) {
       return {
-        code: 'PROVIDER_NETWORK',
-        userMessage: 'Could not connect to the AI provider.',
+        code: "PROVIDER_NETWORK",
+        userMessage: "Could not connect to the AI provider.",
         retryable: true,
       };
     }
@@ -243,8 +243,8 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
   for (const pattern of PROVIDER_API_PATTERNS) {
     if (pattern.test(message)) {
       return {
-        code: 'PROVIDER_API',
-        userMessage: 'The AI provider returned a server error.',
+        code: "PROVIDER_API",
+        userMessage: "The AI provider returned a server error.",
         retryable: true,
       };
     }
@@ -255,8 +255,8 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
   for (const pattern of TIMEOUT_PATTERNS) {
     if (pattern.test(message)) {
       return {
-        code: 'PROVIDER_API',
-        userMessage: 'The request to the AI provider timed out.',
+        code: "PROVIDER_API",
+        userMessage: "The request to the AI provider timed out.",
         retryable: true,
       };
     }
@@ -266,8 +266,8 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
   for (const pattern of CANCEL_PATTERNS) {
     if (pattern.test(message)) {
       return {
-        code: 'SESSION_ABORTED',
-        userMessage: 'The request was interrupted.',
+        code: "SESSION_ABORTED",
+        userMessage: "The request was interrupted.",
         retryable: true,
       };
     }
@@ -275,13 +275,18 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
 
   // Default: processing failure — include the first non-empty line of the actual error
   // so users know what went wrong instead of seeing a completely generic message.
-  const firstLine = message.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? '';
-  const summary = firstLine.length > 150 ? firstLine.slice(0, 150) + '...' : firstLine;
+  const firstLine =
+    message
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) ?? "";
+  const summary =
+    firstLine.length > 150 ? firstLine.slice(0, 150) + "..." : firstLine;
   const userMessage = summary
     ? `Processing failed: ${summary}`
-    : 'Something went wrong processing your message. Please try again.';
+    : "Something went wrong processing your message. Please try again.";
   return {
-    code: 'SESSION_PROCESSING_FAILED',
+    code: "SESSION_PROCESSING_FAILED",
     userMessage,
     retryable: false,
   };
@@ -295,7 +300,7 @@ export function buildSessionErrorMessage(
   classified: ClassifiedSessionError,
 ): SessionErrorMessage {
   return {
-    type: 'session_error',
+    type: "session_error",
     sessionId,
     code: classified.code,
     userMessage: classified.userMessage,

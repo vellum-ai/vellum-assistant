@@ -540,7 +540,9 @@ export async function executeBrowserSnapshot(
       }
       lines.push("");
       lines.push(
-        `${elements.length} interactive element${elements.length === 1 ? "" : "s"} found.`,
+        `${elements.length} interactive element${
+          elements.length === 1 ? "" : "s"
+        } found.`,
       );
     }
 
@@ -579,7 +581,9 @@ export async function executeBrowserScreenshot(
     };
 
     return {
-      content: `Screenshot captured (${buffer.length} bytes, ${fullPage ? "full page" : "viewport"})`,
+      content: `Screenshot captured (${buffer.length} bytes, ${
+        fullPage ? "full page" : "viewport"
+      })`,
       isError: false,
       contentBlocks: [imageBlock],
     };
@@ -672,7 +676,9 @@ export async function executeBrowserType(
       // with fallback to .innerText for contenteditable elements (preserves
       // visual line breaks from <br> and block elements, unlike textContent).
       const currentValue = (await page.evaluate(
-        `(() => { const el = document.querySelector(${JSON.stringify(selector!)}); if (!el) return ''; if (typeof el.value === 'string') return el.value; return el.innerText ?? ''; })()`,
+        `(() => { const el = document.querySelector(${JSON.stringify(
+          selector!,
+        )}); if (!el) return ''; if (typeof el.value === 'string') return el.value; return el.innerText ?? ''; })()`,
       )) as string;
       await page.fill(selector!, currentValue + text, { timeout: fillTimeout });
     }

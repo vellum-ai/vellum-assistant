@@ -1,21 +1,21 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from "bun:test";
 
-import { CostTracker } from '../services/cost-tracker.js';
+import { CostTracker } from "../services/cost-tracker.js";
 
-describe('CostTracker', () => {
-  it('accumulates costs across multiple segments', () => {
+describe("CostTracker", () => {
+  it("accumulates costs across multiple segments", () => {
     const tracker = new CostTracker();
 
     tracker.record({
-      segmentId: 'seg-001',
-      model: 'gemini-2.5-flash',
+      segmentId: "seg-001",
+      model: "gemini-2.5-flash",
       inputTokens: 1_000_000,
       outputTokens: 0,
     });
 
     tracker.record({
-      segmentId: 'seg-002',
-      model: 'gemini-2.5-flash',
+      segmentId: "seg-002",
+      model: "gemini-2.5-flash",
       inputTokens: 0,
       outputTokens: 1_000_000,
     });
@@ -28,12 +28,12 @@ describe('CostTracker', () => {
     expect(summary.totalEstimatedUSD).toBeCloseTo(0.75, 6);
   });
 
-  it('computes per-entry costs using Gemini 2.5 Flash pricing', () => {
+  it("computes per-entry costs using Gemini 2.5 Flash pricing", () => {
     const tracker = new CostTracker();
 
     const entry = tracker.record({
-      segmentId: 'seg-010',
-      model: 'gemini-2.5-flash',
+      segmentId: "seg-010",
+      model: "gemini-2.5-flash",
       inputTokens: 200_000,
       outputTokens: 50_000,
     });
@@ -42,11 +42,11 @@ describe('CostTracker', () => {
     // Output: 50k * ($0.60 / 1M) = $0.03
     // Total: $0.06
     expect(entry.estimatedUSD).toBeCloseTo(0.06, 6);
-    expect(entry.segmentId).toBe('seg-010');
-    expect(entry.model).toBe('gemini-2.5-flash');
+    expect(entry.segmentId).toBe("seg-010");
+    expect(entry.model).toBe("gemini-2.5-flash");
   });
 
-  it('returns an empty summary when no entries have been recorded', () => {
+  it("returns an empty summary when no entries have been recorded", () => {
     const tracker = new CostTracker();
     const summary = tracker.getSummary();
 
@@ -57,14 +57,29 @@ describe('CostTracker', () => {
     expect(summary.entries).toHaveLength(0);
   });
 
-  it('preserves entry order in summary', () => {
+  it("preserves entry order in summary", () => {
     const tracker = new CostTracker();
 
-    tracker.record({ segmentId: 'a', model: 'm', inputTokens: 100, outputTokens: 200 });
-    tracker.record({ segmentId: 'b', model: 'm', inputTokens: 300, outputTokens: 400 });
-    tracker.record({ segmentId: 'c', model: 'm', inputTokens: 500, outputTokens: 600 });
+    tracker.record({
+      segmentId: "a",
+      model: "m",
+      inputTokens: 100,
+      outputTokens: 200,
+    });
+    tracker.record({
+      segmentId: "b",
+      model: "m",
+      inputTokens: 300,
+      outputTokens: 400,
+    });
+    tracker.record({
+      segmentId: "c",
+      model: "m",
+      inputTokens: 500,
+      outputTokens: 600,
+    });
 
     const ids = tracker.getSummary().entries.map((e) => e.segmentId);
-    expect(ids).toEqual(['a', 'b', 'c']);
+    expect(ids).toEqual(["a", "b", "c"]);
   });
 });

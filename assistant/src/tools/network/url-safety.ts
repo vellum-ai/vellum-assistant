@@ -1,4 +1,4 @@
-import { lookup } from 'node:dns/promises';
+import { lookup } from "node:dns/promises";
 
 export type ResolveHostAddresses = (hostname: string) => Promise<string[]>;
 
@@ -10,11 +10,17 @@ export function looksLikeHostPortShorthand(value: string): boolean {
 }
 
 export function looksLikePathOnlyInput(value: string): boolean {
-  return value.startsWith('/') || value.startsWith('./') || value.startsWith('../') || value.startsWith('?') || value.startsWith('#');
+  return (
+    value.startsWith("/") ||
+    value.startsWith("./") ||
+    value.startsWith("../") ||
+    value.startsWith("?") ||
+    value.startsWith("#")
+  );
 }
 
 export function parseUrl(input: unknown): URL | null {
-  if (typeof input !== 'string') return null;
+  if (typeof input !== "string") return null;
   const value = input.trim();
   if (!value) return null;
 
@@ -48,7 +54,7 @@ export function parseUrl(input: unknown): URL | null {
 }
 
 export function isIPv4(hostname: string): boolean {
-  const parts = hostname.split('.');
+  const parts = hostname.split(".");
   if (parts.length !== 4) return false;
 
   for (const part of parts) {
@@ -61,7 +67,7 @@ export function isIPv4(hostname: string): boolean {
 }
 
 export function isPrivateIPv4(hostname: string): boolean {
-  const parts = hostname.split('.').map((part) => Number(part));
+  const parts = hostname.split(".").map((part) => Number(part));
   const [a, b] = parts;
 
   if (a === 0) return true;
@@ -78,21 +84,27 @@ export function isPrivateIPv4(hostname: string): boolean {
 }
 
 export function unwrapBracketedHostname(hostname: string): string {
-  if (hostname.startsWith('[') && hostname.endsWith(']')) {
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
     return hostname.slice(1, -1);
   }
   return hostname;
 }
 
 export function extractEmbeddedIPv4FromIPv6(hostname: string): string | null {
-  const normalized = unwrapBracketedHostname(hostname).split('%')[0].toLowerCase();
+  const normalized = unwrapBracketedHostname(hostname)
+    .split("%")[0]
+    .toLowerCase();
 
-  const dottedMatch = normalized.match(/^(?:(?:(?:0:){5}|::)ffff:|(?:(?:0:){6}|::))(\d{1,3}(?:\.\d{1,3}){3})$/);
+  const dottedMatch = normalized.match(
+    /^(?:(?:(?:0:){5}|::)ffff:|(?:(?:0:){6}|::))(\d{1,3}(?:\.\d{1,3}){3})$/,
+  );
   if (dottedMatch) {
     return isIPv4(dottedMatch[1]) ? dottedMatch[1] : null;
   }
 
-  const hexMatch = normalized.match(/^(?:(?:(?:0:){5}|::)ffff:|(?:(?:0:){6}|::))([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  const hexMatch = normalized.match(
+    /^(?:(?:(?:0:){5}|::)ffff:|(?:(?:0:){6}|::))([0-9a-f]{1,4}):([0-9a-f]{1,4})$/,
+  );
   if (!hexMatch) return null;
 
   const hi = Number.parseInt(hexMatch[1], 16);
@@ -106,26 +118,28 @@ export function isIPv6(hostname: string): boolean {
   if (extractEmbeddedIPv4FromIPv6(hostname)) return true;
 
   const unwrapped = unwrapBracketedHostname(hostname);
-  if (!unwrapped.includes(':')) return false;
-  const stripped = unwrapped.split('%')[0];
+  if (!unwrapped.includes(":")) return false;
+  const stripped = unwrapped.split("%")[0];
   return /^[0-9a-fA-F:]+$/.test(stripped);
 }
 
 export function isPrivateIPv6(hostname: string): boolean {
-  const normalized = unwrapBracketedHostname(hostname).split('%')[0].toLowerCase();
+  const normalized = unwrapBracketedHostname(hostname)
+    .split("%")[0]
+    .toLowerCase();
 
-  if (normalized === '::' || normalized === '::1') return true;
-  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
-  if (normalized.startsWith('ff')) return true;
+  if (normalized === "::" || normalized === "::1") return true;
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
+  if (normalized.startsWith("ff")) return true;
   if (
-    normalized.startsWith('fe8')
-    || normalized.startsWith('fe9')
-    || normalized.startsWith('fea')
-    || normalized.startsWith('feb')
-    || normalized.startsWith('fec')
-    || normalized.startsWith('fed')
-    || normalized.startsWith('fee')
-    || normalized.startsWith('fef')
+    normalized.startsWith("fe8") ||
+    normalized.startsWith("fe9") ||
+    normalized.startsWith("fea") ||
+    normalized.startsWith("feb") ||
+    normalized.startsWith("fec") ||
+    normalized.startsWith("fed") ||
+    normalized.startsWith("fee") ||
+    normalized.startsWith("fef")
   ) {
     return true;
   }
@@ -142,15 +156,15 @@ export function isPrivateOrLocalHost(hostname: string): boolean {
   const host = unwrapBracketedHostname(hostname).toLowerCase();
 
   if (
-    host === 'localhost' ||
-    host === 'localhost.localdomain' ||
-    host === '0.0.0.0' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.local')
+    host === "localhost" ||
+    host === "localhost.localdomain" ||
+    host === "0.0.0.0" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local")
   ) {
     return true;
   }
-  if (host === 'metadata.google.internal') {
+  if (host === "metadata.google.internal") {
     return true;
   }
   if (isIPv4(host)) {
@@ -162,7 +176,9 @@ export function isPrivateOrLocalHost(hostname: string): boolean {
   return false;
 }
 
-export async function resolveHostAddresses(hostname: string): Promise<string[]> {
+export async function resolveHostAddresses(
+  hostname: string,
+): Promise<string[]> {
   try {
     const records = await lookup(hostname, { all: true, verbatim: true });
     return records.map((record) => record.address);
@@ -185,7 +201,13 @@ export async function resolveRequestAddress(
     return { addresses: [normalizedHost] };
   }
 
-  const addresses = [...new Set((await resolveHost(normalizedHost)).map((address) => unwrapBracketedHostname(address)))];
+  const addresses = [
+    ...new Set(
+      (await resolveHost(normalizedHost)).map((address) =>
+        unwrapBracketedHostname(address),
+      ),
+    ),
+  ];
   if (addresses.length === 0) {
     return { addresses: [] };
   }
@@ -207,8 +229,8 @@ export function buildHostHeader(url: URL): string {
 
 export function stripUrlUserinfo(url: URL): URL {
   const sanitized = new URL(url.href);
-  sanitized.username = '';
-  sanitized.password = '';
+  sanitized.username = "";
+  sanitized.password = "";
   return sanitized;
 }
 
@@ -222,6 +244,6 @@ export function sanitizeUrlStringForOutput(url: string, base?: URL): string {
     const parsed = base ? new URL(url, base) : new URL(url);
     return sanitizeUrlForOutput(parsed);
   } catch {
-    return url.replace(/\/\/([^/?#\s@]+)@/g, '//<redacted />@');
+    return url.replace(/\/\/([^/?#\s@]+)@/g, "//<redacted />@");
   }
 }

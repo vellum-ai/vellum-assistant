@@ -1,21 +1,26 @@
-import { execSync } from 'node:child_process';
-import * as net from 'node:net';
+import { execSync } from "node:child_process";
+import * as net from "node:net";
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { getConfig } from '../../config/loader.js';
-import type { HeartbeatService } from '../../heartbeat/heartbeat-service.js';
-import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
-import type { AuthContext } from '../../runtime/auth/types.js';
-import type { DebouncerMap } from '../../util/debounce.js';
-import { getLogger } from '../../util/logger.js';
-import { estimateBase64Bytes } from '../assistant-attachments.js';
-import { ComputerUseSession } from '../computer-use-session.js';
-import type { ClientMessage, CuSessionCreate, ServerMessage, SessionTransportMetadata } from '../ipc-protocol.js';
-import { Session } from '../session.js';
-import type { TrustContext } from '../session-runtime-assembly.js';
+import { getConfig } from "../../config/loader.js";
+import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
+import type { AuthContext } from "../../runtime/auth/types.js";
+import type { DebouncerMap } from "../../util/debounce.js";
+import { getLogger } from "../../util/logger.js";
+import { estimateBase64Bytes } from "../assistant-attachments.js";
+import { ComputerUseSession } from "../computer-use-session.js";
+import type {
+  ClientMessage,
+  CuSessionCreate,
+  ServerMessage,
+  SessionTransportMetadata,
+} from "../ipc-protocol.js";
+import { Session } from "../session.js";
+import type { TrustContext } from "../session-runtime-assembly.js";
 
-const log = getLogger('handlers');
+const log = getLogger("handlers");
 
 export { log };
 
@@ -28,15 +33,28 @@ export const FALLBACK_SCREEN = { width: 1920, height: 1080 };
 let cachedScreenDims: { width: number; height: number } | null = null;
 
 // Module-level map for non-session secret prompts (e.g. publish_page)
-export const pendingStandaloneSecrets = new Map<string, { resolve: (result: SecretPromptResult) => void; timer: ReturnType<typeof setTimeout> }>();
+export const pendingStandaloneSecrets = new Map<
+  string,
+  {
+    resolve: (result: SecretPromptResult) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
 
 // Pending IPC signing responses (bundle signing orchestration), keyed by unique requestId
 interface PendingSigningResolve {
-  resolve: (result: { signature: string; keyId: string; publicKey: string }) => void;
+  resolve: (result: {
+    signature: string;
+    keyId: string;
+    publicKey: string;
+  }) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
-export const pendingSignBundlePayload = new Map<string, PendingSigningResolve>();
+export const pendingSignBundlePayload = new Map<
+  string,
+  PendingSigningResolve
+>();
 
 interface PendingIdentityResolve {
   resolve: (result: { keyId: string; publicKey: string }) => void;
@@ -79,7 +97,7 @@ export interface RenderedHistoryContent {
 export interface SubagentNotificationData {
   subagentId: string;
   label: string;
-  status: 'completed' | 'failed' | 'aborted';
+  status: "completed" | "failed" | "aborted";
   error?: string;
   conversationId?: string;
 }
@@ -150,9 +168,9 @@ export interface HandlerContext {
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 
-type MessageType = ClientMessage['type'];
+type MessageType = ClientMessage["type"];
 // 'auth' is handled at the transport layer (server.ts) and never reaches dispatch.
-export type DispatchableType = Exclude<MessageType, 'auth'>;
+export type DispatchableType = Exclude<MessageType, "auth">;
 type MessageOfType<T extends MessageType> = Extract<ClientMessage, { type: T }>;
 type MessageHandler<T extends MessageType> = (
   msg: MessageOfType<T>,
@@ -178,21 +196,21 @@ export function defineHandlers<K extends DispatchableType>(
  */
 export function getScreenDimensions(): { width: number; height: number } {
   if (cachedScreenDims) return cachedScreenDims;
-  if (process.platform !== 'darwin') return FALLBACK_SCREEN;
+  if (process.platform !== "darwin") return FALLBACK_SCREEN;
   try {
     // Use osascript (JXA) instead of `swift` to avoid the
     // "Install Command Line Developer Tools" popup on fresh macOS installs.
     const out = execSync(
       `osascript -l JavaScript -e 'ObjC.import("AppKit"); var f = $.NSScreen.mainScreen.frame; Math.round(f.size.width) + "x" + Math.round(f.size.height)'`,
-      { timeout: 10_000, encoding: 'utf-8' },
+      { timeout: 10_000, encoding: "utf-8" },
     ).trim();
-    const [w, h] = out.split('x').map(Number);
+    const [w, h] = out.split("x").map(Number);
     if (w > 0 && h > 0) {
       cachedScreenDims = { width: w, height: h };
       return cachedScreenDims;
     }
   } catch (err) {
-    log.debug({ err }, 'Failed to query screen dimensions, using fallback');
+    log.debug({ err }, "Failed to query screen dimensions, using fallback");
   }
   return FALLBACK_SCREEN;
 }
@@ -228,45 +246,51 @@ export function wireEscalationHandler(
   explicitHeight?: number,
 ): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require to avoid circular dependency
-  const { handleCuSessionCreate } = require('./computer-use.js');
+  const { handleCuSessionCreate } = require("./computer-use.js");
 
-  const dims = (explicitWidth && explicitHeight)
-    ? { width: explicitWidth, height: explicitHeight }
-    : getScreenDimensions();
+  const dims =
+    explicitWidth && explicitHeight
+      ? { width: explicitWidth, height: explicitHeight }
+      : getScreenDimensions();
   const screenWidth = dims.width;
   const screenHeight = dims.height;
-  session.setEscalationHandler((task: string, sourceSessionId: string): boolean => {
-    const currentSocket = findSocketForSession(sourceSessionId, ctx);
-    if (!currentSocket) {
-      log.warn({ sourceSessionId }, 'Escalation handler: no active socket found for session');
-      return false;
-    }
+  session.setEscalationHandler(
+    (task: string, sourceSessionId: string): boolean => {
+      const currentSocket = findSocketForSession(sourceSessionId, ctx);
+      if (!currentSocket) {
+        log.warn(
+          { sourceSessionId },
+          "Escalation handler: no active socket found for session",
+        );
+        return false;
+      }
 
-    const cuSessionId = uuid();
-    const cuMsg: CuSessionCreate = {
-      type: 'cu_session_create',
-      sessionId: cuSessionId,
-      task,
-      screenWidth,
-      screenHeight,
-      interactionType: 'computer_use',
-    };
-    handleCuSessionCreate(cuMsg, currentSocket, ctx);
+      const cuSessionId = uuid();
+      const cuMsg: CuSessionCreate = {
+        type: "cu_session_create",
+        sessionId: cuSessionId,
+        task,
+        screenWidth,
+        screenHeight,
+        interactionType: "computer_use",
+      };
+      handleCuSessionCreate(cuMsg, currentSocket, ctx);
 
-    ctx.send(currentSocket, {
-      type: 'task_routed',
-      sessionId: cuSessionId,
-      interactionType: 'computer_use',
-      task,
-      escalatedFrom: sourceSessionId,
-    });
+      ctx.send(currentSocket, {
+        type: "task_routed",
+        sessionId: cuSessionId,
+        interactionType: "computer_use",
+        task,
+        escalatedFrom: sourceSessionId,
+      });
 
-    return true;
-  });
+      return true;
+    },
+  );
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value != null;
+  return typeof value === "object" && value != null;
 }
 
 export function formatBytes(sizeBytes: number): string {
@@ -283,8 +307,14 @@ function clampAttachmentText(text: string): string {
 
 function renderImageBlockForHistory(block: Record<string, unknown>): string {
   const source = isRecord(block.source) ? block.source : null;
-  const mediaType = source && typeof source.media_type === 'string' ? source.media_type : 'image/*';
-  const sizeBytes = source && typeof source.data === 'string' ? estimateBase64Bytes(source.data) : 0;
+  const mediaType =
+    source && typeof source.media_type === "string"
+      ? source.media_type
+      : "image/*";
+  const sizeBytes =
+    source && typeof source.data === "string"
+      ? estimateBase64Bytes(source.data)
+      : 0;
   if (sizeBytes <= 0) {
     return `[Image attachment] ${mediaType}`;
   }
@@ -293,25 +323,37 @@ function renderImageBlockForHistory(block: Record<string, unknown>): string {
 
 function renderFileBlockForHistory(block: Record<string, unknown>): string {
   const source = isRecord(block.source) ? block.source : null;
-  const mediaType = source && typeof source.media_type === 'string' ? source.media_type : 'application/octet-stream';
-  const filename = source && typeof source.filename === 'string' ? source.filename : 'attachment';
-  const sizeBytes = source && typeof source.data === 'string' ? estimateBase64Bytes(source.data) : 0;
+  const mediaType =
+    source && typeof source.media_type === "string"
+      ? source.media_type
+      : "application/octet-stream";
+  const filename =
+    source && typeof source.filename === "string"
+      ? source.filename
+      : "attachment";
+  const sizeBytes =
+    source && typeof source.data === "string"
+      ? estimateBase64Bytes(source.data)
+      : 0;
   const summaryParts = [`[File attachment] ${filename}`, `type=${mediaType}`];
   if (sizeBytes > 0) summaryParts.push(`size=${formatBytes(sizeBytes)}`);
 
-  const extractedText = typeof block.extracted_text === 'string' ? block.extracted_text.trim() : '';
+  const extractedText =
+    typeof block.extracted_text === "string" ? block.extracted_text.trim() : "";
   if (!extractedText) {
-    return summaryParts.join(', ');
+    return summaryParts.join(", ");
   }
-  return `${summaryParts.join(', ')}\nAttachment text: ${clampAttachmentText(extractedText)}`;
+  return `${summaryParts.join(", ")}\nAttachment text: ${clampAttachmentText(
+    extractedText,
+  )}`;
 }
 
 export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   if (!Array.isArray(content)) {
     let text: string;
     if (content == null) {
-      text = '';
-    } else if (typeof content === 'object') {
+      text = "";
+    } else if (typeof content === "object") {
       text = JSON.stringify(content);
     } else {
       text = String(content);
@@ -321,7 +363,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       toolCalls: [],
       toolCallsBeforeText: false,
       textSegments: text ? [text] : [],
-      contentOrder: text ? ['text:0'] : [],
+      contentOrder: text ? ["text:0"] : [],
       surfaces: [],
     };
   }
@@ -342,14 +384,22 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   let hasOpenSegment = false;
 
   function joinWithSpacing(parts: string[]): string {
-    let result = parts[0] ?? '';
+    let result = parts[0] ?? "";
     for (let i = 1; i < parts.length; i++) {
       const prev = result[result.length - 1];
       const next = parts[i][0];
       // Only insert a space when neither side already has whitespace
-      if (prev && next && prev !== ' ' && prev !== '\n' && prev !== '\t' &&
-          next !== ' ' && next !== '\n' && next !== '\t') {
-        result += ' ';
+      if (
+        prev &&
+        next &&
+        prev !== " " &&
+        prev !== "\n" &&
+        prev !== "\t" &&
+        next !== " " &&
+        next !== "\n" &&
+        next !== "\t"
+      ) {
+        result += " ";
       }
       result += parts[i];
     }
@@ -358,7 +408,8 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 
   function finalizeSegment(): void {
     if (hasOpenSegment) {
-      textSegments[textSegments.length - 1] = joinWithSpacing(currentSegmentParts);
+      textSegments[textSegments.length - 1] =
+        joinWithSpacing(currentSegmentParts);
       currentSegmentParts = [];
       hasOpenSegment = false;
     }
@@ -366,51 +417,56 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 
   function ensureSegment(): void {
     if (!hasOpenSegment) {
-      textSegments.push('');
+      textSegments.push("");
       contentOrder.push(`text:${textSegments.length - 1}`);
       hasOpenSegment = true;
     }
   }
 
   for (const block of content) {
-    if (!isRecord(block) || typeof block.type !== 'string') continue;
+    if (!isRecord(block) || typeof block.type !== "string") continue;
 
     // Collect ui_surface blocks for inclusion in history
-    if (block.type === 'ui_surface') {
+    if (block.type === "ui_surface") {
       finalizeSegment();
       const surface: HistorySurface = {
-        surfaceId: typeof block.surfaceId === 'string' ? block.surfaceId : '',
-        surfaceType: typeof block.surfaceType === 'string' ? block.surfaceType : '',
-        title: typeof block.title === 'string' ? block.title : undefined,
-        data: isRecord(block.data) ? (block.data as Record<string, unknown>) : {},
+        surfaceId: typeof block.surfaceId === "string" ? block.surfaceId : "",
+        surfaceType:
+          typeof block.surfaceType === "string" ? block.surfaceType : "",
+        title: typeof block.title === "string" ? block.title : undefined,
+        data: isRecord(block.data)
+          ? (block.data as Record<string, unknown>)
+          : {},
         actions: Array.isArray(block.actions) ? block.actions : undefined,
-        display: typeof block.display === 'string' ? block.display : undefined,
+        display: typeof block.display === "string" ? block.display : undefined,
       };
       surfaces.push(surface);
       contentOrder.push(`surface:${surfaces.length - 1}`);
       continue;
     }
 
-    if (block.type === 'text' && typeof block.text === 'string') {
+    if (block.type === "text" && typeof block.text === "string") {
       textParts.push(block.text);
       ensureSegment();
       currentSegmentParts.push(block.text);
       seenText = true;
       continue;
     }
-    if (block.type === 'file') {
+    if (block.type === "file") {
       attachmentParts.push(renderFileBlockForHistory(block));
       continue;
     }
-    if (block.type === 'image') {
+    if (block.type === "image") {
       attachmentParts.push(renderImageBlockForHistory(block));
       continue;
     }
-    if (block.type === 'tool_use') {
+    if (block.type === "tool_use") {
       finalizeSegment();
-      const name = typeof block.name === 'string' ? block.name : 'unknown';
-      const input = isRecord(block.input) ? block.input as Record<string, unknown> : {};
-      const id = typeof block.id === 'string' ? block.id : '';
+      const name = typeof block.name === "string" ? block.name : "unknown";
+      const input = isRecord(block.input)
+        ? (block.input as Record<string, unknown>)
+        : {};
+      const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
@@ -421,19 +477,21 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       }
       continue;
     }
-    if (block.type === 'tool_result') {
-      const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
-      const resultContent = typeof block.content === 'string' ? block.content : '';
+    if (block.type === "tool_result") {
+      const toolUseId =
+        typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+      const resultContent =
+        typeof block.content === "string" ? block.content : "";
       const isError = block.is_error === true;
       // Extract base64 image data from persisted contentBlocks (e.g. browser_screenshot)
       let imageData: string | undefined;
       if (Array.isArray(block.contentBlocks)) {
         const imgBlock = block.contentBlocks.find(
-          (b: Record<string, unknown>) => isRecord(b) && b.type === 'image',
+          (b: Record<string, unknown>) => isRecord(b) && b.type === "image",
         );
         if (imgBlock && isRecord(imgBlock) && isRecord(imgBlock.source)) {
           const src = imgBlock.source as Record<string, unknown>;
-          if (typeof src.data === 'string') {
+          if (typeof src.data === "string") {
             imageData = src.data;
           }
         }
@@ -444,7 +502,13 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         matched.isError = isError;
         if (imageData) matched.imageData = imageData;
       } else {
-        toolCalls.push({ name: 'unknown', input: {}, result: resultContent, isError, ...(imageData ? { imageData } : {}) });
+        toolCalls.push({
+          name: "unknown",
+          input: {},
+          result: resultContent,
+          isError,
+          ...(imageData ? { imageData } : {}),
+        });
       }
       continue;
     }
@@ -455,8 +519,8 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   // The macOS client handles this by selecting the *first* non-empty text
   // segment in interleaved content, so trailing attachment segments are safe.
   if (attachmentParts.length > 0) {
-    const attachmentText = attachmentParts.join('\n');
-    const prefix = textParts.length > 0 ? '\n' : '';
+    const attachmentText = attachmentParts.join("\n");
+    const prefix = textParts.length > 0 ? "\n" : "";
     ensureSegment();
     currentSegmentParts.push(prefix + attachmentText);
   }
@@ -468,15 +532,24 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   if (attachmentParts.length === 0) {
     rendered = text;
   } else if (text.trim().length === 0) {
-    rendered = attachmentParts.join('\n');
+    rendered = attachmentParts.join("\n");
   } else {
-    rendered = `${text}\n${attachmentParts.join('\n')}`;
+    rendered = `${text}\n${attachmentParts.join("\n")}`;
   }
 
-  return { text: rendered, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces };
+  return {
+    text: rendered,
+    toolCalls,
+    toolCallsBeforeText,
+    textSegments,
+    contentOrder,
+    surfaces,
+  };
 }
 
-export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistoryMessage[] {
+export function mergeToolResults(
+  messages: ParsedHistoryMessage[],
+): ParsedHistoryMessage[] {
   // Note: We no longer merge consecutive assistant messages at load time since
   // they are now consolidated when saved. This function only handles legacy
   // conversations that haven't been consolidated yet, and continues to merge
@@ -489,9 +562,13 @@ export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistor
     // merge those results into the preceding assistant message's toolCalls.
     // This should rarely happen now since consolidation removes these messages,
     // but we keep it for backwards compatibility with old data.
-    if (msg.role === 'user' && msg.text.trim() === '' && msg.toolCalls.length > 0) {
+    if (
+      msg.role === "user" &&
+      msg.text.trim() === "" &&
+      msg.toolCalls.length > 0
+    ) {
       const prev = result.length > 0 ? result[result.length - 1] : null;
-      if (prev && prev.role === 'assistant' && prev.toolCalls.length > 0) {
+      if (prev && prev.role === "assistant" && prev.toolCalls.length > 0) {
         for (const resultEntry of msg.toolCalls) {
           const unresolved = prev.toolCalls.find(
             (tc) => tc.result === undefined,
@@ -499,7 +576,8 @@ export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistor
           if (unresolved) {
             unresolved.result = resultEntry.result;
             unresolved.isError = resultEntry.isError;
-            if (resultEntry.imageData) unresolved.imageData = resultEntry.imageData;
+            if (resultEntry.imageData)
+              unresolved.imageData = resultEntry.imageData;
           }
         }
         // Only suppress this internal user message if we successfully merged into a preceding assistant message
@@ -537,11 +615,11 @@ export function requestSecretStandalone(
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingStandaloneSecrets.delete(requestId);
-      resolve({ value: null, delivery: 'store' });
+      resolve({ value: null, delivery: "store" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingStandaloneSecrets.set(requestId, { resolve, timer });
     ctx.send(socket, {
-      type: 'secret_request',
+      type: "secret_request",
       requestId,
       service: params.service,
       field: params.field,
@@ -565,35 +643,42 @@ const SIGNING_TIMEOUT_MS = 30_000;
 export function createSigningCallback(
   socket: net.Socket,
   ctx: HandlerContext,
-): (payload: string) => Promise<{ signature: string; keyId: string; publicKey: string }> {
+): (
+  payload: string,
+) => Promise<{ signature: string; keyId: string; publicKey: string }> {
   return (payload: string) =>
     new Promise((resolve, reject) => {
       const requestId = uuid();
       const timer = setTimeout(() => {
         pendingSignBundlePayload.delete(requestId);
-        reject(new Error('Signing request timed out'));
+        reject(new Error("Signing request timed out"));
       }, SIGNING_TIMEOUT_MS);
       pendingSignBundlePayload.set(requestId, { resolve, reject, timer });
-      ctx.send(socket, { type: 'sign_bundle_payload', requestId, payload });
+      ctx.send(socket, { type: "sign_bundle_payload", requestId, payload });
     });
 }
 
 /** Get or create the skill entry object for a given skill name, creating intermediate objects as needed.
  *  Guards against malformed config (e.g. skills or entries being a string, array, or null)
  *  by resetting non-object intermediates to {}, restoring self-healing behavior. */
-export function ensureSkillEntry(raw: Record<string, unknown>, name: string): Record<string, unknown> {
+export function ensureSkillEntry(
+  raw: Record<string, unknown>,
+  name: string,
+): Record<string, unknown> {
   if (!isRecord(raw.skills) || Array.isArray(raw.skills)) raw.skills = {};
   const skills = raw.skills as Record<string, unknown>;
-  if (!isRecord(skills.entries) || Array.isArray(skills.entries)) skills.entries = {};
+  if (!isRecord(skills.entries) || Array.isArray(skills.entries))
+    skills.entries = {};
   const entries = skills.entries as Record<string, unknown>;
-  if (!isRecord(entries[name]) || Array.isArray(entries[name])) entries[name] = {};
+  if (!isRecord(entries[name]) || Array.isArray(entries[name]))
+    entries[name] = {};
   return entries[name] as Record<string, unknown>;
 }
 
 /** Compare two semver strings. Returns negative if a < b, 0 if equal, positive if a > b. */
 export function compareSemver(a: string, b: string): number {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
     const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
     if (diff !== 0) return diff;

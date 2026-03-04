@@ -3,24 +3,30 @@ import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createRuntimeProxyHandler } = await import("../http/routes/runtime-proxy.js");
+const { createRuntimeProxyHandler } =
+  await import("../http/routes/runtime-proxy.js");
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
 /** Mint a valid edge JWT (aud=vellum-gateway) for test requests. */
 function mintEdgeToken(): string {
   return mintToken({
-    aud: 'vellum-gateway',
-    sub: 'actor:test-assistant:test-user',
-    scope_profile: 'actor_client_v1',
+    aud: "vellum-gateway",
+    sub: "actor:test-assistant:test-user",
+    scope_profile: "actor_client_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -126,13 +132,15 @@ describe("runtime proxy auth enforcement", () => {
 
   test("auth required: replaces client edge token with exchange token for upstream", async () => {
     let capturedHeaders: Headers | undefined;
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = init?.headers as unknown as Headers;
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    });
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {
@@ -151,7 +159,7 @@ describe("runtime proxy auth enforcement", () => {
   test("auth not required: proxies without token", async () => {
     mockUpstream();
     const handler = createRuntimeProxyHandler(
-      makeConfig({ runtimeProxyRequireAuth: false}),
+      makeConfig({ runtimeProxyRequireAuth: false }),
     );
     const req = new Request("http://localhost:7830/v1/health");
     const res = await handler(req);

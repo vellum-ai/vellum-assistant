@@ -14,14 +14,17 @@
  * a per-user OAuth token.
  */
 
-import { getGatewayInternalBaseUrl, getTwilioPhoneNumberEnv } from '../../../config/env.js';
-import { loadConfig } from '../../../config/loader.js';
-import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
-import * as externalConversationStore from '../../../memory/external-conversation-store.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../../runtime/assistant-scope.js';
-import { mintDaemonDeliveryToken } from '../../../runtime/auth/token-service.js';
-import { getSecureKey } from '../../../security/secure-keys.js';
-import type { MessagingProvider } from '../../provider.js';
+import {
+  getGatewayInternalBaseUrl,
+  getTwilioPhoneNumberEnv,
+} from "../../../config/env.js";
+import { loadConfig } from "../../../config/loader.js";
+import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
+import * as externalConversationStore from "../../../memory/external-conversation-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../runtime/assistant-scope.js";
+import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
+import { getSecureKey } from "../../../security/secure-keys.js";
+import type { MessagingProvider } from "../../provider.js";
 import type {
   ConnectionInfo,
   Conversation,
@@ -32,8 +35,8 @@ import type {
   SearchResult,
   SendOptions,
   SendResult,
-} from '../../provider-types.js';
-import * as sms from './client.js';
+} from "../../provider-types.js";
+import * as sms from "./client.js";
 
 /** Resolve the gateway base URL, preferring GATEWAY_INTERNAL_BASE_URL if set. */
 function getGatewayUrl(): string {
@@ -48,8 +51,8 @@ function getBearerToken(): string {
 /** Check whether Twilio credentials are stored. */
 function hasTwilioCredentials(): boolean {
   return (
-    !!getSecureKey('credential:twilio:account_sid') &&
-    !!getSecureKey('credential:twilio:auth_token')
+    !!getSecureKey("credential:twilio:account_sid") &&
+    !!getSecureKey("credential:twilio:auth_token")
   );
 }
 
@@ -65,14 +68,14 @@ function getPhoneNumber(): string | undefined {
     // Config may not be available yet during early startup
   }
 
-  return getSecureKey('credential:twilio:phone_number') || undefined;
+  return getSecureKey("credential:twilio:phone_number") || undefined;
 }
 
 export const smsMessagingProvider: MessagingProvider = {
-  id: 'sms',
-  displayName: 'SMS',
-  credentialService: 'twilio',
-  capabilities: new Set(['send']),
+  id: "sms",
+  displayName: "SMS",
+  credentialService: "twilio",
+  capabilities: new Set(["send"]),
 
   /**
    * SMS is connected when Twilio credentials are stored AND a phone number
@@ -84,7 +87,9 @@ export const smsMessagingProvider: MessagingProvider = {
     if (getPhoneNumber()) return true;
     try {
       const config = loadConfig();
-      const mappings = config.sms?.assistantPhoneNumbers as Record<string, string> | undefined;
+      const mappings = config.sms?.assistantPhoneNumbers as
+        | Record<string, string>
+        | undefined;
       if (mappings && Object.keys(mappings).length > 0) return true;
     } catch {
       // Config may not be available yet
@@ -96,9 +101,11 @@ export const smsMessagingProvider: MessagingProvider = {
     if (!hasTwilioCredentials()) {
       return {
         connected: false,
-        user: 'unknown',
-        platform: 'sms',
-        metadata: { error: 'No Twilio credentials found. Run the twilio-setup skill.' },
+        user: "unknown",
+        platform: "sms",
+        metadata: {
+          error: "No Twilio credentials found. Run the twilio-setup skill.",
+        },
       };
     }
 
@@ -107,15 +114,17 @@ export const smsMessagingProvider: MessagingProvider = {
       // Mirror isConnected(): fall back to assistant-scoped phone numbers
       try {
         const config = loadConfig();
-        const mappings = config.sms?.assistantPhoneNumbers as Record<string, string> | undefined;
+        const mappings = config.sms?.assistantPhoneNumbers as
+          | Record<string, string>
+          | undefined;
         if (mappings && Object.keys(mappings).length > 0) {
-          const accountSid = getSecureKey('credential:twilio:account_sid')!;
+          const accountSid = getSecureKey("credential:twilio:account_sid")!;
           return {
             connected: true,
-            user: 'assistant-scoped',
-            platform: 'sms',
+            user: "assistant-scoped",
+            platform: "sms",
             metadata: {
-              accountSid: accountSid.slice(0, 6) + '...',
+              accountSid: accountSid.slice(0, 6) + "...",
               assistantPhoneNumbers: Object.keys(mappings).length,
             },
           };
@@ -125,41 +134,57 @@ export const smsMessagingProvider: MessagingProvider = {
       }
       return {
         connected: false,
-        user: 'unknown',
-        platform: 'sms',
-        metadata: { error: 'No phone number configured. Run the twilio-setup skill to assign a number.' },
+        user: "unknown",
+        platform: "sms",
+        metadata: {
+          error:
+            "No phone number configured. Run the twilio-setup skill to assign a number.",
+        },
       };
     }
 
-    const accountSid = getSecureKey('credential:twilio:account_sid')!;
+    const accountSid = getSecureKey("credential:twilio:account_sid")!;
 
     return {
       connected: true,
       user: phoneNumber,
-      platform: 'sms',
+      platform: "sms",
       metadata: {
-        accountSid: accountSid.slice(0, 6) + '...',
+        accountSid: accountSid.slice(0, 6) + "...",
         phoneNumber,
       },
     };
   },
 
-  async sendMessage(_token: string, conversationId: string, text: string, options?: SendOptions): Promise<SendResult> {
+  async sendMessage(
+    _token: string,
+    conversationId: string,
+    text: string,
+    options?: SendOptions,
+  ): Promise<SendResult> {
     const gatewayUrl = getGatewayUrl();
     const bearerToken = getBearerToken();
     const assistantId = options?.assistantId;
 
-    const sendResult = await sms.sendMessage(gatewayUrl, bearerToken, conversationId, text, assistantId);
+    const sendResult = await sms.sendMessage(
+      gatewayUrl,
+      bearerToken,
+      conversationId,
+      text,
+      assistantId,
+    );
 
     // Upsert external conversation binding so the conversation key mapping
     // exists for the next inbound SMS from this number.
-    const isSelfScope = !assistantId || assistantId === DAEMON_INTERNAL_ASSISTANT_ID;
+    const isSelfScope =
+      !assistantId || assistantId === DAEMON_INTERNAL_ASSISTANT_ID;
     try {
-      const sourceChannel = 'sms';
+      const sourceChannel = "sms";
       const conversationKey = isSelfScope
         ? `${sourceChannel}:${conversationId}`
         : `asst:${assistantId}:${sourceChannel}:${conversationId}`;
-      const { conversationId: internalId } = getOrCreateConversation(conversationKey);
+      const { conversationId: internalId } =
+        getOrCreateConversation(conversationKey);
       if (isSelfScope) {
         externalConversationStore.upsertOutboundBinding({
           conversationId: internalId,
@@ -184,17 +209,28 @@ export const smsMessagingProvider: MessagingProvider = {
 
   // SMS does not support listing conversations. The assistant can only
   // send to known phone numbers (conversation IDs).
-  async listConversations(_token: string, _options?: ListOptions): Promise<Conversation[]> {
+  async listConversations(
+    _token: string,
+    _options?: ListOptions,
+  ): Promise<Conversation[]> {
     return [];
   },
 
   // SMS does not provide message history retrieval via the gateway.
-  async getHistory(_token: string, _conversationId: string, _options?: HistoryOptions): Promise<Message[]> {
+  async getHistory(
+    _token: string,
+    _conversationId: string,
+    _options?: HistoryOptions,
+  ): Promise<Message[]> {
     return [];
   },
 
   // SMS does not support message search.
-  async search(_token: string, _query: string, _options?: SearchOptions): Promise<SearchResult> {
+  async search(
+    _token: string,
+    _query: string,
+    _options?: SearchOptions,
+  ): Promise<SearchResult> {
     return { total: 0, messages: [], hasMore: false };
   },
 };

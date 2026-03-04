@@ -13,10 +13,10 @@
  *   Canonical:  `feature_flags.<id>.enabled`
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-import type { AssistantConfig } from './schema.js';
+import type { AssistantConfig } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,7 +36,7 @@ export type FeatureFlagDefaultsRegistry = Record<string, FeatureFlagDefault>;
 
 let cachedDefaults: FeatureFlagDefaultsRegistry | undefined;
 
-const REGISTRY_FILENAME = 'feature-flag-registry.json';
+const REGISTRY_FILENAME = "feature-flag-registry.json";
 
 function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
   if (cachedDefaults) return cachedDefaults;
@@ -55,18 +55,18 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
     // to <App>.app/Contents/Resources/ by build.sh. In bun --compile
     // binaries, import.meta.dirname resolves to /$bunfs/root (virtual),
     // so we need to resolve relative to the real executable path.
-    join(dirname(process.execPath), '..', 'Resources', REGISTRY_FILENAME),
+    join(dirname(process.execPath), "..", "Resources", REGISTRY_FILENAME),
     // Development: relative to this source file's directory, walking up
     // to the repo root to reach `meta/feature-flags/`.
-    join(thisDir, '..', '..', '..', 'meta', 'feature-flags', REGISTRY_FILENAME),
+    join(thisDir, "..", "..", "..", "meta", "feature-flags", REGISTRY_FILENAME),
     // Alternate: from repo root via cwd
-    join(process.cwd(), 'meta', 'feature-flags', REGISTRY_FILENAME),
+    join(process.cwd(), "meta", "feature-flags", REGISTRY_FILENAME),
   ];
 
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       try {
-        const raw = readFileSync(candidate, 'utf-8');
+        const raw = readFileSync(candidate, "utf-8");
         const parsed = JSON.parse(raw);
         cachedDefaults = parseRegistryToDefaults(parsed);
         return cachedDefaults;
@@ -85,23 +85,24 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
  * filtering to assistant-scope flags only.
  */
 function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
 
   const registry = parsed as { version?: number; flags?: unknown[] };
   if (!Array.isArray(registry.flags)) return {};
 
   const result: FeatureFlagDefaultsRegistry = {};
   for (const flag of registry.flags) {
-    if (!flag || typeof flag !== 'object' || Array.isArray(flag)) continue;
+    if (!flag || typeof flag !== "object" || Array.isArray(flag)) continue;
     const entry = flag as Record<string, unknown>;
-    if (entry.scope !== 'assistant') continue;
-    if (typeof entry.key !== 'string') continue;
-    if (typeof entry.defaultEnabled !== 'boolean') continue;
+    if (entry.scope !== "assistant") continue;
+    if (typeof entry.key !== "string") continue;
+    if (typeof entry.defaultEnabled !== "boolean") continue;
 
     result[entry.key as string] = {
       defaultEnabled: entry.defaultEnabled,
-      description: typeof entry.description === 'string' ? entry.description : '',
-      label: typeof entry.label === 'string' ? entry.label : '',
+      description:
+        typeof entry.description === "string" ? entry.description : "",
+      label: typeof entry.label === "string" ? entry.label : "",
     };
   }
   return result;
@@ -119,15 +120,19 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
  *   2. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
  *   3. `true`                                     (for undeclared keys with no override)
  */
-export function isAssistantFeatureFlagEnabled(key: string, config: AssistantConfig): boolean {
+export function isAssistantFeatureFlagEnabled(
+  key: string,
+  config: AssistantConfig,
+): boolean {
   const defaults = loadDefaultsRegistry();
   const declared = defaults[key];
 
   // 1. Check canonical section
-  const newValues = (config as AssistantConfigWithFeatureFlags).assistantFeatureFlagValues;
+  const newValues = (config as AssistantConfigWithFeatureFlags)
+    .assistantFeatureFlagValues;
   if (newValues) {
     const explicit = newValues[key];
-    if (typeof explicit === 'boolean') return explicit;
+    if (typeof explicit === "boolean") return explicit;
   }
 
   // 2. For declared keys, use the registry default

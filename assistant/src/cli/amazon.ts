@@ -5,9 +5,9 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { Command } from 'commander';
+import { Command } from "commander";
 
 import {
   addToCart,
@@ -21,25 +21,17 @@ import {
   selectFreshDeliverySlot,
   SessionExpiredError,
   viewCart,
-} from '../amazon/client.js';
-import {
-  extractRequests,
-  saveRequests,
-} from '../amazon/request-extractor.js';
+} from "../amazon/client.js";
+import { extractRequests, saveRequests } from "../amazon/request-extractor.js";
 import {
   clearSession,
   importFromRecording,
   loadSession,
   saveSession,
-} from '../amazon/session.js';
-import {
-  createMessageParser,
-  serialize,
-} from '../daemon/ipc-protocol.js';
-import {
-  loadRecording,
-} from '../tools/browser/recording-store.js';
-import { getSocketPath, readSessionToken } from '../util/platform.js';
+} from "../amazon/session.js";
+import { createMessageParser, serialize } from "../daemon/ipc-protocol.js";
+import { loadRecording } from "../tools/browser/recording-store.js";
+import { getSocketPath, readSessionToken } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -47,7 +39,7 @@ import { getSocketPath, readSessionToken } from '../util/platform.js';
 
 function output(data: unknown, json: boolean): void {
   process.stdout.write(
-    json ? JSON.stringify(data) + '\n' : JSON.stringify(data, null, 2) + '\n',
+    json ? JSON.stringify(data) + "\n" : JSON.stringify(data, null, 2) + "\n",
   );
 }
 
@@ -66,20 +58,17 @@ function getJson(cmd: Command): boolean {
 }
 
 const SESSION_EXPIRED_MSG =
-  'Your Amazon session has expired. Please sign in to Amazon in Chrome — ' +
-  'the assistant will use Ride Shotgun to capture your session automatically.';
+  "Your Amazon session has expired. Please sign in to Amazon in Chrome — " +
+  "the assistant will use Ride Shotgun to capture your session automatically.";
 
 async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
   try {
     const result = await fn();
-    output(
-      { ok: true, ...(result as Record<string, unknown>) },
-      getJson(cmd),
-    );
+    output({ ok: true, ...(result as Record<string, unknown>) }, getJson(cmd));
   } catch (err) {
     if (err instanceof SessionExpiredError) {
       output(
-        { ok: false, error: 'session_expired', message: SESSION_EXPIRED_MSG },
+        { ok: false, error: "session_expired", message: SESSION_EXPIRED_MSG },
         getJson(cmd),
       );
       process.exitCode = 1;
@@ -95,26 +84,24 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
 
 export function registerAmazonCommand(program: Command): void {
   const amz = program
-    .command('amazon')
+    .command("amazon")
     .description(
-      'Shop on Amazon and Amazon Fresh. Requires a session imported from a Ride Shotgun recording.',
+      "Shop on Amazon and Amazon Fresh. Requires a session imported from a Ride Shotgun recording.",
     )
-    .option('--json', 'Machine-readable JSON output');
+    .option("--json", "Machine-readable JSON output");
 
   // =========================================================================
   // login — import session from a recording
   // =========================================================================
-  amz.command('login')
-    .description('Import an Amazon session from a Ride Shotgun recording')
-    .requiredOption(
-      '--recording <path>',
-      'Path to the recording JSON file',
-    )
+  amz
+    .command("login")
+    .description("Import an Amazon session from a Ride Shotgun recording")
+    .requiredOption("--recording <path>", "Path to the recording JSON file")
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
         const session = importFromRecording(opts.recording);
         return {
-          message: 'Session imported successfully',
+          message: "Session imported successfully",
           cookieCount: session.cookies.length,
           recordingId: session.recordingId,
         };
@@ -124,30 +111,36 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   // logout — clear saved session
   // =========================================================================
-  amz.command('logout')
-    .description('Clear the saved Amazon session')
+  amz
+    .command("logout")
+    .description("Clear the saved Amazon session")
     .action((_opts: unknown, cmd: Command) => {
       clearSession();
-      output({ ok: true, message: 'Session cleared' }, getJson(cmd));
+      output({ ok: true, message: "Session cleared" }, getJson(cmd));
     });
 
   // =========================================================================
   // refresh — start Ride Shotgun learn to capture fresh cookies
   // =========================================================================
-  amz.command('refresh')
+  amz
+    .command("refresh")
     .description(
-      'Start a Ride Shotgun learn session to capture fresh Amazon cookies. ' +
-      'Opens amazon.com in a separate Chrome window — sign in when prompted. ' +
-      'Your existing Chrome and tabs are not affected.',
+      "Start a Ride Shotgun learn session to capture fresh Amazon cookies. " +
+        "Opens amazon.com in a separate Chrome window — sign in when prompted. " +
+        "Your existing Chrome and tabs are not affected.",
     )
-    .option('--duration <seconds>', 'Recording duration in seconds', '180')
+    .option("--duration <seconds>", "Recording duration in seconds", "180")
     .action(async (opts: { duration: string }, cmd: Command) => {
       const json = getJson(cmd);
       const duration = parseInt(opts.duration, 10);
 
       try {
         // Restore minimized Chrome window so user can see the login page
-        try { await restoreChromeWindow(); } catch { /* best-effort */ }
+        try {
+          await restoreChromeWindow();
+        } catch {
+          /* best-effort */
+        }
 
         const result = await startLearnSession(duration);
         if (result.recordingPath) {
@@ -156,7 +149,7 @@ export function registerAmazonCommand(program: Command): void {
           // Also extract and save captured request templates for self-healing
           let requestsCaptured = 0;
           try {
-            const recording = loadRecording(result.recordingId ?? '');
+            const recording = loadRecording(result.recordingId ?? "");
             if (recording) {
               const requests = extractRequests(recording);
               if (requests.length > 0) {
@@ -171,7 +164,7 @@ export function registerAmazonCommand(program: Command): void {
           // Best-effort: minimize Chrome window after capturing session
           try {
             await minimizeChromeWindow();
-            process.stderr.write('[amazon] Chrome window minimized\n');
+            process.stderr.write("[amazon] Chrome window minimized\n");
           } catch {
             // Non-fatal: minimizing is best-effort
           }
@@ -179,7 +172,7 @@ export function registerAmazonCommand(program: Command): void {
           output(
             {
               ok: true,
-              message: 'Session refreshed successfully',
+              message: "Session refreshed successfully",
               cookieCount: session.cookies.length,
               recordingId: result.recordingId,
               requestsCaptured,
@@ -190,7 +183,7 @@ export function registerAmazonCommand(program: Command): void {
           output(
             {
               ok: false,
-              error: 'Recording completed but no recording path returned',
+              error: "Recording completed but no recording path returned",
               recordingId: result.recordingId,
             },
             json,
@@ -205,10 +198,11 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   // refresh-headless — refresh session from Chrome's cookie database
   // =========================================================================
-  amz.command('refresh-headless')
+  amz
+    .command("refresh-headless")
     .description(
-      'Refresh Amazon session by reading cookies directly from Chrome\'s local database. ' +
-      'No visible Chrome window needed. Requires Chrome to be signed into Amazon.',
+      "Refresh Amazon session by reading cookies directly from Chrome's local database. " +
+        "No visible Chrome window needed. Requires Chrome to be signed into Amazon.",
     )
     .action(async (_opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
@@ -218,7 +212,7 @@ export function registerAmazonCommand(program: Command): void {
         output(
           {
             ok: true,
-            message: 'Session refreshed from Chrome cookie database (headless)',
+            message: "Session refreshed from Chrome cookie database (headless)",
             cookieCount: session.cookies.length,
           },
           json,
@@ -231,8 +225,9 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   // status — check session status
   // =========================================================================
-  amz.command('status')
-    .description('Check if an Amazon session is active')
+  amz
+    .command("status")
+    .description("Check if an Amazon session is active")
     .action((_opts: unknown, cmd: Command) => {
       const session = loadSession();
       if (session) {
@@ -254,28 +249,36 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   // search — search for products
   // =========================================================================
-  amz.command('search')
-    .description('Search for products on Amazon')
-    .argument('<query>', 'Search query (e.g. "AA batteries", "milk")')
-    .option('--fresh', 'Search Amazon Fresh grocery items')
-    .option('--limit <n>', 'Max results', '20')
-    .action(async (query: string, opts: { fresh?: boolean; limit: string }, cmd: Command) => {
-      await run(cmd, async () => {
-        const results = await search(query, {
-          isFresh: opts.fresh,
-          limit: parseInt(opts.limit, 10),
+  amz
+    .command("search")
+    .description("Search for products on Amazon")
+    .argument("<query>", 'Search query (e.g. "AA batteries", "milk")')
+    .option("--fresh", "Search Amazon Fresh grocery items")
+    .option("--limit <n>", "Max results", "20")
+    .action(
+      async (
+        query: string,
+        opts: { fresh?: boolean; limit: string },
+        cmd: Command,
+      ) => {
+        await run(cmd, async () => {
+          const results = await search(query, {
+            isFresh: opts.fresh,
+            limit: parseInt(opts.limit, 10),
+          });
+          return { results, count: results.length };
         });
-        return { results, count: results.length };
-      });
-    });
+      },
+    );
 
   // =========================================================================
   // product — get product details
   // =========================================================================
-  amz.command('product')
-    .description('Get product details for an ASIN')
-    .argument('<asin>', 'Amazon ASIN (e.g. B07XXXXX)')
-    .option('--fresh', 'Product is an Amazon Fresh item')
+  amz
+    .command("product")
+    .description("Get product details for an ASIN")
+    .argument("<asin>", "Amazon ASIN (e.g. B07XXXXX)")
+    .option("--fresh", "Product is an Amazon Fresh item")
     .action(async (asin: string, opts: { fresh?: boolean }, cmd: Command) => {
       await run(cmd, async () => {
         const product = await getProductDetails(asin, { isFresh: opts.fresh });
@@ -286,9 +289,12 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   // variations — list product variations (child ASINs)
   // =========================================================================
-  amz.command('variations')
-    .description('List available variations (sizes, colors, etc.) for a product')
-    .argument('<asin>', 'Parent ASIN')
+  amz
+    .command("variations")
+    .description(
+      "List available variations (sizes, colors, etc.) for a product",
+    )
+    .argument("<asin>", "Parent ASIN")
     .action(async (asin: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const product = await getProductDetails(asin);
@@ -304,12 +310,12 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   // cart — cart operations (subcommand group)
   // =========================================================================
-  const cart = amz.command('cart').description('Cart operations');
+  const cart = amz.command("cart").description("Cart operations");
 
   // cart view
   cart
-    .command('view')
-    .description('View cart contents')
+    .command("view")
+    .description("View cart contents")
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const result = await viewCart();
@@ -319,14 +325,22 @@ export function registerAmazonCommand(program: Command): void {
 
   // cart add
   cart
-    .command('add')
-    .description('Add a product to the cart')
-    .requiredOption('--asin <asin>', 'Product ASIN')
-    .option('--quantity <n>', 'Quantity', '1')
-    .option('--fresh', 'Amazon Fresh item')
-    .option('--verbose', 'Show detailed diagnostics for debugging')
+    .command("add")
+    .description("Add a product to the cart")
+    .requiredOption("--asin <asin>", "Product ASIN")
+    .option("--quantity <n>", "Quantity", "1")
+    .option("--fresh", "Amazon Fresh item")
+    .option("--verbose", "Show detailed diagnostics for debugging")
     .action(
-      async (opts: { asin: string; quantity: string; fresh?: boolean; verbose?: boolean }, cmd: Command) => {
+      async (
+        opts: {
+          asin: string;
+          quantity: string;
+          fresh?: boolean;
+          verbose?: boolean;
+        },
+        cmd: Command,
+      ) => {
         await run(cmd, async () => {
           const result = await addToCart({
             asin: opts.asin,
@@ -338,16 +352,28 @@ export function registerAmazonCommand(program: Command): void {
           if (opts.verbose) {
             const v = (result as unknown as Record<string, unknown>).__verbose;
             if (v) {
-              process.stderr.write('\n[amazon:verbose] ── Cart Add Diagnostics ──\n');
-              for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-                const icon = String(val) === 'EMPTY' ? '❌' : '✅';
-                process.stderr.write(`[amazon:verbose]   ${icon} ${k}: ${val}\n`);
+              process.stderr.write(
+                "\n[amazon:verbose] ── Cart Add Diagnostics ──\n",
+              );
+              for (const [k, val] of Object.entries(
+                v as Record<string, unknown>,
+              )) {
+                const icon = String(val) === "EMPTY" ? "❌" : "✅";
+                process.stderr.write(
+                  `[amazon:verbose]   ${icon} ${k}: ${val}\n`,
+                );
               }
-              process.stderr.write('[amazon:verbose] ──────────────────────────\n\n');
+              process.stderr.write(
+                "[amazon:verbose] ──────────────────────────\n\n",
+              );
             }
-            const d = (result as unknown as Record<string, unknown>).__debug as Record<string, unknown> | undefined;
+            const d = (result as unknown as Record<string, unknown>).__debug as
+              | Record<string, unknown>
+              | undefined;
             if (d?.addCartJson) {
-              process.stderr.write(`[amazon:verbose] Raw Amazon response: ${d.addCartJson}\n\n`);
+              process.stderr.write(
+                `[amazon:verbose] Raw Amazon response: ${d.addCartJson}\n\n`,
+              );
             }
           }
           // Strip internal debug fields from JSON output unless verbose
@@ -362,27 +388,27 @@ export function registerAmazonCommand(program: Command): void {
 
   // cart remove
   cart
-    .command('remove')
-    .description('Remove an item from the cart')
-    .requiredOption('--cart-item-id <id>', 'Cart item ID (from cart view)')
-    .action(
-      async (opts: { cartItemId: string }, cmd: Command) => {
-        await run(cmd, async () => {
-          const result = await removeFromCart({ cartItemId: opts.cartItemId });
-          return { cart: result };
-        });
-      },
-    );
+    .command("remove")
+    .description("Remove an item from the cart")
+    .requiredOption("--cart-item-id <id>", "Cart item ID (from cart view)")
+    .action(async (opts: { cartItemId: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const result = await removeFromCart({ cartItemId: opts.cartItemId });
+        return { cart: result };
+      });
+    });
 
   // =========================================================================
   // fresh — Amazon Fresh operations (subcommand group)
   // =========================================================================
-  const fresh = amz.command('fresh').description('Amazon Fresh grocery delivery operations');
+  const fresh = amz
+    .command("fresh")
+    .description("Amazon Fresh grocery delivery operations");
 
   // fresh delivery-slots
   fresh
-    .command('delivery-slots')
-    .description('Get available Amazon Fresh delivery slots')
+    .command("delivery-slots")
+    .description("Get available Amazon Fresh delivery slots")
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const slots = await getFreshDeliverySlots();
@@ -392,9 +418,12 @@ export function registerAmazonCommand(program: Command): void {
 
   // fresh select-slot
   fresh
-    .command('select-slot')
-    .description('Select an Amazon Fresh delivery slot')
-    .requiredOption('--slot-id <id>', 'Delivery slot ID (from delivery-slots command)')
+    .command("select-slot")
+    .description("Select an Amazon Fresh delivery slot")
+    .requiredOption(
+      "--slot-id <id>",
+      "Delivery slot ID (from delivery-slots command)",
+    )
     .action(async (opts: { slotId: string }, cmd: Command) => {
       await run(cmd, async () => {
         const result = await selectFreshDeliverySlot(opts.slotId);
@@ -405,8 +434,9 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   // payment-methods — list saved payment methods
   // =========================================================================
-  amz.command('payment-methods')
-    .description('List saved payment methods')
+  amz
+    .command("payment-methods")
+    .description("List saved payment methods")
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const methods = await getPaymentMethods();
@@ -417,8 +447,9 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   // checkout — get checkout summary
   // =========================================================================
-  amz.command('checkout')
-    .description('Get checkout summary (totals, shipping, payment options)')
+  amz
+    .command("checkout")
+    .description("Get checkout summary (totals, shipping, payment options)")
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const summary = await getCheckoutSummary();
@@ -429,16 +460,24 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   // order — order operations (subcommand group)
   // =========================================================================
-  const order = amz.command('order').description('Order operations');
+  const order = amz.command("order").description("Order operations");
 
   // order place
   order
-    .command('place')
-    .description('Place an Amazon order (IRREVERSIBLE — always confirm with user first)')
-    .option('--payment-method-id <id>', 'Payment method ID (uses default if omitted)')
-    .option('--slot-id <id>', 'Amazon Fresh delivery slot ID')
+    .command("place")
+    .description(
+      "Place an Amazon order (IRREVERSIBLE — always confirm with user first)",
+    )
+    .option(
+      "--payment-method-id <id>",
+      "Payment method ID (uses default if omitted)",
+    )
+    .option("--slot-id <id>", "Amazon Fresh delivery slot ID")
     .action(
-      async (opts: { paymentMethodId?: string; slotId?: string }, cmd: Command) => {
+      async (
+        opts: { paymentMethodId?: string; slotId?: string },
+        cmd: Command,
+      ) => {
         await run(cmd, async () => {
           const result = await placeOrder({
             paymentMethodId: opts.paymentMethodId,
@@ -454,16 +493,20 @@ export function registerAmazonCommand(program: Command): void {
 // Chrome CDP restart helper
 // ---------------------------------------------------------------------------
 
-import { execSync,spawn as spawnChild } from 'node:child_process';
-import * as crypto from 'node:crypto';
-import { copyFileSync, existsSync as fileExists,unlinkSync as unlinkFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { join as pathJoin } from 'node:path';
+import { execSync, spawn as spawnChild } from "node:child_process";
+import * as crypto from "node:crypto";
+import {
+  copyFileSync,
+  existsSync as fileExists,
+  unlinkSync as unlinkFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join as pathJoin } from "node:path";
 
-const CDP_BASE = 'http://localhost:9222';
+const CDP_BASE = "http://localhost:9222";
 const CHROME_DATA_DIR = pathJoin(
   homedir(),
-  'Library/Application Support/Google/Chrome-CDP',
+  "Library/Application Support/Google/Chrome-CDP",
 );
 
 async function isCdpReady(): Promise<boolean> {
@@ -479,28 +522,35 @@ async function ensureChromeWithCDP(): Promise<void> {
   if (await isCdpReady()) return;
 
   const chromeApp =
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  spawnChild(chromeApp, [
-    `--remote-debugging-port=9222`,
-    `--force-renderer-accessibility`,
-    `--user-data-dir=${CHROME_DATA_DIR}`,
-    `https://www.amazon.com/`,
-  ], {
-    detached: true,
-    stdio: 'ignore',
-  }).unref();
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  spawnChild(
+    chromeApp,
+    [
+      `--remote-debugging-port=9222`,
+      `--force-renderer-accessibility`,
+      `--user-data-dir=${CHROME_DATA_DIR}`,
+      `https://www.amazon.com/`,
+    ],
+    {
+      detached: true,
+      stdio: "ignore",
+    },
+  ).unref();
 
   for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 500));
     if (await isCdpReady()) return;
   }
-  throw new Error('Chrome started but CDP endpoint not responding after 15s');
+  throw new Error("Chrome started but CDP endpoint not responding after 15s");
 }
 
 async function minimizeChromeWindow(): Promise<void> {
   const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{ type: string; webSocketDebuggerUrl: string }>;
-  const pageTarget = targets.find(t => t.type === 'page');
+  const targets = (await res.json()) as Array<{
+    type: string;
+    webSocketDebuggerUrl: string;
+  }>;
+  const pageTarget = targets.find((t) => t.type === "page");
   if (!pageTarget) return;
 
   const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
@@ -508,25 +558,33 @@ async function minimizeChromeWindow(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       ws.close();
-      reject(new Error('CDP minimize timed out'));
+      reject(new Error("CDP minimize timed out"));
     }, 5000);
 
-    ws.addEventListener('open', () => {
-      ws.send(JSON.stringify({ id: 1, method: 'Browser.getWindowForTarget' }));
+    ws.addEventListener("open", () => {
+      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
     });
 
-    ws.addEventListener('message', (event) => {
-      const msg = JSON.parse(String(event.data)) as { id: number; result?: { windowId: number } };
+    ws.addEventListener("message", (event) => {
+      const msg = JSON.parse(String(event.data)) as {
+        id: number;
+        result?: { windowId: number };
+      };
       if (msg.id === 1 && msg.result) {
-        ws.send(JSON.stringify({
-          id: 2,
-          method: 'Browser.setWindowBounds',
-          params: { windowId: msg.result.windowId, bounds: { windowState: 'minimized' } },
-        }));
+        ws.send(
+          JSON.stringify({
+            id: 2,
+            method: "Browser.setWindowBounds",
+            params: {
+              windowId: msg.result.windowId,
+              bounds: { windowState: "minimized" },
+            },
+          }),
+        );
       } else if (msg.id === 1) {
         clearTimeout(timeout);
         ws.close();
-        reject(new Error('Browser.getWindowForTarget failed'));
+        reject(new Error("Browser.getWindowForTarget failed"));
       } else if (msg.id === 2) {
         clearTimeout(timeout);
         ws.close();
@@ -534,7 +592,7 @@ async function minimizeChromeWindow(): Promise<void> {
       }
     });
 
-    ws.addEventListener('error', (err) => {
+    ws.addEventListener("error", (err) => {
       clearTimeout(timeout);
       reject(err);
     });
@@ -543,8 +601,11 @@ async function minimizeChromeWindow(): Promise<void> {
 
 async function restoreChromeWindow(): Promise<void> {
   const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{ type: string; webSocketDebuggerUrl: string }>;
-  const pageTarget = targets.find(t => t.type === 'page');
+  const targets = (await res.json()) as Array<{
+    type: string;
+    webSocketDebuggerUrl: string;
+  }>;
+  const pageTarget = targets.find((t) => t.type === "page");
   if (!pageTarget) return;
 
   const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
@@ -552,25 +613,33 @@ async function restoreChromeWindow(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       ws.close();
-      reject(new Error('CDP restore timed out'));
+      reject(new Error("CDP restore timed out"));
     }, 5000);
 
-    ws.addEventListener('open', () => {
-      ws.send(JSON.stringify({ id: 1, method: 'Browser.getWindowForTarget' }));
+    ws.addEventListener("open", () => {
+      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
     });
 
-    ws.addEventListener('message', (event) => {
-      const msg = JSON.parse(String(event.data)) as { id: number; result?: { windowId: number } };
+    ws.addEventListener("message", (event) => {
+      const msg = JSON.parse(String(event.data)) as {
+        id: number;
+        result?: { windowId: number };
+      };
       if (msg.id === 1 && msg.result) {
-        ws.send(JSON.stringify({
-          id: 2,
-          method: 'Browser.setWindowBounds',
-          params: { windowId: msg.result.windowId, bounds: { windowState: 'normal' } },
-        }));
+        ws.send(
+          JSON.stringify({
+            id: 2,
+            method: "Browser.setWindowBounds",
+            params: {
+              windowId: msg.result.windowId,
+              bounds: { windowState: "normal" },
+            },
+          }),
+        );
       } else if (msg.id === 1) {
         clearTimeout(timeout);
         ws.close();
-        reject(new Error('Browser.getWindowForTarget failed'));
+        reject(new Error("Browser.getWindowForTarget failed"));
       } else if (msg.id === 2) {
         clearTimeout(timeout);
         ws.close();
@@ -578,7 +647,7 @@ async function restoreChromeWindow(): Promise<void> {
       }
     });
 
-    ws.addEventListener('error', (err) => {
+    ws.addEventListener("error", (err) => {
       clearTimeout(timeout);
       reject(err);
     });
@@ -591,7 +660,7 @@ async function restoreChromeWindow(): Promise<void> {
 
 const CHROME_COOKIES_DB = pathJoin(
   homedir(),
-  'Library/Application Support/Google/Chrome/Default/Cookies',
+  "Library/Application Support/Google/Chrome/Default/Cookies",
 );
 
 /**
@@ -599,15 +668,21 @@ const CHROME_COOKIES_DB = pathJoin(
  * Chrome uses AES-128-CBC with a key derived from the Keychain password via PBKDF2.
  * The encrypted blob is prefixed with 'v10' (3 bytes).
  */
-function decryptChromeCookie(encHex: string, derivedKey: Buffer): string | null {
-  const buf = Buffer.from(encHex, 'hex');
-  if (buf.length < 4 || buf.slice(0, 3).toString() !== 'v10') return null;
+function decryptChromeCookie(
+  encHex: string,
+  derivedKey: Buffer,
+): string | null {
+  const buf = Buffer.from(encHex, "hex");
+  if (buf.length < 4 || buf.slice(0, 3).toString() !== "v10") return null;
   try {
     const iv = Buffer.alloc(16, 0x20); // Chrome uses 16 space characters as IV
-    const decipher = crypto.createDecipheriv('aes-128-cbc', derivedKey, iv);
-    const decrypted = Buffer.concat([decipher.update(buf.slice(3)), decipher.final()]);
+    const decipher = crypto.createDecipheriv("aes-128-cbc", derivedKey, iv);
+    const decrypted = Buffer.concat([
+      decipher.update(buf.slice(3)),
+      decipher.final(),
+    ]);
     // Strip leading non-printable bytes (padding artifacts)
-    const str = decrypted.toString('utf-8');
+    const str = decrypted.toString("utf-8");
     const match = str.match(/[\x20-\x7e]+/);
     return match ? match[0] : null;
   } catch {
@@ -624,64 +699,82 @@ function decryptChromeCookie(encHex: string, derivedKey: Buffer): string | null 
  *   - The user must be signed into Amazon in Chrome
  *   - macOS Keychain access for 'Chrome Safe Storage' (will prompt once)
  */
-async function extractSessionFromChromeCookies(): Promise<import('../amazon/session.js').AmazonSession> {
+async function extractSessionFromChromeCookies(): Promise<
+  import("../amazon/session.js").AmazonSession
+> {
   // 1. Get Chrome Safe Storage key from macOS Keychain
   let keychainPassword: string;
   try {
     keychainPassword = execSync(
       'security find-generic-password -w -s "Chrome Safe Storage" -a "Chrome"',
-      { encoding: 'utf-8' },
+      { encoding: "utf-8" },
     ).trim();
   } catch {
     throw new Error(
-      'Could not read Chrome Safe Storage key from macOS Keychain. ' +
-      'Make sure Chrome is installed and has been opened at least once.',
+      "Could not read Chrome Safe Storage key from macOS Keychain. " +
+        "Make sure Chrome is installed and has been opened at least once.",
     );
   }
 
   // 2. Derive the AES key using PBKDF2 (same as Chrome's implementation)
-  const derivedKey = crypto.pbkdf2Sync(keychainPassword, 'saltysalt', 1003, 16, 'sha1');
+  const derivedKey = crypto.pbkdf2Sync(
+    keychainPassword,
+    "saltysalt",
+    1003,
+    16,
+    "sha1",
+  );
 
   // 3. Copy the Cookies DB to a temp file, then query the copy.
   //    Reading Chrome's live SQLite DB directly can interfere with Chrome's
   //    WAL journaling and cause session logouts. Copying first is safe.
-  const tmpCookiesDb = pathJoin(tmpdir(), `vellum-chrome-cookies-${Date.now()}.db`);
+  const tmpCookiesDb = pathJoin(
+    tmpdir(),
+    `vellum-chrome-cookies-${Date.now()}.db`,
+  );
   let rawOutput: string;
   try {
     copyFileSync(CHROME_COOKIES_DB, tmpCookiesDb);
     // Also copy WAL and SHM files if they exist, so the copy is consistent
-    const walPath = CHROME_COOKIES_DB + '-wal';
-    const shmPath = CHROME_COOKIES_DB + '-shm';
-    if (fileExists(walPath)) copyFileSync(walPath, tmpCookiesDb + '-wal');
-    if (fileExists(shmPath)) copyFileSync(shmPath, tmpCookiesDb + '-shm');
+    const walPath = CHROME_COOKIES_DB + "-wal";
+    const shmPath = CHROME_COOKIES_DB + "-shm";
+    if (fileExists(walPath)) copyFileSync(walPath, tmpCookiesDb + "-wal");
+    if (fileExists(shmPath)) copyFileSync(shmPath, tmpCookiesDb + "-shm");
 
     rawOutput = execSync(
       `sqlite3 "${tmpCookiesDb}" "SELECT name, hex(encrypted_value), host_key, path, is_httponly, is_secure, expires_utc FROM cookies WHERE host_key LIKE '%amazon.com%'"`,
-      { encoding: 'utf-8' },
+      { encoding: "utf-8" },
     ).trim();
   } catch {
     throw new Error(
-      'Could not read Chrome Cookies database. ' +
-      'Make sure Chrome is installed and the Cookies file exists.',
+      "Could not read Chrome Cookies database. " +
+        "Make sure Chrome is installed and the Cookies file exists.",
     );
   } finally {
     // Clean up temp files
-    try { unlinkFileSync(tmpCookiesDb); } catch {}
-    try { unlinkFileSync(tmpCookiesDb + '-wal'); } catch {}
-    try { unlinkFileSync(tmpCookiesDb + '-shm'); } catch {}
+    try {
+      unlinkFileSync(tmpCookiesDb);
+    } catch {}
+    try {
+      unlinkFileSync(tmpCookiesDb + "-wal");
+    } catch {}
+    try {
+      unlinkFileSync(tmpCookiesDb + "-shm");
+    } catch {}
   }
 
   if (!rawOutput) {
     throw new Error(
-      'No Amazon cookies found in Chrome. ' +
-      'Make sure you are signed into Amazon in Chrome.',
+      "No Amazon cookies found in Chrome. " +
+        "Make sure you are signed into Amazon in Chrome.",
     );
   }
 
   // 4. Decrypt each cookie
-  const cookies: import('../tools/browser/network-recording-types.js').ExtractedCredential[] = [];
-  for (const line of rawOutput.split('\n')) {
-    const parts = line.split('|');
+  const cookies: import("../tools/browser/network-recording-types.js").ExtractedCredential[] =
+    [];
+  for (const line of rawOutput.split("\n")) {
+    const parts = line.split("|");
     if (parts.length < 7) continue;
     const [name, encHex, domain, path, httpOnly, secure, expiresUtc] = parts;
     if (!encHex) continue;
@@ -693,31 +786,33 @@ async function extractSessionFromChromeCookies(): Promise<import('../amazon/sess
       name,
       value,
       domain,
-      path: path || '/',
-      httpOnly: httpOnly === '1',
-      secure: secure === '1',
-      expires: expiresUtc ? Math.floor(parseInt(expiresUtc, 10) / 1000000 - 11644473600) : undefined,
+      path: path || "/",
+      httpOnly: httpOnly === "1",
+      secure: secure === "1",
+      expires: expiresUtc
+        ? Math.floor(parseInt(expiresUtc, 10) / 1000000 - 11644473600)
+        : undefined,
     });
   }
 
   // 5. Validate required cookies are present
-  const cookieNames = new Set(cookies.map(c => c.name));
-  if (!cookieNames.has('session-id')) {
+  const cookieNames = new Set(cookies.map((c) => c.name));
+  if (!cookieNames.has("session-id")) {
     throw new Error(
-      'Chrome cookies are missing required Amazon cookie: session-id. ' +
-      'Make sure you are signed into Amazon in Chrome.',
+      "Chrome cookies are missing required Amazon cookie: session-id. " +
+        "Make sure you are signed into Amazon in Chrome.",
     );
   }
-  if (!cookieNames.has('ubid-main')) {
+  if (!cookieNames.has("ubid-main")) {
     throw new Error(
-      'Chrome cookies are missing required Amazon cookie: ubid-main. ' +
-      'Make sure you are signed into Amazon in Chrome.',
+      "Chrome cookies are missing required Amazon cookie: ubid-main. " +
+        "Make sure you are signed into Amazon in Chrome.",
     );
   }
-  if (!cookieNames.has('at-main') && !cookieNames.has('x-main')) {
+  if (!cookieNames.has("at-main") && !cookieNames.has("x-main")) {
     throw new Error(
-      'Chrome cookies are missing required Amazon auth cookie (at-main or x-main). ' +
-      'Make sure you are fully signed into Amazon in Chrome.',
+      "Chrome cookies are missing required Amazon auth cookie (at-main or x-main). " +
+        "Make sure you are fully signed into Amazon in Chrome.",
     );
   }
 
@@ -736,7 +831,9 @@ interface LearnResult {
   recordingPath?: string;
 }
 
-async function startLearnSession(durationSeconds: number): Promise<LearnResult> {
+async function startLearnSession(
+  durationSeconds: number,
+): Promise<LearnResult> {
   await ensureChromeWithCDP();
 
   return new Promise((resolve, reject) => {
@@ -745,14 +842,23 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
     const socket = net.createConnection(socketPath);
     const parser = createMessageParser();
 
-    socket.on('error', (err) => {
-      reject(new Error(`Cannot connect to daemon: ${err.message}. Is the daemon running?`));
+    socket.on("error", (err) => {
+      reject(
+        new Error(
+          `Cannot connect to daemon: ${err.message}. Is the daemon running?`,
+        ),
+      );
     });
 
-    const timeoutHandle = setTimeout(() => {
-      socket.destroy();
-      reject(new Error(`Learn session timed out after ${durationSeconds + 30}s`));
-    }, (durationSeconds + 30) * 1000);
+    const timeoutHandle = setTimeout(
+      () => {
+        socket.destroy();
+        reject(
+          new Error(`Learn session timed out after ${durationSeconds + 30}s`),
+        );
+      },
+      (durationSeconds + 30) * 1000,
+    );
     timeoutHandle.unref();
 
     let authenticated = !sessionToken;
@@ -760,37 +866,37 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
     const sendStartCommand = () => {
       socket.write(
         serialize({
-          type: 'ride_shotgun_start',
+          type: "ride_shotgun_start",
           durationSeconds,
           intervalSeconds: 5,
-          mode: 'learn',
-          targetDomain: 'amazon.com',
-        } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+          mode: "learn",
+          targetDomain: "amazon.com",
+        } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
       );
     };
 
-    socket.on('data', (chunk) => {
-      const messages = parser.feed(chunk.toString('utf-8'));
+    socket.on("data", (chunk) => {
+      const messages = parser.feed(chunk.toString("utf-8"));
       for (const msg of messages) {
         const m = msg as unknown as Record<string, unknown>;
 
-        if (!authenticated && m.type === 'auth_result') {
+        if (!authenticated && m.type === "auth_result") {
           if ((m as { success: boolean }).success) {
             authenticated = true;
             sendStartCommand();
           } else {
             clearTimeout(timeoutHandle);
             socket.destroy();
-            reject(new Error('Daemon authentication failed'));
+            reject(new Error("Daemon authentication failed"));
           }
           continue;
         }
 
-        if (m.type === 'auth_result') {
+        if (m.type === "auth_result") {
           continue;
         }
 
-        if (m.type === 'ride_shotgun_result') {
+        if (m.type === "ride_shotgun_result") {
           clearTimeout(timeoutHandle);
           socket.destroy();
           resolve({
@@ -801,13 +907,13 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
       }
     });
 
-    socket.on('connect', () => {
+    socket.on("connect", () => {
       if (sessionToken) {
         socket.write(
           serialize({
-            type: 'auth',
+            type: "auth",
             token: sessionToken,
-          } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+          } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
         );
       } else {
         sendStartCommand();

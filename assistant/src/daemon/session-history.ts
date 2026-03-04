@@ -1,21 +1,21 @@
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { getSummaryFromContextMessage } from '../context/window-manager.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { enqueueMemoryJob } from '../memory/jobs-store.js';
-import { withQdrantBreaker } from '../memory/qdrant-circuit-breaker.js';
-import { getQdrantClient } from '../memory/qdrant-client.js';
-import type { ContentBlock,Message } from '../providers/types.js';
-import { getLogger } from '../util/logger.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import type { TraceEmitter } from './trace-emitter.js';
+import { getSummaryFromContextMessage } from "../context/window-manager.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
+import { getQdrantClient } from "../memory/qdrant-client.js";
+import type { ContentBlock, Message } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
+import type { ServerMessage } from "./ipc-protocol.js";
+import type { TraceEmitter } from "./trace-emitter.js";
 
-const log = getLogger('session-history');
+const log = getLogger("session-history");
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function isUndoableUserMessage(message: Message): boolean {
-  if (message.role !== 'user') return false;
+  if (message.role !== "user") return false;
   if (getSummaryFromContextMessage(message) != null) return false;
   // A user message is undoable if it contains user-authored content (non-tool_result
   // blocks). Messages that contain ONLY tool_result blocks (e.g. automated tool
@@ -23,7 +23,7 @@ function isUndoableUserMessage(message: Message): boolean {
   // (e.g. after repairHistory merges a tool_result turn with a user prompt) are still
   // undoable because they contain real user content.
   const hasNonToolResultContent = message.content.some(
-    (block) => block.type !== 'tool_result',
+    (block) => block.type !== "tool_result",
   );
   if (!hasNonToolResultContent) return false;
   return true;
@@ -61,37 +61,45 @@ export async function cleanupQdrantVectors(
 
   const targets: Array<{ targetType: string; targetId: string }> = [];
   for (const segId of segmentIds) {
-    targets.push({ targetType: 'segment', targetId: segId });
+    targets.push({ targetType: "segment", targetId: segId });
   }
   for (const itemId of orphanedItemIds) {
-    targets.push({ targetType: 'item', targetId: itemId });
+    targets.push({ targetType: "item", targetId: itemId });
   }
 
   const results = await Promise.allSettled(
-    targets.map((t) => withQdrantBreaker(() => qdrant.deleteByTarget(t.targetType, t.targetId))),
+    targets.map((t) =>
+      withQdrantBreaker(() => qdrant.deleteByTarget(t.targetType, t.targetId)),
+    ),
   );
 
   let succeeded = 0;
   let failed = 0;
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
-    if (result.status === 'fulfilled') {
+    if (result.status === "fulfilled") {
       succeeded++;
     } else {
       failed++;
       const { targetType, targetId } = targets[i];
       log.warn(
         { err: result.reason, targetType, targetId, conversationId },
-        'Qdrant vector deletion failed, enqueuing retry job',
+        "Qdrant vector deletion failed, enqueuing retry job",
       );
-      enqueueMemoryJob('delete_qdrant_vectors', { targetType, targetId });
+      enqueueMemoryJob("delete_qdrant_vectors", { targetType, targetId });
     }
   }
 
   if (succeeded > 0) {
     log.info(
-      { conversationId, succeeded, failed, segments: segmentIds.length, items: orphanedItemIds.length },
-      'Cleaned up Qdrant vectors after regenerate',
+      {
+        conversationId,
+        succeeded,
+        failed,
+        segments: segmentIds.length,
+        items: orphanedItemIds.length,
+      },
+      "Cleaned up Qdrant vectors after regenerate",
     );
   }
 }
@@ -105,7 +113,10 @@ export async function cleanupQdrantVectors(
  * user messages. This ensures the database matches what the client sees
  * during streaming (one consolidated message per user request).
  */
-export function consolidateAssistantMessages(conversationId: string, userMessageId: string): void {
+export function consolidateAssistantMessages(
+  conversationId: string,
+  userMessageId: string,
+): void {
   const allMessages = conversationStore.getMessages(conversationId);
   const userMsgIndex = allMessages.findIndex((m) => m.id === userMessageId);
   if (userMsgIndex === -1) return;
@@ -117,14 +128,15 @@ export function consolidateAssistantMessages(conversationId: string, userMessage
   // Collect all assistant messages and internal tool_result user messages after this user message
   for (let i = userMsgIndex + 1; i < allMessages.length; i++) {
     const msg = allMessages[i];
-    if (msg.role === 'assistant') {
+    if (msg.role === "assistant") {
       messagesToConsolidate.push(msg);
-    } else if (msg.role === 'user') {
+    } else if (msg.role === "user") {
       // Check if this is an internal tool_result message (no text, only tool_result blocks)
       try {
         const content = JSON.parse(msg.content);
-        const isToolResultOnly = Array.isArray(content) &&
-          content.every((block) => block.type === 'tool_result') &&
+        const isToolResultOnly =
+          Array.isArray(content) &&
+          content.every((block) => block.type === "tool_result") &&
           content.length > 0;
         if (isToolResultOnly) {
           internalToolResultMessages.push(msg);
@@ -154,19 +166,29 @@ export function consolidateAssistantMessages(conversationId: string, userMessage
 
     // Clean up Qdrant vectors (fire-and-forget)
     if (allSegmentIds.length > 0 || allOrphanedItemIds.length > 0) {
-      cleanupQdrantVectors(conversationId, allSegmentIds, allOrphanedItemIds).catch((err) => {
-        log.warn({ err, conversationId }, 'Qdrant cleanup after consolidation failed (non-fatal)');
+      cleanupQdrantVectors(
+        conversationId,
+        allSegmentIds,
+        allOrphanedItemIds,
+      ).catch((err) => {
+        log.warn(
+          { err, conversationId },
+          "Qdrant cleanup after consolidation failed (non-fatal)",
+        );
       });
     }
     return;
   }
 
-  log.info({
-    conversationId,
-    userMessageId,
-    assistantCount: messagesToConsolidate.length,
-    internalMessageCount: messagesToDelete.length,
-  }, 'Consolidating assistant messages');
+  log.info(
+    {
+      conversationId,
+      userMessageId,
+      assistantCount: messagesToConsolidate.length,
+      internalMessageCount: messagesToDelete.length,
+    },
+    "Consolidating assistant messages",
+  );
 
   // Merge all content blocks from all assistant messages AND tool_result blocks from internal user messages
   const consolidatedContent: ContentBlock[] = [];
@@ -174,12 +196,24 @@ export function consolidateAssistantMessages(conversationId: string, userMessage
     try {
       const content = JSON.parse(msg.content);
       if (Array.isArray(content)) {
-        const toolUseBlocks = content.filter((b: Record<string, unknown>) => b.type === 'tool_use');
-        log.info({ messageId: msg.id, blockCount: content.length, toolUseCount: toolUseBlocks.length }, 'Consolidating assistant message content');
+        const toolUseBlocks = content.filter(
+          (b: Record<string, unknown>) => b.type === "tool_use",
+        );
+        log.info(
+          {
+            messageId: msg.id,
+            blockCount: content.length,
+            toolUseCount: toolUseBlocks.length,
+          },
+          "Consolidating assistant message content",
+        );
         consolidatedContent.push(...content);
       }
     } catch (err) {
-      log.warn({ err, messageId: msg.id }, 'Failed to parse message content during consolidation');
+      log.warn(
+        { err, messageId: msg.id },
+        "Failed to parse message content during consolidation",
+      );
     }
   }
 
@@ -188,22 +222,48 @@ export function consolidateAssistantMessages(conversationId: string, userMessage
     try {
       const content = JSON.parse(msg.content);
       if (Array.isArray(content)) {
-        const toolResultBlocks = content.filter((b: Record<string, unknown>) => b.type === 'tool_result');
-        log.info({ messageId: msg.id, blockCount: content.length, toolResultCount: toolResultBlocks.length }, 'Merging tool_result blocks from internal user message');
+        const toolResultBlocks = content.filter(
+          (b: Record<string, unknown>) => b.type === "tool_result",
+        );
+        log.info(
+          {
+            messageId: msg.id,
+            blockCount: content.length,
+            toolResultCount: toolResultBlocks.length,
+          },
+          "Merging tool_result blocks from internal user message",
+        );
         consolidatedContent.push(...content);
       }
     } catch (err) {
-      log.warn({ err, messageId: msg.id }, 'Failed to parse internal tool_result message during consolidation');
+      log.warn(
+        { err, messageId: msg.id },
+        "Failed to parse internal tool_result message during consolidation",
+      );
     }
   }
 
-  const toolUseBlocksInConsolidated = consolidatedContent.filter((b) => b.type === 'tool_use').length;
-  const toolResultBlocksInConsolidated = consolidatedContent.filter((b) => b.type === 'tool_result').length;
-  log.info({ totalBlocks: consolidatedContent.length, toolUseBlocks: toolUseBlocksInConsolidated, toolResultBlocks: toolResultBlocksInConsolidated }, 'Final consolidated content');
+  const toolUseBlocksInConsolidated = consolidatedContent.filter(
+    (b) => b.type === "tool_use",
+  ).length;
+  const toolResultBlocksInConsolidated = consolidatedContent.filter(
+    (b) => b.type === "tool_result",
+  ).length;
+  log.info(
+    {
+      totalBlocks: consolidatedContent.length,
+      toolUseBlocks: toolUseBlocksInConsolidated,
+      toolResultBlocks: toolResultBlocksInConsolidated,
+    },
+    "Final consolidated content",
+  );
 
   // Update the first assistant message with all content
   const firstAssistantMsg = messagesToConsolidate[0];
-  conversationStore.updateMessageContent(firstAssistantMsg.id, JSON.stringify(consolidatedContent));
+  conversationStore.updateMessageContent(
+    firstAssistantMsg.id,
+    JSON.stringify(consolidatedContent),
+  );
 
   // Re-link attachments from messages about to be deleted to the consolidated
   // message. Without this, ON DELETE CASCADE on message_attachments destroys
@@ -213,9 +273,15 @@ export function consolidateAssistantMessages(conversationId: string, userMessage
     ...messagesToDelete,
   ];
   if (messageIdsToDelete.length > 0) {
-    const relinked = conversationStore.relinkAttachments(messageIdsToDelete, firstAssistantMsg.id);
+    const relinked = conversationStore.relinkAttachments(
+      messageIdsToDelete,
+      firstAssistantMsg.id,
+    );
     if (relinked > 0) {
-      log.info({ relinked, targetMessageId: firstAssistantMsg.id }, 'Re-linked attachments to consolidated message');
+      log.info(
+        { relinked, targetMessageId: firstAssistantMsg.id },
+        "Re-linked attachments to consolidated message",
+      );
     }
   }
 
@@ -224,7 +290,9 @@ export function consolidateAssistantMessages(conversationId: string, userMessage
   const allSegmentIds: string[] = [];
   const allOrphanedItemIds: string[] = [];
   for (let i = 1; i < messagesToConsolidate.length; i++) {
-    const deleted = conversationStore.deleteMessageById(messagesToConsolidate[i].id);
+    const deleted = conversationStore.deleteMessageById(
+      messagesToConsolidate[i].id,
+    );
     allSegmentIds.push(...deleted.segmentIds);
     allOrphanedItemIds.push(...deleted.orphanedItemIds);
   }
@@ -236,16 +304,26 @@ export function consolidateAssistantMessages(conversationId: string, userMessage
 
   // Clean up Qdrant vectors (fire-and-forget)
   if (allSegmentIds.length > 0 || allOrphanedItemIds.length > 0) {
-    cleanupQdrantVectors(conversationId, allSegmentIds, allOrphanedItemIds).catch((err) => {
-      log.warn({ err, conversationId }, 'Qdrant cleanup after consolidation failed (non-fatal)');
+    cleanupQdrantVectors(
+      conversationId,
+      allSegmentIds,
+      allOrphanedItemIds,
+    ).catch((err) => {
+      log.warn(
+        { err, conversationId },
+        "Qdrant cleanup after consolidation failed (non-fatal)",
+      );
     });
   }
 
-  log.info({
-    conversationId,
-    consolidatedMessageId: firstAssistantMsg.id,
-    deletedCount: messagesToConsolidate.length - 1 + messagesToDelete.length,
-  }, 'Assistant messages consolidated');
+  log.info(
+    {
+      conversationId,
+      consolidatedMessageId: firstAssistantMsg.id,
+      deletedCount: messagesToConsolidate.length - 1 + messagesToDelete.length,
+    },
+    "Assistant messages consolidated",
+  );
 }
 
 // ── Undo ─────────────────────────────────────────────────────────────
@@ -264,7 +342,11 @@ export interface HistorySessionContext {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean; isUserMessage?: boolean; titleText?: string },
+    options?: {
+      skipPreMessageRollback?: boolean;
+      isUserMessage?: boolean;
+      titleText?: string;
+    },
   ): Promise<void>;
 }
 
@@ -321,13 +403,17 @@ export async function regenerate(
   requestId?: string,
 ): Promise<void> {
   if (session.processing) {
-    onEvent({ type: 'error', message: 'Cannot regenerate while processing' });
+    onEvent({ type: "error", message: "Cannot regenerate while processing" });
     if (requestId) {
-      session.traceEmitter.emit('request_error', 'Cannot regenerate while processing', {
-        requestId,
-        status: 'error',
-        attributes: { reason: 'already_processing' },
-      });
+      session.traceEmitter.emit(
+        "request_error",
+        "Cannot regenerate while processing",
+        {
+          requestId,
+          status: "error",
+          attributes: { reason: "already_processing" },
+        },
+      );
     }
     return;
   }
@@ -336,12 +422,12 @@ export async function regenerate(
   // assistant's exchange that we want to regenerate.
   const lastUserIdx = findLastUndoableUserMessageIndex(session.messages);
   if (lastUserIdx === -1) {
-    onEvent({ type: 'error', message: 'No messages to regenerate' });
+    onEvent({ type: "error", message: "No messages to regenerate" });
     if (requestId) {
-      session.traceEmitter.emit('request_error', 'No messages to regenerate', {
+      session.traceEmitter.emit("request_error", "No messages to regenerate", {
         requestId,
-        status: 'error',
-        attributes: { reason: 'no_messages' },
+        status: "error",
+        attributes: { reason: "no_messages" },
       });
     }
     return;
@@ -349,13 +435,17 @@ export async function regenerate(
 
   // There must be at least one message after the user message (the assistant reply).
   if (lastUserIdx >= session.messages.length - 1) {
-    onEvent({ type: 'error', message: 'No assistant response to regenerate' });
+    onEvent({ type: "error", message: "No assistant response to regenerate" });
     if (requestId) {
-      session.traceEmitter.emit('request_error', 'No assistant response to regenerate', {
-        requestId,
-        status: 'error',
-        attributes: { reason: 'no_assistant_response' },
-      });
+      session.traceEmitter.emit(
+        "request_error",
+        "No assistant response to regenerate",
+        {
+          requestId,
+          status: "error",
+          attributes: { reason: "no_assistant_response" },
+        },
+      );
     }
     return;
   }
@@ -370,25 +460,35 @@ export async function regenerate(
   // Walk backwards to find the last real (non-tool_result) user message in the DB.
   let dbUserMsgIdx = -1;
   for (let i = dbMessages.length - 1; i >= 0; i--) {
-    if (dbMessages[i].role !== 'user') continue;
+    if (dbMessages[i].role !== "user") continue;
     try {
       const parsed = JSON.parse(dbMessages[i].content);
-      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((b: Record<string, unknown>) => b.type === 'tool_result')) {
+      if (
+        Array.isArray(parsed) &&
+        parsed.length > 0 &&
+        parsed.every((b: Record<string, unknown>) => b.type === "tool_result")
+      ) {
         continue; // Skip tool_result-only user messages
       }
-    } catch { /* plain text = real user message */ }
+    } catch {
+      /* plain text = real user message */
+    }
     dbUserMsgIdx = i;
     break;
   }
 
   if (dbUserMsgIdx === -1) {
-    onEvent({ type: 'error', message: 'No user message found in DB' });
+    onEvent({ type: "error", message: "No user message found in DB" });
     if (requestId) {
-      session.traceEmitter.emit('request_error', 'No user message found in DB', {
-        requestId,
-        status: 'error',
-        attributes: { reason: 'no_db_user_message' },
-      });
+      session.traceEmitter.emit(
+        "request_error",
+        "No user message found in DB",
+        {
+          requestId,
+          status: "error",
+          attributes: { reason: "no_db_user_message" },
+        },
+      );
     }
     return;
   }
@@ -410,23 +510,32 @@ export async function regenerate(
   }
 
   // Clean up Qdrant vectors (fire-and-forget).
-  cleanupQdrantVectors(session.conversationId, allSegmentIds, allOrphanedItemIds).catch((err) => {
-    log.warn({ err, conversationId: session.conversationId }, 'Qdrant cleanup after regenerate failed (non-fatal)');
+  cleanupQdrantVectors(
+    session.conversationId,
+    allSegmentIds,
+    allOrphanedItemIds,
+  ).catch((err) => {
+    log.warn(
+      { err, conversationId: session.conversationId },
+      "Qdrant cleanup after regenerate failed (non-fatal)",
+    );
   });
 
   // Re-extract the user message content for the agent loop.
   // Use all content blocks (text, image, file) so attachments are
   // preserved — not just text blocks.
   const userMessage = session.messages[lastUserIdx];
-  const textBlocks = userMessage.content.filter(
-    (b) => b.type === 'text',
-  );
+  const textBlocks = userMessage.content.filter((b) => b.type === "text");
   const content = textBlocks
-    .map((b) => (b as { type: 'text'; text: string }).text)
-    .join('');
+    .map((b) => (b as { type: "text"; text: string }).text)
+    .join("");
 
   // Notify client that the old response has been removed.
-  onEvent({ type: 'undo_complete', removedCount: messagesToDelete.length, sessionId: session.conversationId });
+  onEvent({
+    type: "undo_complete",
+    removedCount: messagesToDelete.length,
+    sessionId: session.conversationId,
+  });
 
   // Set up processing state manually and call runAgentLoop directly,
   // bypassing processMessage to avoid duplicating the user message
@@ -435,5 +544,8 @@ export async function regenerate(
   session.abortController = new AbortController();
   session.currentRequestId = requestId ?? uuid();
 
-  await session.runAgentLoop(content, existingUserMessageId, onEvent, { skipPreMessageRollback: true, isUserMessage: true });
+  await session.runAgentLoop(content, existingUserMessageId, onEvent, {
+    skipPreMessageRollback: true,
+    isUserMessage: true,
+  });
 }

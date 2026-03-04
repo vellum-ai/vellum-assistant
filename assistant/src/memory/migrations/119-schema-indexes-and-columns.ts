@@ -1,5 +1,5 @@
-import type { DrizzleDb } from '../db-connection.js';
-import { getSqliteFrom } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
+import { getSqliteFrom } from "../db-connection.js";
 
 /**
  * Add indexes, a column, and a unique constraint for schema improvements:
@@ -9,12 +9,20 @@ import { getSqliteFrom } from '../db-connection.js';
  * - Unique index on notification_deliveries(notification_decision_id, channel)
  */
 export function migrateSchemaIndexesAndColumns(database: DrizzleDb): void {
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_sessions_status ON call_sessions(status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_conversation_id ON llm_usage_events(conversation_id)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_sessions_status ON call_sessions(status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_conversation_id ON llm_usage_events(conversation_id)`,
+  );
 
   try {
-    database.run(/*sql*/ `ALTER TABLE memory_jobs ADD COLUMN started_at INTEGER`);
-  } catch { /* already exists */ }
+    database.run(
+      /*sql*/ `ALTER TABLE memory_jobs ADD COLUMN started_at INTEGER`,
+    );
+  } catch {
+    /* already exists */
+  }
 
   // Ensure notification_decision_id column exists on notification_deliveries.
   // Migration 114 (createNotificationTables) should have created this column,
@@ -23,18 +31,24 @@ export function migrateSchemaIndexesAndColumns(database: DrizzleDb): void {
   // with runtime code that writes notificationDecisionId), we add the column
   // here if it is missing, then proceed unconditionally.
   const raw = getSqliteFrom(database);
-  const notifDdl = raw.query(
-    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notification_deliveries'`,
-  ).get() as { sql: string } | null;
+  const notifDdl = raw
+    .query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notification_deliveries'`,
+    )
+    .get() as { sql: string } | null;
 
-  if (notifDdl && !notifDdl.sql.includes('notification_decision_id')) {
+  if (notifDdl && !notifDdl.sql.includes("notification_decision_id")) {
     // ADD COLUMN cannot carry NOT NULL without a default in SQLite, so we add
     // it as nullable TEXT. Existing rows get NULL, which is valid until the
     // runtime backfills or replaces them. The unique index below is created
     // with WHERE NOT NULL to tolerate the transition period.
     try {
-      database.run(/*sql*/ `ALTER TABLE notification_deliveries ADD COLUMN notification_decision_id TEXT`);
-    } catch { /* column was added concurrently — safe to continue */ }
+      database.run(
+        /*sql*/ `ALTER TABLE notification_deliveries ADD COLUMN notification_decision_id TEXT`,
+      );
+    } catch {
+      /* column was added concurrently — safe to continue */
+    }
   }
 
   if (notifDdl) {
@@ -56,10 +70,16 @@ export function migrateSchemaIndexesAndColumns(database: DrizzleDb): void {
           WHERE rn = 1
         )
       `);
-    } catch { /* deduplication failed — unique index creation below may fail too, which is non-fatal */ }
+    } catch {
+      /* deduplication failed — unique index creation below may fail too, which is non-fatal */
+    }
 
     try {
-      database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_decision_channel ON notification_deliveries(notification_decision_id, channel) WHERE notification_decision_id IS NOT NULL`);
-    } catch { /* index already exists or constraint violation — safe to continue */ }
+      database.run(
+        /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_decision_channel ON notification_deliveries(notification_decision_id, channel) WHERE notification_decision_id IS NOT NULL`,
+      );
+    } catch {
+      /* index already exists or constraint violation — safe to continue */
+    }
   }
 }

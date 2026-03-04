@@ -25,7 +25,12 @@ export function createBrainGraphProxyHandler(config: GatewayConfig) {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+      controller.abort(
+        new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        ),
+      );
     }, config.runtimeTimeoutMs);
 
     let response: Response;
@@ -40,10 +45,16 @@ export function createBrainGraphProxyHandler(config: GatewayConfig) {
       clearTimeout(timeoutId);
       const duration = Math.round(performance.now() - start);
       if (err instanceof DOMException && err.name === "TimeoutError") {
-        log.error({ duration, upstream }, "Brain graph proxy upstream timed out");
+        log.error(
+          { duration, upstream },
+          "Brain graph proxy upstream timed out",
+        );
         return Response.json({ error: "Gateway Timeout" }, { status: 504 });
       }
-      log.error({ err, duration, upstream }, "Brain graph proxy upstream connection failed");
+      log.error(
+        { err, duration, upstream },
+        "Brain graph proxy upstream connection failed",
+      );
       return Response.json({ error: "Bad Gateway" }, { status: 502 });
     }
 
@@ -56,11 +67,20 @@ export function createBrainGraphProxyHandler(config: GatewayConfig) {
         { status: response.status, duration, upstream },
         "Brain graph proxy upstream error",
       );
-      return new Response(body, { status: response.status, headers: resHeaders });
+      return new Response(body, {
+        status: response.status,
+        headers: resHeaders,
+      });
     }
 
-    log.info({ status: response.status, duration, upstream }, "Brain graph proxy completed");
-    return new Response(response.body, { status: response.status, headers: resHeaders });
+    log.info(
+      { status: response.status, duration, upstream },
+      "Brain graph proxy completed",
+    );
+    return new Response(response.body, {
+      status: response.status,
+      headers: resHeaders,
+    });
   }
 
   async function handleBrainGraph(req: Request): Promise<Response> {

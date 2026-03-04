@@ -1,9 +1,23 @@
-import { batchGetMessages, createDraft, getProfile, listMessages } from '../../../../messaging/providers/gmail/client.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { err,ok, resolveProvider, withProviderToken } from './shared.js';
+import {
+  batchGetMessages,
+  createDraft,
+  getProfile,
+  listMessages,
+} from "../../../../messaging/providers/gmail/client.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
 
-function extractHeader(headers: Array<{ name: string; value: string }> | undefined, name: string): string {
-  return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? '';
+function extractHeader(
+  headers: Array<{ name: string; value: string }> | undefined,
+  name: string,
+): string {
+  return (
+    headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ??
+    ""
+  );
 }
 
 /**
@@ -13,7 +27,7 @@ function extractHeader(headers: Array<{ name: string; value: string }> | undefin
  */
 function parseAddressList(header: string): string[] {
   const addresses: string[] = [];
-  let current = '';
+  let current = "";
   let inQuotes = false;
   let inAngle = false;
 
@@ -23,16 +37,16 @@ function parseAddressList(header: string): string[] {
     if (ch === '"' && !inAngle) {
       inQuotes = !inQuotes;
       current += ch;
-    } else if (ch === '<' && !inQuotes) {
+    } else if (ch === "<" && !inQuotes) {
       inAngle = true;
       current += ch;
-    } else if (ch === '>' && !inQuotes) {
+    } else if (ch === ">" && !inQuotes) {
       inAngle = false;
       current += ch;
-    } else if (ch === ',' && !inQuotes && !inAngle) {
+    } else if (ch === "," && !inQuotes && !inAngle) {
       const trimmed = current.trim();
       if (trimmed) addresses.push(trimmed);
-      current = '';
+      current = "";
     } else {
       current += ch;
     }
@@ -62,54 +76,64 @@ function parseAddressList(header: string): string[] {
  */
 function extractEmail(address: string): string {
   // Strip parenthetical comments first to avoid matching addresses inside them
-  const cleaned = address.replace(/\(.*?\)/g, '');
+  const cleaned = address.replace(/\(.*?\)/g, "");
   const segments = [...cleaned.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
   if (segments.length > 0) {
-    const emailSegment = [...segments].reverse().find((s) => s.includes('@'));
+    const emailSegment = [...segments].reverse().find((s) => s.includes("@"));
     if (emailSegment) return emailSegment.trim().toLowerCase();
   }
-  return address.replace(/<[^>]+>/g, '').replace(/\(.*?\)/g, '').trim().toLowerCase();
+  return address
+    .replace(/<[^>]+>/g, "")
+    .replace(/\(.*?\)/g, "")
+    .trim()
+    .toLowerCase();
 }
 
-export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const conversationId = input.conversation_id as string;
   const threadId = input.thread_id as string;
   const text = input.text as string;
 
   if (!conversationId) {
-    return err('conversation_id is required.');
+    return err("conversation_id is required.");
   }
   if (!threadId) {
-    return err('thread_id is required.');
+    return err("thread_id is required.");
   }
   if (!text) {
-    return err('text is required.');
+    return err("text is required.");
   }
 
   try {
     const provider = resolveProvider(platform);
 
     // Gmail: create a threaded draft with reply-all recipients
-    if (provider.id === 'gmail') {
+    if (provider.id === "gmail") {
       return withProviderToken(provider, async (token) => {
         // Fetch thread messages to extract recipients and threading headers
         const list = await listMessages(token, `thread:${threadId}`, 10);
         if (!list.messages?.length) {
-          return err('No messages found in this thread.');
+          return err("No messages found in this thread.");
         }
 
-        const messages = await batchGetMessages(token, list.messages.map((m) => m.id), 'metadata', [
-          'From', 'To', 'Cc', 'Message-ID', 'Subject',
-        ]);
+        const messages = await batchGetMessages(
+          token,
+          list.messages.map((m) => m.id),
+          "metadata",
+          ["From", "To", "Cc", "Message-ID", "Subject"],
+        );
 
         // Use the latest message for threading and recipient extraction
         const latest = messages[messages.length - 1];
         const latestHeaders = latest.payload?.headers ?? [];
 
-        const messageIdHeader = extractHeader(latestHeaders, 'Message-ID');
-        let subject = extractHeader(latestHeaders, 'Subject');
-        if (subject && !subject.startsWith('Re:')) {
+        const messageIdHeader = extractHeader(latestHeaders, "Message-ID");
+        let subject = extractHeader(latestHeaders, "Subject");
+        if (subject && !subject.startsWith("Re:")) {
           subject = `Re: ${subject}`;
         }
 
@@ -121,9 +145,9 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
         const allCc = new Set<string>();
 
         // From the latest message: From goes to To, original To/Cc go to Cc
-        const fromAddr = extractHeader(latestHeaders, 'From');
-        const toAddrs = extractHeader(latestHeaders, 'To');
-        const ccAddrs = extractHeader(latestHeaders, 'Cc');
+        const fromAddr = extractHeader(latestHeaders, "From");
+        const toAddrs = extractHeader(latestHeaders, "To");
+        const ccAddrs = extractHeader(latestHeaders, "Cc");
 
         if (fromAddr) allRecipients.add(fromAddr);
         for (const addr of parseAddressList(toAddrs)) {
@@ -139,24 +163,27 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
         const ccList = [...allCc].filter(filterSelf);
 
         if (toList.length === 0) {
-          return err('Could not determine reply recipients from thread.');
+          return err("Could not determine reply recipients from thread.");
         }
 
         const draft = await createDraft(
           token,
-          toList.join(', '),
+          toList.join(", "),
           subject,
           text,
           messageIdHeader || undefined,
-          ccList.length > 0 ? ccList.join(', ') : undefined,
+          ccList.length > 0 ? ccList.join(", ") : undefined,
           undefined,
           threadId,
         );
 
-        const recipientSummary = ccList.length > 0
-          ? `To: ${toList.join(', ')}; Cc: ${ccList.join(', ')}`
-          : `To: ${toList.join(', ')}`;
-        return ok(`Gmail draft created (ID: ${draft.id}). ${recipientSummary}. Review in Gmail Drafts, then tell me to send it or send it yourself.`);
+        const recipientSummary =
+          ccList.length > 0
+            ? `To: ${toList.join(", ")}; Cc: ${ccList.join(", ")}`
+            : `To: ${toList.join(", ")}`;
+        return ok(
+          `Gmail draft created (ID: ${draft.id}). ${recipientSummary}. Review in Gmail Drafts, then tell me to send it or send it yourself.`,
+        );
       });
     }
 

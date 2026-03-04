@@ -1,6 +1,6 @@
 // Channel readiness types — reusable primitive for all channels.
 
-import type { ChannelId } from '../channels/types.js';
+import type { ChannelId } from "../channels/types.js";
 
 export type { ChannelId };
 
@@ -30,5 +30,7 @@ export interface ChannelProbeContext {}
 export interface ChannelProbe {
   channel: ChannelId;
   runLocalChecks(context?: ChannelProbeContext): ReadinessCheckResult[];
-  runRemoteChecks?(context?: ChannelProbeContext): Promise<ReadinessCheckResult[]>;
+  runRemoteChecks?(
+    context?: ChannelProbeContext,
+  ): Promise<ReadinessCheckResult[]>;
 }

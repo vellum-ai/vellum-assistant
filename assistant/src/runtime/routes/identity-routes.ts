@@ -2,14 +2,14 @@
  * Identity and health endpoint handlers.
  */
 
-import { existsSync, readFileSync, statfsSync,statSync } from 'node:fs';
-import { cpus, totalmem } from 'node:os';
-import { dirname,join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync, statfsSync, statSync } from "node:fs";
+import { cpus, totalmem } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { getBaseDataDir } from '../../config/env-registry.js';
-import { getWorkspacePromptPath, readLockfile } from '../../util/platform.js';
-import { httpError } from '../http-errors.js';
+import { getBaseDataDir } from "../../config/env-registry.js";
+import { getWorkspacePromptPath, readLockfile } from "../../util/platform.js";
+import { httpError } from "../http-errors.js";
 
 interface DiskSpaceInfo {
   path: string;
@@ -21,11 +21,12 @@ interface DiskSpaceInfo {
 function getDiskSpaceInfo(): DiskSpaceInfo | null {
   try {
     const baseDataDir = getBaseDataDir();
-    const diskPath = baseDataDir && existsSync(baseDataDir) ? baseDataDir : '/';
+    const diskPath = baseDataDir && existsSync(baseDataDir) ? baseDataDir : "/";
     const stats = statfsSync(diskPath);
     const totalBytes = stats.bsize * stats.blocks;
     const freeBytes = stats.bsize * stats.bavail;
-    const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
+    const bytesToMb = (b: number) =>
+      Math.round((b / (1024 * 1024)) * 100) / 100;
     return {
       path: diskPath,
       totalMb: bytesToMb(totalBytes),
@@ -47,18 +48,25 @@ interface MemoryInfo {
 // cgroups v1: /sys/fs/cgroup/memory/memory.limit_in_bytes (large sentinel when unlimited)
 function getContainerMemoryLimitBytes(): number | null {
   try {
-    const v2 = readFileSync('/sys/fs/cgroup/memory.max', 'utf-8').trim();
-    if (v2 !== 'max') {
+    const v2 = readFileSync("/sys/fs/cgroup/memory.max", "utf-8").trim();
+    if (v2 !== "max") {
       const bytes = parseInt(v2, 10);
       if (!isNaN(bytes) && bytes > 0) return bytes;
     }
-  } catch { /* not available */ }
+  } catch {
+    /* not available */
+  }
   try {
-    const v1 = readFileSync('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf-8').trim();
+    const v1 = readFileSync(
+      "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+      "utf-8",
+    ).trim();
     const bytes = parseInt(v1, 10);
     // cgroups v1 uses a near-INT64_MAX sentinel when no limit is set
     if (!isNaN(bytes) && bytes > 0 && bytes < totalmem() * 1.5) return bytes;
-  } catch { /* not available */ }
+  } catch {
+    /* not available */
+  }
   return null;
 }
 
@@ -89,7 +97,8 @@ setInterval(() => {
   const elapsedMs = now - _lastCpuTime;
   if (elapsedMs > 0) {
     const deltaCpuUs =
-      (newUsage.user - _lastCpuUsage.user) +
+      newUsage.user -
+      _lastCpuUsage.user +
       (newUsage.system - _lastCpuUsage.system);
     const deltaCpuMs = deltaCpuUs / 1000;
     const numCores = cpus().length;
@@ -109,8 +118,11 @@ function getCpuInfo(): CpuInfo {
 
 function getPackageVersion(): string | undefined {
   try {
-    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../../package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    const pkgPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../package.json",
+    );
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.version;
   } catch {
     return undefined;
@@ -119,7 +131,7 @@ function getPackageVersion(): string | undefined {
 
 export function handleHealth(): Response {
   return Response.json({
-    status: 'healthy',
+    status: "healthy",
     timestamp: new Date().toISOString(),
     version: getPackageVersion(),
     disk: getDiskSpaceInfo(),
@@ -129,31 +141,46 @@ export function handleHealth(): Response {
 }
 
 export function handleGetIdentity(): Response {
-  const identityPath = getWorkspacePromptPath('IDENTITY.md');
+  const identityPath = getWorkspacePromptPath("IDENTITY.md");
   if (!existsSync(identityPath)) {
-    return httpError('NOT_FOUND', 'IDENTITY.md not found', 404);
+    return httpError("NOT_FOUND", "IDENTITY.md not found", 404);
   }
 
-  const content = readFileSync(identityPath, 'utf-8');
+  const content = readFileSync(identityPath, "utf-8");
   const fields: Record<string, string> = {};
-  for (const line of content.split('\n')) {
+  for (const line of content.split("\n")) {
     const trimmed = line.trim();
     const lower = trimmed.toLowerCase();
     const extract = (prefix: string): string | null => {
       if (!lower.startsWith(prefix)) return null;
-      return trimmed.split(':**').pop()?.trim() ?? null;
+      return trimmed.split(":**").pop()?.trim() ?? null;
     };
 
-    const name = extract('- **name:**');
-    if (name) { fields.name = name; continue; }
-    const role = extract('- **role:**');
-    if (role) { fields.role = role; continue; }
-    const personality = extract('- **personality:**') ?? extract('- **vibe:**');
-    if (personality) { fields.personality = personality; continue; }
-    const emoji = extract('- **emoji:**');
-    if (emoji) { fields.emoji = emoji; continue; }
-    const home = extract('- **home:**');
-    if (home) { fields.home = home; continue; }
+    const name = extract("- **name:**");
+    if (name) {
+      fields.name = name;
+      continue;
+    }
+    const role = extract("- **role:**");
+    if (role) {
+      fields.role = role;
+      continue;
+    }
+    const personality = extract("- **personality:**") ?? extract("- **vibe:**");
+    if (personality) {
+      fields.personality = personality;
+      continue;
+    }
+    const emoji = extract("- **emoji:**");
+    if (emoji) {
+      fields.emoji = emoji;
+      continue;
+    }
+    const home = extract("- **home:**");
+    if (home) {
+      fields.home = home;
+      continue;
+    }
   }
 
   const version = getPackageVersion();
@@ -173,29 +200,31 @@ export function handleGetIdentity(): Response {
   let originSystem: string | undefined;
   try {
     const lockData = readLockfile();
-    const assistants = lockData?.assistants as Array<Record<string, unknown>> | undefined;
+    const assistants = lockData?.assistants as
+      | Array<Record<string, unknown>>
+      | undefined;
     if (assistants && assistants.length > 0) {
       // Use the most recently hatched assistant
       const sorted = [...assistants].sort((a, b) => {
-        const dateA = new Date(a.hatchedAt as string || 0).getTime();
-        const dateB = new Date(b.hatchedAt as string || 0).getTime();
+        const dateA = new Date((a.hatchedAt as string) || 0).getTime();
+        const dateB = new Date((b.hatchedAt as string) || 0).getTime();
         return dateB - dateA;
       });
       const latest = sorted[0];
       assistantId = latest.assistantId as string | undefined;
       cloud = latest.cloud as string | undefined;
-      originSystem = cloud === 'local' ? 'local' : cloud;
+      originSystem = cloud === "local" ? "local" : cloud;
     }
   } catch {
     // ignore -- lockfile may not exist
   }
 
   return Response.json({
-    name: fields.name ?? '',
-    role: fields.role ?? '',
-    personality: fields.personality ?? '',
-    emoji: fields.emoji ?? '',
-    home: fields.home ?? '',
+    name: fields.name ?? "",
+    role: fields.role ?? "",
+    personality: fields.personality ?? "",
+    emoji: fields.emoji ?? "",
+    home: fields.home ?? "",
     version,
     assistantId,
     createdAt,

@@ -6,20 +6,30 @@
  * testable while keeping shared mutable state bundled in EventHandlerState.
  */
 
-import type pino from 'pino';
+import type pino from "pino";
 
-import type { AgentEvent } from '../agent/loop.js';
-import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromTrustContext } from '../memory/conversation-store.js';
-import { recordRequestLog } from '../memory/llm-request-log-store.js';
-import type { ContentBlock, ImageContent } from '../providers/types.js';
-import type { DirectiveRequest } from './assistant-attachments.js';
-import { cleanAssistantContent, drainDirectiveDisplayBuffer } from './assistant-attachments.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import type { AgentLoopSessionContext } from './session-agent-loop.js';
-import { buildSessionErrorMessage,classifySessionError, isContextTooLarge } from './session-error.js';
-import { isProviderOrderingError } from './session-slash.js';
+import type { AgentEvent } from "../agent/loop.js";
+import type {
+  TurnChannelContext,
+  TurnInterfaceContext,
+} from "../channels/types.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import { recordRequestLog } from "../memory/llm-request-log-store.js";
+import type { ContentBlock, ImageContent } from "../providers/types.js";
+import type { DirectiveRequest } from "./assistant-attachments.js";
+import {
+  cleanAssistantContent,
+  drainDirectiveDisplayBuffer,
+} from "./assistant-attachments.js";
+import type { ServerMessage } from "./ipc-protocol.js";
+import type { AgentLoopSessionContext } from "./session-agent-loop.js";
+import {
+  buildSessionErrorMessage,
+  classifySessionError,
+  isContextTooLarge,
+} from "./session-error.js";
+import { isProviderOrderingError } from "./session-slash.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -75,11 +85,11 @@ export interface EventHandlerDeps {
 export function createEventHandlerState(): EventHandlerState {
   return {
     llmCallStartedEmitted: false,
-    pendingDirectiveDisplayBuffer: '',
-    firstAssistantText: '',
+    pendingDirectiveDisplayBuffer: "",
+    firstAssistantText: "",
     exchangeInputTokens: 0,
     exchangeOutputTokens: 0,
-    model: '',
+    model: "",
     orderingErrorDetected: false,
     deferredOrderingError: null,
     contextTooLargeDetected: false,
@@ -106,11 +116,18 @@ export function emitLlmCallStartedIfNeeded(
 ): void {
   if (state.llmCallStartedEmitted) return;
   state.llmCallStartedEmitted = true;
-  deps.ctx.traceEmitter.emit('llm_call_started', `LLM call to ${deps.ctx.provider.name}`, {
-    requestId: deps.reqId,
-    status: 'info',
-    attributes: { provider: deps.ctx.provider.name, model: state.model || 'unknown' },
-  });
+  deps.ctx.traceEmitter.emit(
+    "llm_call_started",
+    `LLM call to ${deps.ctx.provider.name}`,
+    {
+      requestId: deps.reqId,
+      status: "info",
+      attributes: {
+        provider: deps.ctx.provider.name,
+        model: state.model || "unknown",
+      },
+    },
+  );
 }
 
 // ── IPC Size Caps ────────────────────────────────────────────────────
@@ -120,15 +137,19 @@ export function emitLlmCallStartedIfNeeded(
 // the client's main thread.
 
 const TOOL_RESULT_MAX_CHARS = 2_000;
-const TOOL_RESULT_TRUNCATION_SUFFIX = '...[truncated]';
+const TOOL_RESULT_TRUNCATION_SUFFIX = "...[truncated]";
 
 // tool_input_delta streams accumulated JSON as tools run. For non-app
 // tools the client discards it (extractCodePreview only handles app tools),
 // so we cap it aggressively to avoid excessive IPC traffic.
 const TOOL_INPUT_DELTA_MAX_CHARS = 50_000;
-const APP_TOOL_NAMES = new Set(['app_create', 'app_update']);
+const APP_TOOL_NAMES = new Set(["app_create", "app_update"]);
 
-function truncateForIpc(value: string, maxChars: number, suffix: string): string {
+function truncateForIpc(
+  value: string,
+  maxChars: number,
+  suffix: string,
+): string {
   if (value.length <= maxChars) return value;
   return value.slice(0, maxChars - suffix.length) + suffix;
 }
@@ -136,27 +157,27 @@ function truncateForIpc(value: string, maxChars: number, suffix: string): string
 // ── Friendly Tool Names ──────────────────────────────────────────────
 
 const TOOL_FRIENDLY_NAMES: Record<string, string> = {
-  bash: 'command',
-  web_search: 'web search',
-  web_fetch: 'web fetch',
-  file_read: 'file read',
-  file_write: 'file write',
-  file_edit: 'file edit',
-  browser_navigate: 'browser',
-  browser_click: 'browser',
-  browser_type: 'browser',
-  browser_screenshot: 'browser',
-  browser_scroll: 'browser',
-  browser_wait: 'browser',
-  app_create: 'app',
-  app_update: 'app',
-  skill_load: 'skill',
-  app_file_edit: 'app file',
-  app_file_write: 'app file',
+  bash: "command",
+  web_search: "web search",
+  web_fetch: "web fetch",
+  file_read: "file read",
+  file_write: "file write",
+  file_edit: "file edit",
+  browser_navigate: "browser",
+  browser_click: "browser",
+  browser_type: "browser",
+  browser_screenshot: "browser",
+  browser_scroll: "browser",
+  browser_wait: "browser",
+  app_create: "app",
+  app_update: "app",
+  skill_load: "skill",
+  app_file_edit: "app file",
+  app_file_write: "app file",
 };
 
 function friendlyToolName(name: string): string {
-  return TOOL_FRIENDLY_NAMES[name] ?? name.replace(/_/g, ' ');
+  return TOOL_FRIENDLY_NAMES[name] ?? name.replace(/_/g, " ");
 }
 
 // ── Individual Handlers ──────────────────────────────────────────────
@@ -164,18 +185,29 @@ function friendlyToolName(name: string): string {
 export function handleTextDelta(
   state: EventHandlerState,
   deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: 'text_delta' }>,
+  event: Extract<AgentEvent, { type: "text_delta" }>,
 ): void {
   emitLlmCallStartedIfNeeded(state, deps);
   state.pendingDirectiveDisplayBuffer += event.text;
-  const drained = drainDirectiveDisplayBuffer(state.pendingDirectiveDisplayBuffer);
+  const drained = drainDirectiveDisplayBuffer(
+    state.pendingDirectiveDisplayBuffer,
+  );
   state.pendingDirectiveDisplayBuffer = drained.bufferedRemainder;
   if (drained.emitText.length > 0) {
     if (!state.firstTextDeltaEmitted) {
       state.firstTextDeltaEmitted = true;
-      deps.ctx.emitActivityState('streaming', 'first_text_delta', 'assistant_turn', deps.reqId);
+      deps.ctx.emitActivityState(
+        "streaming",
+        "first_text_delta",
+        "assistant_turn",
+        deps.reqId,
+      );
     }
-    deps.onEvent({ type: 'assistant_text_delta', text: drained.emitText, sessionId: deps.ctx.conversationId });
+    deps.onEvent({
+      type: "assistant_text_delta",
+      text: drained.emitText,
+      sessionId: deps.ctx.conversationId,
+    });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
   }
 }
@@ -183,7 +215,7 @@ export function handleTextDelta(
 export function handleThinkingDelta(
   state: EventHandlerState,
   deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: 'thinking_delta' }>,
+  event: Extract<AgentEvent, { type: "thinking_delta" }>,
 ): void {
   if (!state.firstThinkingDeltaEmitted) {
     state.firstThinkingDeltaEmitted = true;
@@ -197,51 +229,89 @@ export function handleThinkingDelta(
     // assistantStatusText for every assistant_activity_state event.
     if (lastToolName) {
       const statusText = `Processing ${friendlyToolName(lastToolName)} results`;
-      deps.ctx.emitActivityState('thinking', 'thinking_delta', 'assistant_turn', deps.reqId, statusText);
+      deps.ctx.emitActivityState(
+        "thinking",
+        "thinking_delta",
+        "assistant_turn",
+        deps.reqId,
+        statusText,
+      );
     }
   }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
-  deps.onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
+  deps.onEvent({ type: "assistant_thinking_delta", thinking: event.thinking });
 }
 
 export function handleToolUse(
   state: EventHandlerState,
   deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: 'tool_use' }>,
+  event: Extract<AgentEvent, { type: "tool_use" }>,
 ): void {
   state.toolUseIdToName.set(event.id, event.name);
   state.currentTurnToolNames.push(event.name);
   const statusText = `Running ${friendlyToolName(event.name)}`;
-  deps.ctx.emitActivityState('tool_running', 'tool_use_start', 'assistant_turn', deps.reqId, statusText);
-  deps.onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: deps.ctx.conversationId });
+  deps.ctx.emitActivityState(
+    "tool_running",
+    "tool_use_start",
+    "assistant_turn",
+    deps.reqId,
+    statusText,
+  );
+  deps.onEvent({
+    type: "tool_use_start",
+    toolName: event.name,
+    input: event.input,
+    sessionId: deps.ctx.conversationId,
+  });
 }
 
 export function handleToolOutputChunk(
   _state: EventHandlerState,
   deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: 'tool_output_chunk' }>,
+  event: Extract<AgentEvent, { type: "tool_output_chunk" }>,
 ): void {
-  let structured: {
-    subType?: 'tool_start' | 'tool_complete' | 'status';
-    subToolName?: string;
-    subToolInput?: string;
-    subToolIsError?: boolean;
-    subToolId?: string;
-  } | undefined;
+  let structured:
+    | {
+        subType?: "tool_start" | "tool_complete" | "status";
+        subToolName?: string;
+        subToolInput?: string;
+        subToolIsError?: boolean;
+        subToolId?: string;
+      }
+    | undefined;
 
   const trimmed = event.chunk.trimStart();
-  if (trimmed.length > 0 && trimmed.length < 4096 && trimmed[0] === '{') {
+  if (trimmed.length > 0 && trimmed.length < 4096 && trimmed[0] === "{") {
     try {
       const parsed = JSON.parse(event.chunk);
-      const VALID_SUB_TYPES = new Set(['tool_start', 'tool_complete', 'status']);
-      if (parsed && typeof parsed === 'object' && typeof parsed.subType === 'string' && VALID_SUB_TYPES.has(parsed.subType)) {
+      const VALID_SUB_TYPES = new Set([
+        "tool_start",
+        "tool_complete",
+        "status",
+      ]);
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        typeof parsed.subType === "string" &&
+        VALID_SUB_TYPES.has(parsed.subType)
+      ) {
         structured = {
-          subType: parsed.subType as 'tool_start' | 'tool_complete' | 'status',
-          subToolName: typeof parsed.subToolName === 'string' ? parsed.subToolName : undefined,
-          subToolInput: typeof parsed.subToolInput === 'string' ? parsed.subToolInput : undefined,
-          subToolIsError: typeof parsed.subToolIsError === 'boolean' ? parsed.subToolIsError : undefined,
-          subToolId: typeof parsed.subToolId === 'string' ? parsed.subToolId : undefined,
+          subType: parsed.subType as "tool_start" | "tool_complete" | "status",
+          subToolName:
+            typeof parsed.subToolName === "string"
+              ? parsed.subToolName
+              : undefined,
+          subToolInput:
+            typeof parsed.subToolInput === "string"
+              ? parsed.subToolInput
+              : undefined,
+          subToolIsError:
+            typeof parsed.subToolIsError === "boolean"
+              ? parsed.subToolIsError
+              : undefined,
+          subToolId:
+            typeof parsed.subToolId === "string" ? parsed.subToolId : undefined,
         };
       }
     } catch {
@@ -251,7 +321,7 @@ export function handleToolOutputChunk(
 
   if (structured) {
     deps.onEvent({
-      type: 'tool_output_chunk',
+      type: "tool_output_chunk",
       chunk: event.chunk,
       sessionId: deps.ctx.conversationId,
       subType: structured.subType,
@@ -261,33 +331,52 @@ export function handleToolOutputChunk(
       subToolId: structured.subToolId,
     });
   } else {
-    deps.onEvent({ type: 'tool_output_chunk', chunk: event.chunk, sessionId: deps.ctx.conversationId });
+    deps.onEvent({
+      type: "tool_output_chunk",
+      chunk: event.chunk,
+      sessionId: deps.ctx.conversationId,
+    });
   }
 }
 
 export function handleInputJsonDelta(
   _state: EventHandlerState,
   deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: 'input_json_delta' }>,
+  event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
   // Cap non-app tool input deltas — the client only uses this data for
   // app_create/app_update code previews; all other tools discard it.
   const content = APP_TOOL_NAMES.has(event.toolName)
     ? event.accumulatedJson
-    : truncateForIpc(event.accumulatedJson, TOOL_INPUT_DELTA_MAX_CHARS, TOOL_RESULT_TRUNCATION_SUFFIX);
-  deps.onEvent({ type: 'tool_input_delta', toolName: event.toolName, content, sessionId: deps.ctx.conversationId });
+    : truncateForIpc(
+        event.accumulatedJson,
+        TOOL_INPUT_DELTA_MAX_CHARS,
+        TOOL_RESULT_TRUNCATION_SUFFIX,
+      );
+  deps.onEvent({
+    type: "tool_input_delta",
+    toolName: event.toolName,
+    content,
+    sessionId: deps.ctx.conversationId,
+  });
 }
 
 export function handleToolResult(
   state: EventHandlerState,
   deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: 'tool_result' }>,
+  event: Extract<AgentEvent, { type: "tool_result" }>,
 ): void {
-  const imageBlock = event.contentBlocks?.find((b): b is ImageContent => b.type === 'image');
+  const imageBlock = event.contentBlocks?.find(
+    (b): b is ImageContent => b.type === "image",
+  );
   deps.onEvent({
-    type: 'tool_result',
-    toolName: '',
-    result: truncateForIpc(event.content, TOOL_RESULT_MAX_CHARS, TOOL_RESULT_TRUNCATION_SUFFIX),
+    type: "tool_result",
+    toolName: "",
+    result: truncateForIpc(
+      event.content,
+      TOOL_RESULT_MAX_CHARS,
+      TOOL_RESULT_TRUNCATION_SUFFIX,
+    ),
     isError: event.isError,
     diff: event.diff,
     status: event.status,
@@ -301,15 +390,15 @@ export function handleToolResult(
   });
 
   const toolName = state.toolUseIdToName.get(event.toolUseId);
-  if (toolName === 'file_write' || toolName === 'bash') {
+  if (toolName === "file_write" || toolName === "bash") {
     deps.ctx.markWorkspaceTopLevelDirty();
-  } else if (toolName === 'file_edit' && !event.isError) {
+  } else if (toolName === "file_edit" && !event.isError) {
     deps.ctx.markWorkspaceTopLevelDirty();
   }
 
   if (event.contentBlocks) {
     for (const cb of event.contentBlocks) {
-      if (cb.type === 'image' || cb.type === 'file') {
+      if (cb.type === "image" || cb.type === "file") {
         state.accumulatedToolContentBlocks.push(cb);
       }
     }
@@ -325,14 +414,22 @@ export function handleToolResult(
 
   // Emit activity state immediately so clients show a thinking indicator
   // during the gap between tool_result and the next thinking_delta/text_delta.
-  const statusText = `Processing ${friendlyToolName(state.lastCompletedToolName ?? '')} results`;
-  deps.ctx.emitActivityState('thinking', 'tool_result_received', 'assistant_turn', deps.reqId, statusText);
+  const statusText = `Processing ${friendlyToolName(
+    state.lastCompletedToolName ?? "",
+  )} results`;
+  deps.ctx.emitActivityState(
+    "thinking",
+    "tool_result_received",
+    "assistant_turn",
+    deps.reqId,
+    statusText,
+  );
 }
 
 export function handleError(
   state: EventHandlerState,
   deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: 'error' }>,
+  event: Extract<AgentEvent, { type: "error" }>,
 ): void {
   if (isProviderOrderingError(event.error.message)) {
     state.orderingErrorDetected = true;
@@ -340,11 +437,15 @@ export function handleError(
   } else if (isContextTooLarge(event.error.message)) {
     state.contextTooLargeDetected = true;
   } else {
-    const classified = classifySessionError(event.error, { phase: 'agent_loop' });
-    if (classified.code === 'CONTEXT_TOO_LARGE') {
+    const classified = classifySessionError(event.error, {
+      phase: "agent_loop",
+    });
+    if (classified.code === "CONTEXT_TOO_LARGE") {
       state.contextTooLargeDetected = true;
     } else {
-      deps.onEvent(buildSessionErrorMessage(deps.ctx.conversationId, classified));
+      deps.onEvent(
+        buildSessionErrorMessage(deps.ctx.conversationId, classified),
+      );
       state.providerErrorUserMessage = classified.userMessage;
     }
   }
@@ -353,28 +454,31 @@ export function handleError(
 export async function handleMessageComplete(
   state: EventHandlerState,
   deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: 'message_complete' }>,
+  event: Extract<AgentEvent, { type: "message_complete" }>,
 ): Promise<void> {
   // Flush any remaining directive display buffer
   if (state.pendingDirectiveDisplayBuffer.length > 0) {
     deps.onEvent({
-      type: 'assistant_text_delta',
+      type: "assistant_text_delta",
       text: state.pendingDirectiveDisplayBuffer,
       sessionId: deps.ctx.conversationId,
     });
-    if (deps.shouldGenerateTitle) state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
-    state.pendingDirectiveDisplayBuffer = '';
+    if (deps.shouldGenerateTitle)
+      state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
+    state.pendingDirectiveDisplayBuffer = "";
   }
 
   // Persist pending tool results
   if (state.pendingToolResults.size > 0) {
     const toolResultBlocks = Array.from(state.pendingToolResults.entries()).map(
       ([toolUseId, result]) => ({
-        type: 'tool_result',
+        type: "tool_result",
         tool_use_id: toolUseId,
         content: result.content,
         is_error: result.isError,
-        ...(result.contentBlocks ? { contentBlocks: result.contentBlocks } : {}),
+        ...(result.contentBlocks
+          ? { contentBlocks: result.contentBlocks }
+          : {}),
       }),
     );
     const toolResultMetadata = {
@@ -382,11 +486,12 @@ export async function handleMessageComplete(
       userMessageChannel: deps.turnChannelContext.userMessageChannel,
       assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
       userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
-      assistantMessageInterface: deps.turnInterfaceContext.assistantMessageInterface,
+      assistantMessageInterface:
+        deps.turnInterfaceContext.assistantMessageInterface,
     };
     await conversationStore.addMessage(
       deps.ctx.conversationId,
-      'user',
+      "user",
       JSON.stringify(toolResultBlocks),
       toolResultMetadata,
     );
@@ -397,15 +502,25 @@ export async function handleMessageComplete(
   }
 
   // Clean assistant content and accumulate directives
-  const { cleanedContent, directives: msgDirectives, warnings: msgWarnings } =
-    cleanAssistantContent(event.message.content);
+  const {
+    cleanedContent,
+    directives: msgDirectives,
+    warnings: msgWarnings,
+  } = cleanAssistantContent(event.message.content);
   const cleanedBlocks = cleanedContent as ContentBlock[];
   state.accumulatedDirectives.push(...msgDirectives);
   state.directiveWarnings.push(...msgWarnings);
   if (msgDirectives.length > 0) {
     deps.rlog.info(
-      { parsedDirectives: msgDirectives.map(d => ({ source: d.source, path: d.path, mimeType: d.mimeType })), totalAccumulated: state.accumulatedDirectives.length },
-      'Parsed attachment directives from assistant message',
+      {
+        parsedDirectives: msgDirectives.map((d) => ({
+          source: d.source,
+          path: d.path,
+          mimeType: d.mimeType,
+        })),
+        totalAccumulated: state.accumulatedDirectives.length,
+      },
+      "Parsed attachment directives from assistant message",
     );
   }
 
@@ -413,7 +528,7 @@ export async function handleMessageComplete(
   const contentWithSurfaces: ContentBlock[] = [...cleanedBlocks];
   for (const surface of deps.ctx.currentTurnSurfaces) {
     contentWithSurfaces.push({
-      type: 'ui_surface',
+      type: "ui_surface",
       surfaceId: surface.surfaceId,
       surfaceType: surface.surfaceType,
       title: surface.title,
@@ -428,11 +543,12 @@ export async function handleMessageComplete(
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
-    assistantMessageInterface: deps.turnInterfaceContext.assistantMessageInterface,
+    assistantMessageInterface:
+      deps.turnInterfaceContext.assistantMessageInterface,
   };
   const assistantMsg = await conversationStore.addMessage(
     deps.ctx.conversationId,
-    'assistant',
+    "assistant",
     JSON.stringify(contentWithSurfaces),
     assistantChannelMetadata,
   );
@@ -442,22 +558,28 @@ export async function handleMessageComplete(
 
   // Emit trace event
   const charCount = cleanedBlocks
-    .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+    .filter(
+      (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+    )
     .reduce((sum, b) => sum + b.text.length, 0);
-  const toolUseCount = event.message.content
-    .filter((b) => b.type === 'tool_use')
-    .length;
-  deps.ctx.traceEmitter.emit('assistant_message', 'Assistant message complete', {
-    requestId: deps.reqId,
-    status: 'success',
-    attributes: { charCount, toolUseCount },
-  });
+  const toolUseCount = event.message.content.filter(
+    (b) => b.type === "tool_use",
+  ).length;
+  deps.ctx.traceEmitter.emit(
+    "assistant_message",
+    "Assistant message complete",
+    {
+      requestId: deps.reqId,
+      status: "success",
+      attributes: { charCount, toolUseCount },
+    },
+  );
 }
 
 export function handleUsage(
   state: EventHandlerState,
   deps: EventHandlerDeps,
-  event: Extract<AgentEvent, { type: 'usage' }>,
+  event: Extract<AgentEvent, { type: "usage" }>,
 ): void {
   state.exchangeInputTokens += event.inputTokens;
   state.exchangeOutputTokens += event.outputTokens;
@@ -471,23 +593,27 @@ export function handleUsage(
         JSON.stringify(event.rawResponse),
       );
     } catch (err) {
-      deps.rlog.warn({ err }, 'Failed to persist LLM request log (non-fatal)');
+      deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");
     }
   }
 
   emitLlmCallStartedIfNeeded(state, deps);
 
-  deps.ctx.traceEmitter.emit('llm_call_finished', `LLM call to ${deps.ctx.provider.name} finished`, {
-    requestId: deps.reqId,
-    status: 'success',
-    attributes: {
-      provider: deps.ctx.provider.name,
-      model: event.model,
-      inputTokens: event.inputTokens,
-      outputTokens: event.outputTokens,
-      latencyMs: event.providerDurationMs,
+  deps.ctx.traceEmitter.emit(
+    "llm_call_finished",
+    `LLM call to ${deps.ctx.provider.name} finished`,
+    {
+      requestId: deps.reqId,
+      status: "success",
+      attributes: {
+        provider: deps.ctx.provider.name,
+        model: event.model,
+        inputTokens: event.inputTokens,
+        outputTokens: event.outputTokens,
+        latencyMs: event.providerDurationMs,
+      },
     },
-  });
+  );
   state.llmCallStartedEmitted = false;
 }
 
@@ -500,31 +626,31 @@ export async function dispatchAgentEvent(
   event: AgentEvent,
 ): Promise<void> {
   switch (event.type) {
-    case 'text_delta':
+    case "text_delta":
       handleTextDelta(state, deps, event);
       break;
-    case 'thinking_delta':
+    case "thinking_delta":
       handleThinkingDelta(state, deps, event);
       break;
-    case 'tool_use':
+    case "tool_use":
       handleToolUse(state, deps, event);
       break;
-    case 'tool_output_chunk':
+    case "tool_output_chunk":
       handleToolOutputChunk(state, deps, event);
       break;
-    case 'input_json_delta':
+    case "input_json_delta":
       handleInputJsonDelta(state, deps, event);
       break;
-    case 'tool_result':
+    case "tool_result":
       handleToolResult(state, deps, event);
       break;
-    case 'error':
+    case "error":
       handleError(state, deps, event);
       break;
-    case 'message_complete':
+    case "message_complete":
       await handleMessageComplete(state, deps, event);
       break;
-    case 'usage':
+    case "usage":
       handleUsage(state, deps, event);
       break;
   }

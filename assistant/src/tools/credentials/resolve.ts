@@ -6,14 +6,14 @@
  * secure key naming convention.
  */
 
-import { matchHostPattern } from './host-pattern-match.js';
+import { matchHostPattern } from "./host-pattern-match.js";
 import {
   type CredentialMetadata,
   getCredentialMetadata,
   getCredentialMetadataById,
   listCredentialMetadata,
-} from './metadata-store.js';
-import type { CredentialInjectionTemplate } from './policy-types.js';
+} from "./metadata-store.js";
+import type { CredentialInjectionTemplate } from "./policy-types.js";
 
 export interface ResolvedCredential {
   credentialId: string;
@@ -85,10 +85,10 @@ export function resolveCredentialRef(
   if (byId) return byId;
 
   // Try as service/field
-  const slashIndex = ref.indexOf('/');
+  const slashIndex = ref.indexOf("/");
   if (slashIndex <= 0 || slashIndex >= ref.length - 1) return undefined;
   // Reject refs with more than one slash (e.g. "fal/api/key")
-  if (ref.indexOf('/', slashIndex + 1) !== -1) return undefined;
+  if (ref.indexOf("/", slashIndex + 1) !== -1) return undefined;
 
   const service = ref.slice(0, slashIndex);
   const field = ref.slice(slashIndex + 1);
@@ -100,16 +100,17 @@ export function resolveCredentialRef(
  * Returns resolved credentials with their `injectionTemplates` filtered
  * to only the matching entries.
  */
-export function resolveForDomain(
-  hostname: string,
-): ResolvedCredential[] {
+export function resolveForDomain(hostname: string): ResolvedCredential[] {
   const all = listCredentialMetadata();
   const results: ResolvedCredential[] = [];
 
   for (const meta of all) {
     const templates = meta.injectionTemplates ?? [];
-    const matching = templates.filter((t) =>
-      matchHostPattern(hostname, t.hostPattern, { includeApexForWildcard: true }) !== 'none',
+    const matching = templates.filter(
+      (t) =>
+        matchHostPattern(hostname, t.hostPattern, {
+          includeApexForWildcard: true,
+        }) !== "none",
     );
     if (matching.length === 0) continue;
     results.push({

@@ -1,4 +1,4 @@
-import type { WatcherProvider } from './provider-types.js';
+import type { WatcherProvider } from "./provider-types.js";
 
 const providers = new Map<string, WatcherProvider>();
 

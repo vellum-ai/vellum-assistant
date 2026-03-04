@@ -9,15 +9,19 @@
  *   4. Records a delivery audit row in the deliveries-store
  */
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { getLogger } from '../util/logger.js';
-import { isGuardianSensitiveEvent } from './adapters/macos.js';
-import { pairDeliveryWithConversation } from './conversation-pairing.js';
-import { composeFallbackCopy } from './copy-composer.js';
-import { createDelivery, findDeliveryByDecisionAndChannel, updateDeliveryStatus } from './deliveries-store.js';
-import { resolveDestinations } from './destination-resolver.js';
-import type { NotificationSignal } from './signal.js';
+import { getLogger } from "../util/logger.js";
+import { isGuardianSensitiveEvent } from "./adapters/macos.js";
+import { pairDeliveryWithConversation } from "./conversation-pairing.js";
+import { composeFallbackCopy } from "./copy-composer.js";
+import {
+  createDelivery,
+  findDeliveryByDecisionAndChannel,
+  updateDeliveryStatus,
+} from "./deliveries-store.js";
+import { resolveDestinations } from "./destination-resolver.js";
+import type { NotificationSignal } from "./signal.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -26,9 +30,9 @@ import type {
   NotificationDeliveryResult,
   RenderedChannelCopy,
   ThreadAction,
-} from './types.js';
+} from "./types.js";
 
-const log = getLogger('notif-broadcaster');
+const log = getLogger("notif-broadcaster");
 
 /** Callback invoked immediately when a vellum notification thread is created. */
 export interface ThreadCreatedInfo {
@@ -73,30 +77,38 @@ export class NotificationBroadcaster {
     decision: NotificationDecision,
     options?: BroadcastDecisionOptions,
   ): Promise<NotificationDeliveryResult[]> {
-    const destinations = resolveDestinations(signal.assistantId, decision.selectedChannels);
+    const destinations = resolveDestinations(
+      signal.assistantId,
+      decision.selectedChannels,
+    );
 
     // Ensure vellum is processed first so the notification_thread_created IPC
     // push fires immediately, before slower channel sends (e.g. Telegram 30s
     // timeout) can delay it past the macOS deep-link retry window.
     const orderedChannels = [...decision.selectedChannels].sort((a, b) => {
-      if (a === 'vellum') return -1;
-      if (b === 'vellum') return 1;
+      if (a === "vellum") return -1;
+      if (b === "vellum") return 1;
       return 0;
     });
 
     // Pre-compute fallback copy in case any channel is missing rendered copy
-    let fallbackCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> | null = null;
+    let fallbackCopy: Partial<
+      Record<NotificationChannel, RenderedChannelCopy>
+    > | null = null;
 
     const results: NotificationDeliveryResult[] = [];
 
     for (const channel of orderedChannels) {
       const adapter = this.adapters.get(channel);
       if (!adapter) {
-        log.warn({ channel, signalId: signal.signalId }, 'No adapter registered for channel -- skipping');
+        log.warn(
+          { channel, signalId: signal.signalId },
+          "No adapter registered for channel -- skipping",
+        );
         results.push({
           channel,
-          destination: '',
-          status: 'skipped',
+          destination: "",
+          status: "skipped",
           errorMessage: `No adapter for channel: ${channel}`,
         });
         continue;
@@ -104,11 +116,14 @@ export class NotificationBroadcaster {
 
       const destination = destinations.get(channel);
       if (!destination) {
-        log.warn({ channel, signalId: signal.signalId }, 'Could not resolve destination -- skipping');
+        log.warn(
+          { channel, signalId: signal.signalId },
+          "Could not resolve destination -- skipping",
+        );
         results.push({
           channel,
-          destination: '',
-          status: 'skipped',
+          destination: "",
+          status: "skipped",
           errorMessage: `Destination not resolved for channel: ${channel}`,
         });
         continue;
@@ -121,50 +136,73 @@ export class NotificationBroadcaster {
       let copy = decision.renderedCopy[channel];
       if (!copy || (!copy.title?.trim() && !copy.body?.trim())) {
         if (copy) {
-          log.warn({ channel, signalId: signal.signalId }, 'Decision copy has empty title and body — using fallback');
+          log.warn(
+            { channel, signalId: signal.signalId },
+            "Decision copy has empty title and body — using fallback",
+          );
         }
         if (!fallbackCopy) {
           fallbackCopy = composeFallbackCopy(signal, decision.selectedChannels);
         }
-        copy = fallbackCopy[channel] ?? { title: 'Notification', body: signal.sourceEventName };
+        copy = fallbackCopy[channel] ?? {
+          title: "Notification",
+          body: signal.sourceEventName,
+        };
       }
 
       // Resolve the per-channel thread action from the decision (default: start_new)
-      const threadAction: ThreadAction | undefined = decision.threadActions?.[channel];
+      const threadAction: ThreadAction | undefined =
+        decision.threadActions?.[channel];
 
       // Check for duplicate delivery BEFORE pairing to avoid side effects
       // (e.g. appending seed messages to existing threads) on retry paths
       // where a delivery row already exists.
       const persistedDecisionId = decision.persistedDecisionId;
-      const hasPersistedDecision = typeof persistedDecisionId === 'string';
+      const hasPersistedDecision = typeof persistedDecisionId === "string";
       if (hasPersistedDecision) {
-        const existingDelivery = findDeliveryByDecisionAndChannel(persistedDecisionId, channel);
+        const existingDelivery = findDeliveryByDecisionAndChannel(
+          persistedDecisionId,
+          channel,
+        );
         if (existingDelivery) {
           log.info(
-            { channel, signalId: signal.signalId, existingDeliveryId: existingDelivery.id },
-            'Delivery already exists for this decision+channel — skipping duplicate',
+            {
+              channel,
+              signalId: signal.signalId,
+              existingDeliveryId: existingDelivery.id,
+            },
+            "Delivery already exists for this decision+channel — skipping duplicate",
           );
           results.push({
             channel,
             destination: destination.endpoint ?? channel,
-            status: 'skipped',
-            errorMessage: 'Duplicate delivery skipped',
+            status: "skipped",
+            errorMessage: "Duplicate delivery skipped",
             conversationId: existingDelivery.conversationId ?? undefined,
             messageId: existingDelivery.messageId ?? undefined,
-            conversationStrategy: existingDelivery.conversationStrategy ?? undefined,
+            conversationStrategy:
+              existingDelivery.conversationStrategy ?? undefined,
           });
           continue;
         }
       }
 
       // Pair the delivery with a conversation before sending, passing the thread action
-      const pairing = await pairDeliveryWithConversation(signal, channel, copy, { threadAction });
+      const pairing = await pairDeliveryWithConversation(
+        signal,
+        channel,
+        copy,
+        { threadAction },
+      );
 
       // For the vellum channel, merge the conversationId into deep-link metadata
       // so the macOS/iOS client can navigate directly to the notification thread.
       let deepLinkTarget = decision.deepLinkTarget;
-      if (channel === 'vellum' && pairing.conversationId) {
-        deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
+      if (channel === "vellum" && pairing.conversationId) {
+        deepLinkTarget = {
+          ...deepLinkTarget,
+          conversationId: pairing.conversationId,
+        };
         if (pairing.messageId) {
           deepLinkTarget = { ...deepLinkTarget, messageId: pairing.messageId };
         }
@@ -173,18 +211,17 @@ export class NotificationBroadcaster {
         // can filter guardian-sensitive threads the same way they filter
         // guardian-sensitive notification intents.
         const guardianPrincipalId =
-          typeof destination.metadata?.guardianPrincipalId === 'string'
+          typeof destination.metadata?.guardianPrincipalId === "string"
             ? destination.metadata.guardianPrincipalId
             : undefined;
         const targetGuardianPrincipalId =
-          guardianPrincipalId && isGuardianSensitiveEvent(signal.sourceEventName)
+          guardianPrincipalId &&
+          isGuardianSensitiveEvent(signal.sourceEventName)
             ? guardianPrincipalId
             : undefined;
 
         const threadTitle =
-          copy.threadTitle ??
-          copy.title ??
-          signal.sourceEventName;
+          copy.threadTitle ?? copy.title ?? signal.sourceEventName;
         const info: ThreadCreatedInfo = {
           conversationId: pairing.conversationId,
           title: threadTitle,
@@ -202,7 +239,7 @@ export class NotificationBroadcaster {
           } catch (err) {
             log.error(
               { err, signalId: signal.signalId },
-              'per-dispatch onThreadCreated callback failed — continuing broadcast',
+              "per-dispatch onThreadCreated callback failed — continuing broadcast",
             );
           }
         }
@@ -211,12 +248,18 @@ export class NotificationBroadcaster {
         // conversation was actually created. Reusing an existing thread
         // should not fire the IPC event — the client already knows about
         // the conversation.
-        if (pairing.createdNewConversation && pairing.strategy === 'start_new_conversation') {
+        if (
+          pairing.createdNewConversation &&
+          pairing.strategy === "start_new_conversation"
+        ) {
           if (this.onThreadCreated) {
             try {
               this.onThreadCreated(info);
             } catch (err) {
-              log.error({ err, signalId: signal.signalId }, 'onThreadCreated callback failed — continuing broadcast');
+              log.error(
+                { err, signalId: signal.signalId },
+                "onThreadCreated callback failed — continuing broadcast",
+              );
             }
           }
         }
@@ -235,8 +278,11 @@ export class NotificationBroadcaster {
 
       // Compute thread decision audit fields for the delivery record
       const threadAudit = {
-        threadAction: threadAction?.action ?? 'start_new',
-        threadTargetConversationId: threadAction?.action === 'reuse_existing' ? threadAction.conversationId : undefined,
+        threadAction: threadAction?.action ?? "start_new",
+        threadTargetConversationId:
+          threadAction?.action === "reuse_existing"
+            ? threadAction.conversationId
+            : undefined,
         threadDecisionFallbackUsed: pairing.threadDecisionFallbackUsed,
       };
 
@@ -248,7 +294,7 @@ export class NotificationBroadcaster {
             assistantId: signal.assistantId,
             channel,
             destination: destinationLabel,
-            status: 'pending',
+            status: "pending",
             attempt: 1,
             renderedTitle: copy.title,
             renderedBody: copy.body,
@@ -260,7 +306,7 @@ export class NotificationBroadcaster {
         } else {
           log.warn(
             { channel, signalId: signal.signalId },
-            'No persisted decision ID -- skipping delivery record creation',
+            "No persisted decision ID -- skipping delivery record creation",
           );
         }
 
@@ -268,12 +314,12 @@ export class NotificationBroadcaster {
 
         if (adapterResult.success) {
           if (hasPersistedDecision) {
-            updateDeliveryStatus(deliveryId, 'sent');
+            updateDeliveryStatus(deliveryId, "sent");
           }
           results.push({
             channel,
             destination: destinationLabel,
-            status: 'sent',
+            status: "sent",
             sentAt: Date.now(),
             conversationId: pairing.conversationId ?? undefined,
             messageId: pairing.messageId ?? undefined,
@@ -281,12 +327,14 @@ export class NotificationBroadcaster {
           });
         } else {
           if (hasPersistedDecision) {
-            updateDeliveryStatus(deliveryId, 'failed', { message: adapterResult.error });
+            updateDeliveryStatus(deliveryId, "failed", {
+              message: adapterResult.error,
+            });
           }
           results.push({
             channel,
             destination: destinationLabel,
-            status: 'failed',
+            status: "failed",
             errorMessage: adapterResult.error,
             conversationId: pairing.conversationId ?? undefined,
             messageId: pairing.messageId ?? undefined,
@@ -295,11 +343,16 @@ export class NotificationBroadcaster {
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        log.error({ err, channel, signalId: signal.signalId }, 'Unexpected error during channel delivery');
+        log.error(
+          { err, channel, signalId: signal.signalId },
+          "Unexpected error during channel delivery",
+        );
 
         if (hasPersistedDecision) {
           try {
-            updateDeliveryStatus(deliveryId, 'failed', { message: errorMessage });
+            updateDeliveryStatus(deliveryId, "failed", {
+              message: errorMessage,
+            });
           } catch {
             // Swallow -- the delivery record may not exist if createDelivery failed
           }
@@ -308,7 +361,7 @@ export class NotificationBroadcaster {
         results.push({
           channel,
           destination: destinationLabel,
-          status: 'failed',
+          status: "failed",
           errorMessage,
           conversationId: pairing.conversationId ?? undefined,
           messageId: pairing.messageId ?? undefined,

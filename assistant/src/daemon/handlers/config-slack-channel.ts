@@ -1,6 +1,14 @@
-import { deleteSecureKey, getSecureKey, setSecureKey } from '../../security/secure-keys.js';
-import { deleteCredentialMetadata, getCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
-import { log as _log } from './shared.js';
+import {
+  deleteSecureKey,
+  getSecureKey,
+  setSecureKey,
+} from "../../security/secure-keys.js";
+import {
+  deleteCredentialMetadata,
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
+import { log as _log } from "./shared.js";
 
 // -- Result type --
 
@@ -38,9 +46,9 @@ function parseMetadata(raw: string | undefined): SlackChannelMetadata {
 // -- Business logic --
 
 export function getSlackChannelConfig(): SlackChannelConfigResult {
-  const hasBotToken = !!getSecureKey('credential:slack_channel:bot_token');
-  const hasAppToken = !!getSecureKey('credential:slack_channel:app_token');
-  const meta = getCredentialMetadata('slack_channel', 'bot_token');
+  const hasBotToken = !!getSecureKey("credential:slack_channel:bot_token");
+  const hasAppToken = !!getSecureKey("credential:slack_channel:app_token");
+  const meta = getCredentialMetadata("slack_channel", "bot_token");
   const metadata = parseMetadata(meta?.accountInfo);
   return {
     success: true,
@@ -62,8 +70,8 @@ export async function setSlackChannelConfig(
   if (botToken) {
     // Validate bot token by calling Slack auth.test
     try {
-      const res = await fetch('https://slack.com/api/auth.test', {
-        method: 'POST',
+      const res = await fetch("https://slack.com/api/auth.test", {
+        method: "POST",
         headers: { Authorization: `Bearer ${botToken}` },
       });
       const data = (await res.json()) as {
@@ -75,14 +83,20 @@ export async function setSlackChannelConfig(
         user?: string;
       };
       if (!data.ok) {
-        const storedBotToken = !!getSecureKey('credential:slack_channel:bot_token');
-        const storedAppToken = !!getSecureKey('credential:slack_channel:app_token');
+        const storedBotToken = !!getSecureKey(
+          "credential:slack_channel:bot_token",
+        );
+        const storedAppToken = !!getSecureKey(
+          "credential:slack_channel:app_token",
+        );
         return {
           success: false,
           hasBotToken: storedBotToken,
           hasAppToken: storedAppToken,
           connected: storedBotToken && storedAppToken,
-          error: `Slack API validation failed: ${data.error ?? 'unknown error'}`,
+          error: `Slack API validation failed: ${
+            data.error ?? "unknown error"
+          }`,
         };
       }
       metadata = {
@@ -93,8 +107,12 @@ export async function setSlackChannelConfig(
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const storedBotToken = !!getSecureKey('credential:slack_channel:bot_token');
-      const storedAppToken = !!getSecureKey('credential:slack_channel:app_token');
+      const storedBotToken = !!getSecureKey(
+        "credential:slack_channel:bot_token",
+      );
+      const storedAppToken = !!getSecureKey(
+        "credential:slack_channel:app_token",
+      );
       return {
         success: false,
         hasBotToken: storedBotToken,
@@ -104,33 +122,41 @@ export async function setSlackChannelConfig(
       };
     }
 
-    const stored = setSecureKey('credential:slack_channel:bot_token', botToken);
+    const stored = setSecureKey("credential:slack_channel:bot_token", botToken);
     if (!stored) {
-      const storedBotToken = !!getSecureKey('credential:slack_channel:bot_token');
-      const storedAppToken = !!getSecureKey('credential:slack_channel:app_token');
+      const storedBotToken = !!getSecureKey(
+        "credential:slack_channel:bot_token",
+      );
+      const storedAppToken = !!getSecureKey(
+        "credential:slack_channel:app_token",
+      );
       return {
         success: false,
         hasBotToken: storedBotToken,
         hasAppToken: storedAppToken,
         connected: storedBotToken && storedAppToken,
-        error: 'Failed to store bot token in secure storage',
+        error: "Failed to store bot token in secure storage",
       };
     }
 
-    upsertCredentialMetadata('slack_channel', 'bot_token', {
+    upsertCredentialMetadata("slack_channel", "bot_token", {
       accountInfo: JSON.stringify(metadata),
     });
   } else {
     // Use existing metadata if no new bot token provided
-    const existingMeta = getCredentialMetadata('slack_channel', 'bot_token');
+    const existingMeta = getCredentialMetadata("slack_channel", "bot_token");
     metadata = parseMetadata(existingMeta?.accountInfo);
   }
 
   // Validate and store app token
   if (appToken) {
-    if (!appToken.startsWith('xapp-')) {
-      const storedBotToken = !!getSecureKey('credential:slack_channel:bot_token');
-      const storedAppToken = !!getSecureKey('credential:slack_channel:app_token');
+    if (!appToken.startsWith("xapp-")) {
+      const storedBotToken = !!getSecureKey(
+        "credential:slack_channel:bot_token",
+      );
+      const storedAppToken = !!getSecureKey(
+        "credential:slack_channel:app_token",
+      );
       return {
         success: false,
         hasBotToken: storedBotToken,
@@ -140,29 +166,35 @@ export async function setSlackChannelConfig(
       };
     }
 
-    const stored = setSecureKey('credential:slack_channel:app_token', appToken);
+    const stored = setSecureKey("credential:slack_channel:app_token", appToken);
     if (!stored) {
-      const storedBotToken = !!getSecureKey('credential:slack_channel:bot_token');
-      const storedAppToken = !!getSecureKey('credential:slack_channel:app_token');
+      const storedBotToken = !!getSecureKey(
+        "credential:slack_channel:bot_token",
+      );
+      const storedAppToken = !!getSecureKey(
+        "credential:slack_channel:app_token",
+      );
       return {
         success: false,
         hasBotToken: storedBotToken,
         hasAppToken: storedAppToken,
         connected: storedBotToken && storedAppToken,
-        error: 'Failed to store app token in secure storage',
+        error: "Failed to store app token in secure storage",
       };
     }
 
-    upsertCredentialMetadata('slack_channel', 'app_token', {});
+    upsertCredentialMetadata("slack_channel", "app_token", {});
   }
 
-  const hasBotToken = !!getSecureKey('credential:slack_channel:bot_token');
-  const hasAppToken = !!getSecureKey('credential:slack_channel:app_token');
+  const hasBotToken = !!getSecureKey("credential:slack_channel:bot_token");
+  const hasAppToken = !!getSecureKey("credential:slack_channel:app_token");
 
   if (hasBotToken && !hasAppToken) {
-    warning = 'Bot token stored but app token is missing — connection incomplete.';
+    warning =
+      "Bot token stored but app token is missing — connection incomplete.";
   } else if (!hasBotToken && hasAppToken) {
-    warning = 'App token stored but bot token is missing — connection incomplete.';
+    warning =
+      "App token stored but bot token is missing — connection incomplete.";
   }
 
   return {
@@ -176,10 +208,10 @@ export async function setSlackChannelConfig(
 }
 
 export function clearSlackChannelConfig(): SlackChannelConfigResult {
-  deleteSecureKey('credential:slack_channel:bot_token');
-  deleteCredentialMetadata('slack_channel', 'bot_token');
-  deleteSecureKey('credential:slack_channel:app_token');
-  deleteCredentialMetadata('slack_channel', 'app_token');
+  deleteSecureKey("credential:slack_channel:bot_token");
+  deleteCredentialMetadata("slack_channel", "bot_token");
+  deleteSecureKey("credential:slack_channel:app_token");
+  deleteCredentialMetadata("slack_channel", "app_token");
 
   return {
     success: true,

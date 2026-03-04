@@ -11,22 +11,20 @@
  * Guardian decisions additionally verify the actor is the bound guardian
  * via the AuthContext's actorPrincipalId.
  */
-import {
-  applyCanonicalGuardianDecision,
-} from '../../approvals/guardian-decision-primitive.js';
-import { isHttpAuthDisabled } from '../../config/env.js';
-import { findGuardianForChannel } from '../../contacts/contact-store.js';
+import { applyCanonicalGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
+import { isHttpAuthDisabled } from "../../config/env.js";
+import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   isRequestInConversationScope,
   listPendingRequestsByConversationScope,
-} from '../../memory/canonical-guardian-store.js';
-import type { AuthContext } from '../auth/types.js';
-import type { ApprovalAction } from '../channel-approval-types.js';
-import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
-import { buildDecisionActions } from '../guardian-decision-types.js';
-import { httpError } from '../http-errors.js';
+} from "../../memory/canonical-guardian-store.js";
+import type { AuthContext } from "../auth/types.js";
+import type { ApprovalAction } from "../channel-approval-types.js";
+import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
+import { buildDecisionActions } from "../guardian-decision-types.js";
+import { httpError } from "../http-errors.js";
 
 // ---------------------------------------------------------------------------
 // GET /v1/guardian-actions/pending?conversationId=...
@@ -40,14 +38,24 @@ import { httpError } from '../http-errors.js';
  * are still pending, mapped to the GuardianDecisionPrompt shape so clients
  * can render structured button UIs.
  */
-export function handleGuardianActionsPending(url: URL, _authContext: AuthContext): Response {
-  const conversationId = url.searchParams.get('conversationId');
+export function handleGuardianActionsPending(
+  url: URL,
+  _authContext: AuthContext,
+): Response {
+  const conversationId = url.searchParams.get("conversationId");
 
   if (!conversationId) {
-    return httpError('BAD_REQUEST', 'conversationId query parameter is required', 400);
+    return httpError(
+      "BAD_REQUEST",
+      "conversationId query parameter is required",
+      400,
+    );
   }
 
-  const prompts = listGuardianDecisionPrompts({ conversationId, channel: 'vellum' });
+  const prompts = listGuardianDecisionPrompts({
+    conversationId,
+    channel: "vellum",
+  });
   return Response.json({ conversationId, prompts });
 }
 
@@ -66,15 +74,26 @@ function requireBoundGuardian(authContext: AuthContext): Response | null {
     return null;
   }
   if (!authContext.actorPrincipalId) {
-    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
+    return httpError(
+      "FORBIDDEN",
+      "Actor is not the bound guardian for this channel",
+      403,
+    );
   }
-  const guardianResult = findGuardianForChannel('vellum');
+  const guardianResult = findGuardianForChannel("vellum");
   if (!guardianResult) {
     // No guardian yet — in pre-bootstrap state, allow through
     return null;
   }
-  if ((guardianResult.channel.externalUserId ?? guardianResult.contact.principalId) !== authContext.actorPrincipalId) {
-    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
+  if (
+    (guardianResult.channel.externalUserId ??
+      guardianResult.contact.principalId) !== authContext.actorPrincipalId
+  ) {
+    return httpError(
+      "FORBIDDEN",
+      "Actor is not the bound guardian for this channel",
+      403,
+    );
   }
   return null;
 }
@@ -87,11 +106,14 @@ function requireBoundGuardian(authContext: AuthContext): Response | null {
  * primitive which handles CAS resolution, resolver dispatch, and grant
  * minting.
  */
-export async function handleGuardianActionDecision(req: Request, authContext: AuthContext): Promise<Response> {
+export async function handleGuardianActionDecision(
+  req: Request,
+  authContext: AuthContext,
+): Promise<Response> {
   const guardianError = requireBoundGuardian(authContext);
   if (guardianError) return guardianError;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     requestId?: string;
     action?: string;
     conversationId?: string;
@@ -99,17 +121,27 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
 
   const { requestId, action, conversationId } = body;
 
-  if (!requestId || typeof requestId !== 'string') {
-    return httpError('BAD_REQUEST', 'requestId is required', 400);
+  if (!requestId || typeof requestId !== "string") {
+    return httpError("BAD_REQUEST", "requestId is required", 400);
   }
 
-  if (!action || typeof action !== 'string') {
-    return httpError('BAD_REQUEST', 'action is required', 400);
+  if (!action || typeof action !== "string") {
+    return httpError("BAD_REQUEST", "action is required", 400);
   }
 
-  const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_10m', 'approve_thread', 'approve_always', 'reject']);
+  const VALID_ACTIONS = new Set<string>([
+    "approve_once",
+    "approve_10m",
+    "approve_thread",
+    "approve_always",
+    "reject",
+  ]);
   if (!VALID_ACTIONS.has(action)) {
-    return httpError('BAD_REQUEST', `Invalid action: ${action}. Must be one of: approve_once, approve_10m, approve_thread, approve_always, reject`, 400);
+    return httpError(
+      "BAD_REQUEST",
+      `Invalid action: ${action}. Must be one of: approve_once, approve_10m, approve_thread, approve_always, reject`,
+      400,
+    );
   }
 
   // Verify conversationId scoping before applying the canonical decision.
@@ -119,8 +151,16 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
   // conversation ID namespaces overlap.
   if (conversationId) {
     const canonicalRequest = getCanonicalGuardianRequest(requestId);
-    if (canonicalRequest && canonicalRequest.conversationId && !isRequestInConversationScope(requestId, conversationId, 'vellum')) {
-      return httpError('NOT_FOUND', 'No pending guardian action found for this requestId', 404);
+    if (
+      canonicalRequest &&
+      canonicalRequest.conversationId &&
+      !isRequestInConversationScope(requestId, conversationId, "vellum")
+    ) {
+      return httpError(
+        "NOT_FOUND",
+        "No pending guardian action found for this requestId",
+        404,
+      );
     }
   }
 
@@ -133,7 +173,7 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
     action: action as ApprovalAction,
     actorContext: {
       externalUserId: actorExternalUserId,
-      channel: 'vellum',
+      channel: "vellum",
       guardianPrincipalId: actorPrincipalId,
     },
     userText: undefined,
@@ -146,7 +186,7 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
     if (canonicalResult.resolverFailed) {
       return Response.json({
         applied: false,
-        reason: 'resolver_failed',
+        reason: "resolver_failed",
         resolverFailureReason: canonicalResult.resolverFailureReason,
         requestId: canonicalResult.requestId,
       });
@@ -159,8 +199,12 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
   }
 
   // Return the reason for failure (stale, expired, not_found, etc.)
-  return canonicalResult.reason === 'not_found'
-    ? httpError('NOT_FOUND', 'No pending guardian action found for this requestId', 404)
+  return canonicalResult.reason === "not_found"
+    ? httpError(
+        "NOT_FOUND",
+        "No pending guardian action found for this requestId",
+        404,
+      )
     : Response.json({
         applied: false,
         reason: canonicalResult.reason,
@@ -190,11 +234,15 @@ export function listGuardianDecisionPrompts(params: {
   const { conversationId, channel } = params;
   const prompts: GuardianDecisionPrompt[] = [];
 
-  const canonicalRequests = listPendingRequestsByConversationScope(conversationId, channel);
+  const canonicalRequests = listPendingRequestsByConversationScope(
+    conversationId,
+    channel,
+  );
 
   for (const req of canonicalRequests) {
     // Skip expired canonical requests
-    if (req.expiresAt && new Date(req.expiresAt).getTime() < Date.now()) continue;
+    if (req.expiresAt && new Date(req.expiresAt).getTime() < Date.now())
+      continue;
 
     const prompt = mapCanonicalRequestToPrompt(req, conversationId);
     prompts.push(prompt);
@@ -236,7 +284,7 @@ function mapCanonicalRequestToPrompt(
   return {
     requestId: req.id,
     requestCode: req.requestCode ?? req.id.slice(0, 6).toUpperCase(),
-    state: 'pending',
+    state: "pending",
     questionText,
     toolName: req.toolName ?? null,
     actions,
@@ -258,15 +306,22 @@ function mapCanonicalRequestToPrompt(
  * actionable even when buttons are unavailable or not used.
  */
 function buildKindAwareQuestionText(req: CanonicalGuardianRequest): string {
-  const baseText = req.questionText
-    ?? (req.toolName ? `Approve tool: ${req.toolName}` : `Guardian request: ${req.kind}`);
+  const baseText =
+    req.questionText ??
+    (req.toolName
+      ? `Approve tool: ${req.toolName}`
+      : `Guardian request: ${req.kind}`);
 
-  if (req.kind === 'access_request') {
+  if (req.kind === "access_request") {
     const code = req.requestCode ?? req.id.slice(0, 6).toUpperCase();
     const lines = [baseText];
-    lines.push(`\nReply "${code} approve" to grant access or "${code} reject" to deny.`);
-    lines.push('Reply "open invite flow" to start Trusted Contacts invite flow.');
-    return lines.join('\n');
+    lines.push(
+      `\nReply "${code} approve" to grant access or "${code} reject" to deny.`,
+    );
+    lines.push(
+      'Reply "open invite flow" to start Trusted Contacts invite flow.',
+    );
+    return lines.join("\n");
   }
 
   return baseText;

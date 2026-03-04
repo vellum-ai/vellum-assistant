@@ -31,6 +31,9 @@ Output schema:
 /**
  * Build the user message for the router planner.
  */
-export function buildPlannerUserMessage(objective: string, maxTasks: number): string {
+export function buildPlannerUserMessage(
+  objective: string,
+  maxTasks: number,
+): string {
   return `Objective: ${objective}\n\nMaximum tasks allowed: ${maxTasks}\n\nReturn ONLY the JSON plan.`;
 }

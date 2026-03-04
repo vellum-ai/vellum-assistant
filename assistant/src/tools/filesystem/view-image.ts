@@ -1,16 +1,20 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync, unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { extname, join } from 'node:path';
+import { execFileSync } from "node:child_process";
+import { readFileSync, statSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { extname, join } from "node:path";
 
-import { RiskLevel } from '../../permissions/types.js';
-import type { ImageContent, ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
-import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import { RiskLevel } from "../../permissions/types.js";
+import type { ImageContent, ToolDefinition } from "../../providers/types.js";
+import { registerTool } from "../registry.js";
+import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 const SUPPORTED_EXTENSIONS = new Set([
-  '.jpg', '.jpeg', '.png', '.gif', '.webp',
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
 ]);
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
@@ -29,23 +33,39 @@ function detectMediaType(buf: Buffer): string | null {
   if (buf.length < 12) return null;
 
   // JPEG: FF D8 FF
-  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) {
-    return 'image/jpeg';
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return "image/jpeg";
   }
   // PNG: 89 50 4E 47 0D 0A 1A 0A
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
-    return 'image/png';
+  if (
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47
+  ) {
+    return "image/png";
   }
   // GIF: 47 49 46 38
-  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) {
-    return 'image/gif';
+  if (
+    buf[0] === 0x47 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x38
+  ) {
+    return "image/gif";
   }
   // WebP: RIFF....WEBP
   if (
-    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
-    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
+    buf[0] === 0x52 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x46 &&
+    buf[8] === 0x57 &&
+    buf[9] === 0x45 &&
+    buf[10] === 0x42 &&
+    buf[11] === 0x50
   ) {
-    return 'image/webp';
+    return "image/webp";
   }
 
   return null;
@@ -58,13 +78,23 @@ function detectMediaType(buf: Buffer): string | null {
 function optimizeWithSips(srcPath: string): string | null {
   const tmpPath = join(tmpdir(), `vellum-view-image-${Date.now()}.jpg`);
   try {
-    execFileSync('sips', [
-      '--resampleHeightWidthMax', String(OPTIMIZE_MAX_DIMENSION),
-      '-s', 'format', 'jpeg',
-      '-s', 'formatOptions', String(OPTIMIZE_JPEG_QUALITY),
-      srcPath,
-      '--out', tmpPath,
-    ], { stdio: 'pipe', timeout: 15_000 });
+    execFileSync(
+      "sips",
+      [
+        "--resampleHeightWidthMax",
+        String(OPTIMIZE_MAX_DIMENSION),
+        "-s",
+        "format",
+        "jpeg",
+        "-s",
+        "formatOptions",
+        String(OPTIMIZE_JPEG_QUALITY),
+        srcPath,
+        "--out",
+        tmpPath,
+      ],
+      { stdio: "pipe", timeout: 15_000 },
+    );
     return tmpPath;
   } catch {
     return null;
@@ -72,10 +102,10 @@ function optimizeWithSips(srcPath: string): string | null {
 }
 
 class ViewImageTool implements Tool {
-  name = 'view_image';
+  name = "view_image";
   description =
-    'Read an image file from the filesystem and return it for visual analysis. Supports JPEG, PNG, GIF, and WebP.';
-  category = 'filesystem';
+    "Read an image file from the filesystem and return it for visual analysis. Supports JPEG, PNG, GIF, and WebP.";
+  category = "filesystem";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
@@ -83,19 +113,20 @@ class ViewImageTool implements Tool {
       name: this.name,
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           path: {
-            type: 'string',
+            type: "string",
             description:
-              'The path to the image file (absolute or relative to working directory)',
+              "The path to the image file (absolute or relative to working directory)",
           },
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of what you are viewing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of what you are viewing and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
-        required: ['path'],
+        required: ["path"],
       },
     };
   }
@@ -105,8 +136,11 @@ class ViewImageTool implements Tool {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
-    if (!rawPath || typeof rawPath !== 'string') {
-      return { content: 'Error: path is required and must be a string', isError: true };
+    if (!rawPath || typeof rawPath !== "string") {
+      return {
+        content: "Error: path is required and must be a string",
+        isError: true,
+      };
     }
 
     const pathCheck = sandboxPolicy(rawPath, context.workingDir);
@@ -117,7 +151,7 @@ class ViewImageTool implements Tool {
 
     const ext = extname(resolved).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(ext)) {
-      const supported = [...SUPPORTED_EXTENSIONS].join(', ');
+      const supported = [...SUPPORTED_EXTENSIONS].join(", ");
       return {
         content: `Error: unsupported image format "${ext}". Supported: ${supported}`,
         isError: true,
@@ -164,7 +198,11 @@ class ViewImageTool implements Tool {
       return { content: `Error reading file: ${msg}`, isError: true };
     } finally {
       if (tmpPath) {
-        try { unlinkSync(tmpPath); } catch { /* ignore cleanup errors */ }
+        try {
+          unlinkSync(tmpPath);
+        } catch {
+          /* ignore cleanup errors */
+        }
       }
     }
 
@@ -178,20 +216,22 @@ class ViewImageTool implements Tool {
       };
     }
 
-    const base64Data = buffer.toString('base64');
+    const base64Data = buffer.toString("base64");
 
     const imageBlock: ImageContent = {
-      type: 'image' as const,
+      type: "image" as const,
       source: {
-        type: 'base64' as const,
+        type: "base64" as const,
         media_type: detectedType,
         data: base64Data,
       },
     };
 
     const sizeSuffix = optimized
-      ? ` (optimized from ${(stat.size / 1024).toFixed(0)} KB to ${(buffer.length / 1024).toFixed(0)} KB)`
-      : '';
+      ? ` (optimized from ${(stat.size / 1024).toFixed(0)} KB to ${(
+          buffer.length / 1024
+        ).toFixed(0)} KB)`
+      : "";
 
     return {
       content: `Image loaded: ${resolved} (${buffer.length} bytes, ${detectedType})${sizeSuffix}`,

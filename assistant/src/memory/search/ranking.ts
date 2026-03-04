@@ -1,15 +1,22 @@
-import { inArray, sql } from 'drizzle-orm';
+import { inArray, sql } from "drizzle-orm";
 
-import type { AssistantConfig, MemoryRerankingConfig } from '../../config/types.js';
-import { estimateTextTokens } from '../../context/token-estimator.js';
-import { extractText, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
-import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
-import { memoryItems } from '../schema.js';
-import { buildInjectedText } from './formatting.js';
-import type { Candidate, CandidateSource, ItemMetadata } from './types.js';
+import type {
+  AssistantConfig,
+  MemoryRerankingConfig,
+} from "../../config/types.js";
+import { estimateTextTokens } from "../../context/token-estimator.js";
+import {
+  extractText,
+  getConfiguredProvider,
+  userMessage,
+} from "../../providers/provider-send-message.js";
+import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db.js";
+import { memoryItems } from "../schema.js";
+import { buildInjectedText } from "./formatting.js";
+import type { Candidate, CandidateSource, ItemMetadata } from "./types.js";
 
-const log = getLogger('memory-retriever');
+const log = getLogger("memory-retriever");
 
 /**
  * Trust weight by verification state. Higher = more trusted.
@@ -51,7 +58,12 @@ export function mergeCandidates(
   semantic: Candidate[],
   recency: Candidate[],
   entity: Candidate[] = [],
-  freshnessConfig?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
+  freshnessConfig?: {
+    enabled: boolean;
+    maxAgeDays: Record<string, number>;
+    staleDecay: number;
+    reinforcementShieldDays: number;
+  },
   relationScoreMultiplier?: number,
   candidateDepthMap?: Map<string, number>,
 ): Candidate[] {
@@ -63,7 +75,7 @@ export function mergeCandidates(
   // entity_relation (e.g. 0.7) when both sources return the same candidate.
   const effectiveWeights: Record<string, number> = { ...SOURCE_WEIGHTS };
   if (relationScoreMultiplier != null) {
-    effectiveWeights['entity_relation'] = relationScoreMultiplier;
+    effectiveWeights["entity_relation"] = relationScoreMultiplier;
   }
 
   // Build merged candidate map (dedup by key, keep best metadata)
@@ -99,7 +111,7 @@ export function mergeCandidates(
 
   // Look up access_count and verification_state for item-type candidates
   const itemIds = [...merged.values()]
-    .filter((c) => c.type === 'item')
+    .filter((c) => c.type === "item")
     .map((c) => c.id);
   const itemMetadata = lookupItemMetadata(itemIds);
 
@@ -116,23 +128,41 @@ export function mergeCandidates(
     // Retrieval reinforcement: boost importance by accessCount
     const meta = itemMetadata.get(row.id);
     const accessCount = meta?.accessCount ?? 0;
-    const effectiveImportance = Math.min(1, row.importance + 0.03 * accessCount);
+    const effectiveImportance = Math.min(
+      1,
+      row.importance + 0.03 * accessCount,
+    );
 
     // Trust-aware ranking: only apply to item candidates (segments/summaries have no metadata)
-    const trustWeight = (row.type === 'item' && meta)
-      ? (TRUST_WEIGHTS[meta.verificationState] ?? DEFAULT_TRUST_WEIGHT)
-      : 1.0;
+    const trustWeight =
+      row.type === "item" && meta
+        ? (TRUST_WEIGHTS[meta.verificationState] ?? DEFAULT_TRUST_WEIGHT)
+        : 1.0;
 
     // Freshness decay: down-rank stale items unless recently reinforced
     const lastUsedAt = meta?.lastUsedAt ?? null;
-    const freshnessWeight = computeFreshnessWeight(row, accessCount, lastUsedAt, freshnessConfig);
+    const freshnessWeight = computeFreshnessWeight(
+      row,
+      accessCount,
+      lastUsedAt,
+      freshnessConfig,
+    );
 
     let sourceWeight = effectiveWeights[row.source] ?? 1.0;
-    if (row.source === 'entity_relation' && candidateDepthMap && relationScoreMultiplier != null) {
+    if (
+      row.source === "entity_relation" &&
+      candidateDepthMap &&
+      relationScoreMultiplier != null
+    ) {
       const depth = candidateDepthMap.get(row.key) ?? 1;
       sourceWeight = Math.pow(relationScoreMultiplier, depth);
     }
-    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight * sourceWeight;
+    row.finalScore =
+      rrfScore *
+      (0.5 + 0.5 * effectiveImportance) *
+      trustWeight *
+      freshnessWeight *
+      sourceWeight;
   }
 
   rows.sort((a, b) => {
@@ -145,7 +175,10 @@ export function mergeCandidates(
   return rows;
 }
 
-export function applySourceCaps(candidates: Candidate[], config: AssistantConfig): Candidate[] {
+export function applySourceCaps(
+  candidates: Candidate[],
+  config: AssistantConfig,
+): Candidate[] {
   if (candidates.length === 0) return candidates;
   const sourceCaps = buildSourceCaps(config);
   const counts: Partial<Record<CandidateSource, number>> = {};
@@ -162,7 +195,9 @@ export function applySourceCaps(candidates: Candidate[], config: AssistantConfig
   return capped;
 }
 
-function buildSourceCaps(config: AssistantConfig): Record<CandidateSource, number> {
+function buildSourceCaps(
+  config: AssistantConfig,
+): Record<CandidateSource, number> {
   const lexicalTopK = Math.max(1, config.memory.retrieval.lexicalTopK);
   const semanticTopK = Math.max(1, config.memory.retrieval.semanticTopK);
   const relationLimit = Math.max(
@@ -195,8 +230,13 @@ function rrf(ranks: number[], k = 60): number {
  * Build a map from candidate key to 1-based rank within a list,
  * sorted descending by the given score accessor.
  */
-function buildRankMap(candidates: Candidate[], scoreAccessor: (c: Candidate) => number): Map<string, number> {
-  const sorted = [...candidates].sort((a, b) => scoreAccessor(b) - scoreAccessor(a));
+function buildRankMap(
+  candidates: Candidate[],
+  scoreAccessor: (c: Candidate) => number,
+): Map<string, number> {
+  const sorted = [...candidates].sort(
+    (a, b) => scoreAccessor(b) - scoreAccessor(a),
+  );
   const rankMap = new Map<string, number>();
   for (let i = 0; i < sorted.length; i++) {
     rankMap.set(sorted[i].key, i + 1);
@@ -230,7 +270,7 @@ function lookupItemMetadata(itemIds: string[]): Map<string, ItemMetadata> {
       });
     }
   } catch (err) {
-    log.warn({ err }, 'Failed to look up item metadata for retrieval ranking');
+    log.warn({ err }, "Failed to look up item metadata for retrieval ranking");
   }
   return metadata;
 }
@@ -245,12 +285,17 @@ export function computeFreshnessWeight(
   candidate: { type: string; kind: string; createdAt: number },
   accessCount: number,
   lastUsedAt: number | null,
-  config?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
+  config?: {
+    enabled: boolean;
+    maxAgeDays: Record<string, number>;
+    staleDecay: number;
+    reinforcementShieldDays: number;
+  },
 ): number {
   if (!config?.enabled) return 1.0;
 
   // Only apply freshness to item-type candidates
-  if (candidate.type !== 'item') return 1.0;
+  if (candidate.type !== "item") return 1.0;
 
   const maxAgeDays = config.maxAgeDays[candidate.kind] ?? 0;
   // maxAgeDays of 0 means no expiry for this kind
@@ -263,7 +308,11 @@ export function computeFreshnessWeight(
   if (ageDays <= maxAgeDays) return 1.0;
 
   // Check reinforcement shield: items retrieved within the shield window are protected
-  if (accessCount > 0 && lastUsedAt != null && config.reinforcementShieldDays > 0) {
+  if (
+    accessCount > 0 &&
+    lastUsedAt != null &&
+    config.reinforcementShieldDays > 0
+  ) {
     const shieldCutoff = now - config.reinforcementShieldDays * MS_PER_DAY;
     if (lastUsedAt >= shieldCutoff) return 1.0;
   }
@@ -298,7 +347,7 @@ export async function rerankWithLLM(
 ): Promise<Candidate[]> {
   const provider = getConfiguredProvider();
   if (!provider) {
-    log.debug('Configured provider unavailable for LLM re-ranking, skipping');
+    log.debug("Configured provider unavailable for LLM re-ranking, skipping");
     return candidates;
   }
 
@@ -309,7 +358,13 @@ export async function rerankWithLLM(
   }));
 
   const response = await provider.sendMessage(
-    [userMessage(`Query: ${truncate(query, 200)}\n\nCandidates:\n${candidateList.map((c) => `[${c.index}] ${c.text}`).join('\n')}`)],
+    [
+      userMessage(
+        `Query: ${truncate(query, 200)}\n\nCandidates:\n${candidateList
+          .map((c) => `[${c.index}] ${c.text}`)
+          .join("\n")}`,
+      ),
+    ],
     undefined,
     'You are a relevance scoring assistant. Given a query and a list of memory candidates, rate each candidate\'s relevance to the query on a scale of 0-10. Return ONLY a JSON array of objects with "index" (the candidate index) and "score" (0-10 integer). No explanation.',
     {
@@ -323,29 +378,32 @@ export async function rerankWithLLM(
   // Extract text from the response
   const responseText = extractText(response);
   if (!responseText) {
-    log.warn('LLM re-ranking returned no text block, skipping');
+    log.warn("LLM re-ranking returned no text block, skipping");
     return candidates;
   }
 
   // Parse the JSON array from the response
   const jsonMatch = responseText.match(/\[[\s\S]*\]/);
   if (!jsonMatch) {
-    log.warn('LLM re-ranking response did not contain JSON array, skipping');
+    log.warn("LLM re-ranking response did not contain JSON array, skipping");
     return candidates;
   }
 
   let scores: Array<{ index: number; score: number }>;
   try {
-    scores = JSON.parse(jsonMatch[0]) as Array<{ index: number; score: number }>;
+    scores = JSON.parse(jsonMatch[0]) as Array<{
+      index: number;
+      score: number;
+    }>;
   } catch {
-    log.warn('Failed to parse LLM re-ranking JSON response, skipping');
+    log.warn("Failed to parse LLM re-ranking JSON response, skipping");
     return candidates;
   }
 
   // Build a score map from LLM results
   const scoreMap = new Map<number, number>();
   for (const entry of scores) {
-    if (typeof entry.index === 'number' && typeof entry.score === 'number') {
+    if (typeof entry.index === "number" && typeof entry.score === "number") {
       scoreMap.set(entry.index, Math.max(0, Math.min(10, entry.score)));
     }
   }
@@ -373,7 +431,11 @@ export async function rerankWithLLM(
   return reranked.map((r) => r.candidate);
 }
 
-export function trimToTokenBudget(candidates: Candidate[], maxTokens: number, format: string = 'markdown'): Candidate[] {
+export function trimToTokenBudget(
+  candidates: Candidate[],
+  maxTokens: number,
+  format: string = "markdown",
+): Candidate[] {
   if (maxTokens <= 0) return [];
   const selected: Candidate[] = [];
   for (const candidate of candidates) {
@@ -387,7 +449,9 @@ export function trimToTokenBudget(candidates: Candidate[], maxTokens: number, fo
 }
 
 export function markItemUsage(candidates: Candidate[]): void {
-  const itemIds = candidates.filter((candidate) => candidate.type === 'item').map((candidate) => candidate.id);
+  const itemIds = candidates
+    .filter((candidate) => candidate.type === "item")
+    .map((candidate) => candidate.id);
   if (itemIds.length === 0) return;
   const db = getDb();
   const now = Date.now();

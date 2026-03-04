@@ -25,7 +25,10 @@ export async function sendSmsReply(
     ? (config.assistantPhoneNumbers?.[assistantId] ?? config.twilioPhoneNumber)
     : config.twilioPhoneNumber;
   if (!from) {
-    log.warn({ assistantId }, "Cannot send SMS reply: Twilio phone number not configured");
+    log.warn(
+      { assistantId },
+      "Cannot send SMS reply: Twilio phone number not configured",
+    );
     return;
   }
 
@@ -36,7 +39,10 @@ export async function sendSmsReply(
     Body: body,
   });
   const authHeader =
-    "Basic " + Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64");
+    "Basic " +
+    Buffer.from(
+      `${config.twilioAccountSid}:${config.twilioAuthToken}`,
+    ).toString("base64");
 
   const response = await fetchImpl(url, {
     method: "POST",

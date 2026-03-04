@@ -1,15 +1,22 @@
-import { chmodSync,existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname,join } from 'node:path';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
-import { Minimatch } from 'minimatch';
-import { v4 as uuid } from 'uuid';
+import { Minimatch } from "minimatch";
+import { v4 as uuid } from "uuid";
 
-import { getLogger } from '../util/logger.js';
-import { getRootDir } from '../util/platform.js';
-import { getDefaultRuleTemplates } from './defaults.js';
-import type { PolicyContext,TrustRule } from './types.js';
+import { getLogger } from "../util/logger.js";
+import { getRootDir } from "../util/platform.js";
+import { getDefaultRuleTemplates } from "./defaults.js";
+import type { PolicyContext, TrustRule } from "./types.js";
 
-const log = getLogger('trust-store');
+const log = getLogger("trust-store");
 
 const TRUST_FILE_VERSION = 3;
 
@@ -52,8 +59,8 @@ function getCompiledPattern(pattern: string): Minimatch | null {
   if (invalidPatterns.has(pattern)) return null;
   let compiled = compiledPatterns.get(pattern);
   if (!compiled) {
-    if (typeof pattern !== 'string') {
-      log.warn({ pattern }, 'Cannot compile non-string pattern');
+    if (typeof pattern !== "string") {
+      log.warn({ pattern }, "Cannot compile non-string pattern");
       invalidPatterns.add(pattern as string);
       return null;
     }
@@ -61,7 +68,7 @@ function getCompiledPattern(pattern: string): Minimatch | null {
       compiled = new Minimatch(pattern);
       compiledPatterns.set(pattern, compiled);
     } catch (err) {
-      log.warn({ pattern, err }, 'Failed to compile pattern');
+      log.warn({ pattern, err }, "Failed to compile pattern");
       invalidPatterns.add(pattern);
       return null;
     }
@@ -74,22 +81,28 @@ function rebuildPatternCache(rules: TrustRule[]): void {
   compiledPatterns.clear();
   invalidPatterns.clear();
   for (const rule of rules) {
-    if (typeof rule.pattern !== 'string') {
-      log.warn({ ruleId: rule.id, pattern: rule.pattern }, 'Skipping rule with non-string pattern during cache rebuild');
+    if (typeof rule.pattern !== "string") {
+      log.warn(
+        { ruleId: rule.id, pattern: rule.pattern },
+        "Skipping rule with non-string pattern during cache rebuild",
+      );
       continue;
     }
     if (!compiledPatterns.has(rule.pattern)) {
       try {
         compiledPatterns.set(rule.pattern, new Minimatch(rule.pattern));
       } catch (err) {
-        log.warn({ ruleId: rule.id, pattern: rule.pattern, err }, 'Skipping rule with invalid pattern during cache rebuild');
+        log.warn(
+          { ruleId: rule.id, pattern: rule.pattern, err },
+          "Skipping rule with invalid pattern during cache rebuild",
+        );
       }
     }
   }
 }
 
 function getTrustPath(): string {
-  return join(getRootDir(), 'protected', 'trust.json');
+  return join(getRootDir(), "protected", "trust.json");
 }
 
 /**
@@ -115,17 +128,20 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   const existingIds = new Set(rules.map((r) => r.id));
 
   // Migrate old default:deny-*-protected rules → default:ask-*-protected
-  const oldDefaultPrefix = 'default:deny-';
-  const newDefaultPrefix = 'default:ask-';
+  const oldDefaultPrefix = "default:deny-";
+  const newDefaultPrefix = "default:ask-";
   for (let i = rules.length - 1; i >= 0; i--) {
     const rule = rules[i];
-    if (rule.id.startsWith(oldDefaultPrefix) && rule.id.endsWith('-protected')) {
+    if (
+      rule.id.startsWith(oldDefaultPrefix) &&
+      rule.id.endsWith("-protected")
+    ) {
       const newId = newDefaultPrefix + rule.id.slice(oldDefaultPrefix.length);
       rules.splice(i, 1);
       existingIds.delete(rule.id);
       // Don't add newId to existingIds — let the backfill loop re-add it
       changed = true;
-      log.info({ oldId: rule.id, newId }, 'Migrated default deny rule to ask');
+      log.info({ oldId: rule.id, newId }, "Migrated default deny rule to ask");
     }
   }
 
@@ -135,11 +151,11 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   const templateIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
   for (let i = rules.length - 1; i >= 0; i--) {
     const rule = rules[i];
-    if (rule.id.startsWith('default:') && !templateIds.has(rule.id)) {
+    if (rule.id.startsWith("default:") && !templateIds.has(rule.id)) {
       rules.splice(i, 1);
       existingIds.delete(rule.id);
       changed = true;
-      log.info({ ruleId: rule.id }, 'Removed stale default trust rule');
+      log.info({ ruleId: rule.id }, "Removed stale default trust rule");
     }
   }
 
@@ -149,15 +165,22 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   for (const template of getDefaultRuleTemplates()) {
     if (existingIds.has(template.id)) {
       const rule = rules.find((r) => r.id === template.id);
-      if (rule && (
-        rule.priority !== template.priority
-        || rule.pattern !== template.pattern
-        || rule.decision !== template.decision
-        || rule.allowHighRisk !== template.allowHighRisk
-      )) {
+      if (
+        rule &&
+        (rule.priority !== template.priority ||
+          rule.pattern !== template.pattern ||
+          rule.decision !== template.decision ||
+          rule.allowHighRisk !== template.allowHighRisk)
+      ) {
         log.info(
-          { ruleId: rule.id, oldPriority: rule.priority, newPriority: template.priority, oldPattern: rule.pattern, newPattern: template.pattern },
-          'Migrated default rule to updated template values',
+          {
+            ruleId: rule.id,
+            oldPriority: rule.priority,
+            newPriority: template.priority,
+            oldPattern: rule.pattern,
+            newPattern: template.pattern,
+          },
+          "Migrated default rule to updated template values",
         );
         rule.priority = template.priority;
         rule.pattern = template.pattern;
@@ -188,7 +211,7 @@ function backfillDefaults(rules: TrustRule[]): boolean {
       }
       rules.push(rule);
       changed = true;
-      log.info({ ruleId: template.id }, 'Backfilled default trust rule');
+      log.info({ ruleId: template.id }, "Backfilled default trust rule");
     }
   }
   return changed;
@@ -214,8 +237,12 @@ function migrateStarterRulePatterns(rules: TrustRule[]): boolean {
     // before it was changed to standalone "**".
     if (!isLegacyStarterPattern(rule.pattern, rule.tool)) continue;
     log.info(
-      { ruleId: rule.id, oldPattern: rule.pattern, newPattern: template.pattern },
-      'Migrated starter rule pattern to current template',
+      {
+        ruleId: rule.id,
+        oldPattern: rule.pattern,
+        newPattern: template.pattern,
+      },
+      "Migrated starter rule pattern to current template",
     );
     rule.pattern = template.pattern;
     changed = true;
@@ -238,7 +265,7 @@ function loadFromDisk(): TrustRule[] {
 
   if (existsSync(path)) {
     try {
-      const raw = readFileSync(path, 'utf-8');
+      const raw = readFileSync(path, "utf-8");
       const data = JSON.parse(raw) as TrustFile;
 
       // Guard: ensure rules is an array (protects against hand-edited files)
@@ -254,7 +281,10 @@ function loadFromDisk(): TrustRule[] {
           priority: 100,
         }));
         needsSave = true;
-        log.info({ ruleCount: rules.length }, 'Migrated v1 trust rules to v2 (priority=100)');
+        log.info(
+          { ruleCount: rules.length },
+          "Migrated v1 trust rules to v2 (priority=100)",
+        );
         // Fall through to v2 → v3 migration below
       }
 
@@ -265,7 +295,10 @@ function loadFromDisk(): TrustRule[] {
           rules = rawRules;
         }
         needsSave = true;
-        log.info({ ruleCount: rules.length }, 'Migrated v2 trust rules to v3 (principal fields)');
+        log.info(
+          { ruleCount: rules.length },
+          "Migrated v2 trust rules to v3 (principal fields)",
+        );
       } else if (data.version === TRUST_FILE_VERSION) {
         rules = rawRules;
 
@@ -279,7 +312,11 @@ function loadFromDisk(): TrustRule[] {
           // Legacy v3 rules may carry principal-scoped fields that no longer
           // exist in the TrustRule interface — cast to strip them at runtime.
           const r = rule as unknown as Record<string, unknown>;
-          if ('principalKind' in r || 'principalId' in r || 'principalVersion' in r) {
+          if (
+            "principalKind" in r ||
+            "principalId" in r ||
+            "principalVersion" in r
+          ) {
             delete r.principalKind;
             delete r.principalId;
             delete r.principalVersion;
@@ -287,7 +324,10 @@ function loadFromDisk(): TrustRule[] {
           }
         }
       } else if (data.version !== 1) {
-        log.warn({ version: data.version }, 'Unknown trust file version, applying defaults in-memory only');
+        log.warn(
+          { version: data.version },
+          "Unknown trust file version, applying defaults in-memory only",
+        );
         // Apply default deny rules in-memory so the assistant is still
         // protected, but do NOT persist — we must not overwrite a newer
         // trust file format we don't understand.
@@ -297,7 +337,7 @@ function loadFromDisk(): TrustRule[] {
         return memRules;
       }
     } catch (err) {
-      log.error({ err }, 'Failed to load trust file');
+      log.error({ err }, "Failed to load trust file");
       // Fall through to backfill defaults even on parse errors
     }
   }
@@ -319,7 +359,10 @@ function loadFromDisk(): TrustRule[] {
     try {
       saveToDisk(rules);
     } catch (err) {
-      log.warn({ err }, 'Failed to persist migrated trust rules (continuing with in-memory rules)');
+      log.warn(
+        { err },
+        "Failed to persist migrated trust rules (continuing with in-memory rules)",
+      );
     }
   }
 
@@ -336,7 +379,7 @@ function saveToDisk(rules: TrustRule[]): void {
   if (cachedStarterBundleAccepted) {
     data.starterBundleAccepted = true;
   }
-  const tmpPath = path + '.tmp.' + process.pid;
+  const tmpPath = path + ".tmp." + process.pid;
   writeFileSync(tmpPath, JSON.stringify(data, null, 2), { mode: 0o600 });
   renameSync(tmpPath, path);
   // Enforce owner-only permissions even if the file already existed with
@@ -356,7 +399,7 @@ export function addRule(
   tool: string,
   pattern: string,
   scope: string,
-  decision: 'allow' | 'deny' | 'ask' = 'allow',
+  decision: "allow" | "deny" | "ask" = "allow",
   priority: number = 100,
   options?: {
     allowHighRisk?: boolean;
@@ -388,16 +431,23 @@ export function addRule(
   rebuildPatternCache(rules);
   saveToDisk(rules);
   notifyRulesChanged();
-  log.info({ rule }, 'Added trust rule');
+  log.info({ rule }, "Added trust rule");
   return rule;
 }
 
 export function updateRule(
   id: string,
-  updates: { tool?: string; pattern?: string; scope?: string; decision?: 'allow' | 'deny' | 'ask'; priority?: number },
+  updates: {
+    tool?: string;
+    pattern?: string;
+    scope?: string;
+    decision?: "allow" | "deny" | "ask";
+    priority?: number;
+  },
 ): TrustRule {
   const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
-  if (defaultIds.has(id)) throw new Error(`Cannot modify default trust rule: ${id}`);
+  if (defaultIds.has(id))
+    throw new Error(`Cannot modify default trust rule: ${id}`);
 
   // Re-read from disk to avoid lost updates from concurrent modifications.
   cachedRules = null;
@@ -416,13 +466,14 @@ export function updateRule(
   rebuildPatternCache(rules);
   saveToDisk(rules);
   notifyRulesChanged();
-  log.info({ rule }, 'Updated trust rule');
+  log.info({ rule }, "Updated trust rule");
   return rule;
 }
 
 export function removeRule(id: string): boolean {
   const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
-  if (defaultIds.has(id)) throw new Error(`Cannot remove default trust rule: ${id}`);
+  if (defaultIds.has(id))
+    throw new Error(`Cannot remove default trust rule: ${id}`);
 
   // Re-read from disk to avoid lost updates from concurrent modifications.
   cachedRules = null;
@@ -434,20 +485,25 @@ export function removeRule(id: string): boolean {
   rebuildPatternCache(rules);
   saveToDisk(rules);
   notifyRulesChanged();
-  log.info({ id }, 'Removed trust rule');
+  log.info({ id }, "Removed trust rule");
   return true;
 }
 
 function matchesScope(ruleScope: string, workingDir: string): boolean {
-  if (ruleScope === 'everywhere') return true;
+  if (ruleScope === "everywhere") return true;
   // Strip optional trailing wildcard, then enforce a directory-boundary match
   // so that a rule for "/path/project" does NOT match "/path/project-evil".
-  const prefix = ruleScope.replace(/\*$/, '').replace(/\/+$/, '');
-  const dir = workingDir.replace(/\/+$/, '');
-  return dir === prefix || dir.startsWith(prefix + '/');
+  const prefix = ruleScope.replace(/\*$/, "").replace(/\/+$/, "");
+  const dir = workingDir.replace(/\/+$/, "");
+  return dir === prefix || dir.startsWith(prefix + "/");
 }
 
-function findRuleByDecision(tool: string, command: string, scope: string, decision: 'allow' | 'deny' | 'ask'): TrustRule | null {
+function findRuleByDecision(
+  tool: string,
+  command: string,
+  scope: string,
+  decision: "allow" | "deny" | "ask",
+): TrustRule | null {
   const rules = getRules();
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
@@ -479,7 +535,12 @@ function matchesExecutionTarget(rule: TrustRule, ctx?: PolicyContext): boolean {
  * constraints are filtered accordingly. Rules without those constraints
  * act as wildcards and match any context.
  */
-export function findHighestPriorityRule(tool: string, commands: string[], scope: string, ctx?: PolicyContext): TrustRule | null {
+export function findHighestPriorityRule(
+  tool: string,
+  commands: string[],
+  scope: string,
+  ctx?: PolicyContext,
+): TrustRule | null {
   // Check ephemeral (task-scoped) rules first — they take precedence over
   // file-based rules at the same priority because they are evaluated earlier.
   // The ruleOrder sort (highest priority first, deny wins ties) still applies
@@ -489,9 +550,10 @@ export function findHighestPriorityRule(tool: string, commands: string[], scope:
   const fileRules = getRules();
 
   // Concatenate and re-sort so priority ordering is respected across both sets.
-  const allRules = ephemeral.length > 0
-    ? [...ephemeral, ...fileRules].sort(ruleOrder)
-    : fileRules;
+  const allRules =
+    ephemeral.length > 0
+      ? [...ephemeral, ...fileRules].sort(ruleOrder)
+      : fileRules;
 
   for (const rule of allRules) {
     if (rule.tool !== tool) continue;
@@ -508,12 +570,20 @@ export function findHighestPriorityRule(tool: string, commands: string[], scope:
   return null;
 }
 
-export function findMatchingRule(tool: string, command: string, scope: string): TrustRule | null {
-  return findRuleByDecision(tool, command, scope, 'allow');
+export function findMatchingRule(
+  tool: string,
+  command: string,
+  scope: string,
+): TrustRule | null {
+  return findRuleByDecision(tool, command, scope, "allow");
 }
 
-export function findDenyRule(tool: string, command: string, scope: string): TrustRule | null {
-  return findRuleByDecision(tool, command, scope, 'deny');
+export function findDenyRule(
+  tool: string,
+  command: string,
+  scope: string,
+): TrustRule | null {
+  return findRuleByDecision(tool, command, scope, "deny");
 }
 
 export function getAllRules(): TrustRule[] {
@@ -531,7 +601,7 @@ export function clearAllRules(): void {
   rebuildPatternCache(rules);
   saveToDisk(rules);
   notifyRulesChanged();
-  log.info('Cleared all user trust rules (default rules preserved)');
+  log.info("Cleared all user trust rules (default rules preserved)");
 }
 
 export function clearCache(): void {
@@ -553,7 +623,7 @@ export interface StarterBundleRule {
   tool: string;
   pattern: string;
   scope: string;
-  decision: 'allow';
+  decision: "allow";
   priority: number;
 }
 
@@ -568,12 +638,54 @@ export function getStarterBundleRules(): StarterBundleRule[] {
     // it is its own path segment, so a "tool:**" prefix would collapse to
     // single-star behavior and fail to match candidates containing "/".
     // The tool field is already filtered by findHighestPriorityRule.
-    { id: 'starter:allow-file_read', tool: 'file_read', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-glob', tool: 'glob', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-grep', tool: 'grep', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-list_directory', tool: 'list_directory', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-web_search', tool: 'web_search', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-web_fetch', tool: 'web_fetch', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    {
+      id: "starter:allow-file_read",
+      tool: "file_read",
+      pattern: "**",
+      scope: "everywhere",
+      decision: "allow",
+      priority: 90,
+    },
+    {
+      id: "starter:allow-glob",
+      tool: "glob",
+      pattern: "**",
+      scope: "everywhere",
+      decision: "allow",
+      priority: 90,
+    },
+    {
+      id: "starter:allow-grep",
+      tool: "grep",
+      pattern: "**",
+      scope: "everywhere",
+      decision: "allow",
+      priority: 90,
+    },
+    {
+      id: "starter:allow-list_directory",
+      tool: "list_directory",
+      pattern: "**",
+      scope: "everywhere",
+      decision: "allow",
+      priority: 90,
+    },
+    {
+      id: "starter:allow-web_search",
+      tool: "web_search",
+      pattern: "**",
+      scope: "everywhere",
+      decision: "allow",
+      priority: 90,
+    },
+    {
+      id: "starter:allow-web_fetch",
+      tool: "web_fetch",
+      pattern: "**",
+      scope: "everywhere",
+      decision: "allow",
+      priority: 90,
+    },
   ];
 }
 
@@ -632,7 +744,7 @@ export function acceptStarterBundle(): AcceptStarterBundleResult {
   rebuildPatternCache(rules);
   saveToDisk(rules);
   notifyRulesChanged();
-  log.info({ rulesAdded: added }, 'Starter approval bundle accepted');
+  log.info({ rulesAdded: added }, "Starter approval bundle accepted");
 
   return { accepted: true, rulesAdded: added, alreadyAccepted: false };
 }

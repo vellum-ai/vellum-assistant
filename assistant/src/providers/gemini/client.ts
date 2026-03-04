@@ -1,8 +1,8 @@
-import type * as genai from '@google/genai';
-import { ApiError,GoogleGenAI } from '@google/genai';
+import type * as genai from "@google/genai";
+import { ApiError, GoogleGenAI } from "@google/genai";
 
-import { ProviderError } from '../../util/errors.js';
-import { createStreamTimeout } from '../stream-timeout.js';
+import { ProviderError } from "../../util/errors.js";
+import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
   Message,
@@ -10,15 +10,19 @@ import type {
   ProviderResponse,
   SendMessageOptions,
   ToolDefinition,
-} from '../types.js';
+} from "../types.js";
 
 export class GeminiProvider implements Provider {
-  public readonly name = 'gemini';
+  public readonly name = "gemini";
   private client: GoogleGenAI;
   private model: string;
   private streamTimeoutMs: number;
 
-  constructor(apiKey: string, model: string, options: { streamTimeoutMs?: number } = {}) {
+  constructor(
+    apiKey: string,
+    model: string,
+    options: { streamTimeoutMs?: number } = {},
+  ) {
     this.client = new GoogleGenAI({ apiKey });
     this.model = model;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
@@ -47,22 +51,29 @@ export class GeminiProvider implements Provider {
         geminiConfig.maxOutputTokens = maxTokens;
       }
       if (tools && tools.length > 0) {
-        geminiConfig.tools = [{
-          functionDeclarations: tools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            parametersJsonSchema: t.input_schema,
-          })),
-        }];
+        geminiConfig.tools = [
+          {
+            functionDeclarations: tools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              parametersJsonSchema: t.input_schema,
+            })),
+          },
+        ];
       }
 
-      const { signal: timeoutSignal, cleanup: cleanupTimeout } = createStreamTimeout(this.streamTimeoutMs, signal);
+      const { signal: timeoutSignal, cleanup: cleanupTimeout } =
+        createStreamTimeout(this.streamTimeoutMs, signal);
       geminiConfig.abortSignal = timeoutSignal;
 
       // Accumulate from streaming chunks
-      let fullText = '';
-      const functionCalls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
-      let finishReason = 'unknown';
+      let fullText = "";
+      const functionCalls: Array<{
+        id: string;
+        name: string;
+        args: Record<string, unknown>;
+      }> = [];
+      let finishReason = "unknown";
       let promptTokens = 0;
       let outputTokens = 0;
       let responseModel = modelOverride ?? this.model;
@@ -79,7 +90,7 @@ export class GeminiProvider implements Provider {
           const chunkText = chunk.text;
           if (chunkText) {
             fullText += chunkText;
-            onEvent?.({ type: 'text_delta', text: chunkText });
+            onEvent?.({ type: "text_delta", text: chunkText });
           }
 
           // Extract function calls
@@ -88,7 +99,7 @@ export class GeminiProvider implements Provider {
             for (const fc of calls) {
               functionCalls.push({
                 id: fc.id ?? `call_${crypto.randomUUID()}`,
-                name: fc.name ?? '',
+                name: fc.name ?? "",
                 args: fc.args ?? {},
               });
             }
@@ -116,11 +127,11 @@ export class GeminiProvider implements Provider {
       // Build content blocks
       const content: ContentBlock[] = [];
       if (fullText) {
-        content.push({ type: 'text', text: fullText });
+        content.push({ type: "text", text: fullText });
       }
       for (const fc of functionCalls) {
         content.push({
-          type: 'tool_use',
+          type: "tool_use",
           id: fc.id,
           name: fc.name,
           input: fc.args,
@@ -137,7 +148,10 @@ export class GeminiProvider implements Provider {
         text: fullText || null,
         functionCalls: functionCalls.length > 0 ? functionCalls : undefined,
         finishReason,
-        usageMetadata: { promptTokenCount: promptTokens, candidatesTokenCount: outputTokens },
+        usageMetadata: {
+          promptTokenCount: promptTokens,
+          candidatesTokenCount: outputTokens,
+        },
       };
 
       return {
@@ -152,13 +166,15 @@ export class GeminiProvider implements Provider {
       if (error instanceof ApiError) {
         throw new ProviderError(
           `Gemini API error (${error.status}): ${error.message}`,
-          'gemini',
+          "gemini",
           error.status,
         );
       }
       throw new ProviderError(
-        `Gemini request failed: ${error instanceof Error ? error.message : String(error)}`,
-        'gemini',
+        `Gemini request failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        "gemini",
         undefined,
         { cause: error },
       );
@@ -174,15 +190,18 @@ export class GeminiProvider implements Provider {
     const toolCallNames = new Map<string, string>();
     for (const msg of messages) {
       for (const block of msg.content) {
-        if (block.type === 'tool_use') {
+        if (block.type === "tool_use") {
           toolCallNames.set(block.id, block.name);
         }
       }
     }
 
     for (const msg of messages) {
-      const role = msg.role === 'assistant' ? 'model' : 'user';
-      const { parts, toolResultImageParts } = this.toGeminiParts(msg.content, toolCallNames);
+      const role = msg.role === "assistant" ? "model" : "user";
+      const { parts, toolResultImageParts } = this.toGeminiParts(
+        msg.content,
+        toolCallNames,
+      );
       if (parts.length > 0) {
         result.push({ role, parts });
       }
@@ -190,7 +209,7 @@ export class GeminiProvider implements Provider {
       // contain non-functionResponse parts. Emit tool-result images in a
       // separate user Content entry.
       if (toolResultImageParts.length > 0) {
-        result.push({ role: 'user', parts: toolResultImageParts });
+        result.push({ role: "user", parts: toolResultImageParts });
       }
     }
 
@@ -207,10 +226,10 @@ export class GeminiProvider implements Provider {
 
     for (const block of blocks) {
       switch (block.type) {
-        case 'text':
+        case "text":
           parts.push({ text: block.text });
           break;
-        case 'image':
+        case "image":
           parts.push({
             inlineData: {
               mimeType: block.source.media_type,
@@ -218,7 +237,7 @@ export class GeminiProvider implements Provider {
             },
           });
           break;
-        case 'file':
+        case "file":
           if (this.supportsGeminiInlineFile(block.source.media_type)) {
             parts.push({
               inlineData: {
@@ -233,7 +252,7 @@ export class GeminiProvider implements Provider {
             parts.push({ text: fallback });
           }
           break;
-        case 'tool_use':
+        case "tool_use":
           parts.push({
             functionCall: {
               id: block.id,
@@ -242,19 +261,22 @@ export class GeminiProvider implements Provider {
             },
           });
           break;
-        case 'tool_result': {
+        case "tool_result": {
           let outputText = block.content;
           if (block.contentBlocks && block.contentBlocks.length > 0) {
             const extraText = block.contentBlocks
-              .filter((cb): cb is Extract<ContentBlock, { type: 'text' }> => cb.type === 'text')
+              .filter(
+                (cb): cb is Extract<ContentBlock, { type: "text" }> =>
+                  cb.type === "text",
+              )
               .map((cb) => cb.text);
             if (extraText.length > 0) {
-              outputText = outputText + '\n' + extraText.join('\n');
+              outputText = outputText + "\n" + extraText.join("\n");
             }
             // Collect images separately — Gemini rejects mixing inlineData
             // with functionResponse in the same Content entry.
             for (const cb of block.contentBlocks) {
-              if (cb.type === 'image') {
+              if (cb.type === "image") {
                 toolResultImageParts.push({
                   inlineData: {
                     mimeType: cb.source.media_type,
@@ -281,6 +303,6 @@ export class GeminiProvider implements Provider {
   }
 
   private supportsGeminiInlineFile(mimeType: string): boolean {
-    return mimeType === 'application/pdf';
+    return mimeType === "application/pdf";
   }
 }

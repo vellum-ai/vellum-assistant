@@ -1,6 +1,9 @@
 const DOCTOR_URL = process.env.DOCTOR_URL || "https://doctor.vellum.ai";
 
-export type ProgressPhase= "invoking_prompt" | "calling_tool" | "processing_tool_result";
+export type ProgressPhase =
+  | "invoking_prompt"
+  | "calling_tool"
+  | "processing_tool_result";
 
 export interface ProgressEvent {
   phase: ProgressPhase;
@@ -48,7 +51,10 @@ async function streamDoctorResponse(
 
       for (const line of lines) {
         if (!line.trim()) continue;
-        const parsed = JSON.parse(line) as { type: string } & Record<string, unknown>;
+        const parsed = JSON.parse(line) as { type: string } & Record<
+          string,
+          unknown
+        >;
         receivedEventTypes.push(parsed.type);
         if (parsed.type === "progress") {
           onProgress?.(parsed as unknown as ProgressEvent);
@@ -60,7 +66,8 @@ async function streamDoctorResponse(
       }
     }
   } catch (streamErr) {
-    const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
+    const detail =
+      streamErr instanceof Error ? streamErr.message : String(streamErr);
     throw new Error(
       `Doctor stream interrupted after ${chunkCount} chunks ` +
         `(received events: [${receivedEventTypes.join(", ")}]): ${detail}`,
@@ -68,7 +75,10 @@ async function streamDoctorResponse(
   }
 
   if (buffer.trim()) {
-    const parsed = JSON.parse(buffer) as { type: string } & Record<string, unknown>;
+    const parsed = JSON.parse(buffer) as { type: string } & Record<
+      string,
+      unknown
+    >;
     receivedEventTypes.push(parsed.type);
     if (parsed.type === "result") {
       result = parsed as unknown as DoctorResult;
@@ -105,14 +115,20 @@ async function callDoctorDaemon(
       const response = await fetch(`${DOCTOR_URL}/doctor`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assistantId, project, zone, userPrompt, sessionId, chatContext }),
+        body: JSON.stringify({
+          assistantId,
+          project,
+          zone,
+          userPrompt,
+          sessionId,
+          chatContext,
+        }),
       });
       return await streamDoctorResponse(response, onProgress, onLog);
     } catch (err) {
       lastError = err;
       const errMsg = err instanceof Error ? err.message : String(err);
-      const logMsg =
-        `[doctor-client] Attempt ${attempt + 1}/${MAX_RETRIES} failed: ${errMsg}`;
+      const logMsg = `[doctor-client] Attempt ${attempt + 1}/${MAX_RETRIES} failed: ${errMsg}`;
       onLog?.(logMsg);
       if (attempt < MAX_RETRIES - 1) {
         await new Promise((resolve) => setTimeout(resolve, 500));

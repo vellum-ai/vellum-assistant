@@ -10,20 +10,20 @@
  * dependencies at startup via `setVoiceBridgeDeps()`.
  */
 
-import { consumeGrantForInvocation } from '../approvals/approval-primitive.js';
-import type { ChannelId } from '../channels/types.js';
-import { getConfig } from '../config/loader.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import type { Session } from '../daemon/session.js';
-import type { TrustContext } from '../daemon/session-runtime-assembly.js';
-import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
-import { buildAssistantEvent } from '../runtime/assistant-event.js';
-import { assistantEventHub } from '../runtime/assistant-event-hub.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { checkIngressForSecrets } from '../security/secret-ingress.js';
-import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
-import { IngressBlockedError } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
+import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
+import type { ChannelId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { Session } from "../daemon/session.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import { resolveChannelCapabilities } from "../daemon/session-runtime-assembly.js";
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { checkIngressForSecrets } from "../security/secret-ingress.js";
+import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { IngressBlockedError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
 
 /**
  * Matches the exact `[CALL_OPENING]` marker that call-controller sends for
@@ -31,21 +31,23 @@ import { getLogger } from '../util/logger.js';
  * persisting so the marker never appears in session history where it could
  * retrigger opener behavior after a barge-in interruption.
  */
-const CALL_OPENING_MARKER = '[CALL_OPENING]';
+const CALL_OPENING_MARKER = "[CALL_OPENING]";
 
-
-const log = getLogger('voice-session-bridge');
+const log = getLogger("voice-session-bridge");
 
 // ---------------------------------------------------------------------------
 // Module-level dependency injection
 // ---------------------------------------------------------------------------
 
 export interface VoiceBridgeDeps {
-  getOrCreateSession: (conversationId: string, transport?: {
-    channelId: ChannelId;
-    hints?: string[];
-    uxBrief?: string;
-  }) => Promise<Session>;
+  getOrCreateSession: (
+    conversationId: string,
+    transport?: {
+      channelId: ChannelId;
+      hints?: string[];
+      uxBrief?: string;
+    },
+  ) => Promise<Session>;
   resolveAttachments: (attachmentIds: string[]) => Array<{
     id: string;
     filename: string;
@@ -133,45 +135,49 @@ function buildVoiceCallControlPrompt(opts: {
   const config = getConfig();
   const disclosureEnabled = config.calls?.disclosure?.enabled === true;
   const disclosureText = config.calls?.disclosure?.text?.trim();
-  const disclosureRule = disclosureEnabled && disclosureText
-    ? opts.isInbound
-      ? `0. ${disclosureText} This is an inbound call you are answering, so rewrite any disclosure naturally for pickup context. Do NOT say "I'm calling", "I called you", or "I'm calling on behalf of".`
-      : `0. ${disclosureText}`
-    : '0. Begin the conversation naturally.';
+  const disclosureRule =
+    disclosureEnabled && disclosureText
+      ? opts.isInbound
+        ? `0. ${disclosureText} This is an inbound call you are answering, so rewrite any disclosure naturally for pickup context. Do NOT say "I'm calling", "I called you", or "I'm calling on behalf of".`
+        : `0. ${disclosureText}`
+      : "0. Begin the conversation naturally.";
 
-  const lines: string[] = ['<voice_call_control>'];
+  const lines: string[] = ["<voice_call_control>"];
 
   if (!opts.isInbound && opts.task) {
     lines.push(`Task: ${opts.task}`);
-    lines.push('');
+    lines.push("");
   }
 
   lines.push(
-    'CALL PROTOCOL RULES:',
+    "CALL PROTOCOL RULES:",
     disclosureRule,
-    '1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.',
+    "1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.",
     ...(opts.isCallerGuardian
-      ? ['2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.']
-      : [[
-          '2. You can consult your guardian in two ways:',
-          '   - For general questions or information: [ASK_GUARDIAN: your question here]',
-          '   - For tool/action permission requests: [ASK_GUARDIAN_APPROVAL: {"question":"Describe what you need permission for","toolName":"the_tool_name","input":{...tool input object...}}]',
-          '   Use ASK_GUARDIAN_APPROVAL when you need permission to execute a specific tool or action. Use ASK_GUARDIAN for everything else (general questions, advice, information). When you use either marker, add a natural hold message like "Let me check on that for you."',
-        ].join('\n')]
-    ),
+      ? [
+          "2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.",
+        ]
+      : [
+          [
+            "2. You can consult your guardian in two ways:",
+            "   - For general questions or information: [ASK_GUARDIAN: your question here]",
+            '   - For tool/action permission requests: [ASK_GUARDIAN_APPROVAL: {"question":"Describe what you need permission for","toolName":"the_tool_name","input":{...tool input object...}}]',
+            '   Use ASK_GUARDIAN_APPROVAL when you need permission to execute a specific tool or action. Use ASK_GUARDIAN for everything else (general questions, advice, information). When you use either marker, add a natural hold message like "Let me check on that for you."',
+          ].join("\n"),
+        ]),
   );
 
   if (opts.isInbound) {
     lines.push(
-      '3. If information is provided preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
-      '4. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
-      '5. When the caller indicates they are done or the conversation reaches a natural conclusion, include [END_CALL] in your response along with a polite goodbye.',
+      "3. If information is provided preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.",
+      "4. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.",
+      "5. When the caller indicates they are done or the conversation reaches a natural conclusion, include [END_CALL] in your response along with a polite goodbye.",
     );
   } else {
     lines.push(
-      '3. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
-      '4. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
-      '5. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
+      "3. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.",
+      "4. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.",
+      "5. When the call's purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.",
     );
   }
 
@@ -190,25 +196,26 @@ function buildVoiceCallControlPrompt(opts: {
       );
     }
     lines.push(
-      '8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.',
+      "8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.",
     );
   } else {
-    const disclosureReminder = disclosureEnabled && disclosureText
-      ? ' However, the disclosure text from rule 0 is separate from self-introduction and must always be included in your opening greeting, even if the Task does not mention introducing yourself.'
-      : '';
+    const disclosureReminder =
+      disclosureEnabled && disclosureText
+        ? " However, the disclosure text from rule 0 is separate from self-introduction and must always be included in your opening greeting, even if the Task does not mention introducing yourself."
+        : "";
     lines.push(
       `7. If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call — follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction.${disclosureReminder} Vary the wording naturally; do not use a fixed template.`,
-      '8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
+      "8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.",
     );
   }
 
   lines.push(
-    '9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.',
+    "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
-    '</voice_call_control>',
+    "</voice_call_control>",
   );
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -226,15 +233,22 @@ function buildVoiceCallControlPrompt(opts: {
  * The caller (CallController via relay-server) can use the returned handle
  * to cancel the turn on barge-in.
  */
-export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnHandle> {
+export async function startVoiceTurn(
+  opts: VoiceTurnOptions,
+): Promise<VoiceTurnHandle> {
   if (!deps) {
-    throw new Error('Voice bridge not initialized — setVoiceBridgeDeps() was not called');
+    throw new Error(
+      "Voice bridge not initialized — setVoiceBridgeDeps() was not called",
+    );
   }
 
   // Block inbound content that contains secrets
   const ingressCheck = checkIngressForSecrets(opts.content);
   if (ingressCheck.blocked) {
-    throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    throw new IngressBlockedError(
+      ingressCheck.userNotice!,
+      ingressCheck.detectedTypes,
+    );
   }
 
   const eventSink: VoiceRunEventSink = {
@@ -242,7 +256,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     onMessageComplete: opts.onComplete,
     onError: opts.onError,
     onToolUse: (toolName, input) => {
-      log.debug({ toolName, input }, 'Voice turn tool_use event');
+      log.debug({ toolName, input }, "Voice turn tool_use event");
     },
   };
 
@@ -252,20 +266,21 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
   // - everyone else (including unknown): fail-closed strict side-effects
   //   with auto-deny confirmations.
   const trustClass = opts.trustContext?.trustClass;
-  const isGuardian = trustClass === 'guardian';
+  const isGuardian = trustClass === "guardian";
   const forceStrictSideEffects = isGuardian ? undefined : true;
 
   // Replace the [CALL_OPENING] marker with a neutral instruction before
   // persisting. The marker must not appear as a user message in session
   // history — after a barge-in interruption the next turn would replay
   // the stale marker and potentially retrigger opener behavior.
-  const persistedContent = opts.content === CALL_OPENING_MARKER
-    ? '(call connected — deliver opening greeting)'
-    : opts.content;
+  const persistedContent =
+    opts.content === CALL_OPENING_MARKER
+      ? "(call connected — deliver opening greeting)"
+      : opts.content;
 
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
-  const isCallerGuardian = opts.trustContext?.trustClass === 'guardian';
+  const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
 
   const voiceCallControlPrompt = buildVoiceCallControlPrompt({
     isInbound: opts.isInbound,
@@ -275,7 +290,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
 
   // Get or create the session
   const transport = {
-    channelId: 'voice' as ChannelId,
+    channelId: "voice" as ChannelId,
   };
   const session = await deps.getOrCreateSession(opts.conversationId, transport);
 
@@ -287,22 +302,23 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     let waited = 0;
     while (session.isProcessing() && waited < maxWaitMs) {
       if (opts.signal?.aborted) {
-        throw new Error('Turn aborted while waiting for session');
+        throw new Error("Turn aborted while waiting for session");
       }
-      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       waited += pollIntervalMs;
     }
     if (opts.signal?.aborted) {
-      throw new Error('Turn aborted while waiting for session');
+      throw new Error("Turn aborted while waiting for session");
     }
     if (session.isProcessing()) {
-      throw new Error('Session is already processing a message');
+      throw new Error("Session is already processing a message");
     }
   }
 
   // Configure session for this voice turn
-  const strictSideEffects = forceStrictSideEffects
-    ?? deps.deriveDefaultStrictSideEffects(opts.conversationId);
+  const strictSideEffects =
+    forceStrictSideEffects ??
+    deps.deriveDefaultStrictSideEffects(opts.conversationId);
   session.memoryPolicy = {
     ...session.memoryPolicy,
     strictSideEffects,
@@ -312,32 +328,46 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
   session.setTrustContext(opts.trustContext ?? null);
   session.setCommandIntent(null);
   session.setTurnChannelContext({
-    userMessageChannel: 'voice',
-    assistantMessageChannel: 'voice',
+    userMessageChannel: "voice",
+    assistantMessageChannel: "voice",
   });
-  session.setChannelCapabilities(resolveChannelCapabilities('voice', undefined));
+  session.setChannelCapabilities(
+    resolveChannelCapabilities("voice", undefined),
+  );
   session.setVoiceCallControlPrompt(voiceCallControlPrompt);
 
   const requestId = crypto.randomUUID();
   const turnId = crypto.randomUUID();
-  const messageId = await session.persistUserMessage(persistedContent, [], requestId);
+  const messageId = await session.persistUserMessage(
+    persistedContent,
+    [],
+    requestId,
+  );
 
   // Serialized publish chain so hub subscribers observe events in order.
   let hubChain: Promise<void> = Promise.resolve();
   const publishToHub = (msg: ServerMessage): void => {
     // ServerMessage is a large union; sessionId exists on most but not all variants.
     const msgSessionId =
-      'sessionId' in msg && typeof (msg as { sessionId?: unknown }).sessionId === 'string'
+      "sessionId" in msg &&
+      typeof (msg as { sessionId?: unknown }).sessionId === "string"
         ? (msg as { sessionId: string }).sessionId
         : undefined;
     const resolvedSessionId = msgSessionId ?? opts.conversationId;
-    const event = buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, resolvedSessionId);
+    const event = buildAssistantEvent(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+      msg,
+      resolvedSessionId,
+    );
     hubChain = (async () => {
       await hubChain;
       try {
         await assistantEventHub.publish(event);
       } catch (err) {
-        log.warn({ err }, 'assistant-events hub subscriber threw during voice turn');
+        log.warn(
+          { err },
+          "assistant-events hub subscriber threw during voice turn",
+        );
       }
     })();
   };
@@ -348,7 +378,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
   const autoAllow = isGuardian;
   let lastError: string | null = null;
   session.updateClient(async (msg: ServerMessage) => {
-    if (msg.type === 'confirmation_request') {
+    if (msg.type === "confirmation_request") {
       if (autoDeny) {
         // Non-guardian voice callers have no interactive approval UI.
         // The pre-exec gate (tool-approval-handler.ts) handles grant
@@ -359,27 +389,38 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
         // (maxWaitMs: 0) since the primary retry path is in the pre-exec
         // gate; this secondary path just needs a quick check.
         try {
-          const inputDigest = computeToolApprovalDigest(msg.toolName, msg.input);
-          const consumeResult = await consumeGrantForInvocation({
-            requestId: msg.requestId,
-            toolName: msg.toolName,
-            inputDigest,
-            consumingRequestId: msg.requestId,
-            assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-            executionChannel: 'voice',
-            conversationId: opts.conversationId,
-            callSessionId: opts.callSessionId,
-            requesterExternalUserId: opts.trustContext?.requesterExternalUserId,
-          }, { maxWaitMs: 0 });
+          const inputDigest = computeToolApprovalDigest(
+            msg.toolName,
+            msg.input,
+          );
+          const consumeResult = await consumeGrantForInvocation(
+            {
+              requestId: msg.requestId,
+              toolName: msg.toolName,
+              inputDigest,
+              consumingRequestId: msg.requestId,
+              assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+              executionChannel: "voice",
+              conversationId: opts.conversationId,
+              callSessionId: opts.callSessionId,
+              requesterExternalUserId:
+                opts.trustContext?.requesterExternalUserId,
+            },
+            { maxWaitMs: 0 },
+          );
 
           if (consumeResult.ok) {
             log.info(
-              { turnId, toolName: msg.toolName, grantId: consumeResult.grant.id },
-              'Consumed scoped grant — allowing non-guardian voice confirmation',
+              {
+                turnId,
+                toolName: msg.toolName,
+                grantId: consumeResult.grant.id,
+              },
+              "Consumed scoped grant — allowing non-guardian voice confirmation",
             );
             session.handleConfirmationResponse(
               msg.requestId,
-              'allow',
+              "allow",
               undefined,
               undefined,
               `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
@@ -390,17 +431,17 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
         } catch (err) {
           log.error(
             { err, turnId, toolName: msg.toolName },
-            'Error consuming grant in voice confirmation handler — falling through to deny',
+            "Error consuming grant in voice confirmation handler — falling through to deny",
           );
         }
 
         log.info(
           { turnId, toolName: msg.toolName },
-          'Auto-denying confirmation request for non-guardian voice turn (no matching scoped grant)',
+          "Auto-denying confirmation request for non-guardian voice turn (no matching scoped grant)",
         );
         session.handleConfirmationResponse(
           msg.requestId,
-          'deny',
+          "deny",
           undefined,
           undefined,
           `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
@@ -411,11 +452,11 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
       if (autoAllow) {
         log.info(
           { turnId, toolName: msg.toolName },
-          'Auto-approving confirmation request for guardian voice turn',
+          "Auto-approving confirmation request for guardian voice turn",
         );
         session.handleConfirmationResponse(
           msg.requestId,
-          'allow',
+          "allow",
           undefined,
           undefined,
           `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
@@ -423,13 +464,13 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
         publishToHub(msg);
         return;
       }
-    } else if (msg.type === 'secret_request') {
+    } else if (msg.type === "secret_request") {
       // Voice has no secret-entry UI, so resolve immediately
       log.info(
         { turnId, service: msg.service, field: msg.field },
-        'Auto-resolving secret request for voice turn (no secret-entry UI)',
+        "Auto-resolving secret request for voice turn (no secret-entry UI)",
       );
-      session.handleSecretResponse(msg.requestId, undefined, 'store');
+      session.handleSecretResponse(msg.requestId, undefined, "store");
       publishToHub(msg);
       return;
     }
@@ -443,7 +484,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     session.setChannelCapabilities(null);
     session.setTrustContext(null);
     session.setCommandIntent(null);
-    session.setAssistantId('self');
+    session.setAssistantId("self");
     session.setVoiceCallControlPrompt(null);
     session.callSessionId = undefined;
     // Reset the session's client callback to a no-op so the stale
@@ -453,37 +494,44 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
 
   void (async () => {
     try {
-      await session.runAgentLoop(persistedContent, messageId, (msg: ServerMessage) => {
-        if (msg.type === 'error') {
-          lastError = msg.message;
-        } else if (msg.type === 'session_error') {
-          lastError = msg.userMessage;
-        }
-        publishToHub(msg);
+      await session.runAgentLoop(
+        persistedContent,
+        messageId,
+        (msg: ServerMessage) => {
+          if (msg.type === "error") {
+            lastError = msg.message;
+          } else if (msg.type === "session_error") {
+            lastError = msg.userMessage;
+          }
+          publishToHub(msg);
 
-        // Forward voice-relevant events to the real-time event sink
-        if (msg.type === 'assistant_text_delta') {
-          eventSink.onTextDelta(msg.text);
-        } else if (msg.type === 'message_complete') {
-          eventSink.onMessageComplete();
-        } else if (msg.type === 'generation_cancelled') {
-          // Treat cancellation as a completed turn so the voice
-          // turnComplete promise settles instead of hanging forever.
-          eventSink.onMessageComplete();
-        } else if (msg.type === 'error') {
-          eventSink.onError(msg.message);
-        } else if (msg.type === 'session_error') {
-          eventSink.onError(msg.userMessage);
-        } else if (msg.type === 'tool_use_start') {
-          eventSink.onToolUse(msg.toolName, msg.input);
-        }
-      });
+          // Forward voice-relevant events to the real-time event sink
+          if (msg.type === "assistant_text_delta") {
+            eventSink.onTextDelta(msg.text);
+          } else if (msg.type === "message_complete") {
+            eventSink.onMessageComplete();
+          } else if (msg.type === "generation_cancelled") {
+            // Treat cancellation as a completed turn so the voice
+            // turnComplete promise settles instead of hanging forever.
+            eventSink.onMessageComplete();
+          } else if (msg.type === "error") {
+            eventSink.onError(msg.message);
+          } else if (msg.type === "session_error") {
+            eventSink.onError(msg.userMessage);
+          } else if (msg.type === "tool_use_start") {
+            eventSink.onToolUse(msg.toolName, msg.input);
+          }
+        },
+      );
       if (lastError) {
-        log.error({ turnId, error: lastError }, 'Voice turn failed (error event from agent loop)');
+        log.error(
+          { turnId, error: lastError },
+          "Voice turn failed (error event from agent loop)",
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, turnId }, 'Voice turn failed');
+      log.error({ err, turnId }, "Voice turn failed");
       eventSink.onError(message);
     } finally {
       cleanup();
@@ -502,7 +550,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     if (opts.signal.aborted) {
       abortFn();
     } else {
-      opts.signal.addEventListener('abort', () => abortFn(), { once: true });
+      opts.signal.addEventListener("abort", () => abortFn(), { once: true });
     }
   }
 

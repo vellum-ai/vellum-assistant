@@ -1,14 +1,18 @@
-import { and, asc, eq, inArray, lt } from 'drizzle-orm';
+import { and, asc, eq, inArray, lt } from "drizzle-orm";
 
-import type { AssistantConfig } from '../../config/types.js';
-import { getLogger } from '../../util/logger.js';
-import { checkContradictions } from '../contradiction-checker.js';
-import { getDb, rawAll, rawRun } from '../db.js';
-import { asPositiveMs, asString } from '../job-utils.js';
-import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
-import { memoryEmbeddings, memoryItemEntities, memoryItems } from '../schema.js';
+import type { AssistantConfig } from "../../config/types.js";
+import { getLogger } from "../../util/logger.js";
+import { checkContradictions } from "../contradiction-checker.js";
+import { getDb, rawAll, rawRun } from "../db.js";
+import { asPositiveMs, asString } from "../job-utils.js";
+import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import {
+  memoryEmbeddings,
+  memoryItemEntities,
+  memoryItems,
+} from "../schema.js";
 
-const log = getLogger('memory-jobs-worker');
+const log = getLogger("memory-jobs-worker");
 
 const CLEANUP_BATCH_LIMIT = 250;
 
@@ -18,17 +22,24 @@ export async function checkContradictionsJob(job: MemoryJob): Promise<void> {
   await checkContradictions(itemId);
 }
 
-export function cleanupStaleSupersededItemsJob(job: MemoryJob, config: AssistantConfig): void {
+export function cleanupStaleSupersededItemsJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): void {
   const db = getDb();
-  const retentionMs = asPositiveMs(job.payload.retentionMs) ?? config.memory.cleanup.supersededItemRetentionMs;
+  const retentionMs =
+    asPositiveMs(job.payload.retentionMs) ??
+    config.memory.cleanup.supersededItemRetentionMs;
   const cutoff = Date.now() - retentionMs;
   const stale = db
     .select({ id: memoryItems.id })
     .from(memoryItems)
-    .where(and(
-      eq(memoryItems.status, 'superseded'),
-      lt(memoryItems.invalidAt, cutoff),
-    ))
+    .where(
+      and(
+        eq(memoryItems.status, "superseded"),
+        lt(memoryItems.invalidAt, cutoff),
+      ),
+    )
     .orderBy(asc(memoryItems.invalidAt), asc(memoryItems.id))
     .limit(CLEANUP_BATCH_LIMIT)
     .all();
@@ -39,23 +50,26 @@ export function cleanupStaleSupersededItemsJob(job: MemoryJob, config: Assistant
     .where(inArray(memoryItemEntities.memoryItemId, ids))
     .run();
   db.delete(memoryEmbeddings)
-    .where(and(
-      eq(memoryEmbeddings.targetType, 'item'),
-      inArray(memoryEmbeddings.targetId, ids),
-    ))
+    .where(
+      and(
+        eq(memoryEmbeddings.targetType, "item"),
+        inArray(memoryEmbeddings.targetId, ids),
+      ),
+    )
     .run();
-  db.delete(memoryItems)
-    .where(inArray(memoryItems.id, ids))
-    .run();
+  db.delete(memoryItems).where(inArray(memoryItems.id, ids)).run();
   if (stale.length === CLEANUP_BATCH_LIMIT) {
-    enqueueMemoryJob('cleanup_stale_superseded_items', { retentionMs });
+    enqueueMemoryJob("cleanup_stale_superseded_items", { retentionMs });
   }
 
-  log.debug({
-    removedItems: stale.length,
-    retentionMs,
-    cutoff,
-  }, 'Cleaned up stale superseded memory items');
+  log.debug(
+    {
+      removedItems: stale.length,
+      retentionMs,
+      cutoff,
+    },
+    "Cleaned up stale superseded memory items",
+  );
 }
 
 const PRUNE_BATCH_LIMIT = 100;
@@ -71,10 +85,16 @@ const PRUNE_BATCH_LIMIT = 100;
  * automatically. Tables without cascade (messages, tool_invocations,
  * llm_request_logs) are deleted explicitly before removing the conversation row.
  */
-export function pruneOldConversationsJob(job: MemoryJob, config: AssistantConfig): void {
-  const retentionDays = typeof job.payload.retentionDays === 'number' && Number.isFinite(job.payload.retentionDays) && job.payload.retentionDays >= 0
-    ? job.payload.retentionDays
-    : config.memory.cleanup.conversationRetentionDays;
+export function pruneOldConversationsJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): void {
+  const retentionDays =
+    typeof job.payload.retentionDays === "number" &&
+    Number.isFinite(job.payload.retentionDays) &&
+    job.payload.retentionDays >= 0
+      ? job.payload.retentionDays
+      : config.memory.cleanup.conversationRetentionDays;
 
   // 0 means disabled
   if (retentionDays === 0) return;
@@ -112,13 +132,16 @@ export function pruneOldConversationsJob(job: MemoryJob, config: AssistantConfig
   }
 
   if (stale.length === PRUNE_BATCH_LIMIT) {
-    enqueueMemoryJob('prune_old_conversations', { retentionDays });
+    enqueueMemoryJob("prune_old_conversations", { retentionDays });
   }
 
-  log.info({
-    pruned,
-    skipped: stale.length - pruned,
-    retentionDays,
-    cutoffMs,
-  }, 'Pruned old conversations');
+  log.info(
+    {
+      pruned,
+      skipped: stale.length - pruned,
+      retentionDays,
+      cutoffMs,
+    },
+    "Pruned old conversations",
+  );
 }

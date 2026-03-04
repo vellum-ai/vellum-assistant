@@ -1,14 +1,20 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { reconcileTelegramWebhook } = await import("../telegram/webhook-manager.js");
+const { reconcileTelegramWebhook } =
+  await import("../telegram/webhook-manager.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -72,23 +78,30 @@ describe("reconcileTelegramWebhook", () => {
   test("calls setWebhook when URL does not match", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      if (url.includes("/getWebhookInfo")) {
-        calls.push({ method: "getWebhookInfo", body: null });
-        return makeTelegramResponse({
-          url: "https://old-url.example.com/webhooks/telegram",
-          has_custom_certificate: false,
-          pending_update_count: 0,
-        });
-      }
-      if (url.includes("/setWebhook")) {
-        const body = init?.body ? JSON.parse(init.body as string) : null;
-        calls.push({ method: "setWebhook", body });
-        return makeTelegramResponse(true);
-      }
-      return new Response("Not found", { status: 404 });
-    });
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (url.includes("/getWebhookInfo")) {
+          calls.push({ method: "getWebhookInfo", body: null });
+          return makeTelegramResponse({
+            url: "https://old-url.example.com/webhooks/telegram",
+            has_custom_certificate: false,
+            pending_update_count: 0,
+          });
+        }
+        if (url.includes("/setWebhook")) {
+          const body = init?.body ? JSON.parse(init.body as string) : null;
+          calls.push({ method: "setWebhook", body });
+          return makeTelegramResponse(true);
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
 
     const config = makeConfig();
     await reconcileTelegramWebhook(config);
@@ -96,16 +109,27 @@ describe("reconcileTelegramWebhook", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0].method).toBe("getWebhookInfo");
     expect(calls[1].method).toBe("setWebhook");
-    expect((calls[1].body as any).url).toBe("https://example.ngrok.io/webhooks/telegram");
+    expect((calls[1].body as any).url).toBe(
+      "https://example.ngrok.io/webhooks/telegram",
+    );
     expect((calls[1].body as any).secret_token).toBe("test-webhook-secret");
-    expect((calls[1].body as any).allowed_updates).toEqual(["message", "edited_message", "callback_query"]);
+    expect((calls[1].body as any).allowed_updates).toEqual([
+      "message",
+      "edited_message",
+      "callback_query",
+    ]);
   });
 
   test("always calls setWebhook even when URL already matches (secret may have rotated)", async () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push("getWebhookInfo");
         return makeTelegramResponse({
@@ -130,29 +154,40 @@ describe("reconcileTelegramWebhook", () => {
   test("normalizes trailing slash on ingress base URL", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      if (url.includes("/getWebhookInfo")) {
-        calls.push({ method: "getWebhookInfo", body: null });
-        return makeTelegramResponse({
-          url: "",
-          has_custom_certificate: false,
-          pending_update_count: 0,
-        });
-      }
-      if (url.includes("/setWebhook")) {
-        const body = init?.body ? JSON.parse(init.body as string) : null;
-        calls.push({ method: "setWebhook", body });
-        return makeTelegramResponse(true);
-      }
-      return new Response("Not found", { status: 404 });
-    });
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (url.includes("/getWebhookInfo")) {
+          calls.push({ method: "getWebhookInfo", body: null });
+          return makeTelegramResponse({
+            url: "",
+            has_custom_certificate: false,
+            pending_update_count: 0,
+          });
+        }
+        if (url.includes("/setWebhook")) {
+          const body = init?.body ? JSON.parse(init.body as string) : null;
+          calls.push({ method: "setWebhook", body });
+          return makeTelegramResponse(true);
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
 
-    const config = makeConfig({ ingressPublicBaseUrl: "https://example.ngrok.io/" });
+    const config = makeConfig({
+      ingressPublicBaseUrl: "https://example.ngrok.io/",
+    });
     await reconcileTelegramWebhook(config);
 
     expect(calls).toHaveLength(2);
-    expect((calls[1].body as any).url).toBe("https://example.ngrok.io/webhooks/telegram");
+    expect((calls[1].body as any).url).toBe(
+      "https://example.ngrok.io/webhooks/telegram",
+    );
   });
 
   test("skips reconciliation when bot token is not configured", async () => {
@@ -186,7 +221,12 @@ describe("reconcileTelegramWebhook", () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push("getWebhookInfo");
         return makeTelegramResponse({

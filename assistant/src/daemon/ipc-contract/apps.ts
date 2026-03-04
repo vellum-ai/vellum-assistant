@@ -1,77 +1,77 @@
 // App management, gallery, publishing, and sharing types.
 
-import type { GalleryManifest } from '../../gallery/gallery-manifest.js';
+import type { GalleryManifest } from "../../gallery/gallery-manifest.js";
 
 // === Client → Server ===
 
 export interface AppDataRequest {
-  type: 'app_data_request';
+  type: "app_data_request";
   surfaceId: string;
   callId: string;
-  method: 'query' | 'create' | 'update' | 'delete';
+  method: "query" | "create" | "update" | "delete";
   appId: string;
   recordId?: string;
   data?: Record<string, unknown>;
 }
 
 export interface AppsListRequest {
-  type: 'apps_list';
+  type: "apps_list";
 }
 
 export interface HomeBaseGetRequest {
-  type: 'home_base_get';
+  type: "home_base_get";
   /** If true, daemon ensures a durable Home Base link exists before responding. */
   ensureLinked?: boolean;
 }
 
 export interface AppOpenRequest {
-  type: 'app_open_request';
+  type: "app_open_request";
   appId: string;
 }
 
 export interface SharedAppsListRequest {
-  type: 'shared_apps_list';
+  type: "shared_apps_list";
 }
 
 export interface AppDeleteRequest {
-  type: 'app_delete';
+  type: "app_delete";
   appId: string;
 }
 
 export interface SharedAppDeleteRequest {
-  type: 'shared_app_delete';
+  type: "shared_app_delete";
   uuid: string;
 }
 
 export interface ForkSharedAppRequest {
-  type: 'fork_shared_app';
+  type: "fork_shared_app";
   uuid: string;
 }
 
 export interface BundleAppRequest {
-  type: 'bundle_app';
+  type: "bundle_app";
   appId: string;
 }
 
 export interface AppUpdatePreviewRequest {
-  type: 'app_update_preview';
+  type: "app_update_preview";
   appId: string;
   /** Base64-encoded PNG screenshot thumbnail. */
   preview: string;
 }
 
 export interface AppPreviewRequest {
-  type: 'app_preview_request';
+  type: "app_preview_request";
   appId: string;
 }
 
 export interface OpenBundleRequest {
-  type: 'open_bundle';
+  type: "open_bundle";
   filePath: string;
 }
 
 export interface SignBundlePayloadResponse {
-  type: 'sign_bundle_payload_response';
+  type: "sign_bundle_payload_response";
   requestId: string;
   signature?: string;
   keyId?: string;
@@ -80,7 +80,7 @@ export interface SignBundlePayloadResponse {
 }
 
 export interface GetSigningIdentityResponse {
-  type: 'get_signing_identity_response';
+  type: "get_signing_identity_response";
   requestId: string;
   keyId?: string;
   publicKey?: string;
@@ -88,66 +88,66 @@ export interface GetSigningIdentityResponse {
 }
 
 export interface GalleryListRequest {
-  type: 'gallery_list';
+  type: "gallery_list";
 }
 
 export interface GalleryInstallRequest {
-  type: 'gallery_install';
+  type: "gallery_install";
   galleryAppId: string;
 }
 
 export interface AppHistoryRequest {
-  type: 'app_history_request';
+  type: "app_history_request";
   appId: string;
   limit?: number;
 }
 
 export interface AppDiffRequest {
-  type: 'app_diff_request';
+  type: "app_diff_request";
   appId: string;
   fromCommit: string;
   toCommit?: string;
 }
 
 export interface AppFileAtVersionRequest {
-  type: 'app_file_at_version_request';
+  type: "app_file_at_version_request";
   appId: string;
   path: string;
   commitHash: string;
 }
 
 export interface AppRestoreRequest {
-  type: 'app_restore_request';
+  type: "app_restore_request";
   appId: string;
   commitHash: string;
 }
 
 export interface ShareAppCloudRequest {
-  type: 'share_app_cloud';
+  type: "share_app_cloud";
   appId: string;
 }
 
 export interface ShareToSlackRequest {
-  type: 'share_to_slack';
+  type: "share_to_slack";
   appId: string;
 }
 
 export interface PublishPageRequest {
-  type: 'publish_page';
+  type: "publish_page";
   html: string;
   title?: string;
   appId?: string;
 }
 
 export interface UnpublishPageRequest {
-  type: 'unpublish_page';
+  type: "unpublish_page";
   deploymentId: string;
 }
 
 // === Server → Client ===
 
 export interface AppDataResponse {
-  type: 'app_data_response';
+  type: "app_data_response";
   surfaceId: string;
   callId: string;
   success: boolean;
@@ -156,19 +156,19 @@ export interface AppDataResponse {
 }
 
 export interface AppUpdatePreviewResponse {
-  type: 'app_update_preview_response';
+  type: "app_update_preview_response";
   success: boolean;
   appId: string;
 }
 
 export interface AppPreviewResponse {
-  type: 'app_preview_response';
+  type: "app_preview_response";
   appId: string;
   preview?: string;
 }
 
 export interface AppsListResponse {
-  type: 'apps_list_response';
+  type: "apps_list_response";
   apps: Array<{
     id: string;
     name: string;
@@ -183,7 +183,7 @@ export interface AppsListResponse {
 }
 
 export interface HomeBaseGetResponse {
-  type: 'home_base_get_response';
+  type: "home_base_get_response";
   homeBase: {
     appId: string;
     source: string;
@@ -200,7 +200,7 @@ export interface HomeBaseGetResponse {
 }
 
 export interface SharedAppsListResponse {
-  type: 'shared_apps_list_response';
+  type: "shared_apps_list_response";
   apps: Array<{
     uuid: string;
     name: string;
@@ -219,17 +219,17 @@ export interface SharedAppsListResponse {
 }
 
 export interface AppDeleteResponse {
-  type: 'app_delete_response';
+  type: "app_delete_response";
   success: boolean;
 }
 
 export interface SharedAppDeleteResponse {
-  type: 'shared_app_delete_response';
+  type: "shared_app_delete_response";
   success: boolean;
 }
 
 export interface ForkSharedAppResponse {
-  type: 'fork_shared_app_response';
+  type: "fork_shared_app_response";
   success: boolean;
   appId?: string;
   name?: string;
@@ -237,7 +237,7 @@ export interface ForkSharedAppResponse {
 }
 
 export interface BundleAppResponse {
-  type: 'bundle_app_response';
+  type: "bundle_app_response";
   bundlePath: string;
   manifest: {
     format_version: number;
@@ -254,7 +254,7 @@ export interface BundleAppResponse {
 }
 
 export interface OpenBundleResponse {
-  type: 'open_bundle_response';
+  type: "open_bundle_response";
   manifest: {
     format_version: number;
     name: string;
@@ -271,7 +271,7 @@ export interface OpenBundleResponse {
     warnings: string[];
   };
   signatureResult: {
-    trustTier: 'verified' | 'signed' | 'unsigned' | 'tampered';
+    trustTier: "verified" | "signed" | "unsigned" | "tampered";
     signerKeyId?: string;
     signerDisplayName?: string;
     signerAccount?: string;
@@ -280,18 +280,18 @@ export interface OpenBundleResponse {
 }
 
 export interface SignBundlePayloadRequest {
-  type: 'sign_bundle_payload';
+  type: "sign_bundle_payload";
   requestId: string;
   payload: string;
 }
 
 export interface GetSigningIdentityRequest {
-  type: 'get_signing_identity';
+  type: "get_signing_identity";
   requestId: string;
 }
 
 export interface ShareAppCloudResponse {
-  type: 'share_app_cloud_response';
+  type: "share_app_cloud_response";
   success: boolean;
   shareToken?: string;
   shareUrl?: string;
@@ -299,12 +299,12 @@ export interface ShareAppCloudResponse {
 }
 
 export interface GalleryListResponse {
-  type: 'gallery_list_response';
+  type: "gallery_list_response";
   gallery: GalleryManifest;
 }
 
 export interface GalleryInstallResponse {
-  type: 'gallery_install_response';
+  type: "gallery_install_response";
   success: boolean;
   appId?: string;
   name?: string;
@@ -312,7 +312,7 @@ export interface GalleryInstallResponse {
 }
 
 export interface AppHistoryResponse {
-  type: 'app_history_response';
+  type: "app_history_response";
   appId: string;
   versions: Array<{
     commitHash: string;
@@ -322,32 +322,32 @@ export interface AppHistoryResponse {
 }
 
 export interface AppDiffResponse {
-  type: 'app_diff_response';
+  type: "app_diff_response";
   appId: string;
   diff: string;
 }
 
 export interface AppFileAtVersionResponse {
-  type: 'app_file_at_version_response';
+  type: "app_file_at_version_response";
   appId: string;
   path: string;
   content: string;
 }
 
 export interface AppRestoreResponse {
-  type: 'app_restore_response';
+  type: "app_restore_response";
   success: boolean;
   error?: string;
 }
 
 export interface ShareToSlackResponse {
-  type: 'share_to_slack_response';
+  type: "share_to_slack_response";
   success: boolean;
   error?: string;
 }
 
 export interface PublishPageResponse {
-  type: 'publish_page_response';
+  type: "publish_page_response";
   success: boolean;
   publicUrl?: string;
   deploymentId?: string;
@@ -356,13 +356,13 @@ export interface PublishPageResponse {
 }
 
 export interface UnpublishPageResponse {
-  type: 'unpublish_page_response';
+  type: "unpublish_page_response";
   success: boolean;
   error?: string;
 }
 
 export interface AppFilesChanged {
-  type: 'app_files_changed';
+  type: "app_files_changed";
   appId: string;
 }
 

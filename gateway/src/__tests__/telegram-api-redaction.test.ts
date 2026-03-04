@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
@@ -63,10 +68,16 @@ describe("callTelegramApi transport error redaction", () => {
   });
 
   test("redacts bot token from warning logs and thrown error", async () => {
-    const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
+    const tgToken = [
+      "123456789",
+      ":",
+      "ABCDefGHIJklmnopQRSTuvwxyz012345678",
+    ].join("");
 
     fetchMock = mock(async () => {
-      const err = new Error("Unable to connect. Is the computer able to access the url?") as Error & {
+      const err = new Error(
+        "Unable to connect. Is the computer able to access the url?",
+      ) as Error & {
         path?: string;
         code?: string;
       };
@@ -75,11 +86,17 @@ describe("callTelegramApi transport error redaction", () => {
       throw err;
     });
 
-    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
+    const config = makeConfig({
+      telegramBotToken: tgToken,
+      telegramMaxRetries: 0,
+    });
 
     let thrown: Error | null = null;
     try {
-      await callTelegramApi(config, "sendMessage", { chat_id: "1", text: "hello" });
+      await callTelegramApi(config, "sendMessage", {
+        chat_id: "1",
+        text: "hello",
+      });
     } catch (err) {
       thrown = err as Error;
     }
@@ -92,7 +109,11 @@ describe("callTelegramApi transport error redaction", () => {
   test("redacts bot token preceded by hyphen delimiter", async () => {
     // Tokens embedded after a hyphen (e.g., diagnostic strings like
     // "error-123456789:...") must still be redacted.
-    const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
+    const tgToken = [
+      "123456789",
+      ":",
+      "ABCDefGHIJklmnopQRSTuvwxyz012345678",
+    ].join("");
 
     fetchMock = mock(async () => {
       const err = new Error("Connection refused") as Error & {
@@ -105,11 +126,17 @@ describe("callTelegramApi transport error redaction", () => {
       throw err;
     });
 
-    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
+    const config = makeConfig({
+      telegramBotToken: tgToken,
+      telegramMaxRetries: 0,
+    });
 
     let thrown: Error | null = null;
     try {
-      await callTelegramApi(config, "sendMessage", { chat_id: "1", text: "hello" });
+      await callTelegramApi(config, "sendMessage", {
+        chat_id: "1",
+        text: "hello",
+      });
     } catch (err) {
       thrown = err as Error;
     }
@@ -122,7 +149,11 @@ describe("callTelegramApi transport error redaction", () => {
   test("redacts bot token ending with hyphen", async () => {
     // Tokens can end with `-` which is a non-word character; \b boundaries
     // would fail to match the trailing `-`, leaking part of the token.
-    const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz01234567-"].join("");
+    const tgToken = [
+      "123456789",
+      ":",
+      "ABCDefGHIJklmnopQRSTuvwxyz01234567-",
+    ].join("");
 
     fetchMock = mock(async () => {
       const err = new Error("Connection refused") as Error & {
@@ -134,11 +165,17 @@ describe("callTelegramApi transport error redaction", () => {
       throw err;
     });
 
-    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
+    const config = makeConfig({
+      telegramBotToken: tgToken,
+      telegramMaxRetries: 0,
+    });
 
     let thrown: Error | null = null;
     try {
-      await callTelegramApi(config, "sendMessage", { chat_id: "1", text: "hello" });
+      await callTelegramApi(config, "sendMessage", {
+        chat_id: "1",
+        text: "hello",
+      });
     } catch (err) {
       thrown = err as Error;
     }

@@ -5,11 +5,14 @@
  * agent loop is in flight.
  */
 
-import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
-import { getLogger } from '../util/logger.js';
-import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
+import type {
+  TurnChannelContext,
+  TurnInterfaceContext,
+} from "../channels/types.js";
+import { getLogger } from "../util/logger.js";
+import type { ServerMessage, UserMessageAttachment } from "./ipc-protocol.js";
 
-const log = getLogger('session-queue');
+const log = getLogger("session-queue");
 
 export interface QueuedMessage {
   content: string;
@@ -39,7 +42,7 @@ const CAPACITY_WARNING_THRESHOLD = 0.8;
  * - `loop_complete`: the agent loop finished normally and the next message was drained.
  * - `checkpoint_handoff`: a turn-boundary checkpoint decided to yield to the queued message.
  */
-export type QueueDrainReason = 'loop_complete' | 'checkpoint_handoff';
+export type QueueDrainReason = "loop_complete" | "checkpoint_handoff";
 
 /**
  * Configuration for how/when checkpoint handoff is allowed.
@@ -92,7 +95,10 @@ export class MessageQueue {
     const ratio = this.items.length / MAX_QUEUE_DEPTH;
     if (ratio >= CAPACITY_WARNING_THRESHOLD && !this.capacityWarned) {
       this.capacityWarned = true;
-      log.warn({ depth: this.items.length, max: MAX_QUEUE_DEPTH }, 'Queue nearing capacity');
+      log.warn(
+        { depth: this.items.length, max: MAX_QUEUE_DEPTH },
+        "Queue nearing capacity",
+      );
     } else if (ratio < CAPACITY_WARNING_THRESHOLD) {
       this.capacityWarned = false;
     }
@@ -141,7 +147,8 @@ export class MessageQueue {
       currentDepth: this.items.length,
       totalDropped: this.droppedCount,
       totalExpired: this.expiredCount,
-      averageWaitMs: this.dequeuedCount > 0 ? this.totalWaitMs / this.dequeuedCount : 0,
+      averageWaitMs:
+        this.dequeuedCount > 0 ? this.totalWaitMs / this.dequeuedCount : 0,
     };
   }
 
@@ -159,18 +166,28 @@ export class MessageQueue {
       return true;
     });
     for (const item of expired) {
-      log.warn({ requestId: item.requestId, waitMs: now - item.queuedAt }, 'Expiring stale queued message');
+      log.warn(
+        { requestId: item.requestId, waitMs: now - item.queuedAt },
+        "Expiring stale queued message",
+      );
       try {
         item.onEvent({
-          type: 'error',
-          message: 'Your queued message was dropped because it waited too long in the queue.',
-          category: 'queue_expired',
+          type: "error",
+          message:
+            "Your queued message was dropped because it waited too long in the queue.",
+          category: "queue_expired",
         });
       } catch (e) {
-        log.debug({ err: e, requestId: item.requestId }, 'Failed to notify client of expired message');
+        log.debug(
+          { err: e, requestId: item.requestId },
+          "Failed to notify client of expired message",
+        );
       }
     }
-    if (expired.length > 0 && this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD) {
+    if (
+      expired.length > 0 &&
+      this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD
+    ) {
       this.capacityWarned = false;
     }
   }

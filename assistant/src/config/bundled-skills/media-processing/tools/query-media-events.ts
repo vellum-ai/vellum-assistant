@@ -7,14 +7,21 @@
  * video content.
  */
 
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { reduceForAsset, type ReduceOptions, type ReduceResult } from '../services/reduce.js';
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import {
+  reduceForAsset,
+  type ReduceOptions,
+  type ReduceResult,
+} from "../services/reduce.js";
 
 // ---------------------------------------------------------------------------
 // Exported function for job handler use (one-shot merge mode)
 // ---------------------------------------------------------------------------
 
-export { reduceForAsset } from '../services/reduce.js';
+export { reduceForAsset } from "../services/reduce.js";
 
 // ---------------------------------------------------------------------------
 // Tool entry point
@@ -26,12 +33,12 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const assetId = input.asset_id as string | undefined;
   if (!assetId) {
-    return { content: 'asset_id is required.', isError: true };
+    return { content: "asset_id is required.", isError: true };
   }
 
   const query = input.query as string | undefined;
   if (!query) {
-    return { content: 'query is required.', isError: true };
+    return { content: "query is required.", isError: true };
   }
 
   const systemPrompt = input.system_prompt as string | undefined;
@@ -44,18 +51,26 @@ export async function run(
   };
 
   try {
-    const result: ReduceResult = await reduceForAsset(assetId, options, context.onOutput);
+    const result: ReduceResult = await reduceForAsset(
+      assetId,
+      options,
+      context.onOutput,
+    );
 
     return {
-      content: JSON.stringify({
-        query,
-        answer: result.answer,
-        model: result.model,
-        usage: {
-          inputTokens: result.inputTokens,
-          outputTokens: result.outputTokens,
+      content: JSON.stringify(
+        {
+          query,
+          answer: result.answer,
+          model: result.model,
+          usage: {
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+          },
         },
-      }, null, 2),
+        null,
+        2,
+      ),
       isError: false,
     };
   } catch (err) {

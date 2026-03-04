@@ -1,11 +1,11 @@
-import { spawn } from 'node:child_process';
-import { homedir } from 'node:os';
-import { basename, extname, join } from 'node:path';
+import { spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { basename, extname, join } from "node:path";
 
-import { pathExists } from '../util/fs.js';
-import { getRootDir, getWorkspaceDir } from '../util/platform.js';
-import { getHookSettings } from './config.js';
-import type { DiscoveredHook, HookEventData } from './types.js';
+import { pathExists } from "../util/fs.js";
+import { getRootDir, getWorkspaceDir } from "../util/platform.js";
+import { getHookSettings } from "./config.js";
+import type { DiscoveredHook, HookEventData } from "./types.js";
 
 /**
  * Resolve a usable bun runtime path. When the daemon runs under plain bun
@@ -16,27 +16,27 @@ import type { DiscoveredHook, HookEventData } from './types.js';
  */
 function resolveBunPath(): string {
   const execBasename = basename(process.execPath);
-  if (execBasename === 'bun' || execBasename === 'bun.exe') {
+  if (execBasename === "bun" || execBasename === "bun.exe") {
     return process.execPath;
   }
 
   // Compiled-binary mode -- find a standalone bun runtime.
-  const found = Bun.which('bun');
+  const found = Bun.which("bun");
   if (found) return found;
 
-  const fallback = join(homedir(), '.bun', 'bin', 'bun');
+  const fallback = join(homedir(), ".bun", "bin", "bun");
   if (pathExists(fallback)) return fallback;
 
   throw new Error(
-    'Cannot find a bun runtime to execute .ts hooks. ' +
-    'Install bun (https://bun.sh) or ensure it is on your PATH.',
+    "Cannot find a bun runtime to execute .ts hooks. " +
+      "Install bun (https://bun.sh) or ensure it is on your PATH.",
   );
 }
 
 function getSpawnArgs(scriptPath: string): { command: string; args: string[] } {
   const ext = extname(scriptPath);
-  if (ext === '.ts') {
-    return { command: resolveBunPath(), args: ['run', scriptPath] };
+  if (ext === ".ts") {
+    return { command: resolveBunPath(), args: ["run", scriptPath] };
   }
   return { command: scriptPath, args: [] };
 }
@@ -59,7 +59,7 @@ export async function runHookScript(
     try {
       spawnResult = getSpawnArgs(hook.scriptPath);
     } catch (err) {
-      resolve({ exitCode: null, stdout: '', stderr: (err as Error).message });
+      resolve({ exitCode: null, stdout: "", stderr: (err as Error).message });
       return;
     }
     const { command, args } = spawnResult;
@@ -71,52 +71,58 @@ export async function runHookScript(
         VELLUM_HOOK_NAME: hook.name,
         VELLUM_ROOT_DIR: getRootDir(),
         VELLUM_WORKSPACE_DIR: getWorkspaceDir(),
-        VELLUM_HOOK_SETTINGS: JSON.stringify(getHookSettings(hook.name, hook.manifest)),
+        VELLUM_HOOK_SETTINGS: JSON.stringify(
+          getHookSettings(hook.name, hook.manifest),
+        ),
       },
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
-    let stdout = '';
-    let stderr = '';
+    let stdout = "";
+    let stderr = "";
     let settled = false;
 
-    child.stdout.on('data', (chunk: Buffer) => {
+    child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
-    child.stderr.on('data', (chunk: Buffer) => {
+    child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
 
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      child.kill('SIGTERM');
+      child.kill("SIGTERM");
       // Give the process a short grace period to exit after SIGTERM, then SIGKILL
       const killTimer = setTimeout(() => {
-        child.kill('SIGKILL');
+        child.kill("SIGKILL");
       }, 2000);
-      child.once('close', () => {
+      child.once("close", () => {
         clearTimeout(killTimer);
-        resolve({ exitCode: null, stdout, stderr: stderr + '\nHook timed out' });
+        resolve({
+          exitCode: null,
+          stdout,
+          stderr: stderr + "\nHook timed out",
+        });
       });
     }, timeoutMs);
 
-    child.on('close', (code) => {
+    child.on("close", (code) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       resolve({ exitCode: code, stdout, stderr });
     });
 
-    child.on('error', (err) => {
+    child.on("error", (err) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ exitCode: null, stdout, stderr: stderr + '\n' + err.message });
+      resolve({ exitCode: null, stdout, stderr: stderr + "\n" + err.message });
     });
 
     // Suppress unhandled EPIPE errors if the child exits before we finish writing
-    child.stdin.on('error', () => {});
+    child.stdin.on("error", () => {});
     // Write event data to stdin and close
     child.stdin.write(JSON.stringify(eventData));
     child.stdin.end();

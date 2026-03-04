@@ -3,7 +3,7 @@
 // === Server → Client ===
 
 export interface DocumentEditorShow {
-  type: 'document_editor_show';
+  type: "document_editor_show";
   sessionId: string;
   surfaceId: string;
   title: string;
@@ -11,7 +11,7 @@ export interface DocumentEditorShow {
 }
 
 export interface DocumentEditorUpdate {
-  type: 'document_editor_update';
+  type: "document_editor_update";
   sessionId: string;
   surfaceId: string;
   markdown: string;
@@ -21,7 +21,7 @@ export interface DocumentEditorUpdate {
 // === Client → Server ===
 
 export interface DocumentSaveRequest {
-  type: 'document_save';
+  type: "document_save";
   surfaceId: string;
   conversationId: string;
   title: string;
@@ -30,26 +30,26 @@ export interface DocumentSaveRequest {
 }
 
 export interface DocumentLoadRequest {
-  type: 'document_load';
+  type: "document_load";
   surfaceId: string;
 }
 
 export interface DocumentListRequest {
-  type: 'document_list';
+  type: "document_list";
   conversationId?: string;
 }
 
 // === Server → Client ===
 
 export interface DocumentSaveResponse {
-  type: 'document_save_response';
+  type: "document_save_response";
   surfaceId: string;
   success: boolean;
   error?: string;
 }
 
 export interface DocumentLoadResponse {
-  type: 'document_load_response';
+  type: "document_load_response";
   surfaceId: string;
   conversationId: string;
   title: string;
@@ -62,7 +62,7 @@ export interface DocumentLoadResponse {
 }
 
 export interface DocumentListResponse {
-  type: 'document_list_response';
+  type: "document_list_response";
   documents: Array<{
     surfaceId: string;
     conversationId: string;

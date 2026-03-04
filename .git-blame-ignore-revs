@@ -1,0 +1,3 @@
+# Bulk prettier formatting — formatting-only, no logic changes.
+# To use: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (This file is updated after the commit is created.)

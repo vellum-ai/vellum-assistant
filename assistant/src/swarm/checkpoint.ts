@@ -1,18 +1,27 @@
-import { existsSync, mkdirSync, readFileSync, renameSync,unlinkSync, writeFileSync } from 'node:fs';
-import { dirname,join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
-import { getLogger } from '../util/logger.js';
-import { getRootDir } from '../util/platform.js';
-import type { SwarmPlan,SwarmTaskResult } from './types.js';
+import { getLogger } from "../util/logger.js";
+import { getRootDir } from "../util/platform.js";
+import type { SwarmPlan, SwarmTaskResult } from "./types.js";
 
-const log = getLogger('swarm-checkpoint');
+const log = getLogger("swarm-checkpoint");
 
 /** Only allow safe token characters in runId (alphanumeric, hyphens, underscores, dots). */
 const SAFE_RUN_ID = /^[a-zA-Z0-9._-]+$/;
 
 function assertSafeRunId(runId: string): void {
   if (!SAFE_RUN_ID.test(runId)) {
-    throw new Error(`Invalid runId: must match ${SAFE_RUN_ID} (got "${runId}")`);
+    throw new Error(
+      `Invalid runId: must match ${SAFE_RUN_ID} (got "${runId}")`,
+    );
   }
 }
 
@@ -30,7 +39,7 @@ export interface SwarmCheckpoint {
 }
 
 function getCheckpointDir(): string {
-  return join(getRootDir(), 'swarm-checkpoints');
+  return join(getRootDir(), "swarm-checkpoints");
 }
 
 function getCheckpointPath(runId: string): string {
@@ -44,8 +53,10 @@ function getCheckpointPath(runId: string): string {
  * identical and safe to resume from.
  */
 function computePlanHash(plan: SwarmPlan): string {
-  const parts = plan.tasks.map((t) => `${t.id}:${t.role}:${[...t.dependencies].sort().join(',')}`);
-  return `${plan.objective}|${parts.sort().join('|')}`;
+  const parts = plan.tasks.map(
+    (t) => `${t.id}:${t.role}:${[...t.dependencies].sort().join(",")}`,
+  );
+  return `${plan.objective}|${parts.sort().join("|")}`;
 }
 
 /** Persist the current swarm progress to disk. */
@@ -69,12 +80,15 @@ export function writeCheckpoint(
 
     mkdirSync(dirname(path), { recursive: true });
     // Atomic-ish write: write to temp then rename to avoid partial reads
-    const tmpPath = path + '.tmp';
-    writeFileSync(tmpPath, JSON.stringify(checkpoint, null, 2) + '\n');
+    const tmpPath = path + ".tmp";
+    writeFileSync(tmpPath, JSON.stringify(checkpoint, null, 2) + "\n");
     renameSync(tmpPath, path);
   } catch (err) {
     // Checkpoint failures should not crash the orchestrator
-    log.warn({ runId, error: (err as Error).message }, 'Failed to write checkpoint');
+    log.warn(
+      { runId, error: (err as Error).message },
+      "Failed to write checkpoint",
+    );
   }
 }
 
@@ -84,10 +98,13 @@ export function loadCheckpoint(runId: string): SwarmCheckpoint | null {
   if (!existsSync(path)) return null;
 
   try {
-    const data = readFileSync(path, 'utf-8');
+    const data = readFileSync(path, "utf-8");
     return JSON.parse(data) as SwarmCheckpoint;
   } catch (err) {
-    log.warn({ runId, error: (err as Error).message }, 'Failed to read checkpoint, starting fresh');
+    log.warn(
+      { runId, error: (err as Error).message },
+      "Failed to read checkpoint, starting fresh",
+    );
     return null;
   }
 }
@@ -107,7 +124,10 @@ export function removeCheckpoint(runId: string): void {
  * Compares objective, task IDs, roles, and dependency structure via planHash.
  * Falls back to subset check for checkpoints written before planHash existed.
  */
-export function isCheckpointCompatible(checkpoint: SwarmCheckpoint, plan: SwarmPlan): boolean {
+export function isCheckpointCompatible(
+  checkpoint: SwarmCheckpoint,
+  plan: SwarmPlan,
+): boolean {
   if (checkpoint.planHash) {
     return checkpoint.planHash === computePlanHash(plan);
   }

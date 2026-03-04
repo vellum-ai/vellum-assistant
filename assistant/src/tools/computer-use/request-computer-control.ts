@@ -15,43 +15,47 @@
  * preactivating the entire skill.
  */
 
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import type { Tool, ToolExecutionResult } from '../types.js';
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import type { Tool, ToolExecutionResult } from "../types.js";
 
 export const requestComputerControlTool: Tool = {
-  name: 'computer_use_request_control',
+  name: "computer_use_request_control",
   description:
-    'Escalate to foreground computer use. Call this when the user explicitly asks you to ' +
+    "Escalate to foreground computer use. Call this when the user explicitly asks you to " +
     'take control of their computer to perform a task (e.g. "go ahead and do it", ' +
     '"take over", "open that for me"). Provide a concise description of the task ' +
-    'that computer use should accomplish.',
-  category: 'computer-use',
+    "that computer use should accomplish.",
+  category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
-  executionMode: 'proxy',
+  executionMode: "proxy",
 
   getDefinition(): ToolDefinition {
     return {
       name: this.name,
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           task: {
-            type: 'string',
-            description: 'Concise description of what computer use should accomplish',
+            type: "string",
+            description:
+              "Concise description of what computer use should accomplish",
           },
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
-        required: ['task'],
+        required: ["task"],
       },
     };
   },
 
   execute(): Promise<ToolExecutionResult> {
-    throw new Error('Proxy tool: execution must be forwarded via surfaceProxyResolver');
+    throw new Error(
+      "Proxy tool: execution must be forwarded via surfaceProxyResolver",
+    );
   },
 };

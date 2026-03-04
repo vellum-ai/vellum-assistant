@@ -1,24 +1,24 @@
-import { eq } from 'drizzle-orm';
+import { eq } from "drizzle-orm";
 
-import { getConfig } from '../../config/loader.js';
-import type { AssistantConfig } from '../../config/types.js';
-import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
+import { getConfig } from "../../config/loader.js";
+import type { AssistantConfig } from "../../config/types.js";
+import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db.js";
 import {
   extractEntitiesWithLLM,
   linkMemoryItemToEntity,
   resolveEntityName,
   upsertEntity,
   upsertEntityRelation,
-} from '../entity-extractor.js';
-import { extractAndUpsertMemoryItemsForMessage } from '../items-extractor.js';
-import { asString } from '../job-utils.js';
-import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
-import { extractTextFromStoredMessageContent } from '../message-content.js';
-import { memoryItemSources, messages } from '../schema.js';
-import { isConversationFailed } from '../task-memory-cleanup.js';
+} from "../entity-extractor.js";
+import { extractAndUpsertMemoryItemsForMessage } from "../items-extractor.js";
+import { asString } from "../job-utils.js";
+import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import { extractTextFromStoredMessageContent } from "../message-content.js";
+import { memoryItemSources, messages } from "../schema.js";
+import { isConversationFailed } from "../task-memory-cleanup.js";
 
-const log = getLogger('memory-jobs-worker');
+const log = getLogger("memory-jobs-worker");
 
 export async function extractItemsJob(job: MemoryJob): Promise<void> {
   const messageId = asString(job.payload.messageId);
@@ -34,24 +34,35 @@ export async function extractItemsJob(job: MemoryJob): Promise<void> {
     .where(eq(messages.id, messageId))
     .get();
   if (msg && isConversationFailed(msg.conversationId)) {
-    log.info({ messageId, conversationId: msg.conversationId }, 'Skipping extraction for failed conversation');
+    log.info(
+      { messageId, conversationId: msg.conversationId },
+      "Skipping extraction for failed conversation",
+    );
     return;
   }
 
   // Backward compat: old payloads may lack scopeId — default to 'default'
-  const scopeId = typeof job.payload.scopeId === 'string' && job.payload.scopeId
-    ? job.payload.scopeId
-    : 'default';
+  const scopeId =
+    typeof job.payload.scopeId === "string" && job.payload.scopeId
+      ? job.payload.scopeId
+      : "default";
 
-  await extractAndUpsertMemoryItemsForMessage(messageId, scopeId, msg?.conversationId);
+  await extractAndUpsertMemoryItemsForMessage(
+    messageId,
+    scopeId,
+    msg?.conversationId,
+  );
   // Queue entity extraction for this message after items are extracted
   const config = getConfig();
   if (config.memory.entity.enabled) {
-    enqueueMemoryJob('extract_entities', { messageId, scopeId });
+    enqueueMemoryJob("extract_entities", { messageId, scopeId });
   }
 }
 
-export async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
+export async function extractEntitiesJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
   const messageId = asString(job.payload.messageId);
   if (!messageId) return;
 
@@ -67,7 +78,10 @@ export async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig
     .where(eq(messages.id, messageId))
     .get();
   if (msgRow && isConversationFailed(msgRow.conversationId)) {
-    log.info({ messageId, conversationId: msgRow.conversationId }, 'Skipping entity extraction for failed conversation');
+    log.info(
+      { messageId, conversationId: msgRow.conversationId },
+      "Skipping entity extraction for failed conversation",
+    );
     return;
   }
 
@@ -123,9 +137,17 @@ export async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig
       relationTelemetry.attempted += 1;
       const sourceLookup = relation.sourceEntityName.toLowerCase();
       const targetLookup = relation.targetEntityName.toLowerCase();
-      const sourceEntityId = entityNameToId.get(sourceLookup) ?? resolveEntityName(relation.sourceEntityName);
-      const targetEntityId = entityNameToId.get(targetLookup) ?? resolveEntityName(relation.targetEntityName);
-      if (!sourceEntityId || !targetEntityId || sourceEntityId === targetEntityId) {
+      const sourceEntityId =
+        entityNameToId.get(sourceLookup) ??
+        resolveEntityName(relation.sourceEntityName);
+      const targetEntityId =
+        entityNameToId.get(targetLookup) ??
+        resolveEntityName(relation.targetEntityName);
+      if (
+        !sourceEntityId ||
+        !targetEntityId ||
+        sourceEntityId === targetEntityId
+      ) {
         relationTelemetry.dropped += 1;
         continue;
       }
@@ -144,13 +166,16 @@ export async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig
     }
   }
 
-  log.debug({
-    messageId,
-    entityCount: entities.length,
-    linkedItems: itemIds.length,
-    relationAttempts: relationTelemetry.attempted,
-    relationParsed: relationTelemetry.parsed,
-    relationPersisted: relationTelemetry.persisted,
-    relationDropped: relationTelemetry.dropped,
-  }, 'Extracted entity graph from message');
+  log.debug(
+    {
+      messageId,
+      entityCount: entities.length,
+      linkedItems: itemIds.length,
+      relationAttempts: relationTelemetry.attempted,
+      relationParsed: relationTelemetry.parsed,
+      relationPersisted: relationTelemetry.persisted,
+      relationDropped: relationTelemetry.dropped,
+    },
+    "Extracted entity graph from message",
+  );
 }

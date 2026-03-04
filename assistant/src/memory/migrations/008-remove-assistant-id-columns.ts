@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * One-shot migration: rebuild tables that previously stored assistant_id to remove
@@ -20,21 +20,23 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
  */
 export function migrateRemoveAssistantIdColumns(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
-  const checkpointKey = 'migration_remove_assistant_id_columns_v1';
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey);
+  const checkpointKey = "migration_remove_assistant_id_columns_v1";
+  const checkpoint = raw
+    .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey);
   if (checkpoint) return;
 
-  raw.exec('PRAGMA foreign_keys = OFF');
+  raw.exec("PRAGMA foreign_keys = OFF");
   try {
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
 
     // --- conversation_keys ---
-    const ckDdl = raw.query(
-      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'conversation_keys'`,
-    ).get() as { sql: string } | null;
-    if (ckDdl?.sql.includes('assistant_id')) {
+    const ckDdl = raw
+      .query(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'conversation_keys'`,
+      )
+      .get() as { sql: string } | null;
+    if (ckDdl?.sql.includes("assistant_id")) {
       raw.exec(/*sql*/ `
         CREATE TABLE conversation_keys_new (
           id TEXT PRIMARY KEY,
@@ -48,14 +50,18 @@ export function migrateRemoveAssistantIdColumns(database: DrizzleDb): void {
         SELECT id, conversation_key, conversation_id, created_at FROM conversation_keys
       `);
       raw.exec(/*sql*/ `DROP TABLE conversation_keys`);
-      raw.exec(/*sql*/ `ALTER TABLE conversation_keys_new RENAME TO conversation_keys`);
+      raw.exec(
+        /*sql*/ `ALTER TABLE conversation_keys_new RENAME TO conversation_keys`,
+      );
     }
 
     // --- attachments ---
-    const attDdl = raw.query(
-      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'attachments'`,
-    ).get() as { sql: string } | null;
-    if (attDdl?.sql.includes('assistant_id')) {
+    const attDdl = raw
+      .query(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'attachments'`,
+      )
+      .get() as { sql: string } | null;
+    if (attDdl?.sql.includes("assistant_id")) {
       raw.exec(/*sql*/ `
         CREATE TABLE attachments_new (
           id TEXT PRIMARY KEY,
@@ -78,10 +84,12 @@ export function migrateRemoveAssistantIdColumns(database: DrizzleDb): void {
     }
 
     // --- channel_inbound_events ---
-    const cieDdl = raw.query(
-      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'channel_inbound_events'`,
-    ).get() as { sql: string } | null;
-    if (cieDdl?.sql.includes('assistant_id')) {
+    const cieDdl = raw
+      .query(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'channel_inbound_events'`,
+      )
+      .get() as { sql: string } | null;
+    if (cieDdl?.sql.includes("assistant_id")) {
       raw.exec(/*sql*/ `
         CREATE TABLE channel_inbound_events_new (
           id TEXT PRIMARY KEY,
@@ -117,14 +125,18 @@ export function migrateRemoveAssistantIdColumns(database: DrizzleDb): void {
         FROM channel_inbound_events
       `);
       raw.exec(/*sql*/ `DROP TABLE channel_inbound_events`);
-      raw.exec(/*sql*/ `ALTER TABLE channel_inbound_events_new RENAME TO channel_inbound_events`);
+      raw.exec(
+        /*sql*/ `ALTER TABLE channel_inbound_events_new RENAME TO channel_inbound_events`,
+      );
     }
 
     // --- message_runs ---
-    const mrDdl = raw.query(
-      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'message_runs'`,
-    ).get() as { sql: string } | null;
-    if (mrDdl?.sql.includes('assistant_id')) {
+    const mrDdl = raw
+      .query(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'message_runs'`,
+      )
+      .get() as { sql: string } | null;
+    if (mrDdl?.sql.includes("assistant_id")) {
       raw.exec(/*sql*/ `
         CREATE TABLE message_runs_new (
           id TEXT PRIMARY KEY,
@@ -155,10 +167,12 @@ export function migrateRemoveAssistantIdColumns(database: DrizzleDb): void {
     }
 
     // --- llm_usage_events ---
-    const lueDdl = raw.query(
-      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'llm_usage_events'`,
-    ).get() as { sql: string } | null;
-    if (lueDdl?.sql.includes('assistant_id')) {
+    const lueDdl = raw
+      .query(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'llm_usage_events'`,
+      )
+      .get() as { sql: string } | null;
+    if (lueDdl?.sql.includes("assistant_id")) {
       raw.exec(/*sql*/ `
         CREATE TABLE llm_usage_events_new (
           id TEXT PRIMARY KEY,
@@ -191,18 +205,26 @@ export function migrateRemoveAssistantIdColumns(database: DrizzleDb): void {
         FROM llm_usage_events
       `);
       raw.exec(/*sql*/ `DROP TABLE llm_usage_events`);
-      raw.exec(/*sql*/ `ALTER TABLE llm_usage_events_new RENAME TO llm_usage_events`);
+      raw.exec(
+        /*sql*/ `ALTER TABLE llm_usage_events_new RENAME TO llm_usage_events`,
+      );
     }
 
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
 
-    raw.exec('COMMIT');
+    raw.exec("COMMIT");
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   } finally {
-    raw.exec('PRAGMA foreign_keys = ON');
+    raw.exec("PRAGMA foreign_keys = ON");
   }
 }

@@ -6,27 +6,43 @@
  * with the AgentLoop (which runs inference via the Anthropic API with CU tools).
  */
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { AgentLoop } from '../agent/loop.js';
-import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
-import { getConfig } from '../config/loader.js';
-import { PermissionPrompter } from '../permissions/prompter.js';
-import { SecretPrompter } from '../permissions/secret-prompter.js';
-import type { UserDecision } from '../permissions/types.js';
-import type { ContentBlock, Message, Provider, ToolDefinition } from '../providers/types.js';
-import { allComputerUseTools } from '../tools/computer-use/definitions.js';
-import { ToolExecutor } from '../tools/executor.js';
-import { registerSkillTools } from '../tools/registry.js';
-import type { Tool, ToolExecutionResult } from '../tools/types.js';
-import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
-import { getLogger } from '../util/logger.js';
-import { getSandboxWorkingDir } from '../util/platform.js';
-import type { CuObservation, FileUploadSurfaceData, ServerMessage, SurfaceData, SurfaceType, UiSurfaceShow } from './ipc-protocol.js';
-import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import { projectSkillTools, resetSkillToolProjection, type SkillProjectionCache } from './session-skill-tools.js';
+import { AgentLoop } from "../agent/loop.js";
+import { buildComputerUseSystemPrompt } from "../config/computer-use-prompt.js";
+import { getConfig } from "../config/loader.js";
+import { PermissionPrompter } from "../permissions/prompter.js";
+import { SecretPrompter } from "../permissions/secret-prompter.js";
+import type { UserDecision } from "../permissions/types.js";
+import type {
+  ContentBlock,
+  Message,
+  Provider,
+  ToolDefinition,
+} from "../providers/types.js";
+import { allComputerUseTools } from "../tools/computer-use/definitions.js";
+import { ToolExecutor } from "../tools/executor.js";
+import { registerSkillTools } from "../tools/registry.js";
+import type { Tool, ToolExecutionResult } from "../tools/types.js";
+import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
+import { getLogger } from "../util/logger.js";
+import { getSandboxWorkingDir } from "../util/platform.js";
+import type {
+  CuObservation,
+  FileUploadSurfaceData,
+  ServerMessage,
+  SurfaceData,
+  SurfaceType,
+  UiSurfaceShow,
+} from "./ipc-protocol.js";
+import { INTERACTIVE_SURFACE_TYPES } from "./ipc-protocol.js";
+import {
+  projectSkillTools,
+  resetSkillToolProjection,
+  type SkillProjectionCache,
+} from "./session-skill-tools.js";
 
-const log = getLogger('computer-use-session');
+const log = getLogger("computer-use-session");
 
 const MAX_STEPS = 50;
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -39,9 +55,14 @@ const MAX_AX_TREES_IN_HISTORY = 2;
 
 /** Regex that matches the `<ax-tree>…</ax-tree>` markers injected by buildObservationResultContent. */
 const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
-const AX_TREE_PLACEHOLDER = '<ax_tree_omitted />';
+const AX_TREE_PLACEHOLDER = "<ax_tree_omitted />";
 
-type SessionState = 'idle' | 'awaiting_observation' | 'inferring' | 'complete' | 'error';
+type SessionState =
+  | "idle"
+  | "awaiting_observation"
+  | "inferring"
+  | "complete"
+  | "error";
 
 interface ActionRecord {
   step: number;
@@ -58,13 +79,13 @@ export class ComputerUseSession {
   private readonly screenHeight: number;
   private readonly provider: Provider;
   private sendToClient: (msg: ServerMessage) => void;
-  private readonly interactionType: 'computer_use' | 'text_qa';
+  private readonly interactionType: "computer_use" | "text_qa";
   private readonly onTerminal?: (sessionId: string) => void;
   private readonly preactivatedSkillIds: string[];
   private readonly skillProjectionState = new Map<string, string>();
   private readonly skillProjectionCache: SkillProjectionCache = {};
 
-  private state: SessionState = 'idle';
+  private state: SessionState = "idle";
   private stepCount = 0;
   private actionHistory: ActionRecord[] = [];
   private previousAXTree: string | undefined;
@@ -76,10 +97,16 @@ export class ComputerUseSession {
     resolve: (result: ToolExecutionResult) => void;
   } | null = null;
 
-  private pendingSurfaceActions = new Map<string, {
-    resolve: (result: ToolExecutionResult) => void;
-  }>();
-  private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>();
+  private pendingSurfaceActions = new Map<
+    string,
+    {
+      resolve: (result: ToolExecutionResult) => void;
+    }
+  >();
+  private surfaceState = new Map<
+    string,
+    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+  >();
   private terminalNotified = false;
   private prompter: PermissionPrompter | null = null;
 
@@ -93,7 +120,7 @@ export class ComputerUseSession {
     screenHeight: number,
     provider: Provider,
     sendToClient: (msg: ServerMessage) => void,
-    interactionType?: 'computer_use' | 'text_qa',
+    interactionType?: "computer_use" | "text_qa",
     onTerminal?: (sessionId: string) => void,
     preactivatedSkillIds?: string[],
   ) {
@@ -103,9 +130,9 @@ export class ComputerUseSession {
     this.screenHeight = screenHeight;
     this.provider = provider;
     this.sendToClient = sendToClient;
-    this.interactionType = interactionType ?? 'computer_use';
+    this.interactionType = interactionType ?? "computer_use";
     this.onTerminal = onTerminal;
-    this.preactivatedSkillIds = preactivatedSkillIds ?? ['computer-use'];
+    this.preactivatedSkillIds = preactivatedSkillIds ?? ["computer-use"];
   }
 
   // ---------------------------------------------------------------------------
@@ -113,8 +140,11 @@ export class ComputerUseSession {
   // ---------------------------------------------------------------------------
 
   async handleObservation(obs: CuObservation): Promise<void> {
-    if (this.state === 'complete' || this.state === 'error') {
-      log.warn({ sessionId: this.sessionId, state: this.state }, 'Observation received after session ended');
+    if (this.state === "complete" || this.state === "error") {
+      log.warn(
+        { sessionId: this.sessionId, state: this.state },
+        "Observation received after session ended",
+      );
       return;
     }
 
@@ -133,13 +163,19 @@ export class ComputerUseSession {
       this.previousAXTree = obs.axTree;
     }
 
-    if (this.state === 'awaiting_observation' && this.pendingObservation) {
+    if (this.state === "awaiting_observation" && this.pendingObservation) {
       // Resolve the pending proxy tool result with updated screen context
-      const content = this.buildObservationResultContent(obs, hadPreviousAXTree);
+      const content = this.buildObservationResultContent(
+        obs,
+        hadPreviousAXTree,
+      );
       const result: ToolExecutionResult = obs.executionError
-        ? { content: `Action failed: ${obs.executionError}\n\n${content}`, isError: true }
+        ? {
+            content: `Action failed: ${obs.executionError}\n\n${content}`,
+            isError: true,
+          }
         : { content, isError: false };
-      this.state = 'inferring';
+      this.state = "inferring";
       this.pendingObservation.resolve(result);
       this.pendingObservation = null;
       // The agent loop continues automatically after resolution
@@ -147,12 +183,15 @@ export class ComputerUseSession {
     }
 
     // First observation — start the agent loop
-    this.state = 'inferring';
+    this.state = "inferring";
     this.abortController = new AbortController();
 
     // Safety net: abort the session if it runs longer than SESSION_TIMEOUT_MS
     this.sessionTimer = setTimeout(() => {
-      log.warn({ sessionId: this.sessionId, timeoutMs: SESSION_TIMEOUT_MS }, 'Session timeout reached, aborting');
+      log.warn(
+        { sessionId: this.sessionId, timeoutMs: SESSION_TIMEOUT_MS },
+        "Session timeout reached, aborting",
+      );
       this.abort();
     }, SESSION_TIMEOUT_MS);
 
@@ -161,15 +200,18 @@ export class ComputerUseSession {
       // Catches errors from setup code (e.g. skill projection failures) that
       // occur before runAgentLoop's internal try-catch takes over.
       const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, sessionId: this.sessionId }, 'Agent loop startup failed');
+      log.error(
+        { err, sessionId: this.sessionId },
+        "Agent loop startup failed",
+      );
       if (this.sessionTimer) {
         clearTimeout(this.sessionTimer);
         this.sessionTimer = null;
       }
-      if (this.state !== 'complete' && this.state !== 'error') {
-        this.state = 'error';
+      if (this.state !== "complete" && this.state !== "error") {
+        this.state = "error";
         this.sendToClient({
-          type: 'cu_error',
+          type: "cu_error",
           sessionId: this.sessionId,
           message,
         });
@@ -181,9 +223,9 @@ export class ComputerUseSession {
   }
 
   abort(): void {
-    if (this.state === 'complete' || this.state === 'error') return;
+    if (this.state === "complete" || this.state === "error") return;
 
-    log.info({ sessionId: this.sessionId }, 'Aborting computer-use session');
+    log.info({ sessionId: this.sessionId }, "Aborting computer-use session");
     if (this.sessionTimer) {
       clearTimeout(this.sessionTimer);
       this.sessionTimer = null;
@@ -192,7 +234,10 @@ export class ComputerUseSession {
 
     // If waiting for an observation, resolve it as cancelled
     if (this.pendingObservation) {
-      this.pendingObservation.resolve({ content: 'Session aborted', isError: true });
+      this.pendingObservation.resolve({
+        content: "Session aborted",
+        isError: true,
+      });
       this.pendingObservation = null;
     }
 
@@ -201,22 +246,22 @@ export class ComputerUseSession {
 
     // Resolve any pending surface actions
     for (const [, pending] of this.pendingSurfaceActions) {
-      pending.resolve({ content: 'Session aborted', isError: true });
+      pending.resolve({ content: "Session aborted", isError: true });
     }
     this.pendingSurfaceActions.clear();
     this.surfaceState.clear();
 
-    this.state = 'error';
+    this.state = "error";
     this.sendToClient({
-      type: 'cu_error',
+      type: "cu_error",
       sessionId: this.sessionId,
-      message: 'Session aborted by user',
+      message: "Session aborted by user",
     });
     this.notifyTerminal();
   }
 
   isComplete(): boolean {
-    return this.state === 'complete';
+    return this.state === "complete";
   }
 
   getState(): string {
@@ -230,7 +275,9 @@ export class ComputerUseSession {
    */
   private getProjectedCuToolDefinitions(): ToolDefinition[] | null {
     if (this.preactivatedSkillIds.length === 0) {
-      log.warn('No preactivatedSkillIds configured, falling back to legacy CU tools');
+      log.warn(
+        "No preactivatedSkillIds configured, falling back to legacy CU tools",
+      );
       return null;
     }
 
@@ -244,27 +291,34 @@ export class ComputerUseSession {
       if (projection.toolDefinitions.length === 0) {
         log.warn(
           { preactivatedSkillIds: this.preactivatedSkillIds },
-          'Skill projection produced no tool definitions, falling back to legacy CU tools',
+          "Skill projection produced no tool definitions, falling back to legacy CU tools",
         );
         return null;
       }
 
       return projection.toolDefinitions;
     } catch (err) {
-      log.warn({ err }, 'Skill projection failed, falling back to legacy CU tools');
+      log.warn(
+        { err },
+        "Skill projection failed, falling back to legacy CU tools",
+      );
       return null;
     }
   }
 
-  handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
+  handleSurfaceAction(
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ): void {
     const pending = this.pendingSurfaceActions.get(surfaceId);
     if (!pending) {
-      log.warn({ surfaceId, actionId }, 'No pending surface action found');
+      log.warn({ surfaceId, actionId }, "No pending surface action found");
       return;
     }
     // selection_changed is a non-terminal state update — don't consume the
     // pending entry. The selection state will be in the action button payload.
-    if (actionId === 'selection_changed') {
+    if (actionId === "selection_changed") {
       return;
     }
     this.pendingSurfaceActions.delete(surfaceId);
@@ -279,7 +333,10 @@ export class ComputerUseSession {
   // ---------------------------------------------------------------------------
 
   private async runAgentLoop(messages: Message[]): Promise<void> {
-    const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
+    const systemPrompt = buildComputerUseSystemPrompt(
+      this.screenWidth,
+      this.screenHeight,
+    );
 
     let cuToolDefs = this.getProjectedCuToolDefinitions();
     if (!cuToolDefs) {
@@ -288,23 +345,23 @@ export class ComputerUseSession {
       // ownerSkillId as the bundled computer-use skill. This avoids
       // core-vs-skill collisions that would permanently block skill
       // projection recovery on subsequent sessions.
-      const fallbackSkillId = this.preactivatedSkillIds[0] ?? 'computer-use';
+      const fallbackSkillId = this.preactivatedSkillIds[0] ?? "computer-use";
       const fallbackTools: Tool[] = allComputerUseTools.map((t) => ({
         ...t,
-        origin: 'skill' as const,
+        origin: "skill" as const,
         ownerSkillId: fallbackSkillId,
         ownerSkillBundled: true,
       }));
       registerSkillTools(fallbackTools);
       // Track in the session map so resetSkillToolProjection cleans up
-      this.skillProjectionState.set(fallbackSkillId, 'fallback');
+      this.skillProjectionState.set(fallbackSkillId, "fallback");
       cuToolDefs = allComputerUseTools.map((t) => t.getDefinition());
     }
 
     const toolDefs: ToolDefinition[] = [
       ...cuToolDefs,
       ...allUiSurfaceTools
-        .filter((t) => t.name !== 'request_file')
+        .filter((t) => t.name !== "request_file")
         .map((t) => t.getDefinition()),
     ];
 
@@ -318,37 +375,47 @@ export class ComputerUseSession {
       input: Record<string, unknown>,
     ): Promise<ToolExecutionResult> => {
       // ── Surface tool proxying ──────────────────────────────────────
-      if (toolName === 'ui_show') {
+      if (toolName === "ui_show") {
         const surfaceId = uuid();
         const surfaceType = input.surface_type as SurfaceType;
-        const title = typeof input.title === 'string' ? input.title : undefined;
+        const title = typeof input.title === "string" ? input.title : undefined;
         const data = input.data as SurfaceData;
-        const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
+        const actions = input.actions as
+          | Array<{ id: string; label: string; style?: string }>
+          | undefined;
         // Interactive surfaces default to awaiting user action.
         // Tables and lists only block when explicit action buttons are provided;
         // selectionMode alone should not gate blocking because selection_changed
         // fires on every click and would immediately resolve multi-select surfaces.
         const hasActions = Array.isArray(actions) && actions.length > 0;
-        const isInteractive = surfaceType === 'card'
-          ? hasActions
-          : surfaceType === 'list'
+        const isInteractive =
+          surfaceType === "card"
             ? hasActions
-            : surfaceType === 'table'
+            : surfaceType === "list"
               ? hasActions
-              : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
+              : surfaceType === "table"
+                ? hasActions
+                : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
         const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
         // Track surface state for ui_update merging
         this.surfaceState.set(surfaceId, { surfaceType, data, title });
 
         this.sendToClient({
-          type: 'ui_surface_show',
+          type: "ui_surface_show",
           sessionId: this.sessionId,
           surfaceId,
           surfaceType,
           title,
           data,
-          actions: actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' })),
+          actions: actions?.map((a) => ({
+            id: a.id,
+            label: a.label,
+            style: (a.style ?? "secondary") as
+              | "primary"
+              | "secondary"
+              | "destructive",
+          })),
         } as unknown as UiSurfaceShow);
 
         if (awaitAction) {
@@ -359,7 +426,7 @@ export class ComputerUseSession {
         return { content: JSON.stringify({ surfaceId }), isError: false };
       }
 
-      if (toolName === 'ui_update') {
+      if (toolName === "ui_update") {
         const surfaceId = input.surface_id as string;
         const patch = input.data as Record<string, unknown>;
 
@@ -374,32 +441,38 @@ export class ComputerUseSession {
         }
 
         this.sendToClient({
-          type: 'ui_surface_update',
+          type: "ui_surface_update",
           sessionId: this.sessionId,
           surfaceId,
           data: mergedData,
         });
-        return { content: 'Surface updated', isError: false };
+        return { content: "Surface updated", isError: false };
       }
 
-      if (toolName === 'ui_dismiss') {
+      if (toolName === "ui_dismiss") {
         const surfaceId = input.surface_id as string;
         this.sendToClient({
-          type: 'ui_surface_dismiss',
+          type: "ui_surface_dismiss",
           sessionId: this.sessionId,
           surfaceId,
         });
         this.pendingSurfaceActions.delete(surfaceId);
         this.surfaceState.delete(surfaceId);
-        return { content: 'Surface dismissed', isError: false };
+        return { content: "Surface dismissed", isError: false };
       }
 
       // ── File request proxying ──────────────────────────────────────
-      if (toolName === 'request_file') {
+      if (toolName === "request_file") {
         const surfaceId = uuid();
-        const prompt = typeof input.prompt === 'string' ? input.prompt : 'Please share a file';
-        const acceptedTypes = Array.isArray(input.accepted_types) ? input.accepted_types as string[] : undefined;
-        const maxFiles = typeof input.max_files === 'number' ? input.max_files : 1;
+        const prompt =
+          typeof input.prompt === "string"
+            ? input.prompt
+            : "Please share a file";
+        const acceptedTypes = Array.isArray(input.accepted_types)
+          ? (input.accepted_types as string[])
+          : undefined;
+        const maxFiles =
+          typeof input.max_files === "number" ? input.max_files : 1;
 
         const data: FileUploadSurfaceData = {
           prompt,
@@ -407,14 +480,14 @@ export class ComputerUseSession {
           maxFiles,
         };
 
-        this.surfaceState.set(surfaceId, { surfaceType: 'file_upload', data });
+        this.surfaceState.set(surfaceId, { surfaceType: "file_upload", data });
 
         this.sendToClient({
-          type: 'ui_surface_show',
+          type: "ui_surface_show",
           sessionId: this.sessionId,
           surfaceId,
-          surfaceType: 'file_upload',
-          title: 'File Request',
+          surfaceType: "file_upload",
+          title: "File Request",
           data,
         } as UiSurfaceShow);
 
@@ -425,7 +498,8 @@ export class ComputerUseSession {
       }
 
       // ── Computer-use tool proxying ─────────────────────────────────
-      const reasoning = typeof input.reasoning === 'string' ? input.reasoning : undefined;
+      const reasoning =
+        typeof input.reasoning === "string" ? input.reasoning : undefined;
 
       // Record action in history
       this.actionHistory.push({
@@ -436,33 +510,40 @@ export class ComputerUseSession {
       });
 
       // Check for terminal tools
-      if (toolName === 'computer_use_done' || toolName === 'computer_use_respond') {
+      if (
+        toolName === "computer_use_done" ||
+        toolName === "computer_use_respond"
+      ) {
         const summary =
-          toolName === 'computer_use_done'
-            ? (typeof input.summary === 'string' ? input.summary : 'Task completed')
-            : (typeof input.answer === 'string' ? input.answer : 'No answer provided');
+          toolName === "computer_use_done"
+            ? typeof input.summary === "string"
+              ? input.summary
+              : "Task completed"
+            : typeof input.answer === "string"
+              ? input.answer
+              : "No answer provided";
 
         this.sendToClient({
-          type: 'cu_complete',
+          type: "cu_complete",
           sessionId: this.sessionId,
           summary,
           stepCount: this.stepCount,
-          isResponse: toolName === 'computer_use_respond' ? true : undefined,
+          isResponse: toolName === "computer_use_respond" ? true : undefined,
         });
-        this.state = 'complete';
+        this.state = "complete";
         // Stop AgentLoop immediately so terminal tools cannot trigger extra provider calls.
         this.abortController?.abort();
         this.notifyTerminal();
-        return { content: 'Session complete', isError: false };
+        return { content: "Session complete", isError: false };
       }
 
       this.stepCount++;
 
       // Enforce step limit — abort the loop so toolChoice:'any' can't force another turn
       if (this.stepCount > MAX_STEPS) {
-        this.state = 'error';
+        this.state = "error";
         this.sendToClient({
-          type: 'cu_error',
+          type: "cu_error",
           sessionId: this.sessionId,
           message: `Step limit (${MAX_STEPS}) exceeded`,
         });
@@ -473,7 +554,7 @@ export class ComputerUseSession {
 
       // Send action to client for execution
       this.sendToClient({
-        type: 'cu_action',
+        type: "cu_action",
         sessionId: this.sessionId,
         toolName,
         input,
@@ -482,7 +563,7 @@ export class ComputerUseSession {
       });
 
       // Wait for next observation from client
-      this.state = 'awaiting_observation';
+      this.state = "awaiting_observation";
       return new Promise<ToolExecutionResult>((resolve) => {
         this.pendingObservation = { resolve };
       });
@@ -501,15 +582,20 @@ export class ComputerUseSession {
         workingDir: getSandboxWorkingDir(),
         sessionId: this.sessionId,
         conversationId: this.sessionId,
-        trustClass: 'guardian',
+        trustClass: "guardian",
         proxyToolResolver: proxyResolver,
         allowedToolNames,
         requestSecret: async (params) => {
           return secretPrompter.prompt(
-            params.service, params.field, params.label,
-            params.description, params.placeholder,
+            params.service,
+            params.field,
+            params.label,
+            params.description,
+            params.placeholder,
             this.sessionId,
-            params.purpose, params.allowedTools, params.allowedDomains,
+            params.purpose,
+            params.allowedTools,
+            params.allowedDomains,
           );
         },
       });
@@ -534,7 +620,7 @@ export class ComputerUseSession {
       {
         maxTokens: 4096,
         maxInputTokens: cuConfig.contextWindow.maxInputTokens,
-        toolChoice: { type: 'any' },
+        toolChoice: { type: "any" },
       },
       toolDefs,
       toolExecutor,
@@ -545,25 +631,31 @@ export class ComputerUseSession {
         messages,
         (event) => {
           switch (event.type) {
-            case 'error':
-              log.error({ err: event.error, sessionId: this.sessionId }, 'Agent loop error');
-              if (this.state !== 'complete') {
-                this.state = 'error';
+            case "error":
+              log.error(
+                { err: event.error, sessionId: this.sessionId },
+                "Agent loop error",
+              );
+              if (this.state !== "complete") {
+                this.state = "error";
                 this.sendToClient({
-                  type: 'cu_error',
+                  type: "cu_error",
                   sessionId: this.sessionId,
                   message: event.error.message,
                 });
                 this.notifyTerminal();
               }
               break;
-            case 'usage':
-              log.info({
-                sessionId: this.sessionId,
-                inputTokens: event.inputTokens,
-                outputTokens: event.outputTokens,
-                model: event.model,
-              }, 'Usage');
+            case "usage":
+              log.info(
+                {
+                  sessionId: this.sessionId,
+                  inputTokens: event.inputTokens,
+                  outputTokens: event.outputTokens,
+                  model: event.model,
+                },
+                "Usage",
+              );
               break;
             // Other events (text_delta, thinking_delta, etc.) are not surfaced to the CU client
           }
@@ -572,26 +664,26 @@ export class ComputerUseSession {
       );
 
       // If the loop exits without completing, treat as error
-      if (this.state !== 'complete' && this.state !== 'error') {
-        this.state = 'error';
+      if (this.state !== "complete" && this.state !== "error") {
+        this.state = "error";
         this.sendToClient({
-          type: 'cu_error',
+          type: "cu_error",
           sessionId: this.sessionId,
-          message: 'Agent loop ended unexpectedly',
+          message: "Agent loop ended unexpectedly",
         });
         this.notifyTerminal();
       }
     } catch (err) {
       if (this.abortController?.signal.aborted) {
-        log.info({ sessionId: this.sessionId }, 'Agent loop aborted');
+        log.info({ sessionId: this.sessionId }, "Agent loop aborted");
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, sessionId: this.sessionId }, 'Agent loop failed');
-      if (this.state !== 'complete') {
-        this.state = 'error';
+      log.error({ err, sessionId: this.sessionId }, "Agent loop failed");
+      if (this.state !== "complete") {
+        this.state = "error";
         this.sendToClient({
-          type: 'cu_error',
+          type: "cu_error",
           sessionId: this.sessionId,
           message,
         });
@@ -629,12 +721,12 @@ export class ComputerUseSession {
     const indicesWithAxTree: number[] = [];
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
-      if (msg.role !== 'user') continue;
+      if (msg.role !== "user") continue;
       for (const block of msg.content) {
         if (
-          block.type === 'tool_result' &&
-          typeof block.content === 'string' &&
-          block.content.includes('<ax-tree>')
+          block.type === "tool_result" &&
+          typeof block.content === "string" &&
+          block.content.includes("<ax-tree>")
         ) {
           indicesWithAxTree.push(i);
           break;
@@ -646,7 +738,9 @@ export class ComputerUseSession {
       return messages;
     }
 
-    const toStrip = new Set(indicesWithAxTree.slice(0, -MAX_AX_TREES_IN_HISTORY));
+    const toStrip = new Set(
+      indicesWithAxTree.slice(0, -MAX_AX_TREES_IN_HISTORY),
+    );
 
     return messages.map((msg, idx) => {
       if (!toStrip.has(idx)) return msg;
@@ -654,13 +748,16 @@ export class ComputerUseSession {
         ...msg,
         content: msg.content.map((block) => {
           if (
-            block.type === 'tool_result' &&
-            typeof block.content === 'string' &&
-            block.content.includes('<ax-tree>')
+            block.type === "tool_result" &&
+            typeof block.content === "string" &&
+            block.content.includes("<ax-tree>")
           ) {
             return {
               ...block,
-              content: block.content.replace(AX_TREE_PATTERN, AX_TREE_PLACEHOLDER),
+              content: block.content.replace(
+                AX_TREE_PATTERN,
+                AX_TREE_PLACEHOLDER,
+              ),
             };
           }
           return block;
@@ -677,7 +774,7 @@ export class ComputerUseSession {
    * unescaped because compaction replaces the entire block with a placeholder.
    */
   static escapeAxTreeContent(content: string): string {
-    return content.replace(/<\/ax-tree>/gi, '&lt;/ax-tree&gt;');
+    return content.replace(/<\/ax-tree>/gi, "&lt;/ax-tree&gt;");
   }
 
   // ---------------------------------------------------------------------------
@@ -685,68 +782,79 @@ export class ComputerUseSession {
   // updated screen state on each turn (not just "Action executed").
   // ---------------------------------------------------------------------------
 
-  private buildObservationResultContent(obs: CuObservation, hadPreviousAXTree: boolean): string {
+  private buildObservationResultContent(
+    obs: CuObservation,
+    hadPreviousAXTree: boolean,
+  ): string {
     const parts: string[] = [];
 
     // Surface user guidance prominently so the model sees it first
     if (obs.userGuidance) {
       parts.push(`USER GUIDANCE: ${obs.userGuidance}`);
-      parts.push('');
+      parts.push("");
     }
 
     if (obs.executionResult) {
       parts.push(obs.executionResult);
-      parts.push('');
+      parts.push("");
     }
 
     // AX tree diff
     if (obs.axDiff) {
       parts.push(obs.axDiff);
-      parts.push('');
+      parts.push("");
     } else if (hadPreviousAXTree && obs.axTree != null) {
       const lastAction = this.actionHistory[this.actionHistory.length - 1];
-      const wasWait = lastAction?.toolName === 'computer_use_wait';
-      if (this.consecutiveUnchangedSteps >= CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD) {
+      const wasWait = lastAction?.toolName === "computer_use_wait";
+      if (
+        this.consecutiveUnchangedSteps >=
+        CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
+      ) {
         parts.push(
           `WARNING: ${this.consecutiveUnchangedSteps} consecutive actions had NO VISIBLE EFFECT on the UI. You MUST try a completely different approach.`,
         );
       } else if (!wasWait) {
-        parts.push('Your last action had NO VISIBLE EFFECT on the UI. Try something different.');
+        parts.push(
+          "Your last action had NO VISIBLE EFFECT on the UI. Try something different.",
+        );
       }
-      parts.push('');
+      parts.push("");
     }
 
     // Current screen state — wrapped in markers so compactHistory can strip old snapshots
     if (obs.axTree) {
-      parts.push('<ax-tree>');
-      parts.push('CURRENT SCREEN STATE:');
+      parts.push("<ax-tree>");
+      parts.push("CURRENT SCREEN STATE:");
       parts.push(ComputerUseSession.escapeAxTreeContent(obs.axTree));
-      parts.push('</ax-tree>');
+      parts.push("</ax-tree>");
     }
 
     const screenshotMetadata = this.formatScreenshotMetadata(obs);
     if (screenshotMetadata.length > 0) {
-      parts.push('');
+      parts.push("");
       parts.push(...screenshotMetadata);
     }
 
-    return parts.join('\n').trim() || 'Action executed';
+    return parts.join("\n").trim() || "Action executed";
   }
 
   // ---------------------------------------------------------------------------
   // Message building (replicates AnthropicProvider.buildMessages from Swift)
   // ---------------------------------------------------------------------------
 
-  private buildMessages(obs: CuObservation, hadPreviousAXTree: boolean): Message[] {
+  private buildMessages(
+    obs: CuObservation,
+    hadPreviousAXTree: boolean,
+  ): Message[] {
     const contentBlocks: ContentBlock[] = [];
 
     // Screenshot image block
     if (obs.screenshot) {
       contentBlocks.push({
-        type: 'image',
+        type: "image",
         source: {
-          type: 'base64',
-          media_type: 'image/jpeg',
+          type: "base64",
+          media_type: "image/jpeg",
           data: obs.screenshot,
         },
       });
@@ -758,55 +866,68 @@ export class ComputerUseSession {
     if (trimmedTask) {
       textParts.push(`TASK: ${trimmedTask}`);
     } else {
-      textParts.push('TASK: No explicit task provided.');
+      textParts.push("TASK: No explicit task provided.");
     }
-    textParts.push('');
+    textParts.push("");
 
     // AX tree diff (compact summary of what changed)
     if (obs.axDiff && this.actionHistory.length > 0) {
       textParts.push(obs.axDiff);
-      textParts.push('');
-    } else if (hadPreviousAXTree && obs.axTree != null && this.actionHistory.length > 0) {
+      textParts.push("");
+    } else if (
+      hadPreviousAXTree &&
+      obs.axTree != null &&
+      this.actionHistory.length > 0
+    ) {
       // AX tree unchanged — tell the model its action had no effect
       const lastAction = this.actionHistory[this.actionHistory.length - 1];
-      const wasWait = lastAction?.toolName === 'computer_use_wait';
-      textParts.push('CHANGES SINCE LAST ACTION:');
-      if (this.consecutiveUnchangedSteps >= CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD) {
+      const wasWait = lastAction?.toolName === "computer_use_wait";
+      textParts.push("CHANGES SINCE LAST ACTION:");
+      if (
+        this.consecutiveUnchangedSteps >=
+        CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
+      ) {
         textParts.push(
           `WARNING: ${this.consecutiveUnchangedSteps} consecutive actions had NO VISIBLE EFFECT on the UI. You MUST try a completely different approach — do not repeat any of your recent actions.`,
         );
       } else if (!wasWait) {
-        const actionDesc = `${lastAction?.toolName ?? 'unknown'}`;
+        const actionDesc = `${lastAction?.toolName ?? "unknown"}`;
         textParts.push(
           `Your last action (${actionDesc}) had NO VISIBLE EFFECT on the UI. The screen is identical to the previous step. Do NOT repeat the same action — try something different.`,
         );
       } else {
-        textParts.push('No visible changes detected — the UI is identical to the previous step.');
+        textParts.push(
+          "No visible changes detected — the UI is identical to the previous step.",
+        );
       }
-      textParts.push('');
+      textParts.push("");
     }
 
     // Current screen state
     if (obs.axTree) {
-      textParts.push('CURRENT SCREEN STATE (accessibility tree of the focused window):');
+      textParts.push(
+        "CURRENT SCREEN STATE (accessibility tree of the focused window):",
+      );
       textParts.push(obs.axTree);
-      textParts.push('');
-      textParts.push('Use element_id with the [ID] numbers shown above to target elements.');
+      textParts.push("");
+      textParts.push(
+        "Use element_id with the [ID] numbers shown above to target elements.",
+      );
 
       // Secondary windows for cross-app awareness
       if (obs.secondaryWindows) {
-        textParts.push('');
+        textParts.push("");
         textParts.push(obs.secondaryWindows);
-        textParts.push('');
+        textParts.push("");
         textParts.push(
           "Note: The element [ID]s above are from other windows — you can reference them for context but can only interact with the focused window's elements.",
         );
       }
 
       if (obs.screenshot) {
-        textParts.push('');
+        textParts.push("");
         textParts.push(
-          'A screenshot of the FULL SCREEN is also attached above. Use it to see content outside the focused window (e.g., reference documents, PDFs, other apps visible behind the current window).',
+          "A screenshot of the FULL SCREEN is also attached above. Use it to see content outside the focused window (e.g., reference documents, PDFs, other apps visible behind the current window).",
         );
         const screenshotMetadata = this.formatScreenshotMetadata(obs);
         if (screenshotMetadata.length > 0) {
@@ -814,21 +935,23 @@ export class ComputerUseSession {
         }
       }
     } else if (obs.screenshot) {
-      textParts.push('CURRENT SCREEN STATE:');
-      textParts.push('See the screenshot above. No accessibility tree available — estimate coordinates from the image.');
+      textParts.push("CURRENT SCREEN STATE:");
+      textParts.push(
+        "See the screenshot above. No accessibility tree available — estimate coordinates from the image.",
+      );
       const screenshotMetadata = this.formatScreenshotMetadata(obs);
       if (screenshotMetadata.length > 0) {
         textParts.push(...screenshotMetadata);
       }
     } else {
-      textParts.push('CURRENT SCREEN STATE:');
-      textParts.push('No screen data available.');
+      textParts.push("CURRENT SCREEN STATE:");
+      textParts.push("No screen data available.");
     }
 
     // Action history
     if (this.actionHistory.length > 0) {
-      textParts.push('');
-      textParts.push('ACTIONS TAKEN SO FAR:');
+      textParts.push("");
+      textParts.push("ACTIONS TAKEN SO FAR:");
       let windowedHistory: ActionRecord[];
       if (this.actionHistory.length > MAX_HISTORY_ENTRIES) {
         textParts.push(
@@ -839,7 +962,7 @@ export class ComputerUseSession {
         windowedHistory = this.actionHistory;
       }
       for (const record of windowedHistory) {
-        const result = record.result ?? 'executed';
+        const result = record.result ?? "executed";
         textParts.push(`  ${record.step}. ${record.toolName} → ${result}`);
       }
     }
@@ -853,7 +976,7 @@ export class ComputerUseSession {
           JSON.stringify(r.input) === JSON.stringify(recent[0].input),
       );
       if (allIdentical) {
-        textParts.push('');
+        textParts.push("");
         textParts.push(
           `WARNING: You have repeated the exact same action (${recent[0].toolName}) ${LOOP_DETECTION_WINDOW} times in a row. You MUST try a completely different approach or call computer_use_done with an explanation of why you are stuck.`,
         );
@@ -862,24 +985,26 @@ export class ComputerUseSession {
 
     // Surface user guidance prominently
     if (obs.userGuidance) {
-      textParts.push('');
+      textParts.push("");
       textParts.push(`USER GUIDANCE: ${obs.userGuidance}`);
     }
 
     // Prompt for next action
-    textParts.push('');
+    textParts.push("");
     if (this.actionHistory.length === 0) {
-      textParts.push('This is the first action. Examine the screen state and decide what to do first.');
+      textParts.push(
+        "This is the first action. Examine the screen state and decide what to do first.",
+      );
     } else {
-      textParts.push('Decide the next action to take.');
+      textParts.push("Decide the next action to take.");
     }
 
     contentBlocks.push({
-      type: 'text',
-      text: textParts.join('\n'),
+      type: "text",
+      text: textParts.join("\n"),
     });
 
-    return [{ role: 'user', content: contentBlocks }];
+    return [{ role: "user", content: contentBlocks }];
   }
 
   private formatScreenshotMetadata(obs: CuObservation): string[] {
@@ -887,10 +1012,14 @@ export class ComputerUseSession {
 
     const lines: string[] = [];
     if (obs.screenshotWidthPx != null && obs.screenshotHeightPx != null) {
-      lines.push(`Screenshot metadata: ${obs.screenshotWidthPx}x${obs.screenshotHeightPx} px`);
+      lines.push(
+        `Screenshot metadata: ${obs.screenshotWidthPx}x${obs.screenshotHeightPx} px`,
+      );
     }
     if (obs.screenWidthPt != null && obs.screenHeightPt != null) {
-      lines.push(`Screen metadata: ${obs.screenWidthPt}x${obs.screenHeightPt} pt`);
+      lines.push(
+        `Screen metadata: ${obs.screenWidthPt}x${obs.screenHeightPt} pt`,
+      );
     }
     if (obs.coordinateOrigin) {
       lines.push(`Coordinate origin: ${obs.coordinateOrigin}`);

@@ -1,8 +1,8 @@
-import { renderHistoryContent } from '../daemon/handlers.js';
-import * as attachmentsStore from '../memory/attachments-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { deliverChannelReply } from './gateway-client.js';
-import type { RuntimeAttachmentMetadata } from './http-types.js';
+import { renderHistoryContent } from "../daemon/handlers.js";
+import * as attachmentsStore from "../memory/attachments-store.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { deliverChannelReply } from "./gateway-client.js";
+import type { RuntimeAttachmentMetadata } from "./http-types.js";
 
 const INTER_SEGMENT_DELAY_MS = 150;
 
@@ -30,9 +30,11 @@ function toDeliverableTextSegments(
   textSegments: string[],
   fallbackText?: string,
 ): string[] {
-  const nonEmptySegments = textSegments.filter((segment) => segment.trim().length > 0);
+  const nonEmptySegments = textSegments.filter(
+    (segment) => segment.trim().length > 0,
+  );
   if (nonEmptySegments.length > 0) return nonEmptySegments;
-  if (typeof fallbackText === 'string' && fallbackText.trim().length > 0) {
+  if (typeof fallbackText === "string" && fallbackText.trim().length > 0) {
     return [fallbackText];
   }
   return [];
@@ -54,8 +56,12 @@ export async function deliverRenderedReplyViaCallback(
     onSegmentDelivered,
   } = params;
 
-  const deliverableSegments = toDeliverableTextSegments(textSegments, fallbackText);
-  const replyAttachments = attachments && attachments.length > 0 ? attachments : undefined;
+  const deliverableSegments = toDeliverableTextSegments(
+    textSegments,
+    fallbackText,
+  );
+  const replyAttachments =
+    attachments && attachments.length > 0 ? attachments : undefined;
 
   if (deliverableSegments.length === 0) {
     if (replyAttachments) {
@@ -110,10 +116,14 @@ export async function deliverReplyViaCallback(
 ): Promise<void> {
   const msgs = conversationStore.getMessages(conversationId);
   for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role !== 'assistant') continue;
+    if (msgs[i].role !== "assistant") continue;
 
     let parsed: unknown;
-    try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+    try {
+      parsed = JSON.parse(msgs[i].content);
+    } catch {
+      parsed = msgs[i].content;
+    }
     const rendered = renderHistoryContent(parsed);
 
     const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);

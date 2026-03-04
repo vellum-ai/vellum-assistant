@@ -7,15 +7,15 @@
  * registry entry instead of another if/else branch.
  */
 
-import { join } from 'node:path';
+import { join } from "node:path";
 
-import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
-import type { ToolExecutionResult } from '../tools/types.js';
-import { getWorkspaceDir } from '../util/platform.js';
-import { isDoordashCommand, updateDoordashProgress } from './doordash-steps.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import { refreshSurfacesForApp } from './session-surfaces.js';
-import type { ToolSetupContext } from './session-tool-setup.js';
+import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
+import type { ToolExecutionResult } from "../tools/types.js";
+import { getWorkspaceDir } from "../util/platform.js";
+import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
+import type { ServerMessage } from "./ipc-protocol.js";
+import { refreshSurfacesForApp } from "./session-surfaces.js";
+import type { ToolSetupContext } from "./session-tool-setup.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ function handleAppChange(
   opts?: { fileChange?: boolean; status?: string },
 ): void {
   refreshSurfacesForApp(ctx, appId, opts);
-  broadcastToAllClients?.({ type: 'app_files_changed', appId });
+  broadcastToAllClients?.({ type: "app_files_changed", appId });
   void updatePublishedAppDeployment(appId);
 }
 
@@ -53,7 +53,10 @@ function handleAppChange(
  */
 const postExecutionHooks = new Map<string, PostExecutionHook>();
 
-function registerHook(toolNames: string | string[], hook: PostExecutionHook): void {
+function registerHook(
+  toolNames: string | string[],
+  hook: PostExecutionHook,
+): void {
   const names = Array.isArray(toolNames) ? toolNames : [toolNames];
   for (const name of names) {
     postExecutionHooks.set(name, hook);
@@ -62,90 +65,119 @@ function registerHook(toolNames: string | string[], hook: PostExecutionHook): vo
 
 // Broadcast app_files_changed when a new app is created so clients
 // (e.g. macOS "Things" sidebar) refresh their app list immediately.
-registerHook('app_create', (_name, _input, result, { ctx, broadcastToAllClients }) => {
-  try {
-    const parsed = JSON.parse(result.content) as { id?: string };
-    if (parsed.id) {
-      handleAppChange(ctx, parsed.id, broadcastToAllClients);
+registerHook(
+  "app_create",
+  (_name, _input, result, { ctx, broadcastToAllClients }) => {
+    try {
+      const parsed = JSON.parse(result.content) as { id?: string };
+      if (parsed.id) {
+        handleAppChange(ctx, parsed.id, broadcastToAllClients);
+      }
+    } catch {
+      // Result wasn't valid JSON — skip the broadcast.
     }
-  } catch {
-    // Result wasn't valid JSON — skip the broadcast.
-  }
-});
+  },
+);
 
 // Auto-refresh workspace surfaces when a persisted app is updated.
-registerHook('app_update', (_name, input, _result, { ctx, broadcastToAllClients }) => {
-  const appId = input.app_id as string | undefined;
-  if (appId) {
-    handleAppChange(ctx, appId, broadcastToAllClients);
-  }
-});
+registerHook(
+  "app_update",
+  (_name, input, _result, { ctx, broadcastToAllClients }) => {
+    const appId = input.app_id as string | undefined;
+    if (appId) {
+      handleAppChange(ctx, appId, broadcastToAllClients);
+    }
+  },
+);
 
 // Broadcast app_files_changed when an app is deleted so clients remove it
 // from their cached app lists.
-registerHook('app_delete', (_name, input, _result, { broadcastToAllClients }) => {
-  const appId = input.app_id as string | undefined;
-  if (appId) {
-    broadcastToAllClients?.({ type: 'app_files_changed', appId });
-  }
-});
+registerHook(
+  "app_delete",
+  (_name, input, _result, { broadcastToAllClients }) => {
+    const appId = input.app_id as string | undefined;
+    if (appId) {
+      broadcastToAllClients?.({ type: "app_files_changed", appId });
+    }
+  },
+);
 
 // Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
 // auto-refresh when the LLM mutates the task queue via tools
 registerHook(
-  ['task_list_add', 'task_list_update', 'task_list_remove', 'task_queue_run'],
+  ["task_list_add", "task_list_update", "task_list_remove", "task_queue_run"],
   (_name, _input, _result, { broadcastToAllClients }) => {
-    broadcastToAllClients?.({ type: 'tasks_changed' });
+    broadcastToAllClients?.({ type: "tasks_changed" });
   },
 );
 
 // Auto-refresh workspace surfaces when app files are edited.
 registerHook(
-  ['app_file_edit', 'app_file_write'],
+  ["app_file_edit", "app_file_write"],
   (_name, input, _result, { ctx, broadcastToAllClients }) => {
     const appId = input.app_id as string | undefined;
     const status = input.status as string | undefined;
     if (appId) {
-      handleAppChange(ctx, appId, broadcastToAllClients, { fileChange: true, status });
+      handleAppChange(ctx, appId, broadcastToAllClients, {
+        fileChange: true,
+        status,
+      });
     }
   },
 );
 
 // Broadcast avatar change to all connected clients so every
 // macOS/iOS instance reloads the avatar image.
-registerHook('set_avatar', (_name, _input, _result, { broadcastToAllClients }) => {
-  const avatarPath = join(getWorkspaceDir(), 'data', 'avatar', 'custom-avatar.png');
-  broadcastToAllClients?.({ type: 'avatar_updated', avatarPath });
-});
+registerHook(
+  "set_avatar",
+  (_name, _input, _result, { broadcastToAllClients }) => {
+    const avatarPath = join(
+      getWorkspaceDir(),
+      "data",
+      "avatar",
+      "custom-avatar.png",
+    );
+    broadcastToAllClients?.({ type: "avatar_updated", avatarPath });
+  },
+);
 
 // Broadcast voice config changes to all connected clients so every window
 // picks up the updated UserDefaults value immediately.
-registerHook('voice_config_update', (_name, input, _result, { broadcastToAllClients }) => {
-  const setting = (input.setting as string) ?? (input.activation_key ? 'activation_key' : undefined);
-  if (!setting) return;
+registerHook(
+  "voice_config_update",
+  (_name, input, _result, { broadcastToAllClients }) => {
+    const setting =
+      (input.setting as string) ??
+      (input.activation_key ? "activation_key" : undefined);
+    if (!setting) return;
 
-  const SETTING_TO_KEY: Record<string, string> = {
-    activation_key: 'pttActivationKey',
-    wake_word_enabled: 'wakeWordEnabled',
-    wake_word_keyword: 'wakeWordKeyword',
-    wake_word_timeout: 'wakeWordTimeoutSeconds',
-  };
-  const key = SETTING_TO_KEY[setting];
-  if (!key) return;
+    const SETTING_TO_KEY: Record<string, string> = {
+      activation_key: "pttActivationKey",
+      wake_word_enabled: "wakeWordEnabled",
+      wake_word_keyword: "wakeWordKeyword",
+      wake_word_timeout: "wakeWordTimeoutSeconds",
+    };
+    const key = SETTING_TO_KEY[setting];
+    if (!key) return;
 
-  // Coerce the value to the correct type before broadcasting, matching
-  // the validation logic in the tool's execute method.
-  const raw = input.value ?? input.activation_key;
-  let coerced: string | boolean | number = raw as string;
-  if (setting === 'wake_word_enabled') {
-    coerced = raw === true || raw === 'true';
-  } else if (setting === 'wake_word_timeout') {
-    coerced = typeof raw === 'number' ? raw : Number(raw);
-  } else if (setting === 'wake_word_keyword' && typeof raw === 'string') {
-    coerced = raw.trim();
-  }
-  broadcastToAllClients?.({ type: 'client_settings_update', key, value: coerced } as unknown as ServerMessage);
-});
+    // Coerce the value to the correct type before broadcasting, matching
+    // the validation logic in the tool's execute method.
+    const raw = input.value ?? input.activation_key;
+    let coerced: string | boolean | number = raw as string;
+    if (setting === "wake_word_enabled") {
+      coerced = raw === true || raw === "true";
+    } else if (setting === "wake_word_timeout") {
+      coerced = typeof raw === "number" ? raw : Number(raw);
+    } else if (setting === "wake_word_keyword" && typeof raw === "string") {
+      coerced = raw.trim();
+    }
+    broadcastToAllClients?.({
+      type: "client_settings_update",
+      key,
+      value: coerced,
+    } as unknown as ServerMessage);
+  },
+);
 
 // ── Runner ───────────────────────────────────────────────────────────
 

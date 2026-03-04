@@ -38,7 +38,12 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+      controller.abort(
+        new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        ),
+      );
     }, config.runtimeTimeoutMs);
 
     let response: Response;
@@ -54,10 +59,16 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
       clearTimeout(timeoutId);
       const duration = Math.round(performance.now() - start);
       if (err instanceof DOMException && err.name === "TimeoutError") {
-        log.error({ path: upstreamPath, duration }, "Guardian control-plane proxy upstream timed out");
+        log.error(
+          { path: upstreamPath, duration },
+          "Guardian control-plane proxy upstream timed out",
+        );
         return Response.json({ error: "Gateway Timeout" }, { status: 504 });
       }
-      log.error({ err, path: upstreamPath, duration }, "Guardian control-plane proxy upstream connection failed");
+      log.error(
+        { err, path: upstreamPath, duration },
+        "Guardian control-plane proxy upstream connection failed",
+      );
       return Response.json({ error: "Bad Gateway" }, { status: 502 });
     }
 
@@ -70,14 +81,20 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
         { path: upstreamPath, status: response.status, duration },
         "Guardian control-plane proxy upstream error",
       );
-      return new Response(body, { status: response.status, headers: resHeaders });
+      return new Response(body, {
+        status: response.status,
+        headers: resHeaders,
+      });
     }
 
     log.info(
       { path: upstreamPath, status: response.status, duration },
       "Guardian control-plane proxy completed",
     );
-    return new Response(response.body, { status: response.status, headers: resHeaders });
+    return new Response(response.body, {
+      status: response.status,
+      headers: resHeaders,
+    });
   }
 
   return {
@@ -87,7 +104,11 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
 
     async handleGetGuardianStatus(req: Request): Promise<Response> {
       const url = new URL(req.url);
-      return proxyToRuntime(req, "/v1/integrations/guardian/status", url.search);
+      return proxyToRuntime(
+        req,
+        "/v1/integrations/guardian/status",
+        url.search,
+      );
     },
 
     async handleRevokeGuardian(req: Request): Promise<Response> {
@@ -95,23 +116,43 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
     },
 
     async handleStartGuardianOutbound(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/outbound/start", "");
+      return proxyToRuntime(
+        req,
+        "/v1/integrations/guardian/outbound/start",
+        "",
+      );
     },
 
     async handleResendGuardianOutbound(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/outbound/resend", "");
+      return proxyToRuntime(
+        req,
+        "/v1/integrations/guardian/outbound/resend",
+        "",
+      );
     },
 
     async handleCancelGuardianOutbound(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/outbound/cancel", "");
+      return proxyToRuntime(
+        req,
+        "/v1/integrations/guardian/outbound/cancel",
+        "",
+      );
     },
 
     async handleGuardianVellumBootstrap(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/vellum/bootstrap", "");
+      return proxyToRuntime(
+        req,
+        "/v1/integrations/guardian/vellum/bootstrap",
+        "",
+      );
     },
 
     async handleGuardianRefresh(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/vellum/refresh", "");
+      return proxyToRuntime(
+        req,
+        "/v1/integrations/guardian/vellum/refresh",
+        "",
+      );
     },
   };
 }

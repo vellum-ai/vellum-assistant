@@ -1,29 +1,32 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-import { getConfig } from '../../config/loader.js';
-import { generateImage, mapGeminiError } from '../../media/gemini-image-service.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { getLogger } from '../../util/logger.js';
-import { getWorkspaceDir } from '../../util/platform.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import { getConfig } from "../../config/loader.js";
+import {
+  generateImage,
+  mapGeminiError,
+} from "../../media/gemini-image-service.js";
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import { getLogger } from "../../util/logger.js";
+import { getWorkspaceDir } from "../../util/platform.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
-const log = getLogger('avatar-generator');
+const log = getLogger("avatar-generator");
 
-const TOOL_NAME = 'set_avatar';
+const TOOL_NAME = "set_avatar";
 
 /** Canonical path where the custom avatar PNG is stored. */
 function getAvatarPath(): string {
-  return join(getWorkspaceDir(), 'data', 'avatar', 'custom-avatar.png');
+  return join(getWorkspaceDir(), "data", "avatar", "custom-avatar.png");
 }
 
 export const setAvatarTool: Tool = {
   name: TOOL_NAME,
   description:
-    'Generate a custom avatar image from a text description. ' +
-    'Saves the result as the assistant\'s avatar.',
-  category: 'system',
+    "Generate a custom avatar image from a text description. " +
+    "Saves the result as the assistant's avatar.",
+  category: "system",
   defaultRiskLevel: RiskLevel.Low,
 
   getDefinition(): ToolDefinition {
@@ -31,20 +34,21 @@ export const setAvatarTool: Tool = {
       name: TOOL_NAME,
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           description: {
-            type: 'string',
+            type: "string",
             description:
-              'A text description of the desired avatar appearance, ' +
+              "A text description of the desired avatar appearance, " +
               'e.g. "a friendly purple cat with green eyes wearing a tiny hat".',
           },
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of what you are creating and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of what you are creating and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
-        required: ['description'],
+        required: ["description"],
       },
     };
   },
@@ -54,9 +58,10 @@ export const setAvatarTool: Tool = {
     _context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const description = input.description;
-    if (typeof description !== 'string' || description.trim() === '') {
+    if (typeof description !== "string" || description.trim() === "") {
       return {
-        content: 'Error: description is required and must be a non-empty string.',
+        content:
+          "Error: description is required and must be a non-empty string.",
         isError: true,
       };
     }
@@ -65,36 +70,40 @@ export const setAvatarTool: Tool = {
     const apiKey = config.apiKeys.gemini ?? process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return {
-        content: 'No Gemini API key configured. Please add your Gemini API key in Settings → Models & Services, or set the GEMINI_API_KEY environment variable.',
+        content:
+          "No Gemini API key configured. Please add your Gemini API key in Settings → Models & Services, or set the GEMINI_API_KEY environment variable.",
         isError: true,
       };
     }
 
     try {
-      log.info({ description: description.trim() }, 'Generating avatar via Gemini');
+      log.info(
+        { description: description.trim() },
+        "Generating avatar via Gemini",
+      );
 
       const prompt =
         `Create an avatar image based on this description: ${description.trim()}\n\n` +
-        'Style: cute, friendly, work-safe illustration. ' +
-        'Vibrant but soft colors. Simple and recognizable at small sizes (28px). ' +
-        'Circular or rounded composition filling the canvas. ' +
-        'Subtle background color (not white or transparent).';
+        "Style: cute, friendly, work-safe illustration. " +
+        "Vibrant but soft colors. Simple and recognizable at small sizes (28px). " +
+        "Circular or rounded composition filling the canvas. " +
+        "Subtle background color (not white or transparent).";
 
       const result = await generateImage(apiKey, {
         prompt,
-        mode: 'generate',
+        mode: "generate",
         model: config.imageGenModel,
       });
 
       if (result.images.length === 0) {
         return {
-          content: 'Error: Gemini returned no image data. Please try again.',
+          content: "Error: Gemini returned no image data. Please try again.",
           isError: true,
         };
       }
 
       const image = result.images[0];
-      const pngBuffer = Buffer.from(image.dataBase64, 'base64');
+      const pngBuffer = Buffer.from(image.dataBase64, "base64");
 
       const avatarPath = getAvatarPath();
       const avatarDir = dirname(avatarPath);
@@ -102,17 +111,17 @@ export const setAvatarTool: Tool = {
       mkdirSync(avatarDir, { recursive: true });
       writeFileSync(avatarPath, pngBuffer);
 
-      log.info({ avatarPath }, 'Avatar saved successfully');
+      log.info({ avatarPath }, "Avatar saved successfully");
 
       // Side-effect hook in tool-side-effects.ts broadcasts avatar_updated to all clients.
 
       return {
-        content: 'Avatar updated! Your new avatar will appear shortly.',
+        content: "Avatar updated! Your new avatar will appear shortly.",
         isError: false,
       };
     } catch (error) {
       const message = mapGeminiError(error);
-      log.error({ error: message }, 'Avatar generation failed');
+      log.error({ error: message }, "Avatar generation failed");
 
       return {
         content: `Avatar generation failed: ${message}`,

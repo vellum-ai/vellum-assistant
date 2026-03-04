@@ -1,10 +1,13 @@
-import type { Message, ModelIntent,Provider } from '../providers/types.js';
-import { parseJsonSafe } from '../util/json.js';
-import type { SwarmLimits } from './limits.js';
-import { validateAndNormalizePlan } from './plan-validator.js';
-import { buildPlannerUserMessage,ROUTER_SYSTEM_PROMPT } from './router-prompts.js';
-import type { SwarmPlan, SwarmTaskNode } from './types.js';
-import { VALID_SWARM_ROLES } from './types.js';
+import type { Message, ModelIntent, Provider } from "../providers/types.js";
+import { parseJsonSafe } from "../util/json.js";
+import type { SwarmLimits } from "./limits.js";
+import { validateAndNormalizePlan } from "./plan-validator.js";
+import {
+  buildPlannerUserMessage,
+  ROUTER_SYSTEM_PROMPT,
+} from "./router-prompts.js";
+import type { SwarmPlan, SwarmTaskNode } from "./types.js";
+import { VALID_SWARM_ROLES } from "./types.js";
 
 /**
  * Generate a validated swarm plan from a user objective using an LLM.
@@ -21,8 +24,13 @@ export async function generatePlan(opts: {
   try {
     const messages: Message[] = [
       {
-        role: 'user',
-        content: [{ type: 'text', text: buildPlannerUserMessage(objective, limits.maxTasks) }],
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: buildPlannerUserMessage(objective, limits.maxTasks),
+          },
+        ],
       },
     ];
 
@@ -34,8 +42,8 @@ export async function generatePlan(opts: {
     );
 
     // Extract text from response
-    const textBlock = response.content.find((b) => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') {
+    const textBlock = response.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
       return makeFallbackPlan(objective);
     }
 
@@ -64,7 +72,14 @@ export async function generatePlan(opts: {
  * Parse the LLM output as a plan JSON. Handles bare JSON objects and
  * fenced code blocks (tries all fenced blocks, not just the first).
  */
-export function parsePlanJSON(raw: string): { tasks: Array<{ id: string; role: string; objective: string; dependencies: string[] }> } | null {
+export function parsePlanJSON(raw: string): {
+  tasks: Array<{
+    id: string;
+    role: string;
+    objective: string;
+    dependencies: string[];
+  }>;
+} | null {
   // Try all fenced code blocks — LLMs sometimes emit non-JSON blocks before the plan
   const fencedRegex = /```(?:json)?\s*\n?([\s\S]*?)\n?```/g;
   let match;
@@ -77,10 +92,24 @@ export function parsePlanJSON(raw: string): { tasks: Array<{ id: string; role: s
   return tryParsePlan(raw);
 }
 
-function tryParsePlan(jsonStr: string): { tasks: Array<{ id: string; role: string; objective: string; dependencies: string[] }> } | null {
+function tryParsePlan(jsonStr: string): {
+  tasks: Array<{
+    id: string;
+    role: string;
+    objective: string;
+    dependencies: string[];
+  }>;
+} | null {
   const parsed = parseJsonSafe<{ tasks?: unknown }>(jsonStr.trim());
   if (parsed && Array.isArray(parsed.tasks)) {
-    return parsed as { tasks: Array<{ id: string; role: string; objective: string; dependencies: string[] }> };
+    return parsed as {
+      tasks: Array<{
+        id: string;
+        role: string;
+        objective: string;
+        dependencies: string[];
+      }>;
+    };
   }
   return null;
 }
@@ -95,19 +124,19 @@ function validateRawTasks(raw: unknown[]): SwarmTaskNode[] {
   const validated: SwarmTaskNode[] = [];
 
   for (const item of raw) {
-    if (item == null || typeof item !== 'object') continue;
+    if (item == null || typeof item !== "object") continue;
     const t = item as Record<string, unknown>;
 
-    if (typeof t.id !== 'string' || t.id === '') continue;
-    if (typeof t.role !== 'string' || !validRoles.has(t.role)) continue;
-    if (typeof t.objective !== 'string' || t.objective === '') continue;
+    if (typeof t.id !== "string" || t.id === "") continue;
+    if (typeof t.role !== "string" || !validRoles.has(t.role)) continue;
+    if (typeof t.objective !== "string" || t.objective === "") continue;
 
     validated.push({
       id: t.id,
-      role: t.role as SwarmTaskNode['role'],
+      role: t.role as SwarmTaskNode["role"],
       objective: t.objective,
       dependencies: Array.isArray(t.dependencies)
-        ? t.dependencies.filter((d): d is string => typeof d === 'string')
+        ? t.dependencies.filter((d): d is string => typeof d === "string")
         : [],
     });
   }
@@ -123,8 +152,8 @@ export function makeFallbackPlan(objective: string): SwarmPlan {
     objective,
     tasks: [
       {
-        id: 'fallback-coder',
-        role: 'coder',
+        id: "fallback-coder",
+        role: "coder",
         objective,
         dependencies: [],
       },

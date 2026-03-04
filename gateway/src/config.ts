@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getLogger, type LogFileConfig } from "./logger.js";
-import { getRootDir, readKeychainCredential, readCredential, readTwilioCredentials, readWhatsAppCredentials, readSlackChannelCredentials } from "./credential-reader.js";
+import {
+  getRootDir,
+  readKeychainCredential,
+  readCredential,
+  readTwilioCredentials,
+  readWhatsAppCredentials,
+  readSlackChannelCredentials,
+} from "./credential-reader.js";
 
 const log = getLogger("config");
 
@@ -102,7 +109,11 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
       throw new Error(`Invalid assistant ID for routing key "${key}"`);
     }
     if (key.startsWith("conversation:")) {
-      entries.push({ type: "conversation_id", key: key.slice(13), assistantId });
+      entries.push({
+        type: "conversation_id",
+        key: key.slice(13),
+        assistantId,
+      });
     } else if (key.startsWith("actor:")) {
       entries.push({ type: "actor_id", key: key.slice(6), assistantId });
     } else {
@@ -116,7 +127,8 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
 
 export function loadConfig(): GatewayConfig {
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || undefined;
-  const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || undefined;
+  const telegramWebhookSecret =
+    process.env.TELEGRAM_WEBHOOK_SECRET || undefined;
 
   const telegramApiBaseUrl =
     process.env.TELEGRAM_API_BASE_URL || "https://api.telegram.org";
@@ -156,7 +168,11 @@ export function loadConfig(): GatewayConfig {
   ).replace(/\/+$/, "");
 
   const proxyEnabledRaw = process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
-  if (proxyEnabledRaw !== undefined && proxyEnabledRaw !== "true" && proxyEnabledRaw !== "false") {
+  if (
+    proxyEnabledRaw !== undefined &&
+    proxyEnabledRaw !== "true" &&
+    proxyEnabledRaw !== "false"
+  ) {
     throw new Error(
       `GATEWAY_RUNTIME_PROXY_ENABLED must be "true" or "false", got "${proxyEnabledRaw}"`,
     );
@@ -164,7 +180,11 @@ export function loadConfig(): GatewayConfig {
   const runtimeProxyEnabled = proxyEnabledRaw === "true";
 
   const proxyRequireAuthRaw = process.env.GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH;
-  if (proxyRequireAuthRaw !== undefined && proxyRequireAuthRaw !== "true" && proxyRequireAuthRaw !== "false") {
+  if (
+    proxyRequireAuthRaw !== undefined &&
+    proxyRequireAuthRaw !== "true" &&
+    proxyRequireAuthRaw !== "false"
+  ) {
     throw new Error(
       `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH must be "true" or "false", got "${proxyRequireAuthRaw}"`,
     );
@@ -184,22 +204,36 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
-  const runtimeTimeoutMs = Number(process.env.GATEWAY_RUNTIME_TIMEOUT_MS || "30000");
+  const runtimeTimeoutMs = Number(
+    process.env.GATEWAY_RUNTIME_TIMEOUT_MS || "30000",
+  );
   if (!Number.isFinite(runtimeTimeoutMs) || runtimeTimeoutMs <= 0) {
     throw new Error("GATEWAY_RUNTIME_TIMEOUT_MS must be a positive number");
   }
 
-  const runtimeMaxRetries = Number(process.env.GATEWAY_RUNTIME_MAX_RETRIES || "2");
+  const runtimeMaxRetries = Number(
+    process.env.GATEWAY_RUNTIME_MAX_RETRIES || "2",
+  );
   if (!Number.isInteger(runtimeMaxRetries) || runtimeMaxRetries < 0) {
-    throw new Error("GATEWAY_RUNTIME_MAX_RETRIES must be a non-negative integer");
+    throw new Error(
+      "GATEWAY_RUNTIME_MAX_RETRIES must be a non-negative integer",
+    );
   }
 
-  const runtimeInitialBackoffMs = Number(process.env.GATEWAY_RUNTIME_INITIAL_BACKOFF_MS || "500");
-  if (!Number.isFinite(runtimeInitialBackoffMs) || runtimeInitialBackoffMs <= 0) {
-    throw new Error("GATEWAY_RUNTIME_INITIAL_BACKOFF_MS must be a positive number");
+  const runtimeInitialBackoffMs = Number(
+    process.env.GATEWAY_RUNTIME_INITIAL_BACKOFF_MS || "500",
+  );
+  if (
+    !Number.isFinite(runtimeInitialBackoffMs) ||
+    runtimeInitialBackoffMs <= 0
+  ) {
+    throw new Error(
+      "GATEWAY_RUNTIME_INITIAL_BACKOFF_MS must be a positive number",
+    );
   }
 
-  const telegramDeliverAuthBypassRaw = process.env.GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS;
+  const telegramDeliverAuthBypassRaw =
+    process.env.GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS;
   if (
     telegramDeliverAuthBypassRaw !== undefined &&
     telegramDeliverAuthBypassRaw !== "true" &&
@@ -211,55 +245,94 @@ export function loadConfig(): GatewayConfig {
   }
   let telegramDeliverAuthBypass = telegramDeliverAuthBypassRaw === "true";
 
-  const telegramTimeoutMs = Number(process.env.GATEWAY_TELEGRAM_TIMEOUT_MS || "15000");
+  const telegramTimeoutMs = Number(
+    process.env.GATEWAY_TELEGRAM_TIMEOUT_MS || "15000",
+  );
   if (!Number.isFinite(telegramTimeoutMs) || telegramTimeoutMs <= 0) {
     throw new Error("GATEWAY_TELEGRAM_TIMEOUT_MS must be a positive number");
   }
 
-  const telegramMaxRetries = Number(process.env.GATEWAY_TELEGRAM_MAX_RETRIES || "3");
+  const telegramMaxRetries = Number(
+    process.env.GATEWAY_TELEGRAM_MAX_RETRIES || "3",
+  );
   if (!Number.isInteger(telegramMaxRetries) || telegramMaxRetries < 0) {
-    throw new Error("GATEWAY_TELEGRAM_MAX_RETRIES must be a non-negative integer");
+    throw new Error(
+      "GATEWAY_TELEGRAM_MAX_RETRIES must be a non-negative integer",
+    );
   }
 
-  const telegramInitialBackoffMs = Number(process.env.GATEWAY_TELEGRAM_INITIAL_BACKOFF_MS || "1000");
-  if (!Number.isFinite(telegramInitialBackoffMs) || telegramInitialBackoffMs <= 0) {
-    throw new Error("GATEWAY_TELEGRAM_INITIAL_BACKOFF_MS must be a positive number");
+  const telegramInitialBackoffMs = Number(
+    process.env.GATEWAY_TELEGRAM_INITIAL_BACKOFF_MS || "1000",
+  );
+  if (
+    !Number.isFinite(telegramInitialBackoffMs) ||
+    telegramInitialBackoffMs <= 0
+  ) {
+    throw new Error(
+      "GATEWAY_TELEGRAM_INITIAL_BACKOFF_MS must be a positive number",
+    );
   }
 
-  const maxWebhookPayloadBytes = Number(process.env.GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES || String(1024 * 1024));
+  const maxWebhookPayloadBytes = Number(
+    process.env.GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES || String(1024 * 1024),
+  );
   if (!Number.isFinite(maxWebhookPayloadBytes) || maxWebhookPayloadBytes <= 0) {
-    throw new Error("GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES must be a positive number");
+    throw new Error(
+      "GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES must be a positive number",
+    );
   }
 
-  const maxAttachmentBytes = Number(process.env.GATEWAY_MAX_ATTACHMENT_BYTES || String(20 * 1024 * 1024));
+  const maxAttachmentBytes = Number(
+    process.env.GATEWAY_MAX_ATTACHMENT_BYTES || String(20 * 1024 * 1024),
+  );
   if (!Number.isFinite(maxAttachmentBytes) || maxAttachmentBytes <= 0) {
     throw new Error("GATEWAY_MAX_ATTACHMENT_BYTES must be a positive number");
   }
 
-  const maxAttachmentConcurrency = Number(process.env.GATEWAY_MAX_ATTACHMENT_CONCURRENCY || "3");
-  if (!Number.isInteger(maxAttachmentConcurrency) || maxAttachmentConcurrency < 1) {
-    throw new Error("GATEWAY_MAX_ATTACHMENT_CONCURRENCY must be a positive integer");
+  const maxAttachmentConcurrency = Number(
+    process.env.GATEWAY_MAX_ATTACHMENT_CONCURRENCY || "3",
+  );
+  if (
+    !Number.isInteger(maxAttachmentConcurrency) ||
+    maxAttachmentConcurrency < 1
+  ) {
+    throw new Error(
+      "GATEWAY_MAX_ATTACHMENT_CONCURRENCY must be a positive integer",
+    );
   }
 
   // Twilio credentials: env var > credential store (keychain / encrypted file)
   const twilioCreds = readTwilioCredentials();
-  const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || twilioCreds?.authToken || undefined;
-  const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID || twilioCreds?.accountSid || undefined;
+  const twilioAuthToken =
+    process.env.TWILIO_AUTH_TOKEN || twilioCreds?.authToken || undefined;
+  const twilioAccountSid =
+    process.env.TWILIO_ACCOUNT_SID || twilioCreds?.accountSid || undefined;
 
   // Phone number: env var > config file sms.phoneNumber > credential store
-  let twilioPhoneNumber: string | undefined = process.env.TWILIO_PHONE_NUMBER || undefined;
+  let twilioPhoneNumber: string | undefined =
+    process.env.TWILIO_PHONE_NUMBER || undefined;
   let assistantPhoneNumbers: Record<string, string> | undefined;
   try {
     const cfgPath = join(getRootDir(), "workspace", "config.json");
     const raw = readFileSync(cfgPath, "utf-8");
     const data = JSON.parse(raw);
-    if (!twilioPhoneNumber && data?.sms?.phoneNumber && typeof data.sms.phoneNumber === "string") {
+    if (
+      !twilioPhoneNumber &&
+      data?.sms?.phoneNumber &&
+      typeof data.sms.phoneNumber === "string"
+    ) {
       twilioPhoneNumber = data.sms.phoneNumber;
     }
     const rawMapping = data?.sms?.assistantPhoneNumbers;
-    if (rawMapping && typeof rawMapping === "object" && !Array.isArray(rawMapping)) {
+    if (
+      rawMapping &&
+      typeof rawMapping === "object" &&
+      !Array.isArray(rawMapping)
+    ) {
       const normalized: Record<string, string> = {};
-      for (const [assistantId, phoneNumber] of Object.entries(rawMapping as Record<string, unknown>)) {
+      for (const [assistantId, phoneNumber] of Object.entries(
+        rawMapping as Record<string, unknown>,
+      )) {
         if (typeof phoneNumber === "string" && phoneNumber.trim().length > 0) {
           normalized[assistantId] = phoneNumber;
         }
@@ -271,23 +344,30 @@ export function loadConfig(): GatewayConfig {
   }
   if (!twilioPhoneNumber) {
     twilioPhoneNumber =
-      readKeychainCredential("credential:twilio:phone_number")
-      || readCredential("credential:twilio:phone_number")
-      || undefined;
+      readKeychainCredential("credential:twilio:phone_number") ||
+      readCredential("credential:twilio:phone_number") ||
+      undefined;
   }
 
   // WhatsApp credentials: env var > credential store (keychain / encrypted file)
   const whatsappCreds = readWhatsAppCredentials();
   const whatsappPhoneNumberId =
-    process.env.WHATSAPP_PHONE_NUMBER_ID || whatsappCreds?.phoneNumberId || undefined;
+    process.env.WHATSAPP_PHONE_NUMBER_ID ||
+    whatsappCreds?.phoneNumberId ||
+    undefined;
   const whatsappAccessToken =
-    process.env.WHATSAPP_ACCESS_TOKEN || whatsappCreds?.accessToken || undefined;
+    process.env.WHATSAPP_ACCESS_TOKEN ||
+    whatsappCreds?.accessToken ||
+    undefined;
   const whatsappAppSecret =
     process.env.WHATSAPP_APP_SECRET || whatsappCreds?.appSecret || undefined;
   const whatsappWebhookVerifyToken =
-    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || whatsappCreds?.webhookVerifyToken || undefined;
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ||
+    whatsappCreds?.webhookVerifyToken ||
+    undefined;
 
-  const whatsappDeliverAuthBypassRaw = process.env.GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS;
+  const whatsappDeliverAuthBypassRaw =
+    process.env.GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS;
   if (
     whatsappDeliverAuthBypassRaw !== undefined &&
     whatsappDeliverAuthBypassRaw !== "true" &&
@@ -299,29 +379,47 @@ export function loadConfig(): GatewayConfig {
   }
   let whatsappDeliverAuthBypass = whatsappDeliverAuthBypassRaw === "true";
 
-  const whatsappTimeoutMs = Number(process.env.GATEWAY_WHATSAPP_TIMEOUT_MS || "15000");
+  const whatsappTimeoutMs = Number(
+    process.env.GATEWAY_WHATSAPP_TIMEOUT_MS || "15000",
+  );
   if (!Number.isFinite(whatsappTimeoutMs) || whatsappTimeoutMs <= 0) {
     throw new Error("GATEWAY_WHATSAPP_TIMEOUT_MS must be a positive number");
   }
 
-  const whatsappMaxRetries = Number(process.env.GATEWAY_WHATSAPP_MAX_RETRIES || "3");
+  const whatsappMaxRetries = Number(
+    process.env.GATEWAY_WHATSAPP_MAX_RETRIES || "3",
+  );
   if (!Number.isInteger(whatsappMaxRetries) || whatsappMaxRetries < 0) {
-    throw new Error("GATEWAY_WHATSAPP_MAX_RETRIES must be a non-negative integer");
+    throw new Error(
+      "GATEWAY_WHATSAPP_MAX_RETRIES must be a non-negative integer",
+    );
   }
 
-  const whatsappInitialBackoffMs = Number(process.env.GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS || "1000");
-  if (!Number.isFinite(whatsappInitialBackoffMs) || whatsappInitialBackoffMs <= 0) {
-    throw new Error("GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS must be a positive number");
+  const whatsappInitialBackoffMs = Number(
+    process.env.GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS || "1000",
+  );
+  if (
+    !Number.isFinite(whatsappInitialBackoffMs) ||
+    whatsappInitialBackoffMs <= 0
+  ) {
+    throw new Error(
+      "GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS must be a positive number",
+    );
   }
 
   // Slack channel credentials: env var > credential store (keychain / encrypted file)
   const slackChannelCreds = readSlackChannelCredentials();
   const slackChannelBotToken =
-    process.env.SLACK_CHANNEL_BOT_TOKEN || slackChannelCreds?.botToken || undefined;
+    process.env.SLACK_CHANNEL_BOT_TOKEN ||
+    slackChannelCreds?.botToken ||
+    undefined;
   const slackChannelAppToken =
-    process.env.SLACK_CHANNEL_APP_TOKEN || slackChannelCreds?.appToken || undefined;
+    process.env.SLACK_CHANNEL_APP_TOKEN ||
+    slackChannelCreds?.appToken ||
+    undefined;
 
-  const slackDeliverAuthBypassRaw = process.env.GATEWAY_SLACK_DELIVER_AUTH_BYPASS;
+  const slackDeliverAuthBypassRaw =
+    process.env.GATEWAY_SLACK_DELIVER_AUTH_BYPASS;
   if (
     slackDeliverAuthBypassRaw !== undefined &&
     slackDeliverAuthBypassRaw !== "true" &&
@@ -352,25 +450,41 @@ export function loadConfig(): GatewayConfig {
   const isDevMode = appVersion === "0.0.0-dev";
   if (!isDevMode) {
     if (telegramDeliverAuthBypass) {
-      log.warn("GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)", appVersion);
+      log.warn(
+        "GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)",
+        appVersion,
+      );
       telegramDeliverAuthBypass = false;
     }
     if (smsDeliverAuthBypass) {
-      log.warn("GATEWAY_SMS_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)", appVersion);
+      log.warn(
+        "GATEWAY_SMS_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)",
+        appVersion,
+      );
       smsDeliverAuthBypass = false;
     }
     if (whatsappDeliverAuthBypass) {
-      log.warn("GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)", appVersion);
+      log.warn(
+        "GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)",
+        appVersion,
+      );
       whatsappDeliverAuthBypass = false;
     }
     if (slackDeliverAuthBypass) {
-      log.warn("GATEWAY_SLACK_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)", appVersion);
+      log.warn(
+        "GATEWAY_SLACK_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)",
+        appVersion,
+      );
       slackDeliverAuthBypass = false;
     }
   }
 
   const trustProxyRaw = process.env.GATEWAY_TRUST_PROXY;
-  if (trustProxyRaw !== undefined && trustProxyRaw !== "true" && trustProxyRaw !== "false") {
+  if (
+    trustProxyRaw !== undefined &&
+    trustProxyRaw !== "true" &&
+    trustProxyRaw !== "false"
+  ) {
     throw new Error(
       `GATEWAY_TRUST_PROXY must be "true" or "false", got "${trustProxyRaw}"`,
     );
@@ -394,7 +508,9 @@ export function loadConfig(): GatewayConfig {
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
-  const logFileRetentionDays = Number(process.env.GATEWAY_LOG_RETENTION_DAYS || "30");
+  const logFileRetentionDays = Number(
+    process.env.GATEWAY_LOG_RETENTION_DAYS || "30",
+  );
   if (!Number.isInteger(logFileRetentionDays) || logFileRetentionDays < 1) {
     throw new Error("GATEWAY_LOG_RETENTION_DAYS must be a positive integer");
   }
@@ -419,7 +535,9 @@ export function loadConfig(): GatewayConfig {
       hasTwilioAuthToken: !!twilioAuthToken,
       hasTwilioAccountSid: !!twilioAccountSid,
       hasTwilioPhoneNumber: !!twilioPhoneNumber,
-      assistantPhoneNumberCount: assistantPhoneNumbers ? Object.keys(assistantPhoneNumbers).length : 0,
+      assistantPhoneNumberCount: assistantPhoneNumbers
+        ? Object.keys(assistantPhoneNumbers).length
+        : 0,
       smsDeliverAuthBypass,
       ingressPublicBaseUrl,
       hasWhatsAppPhoneNumberId: !!whatsappPhoneNumberId,

@@ -1,14 +1,14 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
-import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
-import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import { registerTool } from "../registry.js";
+import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
+import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class FileReadTool implements Tool {
-  name = 'file_read';
-  description = 'Read the contents of a file';
-  category = 'filesystem';
+  name = "file_read";
+  description = "Read the contents of a file";
+  category = "filesystem";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
@@ -16,53 +16,67 @@ class FileReadTool implements Tool {
       name: this.name,
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           path: {
-            type: 'string',
-            description: 'The path to the file to read (absolute or relative to working directory)',
+            type: "string",
+            description:
+              "The path to the file to read (absolute or relative to working directory)",
           },
           offset: {
-            type: 'number',
-            description: 'Line number to start reading from (1-indexed)',
+            type: "number",
+            description: "Line number to start reading from (1-indexed)",
           },
           limit: {
-            type: 'number',
-            description: 'Maximum number of lines to read',
+            type: "number",
+            description: "Maximum number of lines to read",
           },
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of what you are reading and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of what you are reading and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
-        required: ['path'],
+        required: ["path"],
       },
     };
   }
 
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
-    if (!rawPath || typeof rawPath !== 'string') {
-      return { content: 'Error: path is required and must be a string', isError: true };
+    if (!rawPath || typeof rawPath !== "string") {
+      return {
+        content: "Error: path is required and must be a string",
+        isError: true,
+      };
     }
 
-    const ops = new FileSystemOps(
-      (path, opts) => sandboxPolicy(path, context.workingDir, opts),
+    const ops = new FileSystemOps((path, opts) =>
+      sandboxPolicy(path, context.workingDir, opts),
     );
 
     const result = ops.readFileSafe({
       path: rawPath,
-      offset: typeof input.offset === 'number' ? input.offset : undefined,
-      limit: typeof input.limit === 'number' ? input.limit : undefined,
+      offset: typeof input.offset === "number" ? input.offset : undefined,
+      limit: typeof input.limit === "number" ? input.limit : undefined,
     });
 
     if (!result.ok) {
       const { error } = result;
       switch (error.code) {
-        case 'NOT_A_FILE':
-          return { content: `Error: ${error.path} is a directory, not a file`, isError: true };
-        case 'IO_ERROR':
-          return { content: `Error reading file "${rawPath}": ${error.message}`, isError: true };
+        case "NOT_A_FILE":
+          return {
+            content: `Error: ${error.path} is a directory, not a file`,
+            isError: true,
+          };
+        case "IO_ERROR":
+          return {
+            content: `Error reading file "${rawPath}": ${error.message}`,
+            isError: true,
+          };
         default:
           return { content: `Error: ${error.message}`, isError: true };
       }

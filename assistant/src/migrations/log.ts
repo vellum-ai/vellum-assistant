@@ -1,6 +1,6 @@
-import pino from 'pino';
+import pino from "pino";
 
-import { logSerializers } from '../util/log-redact.js';
+import { logSerializers } from "../util/log-redact.js";
 
 /**
  * Standalone pino instance for migration code. This must NOT use getLogger()
@@ -10,12 +10,16 @@ import { logSerializers } from '../util/log-redact.js';
  * Writes to stderr only — no log files that might not exist yet.
  */
 const migrationLogger: pino.Logger = pino(
-  { name: 'migration', level: 'info', serializers: logSerializers },
+  { name: "migration", level: "info", serializers: logSerializers },
   pino.destination(2),
 );
 
-export function migrationLog(level: 'info' | 'warn' | 'debug', msg: string, data?: Record<string, unknown>): void {
-  if (level === 'debug') return;
+export function migrationLog(
+  level: "info" | "warn" | "debug",
+  msg: string,
+  data?: Record<string, unknown>,
+): void {
+  if (level === "debug") return;
   if (data) {
     migrationLogger[level](data, msg);
   } else {

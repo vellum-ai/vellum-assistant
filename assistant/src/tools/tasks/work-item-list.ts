@@ -1,16 +1,24 @@
-import { listWorkItems, type WorkItem, type WorkItemStatus } from '../../work-items/work-item-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import {
+  listWorkItems,
+  type WorkItem,
+  type WorkItemStatus,
+} from "../../work-items/work-item-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const PRIORITY_LABELS: Record<number, string> = { 0: 'High', 1: 'Medium', 2: 'Low' };
+const PRIORITY_LABELS: Record<number, string> = {
+  0: "High",
+  1: "Medium",
+  2: "Low",
+};
 
 function formatTaskList(items: WorkItem[]): string {
   const lines: string[] = [];
   for (const item of items) {
-    const priority = PRIORITY_LABELS[item.priorityTier] ?? 'Medium';
-    const status = item.status.replace(/_/g, ' ');
+    const priority = PRIORITY_LABELS[item.priorityTier] ?? "Medium";
+    const status = item.status.replace(/_/g, " ");
     lines.push(`- [${priority}] ${item.title} (${status})`);
   }
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 export async function executeTaskListShow(
@@ -21,7 +29,7 @@ export async function executeTaskListShow(
     const statusFilter = input.status as string | string[] | undefined;
 
     let items;
-    if (typeof statusFilter === 'string') {
+    if (typeof statusFilter === "string") {
       items = listWorkItems({ status: statusFilter as WorkItemStatus });
     } else if (Array.isArray(statusFilter)) {
       // listWorkItems only supports a single status filter, so we fetch all
@@ -37,13 +45,15 @@ export async function executeTaskListShow(
     const filtered = statusFilter !== undefined;
 
     if (count === 0) {
-      const suffix = filtered ? 'No items matching that filter.' : 'No tasks queued.';
+      const suffix = filtered
+        ? "No items matching that filter."
+        : "No tasks queued.";
       return { content: suffix, isError: false };
     }
 
     const label = filtered
-      ? `${count} ${Array.isArray(statusFilter) ? 'matching' : statusFilter} item${count === 1 ? '' : 's'}`
-      : `${count} item${count === 1 ? '' : 's'}`;
+      ? `${count} ${Array.isArray(statusFilter) ? "matching" : statusFilter} item${count === 1 ? "" : "s"}`
+      : `${count} item${count === 1 ? "" : "s"}`;
 
     const taskList = formatTaskList(items);
 
