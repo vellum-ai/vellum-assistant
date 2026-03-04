@@ -90,6 +90,31 @@ describe("normalizeSlackBlockActions", () => {
     expect(result!.threadTs).toBe("1234567890.123456");
   });
 
+  it("uses thread root timestamp when message is a threaded reply", () => {
+    const config = makeConfig();
+    const payload = makeBlockActionsPayload();
+    // Simulate a button click on a message that lives inside a thread
+    payload.message = {
+      ts: "1234567890.999999",
+      thread_ts: "1234567890.000001",
+      text: "Choose an option",
+    };
+    const result = normalizeSlackBlockActions(payload, "env-thread", config);
+
+    expect(result).not.toBeNull();
+    // threadTs should be the thread root, not the clicked message's ts
+    expect(result!.threadTs).toBe("1234567890.000001");
+  });
+
+  it("falls back to message ts when no thread_ts is present", () => {
+    const config = makeConfig();
+    const payload = makeBlockActionsPayload();
+    const result = normalizeSlackBlockActions(payload, "env-no-thread", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1234567890.123456");
+  });
+
   it("generates unique externalMessageId per click via action_ts", () => {
     const config = makeConfig();
     const payload1 = makeBlockActionsPayload();

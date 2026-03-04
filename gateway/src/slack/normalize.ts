@@ -431,7 +431,7 @@ export interface SlackBlockActionsPayload {
   trigger_id: string;
   user: { id: string; username?: string; name?: string };
   channel?: { id: string; name?: string };
-  message?: { ts: string; text?: string };
+  message?: { ts: string; thread_ts?: string; text?: string };
   actions: Array<{
     action_id: string;
     value?: string;
@@ -515,7 +515,9 @@ export function normalizeSlackBlockActions(
       raw: payload as unknown as Record<string, unknown>,
     },
     routing,
-    threadTs: messageTs ?? envelopeId,
+    // Prefer the thread root so follow-up messages land in the original
+    // conversation thread, not a reply's sub-thread.
+    threadTs: payload.message?.thread_ts ?? messageTs ?? envelopeId,
     channel: channelId,
   };
 }
