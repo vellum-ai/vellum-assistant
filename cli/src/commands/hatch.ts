@@ -712,7 +712,7 @@ async function hatchLocal(
   // Reuse existing resources if re-hatching with --name that matches a known
   // local assistant, otherwise allocate fresh per-instance ports and directories.
   let resources: LocalInstanceResources;
-  const existingEntry = name ? findAssistantByName(name) : null;
+  const existingEntry = findAssistantByName(instanceName);
   if (existingEntry?.cloud === "local" && existingEntry.resources) {
     resources = existingEntry.resources;
   } else {
