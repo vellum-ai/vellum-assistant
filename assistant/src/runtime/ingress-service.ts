@@ -6,6 +6,8 @@
  */
 
 import { isChannelId } from '../channels/types.js';
+import { listContacts } from '../contacts/contact-store.js';
+import type { ContactWithChannels } from '../contacts/types.js';
 import {
   createInvite,
   type IngressInvite,
@@ -16,7 +18,6 @@ import {
 } from '../memory/ingress-invite-store.js';
 import {
   type IngressMember,
-  listMembers,
   type MemberPolicy,
   type MemberStatus,
 } from '../memory/ingress-member-store.js';
@@ -129,6 +130,21 @@ export function memberToResponse(m: IngressMember): MemberResponseData {
     lastSeenAt: m.lastSeenAt ?? undefined,
     createdAt: m.createdAt,
   };
+}
+
+function contactToMemberResponse(contact: ContactWithChannels): MemberResponseData[] {
+  return contact.channels.map((ch) => ({
+    id: `${contact.id}:${ch.id}`,
+    sourceChannel: ch.type,
+    externalUserId: ch.externalUserId ?? undefined,
+    externalChatId: ch.externalChatId ?? undefined,
+    displayName: contact.displayName,
+    username: undefined,
+    status: ch.status,
+    policy: ch.policy,
+    lastSeenAt: ch.lastSeenAt ?? undefined,
+    createdAt: ch.createdAt,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -284,16 +300,17 @@ export function listIngressMembers(params: {
   status?: string;
   policy?: string;
 }): IngressResult<MemberResponseData[]> {
-  const members = listMembers({
-    assistantId: params.assistantId,
-    sourceChannel: params.sourceChannel,
-    status: params.status as MemberStatus | undefined,
-    policy: params.policy as MemberPolicy | undefined,
+  const allContacts = listContacts(200, 'contact');
+  const members = allContacts.flatMap(contactToMemberResponse);
+
+  const filtered = members.filter((m) => {
+    if (params.sourceChannel && m.sourceChannel !== params.sourceChannel) return false;
+    if (params.status && m.status !== params.status) return false;
+    if (params.policy && m.policy !== params.policy) return false;
+    return true;
   });
-  return {
-    ok: true,
-    data: members.map(memberToResponse),
-  };
+
+  return { ok: true, data: filtered };
 }
 
 export function upsertIngressMember(params: {
