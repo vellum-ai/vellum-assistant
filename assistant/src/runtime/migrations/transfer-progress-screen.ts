@@ -289,6 +289,7 @@ export async function retryTransferFlow(
   const reset = resetStepForRetry(state);
   const cleaned = {
     ...reset,
+    exportResult: undefined,
     importResult: undefined,
   };
   options.onStateChange?.(cleaned);
