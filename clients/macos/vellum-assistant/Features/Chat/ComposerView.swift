@@ -232,36 +232,44 @@ struct ComposerView: View {
         max(clampedComposerHeight, composerActionButtonSize)
     }
 
+    /// The text overlays (slash highlighting, ghost text) rendered behind / on
+    /// top of the TextField inside the ZStack. Extracted to its own builder so
+    /// the compiler can type-check the ZStack body in reasonable time.
+    @ViewBuilder
+    private func composerTextOverlays(font: Font, hasSlashHighlight: Bool) -> some View {
+        // Slash command highlighting overlay — renders the full input
+        // with the /command prefix in the accent color. The TextField
+        // below is made transparent so this overlay provides the
+        // visible text coloring.
+        if hasSlashHighlight {
+            Text(slashHighlightedText(font: font))
+                .lineLimit(1...6)
+                .fixedSize(horizontal: false, vertical: true)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+
+        // Ghost text overlay (invisible matching input + visible suffix)
+        if let ghostSuffix {
+            (Text(inputText)
+                .font(font)
+                .foregroundColor(.clear)
+            + Text(ghostSuffix)
+                .font(font)
+                .foregroundColor(VColor.textSecondary.opacity(0.55)))
+                .lineLimit(1...6)
+                .fixedSize(horizontal: false, vertical: true)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
     private var composerTextField: some View {
         let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
         let hasSlashHighlight = slashCommandRange != nil
 
         return ZStack(alignment: .leading) {
-            // Slash command highlighting overlay — renders the full input
-            // with the /command prefix in the accent color. The TextField
-            // below is made transparent so this overlay provides the
-            // visible text coloring.
-            if hasSlashHighlight {
-                Text(slashHighlightedText(font: scaledBody))
-                    .lineLimit(1...6)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-
-            // Ghost text overlay (invisible matching input + visible suffix)
-            if let ghostSuffix {
-                (Text(inputText)
-                    .font(scaledBody)
-                    .foregroundColor(.clear)
-                + Text(ghostSuffix)
-                    .font(scaledBody)
-                    .foregroundColor(VColor.textSecondary.opacity(0.55)))
-                    .lineLimit(1...6)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
+            composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
 
             TextField(
                 ghostSuffix == nil ? placeholderText : "",
@@ -868,8 +876,9 @@ private struct ComposerFocusBridge: NSViewRepresentable {
         guard let window = nsView.window as? TitleBarZoomableWindow else { return }
 
         // Register a typing-redirect handler so keystrokes auto-focus the composer.
-        window.composerRedirectHandler = { [weak context] chars in
-            context?.coordinator.parent.onRedirectKeystroke(chars)
+        let coordinator = context.coordinator
+        window.composerRedirectHandler = { chars in
+            coordinator.parent.onRedirectKeystroke(chars)
         }
 
         // Walk up from the bridge view to find the composer container —
