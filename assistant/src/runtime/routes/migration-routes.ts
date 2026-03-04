@@ -11,8 +11,10 @@
  * results with is_valid flag and detailed error descriptions.
  */
 
+import { Database } from "bun:sqlite";
+
 import { invalidateConfigCache } from "../../config/loader.js";
-import { getSqlite, resetDb } from "../../memory/db-connection.js";
+import { resetDb } from "../../memory/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { getDbPath, getWorkspaceConfigPath } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
@@ -136,7 +138,22 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       configPath: getWorkspaceConfigPath(),
       source: "runtime-export",
       description,
-      checkpoint: () => getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)"),
+      checkpoint: () => {
+        try {
+          const dbPath = getDbPath();
+          const db = new Database(dbPath, { readonly: true });
+          try {
+            db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+          } finally {
+            db.close();
+          }
+        } catch (err) {
+          log.warn(
+            { err },
+            "WAL checkpoint failed — exporting without checkpoint",
+          );
+        }
+      },
     });
 
     const timestamp = manifest.created_at.replace(/[:.]/g, "-");
