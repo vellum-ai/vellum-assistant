@@ -306,10 +306,12 @@ struct ComposerView: View {
             // Auto-focus the composer on app reactivation so the user can
             // start typing immediately after cmd+tab or Dock click.
             guard !hasPendingConfirmation else { return }
-            // Preserve focus if another text field is already active
-            // (e.g. settings or document editor in split-panel mode).
-            if let window = NSApp.keyWindow,
-               window.firstResponder is NSTextView {
+            // Preserve focus if another input (NSTextView, WKWebView, etc.)
+            // already owns first-responder status in split-panel mode.
+            if let window = NSApp.keyWindow as? TitleBarZoomableWindow,
+               let responder = window.firstResponder as? NSView,
+               responder != window.contentView,
+               window.composerContainerView.map({ !responder.isDescendant(of: $0) }) ?? false {
                 return
             }
             composerFocus = true
