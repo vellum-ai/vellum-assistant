@@ -139,6 +139,7 @@ import {
   handleListContacts,
   handleMergeContacts,
   handleUpdateContactChannel,
+  handleUpsertContact,
 } from "./routes/contact-routes.js";
 import { handleListConversationAttention } from "./routes/conversation-attention-routes.js";
 // Route handlers — grouped by domain
@@ -1111,6 +1112,12 @@ export class RuntimeHttpServer {
         method: "GET",
         handler: ({ url, authContext }) =>
           handleListContacts(url, authContext.assistantId),
+      },
+      {
+        endpoint: "contacts",
+        method: "POST",
+        handler: async ({ req, authContext }) =>
+          handleUpsertContact(req, authContext.assistantId),
       },
       {
         endpoint: "contacts/merge",
