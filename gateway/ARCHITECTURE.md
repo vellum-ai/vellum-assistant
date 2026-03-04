@@ -507,7 +507,7 @@ The ingress membership system extends the guardian security model to support con
 
 The channel inbound handler (`inbound-message-handler.ts`) enforces an access control layer between message receipt and agent processing. The ACL runs at the top of the handler, before guardian role resolution or verification-code interception (see [Inbound Message Decision Chain](#inbound-message-decision-chain) for the full ordering):
 
-1. When `actorExternalId` is present, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)` (DB column names).
+1. When `actorExternalId` is present, the handler looks up the sender in the `contacts` table via `findContactChannel` by `(channelType, externalUserId)` or `(channelType, externalChatId)`.
 2. If no member record exists, the message is denied (`not_a_member`).
 3. If a member exists but is not `active` (e.g., `revoked`, `blocked`), the message is denied.
 4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing. If `escalate`, the message is held for guardian approval.
@@ -557,17 +557,19 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 #### SQLite Tables
 
-| Table                       | Purpose                                                            |
-| --------------------------- | ------------------------------------------------------------------ |
-| `assistant_ingress_invites` | Invite tokens with SHA-256 hashes, expiry, use counts              |
-| `assistant_ingress_members` | Member records with per-member access policy (allow/deny/escalate) |
+| Table                       | Purpose                                                               |
+| --------------------------- | --------------------------------------------------------------------- |
+| `assistant_ingress_invites` | Invite tokens with SHA-256 hashes, expiry, use counts                 |
+| `contacts`                  | Contact records with role, relationship, and per-contact metadata     |
+| `contact_channels`          | Channel bindings per contact with access policy (allow/deny/escalate) |
 
 #### Key Modules
 
 | Module                                           | Purpose                                                                   |
 | ------------------------------------------------ | ------------------------------------------------------------------------- |
 | `assistant/src/memory/ingress-invite-store.ts`   | CRUD for invite tokens with SHA-256 hashing and expiry                    |
-| `assistant/src/memory/ingress-member-store.ts`   | CRUD for ingress members with policy enforcement                          |
+| `assistant/src/contacts/contact-store.ts`        | Contact and channel lookups (findContactChannel, guardian bindings)       |
+| `assistant/src/contacts/contacts-write.ts`       | Contact and channel writes (upsert, policy changes, invite redemption)    |
 | `assistant/src/daemon/handlers/config-inbox.ts`  | IPC handlers for ingress invite and member contracts                      |
 | `assistant/src/runtime/routes/channel-routes.ts` | ACL enforcement point -- member lookup, policy check, escalation creation |
 
