@@ -342,11 +342,7 @@ struct ComposerView: View {
                 cmdEnterToSend: cmdEnterToSend,
                 onImagePaste: onPaste,
                 onCmdEnterSend: {
-                    inputText = inputText.replacingOccurrences(
-                        of: "\\n$", with: "", options: .regularExpression
-                    )
-                    if ghostSuffix != nil { onAcceptSuggestion() }
-                    if canSend { onSend() }
+                    performSendAction()
                 },
                 onRedirectKeystroke: { chars in
                     inputText += chars
@@ -378,19 +374,42 @@ struct ComposerView: View {
             }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            var urls: [URL] = []
             let group = DispatchGroup()
+            // Collect URLs on the main queue to avoid concurrent Array mutation
+            // from loadObject callbacks that may fire on different threads.
+            var urls: [URL] = []
             for provider in providers {
                 group.enter()
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    if let url { urls.append(url) }
-                    group.leave()
+                    DispatchQueue.main.async {
+                        if let url { urls.append(url) }
+                        group.leave()
+                    }
                 }
             }
             group.notify(queue: .main) {
                 if !urls.isEmpty { onFileDrop(urls) }
             }
             return true
+        }
+    }
+
+    /// Shared send logic used by both the SwiftUI `.onKeyPress` return handler
+    /// and the AppKit `ComposerFocusBridge` Cmd+Enter interception. Keeps the
+    /// two paths in sync so slash-menu selection, ghost-text acceptance, and
+    /// pending-confirmation approval all work regardless of how "send" is triggered.
+    private func performSendAction() {
+        inputText = inputText.replacingOccurrences(
+            of: "\\n$", with: "", options: .regularExpression
+        )
+        if ghostSuffix != nil { onAcceptSuggestion() }
+        if showSlashMenu {
+            handleSlashNavigation(.select)
+        } else if canSend {
+            onSend()
+        } else if hasPendingConfirmation
+                    && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            onAllowPendingConfirmation?()
         }
     }
 
@@ -404,37 +423,14 @@ struct ComposerView: View {
             // Cmd+Enter as a key equivalent is handled by ComposerFocusBridge's
             // event monitor; if it also reaches here, handle it.
             if modifiers.contains(.command) {
-                inputText = inputText.replacingOccurrences(
-                    of: "\\n$", with: "", options: .regularExpression
-                )
-                if ghostSuffix != nil { onAcceptSuggestion() }
-                if showSlashMenu {
-                    handleSlashNavigation(.select)
-                } else if canSend {
-                    onSend()
-                }
+                performSendAction()
                 return .handled
             }
             return .ignored // plain Enter inserts newline
         }
 
         // Default mode: Enter sends
-        if ghostSuffix != nil {
-            onAcceptSuggestion()
-        }
-        if showSlashMenu {
-            handleSlashNavigation(.select)
-            return .handled
-        }
-        inputText = inputText.replacingOccurrences(
-            of: "\\n$", with: "", options: .regularExpression
-        )
-        if canSend {
-            onSend()
-        } else if hasPendingConfirmation
-                    && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            onAllowPendingConfirmation?()
-        }
+        performSendAction()
         return .handled
     }
 
