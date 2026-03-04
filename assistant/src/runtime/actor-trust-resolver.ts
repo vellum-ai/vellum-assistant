@@ -129,7 +129,7 @@ function contactChannelToMemberRecord(
     externalChatId: channel.externalChatId,
     displayName: contact.displayName,
     username: null,
-    status: channel.status === 'active' ? 'active' : channel.status === 'pending' ? 'pending' : channel.status === 'revoked' ? 'revoked' : channel.status === 'blocked' ? 'blocked' : 'active',
+    status: channel.status === 'active' ? 'active' : channel.status === 'pending' ? 'pending' : channel.status === 'unverified' ? 'pending' : channel.status === 'revoked' ? 'revoked' : channel.status === 'blocked' ? 'blocked' : 'active',
     policy: channel.policy,
     inviteId: channel.inviteId,
     createdBySessionId: null,
