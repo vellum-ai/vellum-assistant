@@ -160,12 +160,6 @@ import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { handleGetIdentity, handleHealth } from "./routes/identity-routes.js";
 import {
-  handleCreateInvite,
-  handleListInvites,
-  handleRedeemInvite,
-  handleRevokeInvite,
-} from "./routes/invite-routes.js";
-import {
   handleCancelOutbound,
   handleClearSlackChannelConfig,
   handleClearTelegramConfig,
@@ -181,6 +175,12 @@ import {
   handleSetupTelegram,
   handleStartOutbound,
 } from "./routes/integration-routes.js";
+import {
+  handleCreateInvite,
+  handleListInvites,
+  handleRedeemInvite,
+  handleRevokeInvite,
+} from "./routes/invite-routes.js";
 import {
   handleMigrationExport,
   handleMigrationImport,
