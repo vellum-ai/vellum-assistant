@@ -15,7 +15,7 @@ export async function wake(): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum wake");
     console.log("");
-    console.log("Start the daemon and gateway processes.");
+    console.log("Start the assistant and gateway processes.");
     process.exit(0);
   }
 
@@ -40,7 +40,7 @@ export async function wake(): Promise<void> {
       try {
         process.kill(pid, 0);
         daemonRunning = true;
-        console.log(`Daemon already running (pid ${pid}).`);
+        console.log(`Assistant already running (pid ${pid}).`);
       } catch {
         // Process not alive, will start below
       }

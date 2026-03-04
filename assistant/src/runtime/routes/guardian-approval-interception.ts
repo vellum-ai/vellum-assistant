@@ -36,6 +36,7 @@ import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian
 import {
   buildGuardianDenyContext,
   parseCallbackData,
+  parseReactionCallbackData,
 } from "./channel-route-shared.js";
 import { deliverStaleApprovalReply } from "./guardian-approval-reply-helpers.js";
 
@@ -113,6 +114,33 @@ export async function handleApprovalInterception(
     if (guardianResult) {
       return guardianResult;
     }
+  }
+
+  // ── Slack reaction path ──
+  // Reactions produce `callbackData` of the form `reaction:<emoji_name>`.
+  // Handled before the pendingPrompt guard because guardian reactions arrive
+  // on the guardian's chat (guardianChatId), not the requester's conversation,
+  // so getChannelApprovalPrompt(conversationId) would return null.
+  // Only guardians can approve via reaction — non-guardian reactions are
+  // silently ignored to prevent self-approval.
+  if (callbackData?.startsWith("reaction:")) {
+    if (trustCtx.trustClass !== "guardian") {
+      return { handled: true, type: "stale_ignored" };
+    }
+    const reactionDecision = parseReactionCallbackData(callbackData);
+    if (!reactionDecision) {
+      // Unknown emoji — ignore silently
+      return { handled: true, type: "stale_ignored" };
+    }
+    const pending = getApprovalInfoByConversation(conversationId);
+    if (pending.length === 0) {
+      return { handled: true, type: "stale_ignored" };
+    }
+    const result = handleChannelDecision(conversationId, reactionDecision);
+    if (result.applied) {
+      return { handled: true, type: "decision_applied" };
+    }
+    return { handled: true, type: "stale_ignored" };
   }
 
   // ── Standard approval interception (existing flow) ──

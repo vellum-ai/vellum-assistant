@@ -1,8 +1,8 @@
 ---
 name: "Self Upgrade"
-description: "Upgrade vellum to the latest version, restart the daemon, and restart the gateway"
+description: "Upgrade vellum to the latest version, restart the assistant, and restart the gateway"
 user-invocable: true
-metadata: {"vellum": {"emoji": "⬆️"}}
+metadata: { "vellum": { "emoji": "⬆️" } }
 ---
 
 You are performing a self-upgrade of the Vellum assistant. Follow these steps **in order**. Use the `bash` tool to run each command. Confirm each step succeeds before moving to the next.
@@ -43,9 +43,9 @@ pkill -TERM -f 'vellum-gateway|gateway/src/index.ts'
 
 Then start the gateway again using whatever method the user's deployment uses (e.g. `bun run gateway/src/index.ts`, a systemd service, or a container orchestrator). If you are unsure how the gateway is deployed, ask the user.
 
-## Step 4: Restart the daemon
+## Step 4: Restart the assistant
 
-Use `vellum sleep` to stop the running daemon and gateway, then `vellum wake` to start them again from the updated binary:
+Use `vellum sleep` to stop the running assistant and gateway, then `vellum wake` to start them again from the updated binary:
 
 ```bash
 vellum sleep && vellum wake
@@ -57,12 +57,13 @@ Verify it is running:
 vellum ps
 ```
 
-**Important:** This is the last step because the current daemon process is the one executing this conversation. After the restart, the new daemon takes over and this session ends gracefully.
+**Important:** This is the last step because the current assistant process is the one executing this conversation. After the restart, the new assistant takes over and this session ends gracefully.
 
 ## After Upgrade
 
 Report back to the user with:
+
 - The previous and new vellum version
-- Daemon status (running, PID)
+- Assistant status (running, PID)
 - Gateway status (restarted or not found)
 - Any errors encountered during the process

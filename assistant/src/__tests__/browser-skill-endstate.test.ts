@@ -4,7 +4,16 @@
  * Locks the final invariants from the BROWSER_SKILL plan so that future
  * changes cannot silently regress any of the migration guarantees.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    sandbox: { enabled: false, backend: "native" },
+    assistantFeatureFlagValues: {
+      "feature_flags.browser.enabled": true,
+    },
+  }),
+}));
 
 import {
   projectSkillTools,

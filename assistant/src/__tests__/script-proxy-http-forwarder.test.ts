@@ -5,7 +5,7 @@ import http, {
 } from "node:http";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { createProxyServer } from "@vellumai/outbound-proxy";
+import { createProxyServer } from "../outbound-proxy/index.js";
 
 /** Shape of the JSON body echoed by the upstream test server. */
 interface EchoBody {

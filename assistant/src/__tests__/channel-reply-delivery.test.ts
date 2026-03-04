@@ -56,6 +56,7 @@ mock.module("../runtime/gateway-client.js", () => ({
       throw new Error("Simulated delivery failure (502)");
     }
     deliveryCalls.push({ callbackUrl, payload, bearerToken });
+    return { ok: true };
   },
 }));
 
