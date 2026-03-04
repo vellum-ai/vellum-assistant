@@ -69,7 +69,7 @@ export function syncSingleGuardianBinding(binding: GuardianBinding): void {
       {
         type: binding.channel,
         address: canonicalId,
-        externalUserId: canonicalId,
+        externalUserId: binding.guardianExternalUserId,
         externalChatId: binding.guardianDeliveryChatId,
         status: "active",
         verifiedAt: binding.verifiedAt,
@@ -115,7 +115,7 @@ export function syncSingleMember(member: IngressMember): void {
         member.externalUserId,
       ) ?? member.externalUserId;
     address = canonicalId;
-    externalUserId = canonicalId;
+    externalUserId = member.externalUserId;
   } else {
     address = member.externalChatId!;
     externalUserId = null;
