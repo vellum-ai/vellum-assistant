@@ -58,14 +58,6 @@ function toQueryString(params: Record<string, string | undefined>): string {
   return encoded ? `?${encoded}` : "";
 }
 
-function resolveGatewayBaseUrl(): string {
-  const injectedGatewayBase = process.env.INTERNAL_GATEWAY_BASE_URL?.trim();
-  if (injectedGatewayBase && injectedGatewayBase.length > 0) {
-    return injectedGatewayBase.replace(/\/+$/, "");
-  }
-  return getGatewayInternalBaseUrl();
-}
-
 function readIngressConfig(): {
   success: true;
   enabled: boolean;
@@ -86,7 +78,7 @@ function readIngressConfig(): {
     success: true,
     enabled,
     publicBaseUrl: configuredUrl || undefined,
-    localGatewayTarget: resolveGatewayBaseUrl(),
+    localGatewayTarget: getGatewayInternalBaseUrl(),
   };
 }
 
@@ -112,11 +104,11 @@ function readVoiceConfig(): {
   };
 }
 
-// CLI-specific gateway helper — uses GATEWAY_AUTH_TOKEN / INTERNAL_GATEWAY_BASE_URL
-// env vars for out-of-process access. See runtime/gateway-internal-client.ts for
-// daemon-internal usage which mints fresh tokens and uses GATEWAY_INTERNAL_BASE_URL.
+// CLI-specific gateway helper — uses GATEWAY_AUTH_TOKEN env var for out-of-process
+// access. See runtime/gateway-internal-client.ts for daemon-internal usage which
+// mints fresh tokens.
 async function gatewayGet(path: string): Promise<unknown> {
-  const gatewayBase = resolveGatewayBaseUrl();
+  const gatewayBase = getGatewayInternalBaseUrl();
   const token = getGatewayToken();
 
   const response = await fetch(`${gatewayBase}${path}`, {
@@ -240,9 +232,9 @@ export function registerIntegrationsCommand(program: Command): void {
   guardian
     .command("status")
     .description("Get guardian status for a channel")
-    .option("--channel <channel>", "Channel: telegram|voice|sms", "voice")
+    .option("--channel <channel>", "Channel: telegram|voice|sms", "telegram")
     .action(async (opts: { channel?: GuardianChannel }, cmd: Command) => {
-      const channel = opts.channel ?? "voice";
+      const channel = opts.channel ?? "telegram";
       await runRead(cmd, async () =>
         gatewayGet(
           `/v1/integrations/guardian/status${toQueryString({ channel })}`,
