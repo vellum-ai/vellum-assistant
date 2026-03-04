@@ -60,8 +60,10 @@ export function handleListContacts(url: URL, assistantId: string): Response {
   const hasSearchParams =
     query || channelAddress || channelType || relationship;
 
-  // contactType filtering is parsed here but not yet passed to store functions.
-  // PR 6 will add contactType param support to listContacts/searchContacts.
+  const contactType = contactTypeParam
+    ? (contactTypeParam as ContactType)
+    : undefined;
+
   if (hasSearchParams) {
     const contacts = searchContacts({
       assistantId,
@@ -70,19 +72,19 @@ export function handleListContacts(url: URL, assistantId: string): Response {
       channelType: channelType ?? undefined,
       relationship: relationship ?? undefined,
       role: role ?? undefined,
+      contactType,
       limit,
     });
-    const filtered = contactTypeParam
-      ? contacts.filter((c) => c.contactType === contactTypeParam)
-      : contacts;
-    return Response.json({ ok: true, contacts: filtered });
+    return Response.json({ ok: true, contacts });
   }
 
-  const contacts = listContacts(assistantId, limit, role ?? undefined);
-  const filtered = contactTypeParam
-    ? contacts.filter((c) => c.contactType === contactTypeParam)
-    : contacts;
-  return Response.json({ ok: true, contacts: filtered });
+  const contacts = listContacts(
+    assistantId,
+    limit,
+    role ?? undefined,
+    contactType,
+  );
+  return Response.json({ ok: true, contacts });
 }
 
 /**
