@@ -193,6 +193,13 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
       path: "daemon/handlers/guardian-actions.ts",
       symbols: ["processGuardianDecision"],
     },
+    // Shared service where processGuardianDecision is defined — must route
+    // through the canonical primitive to complete the chain:
+    // entrypoint → processGuardianDecision → applyCanonicalGuardianDecision
+    {
+      path: "runtime/guardian-action-service.ts",
+      symbols: ["applyCanonicalGuardianDecision"],
+    },
   ];
 
   for (const { path: relPath, symbols } of DECISION_ENTRYPOINTS) {
