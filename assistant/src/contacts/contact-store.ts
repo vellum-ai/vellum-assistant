@@ -35,6 +35,7 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     updatedAt: row.updatedAt,
     role: row.role as Contact["role"],
     principalId: row.principalId,
+    assistantId: row.assistantId ?? null,
   };
 }
 
@@ -109,9 +110,7 @@ export function getContact(id: string): ContactWithChannels | null {
  * Look up a single contact channel by its primary key.
  * Returns the parsed channel row, or null if it does not exist.
  */
-export function getChannelById(
-  channelId: string,
-): ContactChannel | null {
+export function getChannelById(channelId: string): ContactChannel | null {
   const db = getDb();
   const row = db
     .select()
@@ -130,6 +129,7 @@ export function upsertContact(params: {
   preferredTone?: string | null;
   role?: ContactRole;
   principalId?: string | null;
+  assistantId?: string | null;
   channels?: SyncChannelData[];
 }): ContactWithChannels & { created: boolean } {
   const db = getDb();
@@ -168,6 +168,8 @@ export function upsertContact(params: {
       if (params.role !== undefined) updateSet.role = params.role;
       if (params.principalId !== undefined)
         updateSet.principalId = params.principalId;
+      if (params.assistantId !== undefined)
+        updateSet.assistantId = params.assistantId;
 
       db.update(contacts)
         .set(updateSet)
@@ -239,6 +241,8 @@ export function upsertContact(params: {
         if (params.role !== undefined) updateSet.role = params.role;
         if (params.principalId !== undefined)
           updateSet.principalId = params.principalId;
+        if (params.assistantId !== undefined)
+          updateSet.assistantId = params.assistantId;
 
         db.update(contacts)
           .set(updateSet)
@@ -265,6 +269,7 @@ export function upsertContact(params: {
       interactionCount: 0,
       role: params.role ?? "contact",
       principalId: params.principalId ?? null,
+      assistantId: params.assistantId ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -681,19 +686,29 @@ export function findContactChannel(params: {
   externalChatId?: string;
 }): { contact: ContactWithChannels; channel: ContactChannel } | null {
   if (params.externalUserId) {
-    const contact = findContactByChannelExternalId(params.channelType, params.externalUserId);
+    const contact = findContactByChannelExternalId(
+      params.channelType,
+      params.externalUserId,
+    );
     if (contact) {
       const ch = contact.channels.find(
-        (c) => c.type === params.channelType && c.externalUserId === params.externalUserId,
+        (c) =>
+          c.type === params.channelType &&
+          c.externalUserId === params.externalUserId,
       );
       if (ch) return { contact, channel: ch };
     }
   }
   if (params.externalChatId) {
-    const contact = findContactByChannelExternalChatId(params.channelType, params.externalChatId);
+    const contact = findContactByChannelExternalChatId(
+      params.channelType,
+      params.externalChatId,
+    );
     if (contact) {
       const ch = contact.channels.find(
-        (c) => c.type === params.channelType && c.externalChatId === params.externalChatId,
+        (c) =>
+          c.type === params.channelType &&
+          c.externalChatId === params.externalChatId,
       );
       if (ch) return { contact, channel: ch };
     }
@@ -708,8 +723,17 @@ export function findContactChannel(params: {
  */
 export function findGuardianForChannel(
   channelType: string,
+  assistantId?: string,
 ): { contact: Contact; channel: ContactChannel } | null {
   const db = getDb();
+  const conditions = [
+    eq(contacts.role, "guardian"),
+    eq(contactChannels.type, channelType),
+    eq(contactChannels.status, "active"),
+  ];
+  if (assistantId) {
+    conditions.push(eq(contacts.assistantId, assistantId));
+  }
   const rows = db
     .select({
       contact: contacts,
@@ -717,13 +741,7 @@ export function findGuardianForChannel(
     })
     .from(contacts)
     .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(
-        eq(contacts.role, "guardian"),
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.status, "active"),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(contactChannels.verifiedAt))
     .limit(1)
     .all();
@@ -744,21 +762,26 @@ export function findGuardianForChannel(
  *
  * Returns true if a channel was found and revoked, false otherwise.
  */
-export function revokeGuardianChannel(channelType: string): boolean {
+export function revokeGuardianChannel(
+  channelType: string,
+  assistantId?: string,
+): boolean {
   const db = getDb();
+  const conditions = [
+    eq(contacts.role, "guardian"),
+    eq(contactChannels.type, channelType),
+    eq(contactChannels.status, "active"),
+  ];
+  if (assistantId) {
+    conditions.push(eq(contacts.assistantId, assistantId));
+  }
   const rows = db
     .select({
       channelId: contactChannels.id,
     })
     .from(contacts)
     .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(
-        eq(contacts.role, "guardian"),
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.status, "active"),
-      ),
-    )
+    .where(and(...conditions))
     .all();
 
   if (rows.length === 0) return false;

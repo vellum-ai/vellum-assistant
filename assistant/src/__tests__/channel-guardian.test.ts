@@ -146,7 +146,10 @@ import {
 } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
-import { channelGuardianVerificationChallenges } from "../memory/schema.js";
+import {
+  channelGuardianVerificationChallenges,
+  conversations,
+} from "../memory/schema.js";
 import {
   bindSessionIdentity as serviceBindSessionIdentity,
   createOutboundSession,
@@ -1559,6 +1562,15 @@ describe("IPC handler channel-aware guardian status", () => {
     // The contacts table stores displayName but not username.
     // The handler falls back to externalConversationStore for username,
     // so populate it here to ensure identity data is fully surfaced.
+    const now = Date.now();
+    getDb()
+      .insert(conversations)
+      .values({
+        id: "conv-guardian-43",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
     upsertExternalBinding({
       conversationId: "conv-guardian-43",
       sourceChannel: "telegram",

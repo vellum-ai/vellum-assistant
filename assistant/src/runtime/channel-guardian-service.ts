@@ -386,7 +386,7 @@ export function getGuardianBinding(
   assistantId: string,
   channel: string,
 ): GuardianBinding | null {
-  const result = findGuardianForChannel(channel);
+  const result = findGuardianForChannel(channel, assistantId);
   if (result) {
     return {
       id: result.channel.id,
@@ -414,11 +414,11 @@ export function getGuardianBinding(
  * the specified assistant and channel.
  */
 export function isGuardian(
-  _assistantId: string,
+  assistantId: string,
   channel: string,
   externalUserId: string,
 ): boolean {
-  const result = findGuardianForChannel(channel);
+  const result = findGuardianForChannel(channel, assistantId);
   if (result) {
     return result.channel.externalUserId === externalUserId;
   }

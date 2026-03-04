@@ -416,6 +416,7 @@ export const contacts = sqliteTable("contacts", {
   updatedAt: integer("updated_at").notNull(),
   role: text("role").notNull().default("contact"), // 'guardian' | 'contact'
   principalId: text("principal_id"), // internal auth principal (nullable)
+  assistantId: text("assistant_id"), // which assistant this guardian is for (nullable, daemon default is 'self')
 });
 
 export const contactChannels = sqliteTable(

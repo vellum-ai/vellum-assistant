@@ -13,6 +13,7 @@ export interface Contact {
   updatedAt: number;
   role: ContactRole;
   principalId: string | null;
+  assistantId: string | null;
 }
 
 export type ChannelStatus =

@@ -33,6 +33,7 @@ import {
   migrateChannelInboundDeliveredSegments,
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
+  migrateContactsAssistantId,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
   migrateDropLegacyMemberGuardianTables,
@@ -249,6 +250,9 @@ export function initializeDb(): void {
 
   // 35. Safety-sync remaining legacy data then drop assistant_ingress_members and channel_guardian_bindings
   migrateDropLegacyMemberGuardianTables(database);
+
+  // 36. Add assistant_id to contacts for per-assistant guardian scoping
+  migrateContactsAssistantId(database);
 
   validateMigrationState(database);
 

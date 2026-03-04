@@ -77,6 +77,7 @@ export function createGuardianBindingContactsFirst(params: {
     displayName,
     role: "guardian",
     principalId: params.guardianPrincipalId,
+    assistantId: params.assistantId,
     channels: [
       {
         type: params.channel,
@@ -115,10 +116,10 @@ export function createGuardianBindingContactsFirst(params: {
  * Returns true when a guardian channel was found and revoked, false otherwise.
  */
 export function revokeGuardianBindingContactsFirst(
-  _assistantId: string,
+  assistantId: string,
   channel: string,
 ): boolean {
-  const guardian = findGuardianForChannel(channel);
+  const guardian = findGuardianForChannel(channel, assistantId);
   if (!guardian) return false;
 
   updateChannelStatus(guardian.channel.id, {
