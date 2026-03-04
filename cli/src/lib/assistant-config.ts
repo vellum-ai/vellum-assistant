@@ -121,8 +121,16 @@ export function findAssistantByName(name: string): AssistantEntry | null {
 }
 
 export function removeAssistantEntry(assistantId: string): void {
-  const entries = readAssistants();
-  writeAssistants(entries.filter((e) => e.assistantId !== assistantId));
+  const data = readLockfile();
+  const entries = (data.assistants ?? []).filter(
+    (e: AssistantEntry) => e.assistantId !== assistantId,
+  );
+  data.assistants = entries;
+  // Clear active assistant if it matches the removed entry
+  if (data.activeAssistant === assistantId) {
+    delete data.activeAssistant;
+  }
+  writeLockfile(data);
 }
 
 export function loadAllAssistants(): AssistantEntry[] {
