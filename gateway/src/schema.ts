@@ -907,6 +907,144 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/contacts": {
+        get: {
+          summary: "List or search contacts",
+          description:
+            "Authenticated gateway endpoint that lists or searches contacts via the assistant runtime.",
+          operationId: "contactsGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Contacts returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Create or update a contact",
+          description:
+            "Authenticated gateway endpoint that creates or updates a contact via the assistant runtime.",
+          operationId: "contactsPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Contact updated" },
+            "201": { description: "Contact created" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/merge": {
+        post: {
+          summary: "Merge two contacts",
+          description:
+            "Authenticated gateway endpoint that merges two contacts via the assistant runtime.",
+          operationId: "contactsMergePost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Contacts merged" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/channels/{channelId}": {
+        patch: {
+          summary: "Update a contact channel",
+          description:
+            "Authenticated gateway endpoint that updates a contact channel's status or policy via the assistant runtime.",
+          operationId: "contactsChannelPatch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Contact channel updated" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Channel not found" },
+            "409": {
+              description:
+                "Invalid state transition (e.g. revoking a blocked channel)",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/{contactId}": {
+        get: {
+          summary: "Get a contact by ID",
+          description:
+            "Authenticated gateway endpoint that retrieves a contact by ID via the assistant runtime.",
+          operationId: "contactsGetById",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "contactId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Contact returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Contact not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/v1/contacts/invites": {
         get: {
           summary: "List contacts invites",

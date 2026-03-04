@@ -134,10 +134,14 @@ Telegram integration setup/config endpoints and ingress members/invites endpoint
 | POST            | `/v1/integrations/telegram/commands` |
 | POST            | `/v1/integrations/telegram/setup`    |
 
-**Forwarded invite endpoints:**
+**Forwarded contact & invite endpoints:**
 
 | Method   | Path                             |
 | -------- | -------------------------------- |
+| GET/POST | `/v1/contacts`                   |
+| GET      | `/v1/contacts/:contactId`        |
+| POST     | `/v1/contacts/merge`             |
+| PATCH    | `/v1/contacts/channels/:id`      |
 | GET/POST | `/v1/contacts/invites`           |
 | DELETE   | `/v1/contacts/invites/:inviteId` |
 | POST     | `/v1/contacts/invites/redeem`    |

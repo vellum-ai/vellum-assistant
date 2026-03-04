@@ -9,6 +9,7 @@
  */
 
 import {
+  getChannelById,
   getContact,
   listContacts,
   mergeContacts,
@@ -245,6 +246,23 @@ export async function handleUpdateContactChannel(
       }". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
       400,
     );
+  }
+
+  // Blocked-state guard: revoking a blocked channel is not allowed because
+  // blocking is a stronger action than revoking. The caller must explicitly
+  // unblock (set status to "active") before revoking.
+  if (body.status === "revoked") {
+    const existing = getChannelById(channelId);
+    if (!existing) {
+      return httpError("NOT_FOUND", `Channel "${channelId}" not found`, 404);
+    }
+    if (existing.status === "blocked") {
+      return httpError(
+        "CONFLICT",
+        "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
+        409,
+      );
+    }
   }
 
   const updated = updateChannelStatus(channelId, {

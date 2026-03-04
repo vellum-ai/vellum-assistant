@@ -1,4 +1,9 @@
 export type IngressControlPlaneRoute =
+  | { kind: "listContacts" }
+  | { kind: "upsertContact" }
+  | { kind: "getContact"; contactId: string }
+  | { kind: "mergeContacts" }
+  | { kind: "updateContactChannel"; channelId: string }
   | { kind: "listInvites" }
   | { kind: "createInvite" }
   | { kind: "redeemInvite" }
@@ -8,6 +13,24 @@ export function matchIngressControlPlaneRoute(
   pathname: string,
   method: string,
 ): IngressControlPlaneRoute | null {
+  // ── Contact CRUD ──
+  if (pathname === "/v1/contacts") {
+    if (method === "GET") return { kind: "listContacts" };
+    if (method === "POST") return { kind: "upsertContact" };
+    return null;
+  }
+
+  if (pathname === "/v1/contacts/merge" && method === "POST") {
+    return { kind: "mergeContacts" };
+  }
+
+  // Channel status/policy updates
+  const channelMatch = pathname.match(/^\/v1\/contacts\/channels\/([^/]+)$/);
+  if (channelMatch && method === "PATCH") {
+    return { kind: "updateContactChannel", channelId: channelMatch[1] };
+  }
+
+  // ── Invite routes ──
   if (pathname === "/v1/contacts/invites") {
     if (method === "GET") return { kind: "listInvites" };
     if (method === "POST") return { kind: "createInvite" };
@@ -21,6 +44,12 @@ export function matchIngressControlPlaneRoute(
   const inviteMatch = pathname.match(/^\/v1\/contacts\/invites\/([^/]+)$/);
   if (inviteMatch && method === "DELETE") {
     return { kind: "revokeInvite", inviteId: inviteMatch[1] };
+  }
+
+  // Contact by ID — must come after /invites and /merge to avoid false matches
+  const contactIdMatch = pathname.match(/^\/v1\/contacts\/([^/]+)$/);
+  if (contactIdMatch && method === "GET") {
+    return { kind: "getContact", contactId: contactIdMatch[1] };
   }
 
   return null;

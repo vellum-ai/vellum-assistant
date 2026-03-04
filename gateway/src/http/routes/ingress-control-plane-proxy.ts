@@ -96,6 +96,34 @@ export function createIngressControlPlaneProxyHandler(config: GatewayConfig) {
   }
 
   return {
+    // ── Contact CRUD ──
+    async handleListContacts(req: Request): Promise<Response> {
+      const url = new URL(req.url);
+      return proxyToRuntime(req, "/v1/contacts", url.search);
+    },
+
+    async handleUpsertContact(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/contacts", "");
+    },
+
+    async handleGetContact(req: Request, contactId: string): Promise<Response> {
+      const encoded = encodeURIComponent(contactId);
+      return proxyToRuntime(req, `/v1/contacts/${encoded}`, "");
+    },
+
+    async handleMergeContacts(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/contacts/merge", "");
+    },
+
+    async handleUpdateContactChannel(
+      req: Request,
+      channelId: string,
+    ): Promise<Response> {
+      const encoded = encodeURIComponent(channelId);
+      return proxyToRuntime(req, `/v1/contacts/channels/${encoded}`, "");
+    },
+
+    // ── Invite routes ──
     async handleListInvites(req: Request): Promise<Response> {
       const url = new URL(req.url);
       return proxyToRuntime(req, "/v1/contacts/invites", url.search);
