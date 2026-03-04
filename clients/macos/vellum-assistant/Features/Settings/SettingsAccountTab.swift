@@ -111,7 +111,7 @@ struct SettingsAccountTab: View {
                 .foregroundColor(VColor.textSecondary)
 
             TextField("https://platform.vellum.ai", text: $platformUrlText)
-                .vInputStyle(.medium)
+                .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
                 .focused($isPlatformUrlFocused)

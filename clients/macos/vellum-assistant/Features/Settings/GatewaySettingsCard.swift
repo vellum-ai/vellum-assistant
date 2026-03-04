@@ -90,7 +90,7 @@ struct GatewaySettingsCard: View {
 
             HStack(spacing: VSpacing.sm) {
                 TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                    .vInputStyle(.medium)
+                    .vInputStyle()
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                     .focused($isGatewayUrlFocused)

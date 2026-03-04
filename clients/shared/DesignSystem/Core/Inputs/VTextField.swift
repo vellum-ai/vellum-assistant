@@ -2,25 +2,14 @@ import SwiftUI
 
 /// A ViewModifier that applies the design system input styling.
 /// Strips the native macOS text field background and applies VColor.inputBackground.
-/// Use on raw TextField / SecureField instances: `.vInputStyle()` or `.vInputStyle(.medium)`
+/// Use on raw TextField / SecureField instances: `.vInputStyle()`
 public struct VInputStyleModifier: ViewModifier {
-    public enum Size { case medium, large }
-
-    let size: Size
-
-    public init(size: Size = .large) {
-        self.size = size
-    }
-
-    private var verticalPadding: CGFloat {
-        size == .medium ? VSpacing.sm : VSpacing.md
-    }
+    public init() {}
 
     public func body(content: Content) -> some View {
         content
             .textFieldStyle(.plain)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, verticalPadding)
+            .padding(VSpacing.md)
             .background(VColor.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
@@ -31,8 +20,8 @@ public struct VInputStyleModifier: ViewModifier {
 }
 
 extension View {
-    public func vInputStyle(_ size: VInputStyleModifier.Size = .large) -> some View {
-        modifier(VInputStyleModifier(size: size))
+    public func vInputStyle() -> some View {
+        modifier(VInputStyleModifier())
     }
 }
 

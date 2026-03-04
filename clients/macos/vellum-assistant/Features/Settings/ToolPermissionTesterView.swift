@@ -49,7 +49,7 @@ struct ToolPermissionTesterView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 fieldLabel("Working Directory")
                 TextField("Leave empty for daemon default", text: $model.workingDir)
-                    .vInputStyle(.medium)
+                    .vInputStyle()
                     .font(VFont.mono)
             }
 
@@ -130,12 +130,12 @@ struct ToolPermissionTesterView: View {
         switch field.fieldType {
         case .string:
             TextField("", text: fieldValueBinding(for: field.id))
-                .vInputStyle(.medium)
+                .vInputStyle()
                 .font(VFont.mono)
 
         case .number, .integer:
             TextField("", text: fieldValueBinding(for: field.id))
-                .vInputStyle(.medium)
+                .vInputStyle()
                 .font(VFont.mono)
 
         case .boolean:
@@ -305,7 +305,7 @@ struct ToolPermissionTesterView: View {
         if model.availableToolNames.isEmpty {
             // Fallback to text field while loading or if fetch failed
             TextField("e.g. host_bash, host_file_write", text: $model.toolName)
-                .vInputStyle(.medium)
+                .vInputStyle()
                 .font(VFont.mono)
         } else {
             VDropdown(
