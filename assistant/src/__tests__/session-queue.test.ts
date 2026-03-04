@@ -473,7 +473,7 @@ describe("Session message queue", () => {
 
     // Complete the second run
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("[experimental] queued messages are processed in FIFO order", async () => {
@@ -511,7 +511,7 @@ describe("Session message queue", () => {
 
     // Complete third
     resolveRun(2);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(processedOrder).toEqual(["msg-1", "msg-2", "msg-3"]);
   });
@@ -551,7 +551,7 @@ describe("Session message queue", () => {
 
     // Complete second run so the session finishes cleanly
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("abort() clears the queue and sends generation_cancelled for each queued message", async () => {
@@ -672,7 +672,7 @@ describe("Session message queue", () => {
 
     // Complete fourth (final queued message)
     resolveRun(3);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("[experimental] drain continues after a queued message fails to persist", async () => {
@@ -718,7 +718,7 @@ describe("Session message queue", () => {
 
     // Complete the third message's run
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // msg-3 should have completed successfully
     expect(events3.some((e) => e.type === "message_complete")).toBe(true);
@@ -791,7 +791,7 @@ describe("Session queue policy helpers", () => {
     resolveRun(0);
     await waitForPendingRun(2);
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("canHandoffAtCheckpoint() returns false when not processing", async () => {
@@ -816,7 +816,7 @@ describe("Session queue policy helpers", () => {
 
     // Cleanup
     resolveRun(0);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("canHandoffAtCheckpoint() returns true when processing and queue has messages", async () => {
@@ -838,7 +838,7 @@ describe("Session queue policy helpers", () => {
     resolveRun(0);
     await waitForPendingRun(2);
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("QueueDrainReason type accepts expected values", () => {
@@ -917,7 +917,7 @@ describe("Session checkpoint handoff", () => {
     // The queued message should now be draining (second run started)
     await waitForPendingRun(2);
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("onCheckpoint returns continue when queue is empty", async () => {
@@ -995,7 +995,7 @@ describe("Session checkpoint handoff", () => {
 
     // Complete third run (msg-3)
     resolveRun(2);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // FIFO order: msg-1 completes first, then msg-2, then msg-3
     expect(processedOrder).toEqual(["msg-1", "msg-2", "msg-3"]);
@@ -1101,7 +1101,7 @@ describe("Session checkpoint handoff", () => {
 
     // Complete the second run
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("queued messages still drain FIFO under multiple handoffs", async () => {
@@ -1169,7 +1169,7 @@ describe("Session checkpoint handoff", () => {
     ).toBe("continue");
 
     resolveRun(3);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Verify FIFO dequeue order
     expect(dequeueOrder).toEqual(["B", "C", "D"]);
@@ -1216,7 +1216,7 @@ describe("Session checkpoint handoff", () => {
 
     // Complete C's run
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // C should have completed successfully
     expect(eventsC.some((e) => e.type === "message_complete")).toBe(true);
@@ -1329,7 +1329,7 @@ describe("Terminal trace events on rejection/failure", () => {
 
     // Cleanup
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 });
 
@@ -1671,7 +1671,7 @@ describe("Session attachment event payloads", () => {
 
     await waitForPendingRun(2);
     resolveRun(1);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
   });
 });
 
@@ -1876,7 +1876,7 @@ describe("Regression: cancel semantics and error channel split", () => {
       // Complete the second run so the test can clean up
       turnCommitHangForever = false;
       resolveRun(1);
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 10));
     } finally {
       turnCommitHangForever = false;
     }
