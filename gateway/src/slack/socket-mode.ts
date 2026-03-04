@@ -1,6 +1,7 @@
 import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
+import { SlackStore } from "../db/slack-store.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
@@ -42,9 +43,8 @@ export class SlackSocketModeClient {
   private running = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private dedupMap = new Map<string, number>();
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
-  private activeThreads = new Map<string, number>();
+  private store: SlackStore;
 
   constructor(
     config: SlackSocketModeConfig,
@@ -52,6 +52,7 @@ export class SlackSocketModeClient {
   ) {
     this.config = config;
     this.onEvent = onEvent;
+    this.store = new SlackStore();
   }
 
   async start(): Promise<void> {
@@ -100,7 +101,7 @@ export class SlackSocketModeClient {
    * Register a thread as active so future replies (without @mention) are forwarded.
    */
   trackThread(threadTs: string): void {
-    this.activeThreads.set(threadTs, Date.now());
+    this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
   }
 
   private async connect(): Promise<void> {
@@ -252,7 +253,7 @@ export class SlackSocketModeClient {
       !isDm &&
       !mentionsBot &&
       !!channelEvent.thread_ts &&
-      this.activeThreads.has(channelEvent.thread_ts);
+      this.store.hasThread(channelEvent.thread_ts);
 
     // Process app_mention events, DMs, and replies in active bot threads
     if (!isAppMention && !isDm && !isActiveThreadReply) {
@@ -261,11 +262,11 @@ export class SlackSocketModeClient {
 
     // Deduplicate on event_id
     const eventId = eventPayload.event_id;
-    if (this.dedupMap.has(eventId)) {
+    if (this.store.hasEvent(eventId)) {
       log.debug({ eventId }, "Duplicate Slack event, skipping");
       return;
     }
-    this.dedupMap.set(eventId, Date.now());
+    this.store.markEventSeen(eventId, DEDUP_TTL_MS);
 
     let normalized: NormalizedSlackEvent | null;
     if (isAppMention) {
@@ -330,25 +331,11 @@ export class SlackSocketModeClient {
   private startDedupCleanup(): void {
     this.stopDedupCleanup();
     this.dedupCleanupTimer = setInterval(() => {
-      const now = Date.now();
-      let evicted = 0;
-      for (const [key, timestamp] of this.dedupMap) {
-        if (now - timestamp > DEDUP_TTL_MS) {
-          this.dedupMap.delete(key);
-          evicted++;
-        }
-      }
+      const evicted = this.store.cleanupExpiredEvents();
       if (evicted > 0) {
         log.debug({ evicted }, "Evicted expired Slack event dedup entries");
       }
-      // Also clean up expired active threads
-      let threadEvicted = 0;
-      for (const [key, timestamp] of this.activeThreads) {
-        if (now - timestamp > ACTIVE_THREAD_TTL_MS) {
-          this.activeThreads.delete(key);
-          threadEvicted++;
-        }
-      }
+      const threadEvicted = this.store.cleanupExpiredThreads();
       if (threadEvicted > 0) {
         log.debug({ threadEvicted }, "Evicted expired active thread entries");
       }
