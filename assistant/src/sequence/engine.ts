@@ -6,14 +6,8 @@
  * sends through the messaging layer.
  */
 
-import {
-  createConversation,
-  getMessages,
-} from "../memory/conversation-store.js";
-import {
-  GENERATING_TITLE,
-  queueGenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { getMessages } from "../memory/conversation-store.js";
 import type { ScheduleMessageProcessor } from "../schedule/scheduler.js";
 import { getLogger } from "../util/logger.js";
 import { recordEvent } from "./analytics.js";
@@ -152,16 +146,10 @@ async function processEnrollment(
   const prompt = buildStepPrompt(enrollment, sequence, step);
 
   // Create a conversation for this step execution
-  const conversation = createConversation({
-    title: GENERATING_TITLE,
+  const conversation = bootstrapConversation({
     source: "sequence",
-  });
-  queueGenerateConversationTitle({
-    conversationId: conversation.id,
-    context: {
-      origin: "sequence",
-      systemHint: `Sequence: ${sequence.name} — Step ${step.index + 1}`,
-    },
+    origin: "sequence",
+    systemHint: `Sequence: ${sequence.name} — Step ${step.index + 1}`,
   });
 
   log.info(

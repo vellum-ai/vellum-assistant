@@ -1,10 +1,6 @@
 import * as net from "node:net";
 
-import { createConversation } from "../../memory/conversation-store.js";
-import {
-  GENERATING_TITLE,
-  queueGenerateConversationTitle,
-} from "../../memory/conversation-title-service.js";
+import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import {
   completeScheduleRun,
   createScheduleRun,
@@ -147,16 +143,10 @@ export async function handleScheduleRunNow(
         { err, jobId: schedule.id, name: schedule.name, taskId },
         "Manual scheduled task execution failed",
       );
-      const fallbackConversation = createConversation({
-        title: GENERATING_TITLE,
+      const fallbackConversation = bootstrapConversation({
         source: "schedule",
-      });
-      queueGenerateConversationTitle({
-        conversationId: fallbackConversation.id,
-        context: {
-          origin: "schedule",
-          systemHint: `Schedule (manual): ${schedule.name}`,
-        },
+        origin: "schedule",
+        systemHint: `Schedule (manual): ${schedule.name}`,
       });
       const runId = createScheduleRun(schedule.id, fallbackConversation.id);
       completeScheduleRun(runId, { status: "error", error: message });
@@ -165,16 +155,10 @@ export async function handleScheduleRunNow(
     return;
   }
 
-  const conversation = createConversation({
-    title: GENERATING_TITLE,
+  const conversation = bootstrapConversation({
     source: "schedule",
-  });
-  queueGenerateConversationTitle({
-    conversationId: conversation.id,
-    context: {
-      origin: "schedule",
-      systemHint: `Schedule (manual): ${schedule.name}`,
-    },
+    origin: "schedule",
+    systemHint: `Schedule (manual): ${schedule.name}`,
   });
   const runId = createScheduleRun(schedule.id, conversation.id);
 

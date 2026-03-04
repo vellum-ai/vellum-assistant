@@ -1,8 +1,4 @@
-import { createConversation } from "../memory/conversation-store.js";
-import {
-  GENERATING_TITLE,
-  queueGenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -61,14 +57,11 @@ export async function runTask(
   }
 
   const run = createTaskRun(task.id);
-  const conversation = createConversation({
-    title: GENERATING_TITLE,
+  const conversation = bootstrapConversation({
     threadType: "background",
     source: opts.source,
-  });
-  queueGenerateConversationTitle({
-    conversationId: conversation.id,
-    context: { origin: "task", systemHint: `Task: ${task.title}` },
+    origin: "task",
+    systemHint: `Task: ${task.title}`,
   });
 
   updateTaskRun(run.id, {
