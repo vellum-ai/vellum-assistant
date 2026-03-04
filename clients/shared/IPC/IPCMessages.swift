@@ -2279,6 +2279,7 @@ public enum ServerMessage: Decodable, Sendable {
     case heartbeatChecklistResponse(IPCHeartbeatChecklistResponse)
     case heartbeatChecklistWriteResponse(IPCHeartbeatChecklistWriteResponse)
     case messageContentResponse(IPCMessageContentResponse)
+    case contactsResponse(ContactsResponseMessage)
     case tokenRotated(TokenRotatedMessage)
     case identityChanged(IPCIdentityChanged)
     case pong
@@ -2716,6 +2717,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "message_content_response":
             let message = try IPCMessageContentResponse(from: decoder)
             self = .messageContentResponse(message)
+        case "contacts_response":
+            let message = try ContactsResponseMessage(from: decoder)
+            self = .contactsResponse(message)
         case "token_rotated":
             let message = try TokenRotatedMessage(from: decoder)
             self = .tokenRotated(message)
@@ -2910,6 +2914,34 @@ public struct GuardianActionDecisionMessage: Encodable, Sendable {
         self.conversationId = conversationId
     }
 }
+
+// MARK: - Contacts
+
+/// Client → Server: contacts management request.
+/// Backed by generated `IPCContactsRequest`.
+public typealias ContactsRequestMessage = IPCContactsRequest
+
+extension IPCContactsRequest {
+    public init(action: String, contactId: String? = nil, channelId: String? = nil, status: String? = nil, policy: String? = nil, reason: String? = nil, role: String? = nil, limit: Int? = nil) {
+        self.init(type: "contacts", action: action, contactId: contactId, channelId: channelId, status: status, policy: policy, reason: reason, role: role, limit: limit.map(Double.init))
+    }
+}
+
+/// Server → Client: contacts response.
+/// Backed by generated `IPCContactsResponse`.
+public typealias ContactsResponseMessage = IPCContactsResponse
+
+/// A single contact payload returned from the daemon.
+/// Backed by generated `IPCContactPayload`.
+public typealias ContactPayload = IPCContactPayload
+
+extension IPCContactPayload: Identifiable {}
+
+/// A single contact channel payload returned from the daemon.
+/// Backed by generated `IPCContactChannelPayload`.
+public typealias ContactChannelPayload = IPCContactChannelPayload
+
+extension IPCContactChannelPayload: Identifiable {}
 
 // MARK: - Work Item Helpers
 
