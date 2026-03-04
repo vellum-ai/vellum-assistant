@@ -8,7 +8,9 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
+import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
 import { getSqlite } from "../memory/db.js";
 import {
   findActiveVoiceInvites,
@@ -18,7 +20,6 @@ import {
   recordInviteUse,
   redeemInvite as storeRedeemInvite,
 } from "../memory/ingress-invite-store.js";
-import { findMember } from "../memory/ingress-member-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { hashVoiceCode } from "../util/voice-code.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -123,12 +124,14 @@ export function redeemInvite(params: {
 
   // Token is valid — now safe to check existing membership without leaking
   // membership status to callers with bogus tokens.
-  const existingMember = findMember({
-    assistantId: assistantId ?? invite.assistantId,
-    sourceChannel,
-    externalUserId,
-    externalChatId,
+  const contactResult = findContactChannel({
+    channelType: sourceChannel,
+    externalUserId: externalUserId,
+    externalChatId: externalChatId,
   });
+  const existingMember = contactResult
+    ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
+    : null;
 
   if (existingMember && existingMember.status === "active") {
     return { ok: true, type: "already_member", memberId: existingMember.id };
@@ -313,11 +316,13 @@ export function redeemVoiceInviteCode(params: {
   }
 
   // Check for existing membership
-  const existingMember = findMember({
-    assistantId: invite.assistantId,
-    sourceChannel: "voice",
+  const voiceContactResult = findContactChannel({
+    channelType: "voice",
     externalUserId: callerExternalUserId,
   });
+  const existingMember = voiceContactResult
+    ? contactChannelToMemberRecord(voiceContactResult.contact, voiceContactResult.channel)
+    : null;
 
   if (existingMember && existingMember.status === "active") {
     return { ok: true, type: "already_member", memberId: existingMember.id };
