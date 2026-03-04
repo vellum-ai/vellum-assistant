@@ -12,6 +12,7 @@
 import { v4 as uuid } from 'uuid';
 
 import { getDeliverableChannels } from '../channels/config.js';
+import { findGuardianForChannel } from '../contacts/contact-store.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getLogger } from '../util/logger.js';
@@ -101,13 +102,10 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         break;
       case 'telegram':
       case 'sms':
-        // Only report binding-based channels as connected when there is
-        // an active guardian binding for this assistant. Without a
-        // binding, the destination resolver will fail to resolve a
-        // delivery endpoint and dispatch will silently drop the
-        // message — which is worse than the decision engine knowing up
-        // front that the channel is unavailable.
-        if (getActiveBinding(assistantId, channel)) {
+        // A binding-based channel is connected when the guardian has an
+        // active channel entry of this type. Fall back to legacy binding
+        // check if contacts are not yet synced.
+        if (findGuardianForChannel(channel) || getActiveBinding(assistantId, channel)) {
           channels.push(channel);
         }
         break;
