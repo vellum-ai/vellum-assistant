@@ -109,7 +109,7 @@ export const setAvatarTool: Tool = {
       };
     } catch (error) {
       if (error instanceof ManagedAvatarError) {
-        if (error.code === "avatar_rate_limited") {
+        if (error.statusCode === 429) {
           log.warn(
             { correlationId: error.correlationId },
             "Avatar generation rate limited",

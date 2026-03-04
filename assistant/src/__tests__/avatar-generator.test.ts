@@ -109,9 +109,9 @@ describe("setAvatarTool", () => {
     expect(result.content).toContain("No image data returned");
   });
 
-  test("ManagedAvatarError with rate limit code returns user-friendly message", async () => {
+  test("ManagedAvatarError with statusCode 429 returns user-friendly rate limit message", async () => {
     mockRouterError = new ManagedAvatarError({
-      code: "avatar_rate_limited",
+      code: "some_error_code",
       subcode: "too_many_requests",
       detail: "Rate limited",
       retryable: true,
