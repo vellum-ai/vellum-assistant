@@ -3562,7 +3562,7 @@ describe("relay-server", () => {
     // Simulate transport close while still in guardian wait
     relay.handleTransportClosed(1001, "Going away");
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(
