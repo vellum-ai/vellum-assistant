@@ -7,7 +7,7 @@ import {
   type RuntimeAttachmentMeta,
 } from "../../runtime/client.js";
 import { classifySlackError } from "../../slack/errors.js";
-import type { Block } from "../../slack/block-kit-builder.js";
+import { approvalPrompt, type Block } from "../../slack/block-kit-builder.js";
 import { textToBlocks } from "../../slack/text-to-blocks.js";
 
 const log = getLogger("slack-deliver");
@@ -328,6 +328,16 @@ export function createSlackDeliverHandler(
       updateTs?: string;
       /** When provided, use chat.update to edit an existing message instead of posting a new one. */
       messageTs?: string;
+      /** When provided, generate Block Kit approval prompt blocks. */
+      approval?: {
+        message: string;
+        requestId: string;
+        actions: Array<{
+          id: string;
+          label: string;
+          style?: "primary" | "danger";
+        }>;
+      };
     };
     try {
       body = (await req.json()) as typeof body;
@@ -407,11 +417,13 @@ export function createSlackDeliverHandler(
     const messageTs = body.messageTs ?? updateTs;
     const isUpdate = typeof messageTs === "string" && messageTs.length > 0;
 
-    // Resolve Block Kit blocks: use provided blocks, or auto-format text
+    // Resolve Block Kit blocks: use provided blocks, approval prompt, or auto-format text
     const blocks: Block[] =
       Array.isArray(body.blocks) && body.blocks.length > 0
         ? body.blocks
-        : textToBlocks(text);
+        : body.approval
+          ? approvalPrompt(body.approval)
+          : textToBlocks(text);
 
     try {
       // Typing indicator: post a placeholder message that the runtime can
@@ -491,13 +503,16 @@ export function createSlackDeliverHandler(
         let result: SlackApiResult | Response;
 
         if (isUpdate) {
-          // chat.update only accepts channel, ts, and text — thread_ts is not
-          // a valid parameter and would cause the call to fail silently.
-          const updateBody: Record<string, string> = {
+          // chat.update only accepts channel, ts, text, and blocks — thread_ts
+          // is not a valid parameter and would cause the call to fail silently.
+          const updateBody: Record<string, unknown> = {
             channel: chatId,
             text,
             ts: messageTs,
           };
+          if (blocks.length > 0) {
+            updateBody.blocks = blocks;
+          }
           result = await callSlackApiWithRetries(
             "https://slack.com/api/chat.update",
             updateBody,
