@@ -529,6 +529,7 @@ final class VoiceInputManager {
 
         isRecording = true
         onRecordingStateChanged?(true)
+        VoiceFeedback.playActivationChime()
         if currentMode == .dictation {
             overlayWindow.show(state: .recording)
         }
@@ -692,10 +693,12 @@ final class VoiceInputManager {
     func handleFinalTranscription(_ text: String) {
         switch currentMode {
         case .conversation:
+            VoiceFeedback.playDeactivationChime()
             onTranscription?(text)
         case .dictation:
             guard let context = currentDictationContext else {
                 // No context captured (e.g. continuous recording path) — fall back to conversation
+                VoiceFeedback.playDeactivationChime()
                 onTranscription?(text)
                 return
             }
@@ -724,6 +727,7 @@ final class VoiceInputManager {
             } catch {
                 log.error("Failed to send dictation_request: \(error.localizedDescription)")
                 overlayWindow.dismiss()
+                VoiceFeedback.playDeactivationChime()
                 onTranscription?(text)
             }
         }
@@ -735,6 +739,7 @@ final class VoiceInputManager {
         if mode == "dictation" || mode == "command" {
             DictationTextInserter.insertText(text)
             overlayWindow.showDoneAndDismiss()
+            VoiceFeedback.playDeactivationChime()
         } else if mode == "action" {
             overlayWindow.dismiss()
             log.info("Action mode detected — routing transcription to task submission: \(text, privacy: .public)")

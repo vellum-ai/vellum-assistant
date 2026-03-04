@@ -2282,7 +2282,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             if NSApp.isActive,
                let mainWindow = self?.mainWindow, mainWindow.isVisible,
                let viewModel = mainWindow.activeViewModel {
+                viewModel.pendingVoiceMessage = true
                 viewModel.inputText = text
+                viewModel.sendMessage()
                 return
             }
 
