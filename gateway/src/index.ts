@@ -347,34 +347,7 @@ function main() {
       handler: (req) => telegramControlPlaneProxy.handleSetupTelegram(req),
     },
 
-    // ── Ingress control plane ──
-    {
-      path: "/v1/ingress/invites",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleListInvites(req),
-    },
-    {
-      path: "/v1/ingress/invites",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleCreateInvite(req),
-    },
-    {
-      path: "/v1/ingress/invites/redeem",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleRedeemInvite(req),
-    },
-    {
-      path: /^\/v1\/ingress\/invites\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (req, params) =>
-        ingressControlPlaneProxy.handleRevokeInvite(req, params[0]),
-    },
-
-    // ── Contacts/invites aliases (canonical paths) ──
+    // ── Contacts/invites control plane ──
     {
       path: "/v1/contacts/invites",
       method: "GET",

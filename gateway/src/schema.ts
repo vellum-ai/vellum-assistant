@@ -907,109 +907,11 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/ingress/invites": {
-        get: {
-          summary: "List ingress invites",
-          description:
-            "Authenticated gateway endpoint that lists ingress invites via the assistant runtime.",
-          operationId: "ingressInvitesGet",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": { description: "Ingress invites returned" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-        post: {
-          summary: "Create ingress invite",
-          description:
-            "Authenticated gateway endpoint that creates an ingress invite via the assistant runtime.",
-          operationId: "ingressInvitesPost",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Ingress invite created" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/ingress/invites/redeem": {
-        post: {
-          summary: "Redeem ingress invite",
-          description:
-            "Authenticated gateway endpoint that redeems an ingress invite via the assistant runtime.",
-          operationId: "ingressInvitesRedeemPost",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Ingress invite redeemed" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Invite not found" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/ingress/invites/{inviteId}": {
-        delete: {
-          summary: "Revoke ingress invite",
-          description:
-            "Authenticated gateway endpoint that revokes an ingress invite via the assistant runtime.",
-          operationId: "ingressInvitesDelete",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "inviteId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          responses: {
-            "200": { description: "Ingress invite revoked" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Invite not found or already revoked" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
       "/v1/contacts/invites": {
         get: {
           summary: "List contacts invites",
           description:
-            "Authenticated gateway endpoint that lists contacts invites via the assistant runtime. Canonical path for /v1/ingress/invites.",
+            "Authenticated gateway endpoint that lists contacts invites via the assistant runtime.",
           operationId: "contactsInvitesGet",
           security: [{ BearerAuth: [] }],
           responses: {
@@ -1025,7 +927,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Create contacts invite",
           description:
-            "Authenticated gateway endpoint that creates a contacts invite via the assistant runtime. Canonical path for /v1/ingress/invites.",
+            "Authenticated gateway endpoint that creates a contacts invite via the assistant runtime.",
           operationId: "contactsInvitesPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -1052,7 +954,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Redeem contacts invite",
           description:
-            "Authenticated gateway endpoint that redeems a contacts invite via the assistant runtime. Canonical path for /v1/ingress/invites/redeem.",
+            "Authenticated gateway endpoint that redeems a contacts invite via the assistant runtime.",
           operationId: "contactsInvitesRedeemPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -1080,7 +982,7 @@ export function buildSchema(): Record<string, unknown> {
         delete: {
           summary: "Revoke contacts invite",
           description:
-            "Authenticated gateway endpoint that revokes a contacts invite via the assistant runtime. Canonical path for /v1/ingress/invites/{inviteId}.",
+            "Authenticated gateway endpoint that revokes a contacts invite via the assistant runtime.",
           operationId: "contactsInvitesDelete",
           security: [{ BearerAuth: [] }],
           parameters: [
