@@ -252,13 +252,16 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result!.event.message.content).toBe("edited hello world");
   });
 
-  test("uses event.message.ts as externalMessageId", () => {
+  test("uses eventId as externalMessageId for edit dedup", () => {
     const config = makeConfig();
     const event = makeMessageChangedEvent();
     const result = normalizeSlackMessageEdit(event, "evt-101", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.externalMessageId).toBe("1700000000.000100");
+    // Each edit gets a unique externalMessageId (eventId) so successive edits aren't deduped
+    expect(result!.event.message.externalMessageId).toBe("evt-101");
+    // The original message ts is in source.messageId for runtime correlation
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
   });
 
   test("returns null when edited message has no user", () => {
@@ -331,13 +334,14 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result!.threadTs).toBe("1700000000.000050");
   });
 
-  test("threadTs falls back to event.ts when no thread_ts", () => {
+  test("threadTs falls back to edited message ts when no thread_ts", () => {
     const config = makeConfig();
     const event = makeMessageChangedEvent();
     const result = normalizeSlackMessageEdit(event, "evt-107", config);
 
     expect(result).not.toBeNull();
-    expect(result!.threadTs).toBe("1700000000.000200");
+    // Falls back to edited.ts (not the wrapper event.ts)
+    expect(result!.threadTs).toBe("1700000000.000100");
   });
 
   test("DM edits use default assistant when channel is not in routing table", () => {

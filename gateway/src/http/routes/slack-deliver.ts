@@ -175,7 +175,7 @@ async function uploadFileToSlack(
   const uploadRes = await fetchImpl(urlData.upload_url, {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
-    body: buffer,
+    body: new Uint8Array(buffer),
   });
 
   if (!uploadRes.ok) {
@@ -493,7 +493,7 @@ export function createSlackDeliverHandler(
               requestId: body.approval.requestId,
               actions: body.approval.actions,
             })
-          : body.useBlocks
+          : body.useBlocks && text
             ? textToBlocks(text)
             : [];
 

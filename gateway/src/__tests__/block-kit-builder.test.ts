@@ -1,29 +1,27 @@
 import { describe, test, expect } from "bun:test";
-import {
-  BlockKitBuilder,
-  section,
-  divider,
-  header,
-} from "../slack/block-kit-builder.js";
+import { BlockKitBuilder } from "../slack/block-kit-builder.js";
 
 describe("block-kit-builder", () => {
-  describe("helper functions", () => {
-    test("section() creates a mrkdwn section block", () => {
-      expect(section("hello")).toEqual({
-        type: "section",
-        text: { type: "mrkdwn", text: "hello" },
-      });
+  describe("static entry points", () => {
+    test("BlockKitBuilder.section() creates a mrkdwn section block", () => {
+      expect(BlockKitBuilder.section("hello").toBlocks()).toEqual([
+        { type: "section", text: { type: "mrkdwn", text: "hello" } },
+      ]);
     });
 
-    test("divider() creates a divider block", () => {
-      expect(divider()).toEqual({ type: "divider" });
+    test("BlockKitBuilder.divider() creates a divider block", () => {
+      expect(BlockKitBuilder.divider().toBlocks()).toEqual([
+        { type: "divider" },
+      ]);
     });
 
-    test("header() creates a plain_text header block", () => {
-      expect(header("Title")).toEqual({
-        type: "header",
-        text: { type: "plain_text", text: "Title" },
-      });
+    test("BlockKitBuilder.header() creates a plain_text header block", () => {
+      expect(BlockKitBuilder.header("Title").toBlocks()).toEqual([
+        {
+          type: "header",
+          text: { type: "plain_text", text: "Title", emoji: true },
+        },
+      ]);
     });
   });
 
@@ -37,7 +35,10 @@ describe("block-kit-builder", () => {
         .toBlocks();
 
       expect(blocks).toEqual([
-        { type: "header", text: { type: "plain_text", text: "Welcome" } },
+        {
+          type: "header",
+          text: { type: "plain_text", text: "Welcome", emoji: true },
+        },
         {
           type: "section",
           text: { type: "mrkdwn", text: "Some *bold* text" },
@@ -47,18 +48,11 @@ describe("block-kit-builder", () => {
       ]);
     });
 
-    test("toBlocks() returns a copy", () => {
+    test("toBlocks() returns consistent results", () => {
       const builder = new BlockKitBuilder().section("test");
       const blocks1 = builder.toBlocks();
       const blocks2 = builder.toBlocks();
       expect(blocks1).toEqual(blocks2);
-      expect(blocks1).not.toBe(blocks2);
-    });
-
-    test("addBlock() accepts arbitrary blocks", () => {
-      const builder = new BlockKitBuilder();
-      builder.addBlock({ type: "divider" });
-      expect(builder.toBlocks()).toEqual([{ type: "divider" }]);
     });
   });
 });

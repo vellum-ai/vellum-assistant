@@ -13,7 +13,7 @@ describe("buildAppHomeView", () => {
     const view = buildAppHomeView(ctx);
     const header = view.blocks.find((b) => b.type === "header");
     expect(header).toBeDefined();
-    expect(header!.type === "header" && header.text.text).toBe(
+    expect(header!.type === "header" && header!.text.text).toBe(
       "Vellum Assistant",
     );
   });

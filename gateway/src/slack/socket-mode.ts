@@ -315,8 +315,8 @@ export class SlackSocketModeClient {
 
     // Handle app_home_opened: publish the App Home view for the user
     const event = eventPayload.event;
-    if (event.type === "app_home_opened") {
-      const homeEvent = event as {
+    if ((event as { type: string }).type === "app_home_opened") {
+      const homeEvent = event as unknown as {
         type: "app_home_opened";
         user: string;
         tab?: string;
