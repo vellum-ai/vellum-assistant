@@ -313,7 +313,12 @@ export async function runDaemon(): Promise<void> {
 
     const scheduler = startScheduler(
       async (conversationId, message) => {
-        await server.processMessage(conversationId, message);
+        await server.processMessage(conversationId, message, undefined, {
+          trustContext: {
+            sourceChannel: "vellum",
+            trustClass: "guardian",
+          },
+        });
       },
       (reminder) => {
         void emitNotificationSignal({
