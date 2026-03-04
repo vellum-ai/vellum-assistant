@@ -152,7 +152,7 @@ enum LogExporter {
 
     /// Copies all files from `source` into `dest`, creating `dest` if needed.
     /// Silently skips if `source` doesn't exist or is empty.
-    private static func copyDirectoryContents(
+    private nonisolated static func copyDirectoryContents(
         from source: URL,
         to dest: URL,
         fileManager: FileManager
