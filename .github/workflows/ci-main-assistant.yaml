@@ -11,7 +11,7 @@ on:
 jobs:
   checks:
     name: Lint, Type Check & Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     timeout-minutes: 15
     defaults:
       run:
