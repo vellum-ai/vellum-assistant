@@ -210,6 +210,30 @@ describe("generateManagedAvatar", () => {
     }
   });
 
+  test("response with oversized base64 estimated decoded size throws validation error", async () => {
+    // Create a base64 string whose estimated decoded size exceeds the limit,
+    // even though the server-reported bytes field is under the limit
+    const oversizedBase64 = "A".repeat(Math.ceil((AVATAR_MAX_DECODED_BYTES + 100) * 4 / 3));
+    fetchResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...successResponse(),
+        image: { ...successResponse().image, data_base64: oversizedBase64, bytes: 1024 },
+      }),
+    };
+
+    try {
+      await generateManagedAvatar("test prompt");
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ManagedAvatarError);
+      const avatarErr = err as ManagedAvatarError;
+      expect(avatarErr.code).toBe("validation_error");
+      expect(avatarErr.subcode).toBe("oversized_image");
+    }
+  });
+
   test("Authorization header uses Api-Key prefix", async () => {
     await generateManagedAvatar("test prompt");
 
@@ -226,6 +250,15 @@ describe("generateManagedAvatar", () => {
     const headers = lastFetchArgs![1].headers as Record<string, string>;
     expect(headers["Idempotency-Key"]).toBeDefined();
     expect(headers["Idempotency-Key"].length).toBeGreaterThan(0);
+  });
+
+  test("caller-provided idempotencyKey is used in the request header", async () => {
+    const customKey = "my-custom-idempotency-key-123";
+    await generateManagedAvatar("test prompt", { idempotencyKey: customKey });
+
+    expect(lastFetchArgs).not.toBeNull();
+    const headers = lastFetchArgs![1].headers as Record<string, string>;
+    expect(headers["Idempotency-Key"]).toBe(customKey);
   });
 });
 

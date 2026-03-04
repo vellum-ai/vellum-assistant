@@ -31,7 +31,7 @@ export function isManagedAvailable(): boolean {
 
 export async function generateManagedAvatar(
   prompt: string,
-  options?: { correlationId?: string },
+  options?: { correlationId?: string; idempotencyKey?: string },
 ): Promise<ManagedAvatarResponse> {
   if (prompt.length > AVATAR_PROMPT_MAX_LENGTH) {
     throw new ManagedAvatarError({
@@ -57,8 +57,19 @@ export async function generateManagedAvatar(
   }
 
   const baseUrl = getManagedAvatarBaseUrl();
+  if (!baseUrl) {
+    throw new ManagedAvatarError({
+      code: "configuration_error",
+      subcode: "missing_base_url",
+      detail: "Platform base URL is not configured. Set platform.baseUrl in config or PLATFORM_BASE_URL environment variable.",
+      retryable: false,
+      correlationId: options?.correlationId ?? crypto.randomUUID(),
+      statusCode: 0,
+    });
+  }
+
   const url = `${baseUrl}/v1/assistants/avatar/generate/`;
-  const idempotencyKey = crypto.randomUUID();
+  const idempotencyKey = options?.idempotencyKey ?? crypto.randomUUID();
   const correlationId = options?.correlationId ?? crypto.randomUUID();
 
   const headers: Record<string, string> = {
@@ -70,12 +81,25 @@ export async function generateManagedAvatar(
 
   log.debug({ url, correlationId }, "Requesting managed avatar generation");
 
-  const response = await fetch(url, {
-    method: "POST",
-    body: JSON.stringify({ prompt }),
-    signal: AbortSignal.timeout(60_000),
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      body: JSON.stringify({ prompt }),
+      signal: AbortSignal.timeout(60_000),
+      headers,
+    });
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && err.name === "TimeoutError";
+    throw new ManagedAvatarError({
+      code: "avatar_generation_failed",
+      subcode: isTimeout ? "upstream_timeout" : "network_error",
+      detail: isTimeout ? "Request to avatar generation service timed out" : `Network error: ${err instanceof Error ? err.message : String(err)}`,
+      retryable: true,
+      correlationId,
+      statusCode: 0,
+    });
+  }
 
   if (!response.ok) {
     let errorBody: ManagedAvatarErrorResponse;
@@ -115,11 +139,12 @@ export async function generateManagedAvatar(
     });
   }
 
-  if (body.image.bytes > AVATAR_MAX_DECODED_BYTES) {
+  const estimatedDecodedBytes = Math.ceil(body.image.data_base64.length * 3 / 4);
+  if (estimatedDecodedBytes > AVATAR_MAX_DECODED_BYTES || body.image.bytes > AVATAR_MAX_DECODED_BYTES) {
     throw new ManagedAvatarError({
       code: "validation_error",
       subcode: "oversized_image",
-      detail: `Response image size ${body.image.bytes} exceeds maximum of ${AVATAR_MAX_DECODED_BYTES} bytes`,
+      detail: `Response image size ${Math.max(estimatedDecodedBytes, body.image.bytes)} exceeds maximum of ${AVATAR_MAX_DECODED_BYTES} bytes`,
       retryable: false,
       correlationId,
       statusCode: 0,
