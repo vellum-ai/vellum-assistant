@@ -1,11 +1,28 @@
-import { upsertContact } from "../../../../contacts/contact-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../runtime/assistant-scope.js";
+import { getGatewayInternalBaseUrl } from "../../../../config/env.js";
+import { mintEdgeRelayToken } from "../../../../runtime/auth/token-service.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
-function formatContact(c: ReturnType<typeof upsertContact>): string {
+interface ContactChannel {
+  type: string;
+  address: string;
+  isPrimary: boolean;
+}
+
+interface ContactResponse {
+  id: string;
+  displayName: string;
+  relationship: string | null;
+  importance: number;
+  responseExpectation: string | null;
+  preferredTone: string | null;
+  interactionCount: number;
+  channels: ContactChannel[];
+}
+
+function formatContact(c: ContactResponse): string {
   const lines = [`Contact ${c.id}`, `  Name: ${c.displayName}`];
   if (c.relationship) lines.push(`  Relationship: ${c.relationship}`);
   lines.push(`  Importance: ${c.importance.toFixed(2)}`);
@@ -61,21 +78,46 @@ export async function executeContactUpsert(
   }));
 
   try {
-    const contact = upsertContact({
-      id: input.id as string | undefined,
-      displayName: displayName.trim(),
-      relationship: input.relationship as string | undefined,
-      importance,
-      responseExpectation: input.response_expectation as string | undefined,
-      preferredTone: input.preferred_tone as string | undefined,
-      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-      channels,
+    const gatewayBase = getGatewayInternalBaseUrl();
+    const token = mintEdgeRelayToken();
+
+    const resp = await fetch(`${gatewayBase}/v1/contacts`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        id: input.id as string | undefined,
+        displayName: displayName.trim(),
+        relationship: input.relationship as string | undefined,
+        importance,
+        responseExpectation: input.response_expectation as string | undefined,
+        preferredTone: input.preferred_tone as string | undefined,
+        channels,
+      }),
     });
 
+    if (!resp.ok) {
+      const body = await resp.text();
+      let message = `Gateway request failed (${resp.status})`;
+      try {
+        const parsed = JSON.parse(body) as { error?: string };
+        if (parsed.error) message = parsed.error;
+      } catch {
+        if (body) message = body;
+      }
+      return { content: `Error: ${message}`, isError: true };
+    }
+
+    const data = (await resp.json()) as {
+      ok: boolean;
+      contact: ContactResponse;
+    };
+    const created = resp.status === 201;
+
     return {
-      content: `${
-        contact.created ? "Created" : "Updated"
-      } contact:\n${formatContact(contact)}`,
+      content: `${created ? "Created" : "Updated"} contact:\n${formatContact(data.contact)}`,
       isError: false,
     };
   } catch (err) {
