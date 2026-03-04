@@ -134,13 +134,13 @@ Telegram integration setup/config endpoints and ingress members/invites endpoint
 | POST            | `/v1/integrations/telegram/commands` |
 | POST            | `/v1/integrations/telegram/setup`    |
 
-**Forwarded ingress endpoints:**
+**Forwarded invite endpoints:**
 
-| Method   | Path                            |
-| -------- | ------------------------------- |
-| GET/POST | `/v1/ingress/invites`           |
-| DELETE   | `/v1/ingress/invites/:inviteId` |
-| POST     | `/v1/ingress/invites/redeem`    |
+| Method   | Path                             |
+| -------- | -------------------------------- |
+| GET/POST | `/v1/contacts/invites`           |
+| DELETE   | `/v1/contacts/invites/:inviteId` |
+| POST     | `/v1/contacts/invites/redeem`    |
 
 **Authentication boundary:**
 
@@ -567,7 +567,7 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 | `assistant/src/memory/ingress-invite-store.ts`   | CRUD for invite tokens with SHA-256 hashing and expiry                    |
 | `assistant/src/contacts/contact-store.ts`        | Contact and channel lookups (findContactChannel, guardian bindings)       |
 | `assistant/src/contacts/contacts-write.ts`       | Contact and channel writes (upsert, policy changes, invite redemption)    |
-| `assistant/src/daemon/handlers/config-inbox.ts`  | IPC handlers for ingress invite and member contracts                      |
+| `assistant/src/daemon/handlers/config-inbox.ts`  | IPC handlers for invite and member contracts                              |
 | `assistant/src/runtime/routes/channel-routes.ts` | ACL enforcement point -- member lookup, policy check, escalation creation |
 
 ### Telegram Credential Flow

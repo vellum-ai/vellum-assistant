@@ -454,7 +454,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `src/memory/ingress-invite-store.ts`                | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
-| `src/daemon/handlers/config-inbox.ts`               | IPC handlers for ingress invite contract                                                                         |
+| `src/daemon/handlers/config-inbox.ts`               | IPC handlers for invite contract                                                                                 |
 | `src/daemon/ipc-contract/inbox.ts`                  | TypeScript type definitions for ingress IPC messages                                                             |
 | `src/runtime/routes/channel-routes.ts`              | ACL enforcement point — member lookup, policy check, escalation creation                                         |
 | `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, member creation, discriminated-union outcomes                         |

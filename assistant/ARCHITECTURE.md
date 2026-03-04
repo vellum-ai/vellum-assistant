@@ -520,7 +520,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 **Creation flow:**
 
-1. Guardian creates a voice invite via `POST /v1/ingress/invites` with `sourceChannel: "voice"` and `expectedExternalUserId` (E.164 phone).
+1. Guardian creates a voice invite via `POST /v1/contacts/invites` with `sourceChannel: "voice"` and `expectedExternalUserId` (E.164 phone).
 2. `ingress-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
 3. The one-time plaintext `voiceCode` is returned in the creation response. The raw token is NOT returned for voice invites — redemption uses the identity-bound code flow exclusively.
 4. Guardian communicates the code to the invitee out-of-band.
@@ -2206,7 +2206,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | Guardian bindings                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                       |
 | Guardian verification challenges             | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired challenges retained            |
 | Guardian approval requests                   | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                       |
-| Ingress invites                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted    |
+| Contact invites                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted    |
 | Contacts & channels                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained               |
 | Notification events                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; deduplicated by dedupeKey                       |
 | Notification decisions                       | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                       |
