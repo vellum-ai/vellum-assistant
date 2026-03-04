@@ -303,7 +303,18 @@ export class SlackSocketModeClient {
 
     if (!normalized) {
       log.info(
-        { eventId, channel: event.channel, type: event.type },
+        {
+          eventId,
+          channel: isReactionAdded
+            ? (event as SlackReactionAddedEvent).item.channel
+            : (
+                event as
+                  | SlackAppMentionEvent
+                  | SlackDirectMessageEvent
+                  | SlackChannelMessageEvent
+              ).channel,
+          type: event.type,
+        },
         "Slack event dropped by normalization/routing",
       );
       return;
