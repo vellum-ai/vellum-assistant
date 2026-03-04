@@ -141,8 +141,11 @@ export class RetryProvider implements Provider {
           // Prefer server-provided Retry-After; fall back to exponential backoff.
           const retryAfter =
             error instanceof ProviderError ? error.retryAfterMs : undefined;
-          const delay =
-            retryAfter ?? computeRetryDelay(attempt, DEFAULT_BASE_DELAY_MS);
+          const MAX_RETRY_DELAY_MS = 60_000; // Cap server-suggested delays at 60s
+          const delay = Math.min(
+            retryAfter ?? computeRetryDelay(attempt, DEFAULT_BASE_DELAY_MS),
+            MAX_RETRY_DELAY_MS,
+          );
           const errorType =
             error instanceof ProviderError && error.statusCode === 429
               ? "rate_limit"

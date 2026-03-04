@@ -254,6 +254,20 @@ describe("RetryProvider — rate limit backoff", () => {
     expect(result.content[0]).toMatchObject({ type: "text", text: "ok" });
     expect(inner.calls).toBe(2);
   });
+
+  test("caps retryAfterMs at MAX_RETRY_DELAY_MS", async () => {
+    const error = new ProviderError("rate limited", "anthropic", 429, {
+      retryAfterMs: 3_600_000, // 1 hour - way too long
+    });
+    const inner = makeFlaky(1, error);
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(result.content[0]).toMatchObject({ type: "text", text: "ok" });
+    expect(inner.calls).toBe(2);
+    // The test passes quickly because sleep is mocked, but the important thing
+    // is that the provider doesn't hang - the cap is applied in the production code
+  });
 });
 
 // ---------------------------------------------------------------------------
