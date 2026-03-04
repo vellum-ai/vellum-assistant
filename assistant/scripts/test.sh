@@ -18,6 +18,8 @@ set -uo pipefail
 EXCLUDE_EXPERIMENTAL="${EXCLUDE_EXPERIMENTAL:-false}"
 WORKERS="${TEST_WORKERS:-$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 8)}"
 COVERAGE="${COVERAGE:-false}"
+# Per-test timeout (seconds). Kills bun processes that pass but don't exit due to open handles.
+PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-120}"
 
 EXPERIMENTAL_FILES=(
   "skill-load-tool.test.ts"
@@ -72,6 +74,7 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   results_dir="$2"
   exclude_exp="$3"
   coverage_enabled="$4"
+  per_test_timeout="$5"
 
   safe_name="$(echo "${test_file}" | tr "/" "_")"
   out_file="${results_dir}/${safe_name}.out"
@@ -83,12 +86,28 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
     coverage_args="--coverage --coverage-reporter=lcov --coverage-dir=${cov_dir}"
   fi
 
+  # Resolve timeout binary (coreutils `timeout` on Linux, `gtimeout` on macOS via brew)
+  timeout_cmd=""
+  if command -v timeout &>/dev/null; then
+    timeout_cmd="timeout"
+  elif command -v gtimeout &>/dev/null; then
+    timeout_cmd="gtimeout"
+  fi
+
   start_ms=$(perl -MTime::HiRes=time -e "printf \"%d\", time*1000")
 
-  if [[ "${exclude_exp}" == "true" ]]; then
-    bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+  if [[ -n "${timeout_cmd}" ]]; then
+    if [[ "${exclude_exp}" == "true" ]]; then
+      "${timeout_cmd}" "${per_test_timeout}" bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+    else
+      "${timeout_cmd}" "${per_test_timeout}" bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
+    fi
   else
-    bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
+    if [[ "${exclude_exp}" == "true" ]]; then
+      bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+    else
+      bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
+    fi
   fi
   exit_code=$?
 
@@ -96,13 +115,17 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   elapsed=$(( end_ms - start_ms ))
 
   base="$(basename "${test_file}")"
-  if [[ ${exit_code} -ne 0 ]]; then
+  if [[ ${exit_code} -eq 124 ]]; then
+    # timeout killed the process — tests likely passed but bun did not exit (open handles)
+    echo "${test_file}" >> "${results_dir}/failures"
+    echo "  ⚠ ${base} (killed after ${per_test_timeout}s — process hung, likely open handles)"
+  elif [[ ${exit_code} -ne 0 ]]; then
     echo "${test_file}" >> "${results_dir}/failures"
     echo "  ✗ ${base} (${elapsed}ms)"
   else
     echo "  ✓ ${base} (${elapsed}ms)"
   fi
-' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}" "${COVERAGE}"
+' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}" "${COVERAGE}" "${PER_TEST_TIMEOUT}"
 xargs_exit=$?
 
 # Verify tests actually ran — catch xargs startup failures (e.g. invalid TEST_WORKERS)
