@@ -157,32 +157,35 @@ describe("setAvatarTool", () => {
     expect(result.content).toContain("Content was filtered by safety policy");
   });
 
-  test("generic error returns fallback message", async () => {
+  test("generic error returns mapped message", async () => {
     mockRouterError = new Error("Network timeout");
 
     const result = await executeAvatar("a cat");
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("Network timeout");
+    expect(result.content).toContain(
+      "Image generation failed: Network timeout",
+    );
   });
 
   test("atomic write — file is written to .tmp then renamed", async () => {
     await executeAvatar("a friendly cat");
 
     const expectedPath = "/tmp/test-workspace/data/avatar/custom-avatar.png";
-    const expectedTmpPath = `${expectedPath}.tmp`;
 
     // Verify mkdirSync was called for the directory
     expect(mkdirSyncFn).toHaveBeenCalledTimes(1);
     expect(mkdirSyncFn.mock.calls[0][1]).toEqual({ recursive: true });
 
-    // Verify writeFileSync writes to tmp path
+    // Verify writeFileSync writes to a unique tmp path
     expect(writeFileSyncFn).toHaveBeenCalledTimes(1);
-    expect(writeFileSyncFn.mock.calls[0][0]).toBe(expectedTmpPath);
+    const tmpPath = writeFileSyncFn.mock.calls[0][0] as string;
+    expect(tmpPath).toStartWith(expectedPath + ".");
+    expect(tmpPath).toEndWith(".tmp");
 
     // Verify renameSync moves tmp to final path
     expect(renameSyncFn).toHaveBeenCalledTimes(1);
-    expect(renameSyncFn.mock.calls[0][0]).toBe(expectedTmpPath);
+    expect(renameSyncFn.mock.calls[0][0]).toBe(tmpPath);
     expect(renameSyncFn.mock.calls[0][1]).toBe(expectedPath);
   });
 });

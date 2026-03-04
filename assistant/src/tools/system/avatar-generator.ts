@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { routedGenerateAvatar } from "../../media/avatar-router.js";
 import { ManagedAvatarError } from "../../media/avatar-types.js";
+import { mapGeminiError } from "../../media/gemini-image-service.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -85,7 +87,7 @@ export const setAvatarTool: Tool = {
       const avatarPath = getAvatarPath();
       const avatarDir = dirname(avatarPath);
 
-      const tmpPath = `${avatarPath}.tmp`;
+      const tmpPath = `${avatarPath}.${randomUUID()}.tmp`;
       mkdirSync(avatarDir, { recursive: true });
       writeFileSync(tmpPath, pngBuffer);
       renameSync(tmpPath, avatarPath);
@@ -140,7 +142,7 @@ export const setAvatarTool: Tool = {
         };
       }
 
-      const message = error instanceof Error ? error.message : String(error);
+      const message = mapGeminiError(error);
       log.error({ error: message }, "Avatar generation failed");
       return {
         content: `Avatar generation failed: ${message}`,
