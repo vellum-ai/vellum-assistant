@@ -1617,6 +1617,7 @@ struct MainWindowView: View {
                                 ForEach(regularThreads) { thread in
                                     let isActive = thread.id == threadManager.activeThreadId
                                     let isHovered = sidebar.isHoveredThread == thread.id
+                                    let hasTrailingIcon = isHovered || sidebar.threadPendingDeletion == thread.id
                                     let interactionState = threadManager.interactionState(for: thread.id)
                                     HStack(spacing: VSpacing.xs) {
                                         // Leading status indicator / pin button slot
@@ -1684,7 +1685,8 @@ struct MainWindowView: View {
 
                                         Spacer()
                                     }
-                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.leading, VSpacing.sm)
+                                    .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
                                     .padding(.vertical, VSpacing.xs)
                                     .background {
                                         if isActive {
@@ -1696,11 +1698,50 @@ struct MainWindowView: View {
                                         }
                                     }
                                     .animation(VAnimation.fast, value: isHovered)
+                                    .overlay(alignment: .trailing) {
+                                        if sidebar.threadPendingDeletion == thread.id {
+                                            VButton(label: "Confirm", style: .danger, size: .small) {
+                                                threadManager.archiveThread(id: thread.id)
+                                                sidebar.threadPendingDeletion = nil
+                                            }
+                                            .padding(.trailing, VSpacing.xs)
+                                        } else if isHovered {
+                                            Button {
+                                                sidebar.threadPendingDeletion = thread.id
+                                            } label: {
+                                                Image(systemName: "archivebox")
+                                                    .font(.system(size: 13, weight: .medium))
+                                                    .foregroundColor(VColor.textSecondary)
+                                                    .frame(width: 20, height: 20)
+                                                    .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .padding(.trailing, VSpacing.xs)
+                                        }
+                                    }
                                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         selectThread(thread)
                                         showThreadSwitcher = false
+                                    }
+                                    .contextMenu {
+                                        Button {
+                                            withAnimation(VAnimation.standard) {
+                                                if thread.isPinned {
+                                                    threadManager.unpinThread(id: thread.id)
+                                                } else {
+                                                    threadManager.pinThread(id: thread.id)
+                                                }
+                                            }
+                                        } label: {
+                                            Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
+                                        }
+                                        Button {
+                                            threadManager.archiveThread(id: thread.id)
+                                        } label: {
+                                            Label("Archive", systemImage: "archivebox")
+                                        }
                                     }
                                     .onHover { hovering in
                                         withAnimation(VAnimation.fast) {
