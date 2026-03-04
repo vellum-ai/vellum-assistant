@@ -216,19 +216,15 @@ struct ChatBubble: View {
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         if message.isNudge {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.blue.opacity(0.15))
-                                    .frame(width: 28, height: 28)
-                                Image(systemName: "info.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(Color.blue)
-                            }
-                            .overlay(
-                                Circle()
-                                    .strokeBorder(Color.blue.opacity(0.25), lineWidth: 1)
-                            )
-                            .offset(x: -(28 + VSpacing.sm), y: 0)
+                            Image(nsImage: appearance.chatAvatarImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 28, height: 28)
+                                .saturation(0)
+                                .clipShape(Circle())
+                                .overlay(Circle().fill(Color.blue.opacity(0.45)))
+                                .overlay(Circle().strokeBorder(Color.blue.opacity(0.4), lineWidth: 1))
+                                .offset(x: -(28 + VSpacing.sm), y: 0)
                         } else {
                             Image(nsImage: appearance.chatAvatarImage)
                                 .resizable()
