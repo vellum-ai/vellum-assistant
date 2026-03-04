@@ -133,12 +133,11 @@ vellum integrations guardian status --channel voice --json
 6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user — "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
 
 **Rebind guard:**
-When in a **rebind flow** (i.e., the `start_outbound` request included `"rebind": true` because a binding already existed), do NOT treat the first `bound: true` poll result as success. The pre-existing binding will already show `bound: true` before the user has entered the new code, which would be a false positive. To guard against this:
+When in a **rebind flow** (i.e., the `start_outbound` request included `"rebind": true` because a binding already existed), do NOT treat `bound: true` alone as success. The pre-existing binding will show `bound: true` before the user has entered the new code, which would be a false positive. To guard against this:
 
-- Note the `bound_at` timestamp from the **first** poll response as a baseline.
-- Only report success when a subsequent poll shows `bound: true` with a `bound_at` timestamp **strictly newer** than the baseline. This proves the new outbound session was consumed.
-- If the status endpoint does not include `bound_at`, fall back to skipping the first poll result entirely and only start evaluating `bound: true` from the **second poll onward** (giving the user time to enter the new code).
-- Non-rebind flows (fresh verification with no prior binding) are unaffected — the first `bound: true` is trustworthy.
+- Only report success when BOTH conditions are met: `bound: true` AND `verificationSessionId` is **absent** from the status response. The `verificationSessionId` field is present while a verification session is still active (pending). When the user enters the correct code, the session is consumed and `verificationSessionId` disappears from subsequent status responses. This proves the new outbound session was consumed and the binding is fresh.
+- If a poll shows `bound: true` but `verificationSessionId` is still present, the old binding is still active and the new code has not yet been consumed — continue polling.
+- Non-rebind flows (fresh verification with no prior binding) are unaffected — the first `bound: true` is trustworthy because there was no prior binding to confuse the result.
 
 **Important polling rules:**
 
@@ -165,12 +164,11 @@ vellum integrations guardian status --channel slack --json
 6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user — "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
 
 **Rebind guard:**
-When in a **rebind flow** (i.e., the `start_outbound` request included `"rebind": true` because a binding already existed), do NOT treat the first `bound: true` poll result as success. The pre-existing binding will already show `bound: true` before the user has entered the new code, which would be a false positive. To guard against this:
+When in a **rebind flow** (i.e., the `start_outbound` request included `"rebind": true` because a binding already existed), do NOT treat `bound: true` alone as success. The pre-existing binding will show `bound: true` before the user has entered the new code, which would be a false positive. To guard against this:
 
-- Note the `bound_at` timestamp from the **first** poll response as a baseline.
-- Only report success when a subsequent poll shows `bound: true` with a `bound_at` timestamp **strictly newer** than the baseline.
-- If the status endpoint does not include `bound_at`, fall back to skipping the first poll result entirely and only start evaluating `bound: true` from the **second poll onward** (giving the user time to enter the new code).
-- Non-rebind flows (fresh verification with no prior binding) are unaffected — the first `bound: true` is trustworthy.
+- Only report success when BOTH conditions are met: `bound: true` AND `verificationSessionId` is **absent** from the status response. The `verificationSessionId` field is present while a verification session is still active (pending). When the user enters the correct code, the session is consumed and `verificationSessionId` disappears from subsequent status responses. This proves the new outbound session was consumed and the binding is fresh.
+- If a poll shows `bound: true` but `verificationSessionId` is still present, the old binding is still active and the new code has not yet been consumed — continue polling.
+- Non-rebind flows (fresh verification with no prior binding) are unaffected — the first `bound: true` is trustworthy because there was no prior binding to confuse the result.
 
 **Important polling rules:**
 
@@ -217,4 +215,4 @@ The response includes `bound: false` after the operation completes. Check the pr
 - Per-destination rate limiting allows up to 10 sends within a 1-hour rolling window.
 - Guardian verification is identity-bound: the code can only be consumed by the identity matching the destination provided at start time.
 - **Missing `secret` guardrail**: For voice, Telegram chat-ID, and Slack flows, the API response MUST include a `secret` field. If `secret` is unexpectedly absent from a start or resend response that otherwise indicates success, treat this as a control-plane error. Do NOT fabricate a code or tell the user to proceed without one. Instead, tell the user something went wrong and ask them to retry the start (Step 3) or resend (Step 4).
-- **Revoking a guardian**: To remove the current guardian from a channel, use the revoke API (Step 7). This revokes the binding AND revokes the guardian's ingress member record, so they lose access to the channel. A new guardian can then be verified for that channel.
+- **Revoking a guardian**: To remove the current guardian from a channel, use the revoke API (Step 7). This revokes the binding AND revokes the guardian's contact record, so they lose access to the channel. A new guardian can then be verified for that channel.
