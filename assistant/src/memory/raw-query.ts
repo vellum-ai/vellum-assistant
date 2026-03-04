@@ -156,6 +156,14 @@ export function rawPrepareFrom(
  * test files that clear 10-15 tables in every `beforeEach`.
  */
 export function resetTestTables(...tables: string[]): void {
+  const sqlite = getSqlite();
   const deletes = tables.map((t) => `DELETE FROM "${t}"`).join(";\n");
-  getSqlite().exec(`BEGIN;\n${deletes};\nCOMMIT;`);
+  sqlite.exec("BEGIN");
+  try {
+    sqlite.exec(deletes);
+    sqlite.exec("COMMIT");
+  } catch (e) {
+    sqlite.exec("ROLLBACK");
+    throw e;
+  }
 }
