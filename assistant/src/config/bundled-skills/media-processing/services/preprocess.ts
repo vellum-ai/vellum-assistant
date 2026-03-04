@@ -446,7 +446,8 @@ export async function preprocessForAsset(
 
     const scaleFilter = `scale='if(gt(iw,ih),-1,${config.shortEdge})':'if(gt(iw,ih),${config.shortEdge},-1)'`;
 
-    for (const seg of rawSegments) {
+    for (let i = 0; i < rawSegments.length; i++) {
+      const seg = rawSegments[i];
       const segDuration = seg.endSeconds - seg.startSeconds;
       const effectiveInterval = computeEffectiveInterval(
         segDuration,
@@ -511,6 +512,9 @@ export async function preprocessForAsset(
         framePaths,
         frameTimestamps: actualTimestamps,
       });
+
+      const segProgress = Math.round(((i + 1) / rawSegments.length) * 80);
+      updateProcessingStage(stage.id, { progress: segProgress });
     }
 
     const totalFrames = segments.reduce(
@@ -538,6 +542,7 @@ export async function preprocessForAsset(
     onProgress?.(
       `Identified ${subjectRegistry.groups.length} subject group(s).\n`,
     );
+    updateProcessingStage(stage.id, { progress: 90 });
 
     // Step 5: Section boundaries
     let sectionBoundaries: SectionBoundary[];
@@ -570,6 +575,7 @@ export async function preprocessForAsset(
     if (keyframeRows.length > 0) {
       insertKeyframesBatch(keyframeRows);
     }
+    updateProcessingStage(stage.id, { progress: 95 });
 
     // Step 7: Write manifest
     const manifest: PreprocessManifest = {
