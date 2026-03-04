@@ -29,11 +29,6 @@ on:
         required: false
         type: number
         default: 1
-      workers:
-        description: 'Number of Playwright workers per shard. Each worker runs tests in parallel within a single runner.'
-        required: false
-        type: number
-        default: 4
   pull_request:
     types: [labeled]
 
@@ -183,7 +178,6 @@ jobs:
     env:
       APP_DISPLAY_NAME: Vellum
       TOTAL_SHARDS: ${{ needs.prepare.outputs.total-shards }}
-      PW_WORKERS: ${{ inputs.workers || 4 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -290,7 +284,6 @@ jobs:
         continue-on-error: true
         env:
           RUN_EXPERIMENTAL: ${{ inputs.run_experimental && '1' || '' }}
-          PW_WORKERS: ${{ github.event_name == 'schedule' && '4' || inputs.workers || '1' }}
         run: |
           SHARD_ARGS=""
           if [ "$TOTAL_SHARDS" -gt 1 ]; then

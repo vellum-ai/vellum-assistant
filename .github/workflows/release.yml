@@ -1825,8 +1825,6 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: playwright
-        env:
-          PW_WORKERS: '4'
         run: bun run test
 
       - name: Upload Playwright report
