@@ -533,7 +533,7 @@ private struct StepDetailRow: View {
             // Expanded detail section (completed only)
             if isDetailExpanded {
                 stepDetailContent
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
                     .onAppear {
                         if cachedInputFull == nil {
                             if !toolCall.inputFull.isEmpty {
@@ -548,7 +548,6 @@ private struct StepDetailRow: View {
                     }
             }
         }
-        .clipped()
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
             if newValue, cachedInputFull == nil {
