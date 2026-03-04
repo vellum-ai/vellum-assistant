@@ -73,7 +73,7 @@ struct ChatBubble: View {
         } else if message.isError {
             AnyShapeStyle(VColor.error.opacity(0.1))
         } else if message.isNudge {
-            AnyShapeStyle(VColor.accent.opacity(0.07))
+            AnyShapeStyle(VColor.accent.opacity(0.12))
         } else {
             AnyShapeStyle(Color.clear)
         }
@@ -86,7 +86,7 @@ struct ChatBubble: View {
                 .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
         } else if message.isNudge {
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .strokeBorder(VColor.accent.opacity(0.2), lineWidth: 1)
+                .strokeBorder(VColor.accent.opacity(0.35), lineWidth: 1)
         }
     }
 

@@ -413,7 +413,7 @@ struct MessageListView: View {
                                 onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 resolveHttpPort: resolveHttpPort,
-                                showAvatar: !previousIsAssistant,
+                                showAvatar: !previousIsAssistant || message.isNudge,
                                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
