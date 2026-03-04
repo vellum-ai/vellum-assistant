@@ -60,11 +60,11 @@ export function textToBlocks(text: string): Block[] {
       elements: [
         {
           type: "mrkdwn",
-          text: `_Content truncated — ${totalBlocks - 49} blocks omitted due to Slack's ${SLACK_BLOCK_LIMIT}-block limit_`,
+          text: `_Content truncated — ${totalBlocks - (SLACK_BLOCK_LIMIT - 1)} blocks omitted due to Slack's ${SLACK_BLOCK_LIMIT}-block limit_`,
         },
       ],
     };
-    return [...blocks.slice(0, 49), truncationNote];
+    return [...blocks.slice(0, SLACK_BLOCK_LIMIT - 1), truncationNote];
   }
 
   return blocks;
