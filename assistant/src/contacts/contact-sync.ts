@@ -69,8 +69,9 @@ export function syncSingleGuardianBinding(binding: GuardianBinding): void {
       {
         type: binding.channel,
         address: canonicalId,
-        externalUserId: binding.guardianExternalUserId,
+        externalUserId: canonicalId,
         externalChatId: binding.guardianDeliveryChatId,
+        legacyAddress: binding.guardianExternalUserId !== canonicalId ? binding.guardianExternalUserId : undefined,
         status: "active",
         verifiedAt: binding.verifiedAt,
         verifiedVia: binding.verifiedVia,
@@ -107,6 +108,7 @@ export function syncSingleMember(member: IngressMember): void {
 
   let address: string;
   let externalUserId: string | null;
+  let legacyAddress: string | undefined;
 
   if (member.externalUserId) {
     const canonicalId =
@@ -115,7 +117,10 @@ export function syncSingleMember(member: IngressMember): void {
         member.externalUserId,
       ) ?? member.externalUserId;
     address = canonicalId;
-    externalUserId = member.externalUserId;
+    externalUserId = canonicalId;
+    if (member.externalUserId !== canonicalId) {
+      legacyAddress = member.externalUserId;
+    }
   } else {
     address = member.externalChatId!;
     externalUserId = null;
@@ -129,6 +134,7 @@ export function syncSingleMember(member: IngressMember): void {
         address,
         externalUserId,
         externalChatId: member.externalChatId,
+        legacyAddress,
         status: member.status as ChannelStatus,
         policy: member.policy as "allow" | "deny" | "escalate",
         inviteId: member.inviteId,

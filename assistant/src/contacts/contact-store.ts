@@ -75,6 +75,8 @@ interface SyncChannelData {
   isPrimary?: boolean;
   externalUserId?: string | null;
   externalChatId?: string | null;
+  /** Raw (pre-canonicalization) address used only for dedup fallback against legacy records. */
+  legacyAddress?: string;
   status?: ChannelStatus;
   policy?: ChannelPolicy;
   verifiedAt?: number | null;
@@ -146,14 +148,14 @@ export function upsertContact(params: {
         .get();
 
       // Fallback: if the address was canonicalized, the old record may still
-      // have the raw (non-canonical) address. Try matching by externalUserId
-      // treated as an address so we update the existing contact instead of
-      // creating a duplicate.
-      if (!existingChannel && ch.externalUserId && ch.externalUserId.toLowerCase() !== ch.address.toLowerCase()) {
+      // have the raw (non-canonical) address stored. Try matching by
+      // legacyAddress so we update the existing contact instead of creating
+      // a duplicate.
+      if (!existingChannel && ch.legacyAddress && ch.legacyAddress.toLowerCase() !== ch.address.toLowerCase()) {
         existingChannel = db
           .select()
           .from(contactChannels)
-          .where(and(eq(contactChannels.type, ch.type), eq(contactChannels.address, ch.externalUserId.toLowerCase())))
+          .where(and(eq(contactChannels.type, ch.type), eq(contactChannels.address, ch.legacyAddress.toLowerCase())))
           .get();
       }
 
@@ -234,8 +236,8 @@ function syncChannels(
       .get();
 
     // Fallback: the channel may have been stored with a pre-canonicalization
-    // address. Try matching by externalUserId as the address to find it.
-    if (!existing && ch.externalUserId && ch.externalUserId.toLowerCase() !== normalizedAddress) {
+    // address. Try matching by legacyAddress to find it.
+    if (!existing && ch.legacyAddress && ch.legacyAddress.toLowerCase() !== normalizedAddress) {
       existing = db
         .select()
         .from(contactChannels)
@@ -243,7 +245,7 @@ function syncChannels(
           and(
             eq(contactChannels.contactId, contactId),
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.externalUserId.toLowerCase()),
+            eq(contactChannels.address, ch.legacyAddress.toLowerCase()),
           ),
         )
         .get();
