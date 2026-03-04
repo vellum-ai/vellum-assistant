@@ -40,7 +40,9 @@ final class DictationOverlayWindow {
             if let screen = NSScreen.main {
                 let screenFrame = screen.visibleFrame
                 let x = screenFrame.midX - width / 2
-                let newFrame = NSRect(x: x, y: panel.frame.origin.y, width: width, height: height)
+                // Pin the top edge so the panel doesn't jump when contracting from expanded height
+                let topY = panel.frame.origin.y + panel.frame.height
+                let newFrame = NSRect(x: x, y: topY - height, width: width, height: height)
                 panel.setFrame(newFrame, display: true, animate: false)
             }
 
