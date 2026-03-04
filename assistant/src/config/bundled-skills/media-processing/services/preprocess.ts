@@ -18,13 +18,16 @@ import {
   type ProcessingStage,
   updateProcessingStage,
 } from "../../../../memory/media-store.js";
-import { spawnWithTimeout } from "../../../../util/spawn.js";
+import {
+  FFMPEG_PREPROCESS_TIMEOUT_MS,
+  FFPROBE_TIMEOUT_MS,
+  spawnWithTimeout,
+} from "../../../../util/spawn.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const FFMPEG_TIMEOUT_MS = 600_000;
 const MIN_FRAMES_PER_SEGMENT = 4;
 
 // ---------------------------------------------------------------------------
@@ -304,7 +307,7 @@ async function extractDominantColors(framePath: string): Promise<string[]> {
       "null",
       "-",
     ],
-    30_000,
+    FFPROBE_TIMEOUT_MS,
   );
 
   // Fallback: return empty if analysis fails
@@ -421,7 +424,7 @@ export async function preprocessForAsset(
           "null",
           "-",
         ],
-        FFMPEG_TIMEOUT_MS,
+        FFMPEG_PREPROCESS_TIMEOUT_MS,
       );
 
       const droppedTimestamps = parseDroppedFrameTimestamps(
@@ -480,7 +483,7 @@ export async function preprocessForAsset(
           "2",
           join(segTempDir, "frame-%06d.jpg"),
         ],
-        FFMPEG_TIMEOUT_MS,
+        FFMPEG_PREPROCESS_TIMEOUT_MS,
       );
 
       if (result.exitCode !== 0) {

@@ -16,7 +16,11 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { spawnWithTimeout } from "../../../../util/spawn.js";
+import {
+  FFMPEG_TRANSCODE_TIMEOUT_MS,
+  FFPROBE_TIMEOUT_MS,
+  spawnWithTimeout,
+} from "../../../../util/spawn.js";
 
 const VIDEO_EXTENSIONS = new Set([
   ".mp4",
@@ -38,9 +42,6 @@ const AUDIO_EXTENSIONS = new Set([
   ".aiff",
   ".wma",
 ]);
-
-/** Timeout for ffmpeg operations. */
-const FFMPEG_TIMEOUT_MS = 120_000;
 
 /** Max file size for a single OpenAI Whisper API request (25MB). */
 const WHISPER_API_MAX_BYTES = 25 * 1024 * 1024;
@@ -70,7 +71,7 @@ async function getAudioDuration(audioPath: string): Promise<number> {
       "csv=p=0",
       audioPath,
     ],
-    10_000,
+    FFPROBE_TIMEOUT_MS,
   );
   if (result.exitCode !== 0) return 0;
   return parseFloat(result.stdout.trim()) || 0;
@@ -100,7 +101,7 @@ async function splitAudio(
       "1",
       chunkPattern,
     ],
-    FFMPEG_TIMEOUT_MS,
+    FFMPEG_TRANSCODE_TIMEOUT_MS,
   );
   if (result.exitCode !== 0) {
     throw new Error(`Failed to split audio: ${result.stderr.slice(0, 300)}`);
@@ -184,7 +185,7 @@ async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
   const args = ["ffmpeg", "-y", "-i", inputPath];
   if (isVideo) args.push("-vn");
   args.push("-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wavPath);
-  const result = await spawnWithTimeout(args, FFMPEG_TIMEOUT_MS);
+  const result = await spawnWithTimeout(args, FFMPEG_TRANSCODE_TIMEOUT_MS);
   if (result.exitCode !== 0) {
     throw new Error(`ffmpeg failed: ${result.stderr.slice(0, 500)}`);
   }

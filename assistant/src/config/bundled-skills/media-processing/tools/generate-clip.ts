@@ -18,9 +18,11 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { spawnWithTimeout } from "../../../../util/spawn.js";
-
-const FFMPEG_TIMEOUT_MS = 300_000;
+import {
+  FFMPEG_CLIP_TIMEOUT_MS,
+  FFPROBE_TIMEOUT_MS,
+  spawnWithTimeout,
+} from "../../../../util/spawn.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,7 +43,7 @@ async function getMediaDuration(filePath: string): Promise<number> {
       "csv=p=0",
       filePath,
     ],
-    10_000,
+    FFPROBE_TIMEOUT_MS,
   );
   if (result.exitCode !== 0) return 0;
   return parseFloat(result.stdout.trim()) || 0;
@@ -147,7 +149,7 @@ export async function run(
       clipPath,
     ];
 
-    const result = await spawnWithTimeout(ffmpegArgs, FFMPEG_TIMEOUT_MS);
+    const result = await spawnWithTimeout(ffmpegArgs, FFMPEG_CLIP_TIMEOUT_MS);
 
     if (result.exitCode !== 0) {
       return {
