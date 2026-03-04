@@ -308,27 +308,9 @@ export function addSlackEyesReaction(
 ): () => void {
   let removed = false;
 
-  const removeReaction = () => {
-    if (removed) return;
-    removed = true;
-    clearTimeout(safetyTimer);
-    void deliverChannelReply(
-      callbackUrl,
-      {
-        chatId,
-        assistantId,
-        reaction: { action: "remove", name: "eyes", messageTs },
-      },
-      mintBearerToken(),
-    ).catch((err) => {
-      log.debug(
-        { err, chatId, messageTs },
-        "Failed to remove Slack eyes reaction",
-      );
-    });
-  };
-
-  void deliverChannelReply(
+  // Track the add promise so remove waits for it to settle first,
+  // preventing a race where remove arrives at Slack before add.
+  const addPromise = deliverChannelReply(
     callbackUrl,
     {
       chatId,
@@ -339,6 +321,28 @@ export function addSlackEyesReaction(
   ).catch((err) => {
     log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
   });
+
+  const removeReaction = () => {
+    if (removed) return;
+    removed = true;
+    clearTimeout(safetyTimer);
+    void addPromise.then(() =>
+      deliverChannelReply(
+        callbackUrl,
+        {
+          chatId,
+          assistantId,
+          reaction: { action: "remove", name: "eyes", messageTs },
+        },
+        mintBearerToken(),
+      ).catch((err) => {
+        log.debug(
+          { err, chatId, messageTs },
+          "Failed to remove Slack eyes reaction",
+        );
+      }),
+    );
+  };
 
   const safetyTimer = setTimeout(removeReaction, SLACK_EYES_MAX_DURATION_MS);
   (safetyTimer as { unref?: () => void }).unref?.();
