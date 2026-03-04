@@ -18,6 +18,7 @@ import {
 import { getAppsDir, listAppFiles } from "../memory/app-store.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
+import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -153,7 +154,9 @@ export function inboundActorContextFromTrust(
     actorMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianBindingMatch?.guardianExternalUserId,
-    memberStatus: ctx.memberRecord?.channel.status ?? undefined,
+    memberStatus: ctx.memberRecord
+      ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
+      : undefined,
     memberPolicy: ctx.memberRecord?.channel.policy ?? undefined,
     denialReason: ctx.denialReason,
   };

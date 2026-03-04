@@ -83,7 +83,9 @@ function parseGuardianVerifyCode(content: string): string | undefined {
 }
 
 /** Map ChannelStatus to the legacy MemberStatus for API consumers. */
-function channelStatusToMemberStatus(status: ChannelStatus): MemberStatus {
+export function channelStatusToMemberStatus(
+  status: ChannelStatus,
+): MemberStatus {
   if (status === "unverified") return "pending";
   return status;
 }
@@ -454,7 +456,7 @@ export async function enforceIngressAcl(
             earlyResponse: Response.json({
               accepted: true,
               denied: true,
-              reason: `member_${resolvedMember.channel.status}`,
+              reason: `member_${channelStatusToMemberStatus(resolvedMember.channel.status)}`,
             }),
             guardianVerifyCode,
           };
