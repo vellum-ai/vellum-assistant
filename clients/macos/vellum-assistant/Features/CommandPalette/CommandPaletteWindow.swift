@@ -157,8 +157,7 @@ final class CommandPaletteWindow {
             let width = max(fittingSize.width, 600)
             let height = fittingSize.height
             let x = screenFrame.midX - width / 2
-            // Position ~1/3 from top (Spotlight-style)
-            let y = screenFrame.midY + screenFrame.height * 0.15
+            let y = screenFrame.midY - height / 2
             panel.setFrame(
                 NSRect(x: x, y: y, width: width, height: height),
                 display: true
