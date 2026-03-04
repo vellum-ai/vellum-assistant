@@ -1,9 +1,9 @@
 /**
- * Contacts-first write module.
+ * Contacts write module.
  *
- * All mutations write directly to the contacts table (the authoritative
- * source). The legacy ingress_members and guardian_bindings tables are
- * no longer written to.
+ * All mutations (member upserts, guardian bindings, revocations) write
+ * directly to the contacts table, the single authoritative source for
+ * identity and access-control state.
  */
 
 import type { ChannelId } from "../channels/types.js";

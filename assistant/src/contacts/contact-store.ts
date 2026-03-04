@@ -86,7 +86,7 @@ interface SyncChannelData {
   isPrimary?: boolean;
   externalUserId?: string | null;
   externalChatId?: string | null;
-  /** Raw (pre-canonicalization) address used only for dedup fallback against legacy records. */
+  /** Raw (pre-canonicalization) address used for dedup fallback when matching contacts created before address normalization. */
   legacyAddress?: string;
   status?: ChannelStatus;
   policy?: ChannelPolicy;
