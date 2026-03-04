@@ -1140,11 +1140,11 @@ After each tier, the reducer re-estimates tokens. If the estimate is within budg
 
 When all four reducer tiers are exhausted and the provider still rejects, the overflow policy resolver (`context-overflow-policy.ts`) determines the next action based on config and session interactivity:
 
-| Session Type    | Config Policy           | Action                                                                                                |
-| --------------- | ----------------------- | ----------------------------------------------------------------------------------------------------- |
-| Interactive     | `"summarize"` (default) | `request_user_approval` — prompt the user via `PermissionPrompter` before compressing the latest turn |
-| Non-interactive | `"truncate"` (default)  | `auto_compress_latest_turn` — compress without asking                                                 |
-| Any             | `"drop"`                | `fail_gracefully` — end the turn with a graceful assistant message                                    |
+| Session Type    | Config Policy           | Action                                                                                                 |
+| --------------- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| Interactive     | `"summarize"` (default) | `request_user_approval` — prompt the user via `PermissionPrompter` before compressing the latest turn  |
+| Non-interactive | `"truncate"` (default)  | `auto_compress_latest_turn` — compress without asking                                                  |
+| Any             | `"drop"`                | `fail_gracefully` — fall through to the final context-overflow fallback, which emits a `session_error` |
 
 **Approval gate:** For interactive sessions, the pipeline uses `requestCompressionApproval()` in `context-overflow-approval.ts`, which presents a confirmation prompt through the existing `PermissionPrompter` flow (`POST /v1/confirm`). The prompt uses a reserved pseudo tool name (`context_overflow_compression`) so the UI can display a meaningful label. The decision is one-shot per overflow (no "always allow" option).
 
