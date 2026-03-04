@@ -163,6 +163,11 @@ beforeEach(() => {
         return new Response('{"error":"not found"}', { status: 404 });
       }
 
+      // Slack file upload URL (step 2 of files.uploadV2 flow)
+      if (url.includes("files.slack.com/upload/")) {
+        return new Response("OK", { status: 200 });
+      }
+
       // Slack API responses
       if (url.includes("slack.com/api/")) {
         return new Response(
@@ -333,6 +338,15 @@ describe("slack-deliver endpoint", () => {
     );
     expect(slackCall).toBeDefined();
     expect((slackCall!.body as any).thread_ts).toBeUndefined();
+  });
+
+  test("returns 400 when text is a non-string truthy value", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "C123", text: { x: 1 } });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("text must be a string");
   });
 
   test("returns 400 when attachment is missing an id", async () => {

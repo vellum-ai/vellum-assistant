@@ -54,11 +54,17 @@ async function uploadFileToSlack(
   }
 
   // Step 2: Upload file content to the provided URL
-  await fetchImpl(urlData.upload_url, {
+  const uploadRes = await fetchImpl(urlData.upload_url, {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
     body: buffer,
   });
+
+  if (!uploadRes.ok) {
+    throw new Error(
+      `File upload to Slack failed with status ${uploadRes.status}`,
+    );
+  }
 
   // Step 3: Complete the upload and share to channel
   const completeBody: {
@@ -264,6 +270,10 @@ export function createSlackDeliverHandler(
         { error: "text or attachments required" },
         { status: 400 },
       );
+    }
+
+    if (text !== undefined && typeof text !== "string") {
+      return Response.json({ error: "text must be a string" }, { status: 400 });
     }
 
     // Support threading via query param
