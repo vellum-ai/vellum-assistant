@@ -1213,15 +1213,43 @@ export class RelayConnection {
 
       // Create the guardian binding now that verification succeeded.
       if (result.verificationType === "guardian") {
-        revokeGuardianBinding(this.guardianChallengeAssistantId, "voice");
-        createGuardianBinding({
-          assistantId: this.guardianChallengeAssistantId,
-          channel: "voice",
-          guardianExternalUserId: this.guardianVerificationFromNumber,
-          guardianDeliveryChatId: this.guardianVerificationFromNumber,
-          guardianPrincipalId: this.guardianVerificationFromNumber,
-          verifiedVia: "challenge",
-        });
+        const existingBinding = getGuardianBinding(
+          this.guardianChallengeAssistantId,
+          "voice",
+        );
+        if (
+          existingBinding &&
+          existingBinding.guardianExternalUserId !==
+            this.guardianVerificationFromNumber
+        ) {
+          log.warn(
+            {
+              callSessionId: this.callSessionId,
+              existingGuardian: existingBinding.guardianExternalUserId,
+            },
+            "Guardian binding conflict: another user already holds the voice binding",
+          );
+        } else {
+          revokeGuardianBinding(this.guardianChallengeAssistantId, "voice");
+
+          // Unify all channel bindings onto the canonical (vellum) principal
+          const vellumBinding = getGuardianBinding(
+            this.guardianChallengeAssistantId,
+            "vellum",
+          );
+          const canonicalPrincipal =
+            vellumBinding?.guardianPrincipalId ??
+            this.guardianVerificationFromNumber;
+
+          createGuardianBinding({
+            assistantId: this.guardianChallengeAssistantId,
+            channel: "voice",
+            guardianExternalUserId: this.guardianVerificationFromNumber,
+            guardianDeliveryChatId: this.guardianVerificationFromNumber,
+            guardianPrincipalId: canonicalPrincipal,
+            verifiedVia: "challenge",
+          });
+        }
       }
 
       if (isOutbound) {
