@@ -294,6 +294,28 @@ jobs:
         working-directory: playwright/agent-xcode
         run: swift build -c release
 
+      - name: Grant screen recording permission
+        run: |
+          # On macOS 15+ (Sequoia), screencapture triggers a "requesting to
+          # bypass the system private window picker" dialog unless screen
+          # recording access is pre-granted. Approve it via the TCC database
+          # and the ScreenCaptureApprovals plist so the modal never appears.
+
+          # 1. System TCC database — grants the underlying screen-capture entitlement
+          for client in /usr/sbin/screencapture /bin/bash /bin/zsh; do
+            sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+              "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$(date +%s));" 2>/dev/null || true
+          done
+
+          # 2. ScreenCaptureApprovals plist — suppresses the Sequoia monthly
+          #    "bypass the system private window picker" nag by setting the
+          #    last-alerted timestamp far into the future.
+          APPROVALS_PLIST="$HOME/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals"
+          for client in /usr/sbin/screencapture /bin/bash /bin/zsh; do
+            defaults write "$APPROVALS_PLIST" "$client" -dict \
+              kScreenCaptureApprovalLastAlerted -date "4321-01-01 00:00:00 +0000" 2>/dev/null || true
+          done
+
       - name: Run Playwright tests
         id: tests
         working-directory: playwright
