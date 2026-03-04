@@ -330,13 +330,13 @@ export function createSlackDeliverHandler(
       messageTs?: string;
       /** When provided, generate Block Kit approval prompt blocks. */
       approval?: {
-        message: string;
         requestId: string;
         actions: Array<{
           id: string;
           label: string;
           style?: "primary" | "danger";
         }>;
+        plainTextFallback: string;
       };
     };
     try {
@@ -422,7 +422,11 @@ export function createSlackDeliverHandler(
       Array.isArray(body.blocks) && body.blocks.length > 0
         ? body.blocks
         : body.approval
-          ? approvalPrompt(body.approval)
+          ? approvalPrompt({
+              message: text || body.approval.plainTextFallback,
+              requestId: body.approval.requestId,
+              actions: body.approval.actions,
+            })
           : textToBlocks(text);
 
     try {
