@@ -94,7 +94,7 @@ describe("CommitEnrichmentService", () => {
           `Timed out waiting for enrichment queue to drain after ${timeoutMs}ms`,
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
 
@@ -536,7 +536,7 @@ describe("CommitEnrichmentService", () => {
         const timer = setTimeout(() => {
           enrichmentCompleted = true;
           resolve();
-        }, 2000);
+        }, 200);
         signal?.addEventListener(
           "abort",
           () => {
@@ -558,10 +558,10 @@ describe("CommitEnrichmentService", () => {
     await waitForDrain(service, 5000);
     await service.shutdown();
 
-    // Allow any zombie work to settle — if abort didn't work, the 2s timer
+    // Allow any zombie work to settle — if abort didn't work, the 200ms timer
     // would still be running and would set enrichmentCompleted=true. Wait
-    // longer than the 2000ms mock delay to reliably catch the regression.
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    // longer than the 200ms mock delay to reliably catch the regression.
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     // The job should have timed out and been counted as failed
     expect(service._getFailedCount()).toBe(1);
