@@ -19,7 +19,6 @@ extension ChatBubble {
         let hasToolCalls = !message.toolCalls.isEmpty && !hideToolCalls
         let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil
             && !(message.streamingCodePreview?.isEmpty ?? true)
-        let hasInProgressTools = hasToolCalls && !allToolCallsComplete
 
         if hasToolCalls || hasStreamingCode || isProcessingAfterTools {
             // Unified progress view handles all tool/streaming/processing states
