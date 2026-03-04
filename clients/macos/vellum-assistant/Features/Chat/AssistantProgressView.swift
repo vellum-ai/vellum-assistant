@@ -49,11 +49,10 @@ struct AssistantProgressView: View {
         let hasIncompleteTools = hasTools && !allComplete
 
         // Only enter error phase when ALL tools are done, at least one errored,
-        // the model hasn't already produced a text response (i.e. it recovered),
-        // and the model is no longer streaming (it may still be composing a recovery).
+        // and the model hasn't already produced a text response (i.e. it recovered).
         // While tools are still running, individual errors show as failed steps in the
         // expanded list without changing the overall phase.
-        if allComplete && toolCalls.contains(where: { $0.isError }) && !hasText && !isStreaming {
+        if allComplete && toolCalls.contains(where: { $0.isError }) && !hasText {
             return .error
         }
 
@@ -75,9 +74,7 @@ struct AssistantProgressView: View {
 
         // All tools done and streaming with text already visible — user sees the response,
         // so treat this as settled rather than showing a spinner.
-        // But if isProcessing is true, the assistant is still working (e.g. between tool
-        // result and next action), so fall through to the .processing check instead.
-        if allComplete && isStreaming && hasText && !isProcessing {
+        if allComplete && isStreaming && hasText {
             return .complete
         }
 
@@ -189,7 +186,6 @@ struct AssistantProgressView: View {
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
                 processingStartDate = Date()
-                startDate = Date()
             }
         }
         .onAppear {
