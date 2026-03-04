@@ -116,7 +116,7 @@ struct SettingsAccountTab: View {
                 .foregroundColor(VColor.textPrimary)
                 .focused($isPlatformUrlFocused)
 
-            VButton(label: "Save", style: .primary, size: .medium) {
+            VButton(label: "Save", style: .primary) {
                 store.savePlatformBaseUrl(platformUrlText)
                 isPlatformUrlFocused = false
             }
@@ -143,8 +143,7 @@ struct SettingsAccountTab: View {
             } else {
                 VButton(
                     label: authManager.isSubmitting ? "Signing in..." : "Sign In",
-                    style: .primary,
-                    size: .medium
+                    style: .primary
                 ) {
                     Task { await authManager.startWorkOSLogin() }
                 }
