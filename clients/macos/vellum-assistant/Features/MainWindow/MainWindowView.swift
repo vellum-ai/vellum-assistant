@@ -1616,6 +1616,7 @@ struct MainWindowView: View {
                             VStack(spacing: 0) {
                                 ForEach(regularThreads) { thread in
                                     let isActive = thread.id == threadManager.activeThreadId
+                                    let isHovered = sidebar.isHoveredThread == thread.id
                                     HStack(spacing: VSpacing.xs) {
                                         VThreadIcon(
                                             title: thread.title,
@@ -1641,12 +1642,31 @@ struct MainWindowView: View {
                                     }
                                     .padding(.horizontal, VSpacing.sm)
                                     .padding(.vertical, VSpacing.xs)
-                                    .background(isActive ? VColor.accent.opacity(0.12) : Color.clear)
+                                    .background {
+                                        if isActive {
+                                            adaptiveColor(light: Moss._100, dark: Moss._700)
+                                        } else if isHovered {
+                                            adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5)
+                                        } else {
+                                            Color.clear
+                                        }
+                                    }
+                                    .animation(VAnimation.fast, value: isHovered)
                                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         selectThread(thread)
                                         showThreadSwitcher = false
+                                    }
+                                    .onHover { hovering in
+                                        withAnimation(VAnimation.fast) {
+                                            if hovering {
+                                                sidebar.isHoveredThread = thread.id
+                                            } else if sidebar.isHoveredThread == thread.id {
+                                                sidebar.isHoveredThread = nil
+                                            }
+                                        }
+                                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                                     }
                                 }
                             }
@@ -1654,7 +1674,7 @@ struct MainWindowView: View {
                         }
                         .frame(maxHeight: 300)
                     }
-                    .frame(width: 200)
+                    .frame(width: 240)
                     .padding(.bottom, VSpacing.sm)
                     .onHover { hovering in
                         if hovering {
