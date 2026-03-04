@@ -94,125 +94,125 @@ describe("stripBotMention", () => {
 });
 
 describe("normalizeSlackAppMention", () => {
-  test("normalizes app_mention event with sourceChannel 'slack'", () => {
+  test("normalizes app_mention event with sourceChannel 'slack'", async () => {
     const config = makeConfig();
     const event = makeEvent();
-    const result = normalizeSlackAppMention(event, "evt-001", config);
+    const result = await normalizeSlackAppMention(event, "evt-001", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
     expect(result!.event.version).toBe("v1");
   });
 
-  test("sets conversationExternalId to event.channel", () => {
+  test("sets conversationExternalId to event.channel", async () => {
     const config = makeConfig();
     const event = makeEvent({ channel: "C_MY_CHANNEL" });
-    const result = normalizeSlackAppMention(event, "evt-002", config);
+    const result = await normalizeSlackAppMention(event, "evt-002", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.message.conversationExternalId).toBe("C_MY_CHANNEL");
   });
 
-  test("externalMessageId uses client_msg_id when present", () => {
+  test("externalMessageId uses client_msg_id when present", async () => {
     const config = makeConfig();
     const event = makeEvent({ client_msg_id: "cmid-abc" });
-    const result = normalizeSlackAppMention(event, "evt-003", config);
+    const result = await normalizeSlackAppMention(event, "evt-003", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.message.externalMessageId).toBe("cmid-abc");
   });
 
-  test("externalMessageId falls back to ts when client_msg_id is absent", () => {
+  test("externalMessageId falls back to ts when client_msg_id is absent", async () => {
     const config = makeConfig();
     const event = makeEvent({
       client_msg_id: undefined,
       ts: "1700000000.000100",
     });
-    const result = normalizeSlackAppMention(event, "evt-004", config);
+    const result = await normalizeSlackAppMention(event, "evt-004", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.message.externalMessageId).toBe("1700000000.000100");
   });
 
-  test("mention stripping: '<@U123BOT> hello world' becomes 'hello world'", () => {
+  test("mention stripping: '<@U123BOT> hello world' becomes 'hello world'", async () => {
     const config = makeConfig();
     const event = makeEvent({ text: "<@U123BOT> hello world" });
-    const result = normalizeSlackAppMention(event, "evt-005", config);
+    const result = await normalizeSlackAppMention(event, "evt-005", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe("hello world");
   });
 
-  test("mention stripping with empty result falls back to original text", () => {
+  test("mention stripping with empty result falls back to original text", async () => {
     const config = makeConfig();
     const event = makeEvent({ text: "<@U123BOT>" });
-    const result = normalizeSlackAppMention(event, "evt-006", config);
+    const result = await normalizeSlackAppMention(event, "evt-006", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe("<@U123BOT>");
   });
 
-  test("thread_ts is preserved in return value", () => {
+  test("thread_ts is preserved in return value", async () => {
     const config = makeConfig();
     const event = makeEvent({ thread_ts: "1700000000.000050" });
-    const result = normalizeSlackAppMention(event, "evt-007", config);
+    const result = await normalizeSlackAppMention(event, "evt-007", config);
 
     expect(result).not.toBeNull();
     expect(result!.threadTs).toBe("1700000000.000050");
   });
 
-  test("threadTs falls back to ts when thread_ts is not present", () => {
+  test("threadTs falls back to ts when thread_ts is not present", async () => {
     const config = makeConfig();
     const event = makeEvent({ thread_ts: undefined, ts: "1700000000.000100" });
-    const result = normalizeSlackAppMention(event, "evt-008", config);
+    const result = await normalizeSlackAppMention(event, "evt-008", config);
 
     expect(result).not.toBeNull();
     expect(result!.threadTs).toBe("1700000000.000100");
   });
 
-  test("actor.actorExternalId is set to event.user", () => {
+  test("actor.actorExternalId is set to event.user", async () => {
     const config = makeConfig();
     const event = makeEvent({ user: "U_SENDER_42" });
-    const result = normalizeSlackAppMention(event, "evt-009", config);
+    const result = await normalizeSlackAppMention(event, "evt-009", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.actorExternalId).toBe("U_SENDER_42");
   });
 
-  test("channel field is set in return value", () => {
+  test("channel field is set in return value", async () => {
     const config = makeConfig();
     const event = makeEvent({ channel: "C_RETURN_CHAN" });
-    const result = normalizeSlackAppMention(event, "evt-010", config);
+    const result = await normalizeSlackAppMention(event, "evt-010", config);
 
     expect(result).not.toBeNull();
     expect(result!.channel).toBe("C_RETURN_CHAN");
   });
 
-  test("source.updateId is set to eventId", () => {
+  test("source.updateId is set to eventId", async () => {
     const config = makeConfig();
     const event = makeEvent();
-    const result = normalizeSlackAppMention(event, "my-event-id", config);
+    const result = await normalizeSlackAppMention(event, "my-event-id", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.source.updateId).toBe("my-event-id");
   });
 
-  test("returns null when routing rejects the event", () => {
+  test("returns null when routing rejects the event", async () => {
     const config = makeConfig({
       unmappedPolicy: "reject",
       defaultAssistantId: undefined,
       routingEntries: [],
     });
     const event = makeEvent();
-    const result = normalizeSlackAppMention(event, "evt-011", config);
+    const result = await normalizeSlackAppMention(event, "evt-011", config);
 
     expect(result).toBeNull();
   });
 
-  test("raw event is included in the result", () => {
+  test("raw event is included in the result", async () => {
     const config = makeConfig();
     const event = makeEvent();
-    const result = normalizeSlackAppMention(event, "evt-012", config);
+    const result = await normalizeSlackAppMention(event, "evt-012", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.raw).toEqual(

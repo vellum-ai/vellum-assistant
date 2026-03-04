@@ -267,22 +267,44 @@ export class SlackSocketModeClient {
     }
     this.dedupMap.set(eventId, Date.now());
 
+    // Normalize asynchronously (display name resolution may call users.info)
+    this.normalizeAndEmit(
+      event,
+      eventId,
+      isAppMention,
+      isActiveThreadReply,
+      isDm,
+    ).catch((err) => {
+      log.error({ err, eventId }, "Failed to normalize Slack event");
+    });
+  }
+
+  private async normalizeAndEmit(
+    event:
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent,
+    eventId: string,
+    isAppMention: boolean,
+    isActiveThreadReply: boolean,
+    _isDm: boolean,
+  ): Promise<void> {
     let normalized: NormalizedSlackEvent | null;
     if (isAppMention) {
-      normalized = normalizeSlackAppMention(
+      normalized = await normalizeSlackAppMention(
         event as SlackAppMentionEvent,
         eventId,
         this.config.gatewayConfig,
       );
     } else if (isActiveThreadReply) {
-      normalized = normalizeSlackChannelMessage(
+      normalized = await normalizeSlackChannelMessage(
         event as SlackChannelMessageEvent,
         eventId,
         this.config.gatewayConfig,
         this.config.botUserId,
       );
     } else {
-      normalized = normalizeSlackDirectMessage(
+      normalized = await normalizeSlackDirectMessage(
         event as SlackDirectMessageEvent,
         eventId,
         this.config.gatewayConfig,
