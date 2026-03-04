@@ -445,7 +445,9 @@ describe("resolveLocalIpcAuthContext", () => {
     expect(guardianResult).toBeTruthy();
 
     const ctx = resolveLocalIpcAuthContext("session-123");
-    expect(ctx.actorPrincipalId).toBe(guardianResult!.contact.principalId);
+    expect(ctx.actorPrincipalId).toBe(
+      guardianResult!.contact.principalId ?? undefined,
+    );
   });
 
   test("actorPrincipalId is undefined when no vellum binding exists", () => {
