@@ -9,6 +9,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { syncSingleGuardianBinding } from '../contacts/contact-sync.js';
+import { revokeGuardianChannel } from '../contacts/contact-store.js';
 import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
 import { channelGuardianBindings } from './schema.js';
@@ -164,6 +165,14 @@ export function revokeBinding(assistantId: string, channel: string): boolean {
     .set({ status: 'revoked', updatedAt: now })
     .where(eq(channelGuardianBindings.id, existing.id))
     .run();
+
+  // Sync revocation to the contacts table so findGuardianForChannel()
+  // no longer returns stale data for revoked bindings.
+  try {
+    revokeGuardianChannel(channel);
+  } catch (err) {
+    log.warn({ err }, 'Failed to revoke contact channel for guardian binding');
+  }
 
   return true;
 }
