@@ -115,7 +115,7 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   elapsed=$(( end_ms - start_ms ))
 
   base="$(basename "${test_file}")"
-  if [[ ${exit_code} -eq 124 || ${exit_code} -eq 137 ]]; then
+  if [[ ${exit_code} -eq 124 || ( -n "${timeout_cmd}" && ${exit_code} -eq 137 ) ]]; then
     # timeout killed the process — tests likely passed but bun did not exit (open handles)
     echo "${test_file}" >> "${results_dir}/failures"
     echo "  ⚠ ${base} (killed after ${per_test_timeout}s — process hung, likely open handles)"
