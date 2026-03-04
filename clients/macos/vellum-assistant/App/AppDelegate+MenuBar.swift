@@ -655,7 +655,7 @@ extension AppDelegate {
                     let daemonItems = response.apps.map {
                         AppListManager.AppItem_Daemon(
                             id: $0.id, name: $0.name, description: $0.description,
-                            icon: $0.icon, appType: $0.appType, createdAt: $0.createdAt
+                            icon: $0.icon, appType: nil, createdAt: $0.createdAt
                         )
                     }
                     self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
