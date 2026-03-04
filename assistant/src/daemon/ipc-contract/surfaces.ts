@@ -98,7 +98,6 @@ export interface DynamicPageSurfaceData {
   width?: number;
   height?: number;
   appId?: string;
-  appType?: string;
   reloadGeneration?: number;
   status?: string;
   preview?: DynamicPagePreview;

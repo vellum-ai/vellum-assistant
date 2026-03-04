@@ -115,7 +115,6 @@ export function ensurePrebuiltHomeBaseSeeded(): {
     description: buildDescription(metadata),
     schemaJson: "{}",
     htmlDefinition: html,
-    appType: "app",
   });
 
   log.info({ appId: created.id }, "Seeded prebuilt Home Base app");

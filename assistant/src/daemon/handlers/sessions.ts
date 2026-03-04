@@ -1648,7 +1648,6 @@ export function handleHistoryRequest(
                   ? {
                       ...(s.data.preview ? { preview: s.data.preview } : {}),
                       ...(s.data.appId ? { appId: s.data.appId } : {}),
-                      ...(s.data.appType ? { appType: s.data.appType } : {}),
                     }
                   : {}),
               } as Record<string, unknown>,
