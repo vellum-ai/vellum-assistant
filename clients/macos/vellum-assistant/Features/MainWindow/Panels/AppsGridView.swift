@@ -199,9 +199,10 @@ struct AppsGridView: View {
                         .menuIndicator(.hidden)
                     }
                     .fixedSize()
-                    .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
                     .accessibilityLabel("App actions")
                     .padding(VSpacing.sm)
+                    .contentShape(Rectangle())
+                    .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
                     .opacity(isHovered ? 1 : 0)
                     .allowsHitTesting(isHovered)
                     .animation(VAnimation.fast, value: isHovered)
