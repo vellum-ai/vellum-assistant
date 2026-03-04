@@ -72,6 +72,8 @@ struct ChatBubble: View {
             AnyShapeStyle(VColor.userBubble)
         } else if message.isError {
             AnyShapeStyle(VColor.error.opacity(0.1))
+        } else if message.isNudge {
+            AnyShapeStyle(VColor.accent.opacity(0.07))
         } else {
             AnyShapeStyle(Color.clear)
         }
@@ -82,15 +84,19 @@ struct ChatBubble: View {
         if message.isError {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
+        } else if message.isNudge {
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .strokeBorder(VColor.accent.opacity(0.2), lineWidth: 1)
         }
     }
 
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        let isPlainAssistant = !isUser && !message.isError
+        let isPlainAssistant = !isUser && !message.isError && !message.isNudge
+        let isFullWidth = message.isError || message.isNudge
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
-            .frame(maxWidth: message.isError ? .infinity : nil, alignment: .leading)
+            .frame(maxWidth: isFullWidth ? .infinity : nil, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
@@ -98,7 +104,7 @@ struct ChatBubble: View {
             .overlay {
                 bubbleBorderOverlay
             }
-            .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
+            .frame(maxWidth: isFullWidth ? .infinity : 520, alignment: isUser ? .trailing : .leading)
     }
 
     private var formattedTimestamp: String {
@@ -209,16 +215,32 @@ struct ChatBubble: View {
                 .layoutPriority(1)
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
-                        Image(nsImage: appearance.chatAvatarImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 28, height: 28)
-                            .clipShape(Circle())
+                        if message.isNudge {
+                            ZStack {
+                                Circle()
+                                    .fill(VColor.accent.opacity(0.15))
+                                    .frame(width: 28, height: 28)
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(VColor.accent)
+                            }
                             .overlay(
                                 Circle()
-                                    .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
+                                    .strokeBorder(VColor.accent.opacity(0.25), lineWidth: 1)
                             )
                             .offset(x: -(28 + VSpacing.sm), y: 0)
+                        } else {
+                            Image(nsImage: appearance.chatAvatarImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 28, height: 28)
+                                .clipShape(Circle())
+                                .overlay(
+                                    Circle()
+                                        .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
+                                )
+                                .offset(x: -(28 + VSpacing.sm), y: 0)
+                        }
                     }
                 }
                 .padding(.leading, isUser ? 0 : 28 + VSpacing.sm)

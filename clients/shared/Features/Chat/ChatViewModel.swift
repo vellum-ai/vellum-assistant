@@ -920,7 +920,8 @@ public final class ChatViewModel: ObservableObject {
     /// - It will NOT survive reconnect or reload — history loads from the daemon will not include it.
     /// - It should not be used for messages that need to influence future LLM context.
     @MainActor public func injectAssistantMessage(_ text: String) {
-        let message = ChatMessage(role: .assistant, text: text, status: .sent)
+        var message = ChatMessage(role: .assistant, text: text, status: .sent)
+        message.isNudge = true
         messages.append(message)
     }
 
