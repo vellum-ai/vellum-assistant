@@ -40,10 +40,10 @@ The gateway exposes a REST API for reading and mutating assistant feature flags.
 
 **Endpoints (GET/PATCH contract):**
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/feature-flags` | List all declared assistant feature flags from the defaults registry, merged with persisted values from workspace config. Returns `{ flags: FeatureFlagEntry[] }` where each entry has `key`, `enabled`, `defaultEnabled`, and `description`. |
-| PATCH | `/v1/feature-flags/:key` | Set a single assistant feature flag. Body: `{ "enabled": true\|false }`. Key must match `feature_flags.<flagId>.enabled` and be declared in the defaults registry. Writes to the `assistantFeatureFlagValues` config section. |
+| Method | Path                     | Description                                                                                                                                                                                                                                   |
+| ------ | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/feature-flags`      | List all declared assistant feature flags from the defaults registry, merged with persisted values from workspace config. Returns `{ flags: FeatureFlagEntry[] }` where each entry has `key`, `enabled`, `defaultEnabled`, and `description`. |
+| PATCH  | `/v1/feature-flags/:key` | Set a single assistant feature flag. Body: `{ "enabled": true\|false }`. Key must match `feature_flags.<flagId>.enabled` and be declared in the defaults registry. Writes to the `assistantFeatureFlagValues` config section.                 |
 
 **Unified registry:** All declared feature flags and their default values are defined in the unified registry at `meta/feature-flags/feature-flag-registry.json` (bundled copy at `gateway/src/feature-flag-registry.json`). The gateway loads this registry on startup via `gateway/src/feature-flag-defaults.ts`, filtering to `scope: "assistant"` flags. Labels come from the registry. The GET endpoint merges persisted overrides with registry defaults to produce the full flag list. The PATCH endpoint validates that the target flag key exists in the registry before accepting a write. Only declared keys are exposed by this API.
 
@@ -55,9 +55,9 @@ The gateway exposes a REST API for reading and mutating assistant feature flags.
 
 The assistant feature flags API uses a dedicated feature-flag token stored at `~/.vellum/feature-flag-token`, separate from JWT auth tokens. This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
 
-| Operation | Accepted tokens |
-|-----------|----------------|
-| `GET /v1/feature-flags` | JWT bearer token OR feature-flag token |
+| Operation                      | Accepted tokens                                                     |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `GET /v1/feature-flags`        | JWT bearer token OR feature-flag token                              |
 | `PATCH /v1/feature-flags/:key` | Feature-flag token ONLY (JWT bearer tokens are explicitly rejected) |
 
 The feature-flag token is auto-generated on first gateway startup if the file does not exist. The gateway watches the token file for changes and hot-reloads without restart.
@@ -66,14 +66,14 @@ The feature-flag token is auto-generated on first gateway startup if the file do
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `gateway/src/http/routes/feature-flags.ts` | GET and PATCH handlers; config read/write logic; legacy key mapping; key format validation |
-| `gateway/src/feature-flag-defaults.ts` | `loadFeatureFlagDefaults()` — loads the shared defaults registry; `isFlagDeclared()` — validates flag keys |
-| `gateway/src/config.ts` | `readOrGenerateFeatureFlagToken()` — token provisioning; `featureFlagToken` config field |
-| `gateway/src/index.ts` | Route registration, auth enforcement (dual-token for GET, flag-token-only for PATCH), token file watcher |
+| File                                            | Purpose                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `gateway/src/http/routes/feature-flags.ts`      | GET and PATCH handlers; config read/write logic; legacy key mapping; key format validation                         |
+| `gateway/src/feature-flag-defaults.ts`          | `loadFeatureFlagDefaults()` — loads the shared defaults registry; `isFlagDeclared()` — validates flag keys         |
+| `gateway/src/config.ts`                         | `readOrGenerateFeatureFlagToken()` — token provisioning; `featureFlagToken` config field                           |
+| `gateway/src/index.ts`                          | Route registration, auth enforcement (dual-token for GET, flag-token-only for PATCH), token file watcher           |
 | `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
-| `gateway/src/feature-flag-registry.json` | Bundled copy of the unified registry for compiled binary resolution |
+| `gateway/src/feature-flag-registry.json`        | Bundled copy of the unified registry for compiled binary resolution                                                |
 
 ### Guardian Verification Control-Plane Proxy
 
@@ -81,14 +81,14 @@ Guardian verification endpoints are exposed directly by the gateway and forwarde
 
 **Forwarded endpoints:**
 
-| Method | Path |
-|--------|------|
-| POST | `/v1/integrations/guardian/challenge` |
-| GET | `/v1/integrations/guardian/status` |
-| POST | `/v1/integrations/guardian/outbound/start` |
-| POST | `/v1/integrations/guardian/outbound/resend` |
-| POST | `/v1/integrations/guardian/outbound/cancel` |
-| POST | `/v1/integrations/guardian/vellum/refresh` |
+| Method | Path                                        |
+| ------ | ------------------------------------------- |
+| POST   | `/v1/integrations/guardian/challenge`       |
+| GET    | `/v1/integrations/guardian/status`          |
+| POST   | `/v1/integrations/guardian/outbound/start`  |
+| POST   | `/v1/integrations/guardian/outbound/resend` |
+| POST   | `/v1/integrations/guardian/outbound/cancel` |
+| POST   | `/v1/integrations/guardian/vellum/refresh`  |
 
 The `/vellum/refresh` endpoint is the only public ingress for rotating JWT access + refresh token credentials. Clients must call this through the gateway; the runtime endpoint is not directly exposed. The gateway validates the caller's JWT and forwards to the runtime, which handles refresh token validation, rotation, and replay detection (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for the JWT auth lifecycle).
 
@@ -100,10 +100,10 @@ The `/vellum/refresh` endpoint is the only public ingress for rotating JWT acces
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `gateway/src/http/routes/guardian-control-plane-proxy.ts` | Guardian control-plane proxy handlers and upstream forwarding |
-| `gateway/src/index.ts` | Route registration and JWT auth enforcement for `/v1/integrations/guardian/*` |
+| File                                                      | Purpose                                                                       |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `gateway/src/http/routes/guardian-control-plane-proxy.ts` | Guardian control-plane proxy handlers and upstream forwarding                 |
+| `gateway/src/index.ts`                                    | Route registration and JWT auth enforcement for `/v1/integrations/guardian/*` |
 
 ### Runtime Health Proxy
 
@@ -117,10 +117,10 @@ Runtime health is exposed directly by the gateway at `GET /v1/health` and forwar
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `gateway/src/http/routes/runtime-health-proxy.ts` | Runtime health proxy handler and upstream forwarding |
-| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/health` |
+| File                                              | Purpose                                                         |
+| ------------------------------------------------- | --------------------------------------------------------------- |
+| `gateway/src/http/routes/runtime-health-proxy.ts` | Runtime health proxy handler and upstream forwarding            |
+| `gateway/src/index.ts`                            | Route registration and bearer-auth enforcement for `/v1/health` |
 
 ### Telegram + Ingress Control-Plane Proxies
 
@@ -128,22 +128,22 @@ Telegram integration setup/config endpoints and ingress members/invites endpoint
 
 **Forwarded Telegram endpoints:**
 
-| Method | Path |
-|--------|------|
-| GET/POST/DELETE | `/v1/integrations/telegram/config` |
-| POST | `/v1/integrations/telegram/commands` |
-| POST | `/v1/integrations/telegram/setup` |
+| Method          | Path                                 |
+| --------------- | ------------------------------------ |
+| GET/POST/DELETE | `/v1/integrations/telegram/config`   |
+| POST            | `/v1/integrations/telegram/commands` |
+| POST            | `/v1/integrations/telegram/setup`    |
 
 **Forwarded ingress endpoints:**
 
-| Method | Path |
-|--------|------|
-| GET/POST | `/v1/ingress/members` |
-| DELETE | `/v1/ingress/members/:memberId` |
-| POST | `/v1/ingress/members/:memberId/block` |
-| GET/POST | `/v1/ingress/invites` |
-| DELETE | `/v1/ingress/invites/:inviteId` |
-| POST | `/v1/ingress/invites/redeem` |
+| Method   | Path                                  |
+| -------- | ------------------------------------- |
+| GET/POST | `/v1/ingress/members`                 |
+| DELETE   | `/v1/ingress/members/:memberId`       |
+| POST     | `/v1/ingress/members/:memberId/block` |
+| GET/POST | `/v1/ingress/invites`                 |
+| DELETE   | `/v1/ingress/invites/:inviteId`       |
+| POST     | `/v1/ingress/invites/redeem`          |
 
 **Authentication boundary:**
 
@@ -153,11 +153,11 @@ Telegram integration setup/config endpoints and ingress members/invites endpoint
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding |
-| `gateway/src/http/routes/ingress-control-plane-proxy.ts` | Ingress control-plane proxy handlers and upstream forwarding |
-| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/ingress/*` |
+| File                                                      | Purpose                                                                                              |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding                                        |
+| `gateway/src/http/routes/ingress-control-plane-proxy.ts`  | Ingress control-plane proxy handlers and upstream forwarding                                         |
+| `gateway/src/index.ts`                                    | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/ingress/*` |
 
 ### Twilio Control-Plane Proxy
 
@@ -165,21 +165,21 @@ Twilio integration setup/config endpoints are exposed directly by the gateway an
 
 **Forwarded endpoints:**
 
-| Method | Path |
-|--------|------|
-| GET | `/v1/integrations/twilio/config` |
-| POST | `/v1/integrations/twilio/credentials` |
-| DELETE | `/v1/integrations/twilio/credentials` |
-| GET | `/v1/integrations/twilio/numbers` |
-| POST | `/v1/integrations/twilio/numbers/provision` |
-| POST | `/v1/integrations/twilio/numbers/assign` |
-| POST | `/v1/integrations/twilio/numbers/release` |
-| GET | `/v1/integrations/twilio/sms/compliance` |
-| POST | `/v1/integrations/twilio/sms/compliance/tollfree` |
-| PATCH | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` |
+| Method | Path                                                   |
+| ------ | ------------------------------------------------------ |
+| GET    | `/v1/integrations/twilio/config`                       |
+| POST   | `/v1/integrations/twilio/credentials`                  |
+| DELETE | `/v1/integrations/twilio/credentials`                  |
+| GET    | `/v1/integrations/twilio/numbers`                      |
+| POST   | `/v1/integrations/twilio/numbers/provision`            |
+| POST   | `/v1/integrations/twilio/numbers/assign`               |
+| POST   | `/v1/integrations/twilio/numbers/release`              |
+| GET    | `/v1/integrations/twilio/sms/compliance`               |
+| POST   | `/v1/integrations/twilio/sms/compliance/tollfree`      |
+| PATCH  | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` |
 | DELETE | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` |
-| POST | `/v1/integrations/twilio/sms/test` |
-| POST | `/v1/integrations/twilio/sms/doctor` |
+| POST   | `/v1/integrations/twilio/sms/test`                     |
+| POST   | `/v1/integrations/twilio/sms/doctor`                   |
 
 **Authentication boundary:**
 
@@ -189,10 +189,10 @@ Twilio integration setup/config endpoints are exposed directly by the gateway an
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `gateway/src/http/routes/twilio-control-plane-proxy.ts` | Twilio control-plane proxy handlers and upstream forwarding |
-| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/integrations/twilio/*` |
+| File                                                    | Purpose                                                                        |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `gateway/src/http/routes/twilio-control-plane-proxy.ts` | Twilio control-plane proxy handlers and upstream forwarding                    |
+| `gateway/src/index.ts`                                  | Route registration and bearer-auth enforcement for `/v1/integrations/twilio/*` |
 
 ### Channel Readiness Proxy
 
@@ -200,10 +200,10 @@ Channel readiness endpoints are exposed directly by the gateway and forwarded to
 
 **Forwarded endpoints:**
 
-| Method | Path |
-|--------|------|
-| GET | `/v1/channels/readiness` |
-| POST | `/v1/channels/readiness/refresh` |
+| Method | Path                             |
+| ------ | -------------------------------- |
+| GET    | `/v1/channels/readiness`         |
+| POST   | `/v1/channels/readiness/refresh` |
 
 **Authentication boundary:**
 
@@ -213,10 +213,10 @@ Channel readiness endpoints are exposed directly by the gateway and forwarded to
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `gateway/src/http/routes/channel-readiness-proxy.ts` | Channel readiness proxy handlers and upstream forwarding |
-| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/channels/readiness*` |
+| File                                                 | Purpose                                                                      |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `gateway/src/http/routes/channel-readiness-proxy.ts` | Channel readiness proxy handlers and upstream forwarding                     |
+| `gateway/src/index.ts`                               | Route registration and bearer-auth enforcement for `/v1/channels/readiness*` |
 
 ### Channel Binding Lifecycle (Lane Separation)
 
@@ -234,10 +234,10 @@ Channel bindings follow a three-phase lifecycle:
 
 The public URL where the gateway is reachable is configured via:
 
-| Source | Priority | Description |
-|--------|----------|-------------|
+| Source                                     | Priority      | Description                                                                  |
+| ------------------------------------------ | ------------- | ---------------------------------------------------------------------------- |
 | `ingress.publicBaseUrl` (workspace config) | 1 (preferred) | Set via Settings UI > Public Ingress, or directly in workspace `config.json` |
-| `INGRESS_PUBLIC_BASE_URL` (env var) | 2 | Environment variable fallback for `ingress.publicBaseUrl` |
+| `INGRESS_PUBLIC_BASE_URL` (env var)        | 2             | Environment variable fallback for `ingress.publicBaseUrl`                    |
 
 ### Tunnel-Agnostic Setup
 
@@ -252,16 +252,16 @@ The assistant runtime reads this URL via the centralized `public-ingress-urls.ts
 
 All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-urls.ts`:
 
-| Function | URL Pattern |
-|----------|-------------|
-| `getPublicBaseUrl()` | Resolves the canonical base URL from `ingress.publicBaseUrl` or `INGRESS_PUBLIC_BASE_URL` |
-| `getTwilioVoiceWebhookUrl()` | `${base}/webhooks/twilio/voice?callSessionId=...` |
-| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status` |
-| `getTwilioConnectActionUrl()` | `${base}/webhooks/twilio/connect-action` |
-| `getTwilioRelayUrl()` | `ws(s)://.../webhooks/twilio/relay` |
-| `getTwilioSmsWebhookUrl()` | `${base}/webhooks/twilio/sms` |
-| `getOAuthCallbackUrl()` | `${base}/webhooks/oauth/callback` |
-| `getTelegramWebhookUrl()` | `${base}/webhooks/telegram` |
+| Function                       | URL Pattern                                                                               |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` or `INGRESS_PUBLIC_BASE_URL` |
+| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`                                         |
+| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                          |
+| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                  |
+| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`                                                       |
+| `getTwilioSmsWebhookUrl()`     | `${base}/webhooks/twilio/sms`                                                             |
+| `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                         |
+| `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                               |
 
 ### Telegram Messaging Flow
 
@@ -307,13 +307,14 @@ Runtime detects needs_confirmation
   → gateway renders inline keyboard (buttons: Approve once, Approve always, Reject)
   → user clicks button → Telegram callback_query
   → gateway normalizes callback_query into inbound event (callbackData field)
-  → runtime parses callback data (format: apr:<runId>:<action>)
+  → runtime parses callback data (format: apr:<requestId>:<action>)
   → runtime applies decision to pending run → run resumes
 ```
 
 **Deliver-once guard:** Both the main poll (`processChannelMessageWithApprovals`) and the post-decision poll (`schedulePostDecisionDelivery`) race to deliver the final assistant reply when a run reaches terminal state. The `claimRunDelivery()` function in `channel-delivery-store.ts` uses an in-memory `Set<string>` to ensure at-most-one delivery per run. The first caller to claim the run ID proceeds with delivery; the other silently skips it. This is an in-memory guard — sufficient because both racing pollers execute within the same process.
 
 **Fail-closed prompt delivery:** All approval prompt delivery paths auto-deny the run if the prompt cannot be delivered, preventing silent `needs_confirmation` hangs:
+
 - **Standard (self-approval):** `deliverApprovalPrompt()` failure triggers `handleChannelDecision(reject)`.
 - **Guardian-routed:** Delivery failure to the guardian's chat marks the approval record `denied`, rejects the run, and notifies the requester.
 - **Unverified channel (no guardian binding):** Sensitive actions are auto-denied immediately without attempting prompt delivery.
@@ -330,20 +331,20 @@ Runtime detects needs_confirmation
 
 **Key modules:**
 
-| Module | Purpose |
-|--------|---------|
-| `assistant/src/runtime/approval-conversation-turn.ts` | Conversational approval turn engine: LLM-based intent classification (structured output) for pending approval follow-ups, with fail-closed safety |
-| `assistant/src/runtime/approval-message-composer.ts` | Centralized approval message composition: layered source selection (assistant preface → deterministic fallback) for all approval/guardian/verification user-facing copy |
-| `assistant/src/runtime/channel-approvals.ts` | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, plain-text fallback selection |
-| `assistant/src/runtime/channel-approval-parser.ts` | Legacy plain-text decision parser (phrase matching); retained as fallback when no conversational engine is injected |
-| `assistant/src/runtime/channel-approval-types.ts` | Shared types: actions, prompts, UI metadata, decisions |
-| `assistant/src/runtime/routes/channel-routes.ts` | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery |
-| `assistant/src/runtime/channel-guardian-service.ts` | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()` |
-| `assistant/src/memory/channel-delivery-store.ts` | `claimRunDelivery()` — in-memory deliver-once guard for terminal reply idempotency |
-| `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()` |
-| `assistant/src/runtime/gateway-client.ts` | `deliverApprovalPrompt()` — sends approval payload to gateway |
-| `gateway/src/telegram/send.ts` | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons |
-| `gateway/src/telegram/normalize.ts` | `callback_query` normalization into `GatewayInboundEvent` (DM-only, drops callbacks without data) |
+| Module                                                | Purpose                                                                                                                                                                 |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/runtime/approval-conversation-turn.ts` | Conversational approval turn engine: LLM-based intent classification (structured output) for pending approval follow-ups, with fail-closed safety                       |
+| `assistant/src/runtime/approval-message-composer.ts`  | Centralized approval message composition: layered source selection (assistant preface → deterministic fallback) for all approval/guardian/verification user-facing copy |
+| `assistant/src/runtime/channel-approvals.ts`          | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, plain-text fallback selection                           |
+| `assistant/src/runtime/channel-approval-parser.ts`    | Legacy plain-text decision parser (phrase matching); retained as fallback when no conversational engine is injected                                                     |
+| `assistant/src/runtime/channel-approval-types.ts`     | Shared types: actions, prompts, UI metadata, decisions                                                                                                                  |
+| `assistant/src/runtime/routes/channel-routes.ts`      | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery                             |
+| `assistant/src/runtime/channel-guardian-service.ts`   | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()`                                                                                                        |
+| `assistant/src/memory/channel-delivery-store.ts`      | `claimRunDelivery()` — in-memory deliver-once guard for terminal reply idempotency                                                                                      |
+| `assistant/src/memory/channel-guardian-store.ts`      | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()`                                        |
+| `assistant/src/runtime/gateway-client.ts`             | `deliverApprovalPrompt()` — sends approval payload to gateway                                                                                                           |
+| `gateway/src/telegram/send.ts`                        | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons                                                                                           |
+| `gateway/src/telegram/normalize.ts`                   | `callback_query` normalization into `GatewayInboundEvent` (DM-only, drops callbacks without data)                                                                       |
 
 ### Approval Message Composer
 
@@ -374,7 +375,7 @@ Creating a new guardian challenge when a binding already exists for the `(assist
 
 #### Guardian Takeover Prevention
 
-`validateAndConsumeChallenge` rejects verification when an active binding exists for a *different* external user. This prevents an attacker who intercepts a verification code from hijacking an established guardian binding. Same-user re-verification (e.g., re-verifying after a session timeout) is allowed, since the external user ID matches the existing binding.
+`validateAndConsumeChallenge` rejects verification when an active binding exists for a _different_ external user. This prevents an attacker who intercepts a verification code from hijacking an established guardian binding. Same-user re-verification (e.g., re-verifying after a session timeout) is allowed, since the external user ID matches the existing binding.
 
 #### Guardian Verification Flow
 
@@ -445,7 +446,7 @@ This ordering ensures that ingress ACL decisions are finalized before any agent 
 
 #### Actor Role Resolution
 
-When a message arrives on a channel, the runtime resolves the sender's role. Role *classification* runs unconditionally. Guardian enforcement (`forceStrictSideEffects`, fail-closed denial, guardian approval routing) applies to non-guardian/unverified actors whenever orchestrator + callback context are available:
+When a message arrives on a channel, the runtime resolves the sender's role. Role _classification_ runs unconditionally. Guardian enforcement (`forceStrictSideEffects`, fail-closed denial, guardian approval routing) applies to non-guardian/unverified actors whenever orchestrator + callback context are available:
 
 - **Guardian**: `actorExternalId` matches the binding's `guardianExternalUserId` (DB column) for the `(assistantId, channel)` pair. Self-approval is handled through the same approval-aware channel flow.
 - **Non-guardian**: A known sender who is not the guardian. Side-effect tools are forced through the confirmation flow (`forceStrictSideEffects`), and approval prompts are routed to the guardian's chat instead of the requester's chat.
@@ -487,16 +488,16 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 
 **Key modules:**
 
-| Module | Purpose |
-|--------|---------|
-| `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`) |
-| `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
-| `assistant/src/runtime/trust-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity |
-| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation, actor role resolution |
-| `assistant/src/runtime/routes/channel-routes.ts` | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
-| `assistant/src/calls/guardian-dispatch.ts` | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries |
-| `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels |
-| `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
+| Module                                                    | Purpose                                                                                                                       |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/memory/channel-guardian-store.ts`          | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`)                      |
+| `assistant/src/runtime/channel-guardian-service.ts`       | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId`  |
+| `assistant/src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity              |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation, actor role resolution                              |
+| `assistant/src/runtime/routes/channel-routes.ts`          | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`)            |
+| `assistant/src/calls/guardian-dispatch.ts`                | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries       |
+| `assistant/src/calls/guardian-action-sweep.ts`            | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels                            |
+| `assistant/src/memory/guardian-action-store.ts`           | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
 
 ### Ingress Membership and Escalation
 
@@ -556,18 +557,18 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 #### SQLite Tables
 
-| Table | Purpose |
-|-------|---------|
-| `assistant_ingress_invites` | Invite tokens with SHA-256 hashes, expiry, use counts |
+| Table                       | Purpose                                                            |
+| --------------------------- | ------------------------------------------------------------------ |
+| `assistant_ingress_invites` | Invite tokens with SHA-256 hashes, expiry, use counts              |
 | `assistant_ingress_members` | Member records with per-member access policy (allow/deny/escalate) |
 
 #### Key Modules
 
-| Module | Purpose |
-|--------|---------|
-| `assistant/src/memory/ingress-invite-store.ts` | CRUD for invite tokens with SHA-256 hashing and expiry |
-| `assistant/src/memory/ingress-member-store.ts` | CRUD for ingress members with policy enforcement |
-| `assistant/src/daemon/handlers/config-inbox.ts` | IPC handlers for ingress invite and member contracts |
+| Module                                           | Purpose                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------- |
+| `assistant/src/memory/ingress-invite-store.ts`   | CRUD for invite tokens with SHA-256 hashing and expiry                    |
+| `assistant/src/memory/ingress-member-store.ts`   | CRUD for ingress members with policy enforcement                          |
+| `assistant/src/daemon/handlers/config-inbox.ts`  | IPC handlers for ingress invite and member contracts                      |
 | `assistant/src/runtime/routes/channel-routes.ts` | ACL enforcement point -- member lookup, policy check, escalation creation |
 
 ### Telegram Credential Flow
@@ -600,6 +601,7 @@ Both paths converge at:
 ```
 
 The `telegram_config` IPC message supports three actions:
+
 - **`get`** — returns connection status (`hasBotToken`, `botUsername`, `connected`, `hasWebhookSecret`) without exposing secret values
 - **`set`** — validates the bot token against the Telegram API, stores it in secure storage, auto-generates a webhook secret if none exists (with rollback on failure), self-heals webhook_secret metadata if it already exists, and triggers gateway webhook reconciliation
 - **`clear`** — deregisters the webhook by calling Telegram's `deleteWebhook` API directly (while the token is still available), then deletes the bot token and webhook secret from both secure storage and credential metadata, and triggers gateway reconciliation
@@ -619,6 +621,7 @@ This also runs when the credential watcher detects changes to Telegram credentia
 ### Routing Auto-Configuration
 
 In single-assistant mode (the default local deployment), routing is automatically configured by the CLI:
+
 - `GATEWAY_UNMAPPED_POLICY=default` is set so all inbound messages are forwarded
 - `GATEWAY_DEFAULT_ASSISTANT_ID` is set to the current assistant's ID
 
@@ -655,9 +658,9 @@ The Slack channel enables inbound and outbound messaging via Slack's Socket Mode
 
 The Slack channel requires two tokens:
 
-| Token | Format | Purpose |
-|-------|--------|---------|
-| App token | `xapp-...` | Used for `apps.connections.open` to establish the Socket Mode WebSocket connection |
+| Token     | Format     | Purpose                                                                              |
+| --------- | ---------- | ------------------------------------------------------------------------------------ |
+| App token | `xapp-...` | Used for `apps.connections.open` to establish the Socket Mode WebSocket connection   |
 | Bot token | `xoxb-...` | Used for `chat.postMessage` to send outbound messages and for `auth.test` validation |
 
 Both tokens are stored in secure storage (`credential:slack_channel:app_token`, `credential:slack_channel:bot_token`) via the assistant's Slack channel config endpoints (see `assistant/ARCHITECTURE.md`). The gateway reads them via its `credential-reader` module using the same keychain-first fallback strategy as Telegram credentials.
@@ -668,11 +671,11 @@ The Socket Mode client auto-reconnects on any WebSocket close or error. The back
 
 **Key modules:**
 
-| Module | Purpose |
-|--------|---------|
-| `gateway/src/slack/socket-mode.ts` | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect |
-| `gateway/src/slack/normalize.ts` | `normalizeSlackAppMention()` — event normalization and bot-mention stripping |
-| `gateway/src/http/routes/slack-deliver.ts` | `/deliver/slack` — outbound message delivery via `chat.postMessage` |
+| Module                                     | Purpose                                                                      |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| `gateway/src/slack/socket-mode.ts`         | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect    |
+| `gateway/src/slack/normalize.ts`           | `normalizeSlackAppMention()` — event normalization and bot-mention stripping |
+| `gateway/src/http/routes/slack-deliver.ts` | `/deliver/slack` — outbound message delivery via `chat.postMessage`          |
 
 **Limitations (MVP):** Text-only — attachments are rejected. Only `app_mention` events are processed (direct messages to the bot are not handled). Rich approval UI (inline buttons) is not supported.
 
@@ -865,34 +868,34 @@ sequenceDiagram
 
 ### Key Components
 
-| File | Role |
-|------|------|
-| `assistant/src/calls/call-store.ts` | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM |
-| `assistant/src/calls/call-domain.ts` | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes |
-| `assistant/src/calls/guardian-dispatch.ts` | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram/sms, creates server-side guardian conversations, manages deliveries |
-| `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check |
-| `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels |
-| `assistant/src/calls/call-domain.ts:createInboundVoiceSession()` | Creates or reuses a voice session for an inbound call keyed by CallSid (idempotent replay protection) |
-| `assistant/src/runtime/channel-guardian-service.ts` | Guardian verification challenge lifecycle: create challenge with six-digit code, find pending challenges, validate and consume on match |
-| `assistant/src/calls/call-state-machine.ts` | Deterministic state transition validator with allowed-transition table and terminal-state enforcement |
-| `assistant/src/calls/call-recovery.ts` | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions |
-| `assistant/src/calls/twilio-provider.ts` | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency |
-| `assistant/src/calls/twilio-routes.ts` | HTTP webhook handlers: voice webhook (returns TwiML with WS-A/WS-B guardrails), status callback, connect action |
-| `assistant/src/calls/relay-server.ts` | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call |
-| `assistant/src/calls/speaker-identification.ts` | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization |
-| `assistant/src/calls/call-controller.ts` | Session-backed voice controller: routes voice turns through the daemon session pipeline via voice-session-bridge, detects ASK_GUARDIAN and END_CALL control markers |
-| `assistant/src/calls/voice-session-bridge.ts` | Bridge between voice relay and the daemon session/run pipeline: wraps RunOrchestrator.startRun() with voice-specific defaults, translating agent-loop events into callbacks for real-time TTS streaming |
-| `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and controller registry |
-| `assistant/src/calls/call-constants.ts` | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers |
-| `assistant/src/calls/voice-provider.ts` | Abstract VoiceProvider interface for provider-agnostic call initiation |
-| `assistant/src/calls/voice-quality.ts` | Voice quality profile resolution: `resolveVoiceQualityProfile()` reads `calls.voice` config and returns effective TTS provider, voice spec, and fallback settings for the active mode |
-| `assistant/src/calls/twilio-config.ts` | Twilio credential and configuration resolution from secure key store and environment |
-| `assistant/src/calls/types.ts` | TypeScript type definitions: CallSession, CallEvent, CallPendingQuestion, CallStatus, CallEventType |
-| `gateway/src/http/routes/twilio-voice-webhook.ts` | Gateway route: validates Twilio signature, forwards voice webhook to runtime |
-| `gateway/src/http/routes/twilio-status-webhook.ts` | Gateway route: validates Twilio signature, forwards status callback to runtime |
-| `gateway/src/http/routes/twilio-connect-action-webhook.ts` | Gateway route: validates Twilio signature, forwards connect-action to runtime |
-| `gateway/src/http/routes/twilio-relay-websocket.ts` | Gateway route: WebSocket proxy for ConversationRelay frames between Twilio and runtime |
-| `gateway/src/twilio/validate-webhook.ts` | Twilio webhook validation: HMAC-SHA1 signature verification, payload size limits, fail-closed when auth token missing |
+| File                                                             | Role                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/calls/call-store.ts`                              | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM                                                                                                                        |
+| `assistant/src/calls/call-domain.ts`                             | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes                                                                              |
+| `assistant/src/calls/guardian-dispatch.ts`                       | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram/sms, creates server-side guardian conversations, manages deliveries                                                                     |
+| `assistant/src/memory/guardian-action-store.ts`                  | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check                                                                                                                 |
+| `assistant/src/calls/guardian-action-sweep.ts`                   | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels                                                                                                                 |
+| `assistant/src/calls/call-domain.ts:createInboundVoiceSession()` | Creates or reuses a voice session for an inbound call keyed by CallSid (idempotent replay protection)                                                                                                                  |
+| `assistant/src/runtime/channel-guardian-service.ts`              | Guardian verification challenge lifecycle: create challenge with six-digit code, find pending challenges, validate and consume on match                                                                                |
+| `assistant/src/calls/call-state-machine.ts`                      | Deterministic state transition validator with allowed-transition table and terminal-state enforcement                                                                                                                  |
+| `assistant/src/calls/call-recovery.ts`                           | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions                                                                                                                   |
+| `assistant/src/calls/twilio-provider.ts`                         | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency                                                                                                 |
+| `assistant/src/calls/twilio-routes.ts`                           | HTTP webhook handlers: voice webhook (returns TwiML with WS-A/WS-B guardrails), status callback, connect action                                                                                                        |
+| `assistant/src/calls/relay-server.ts`                            | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call                                                                                                                |
+| `assistant/src/calls/speaker-identification.ts`                  | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization |
+| `assistant/src/calls/call-controller.ts`                         | Session-backed voice controller: routes voice turns through the daemon session pipeline via voice-session-bridge, detects ASK_GUARDIAN and END_CALL control markers                                                    |
+| `assistant/src/calls/voice-session-bridge.ts`                    | Bridge between voice relay and the daemon session/run pipeline: wraps RunOrchestrator.startRun() with voice-specific defaults, translating agent-loop events into callbacks for real-time TTS streaming                |
+| `assistant/src/calls/call-state.ts`                              | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and controller registry                                                     |
+| `assistant/src/calls/call-constants.ts`                          | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers                                                                                                       |
+| `assistant/src/calls/voice-provider.ts`                          | Abstract VoiceProvider interface for provider-agnostic call initiation                                                                                                                                                 |
+| `assistant/src/calls/voice-quality.ts`                           | Voice quality profile resolution: `resolveVoiceQualityProfile()` reads `calls.voice` config and returns effective TTS provider, voice spec, and fallback settings for the active mode                                  |
+| `assistant/src/calls/twilio-config.ts`                           | Twilio credential and configuration resolution from secure key store and environment                                                                                                                                   |
+| `assistant/src/calls/types.ts`                                   | TypeScript type definitions: CallSession, CallEvent, CallPendingQuestion, CallStatus, CallEventType                                                                                                                    |
+| `gateway/src/http/routes/twilio-voice-webhook.ts`                | Gateway route: validates Twilio signature, forwards voice webhook to runtime                                                                                                                                           |
+| `gateway/src/http/routes/twilio-status-webhook.ts`               | Gateway route: validates Twilio signature, forwards status callback to runtime                                                                                                                                         |
+| `gateway/src/http/routes/twilio-connect-action-webhook.ts`       | Gateway route: validates Twilio signature, forwards connect-action to runtime                                                                                                                                          |
+| `gateway/src/http/routes/twilio-relay-websocket.ts`              | Gateway route: WebSocket proxy for ConversationRelay frames between Twilio and runtime                                                                                                                                 |
+| `gateway/src/twilio/validate-webhook.ts`                         | Twilio webhook validation: HMAC-SHA1 signature verification, payload size limits, fail-closed when auth token missing                                                                                                  |
 
 ### Call State Machine
 
@@ -960,13 +963,13 @@ All five tables live in `~/.vellum/workspace/data/db/assistant.db` alongside exi
 
 Internet-facing Twilio callbacks terminate at the gateway, which validates signatures before forwarding to the runtime. This keeps the runtime behind the gateway's bearer-auth boundary.
 
-| Gateway Route | Validates | Forwards To (Runtime) |
-|---------------|-----------|----------------------|
-| `POST /webhooks/twilio/voice` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/voice-webhook` (JSON: `{ params, originalUrl, assistantId? }`) |
-| `POST /webhooks/twilio/status` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/status` (JSON: `{ params }`) |
-| `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/connect-action` (JSON: `{ params }`) |
-| `WS /webhooks/twilio/relay` | WebSocket upgrade | `WS /v1/calls/relay` (bidirectional proxy) |
-| `POST /webhooks/twilio/sms` | HMAC-SHA1 signature, payload size, MessageSid dedup | `POST /v1/channels/inbound` (normalized `GatewayInboundEvent` with `sourceChannel: "sms"`) |
+| Gateway Route                          | Validates                                           | Forwards To (Runtime)                                                                      |
+| -------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `POST /webhooks/twilio/voice`          | HMAC-SHA1 signature, payload size                   | `POST /v1/internal/twilio/voice-webhook` (JSON: `{ params, originalUrl, assistantId? }`)   |
+| `POST /webhooks/twilio/status`         | HMAC-SHA1 signature, payload size                   | `POST /v1/internal/twilio/status` (JSON: `{ params }`)                                     |
+| `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size                   | `POST /v1/internal/twilio/connect-action` (JSON: `{ params }`)                             |
+| `WS /webhooks/twilio/relay`            | WebSocket upgrade                                   | `WS /v1/calls/relay` (bidirectional proxy)                                                 |
+| `POST /webhooks/twilio/sms`            | HMAC-SHA1 signature, payload size, MessageSid dedup | `POST /v1/channels/inbound` (normalized `GatewayInboundEvent` with `sourceChannel: "sms"`) |
 
 In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice webhook) should point to the gateway's `/webhooks/twilio/relay` endpoint rather than directly to the runtime. The gateway proxies ConversationRelay frames bidirectionally between Twilio and the runtime, preserving close and error semantics for proper cleanup.
 
@@ -980,6 +983,7 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/twilio/sms`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 
 For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
+
 1. `config.ingressPublicBaseUrl` (if configured)
 2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
 3. Raw request URL (always included as the final fallback)
@@ -988,26 +992,26 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 
 ### Runtime HTTP Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/calls/start` | Initiate a new outgoing call (gated by `calls.enabled` config) |
-| POST | `/v1/calls/twilio/voice-webhook` | Twilio voice webhook (direct access; **blocked with 410 in gateway-only mode**) |
-| POST | `/v1/internal/twilio/voice-webhook` | Internal voice webhook used by gateway; accepts JSON `{ params, originalUrl, assistantId? }`, creates inbound session or returns TwiML |
-| GET | `/v1/calls/:callSessionId` | Get call status, including any pending question |
-| POST | `/v1/calls/:callSessionId/cancel` | Cancel an active call |
-| POST | `/v1/calls/:callSessionId/answer` | Answer a pending question via HTTP (alternative to in-thread bridge) |
-| POST | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's controller (alternative to in-thread bridge) |
-| POST | `/v1/internal/twilio/status` | Internal status callback used by gateway; accepts JSON `{ params }` |
-| POST | `/v1/internal/twilio/connect-action` | Internal connect action callback used by gateway; accepts JSON `{ params }` |
-| WS | `/v1/calls/relay` | ConversationRelay WebSocket (bidirectional: prompt/interrupt/dtmf from Twilio, text tokens/end to Twilio) |
+| Method | Path                                   | Description                                                                                                                            |
+| ------ | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/calls/start`                      | Initiate a new outgoing call (gated by `calls.enabled` config)                                                                         |
+| POST   | `/v1/calls/twilio/voice-webhook`       | Twilio voice webhook (direct access; **blocked with 410 in gateway-only mode**)                                                        |
+| POST   | `/v1/internal/twilio/voice-webhook`    | Internal voice webhook used by gateway; accepts JSON `{ params, originalUrl, assistantId? }`, creates inbound session or returns TwiML |
+| GET    | `/v1/calls/:callSessionId`             | Get call status, including any pending question                                                                                        |
+| POST   | `/v1/calls/:callSessionId/cancel`      | Cancel an active call                                                                                                                  |
+| POST   | `/v1/calls/:callSessionId/answer`      | Answer a pending question via HTTP (alternative to in-thread bridge)                                                                   |
+| POST   | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's controller (alternative to in-thread bridge)                                          |
+| POST   | `/v1/internal/twilio/status`           | Internal status callback used by gateway; accepts JSON `{ params }`                                                                    |
+| POST   | `/v1/internal/twilio/connect-action`   | Internal connect action callback used by gateway; accepts JSON `{ params }`                                                            |
+| WS     | `/v1/calls/relay`                      | ConversationRelay WebSocket (bidirectional: prompt/interrupt/dtmf from Twilio, text tokens/end to Twilio)                              |
 
 ### Tools
 
-| Tool | Description |
-|------|-------------|
-| `call_start` | Initiates an outgoing phone call to a specified number with an optional task description |
-| `call_status` | Retrieves the current status of a call session |
-| `call_end` | Terminates an active call |
+| Tool          | Description                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| `call_start`  | Initiates an outgoing phone call to a specified number with an optional task description |
+| `call_status` | Retrieves the current status of a call session                                           |
+| `call_end`    | Terminates an active call                                                                |
 
 Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`), ensuring consistent validation and behavior. Inbound calls do not use tools — they are initiated by the external caller and bootstrapped automatically by the voice webhook and relay server.
 
@@ -1035,19 +1039,19 @@ Malformed or unprocessable provider callback payloads are logged as dead-letter 
 
 Call behavior is controlled via the `calls` config block in the assistant configuration (`config/schema.ts`). All values have sensible defaults and are validated via Zod:
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `calls.enabled` | boolean | `true` | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors. |
-| `calls.provider` | enum | `'twilio'` | Voice provider to use (currently only Twilio is supported). |
-| `calls.maxDurationSeconds` | int | `3600` | Maximum allowed duration per call. |
-| `calls.userConsultTimeoutSeconds` | int | `120` | How long to wait for a user answer before timing out a pending question. |
-| `calls.disclosure.enabled` | boolean | `true` | Whether the AI should disclose it is an AI at the start of the call. |
-| `calls.disclosure.text` | string | *(default disclosure prompt)* | The disclosure instruction included in the system prompt. |
-| `calls.safety.denyCategories` | string[] | `[]` | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting). |
-| `calls.model` | string | *(unset — uses default model)* | Optional override for the LLM model used in voice call conversations. |
-| `calls.voice.language` | string | `'en-US'` | Language code for TTS and transcription. |
-| `calls.voice.transcriptionProvider` | enum | `'Deepgram'` | Speech-to-text provider (`Deepgram` or `Google`). |
-| `elevenlabs.voiceId` | string | `'21m00Tcm4TlvDq8ikWAM'` | ElevenLabs voice ID used by both in-app TTS and phone calls. Defaults to Rachel. |
+| Field                               | Type     | Default                        | Description                                                                                         |
+| ----------------------------------- | -------- | ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `calls.enabled`                     | boolean  | `true`                         | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.  |
+| `calls.provider`                    | enum     | `'twilio'`                     | Voice provider to use (currently only Twilio is supported).                                         |
+| `calls.maxDurationSeconds`          | int      | `3600`                         | Maximum allowed duration per call.                                                                  |
+| `calls.userConsultTimeoutSeconds`   | int      | `120`                          | How long to wait for a user answer before timing out a pending question.                            |
+| `calls.disclosure.enabled`          | boolean  | `true`                         | Whether the AI should disclose it is an AI at the start of the call.                                |
+| `calls.disclosure.text`             | string   | _(default disclosure prompt)_  | The disclosure instruction included in the system prompt.                                           |
+| `calls.safety.denyCategories`       | string[] | `[]`                           | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting). |
+| `calls.model`                       | string   | _(unset — uses default model)_ | Optional override for the LLM model used in voice call conversations.                               |
+| `calls.voice.language`              | string   | `'en-US'`                      | Language code for TTS and transcription.                                                            |
+| `calls.voice.transcriptionProvider` | enum     | `'Deepgram'`                   | Speech-to-text provider (`Deepgram` or `Google`).                                                   |
+| `elevenlabs.voiceId`                | string   | `'21m00Tcm4TlvDq8ikWAM'`       | ElevenLabs voice ID used by both in-app TTS and phone calls. Defaults to Rachel.                    |
 
 ### Caller Identity Resolution
 
@@ -1071,7 +1075,5 @@ All calls use **ElevenLabs** as the TTS provider via Twilio ConversationRelay. T
 The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` and passes the result directly to `generateTwiML()` to produce ConversationRelay TwiML.
 
 ---
-
-
 
 See also [`gateway/docs/sms-twilio-parity-checklist.md`](docs/sms-twilio-parity-checklist.md).
