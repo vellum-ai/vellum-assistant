@@ -429,7 +429,8 @@ struct ComposerView: View {
             return .ignored // plain Enter inserts newline
         }
 
-        // Default mode: Enter sends
+        // Default mode: plain Enter sends, any modifier combo is ignored
+        if !modifiers.isEmpty { return .ignored }
         performSendAction()
         return .handled
     }
