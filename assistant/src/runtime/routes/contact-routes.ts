@@ -51,6 +51,17 @@ export async function handleMergeContacts(req: Request): Promise<Response> {
   }
 }
 
+const VALID_CHANNEL_STATUSES: readonly ChannelStatus[] = ['active', 'pending', 'revoked', 'blocked', 'unverified'];
+const VALID_CHANNEL_POLICIES: readonly ChannelPolicy[] = ['allow', 'deny', 'escalate'];
+
+function isChannelStatus(value: string): value is ChannelStatus {
+  return (VALID_CHANNEL_STATUSES as readonly string[]).includes(value);
+}
+
+function isChannelPolicy(value: string): value is ChannelPolicy {
+  return (VALID_CHANNEL_POLICIES as readonly string[]).includes(value);
+}
+
 /**
  * PATCH /v1/contacts/channels/:channelId { status?, policy?, reason? }
  */
@@ -61,9 +72,17 @@ export async function handleUpdateContactChannel(req: Request, channelId: string
     reason?: string;
   };
 
+  if (body.status !== undefined && !isChannelStatus(body.status)) {
+    return httpError('BAD_REQUEST', `Invalid status "${body.status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(', ')}`, 400);
+  }
+
+  if (body.policy !== undefined && !isChannelPolicy(body.policy)) {
+    return httpError('BAD_REQUEST', `Invalid policy "${body.policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(', ')}`, 400);
+  }
+
   const updated = updateChannelStatus(channelId, {
-    status: body.status as ChannelStatus | undefined,
-    policy: body.policy as ChannelPolicy | undefined,
+    status: body.status,
+    policy: body.policy,
     revokedReason: body.status !== undefined ? (body.status === 'revoked' ? body.reason ?? null : null) : undefined,
     blockedReason: body.status !== undefined ? (body.status === 'blocked' ? body.reason ?? null : null) : undefined,
   });
