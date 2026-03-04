@@ -133,8 +133,10 @@ export function createSlackDeliverHandler(
       "Slack message sent",
     );
 
-    // Track the thread so future replies without @mention are forwarded
-    if (threadTs && onThreadReply) {
+    // Track the thread so future replies without @mention are forwarded.
+    // Skip for ephemeral sends — they are user-specific and should not
+    // activate global thread tracking for all participants.
+    if (threadTs && onThreadReply && !isEphemeral) {
       onThreadReply(threadTs);
     }
 

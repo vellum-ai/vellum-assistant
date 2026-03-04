@@ -352,4 +352,35 @@ describe("slack-deliver endpoint", () => {
     expect((slackCall!.body as any).thread_ts).toBe("1700000000.000100");
     expect((slackCall!.body as any).user).toBe("U789");
   });
+
+  test("does not call onThreadReply for ephemeral messages in a thread", async () => {
+    const onThreadReply = mock(() => {});
+    const handler = createSlackDeliverHandler(makeConfig(), onThreadReply);
+    const req = makeRequest(
+      {
+        chatId: "C123",
+        text: "ephemeral thread msg",
+        ephemeral: true,
+        user: "U456",
+      },
+      undefined,
+      "?threadTs=1700000000.000200",
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(onThreadReply).not.toHaveBeenCalled();
+  });
+
+  test("calls onThreadReply for non-ephemeral messages in a thread", async () => {
+    const onThreadReply = mock(() => {});
+    const handler = createSlackDeliverHandler(makeConfig(), onThreadReply);
+    const req = makeRequest(
+      { chatId: "C123", text: "normal thread msg" },
+      undefined,
+      "?threadTs=1700000000.000300",
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(onThreadReply).toHaveBeenCalledWith("1700000000.000300");
+  });
 });
