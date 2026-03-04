@@ -104,6 +104,9 @@ struct MessageListView: View {
     /// regardless of whether messages.count changes. This covers the edge
     /// case where pagination stalls without adding/removing messages.
     @State private var anchorTimeoutTask: Task<Void, Never>?
+    /// Tracks the top-visible item so SwiftUI can stabilize the viewport
+    /// when content height changes above it during LazyVStack re-layouts.
+    @State private var scrollPositionId: AnyHashable?
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -492,6 +495,7 @@ struct MessageListView: View {
             }
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
+            .scrollPosition(id: $scrollPositionId, anchor: .top)
             .scrollDisabled(messages.isEmpty && !isSending)
             .onHover { hovering in
                 handleThreadContentHover(hovering)
