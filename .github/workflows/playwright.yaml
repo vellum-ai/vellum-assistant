@@ -311,14 +311,14 @@ jobs:
           echo "=== avfoundation devices ==="
           ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true
           echo ""
-          echo "=== Test 3s recording ==="
+          echo "=== Test 3s recording (WebM/VP8) ==="
           ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 -i "1:none" \
-            -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p \
-            -t 3 -y /tmp/test-ffmpeg.mov 2>&1 || true
+            -c:v libvpx -b:v 1M -crf 30 \
+            -t 3 -y /tmp/test-ffmpeg.webm 2>&1 || true
           echo ""
           echo "=== Test video file ==="
-          ls -la /tmp/test-ffmpeg.mov 2>/dev/null || echo "No video file created"
-          file /tmp/test-ffmpeg.mov 2>/dev/null || true
+          ls -la /tmp/test-ffmpeg.webm 2>/dev/null || echo "No video file created"
+          file /tmp/test-ffmpeg.webm 2>/dev/null || true
 
       - name: Run Playwright tests
         id: tests

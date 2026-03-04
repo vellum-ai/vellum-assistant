@@ -127,17 +127,16 @@ function startScreenRecording(videoPath: string, testName: string): ScreenRecord
     const logPath = path.join(path.dirname(videoPath), "ffmpeg.log");
     const logStream = createWriteStream(logPath);
 
-    // Record at 10fps, using the detected screen device, no audio
+    // Record at 10fps using the detected screen device, no audio.
+    // Output as WebM (VP8) for universal browser playback in Playwright HTML report.
     const args = [
       "-f", "avfoundation",
       "-framerate", "10",
       "-capture_cursor", "1",
       "-i", `${screenDevice}:none`,
-      "-c:v", "libx264",
-      "-preset", "ultrafast",
-      "-crf", "28",
-      "-pix_fmt", "yuv420p",
-      "-movflags", "+faststart",
+      "-c:v", "libvpx",
+      "-b:v", "1M",
+      "-crf", "30",
       "-y",
       videoPath,
     ];
@@ -252,7 +251,7 @@ for (const file of caseFiles) {
         "../test-results/agent-videos",
         testName,
       );
-      const videoPath = path.join(videoDir, "screen-recording.mov");
+      const videoPath = path.join(videoDir, "screen-recording.webm");
       recorder = startScreenRecording(videoPath, testName);
 
       const screenshotDir = path.resolve(
@@ -310,9 +309,9 @@ for (const file of caseFiles) {
       // Attach the desktop screen recording if available
       if (stoppedVideoPath && existsSync(stoppedVideoPath)) {
         try {
-          await testInfo.attach("screen-recording.mov", {
+          await testInfo.attach("screen-recording", {
             path: stoppedVideoPath,
-            contentType: "video/quicktime",
+            contentType: "video/webm",
           });
         } catch {
           // video file may be empty or corrupt
