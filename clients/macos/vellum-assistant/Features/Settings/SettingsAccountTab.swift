@@ -104,67 +104,32 @@ struct SettingsAccountTab: View {
 
     private var accountSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Account")
+            Text("Account & Platform")
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            if store.isDevMode {
-                Text("Platform URL")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.textSecondary)
+            Text("Platform URL")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.textSecondary)
 
-                // When platform is reachable, show a Connected badge and keep the input field
-                // visible so the URL can still be changed.
-                // When not reachable/configured, show the inline field or a Set Up prompt.
-                if store.vellumPlatformReachable == true {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                    TextField("https://platform.vellum.ai", text: $platformUrlText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .focused($isPlatformUrlFocused)
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .secondary, size: .medium) {
-                            store.savePlatformBaseUrl(platformUrlText)
-                            Task { await store.checkVellumPlatform() }
-                            isPlatformUrlFocused = false
-                            platformUrlExpanded = false
-                        }
-                        .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                            platformUrlText = store.platformBaseUrl
-                            isPlatformUrlFocused = false
-                            platformUrlExpanded = false
-                        }
-                    }
-                } else if isPlatformUrlFocused || platformUrlExpanded || !platformUrlText.isEmpty {
-                    TextField("https://platform.vellum.ai", text: $platformUrlText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .focused($isPlatformUrlFocused)
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .secondary, size: .medium) {
-                            store.savePlatformBaseUrl(platformUrlText)
-                            Task { await store.checkVellumPlatform() }
-                            isPlatformUrlFocused = false
-                            platformUrlExpanded = false
-                        }
-                        .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                            platformUrlText = store.platformBaseUrl
-                            isPlatformUrlFocused = false
-                            platformUrlExpanded = false
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
-                        platformUrlExpanded = true
-                    }
-                }
+            TextField("https://platform.vellum.ai", text: $platformUrlText)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .focused($isPlatformUrlFocused)
 
-                Divider().background(VColor.surfaceBorder)
+            VButton(label: "Save", style: .primary, size: .medium) {
+                store.savePlatformBaseUrl(platformUrlText)
+                isPlatformUrlFocused = false
+                platformUrlExpanded = false
             }
+            .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Divider().background(VColor.surfaceBorder)
+
+            Text("Sign in to Your Account")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.textSecondary)
 
             if authManager.isLoading {
                 HStack(spacing: VSpacing.sm) {
@@ -180,7 +145,7 @@ struct SettingsAccountTab: View {
                 }
             } else {
                 VButton(
-                    label: authManager.isSubmitting ? "Signing in..." : "Log In",
+                    label: authManager.isSubmitting ? "Signing in..." : "Sign In",
                     style: .primary,
                     size: .medium
                 ) {
