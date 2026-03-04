@@ -9,8 +9,12 @@
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
 import { touchChannelLastSeen } from "../../../contacts/contacts-write.js";
-import type { IngressMember } from "../../../contacts/member-record-shim.js";
-import { contactChannelToMemberRecord } from "../../../contacts/member-record-shim.js";
+import type { MemberStatus } from "../../../contacts/member-record-shim.js";
+import type {
+  ChannelStatus,
+  ContactChannel,
+  ContactWithChannels,
+} from "../../../contacts/types.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
@@ -47,8 +51,14 @@ export interface AclEnforcementParams {
   externalMessageId: string;
 }
 
+/** Resolved contact + channel pair from ACL enforcement. */
+export type ResolvedMember = {
+  contact: ContactWithChannels;
+  channel: ContactChannel;
+};
+
 export interface AclResult {
-  resolvedMember: IngressMember | null;
+  resolvedMember: ResolvedMember | null;
   /** When set, the caller must return this response immediately. */
   earlyResponse?: Response;
   /**
@@ -70,6 +80,12 @@ function parseGuardianVerifyCode(content: string): string | undefined {
   if (bareMatch) return bareMatch[1];
 
   return undefined;
+}
+
+/** Map ChannelStatus to the legacy MemberStatus for API consumers. */
+function channelStatusToMemberStatus(status: ChannelStatus): MemberStatus {
+  if (status === "unverified") return "pending";
+  return status;
 }
 
 /**
@@ -97,7 +113,7 @@ export async function enforceIngressAcl(
     externalMessageId,
   } = params;
 
-  let resolvedMember: IngressMember | null = null;
+  let resolvedMember: ResolvedMember | null = null;
 
   // Verification codes must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
@@ -145,10 +161,10 @@ export async function enforceIngressAcl(
         externalChatId: conversationExternalId,
       });
       resolvedMember = contactResult
-        ? contactChannelToMemberRecord(
-            contactResult.contact,
-            contactResult.channel,
-          )
+        ? {
+            contact: contactResult.contact,
+            channel: contactResult.channel,
+          }
         : null;
     }
 
@@ -296,7 +312,7 @@ export async function enforceIngressAcl(
     }
 
     if (resolvedMember) {
-      if (resolvedMember.status !== "active") {
+      if (resolvedMember.channel.status !== "active") {
         // Same bypass logic as the no-member branch: verification codes and
         // bootstrap commands must pass through even when the member record is
         // revoked/blocked — otherwise the user can never re-verify.
@@ -316,7 +332,7 @@ export async function enforceIngressAcl(
             log.info(
               {
                 sourceChannel,
-                memberId: resolvedMember.id,
+                channelId: resolvedMember.channel.id,
                 hasPendingChallenge,
                 hasActiveOutboundSession,
               },
@@ -343,7 +359,7 @@ export async function enforceIngressAcl(
             log.info(
               {
                 sourceChannel,
-                memberId: resolvedMember.id,
+                channelId: resolvedMember.channel.id,
                 hasValidBootstrapSession: false,
               },
               "Ingress ACL: inactive member bootstrap bypass denied",
@@ -380,8 +396,8 @@ export async function enforceIngressAcl(
           log.info(
             {
               sourceChannel,
-              memberId: resolvedMember.id,
-              status: resolvedMember.status,
+              channelId: resolvedMember.channel.id,
+              status: resolvedMember.channel.status,
             },
             "Ingress ACL: member not active, denying",
           );
@@ -390,7 +406,7 @@ export async function enforceIngressAcl(
           // re-approve. Blocked members are intentionally excluded — the
           // guardian already made an explicit decision to block them.
           let guardianNotified = false;
-          if (resolvedMember.status !== "blocked") {
+          if (resolvedMember.channel.status !== "blocked") {
             try {
               const accessResult = notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
@@ -399,7 +415,9 @@ export async function enforceIngressAcl(
                 actorExternalId: canonicalSenderId ?? rawSenderId,
                 actorDisplayName,
                 actorUsername,
-                previousMemberStatus: resolvedMember.status,
+                previousMemberStatus: channelStatusToMemberStatus(
+                  resolvedMember.channel.status,
+                ),
               });
               guardianNotified = accessResult.notified;
             } catch (err) {
@@ -436,16 +454,16 @@ export async function enforceIngressAcl(
             earlyResponse: Response.json({
               accepted: true,
               denied: true,
-              reason: `member_${resolvedMember.status}`,
+              reason: `member_${resolvedMember.channel.status}`,
             }),
             guardianVerifyCode,
           };
         }
       }
 
-      if (resolvedMember.policy === "deny") {
+      if (resolvedMember.channel.policy === "deny") {
         log.info(
-          { sourceChannel, memberId: resolvedMember.id },
+          { sourceChannel, channelId: resolvedMember.channel.id },
           "Ingress ACL: member policy deny",
         );
         if (replyCallbackUrl) {
@@ -478,7 +496,7 @@ export async function enforceIngressAcl(
       }
 
       // 'allow' or 'escalate' — update last seen and continue
-      touchChannelLastSeen(resolvedMember.id);
+      touchChannelLastSeen(resolvedMember.channel.id);
     }
   }
 

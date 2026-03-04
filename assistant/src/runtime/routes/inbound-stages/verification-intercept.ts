@@ -13,7 +13,6 @@
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
 import { upsertMemberContactsFirst } from "../../../contacts/contacts-write.js";
-import { contactChannelToMemberRecord } from "../../../contacts/member-record-shim.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
@@ -123,21 +122,17 @@ export async function handleVerificationIntercept(
             externalChatId: conversationExternalId,
           })
         : null;
-    const existingMember = existingContactResult
-      ? contactChannelToMemberRecord(
-          existingContactResult.contact,
-          existingContactResult.channel,
-        )
-      : null;
-    const memberMatchesSender = existingMember?.externalUserId
+    const existingChannel = existingContactResult?.channel ?? null;
+    const existingContact = existingContactResult?.contact ?? null;
+    const memberMatchesSender = existingChannel?.externalUserId
       ? canonicalizeInboundIdentity(
           sourceChannel,
-          existingMember.externalUserId,
+          existingChannel.externalUserId,
         ) === (canonicalSenderId ?? rawSenderId)
       : false;
     const preservedDisplayName =
-      memberMatchesSender && existingMember?.displayName?.trim().length
-        ? existingMember.displayName
+      memberMatchesSender && existingContact?.displayName?.trim().length
+        ? existingContact.displayName
         : actorDisplayName;
 
     upsertMemberContactsFirst({

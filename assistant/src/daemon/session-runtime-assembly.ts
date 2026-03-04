@@ -153,8 +153,8 @@ export function inboundActorContextFromTrust(
     actorMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianBindingMatch?.guardianExternalUserId,
-    memberStatus: ctx.memberRecord?.status ?? undefined,
-    memberPolicy: ctx.memberRecord?.policy ?? undefined,
+    memberStatus: ctx.memberRecord?.channel.status ?? undefined,
+    memberPolicy: ctx.memberRecord?.channel.policy ?? undefined,
     denialReason: ctx.denialReason,
   };
 }

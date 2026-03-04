@@ -18,7 +18,6 @@ import {
   listGuardianChannels,
 } from "../contacts/contact-store.js";
 import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
-import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
@@ -714,7 +713,7 @@ export class RelayConnection {
         // an explicit decision to block them. This must be checked before
         // invite redemption so a blocked caller cannot bypass the block by
         // redeeming an active invite.
-        if (actorTrust.memberRecord?.status === "blocked") {
+        if (actorTrust.memberRecord?.channel.status === "blocked") {
           log.info(
             {
               callSessionId: this.callSessionId,
@@ -792,12 +791,12 @@ export class RelayConnection {
       // Members with policy: 'deny' have status: 'active' so resolveActorTrust
       // classifies them as trusted_contact, but the guardian has explicitly
       // denied their access. Block them the same way the text-channel path does.
-      if (actorTrust.memberRecord?.policy === "deny") {
+      if (actorTrust.memberRecord?.channel.policy === "deny") {
         log.info(
           {
             callSessionId: this.callSessionId,
             from: msg.from,
-            memberId: actorTrust.memberRecord.id,
+            channelId: actorTrust.memberRecord.channel.id,
             trustClass: actorTrust.trustClass,
           },
           "Inbound voice ACL: member policy deny",
@@ -806,8 +805,8 @@ export class RelayConnection {
         recordCallEvent(this.callSessionId, "inbound_acl_denied", {
           from: msg.from,
           trustClass: actorTrust.trustClass,
-          memberId: actorTrust.memberRecord.id,
-          memberPolicy: actorTrust.memberRecord.policy,
+          channelId: actorTrust.memberRecord.channel.id,
+          memberPolicy: actorTrust.memberRecord.channel.policy,
         });
 
         this.sendTextToken(
@@ -832,12 +831,12 @@ export class RelayConnection {
       // Members with policy: 'escalate' require guardian approval, but a live
       // voice call cannot be paused for async approval. Fail-closed by denying
       // the call with an appropriate message — mirrors the deny block above.
-      if (actorTrust.memberRecord?.policy === "escalate") {
+      if (actorTrust.memberRecord?.channel.policy === "escalate") {
         log.info(
           {
             callSessionId: this.callSessionId,
             from: msg.from,
-            memberId: actorTrust.memberRecord.id,
+            channelId: actorTrust.memberRecord.channel.id,
             trustClass: actorTrust.trustClass,
           },
           "Inbound voice ACL: member policy escalate — cannot hold live call for guardian approval",
@@ -846,8 +845,8 @@ export class RelayConnection {
         recordCallEvent(this.callSessionId, "inbound_acl_denied", {
           from: msg.from,
           trustClass: actorTrust.trustClass,
-          memberId: actorTrust.memberRecord.id,
-          memberPolicy: actorTrust.memberRecord.policy,
+          channelId: actorTrust.memberRecord.channel.id,
+          memberPolicy: actorTrust.memberRecord.channel.policy,
         });
 
         this.sendTextToken(
@@ -1775,14 +1774,12 @@ export class RelayConnection {
           externalUserId: fromNumber,
           externalChatId: fromNumber,
         });
-        const member = contactResult
-          ? contactChannelToMemberRecord(
-              contactResult.contact,
-              contactResult.channel,
-            )
-          : null;
-        if (member && member.status === "active" && member.policy === "allow") {
-          requesterMemberId = member.id;
+        if (
+          contactResult &&
+          contactResult.channel.status === "active" &&
+          contactResult.channel.policy === "allow"
+        ) {
+          requesterMemberId = contactResult.channel.id;
         }
       } catch (err) {
         log.warn(

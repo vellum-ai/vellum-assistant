@@ -10,7 +10,6 @@
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
-import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
 import { getSqlite } from "../memory/db.js";
 import {
   findActiveVoiceInvites,
@@ -134,18 +133,17 @@ export function redeemInvite(params: {
     externalUserId: canonicalUserId,
     externalChatId: externalChatId,
   });
-  const existingMember = contactResult
-    ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
-    : null;
+  const existingChannel = contactResult?.channel ?? null;
+  const existingContact = contactResult?.contact ?? null;
 
-  if (existingMember && existingMember.status === "active") {
-    return { ok: true, type: "already_member", memberId: existingMember.id };
+  if (existingChannel && existingChannel.status === "active") {
+    return { ok: true, type: "already_member", memberId: existingChannel.id };
   }
 
   // Blocked members cannot bypass the guardian's explicit block via invite
   // links. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (existingMember && existingMember.status === "blocked") {
+  if (existingChannel && existingChannel.status === "blocked") {
     return { ok: false, reason: "invalid_token" };
   }
 
@@ -153,14 +151,14 @@ export function redeemInvite(params: {
   // in a non-active state (revoked/pending), reactivate it via upsertMember
   // and consume an invite use atomically. The fresh-member path below also
   // uses upsertMemberContactsFirst to keep contacts in sync.
-  if (existingMember) {
+  if (existingChannel) {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
     const STALE_INVITE = Symbol("stale_invite");
-    const canonicalMemberId = existingMember.externalUserId
+    const canonicalMemberId = existingChannel.externalUserId
       ? canonicalizeInboundIdentity(
           sourceChannel as ChannelId,
-          existingMember.externalUserId,
+          existingChannel.externalUserId,
         )
       : null;
     const canonicalCallerId = externalUserId
@@ -172,8 +170,8 @@ export function redeemInvite(params: {
       canonicalMemberId === canonicalCallerId
     );
     const preservedDisplayName =
-      memberMatchesSender && existingMember.displayName?.trim().length
-        ? existingMember.displayName
+      memberMatchesSender && existingContact?.displayName?.trim().length
+        ? existingContact.displayName
         : displayName;
 
     let reactivated: ReturnType<typeof upsertMemberContactsFirst> | undefined;
@@ -343,19 +341,18 @@ export function redeemVoiceInviteCode(params: {
     channelType: "voice",
     externalUserId: canonicalCallerId,
   });
-  const existingMember = voiceContactResult
-    ? contactChannelToMemberRecord(
-        voiceContactResult.contact,
-        voiceContactResult.channel,
-      )
-    : null;
+  const existingVoiceChannel = voiceContactResult?.channel ?? null;
 
-  if (existingMember && existingMember.status === "active") {
-    return { ok: true, type: "already_member", memberId: existingMember.id };
+  if (existingVoiceChannel && existingVoiceChannel.status === "active") {
+    return {
+      ok: true,
+      type: "already_member",
+      memberId: existingVoiceChannel.id,
+    };
   }
 
   // Blocked members cannot bypass the guardian's explicit block
-  if (existingMember && existingMember.status === "blocked") {
+  if (existingVoiceChannel && existingVoiceChannel.status === "blocked") {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
@@ -365,8 +362,9 @@ export function redeemVoiceInviteCode(params: {
 
   // Reactivation should not overwrite a guardian-managed nickname (same
   // protection as the token-based redemption path above).
-  const preservedDisplayName = existingMember?.displayName?.trim().length
-    ? existingMember.displayName
+  const voiceContact = voiceContactResult?.contact ?? null;
+  const preservedDisplayName = voiceContact?.displayName?.trim().length
+    ? voiceContact.displayName
     : (invite.friendName ?? undefined);
 
   try {

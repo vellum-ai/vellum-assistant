@@ -9,7 +9,7 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import type { InterfaceId } from "../../../channels/types.js";
-import type { IngressMember } from "../../../contacts/member-record-shim.js";
+import type { ResolvedMember } from "./acl-enforcement.js";
 import { createCanonicalGuardianRequest } from "../../../memory/canonical-guardian-store.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
@@ -24,7 +24,7 @@ const log = getLogger("runtime-http");
 // ---------------------------------------------------------------------------
 
 export interface EscalationInterceptParams {
-  resolvedMember: IngressMember | null;
+  resolvedMember: ResolvedMember | null;
   canonicalAssistantId: string;
   sourceChannel: ChannelId;
   sourceInterface: InterfaceId;
@@ -73,7 +73,7 @@ export function handleEscalationIntercept(
     rawSenderId,
   } = params;
 
-  if (resolvedMember?.policy !== "escalate") {
+  if (resolvedMember?.channel.policy !== "escalate") {
     return null;
   }
 
@@ -81,7 +81,7 @@ export function handleEscalationIntercept(
   if (!binding) {
     // Fail-closed: can't escalate without a guardian to route to
     log.info(
-      { sourceChannel, memberId: resolvedMember.id },
+      { sourceChannel, channelId: resolvedMember.channel.id },
       "Ingress ACL: escalate policy but no guardian binding, denying",
     );
     return Response.json({
