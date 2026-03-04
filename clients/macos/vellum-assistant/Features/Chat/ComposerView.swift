@@ -106,6 +106,28 @@ struct ComposerView: View {
         return nil
     }
 
+    /// Range of a slash command token (e.g. `/model`) at the start of input.
+    private var slashCommandRange: Range<String.Index>? {
+        guard !inputText.isEmpty else { return nil }
+        return inputText.range(of: #"^/\w+"#, options: .regularExpression)
+    }
+
+    /// Builds an `AttributedString` of the full input where the leading
+    /// slash command token is highlighted and everything else is the
+    /// primary text color. Used as a visual overlay on the transparent
+    /// TextField when a slash command is present.
+    private func slashHighlightedText(font: Font) -> AttributedString {
+        var attr = AttributedString(inputText)
+        attr.font = font
+        attr.foregroundColor = VColor.textPrimary
+        if let swiftRange = slashCommandRange,
+           let attrStart = AttributedString.Index(swiftRange.lowerBound, within: attr),
+           let attrEnd = AttributedString.Index(swiftRange.upperBound, within: attr) {
+            attr[attrStart..<attrEnd].foregroundColor = VColor.slashCommand
+        }
+        return attr
+    }
+
     var body: some View {
         VStack(spacing: VSpacing.sm) {
             // Slash command popup (above the composer)
@@ -212,8 +234,21 @@ struct ComposerView: View {
 
     private var composerTextField: some View {
         let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
+        let hasSlashHighlight = slashCommandRange != nil
 
         return ZStack(alignment: .leading) {
+            // Slash command highlighting overlay — renders the full input
+            // with the /command prefix in the accent color. The TextField
+            // below is made transparent so this overlay provides the
+            // visible text coloring.
+            if hasSlashHighlight {
+                Text(slashHighlightedText(font: scaledBody))
+                    .lineLimit(1...6)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+
             // Ghost text overlay (invisible matching input + visible suffix)
             if let ghostSuffix {
                 (Text(inputText)
@@ -236,7 +271,7 @@ struct ComposerView: View {
             .lineLimit(1...6)
             .textFieldStyle(.plain)
             .font(scaledBody)
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(hasSlashHighlight ? .clear : VColor.textPrimary)
             .tint(VColor.accent)
             .focused($composerFocus)
             .disabled(!hasAPIKey)
