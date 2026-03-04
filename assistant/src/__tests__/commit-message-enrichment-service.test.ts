@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -26,7 +27,7 @@ describe("CommitEnrichmentService", () => {
   let testDir: string;
   let gitService: WorkspaceGitService;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     testDir = join(
       tmpdir(),
       `vellum-enrichment-test-${Date.now()}-${Math.random()
@@ -34,11 +35,13 @@ describe("CommitEnrichmentService", () => {
         .slice(2)}`,
     );
     mkdirSync(testDir, { recursive: true });
-    _resetGitServiceRegistry();
-    _resetEnrichmentService();
-
     gitService = new WorkspaceGitService(testDir);
     await gitService.ensureInitialized();
+  });
+
+  beforeEach(() => {
+    _resetGitServiceRegistry();
+    _resetEnrichmentService();
   });
 
   afterEach(async () => {
@@ -48,9 +51,6 @@ describe("CommitEnrichmentService", () => {
       /* ignore */
     }
     _resetEnrichmentService();
-    if (existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true });
-    }
   });
 
   afterAll(async () => {
@@ -60,6 +60,9 @@ describe("CommitEnrichmentService", () => {
       /* ignore */
     }
     _resetEnrichmentService();
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
   });
 
   function makeContext(overrides?: Partial<CommitContext>): CommitContext {
