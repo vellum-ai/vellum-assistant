@@ -36,12 +36,14 @@ jobs:
           if [ -z "$CHANGED_FILES" ]; then
             echo 'changed_skills=[]' >> "$GITHUB_OUTPUT"
           else
+            # Filter to only files inside subdirectories (exclude top-level files like catalog.json)
             SKILLS=$(echo "$CHANGED_FILES" \
               | sed "s|^$SKILLS_DIR/||" \
+              | grep '/' \
               | cut -d'/' -f1 \
               | sort -u \
               | jq -R -s -c 'split("\n") | map(select(length > 0))')
-            echo "changed_skills=$SKILLS" >> "$GITHUB_OUTPUT"
+            echo "changed_skills=${SKILLS:-[]}" >> "$GITHUB_OUTPUT"
           fi
 
   prettier:
