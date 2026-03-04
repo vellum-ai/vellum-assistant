@@ -16,6 +16,7 @@
 export * from './ipc-contract/apps.js';
 export * from './ipc-contract/browser.js';
 export * from './ipc-contract/computer-use.js';
+export * from './ipc-contract/contacts.js';
 export * from './ipc-contract/diagnostics.js';
 export * from './ipc-contract/documents.js';
 export * from './ipc-contract/guardian-actions.js';
@@ -40,6 +41,7 @@ export * from './ipc-contract/workspace.js';
 import type { _AppsClientMessages, _AppsServerMessages } from './ipc-contract/apps.js';
 import type { _BrowserClientMessages, _BrowserServerMessages } from './ipc-contract/browser.js';
 import type { _ComputerUseClientMessages, _ComputerUseServerMessages } from './ipc-contract/computer-use.js';
+import type { _ContactsClientMessages, _ContactsServerMessages } from './ipc-contract/contacts.js';
 import type { _DiagnosticsClientMessages, _DiagnosticsServerMessages } from './ipc-contract/diagnostics.js';
 import type { _DocumentsClientMessages, _DocumentsServerMessages } from './ipc-contract/documents.js';
 import type { _GuardianActionsClientMessages, _GuardianActionsServerMessages } from './ipc-contract/guardian-actions.js';
@@ -79,6 +81,7 @@ export type ClientMessage =
   | _AppsClientMessages
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
+  | _ContactsClientMessages
   | _WorkItemsClientMessages
   | _BrowserClientMessages
   | _SubagentsClientMessages
@@ -103,6 +106,7 @@ export type ServerMessage =
   | _AppsServerMessages
   | _IntegrationsServerMessages
   | _ComputerUseServerMessages
+  | _ContactsServerMessages
   | _WorkItemsServerMessages
   | _BrowserServerMessages
   | _SubagentsServerMessages

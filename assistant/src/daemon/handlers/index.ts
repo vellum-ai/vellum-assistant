@@ -12,6 +12,7 @@ import { browserHandlers } from './browser.js';
 import { computerUseHandlers } from './computer-use.js';
 import { configHandlers } from './config.js';
 import { inboxInviteHandlers } from './config-inbox.js';
+import { contactsHandlers } from './contacts.js';
 import { diagnosticsHandlers } from './diagnostics.js';
 import { dictationHandlers } from './dictation.js';
 import { documentHandlers } from './documents.js';
@@ -162,6 +163,7 @@ const handlers = {
   ...identityHandlers,
   ...dictationHandlers,
   ...inboxInviteHandlers,
+  ...contactsHandlers,
   ...pairingHandlers,
   ...recordingHandlers,
   ...inlineHandlers,
