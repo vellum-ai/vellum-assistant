@@ -302,6 +302,14 @@ struct ComposerView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Restore composer focus when the app becomes active (e.g. via
+            // cmd+tab or Dock click) so the user can start typing immediately.
+            // Skip when a tool-confirmation chip owns keyboard focus to avoid
+            // stealing Tab/Enter/Escape handling from the confirmation bubble.
+            guard !hasPendingConfirmation else { return }
+            composerFocus = true
+        }
         .onChange(of: inputText) {
             if inputText.isEmpty {
                 withAnimation(VAnimation.fast) { isComposerExpanded = false }

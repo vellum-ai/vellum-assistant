@@ -36,6 +36,14 @@ class TitleBarZoomableWindow: NSWindow {
         composerDismissed = false
     }
 
+    override func becomeKey() {
+        super.becomeKey()
+        // When the window regains key status (e.g. cmd+tab back to the app),
+        // clear the dismissed flag so the keystroke-redirect handler resumes
+        // forwarding typing to the composer without requiring an explicit click.
+        composerDismissed = false
+    }
+
     override func sendEvent(_ event: NSEvent) {
         super.sendEvent(event)
 
