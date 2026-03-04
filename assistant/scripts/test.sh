@@ -98,9 +98,9 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
 
   if [[ -n "${timeout_cmd}" ]]; then
     if [[ "${exclude_exp}" == "true" ]]; then
-      "${timeout_cmd}" "${per_test_timeout}" bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+      "${timeout_cmd}" -k 10 "${per_test_timeout}" bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
     else
-      "${timeout_cmd}" "${per_test_timeout}" bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
+      "${timeout_cmd}" -k 10 "${per_test_timeout}" bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
     fi
   else
     if [[ "${exclude_exp}" == "true" ]]; then
