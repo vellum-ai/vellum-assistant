@@ -167,6 +167,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "contacts", scopes: ["settings.read"] },
   { endpoint: "contacts/merge", scopes: ["settings.write"] },
   { endpoint: "contacts:GET", scopes: ["settings.read"] },
+  { endpoint: "contacts/channels", scopes: ["settings.write"] },
   { endpoint: "ingress/members", scopes: ["settings.read"] },
   { endpoint: "ingress/members:POST", scopes: ["settings.write"] },
   { endpoint: "ingress/members/block", scopes: ["settings.write"] },

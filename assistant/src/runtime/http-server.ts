@@ -138,6 +138,7 @@ import {
   handleGetContact,
   handleListContacts,
   handleMergeContacts,
+  handleUpdateContactChannel,
 } from "./routes/contact-routes.js";
 import { handleListConversationAttention } from "./routes/conversation-attention-routes.js";
 // Route handlers — grouped by domain
@@ -276,6 +277,8 @@ const PARAMETERIZED_ROUTE_PATTERNS: Array<{ re: RegExp; policyBase: string }> =
     { re: /^calls\/[^/]+$/, policyBase: "calls" },
     // contacts/{id}
     { re: /^contacts\/[^/]+$/, policyBase: "contacts" },
+    // contacts/channels/{id}
+    { re: /^contacts\/channels\/[^/]+$/, policyBase: "contacts/channels" },
     // ingress/members/{id}/block
     {
       re: /^ingress\/members\/[^/]+\/block$/,
@@ -1151,6 +1154,11 @@ export class RuntimeHttpServer {
         return handleListContacts(url);
       if (endpoint === "contacts/merge" && req.method === "POST")
         return await handleMergeContacts(req);
+      const contactChannelMatch = endpoint.match(
+        /^contacts\/channels\/([^/]+)$/,
+      );
+      if (contactChannelMatch && req.method === "PATCH")
+        return await handleUpdateContactChannel(req, contactChannelMatch[1]);
       const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
       if (contactMatch && req.method === "GET")
         return handleGetContact(contactMatch[1]);

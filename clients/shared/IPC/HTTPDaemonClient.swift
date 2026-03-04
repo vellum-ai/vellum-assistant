@@ -159,6 +159,9 @@ public final class HTTPTransport {
         case trustRulesManage
         case trustRuleManageById(id: String)
         case pendingInteractions(conversationKey: String?)
+        case contactsList(limit: Int, role: String?)
+        case contactsGet(id: String)
+        case contactsChannelUpdate(channelId: String)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -234,6 +237,19 @@ public final class HTTPTransport {
                 return ("/v1/pending-interactions", "conversationKey=\(encoded)")
             }
             return ("/v1/pending-interactions", nil)
+        case .contactsList(let limit, let role):
+            var q = "limit=\(limit)"
+            if let role {
+                let encoded = role.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? role
+                q += "&role=\(encoded)"
+            }
+            return ("/v1/contacts", q)
+        case .contactsGet(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/contacts/\(encoded)", nil)
+        case .contactsChannelUpdate(let channelId):
+            let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
+            return ("/v1/contacts/channels/\(encoded)", nil)
         }
     }
 
@@ -293,6 +309,19 @@ public final class HTTPTransport {
                 return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
             }
             return ("\(prefix)/pending-interactions/", nil)
+        case .contactsList(let limit, let role):
+            var q = "limit=\(limit)"
+            if let role {
+                let encoded = role.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? role
+                q += "&role=\(encoded)"
+            }
+            return ("\(prefix)/contacts/", q)
+        case .contactsGet(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/contacts/\(encoded)/", nil)
+        case .contactsChannelUpdate(let channelId):
+            let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
+            return ("\(prefix)/contacts/channels/\(encoded)/", nil)
         }
     }
 
@@ -533,6 +562,8 @@ public final class HTTPTransport {
             Task { await self.sendRemoveTrustRule(msg) }
         } else if let msg = message as? UpdateTrustRuleMessage {
             Task { await self.sendUpdateTrustRule(msg) }
+        } else if let msg = message as? ContactsRequestMessage {
+            Task { await self.handleContactsRequest(msg) }
         } else if message is PingMessage {
             // No-op for HTTP transport — SSE keepalive is handled by the connection
         } else {
@@ -849,6 +880,161 @@ public final class HTTPTransport {
         } catch {
             log.error("Conversation seen signal error: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Contacts
+
+    /// Route a `ContactsRequestMessage` to the appropriate HTTP endpoint based on its action.
+    private func handleContactsRequest(_ msg: ContactsRequestMessage) async {
+        switch msg.action {
+        case "list":
+            await fetchContactsList(limit: Int(msg.limit ?? 50), role: msg.role)
+        case "get":
+            guard let contactId = msg.contactId else {
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "contactId is required for get")))
+                return
+            }
+            await fetchContact(contactId: contactId)
+        case "update_channel":
+            guard let channelId = msg.channelId else {
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "channelId is required for update_channel")))
+                return
+            }
+            await updateContactChannel(channelId: channelId, status: msg.status, policy: msg.policy, reason: msg.reason)
+        default:
+            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Unknown action: \(msg.action)")))
+        }
+    }
+
+    private func fetchContactsList(limit: Int, role: String?, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .contactsList(limit: limit, role: role)) else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        await fetchContactsList(limit: limit, role: role, isRetry: true)
+                    }
+                    return
+                }
+                guard http.statusCode == 200 else {
+                    log.error("HTTPTransport: fetch contacts list failed (\(http.statusCode))")
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
+                    return
+                }
+            }
+
+            do {
+                let decoded = try decoder.decode(HTTPContactsListResponse.self, from: data)
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true, contacts: decoded.contacts)))
+            } catch {
+                log.error("HTTPTransport: failed to decode contacts list response: \(error)")
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
+            }
+        } catch {
+            log.error("HTTPTransport: fetch contacts list error: \(error.localizedDescription)")
+            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
+        }
+    }
+
+    private func fetchContact(contactId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .contactsGet(id: contactId)) else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        await fetchContact(contactId: contactId, isRetry: true)
+                    }
+                    return
+                }
+                guard http.statusCode == 200 else {
+                    log.error("HTTPTransport: fetch contact failed (\(http.statusCode))")
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
+                    return
+                }
+            }
+
+            do {
+                let decoded = try decoder.decode(HTTPContactResponse.self, from: data)
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true, contact: decoded.contact)))
+            } catch {
+                log.error("HTTPTransport: failed to decode contact response: \(error)")
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
+            }
+        } catch {
+            log.error("HTTPTransport: fetch contact error: \(error.localizedDescription)")
+            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
+        }
+    }
+
+    private func updateContactChannel(channelId: String, status: String?, policy: String?, reason: String?, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .contactsChannelUpdate(channelId: channelId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [:]
+        if let status { body["status"] = status }
+        if let policy { body["policy"] = policy }
+        if let reason { body["reason"] = reason }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        await updateContactChannel(channelId: channelId, status: status, policy: policy, reason: reason, isRetry: true)
+                    }
+                    return
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    log.error("HTTPTransport: update contact channel failed (\(http.statusCode))")
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
+                    return
+                }
+            }
+
+            do {
+                let decoded = try decoder.decode(HTTPContactResponse.self, from: data)
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true, contact: decoded.contact)))
+            } catch {
+                log.error("HTTPTransport: failed to decode update channel response: \(error)")
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
+            }
+        } catch {
+            log.error("HTTPTransport: update contact channel error: \(error.localizedDescription)")
+            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
+        }
+    }
+
+    /// Response wrapper for `GET /v1/contacts` (list).
+    private struct HTTPContactsListResponse: Decodable {
+        let ok: Bool
+        let contacts: [ContactPayload]
+    }
+
+    /// Response wrapper for `GET /v1/contacts/:id` and `PATCH /v1/contacts/channels/:id`.
+    private struct HTTPContactResponse: Decodable {
+        let ok: Bool
+        let contact: ContactPayload?
     }
 
     // MARK: - Surface Actions
