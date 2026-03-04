@@ -21,14 +21,18 @@ import cliPkg from "../../package.json";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
 import {
+  allocateLocalResources,
+  findAssistantByName,
   loadAllAssistants,
   saveAssistantEntry,
   syncConfigToLockfile,
 } from "../lib/assistant-config";
-import type { AssistantEntry } from "../lib/assistant-config";
+import type {
+  AssistantEntry,
+  LocalInstanceResources,
+} from "../lib/assistant-config";
 import { hatchAws } from "../lib/aws";
 import {
-  GATEWAY_PORT,
   SPECIES_CONFIG,
   VALID_REMOTE_HOSTS,
   VALID_SPECIES,
@@ -42,7 +46,6 @@ import {
   startOutboundProxy,
   stopLocalProcesses,
 } from "../lib/local";
-import { probePort } from "../lib/port-probe";
 import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
@@ -704,66 +707,48 @@ async function hatchLocal(
       );
       await stopLocalProcesses();
     }
-
-    // Verify required ports are available before starting any services.
-    // Only check when no local assistants exist — if there are existing local
-    // assistants, their daemon/gateway/qdrant legitimately own these ports.
-    const RUNTIME_HTTP_PORT = Number(process.env.RUNTIME_HTTP_PORT) || 7821;
-    const QDRANT_PORT = 6333;
-    const requiredPorts = [
-      { name: "daemon", port: RUNTIME_HTTP_PORT },
-      { name: "gateway", port: GATEWAY_PORT },
-      { name: "qdrant", port: QDRANT_PORT },
-    ];
-    const conflicts: string[] = [];
-    await Promise.all(
-      requiredPorts.map(async ({ name, port }) => {
-        if (await probePort(port)) {
-          conflicts.push(`  - Port ${port} (${name}) is already in use`);
-        }
-      }),
-    );
-    if (conflicts.length > 0) {
-      throw new Error(
-        `Cannot hatch — required ports are already in use:\n${conflicts.join("\n")}\n\n` +
-          "Stop the conflicting processes or use environment variables to configure alternative ports " +
-          "(RUNTIME_HTTP_PORT, GATEWAY_PORT).",
-      );
-    }
   }
 
-  const baseDataDir = join(
-    process.env.BASE_DATA_DIR?.trim() ||
-      (process.env.HOME ?? userInfo().homedir),
-    ".vellum",
-  );
+  // Reuse existing resources if re-hatching with --name that matches a known
+  // local assistant, otherwise allocate fresh per-instance ports and directories.
+  let resources: LocalInstanceResources;
+  const existingEntry = name ? findAssistantByName(name) : null;
+  if (existingEntry?.cloud === "local" && existingEntry.resources) {
+    resources = existingEntry.resources;
+  } else {
+    resources = await allocateLocalResources(instanceName);
+  }
+
+  const baseDataDir = join(resources.instanceDir, ".vellum");
 
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
   console.log("");
 
-  await startLocalDaemon(watch);
+  await startLocalDaemon(watch, resources);
 
   let runtimeUrl: string;
   try {
-    runtimeUrl = await startGateway(instanceName, watch);
+    runtimeUrl = await startGateway(instanceName, watch, resources);
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.
     console.error(
       `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
     );
-    await stopLocalProcesses();
+    await stopLocalProcesses(resources);
     throw error;
   }
 
-  await startOutboundProxy(watch);
+  await startOutboundProxy(watch, resources);
 
   // Read the bearer token written by the daemon so the client can authenticate
-  // with the gateway (which requires auth by default).
+  // with the gateway (which requires auth by default). The daemon writes under
+  // getRootDir() which resolves to <instanceDir>/.vellum/.
   let bearerToken: string | undefined;
   try {
-    const token = readFileSync(join(baseDataDir, "http-token"), "utf-8").trim();
+    const tokenPath = join(resources.instanceDir, ".vellum", "http-token");
+    const token = readFileSync(tokenPath, "utf-8").trim();
     if (token) bearerToken = token;
   } catch {
     // Token file may not exist if daemon started without HTTP server
@@ -777,6 +762,7 @@ async function hatchLocal(
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
+    resources,
   };
   if (!daemonOnly && !restart) {
     saveAssistantEntry(localEntry);
