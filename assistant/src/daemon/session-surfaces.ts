@@ -1119,7 +1119,6 @@ export async function surfaceProxyResolver(
     const surfaceData: DynamicPageSurfaceData = {
       html: app.htmlDefinition,
       appId: app.id,
-      appType: app.appType,
       preview: {
         ...defaultPreview,
         ...preview,

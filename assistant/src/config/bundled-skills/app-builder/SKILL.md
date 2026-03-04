@@ -325,7 +325,7 @@ Call `app_create` with:
 - `name`: Short descriptive name
 - `description`: One-sentence summary
 - `schema_json`: JSON schema as string
-- `html`: Complete HTML document as string
+- `html`: (optional) Complete HTML document as string for `index.html`. If omitted, a minimal scaffold is created — you can then write `index.html` and other files via `app_file_write`.
 - `auto_open`: (optional, defaults to `true`) Shows an inline preview card in chat
 - `preview`: Always include — `title` (required), `subtitle`, `description`, `icon` (image URL preferred, emoji fallback), `metrics` (up to 3 key-value pills)
 
