@@ -234,6 +234,41 @@ describe("buildApprovalUIMetadata", () => {
     expect(metadata.requestId).toBe("req-abc");
     expect(metadata.actions).toEqual(prompt.actions);
     expect(metadata.plainTextFallback).toBe("Reply yes or no.");
+    expect(metadata.permissionDetails).toEqual({
+      toolName: "shell",
+      riskLevel: "low",
+      toolInput: { command: "ls" },
+    });
+  });
+
+  test("includes requesterIdentifier in permissionDetails when provided", () => {
+    const prompt: ChannelApprovalPrompt = {
+      promptText: "Allow deploy?",
+      actions: [
+        { id: "approve_once", label: "Approve once" },
+        { id: "reject", label: "Reject" },
+      ],
+      plainTextFallback: "Reply yes or no.",
+    };
+
+    const approvalInfo: PendingApprovalInfo = {
+      requestId: "req-guard",
+      toolName: "deploy",
+      input: { target: "prod" },
+      riskLevel: "high",
+    };
+
+    const metadata = buildApprovalUIMetadata(
+      prompt,
+      approvalInfo,
+      "alice@example.com",
+    );
+    expect(metadata.permissionDetails).toEqual({
+      toolName: "deploy",
+      riskLevel: "high",
+      toolInput: { target: "prod" },
+      requesterIdentifier: "alice@example.com",
+    });
   });
 });
 

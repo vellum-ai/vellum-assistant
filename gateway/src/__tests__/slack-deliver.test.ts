@@ -17,6 +17,7 @@ const {
   createSlackDeliverHandler,
   buildApprovalBlocks,
   buildDecisionResultBlocks,
+  buildSlackPermissionRequestBlocks,
 } = await import("../http/routes/slack-deliver.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -465,5 +466,238 @@ describe("buildDecisionResultBlocks", () => {
     expect((blocks[0].text as any).text).toBe("Allow shell?");
     expect(blocks[1].type).toBe("context");
     expect((blocks[1].elements as any[])[0].text).toBe("Approved by user");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Permission request Block Kit builder unit tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("buildSlackPermissionRequestBlocks", () => {
+  test("renders header, tool info, arguments, context, and actions blocks", () => {
+    const blocks = buildSlackPermissionRequestBlocks("Allow shell?", {
+      requestId: "req-perm-1",
+      actions: [
+        { id: "approve_once", label: "Approve once" },
+        { id: "reject", label: "Reject" },
+      ],
+      plainTextFallback: "Reply yes or no.",
+      permissionDetails: {
+        toolName: "shell",
+        riskLevel: "high",
+        toolInput: { command: "rm -rf /tmp/test" },
+      },
+    });
+
+    expect(blocks).toHaveLength(5);
+
+    // Header block
+    expect(blocks[0].type).toBe("header");
+    expect((blocks[0].text as any).text).toBe("Permission Request");
+
+    // Tool info section with risk emoji
+    expect(blocks[1].type).toBe("section");
+    const toolText = (blocks[1].text as any).text as string;
+    expect(toolText).toContain("`shell`");
+    expect(toolText).toContain("high");
+    // Red circle emoji for high risk
+    expect(toolText).toContain("\u{1F534}");
+
+    // Arguments section
+    expect(blocks[2].type).toBe("section");
+    const argsText = (blocks[2].text as any).text as string;
+    expect(argsText).toContain("*Arguments*");
+    expect(argsText).toContain("*command:*");
+    expect(argsText).toContain("`rm -rf /tmp/test`");
+
+    // Context block (no requester in this case)
+    expect(blocks[3].type).toBe("context");
+    const contextElements = blocks[3].elements as any[];
+    // Only timestamp element when no requester
+    expect(contextElements).toHaveLength(1);
+
+    // Actions block
+    expect(blocks[4].type).toBe("actions");
+    expect(blocks[4].elements as any[]).toHaveLength(2);
+    expect((blocks[4].elements as any[])[0].value).toBe(
+      "apr:req-perm-1:approve_once",
+    );
+  });
+
+  test("includes requester identifier in context block for guardian-escalated requests", () => {
+    const blocks = buildSlackPermissionRequestBlocks("Allow deploy?", {
+      requestId: "req-perm-2",
+      actions: [
+        { id: "approve_once", label: "Approve once" },
+        { id: "reject", label: "Reject" },
+      ],
+      plainTextFallback: "Reply yes or no.",
+      permissionDetails: {
+        toolName: "deploy",
+        riskLevel: "medium",
+        toolInput: { target: "production" },
+        requesterIdentifier: "alice",
+      },
+    });
+
+    // Context block should have 2 elements: requester + timestamp
+    const contextBlock = blocks.find((b) => b.type === "context") as any;
+    expect(contextBlock).toBeDefined();
+    expect(contextBlock.elements).toHaveLength(2);
+    expect(contextBlock.elements[0].text).toContain("alice");
+    expect(contextBlock.elements[0].text).toContain("Requested by");
+  });
+
+  test("uses correct risk emoji for each level", () => {
+    const riskLevels = [
+      { level: "low", emoji: "\u{1F7E2}" },
+      { level: "medium", emoji: "\u{1F7E1}" },
+      { level: "high", emoji: "\u{1F534}" },
+    ];
+
+    for (const { level, emoji } of riskLevels) {
+      const blocks = buildSlackPermissionRequestBlocks("Allow tool?", {
+        requestId: "req-risk",
+        actions: [{ id: "approve_once", label: "Approve" }],
+        plainTextFallback: "Reply yes or no.",
+        permissionDetails: {
+          toolName: "test_tool",
+          riskLevel: level,
+          toolInput: {},
+        },
+      });
+
+      const toolSection = blocks[1] as any;
+      expect(toolSection.text.text).toContain(emoji);
+    }
+  });
+
+  test("shows 'No arguments' when tool input is empty", () => {
+    const blocks = buildSlackPermissionRequestBlocks("Allow tool?", {
+      requestId: "req-empty",
+      actions: [{ id: "approve_once", label: "Approve" }],
+      plainTextFallback: "Reply yes or no.",
+      permissionDetails: {
+        toolName: "read_file",
+        riskLevel: "low",
+        toolInput: {},
+      },
+    });
+
+    const argsSection = blocks[2] as any;
+    expect(argsSection.text.text).toContain("No arguments");
+  });
+
+  test("truncates long argument values", () => {
+    const longValue = "x".repeat(300);
+    const blocks = buildSlackPermissionRequestBlocks("Allow tool?", {
+      requestId: "req-long",
+      actions: [{ id: "approve_once", label: "Approve" }],
+      plainTextFallback: "Reply yes or no.",
+      permissionDetails: {
+        toolName: "write_file",
+        riskLevel: "medium",
+        toolInput: { content: longValue },
+      },
+    });
+
+    const argsSection = blocks[2] as any;
+    const argsText = argsSection.text.text as string;
+    expect(argsText.length).toBeLessThan(longValue.length);
+    expect(argsText).toContain("...");
+  });
+
+  test("button styles match approval pattern (primary for approve, danger for reject)", () => {
+    const blocks = buildSlackPermissionRequestBlocks("Allow tool?", {
+      requestId: "req-styles",
+      actions: [
+        { id: "approve_once", label: "Approve once" },
+        { id: "approve_10m", label: "Allow 10 min" },
+        { id: "reject", label: "Reject" },
+      ],
+      plainTextFallback: "Reply yes or no.",
+      permissionDetails: {
+        toolName: "shell",
+        riskLevel: "high",
+        toolInput: {},
+      },
+    });
+
+    const actionsBlock = blocks.find((b) => b.type === "actions") as any;
+    expect(actionsBlock.elements[0].style).toBe("primary");
+    expect(actionsBlock.elements[1].style).toBeUndefined();
+    expect(actionsBlock.elements[2].style).toBe("danger");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Permission request integration tests (deliver handler)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("slack-deliver with permission details", () => {
+  test("uses rich permission blocks when permissionDetails is present in approval", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Allow shell?",
+      approval: {
+        requestId: "req-perm-int",
+        actions: [
+          { id: "approve_once", label: "Approve once" },
+          { id: "reject", label: "Reject" },
+        ],
+        plainTextFallback: "Reply yes or no.",
+        permissionDetails: {
+          toolName: "shell",
+          riskLevel: "high",
+          toolInput: { command: "ls -la" },
+        },
+      },
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(slackCall).toBeDefined();
+    const slackBody = slackCall!.body as any;
+    expect(slackBody.blocks).toBeDefined();
+    // Rich permission blocks: header, tool info, args, context, actions = 5
+    expect(slackBody.blocks).toHaveLength(5);
+    expect(slackBody.blocks[0].type).toBe("header");
+    expect(slackBody.blocks[1].type).toBe("section");
+    expect(slackBody.blocks[4].type).toBe("actions");
+    expect(slackBody.blocks[4].elements[0].value).toBe(
+      "apr:req-perm-int:approve_once",
+    );
+  });
+
+  test("falls back to basic approval blocks when permissionDetails is absent", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Allow shell?",
+      approval: {
+        requestId: "req-basic",
+        actions: [
+          { id: "approve_once", label: "Approve once" },
+          { id: "reject", label: "Reject" },
+        ],
+        plainTextFallback: "Reply yes or no.",
+      },
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(slackCall).toBeDefined();
+    const slackBody = slackCall!.body as any;
+    // Basic approval blocks: section + actions = 2
+    expect(slackBody.blocks).toHaveLength(2);
+    expect(slackBody.blocks[0].type).toBe("section");
+    expect(slackBody.blocks[1].type).toBe("actions");
   });
 });

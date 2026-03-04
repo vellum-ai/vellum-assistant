@@ -10,10 +10,18 @@ export type SlackApprovalAction = {
   label: string;
 };
 
+export type SlackPermissionDetails = {
+  toolName: string;
+  riskLevel: string;
+  toolInput: Record<string, unknown>;
+  requesterIdentifier?: string;
+};
+
 export type SlackApprovalPayload = {
   requestId: string;
   actions: SlackApprovalAction[];
   plainTextFallback: string;
+  permissionDetails?: SlackPermissionDetails;
 };
 
 /**
@@ -62,6 +70,117 @@ export function buildApprovalBlocks(
       elements: buttons,
     },
   ];
+}
+
+const RISK_EMOJI: Record<string, string> = {
+  low: "\u{1F7E2}",
+  medium: "\u{1F7E1}",
+  high: "\u{1F534}",
+};
+
+/**
+ * Format tool arguments as mrkdwn key-value pairs for display in a
+ * Block Kit section. Truncates long values to keep the message readable.
+ */
+function formatToolInput(input: Record<string, unknown>): string {
+  const entries = Object.entries(input);
+  if (entries.length === 0) return "_No arguments_";
+  return entries
+    .map(([key, value]) => {
+      const str =
+        typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+      const truncated = str.length > 200 ? str.slice(0, 197) + "..." : str;
+      return `*${key}:* \`${truncated}\``;
+    })
+    .join("\n");
+}
+
+/**
+ * Build rich Block Kit blocks for a tool permission request.
+ *
+ * Renders a detailed card with:
+ * - Header block with "Permission Request" title
+ * - Section block with tool name and risk level emoji
+ * - Section block with tool arguments formatted as key-value pairs
+ * - Context block showing requester identity and timestamp
+ * - Actions block with Approve/Deny buttons (same `apr:{requestId}:{actionId}` pattern)
+ */
+export function buildSlackPermissionRequestBlocks(
+  text: string,
+  approval: SlackApprovalPayload,
+): Array<Record<string, unknown>> {
+  const details = approval.permissionDetails!;
+  const emoji = RISK_EMOJI[details.riskLevel] ?? RISK_EMOJI.medium;
+
+  const buttons = approval.actions.map((action) => {
+    const value = `apr:${approval.requestId}:${action.id}`;
+    const button: Record<string, unknown> = {
+      type: "button",
+      text: {
+        type: "plain_text",
+        text: action.label,
+        emoji: true,
+      },
+      action_id: `approval_${action.id}`,
+      value,
+    };
+    if (action.id === "approve_once") {
+      button.style = "primary";
+    } else if (action.id === "reject") {
+      button.style = "danger";
+    }
+    return button;
+  });
+
+  const blocks: Array<Record<string, unknown>> = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "Permission Request",
+        emoji: true,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `${emoji} *Tool:* \`${details.toolName}\`  |  *Risk:* ${details.riskLevel}`,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Arguments*\n${formatToolInput(details.toolInput)}`,
+      },
+    },
+  ];
+
+  // Context block with requester identity and timestamp
+  const contextElements: Array<Record<string, unknown>> = [];
+  if (details.requesterIdentifier) {
+    contextElements.push({
+      type: "mrkdwn",
+      text: `*Requested by:* ${details.requesterIdentifier}`,
+    });
+  }
+  contextElements.push({
+    type: "mrkdwn",
+    text: `<!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toISOString()}>`,
+  });
+  blocks.push({
+    type: "context",
+    elements: contextElements,
+  });
+
+  blocks.push({
+    type: "actions",
+    block_id: `approval_${approval.requestId}`,
+    elements: buttons,
+  });
+
+  return blocks;
 }
 
 /**
@@ -269,8 +388,11 @@ export function createSlackDeliverHandler(
       }
 
       // When an approval payload is present, render Block Kit blocks.
+      // Use the richer permission-specific layout when permission details are available.
       if (approval) {
-        slackBody.blocks = buildApprovalBlocks(text, approval);
+        slackBody.blocks = approval.permissionDetails
+          ? buildSlackPermissionRequestBlocks(text, approval)
+          : buildApprovalBlocks(text, approval);
       }
 
       const response = await fetchImpl(
