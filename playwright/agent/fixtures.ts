@@ -123,8 +123,14 @@ function getBaseDir(): string {
  * developer has already approved once but the monthly nag would recur.
  */
 function preApproveScreenCapture(): void {
-  const approvalsPlist =
-    `${os.homedir()}/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals`;
+  const approvalsDir = path.join(
+    os.homedir(),
+    "Library",
+    "Group Containers",
+    "group.com.apple.replayd",
+  );
+  mkdirSync(approvalsDir, { recursive: true });
+  const approvalsPlist = path.join(approvalsDir, "ScreenCaptureApprovals");
   const targets = ["/usr/sbin/screencapture", "/bin/bash", "/bin/zsh"];
 
   for (const target of targets) {

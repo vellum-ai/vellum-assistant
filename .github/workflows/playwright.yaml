@@ -301,20 +301,42 @@ jobs:
           # recording access is pre-granted. Approve it via the TCC database
           # and the ScreenCaptureApprovals plist so the modal never appears.
 
-          # 1. System TCC database — grants the underlying screen-capture entitlement
-          for client in /usr/sbin/screencapture /bin/bash /bin/zsh; do
+          set -x  # echo commands for debugging
+
+          # 1. System TCC database — grants the underlying screen-capture entitlement.
+          #    Use named columns so extra columns added in newer macOS versions
+          #    get their default values automatically.
+          echo "--- TCC.db schema ---"
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" ".schema access" || echo "Cannot read TCC schema"
+
+          CLIENTS="/usr/sbin/screencapture /bin/bash /bin/zsh /opt/homebrew/bin/bun"
+          TS=$(date +%s)
+          for client in $CLIENTS; do
             sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
-              "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$(date +%s));" 2>/dev/null || true
+              "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \
+              && echo "TCC: granted $client" \
+              || echo "TCC: FAILED for $client"
           done
+
+          echo "--- TCC entries after insert ---"
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "SELECT client, auth_value FROM access WHERE service='kTCCServiceScreenCapture';" || true
 
           # 2. ScreenCaptureApprovals plist — suppresses the Sequoia monthly
           #    "bypass the system private window picker" nag by setting the
           #    last-alerted timestamp far into the future.
-          APPROVALS_PLIST="$HOME/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals"
-          for client in /usr/sbin/screencapture /bin/bash /bin/zsh; do
+          APPROVALS_DIR="$HOME/Library/Group Containers/group.com.apple.replayd"
+          mkdir -p "$APPROVALS_DIR"
+          APPROVALS_PLIST="$APPROVALS_DIR/ScreenCaptureApprovals"
+          for client in $CLIENTS; do
             defaults write "$APPROVALS_PLIST" "$client" -dict \
-              kScreenCaptureApprovalLastAlerted -date "4321-01-01 00:00:00 +0000" 2>/dev/null || true
+              kScreenCaptureApprovalLastAlerted -date "4321-01-01 00:00:00 +0000" \
+              && echo "Approvals: set $client" \
+              || echo "Approvals: FAILED for $client"
           done
+
+          echo "--- ScreenCaptureApprovals plist ---"
+          defaults read "$APPROVALS_PLIST" || echo "Cannot read ScreenCaptureApprovals"
 
       - name: Run Playwright tests
         id: tests
