@@ -94,7 +94,7 @@ export class HttpRouter {
       // Extract named params
       const params: RouteParams = {};
       for (let i = 0; i < compiled.paramNames.length; i++) {
-        params[compiled.paramNames[i]] = match[i + 1];
+        params[compiled.paramNames[i]] = decodeURIComponent(match[i + 1]);
       }
 
       // Enforce route-level scope/principal policy.
