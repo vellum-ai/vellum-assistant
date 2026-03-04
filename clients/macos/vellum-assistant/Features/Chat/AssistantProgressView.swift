@@ -48,10 +48,11 @@ struct AssistantProgressView: View {
         let hasTools = !toolCalls.isEmpty
         let hasIncompleteTools = hasTools && !allComplete
 
-        // Only enter error phase when ALL tools are done and at least one errored.
+        // Only enter error phase when ALL tools are done, at least one errored,
+        // and the model hasn't already produced a text response (i.e. it recovered).
         // While tools are still running, individual errors show as failed steps in the
         // expanded list without changing the overall phase.
-        if allComplete && toolCalls.contains(where: { $0.isError }) {
+        if allComplete && toolCalls.contains(where: { $0.isError }) && !hasText {
             return .error
         }
 
