@@ -133,6 +133,7 @@ struct SettingsPanel: View {
             // Snapshotting before those responses land captures stale `false` values,
             // which then look like user-made changes and trigger false-positive nudges.
             try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
             if settingsSnapshot == nil {
                 settingsSnapshot = SettingsSnapshot(store: store)
             }
