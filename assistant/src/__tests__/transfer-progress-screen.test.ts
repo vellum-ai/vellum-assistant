@@ -279,29 +279,29 @@ describe("deriveTransferScreenState -- disabled", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Exporting state
+// Importing state (default phase -- import-only flow)
 // ---------------------------------------------------------------------------
 
-describe("deriveTransferScreenState -- exporting", () => {
-  test("shows exporting when transfer step is idle (preparing)", () => {
+describe("deriveTransferScreenState -- importing (default)", () => {
+  test("shows importing when transfer step is idle (preparing)", () => {
     const state = advanceTo("transfer");
     const screen = deriveTransferScreenState(state);
-    expect(screen.phase).toBe("exporting");
-    if (screen.phase === "exporting") {
-      expect(screen.message).toContain("Exporting");
+    expect(screen.phase).toBe("importing");
+    if (screen.phase === "importing") {
+      expect(screen.message).toContain("Importing");
     }
   });
 
-  test("shows exporting when transfer step is loading with no export result", () => {
+  test("shows importing when transfer step is loading with no export result", () => {
     let state = advanceTo("transfer");
     state = {
       ...state,
       steps: { ...state.steps, transfer: { status: "loading" } },
     };
     const screen = deriveTransferScreenState(state);
-    expect(screen.phase).toBe("exporting");
-    if (screen.phase === "exporting") {
-      expect(screen.message).toContain("Exporting");
+    expect(screen.phase).toBe("importing");
+    if (screen.phase === "importing") {
+      expect(screen.message).toContain("Importing");
     }
   });
 });
@@ -494,7 +494,7 @@ describe("deriveTransferScreenState -- error", () => {
     }
   });
 
-  test("infers failed phase as export when no export result exists", () => {
+  test("infers failed phase as import when no export result exists (import-only flow)", () => {
     let state = advanceTo("transfer");
     state = {
       ...state,
@@ -503,7 +503,7 @@ describe("deriveTransferScreenState -- error", () => {
         transfer: {
           status: "error",
           error: {
-            message: "export: HTTP 503",
+            message: "import: HTTP 503",
             code: "HTTP_503",
             retryable: true,
           },
@@ -512,7 +512,7 @@ describe("deriveTransferScreenState -- error", () => {
     };
     const screen = deriveTransferScreenState(state);
     if (screen.phase === "error") {
-      expect(screen.failedPhase).toBe("export");
+      expect(screen.failedPhase).toBe("import");
     }
   });
 
@@ -885,7 +885,7 @@ describe("executeTransferFlow", () => {
     expect(result.currentStep).toBe("rebind-secrets");
   });
 
-  test("export failure sets error state", async () => {
+  test("transfer failure sets error state with import phase", async () => {
     const state = advanceTo("transfer");
     const options = makeExecutorOptions({
       sourceConfig: runtimeConfig({ fetchFn: mockFetch(500, "Server Error") }),
@@ -898,7 +898,7 @@ describe("executeTransferFlow", () => {
     expect(screen.phase).toBe("error");
     if (screen.phase === "error") {
       expect(screen.canRetry).toBe(true);
-      expect(screen.failedPhase).toBe("export");
+      expect(screen.failedPhase).toBe("import");
     }
   });
 
@@ -1023,7 +1023,7 @@ describe("executeTransferFlow -- onStateChange callbacks", () => {
 
     // Should have gone through at least the loading state
     const phases = stateChanges.map((s) => s.phase);
-    expect(phases).toContain("exporting");
+    expect(phases).toContain("importing");
   });
 });
 
