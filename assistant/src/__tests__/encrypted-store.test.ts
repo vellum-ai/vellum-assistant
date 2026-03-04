@@ -3,6 +3,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -13,6 +14,7 @@ import { join } from "node:path";
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -54,12 +56,15 @@ const STORE_PATH = join(TEST_DIR, "keys.enc");
 // ---------------------------------------------------------------------------
 
 describe("encrypted-store", () => {
-  beforeEach(() => {
-    // Ensure clean temp directory and point store at it
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
+  beforeAll(() => {
     mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  beforeEach(() => {
+    // Clear content files but preserve the directory structure
+    for (const entry of readdirSync(TEST_DIR)) {
+      rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
+    }
     _setStorePath(STORE_PATH);
   });
 
@@ -68,9 +73,7 @@ describe("encrypted-store", () => {
   });
 
   afterAll(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
+    rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
   // -----------------------------------------------------------------------

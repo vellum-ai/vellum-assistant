@@ -2,12 +2,22 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 const testDataDir = "/tmp/qdrant-manager-test-" + process.pid;
 
@@ -43,14 +53,33 @@ function getTestPort(): number {
   return nextPort++;
 }
 
+const qdrantDir = join(testDataDir, "qdrant");
+const qdrantBinDir = join(qdrantDir, "bin");
+
+beforeAll(() => {
+  mkdirSync(qdrantBinDir, { recursive: true });
+});
+
 beforeEach(() => {
-  rmSync(testDataDir, { recursive: true, force: true });
-  mkdirSync(join(testDataDir, "qdrant", "bin"), { recursive: true });
+  // Clear content files but preserve the directory structure
+  for (const entry of readdirSync(qdrantDir)) {
+    if (entry === "bin") {
+      // Clear bin contents but keep the directory
+      for (const binEntry of readdirSync(qdrantBinDir)) {
+        rmSync(join(qdrantBinDir, binEntry), { force: true });
+      }
+    } else {
+      rmSync(join(qdrantDir, entry), { recursive: true, force: true });
+    }
+  }
   delete process.env.QDRANT_URL;
 });
 
 afterEach(() => {
   delete process.env.QDRANT_URL;
+});
+
+afterAll(() => {
   rmSync(testDataDir, { recursive: true, force: true });
 });
 
