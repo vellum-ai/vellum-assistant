@@ -511,9 +511,19 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                VIconButton(label: "Sidebar", icon: "sidebar.left", iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
+                    }
+                }
+
+                HStack(spacing: 0) {
+                    VIconButton(label: "Search", icon: "magnifyingglass", iconOnly: true, tooltip: "Search (\u{2318}K)") {
+                        AppDelegate.shared?.toggleCommandPalette()
+                    }
+
+                    VShortcutTag("\u{2318}K") {
+                        AppDelegate.shared?.toggleCommandPalette()
                     }
                 }
             }
@@ -1249,11 +1259,6 @@ struct MainWindowView: View {
                     .padding(.vertical, VSpacing.sm)
             }
 
-            // MARK: Search Bar
-            SidebarSearchButton(isExpanded: true) {
-                AppDelegate.shared?.toggleCommandPalette()
-            }
-
             // MARK: Nav Items (fixed)
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
                 windowState.togglePanel(.intelligence)
@@ -1520,10 +1525,6 @@ struct MainWindowView: View {
                 VColor.divider
                     .frame(height: 1)
                     .padding(.horizontal, VSpacing.xs)
-            }
-
-            SidebarSearchButton(isExpanded: false) {
-                AppDelegate.shared?.toggleCommandPalette()
             }
 
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
