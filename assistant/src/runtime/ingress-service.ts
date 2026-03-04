@@ -151,7 +151,7 @@ function contactToMemberResponse(
   contact: ContactWithChannels,
 ): MemberResponseData[] {
   return contact.channels.map((ch) => ({
-    id: `${contact.id}:${ch.id}`,
+    id: ch.id,
     sourceChannel: ch.type,
     externalUserId: ch.externalUserId ?? undefined,
     externalChatId: ch.externalChatId ?? undefined,
