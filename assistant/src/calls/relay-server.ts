@@ -18,7 +18,8 @@ import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.
 import { listActiveBindingsByAssistant } from "../memory/channel-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
 import { findActiveVoiceInvites } from "../memory/ingress-invite-store.js";
-import { findMember, upsertMember } from "../memory/ingress-member-store.js";
+import { findMember } from "../memory/ingress-member-store.js";
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
@@ -980,7 +981,7 @@ export class RelayConnection {
 
     if (!params.skipMemberActivation) {
       try {
-        upsertMember({
+        upsertMemberContactsFirst({
           assistantId,
           sourceChannel: "voice",
           externalUserId: fromNumber,

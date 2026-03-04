@@ -27,11 +27,8 @@ import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
 import { recordConversationSeenSignal } from "../../memory/conversation-attention-store.js";
 import * as conversationStore from "../../memory/conversation-store.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import {
-  findMember,
-  updateLastSeen,
-  upsertMember,
-} from "../../memory/ingress-member-store.js";
+import { findMember } from "../../memory/ingress-member-store.js";
+import { upsertMemberContactsFirst, touchChannelLastSeen } from '../../contacts/contacts-write.js';
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
@@ -605,7 +602,7 @@ export async function handleChannelInbound(
       }
 
       // 'allow' or 'escalate' — update last seen and continue
-      updateLastSeen(resolvedMember.id);
+      touchChannelLastSeen(resolvedMember.id);
     }
   }
 
@@ -1030,7 +1027,7 @@ export async function handleChannelInbound(
           ? existingMember.displayName
           : body.actorDisplayName;
 
-      upsertMember({
+      upsertMemberContactsFirst({
         assistantId: canonicalAssistantId,
         sourceChannel,
         externalUserId: canonicalSenderId ?? rawSenderId!,

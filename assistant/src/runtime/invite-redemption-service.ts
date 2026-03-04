@@ -10,7 +10,8 @@
 import type { ChannelId } from '../channels/types.js';
 import { getSqlite } from '../memory/db.js';
 import { findActiveVoiceInvites,findByTokenHash, hashToken, markInviteExpired, recordInviteUse, redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
-import { findMember, upsertMember } from '../memory/ingress-member-store.js';
+import { findMember } from '../memory/ingress-member-store.js';
+import { upsertMemberContactsFirst } from '../contacts/contacts-write.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { hashVoiceCode } from '../util/voice-code.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
@@ -129,10 +130,10 @@ export function redeemInvite(params: {
       ? existingMember.displayName
       : displayName;
 
-    let reactivated: ReturnType<typeof upsertMember> | undefined;
+    let reactivated: ReturnType<typeof upsertMemberContactsFirst> | undefined;
     try {
       getSqlite().transaction(() => {
-        reactivated = upsertMember({
+        reactivated = upsertMemberContactsFirst({
           assistantId: assistantId ?? invite.assistantId,
           sourceChannel,
           externalUserId,
@@ -294,7 +295,7 @@ export function redeemVoiceInviteCode(params: {
 
   try {
     getSqlite().transaction(() => {
-      const member = upsertMember({
+      const member = upsertMemberContactsFirst({
         assistantId: invite.assistantId,
         sourceChannel: 'voice',
         externalUserId: callerExternalUserId,

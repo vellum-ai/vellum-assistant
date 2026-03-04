@@ -15,14 +15,12 @@ import {
   revokeInvite,
 } from '../memory/ingress-invite-store.js';
 import {
-  blockMember,
   type IngressMember,
   listMembers,
   type MemberPolicy,
   type MemberStatus,
-  revokeMember,
-  upsertMember,
 } from '../memory/ingress-member-store.js';
+import { upsertMemberContactsFirst, revokeMemberContactsFirst, blockMemberContactsFirst } from '../contacts/contacts-write.js';
 import { isValidE164 } from '../util/phone.js';
 import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
 import { getTransport } from './channel-invite-transport.js';
@@ -314,7 +312,7 @@ export function upsertIngressMember(params: {
   if (!params.externalUserId && !params.externalChatId) {
     return { ok: false, error: 'At least one of externalUserId or externalChatId is required for upsert' };
   }
-  const member = upsertMember({
+  const member = upsertMemberContactsFirst({
     assistantId: params.assistantId,
     sourceChannel: params.sourceChannel,
     externalUserId: params.externalUserId,
@@ -331,7 +329,7 @@ export function revokeIngressMember(memberId?: string, reason?: string): Ingress
   if (!memberId) {
     return { ok: false, error: 'memberId is required for revoke' };
   }
-  const revoked = revokeMember(memberId, reason);
+  const revoked = revokeMemberContactsFirst(memberId, reason);
   if (!revoked) {
     return { ok: false, error: 'Member not found or cannot be revoked' };
   }
@@ -342,7 +340,7 @@ export function blockIngressMember(memberId?: string, reason?: string): IngressR
   if (!memberId) {
     return { ok: false, error: 'memberId is required for block' };
   }
-  const blocked = blockMember(memberId, reason);
+  const blocked = blockMemberContactsFirst(memberId, reason);
   if (!blocked) {
     return { ok: false, error: 'Member not found or already blocked' };
   }
