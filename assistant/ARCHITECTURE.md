@@ -458,7 +458,7 @@ External users who are not the guardian can gain access to the assistant through
 | `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
 | `src/runtime/channel-guardian-service.ts`              | Verification challenge lifecycle, identity binding, rate limiting             |
 | `src/runtime/routes/contact-routes.ts`                 | HTTP API handlers for contact and channel management                          |
-| `src/runtime/routes/ingress-routes.ts`                 | HTTP API handlers for invite management                                       |
+| `src/runtime/routes/invite-routes.ts`                  | HTTP API handlers for invite management                                       |
 | `src/runtime/invite-service.ts`                        | Business logic for invite operations                                          |
 | `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
 | `src/memory/channel-guardian-store.ts`                 | Approval request and verification challenge persistence                       |
@@ -551,7 +551,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 | `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
 | `src/runtime/invite-service.ts`                     | Shared business logic for invite operations (used by both HTTP routes and IPC)                                     |
-| `src/runtime/routes/ingress-routes.ts`              | HTTP API handlers for invite management including voice invite creation and redemption                             |
+| `src/runtime/routes/invite-routes.ts`               | HTTP API handlers for invite management including voice invite creation and redemption                             |
 | `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
 | `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
 | `src/util/voice-code.ts`                            | Cryptographic voice code generation and SHA-256 hashing                                                            |
