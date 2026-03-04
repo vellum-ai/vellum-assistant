@@ -136,14 +136,11 @@ Telegram integration setup/config endpoints and ingress members/invites endpoint
 
 **Forwarded ingress endpoints:**
 
-| Method   | Path                                  |
-| -------- | ------------------------------------- |
-| GET/POST | `/v1/ingress/members`                 |
-| DELETE   | `/v1/ingress/members/:memberId`       |
-| POST     | `/v1/ingress/members/:memberId/block` |
-| GET/POST | `/v1/ingress/invites`                 |
-| DELETE   | `/v1/ingress/invites/:inviteId`       |
-| POST     | `/v1/ingress/invites/redeem`          |
+| Method   | Path                            |
+| -------- | ------------------------------- |
+| GET/POST | `/v1/ingress/invites`           |
+| DELETE   | `/v1/ingress/invites/:inviteId` |
+| POST     | `/v1/ingress/invites/redeem`    |
 
 **Authentication boundary:**
 
