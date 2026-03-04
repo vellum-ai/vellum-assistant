@@ -145,4 +145,4 @@ Judgement calls affecting user experience should be made by the assistant throug
 
 ## Release Update Hygiene
 
-When shipping a release with user/assistant-facing changes, update `assistant/src/config/templates/UPDATES.md`. Leave empty for no-op releases. Don't modify `~/.vellum/workspace/UPDATES.md` directly.
+When shipping a release with user/assistant-facing changes, update `assistant/src/config/templates/UPDATES.md`. Leave empty for no-op releases. Don't modify `~/.vellum/workspace/UPDATES.md` directly. Checkpoint keys (`updates:active_releases`, `updates:completed_releases`) in `memory_checkpoints` track bulletin lifecycle — don't manipulate directly.
