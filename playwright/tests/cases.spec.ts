@@ -2,8 +2,12 @@
  * Dynamic Playwright test collection for agent-based test cases.
  *
  * Reads markdown files from the cases/ directory and creates a Playwright
- * test for each one. This lets Playwright's built-in HTML reporter, video
- * recording, and trace viewer work out of the box for agent tests.
+ * test for each one. This lets Playwright's built-in HTML reporter, trace
+ * viewer, and artifact attachment work out of the box for agent tests.
+ *
+ * Desktop video recording uses ffmpeg (avfoundation) instead of Playwright's
+ * built-in video, because Playwright records the Chromium browser tab (blank
+ * for native app tests) while ffmpeg captures the actual macOS desktop.
  */
 
 import { type ChildProcess, execSync, spawn } from "child_process";
@@ -56,125 +60,113 @@ function checkRequiredEnv(requiredEnv: string[] | undefined): void {
   }
 }
 
-// ── macOS Screen Recording ──────────────────────────────────────────
-
-/** Log file for screen recording diagnostics. */
-const RECORDING_LOG_DIR = path.resolve(__dirname, "../test-results/agent-logs");
-
-function logRecording(testName: string, message: string): void {
-  const ts = new Date().toISOString();
-  const line = `[${ts}] [screen-recording] ${message}\n`;
-  process.stdout.write(line);
-  try {
-    mkdirSync(RECORDING_LOG_DIR, { recursive: true });
-    const logPath = path.join(RECORDING_LOG_DIR, `${testName}-screen-recording.log`);
-    const stream = createWriteStream(logPath, { flags: "a" });
-    stream.write(line);
-    stream.end();
-  } catch {
-    // best-effort
-  }
-}
-
-let _probeCompleted = false;
-
-function probeScreenRecording(testName: string): void {
-  if (_probeCompleted) return;
-  _probeCompleted = true;
-  // Log system info for debugging
-  try {
-    const swVers = execSync("sw_vers 2>&1", { encoding: "utf-8", timeout: 5_000 }).trim();
-    logRecording(testName, `macOS version:\n${swVers}`);
-  } catch (e) {
-    logRecording(testName, `sw_vers failed: ${e}`);
-  }
-
-  // Check screencapture help to see supported flags
-  try {
-    const help = execSync("screencapture -h 2>&1 || true", { encoding: "utf-8", timeout: 5_000, shell: "/bin/bash" }).trim();
-    logRecording(testName, `screencapture help:\n${help}`);
-  } catch (e) {
-    logRecording(testName, `screencapture -h failed: ${e}`);
-  }
-
-  // Check if there's a display available
-  try {
-    const displays = execSync("system_profiler SPDisplaysDataType 2>&1 | head -30", { encoding: "utf-8", timeout: 10_000, shell: "/bin/bash" }).trim();
-    logRecording(testName, `Display info:\n${displays}`);
-  } catch (e) {
-    logRecording(testName, `Display info failed: ${e}`);
-  }
-
-  // Take a reference screenshot to verify the screen is capturable
-  try {
-    mkdirSync(RECORDING_LOG_DIR, { recursive: true });
-    const refPath = path.join(RECORDING_LOG_DIR, `${testName}-pre-recording-probe.png`);
-    execSync(`screencapture -x ${JSON.stringify(refPath)}`, { timeout: 10_000 });
-    if (existsSync(refPath)) {
-      const size = statSync(refPath).size;
-      logRecording(testName, `Pre-recording screenshot probe: ${refPath} (${size} bytes)`);
-    } else {
-      logRecording(testName, "Pre-recording screenshot probe: file not created");
-    }
-  } catch (e) {
-    logRecording(testName, `Pre-recording screenshot probe failed: ${e}`);
-  }
-}
+// ── macOS Desktop Recording (ffmpeg) ────────────────────────────────
+//
+// We use ffmpeg with the avfoundation input device to record the macOS
+// desktop. Unlike `screencapture -V`, ffmpeg properly finalizes the
+// output file when stopped with SIGINT (writes moov atom, etc.).
+//
+// `screencapture -V <seconds>` only writes the file when the timer
+// expires naturally — killing it with any signal produces no output.
 
 interface ScreenRecorder {
   proc: ChildProcess;
-  stderrPath: string;
   videoPath: string;
+  logPath: string;
+}
+
+function logRecording(testName: string, message: string): void {
+  const ts = new Date().toISOString();
+  process.stdout.write(`[${ts}] [screen-recording] ${message}\n`);
+}
+
+/**
+ * Detect the screen capture input device index for ffmpeg's avfoundation.
+ * Returns the device index string (e.g. "1") or undefined if not found.
+ */
+function detectScreenDevice(): string | undefined {
+  try {
+    // ffmpeg -f avfoundation -list_devices true -i "" prints device list to stderr
+    const output = execSync(
+      'ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true',
+      { encoding: "utf-8", timeout: 10_000, shell: "/bin/bash" },
+    );
+    // Look for "Capture screen" in the video devices section
+    const lines = output.split("\n");
+    for (const line of lines) {
+      const match = line.match(/\[(\d+)]\s+Capture screen/);
+      if (match) {
+        return match[1];
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function startScreenRecording(videoPath: string, testName: string): ScreenRecorder | undefined {
   try {
     mkdirSync(path.dirname(videoPath), { recursive: true });
 
-    // Capture stderr to a file so we can diagnose failures
-    const stderrPath = path.join(path.dirname(videoPath), "screencapture-stderr.log");
-    const stderrStream = createWriteStream(stderrPath);
+    // Check if ffmpeg is available
+    try {
+      execSync("which ffmpeg", { timeout: 5_000 });
+    } catch {
+      logRecording(testName, "ffmpeg not found, skipping screen recording");
+      return undefined;
+    }
 
-    logRecording(testName, `Starting screencapture: screencapture -V 600 -x ${videoPath}`);
-    logRecording(testName, `stderr will be logged to: ${stderrPath}`);
+    // Detect the screen capture device
+    const screenDevice = detectScreenDevice();
+    if (!screenDevice) {
+      logRecording(testName, "Could not detect avfoundation screen device, skipping recording");
+      return undefined;
+    }
 
-    const proc = spawn("screencapture", ["-V", "600", "-x", videoPath], {
+    const logPath = path.join(path.dirname(videoPath), "ffmpeg.log");
+    const logStream = createWriteStream(logPath);
+
+    // Record at 10fps, using the detected screen device, no audio
+    const args = [
+      "-f", "avfoundation",
+      "-framerate", "10",
+      "-capture_cursor", "1",
+      "-i", `${screenDevice}:none`,
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "28",
+      "-pix_fmt", "yuv420p",
+      "-movflags", "+faststart",
+      "-y",
+      videoPath,
+    ];
+
+    logRecording(testName, `Starting ffmpeg: ffmpeg ${args.join(" ")}`);
+
+    const proc = spawn("ffmpeg", args, {
       stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
     });
 
-    // Pipe stdout/stderr to log files
     proc.stdout?.on("data", (chunk: Buffer) => {
-      logRecording(testName, `screencapture stdout: ${chunk.toString().trim()}`);
+      logStream.write(chunk);
     });
     proc.stderr?.on("data", (chunk: Buffer) => {
-      const msg = chunk.toString().trim();
-      logRecording(testName, `screencapture stderr: ${msg}`);
-      stderrStream.write(chunk);
+      logStream.write(chunk);
     });
 
     proc.on("error", (err) => {
-      logRecording(testName, `screencapture spawn error: ${err.message}`);
+      logRecording(testName, `ffmpeg spawn error: ${err.message}`);
     });
 
     proc.on("exit", (code, signal) => {
-      logRecording(testName, `screencapture exited: code=${code}, signal=${signal}`);
-      stderrStream.end();
+      logRecording(testName, `ffmpeg exited: code=${code}, signal=${signal}`);
+      logStream.end();
     });
 
-    logRecording(testName, `screencapture started with PID ${proc.pid}`);
+    logRecording(testName, `ffmpeg started with PID ${proc.pid}`);
 
-    // Check if the process is still alive after a brief delay
-    setTimeout(() => {
-      if (proc.exitCode !== null) {
-        logRecording(testName, `screencapture exited early with code ${proc.exitCode}`);
-      } else {
-        logRecording(testName, "screencapture still running after 1s (good)");
-      }
-    }, 1000);
-
-    proc.unref();
-    return { proc, stderrPath, videoPath };
+    return { proc, videoPath, logPath };
   } catch (e) {
     logRecording(testName, `startScreenRecording exception: ${e}`);
     return undefined;
@@ -184,12 +176,13 @@ function startScreenRecording(videoPath: string, testName: string): ScreenRecord
 async function stopScreenRecording(recorder: ScreenRecorder | undefined, testName: string): Promise<void> {
   if (!recorder) return;
   const { proc, videoPath } = recorder;
-  if (proc.killed) {
-    logRecording(testName, "screencapture already killed, skipping stop");
+  if (proc.killed || proc.exitCode !== null) {
+    logRecording(testName, "ffmpeg already exited, skipping stop");
     return;
   }
 
-  logRecording(testName, `Stopping screencapture (PID ${proc.pid}) with SIGINT`);
+  // SIGINT causes ffmpeg to finalize the file (write moov atom) and exit cleanly
+  logRecording(testName, `Stopping ffmpeg (PID ${proc.pid}) with SIGINT`);
   proc.kill("SIGINT");
 
   const exitResult = await new Promise<{ code: number | null; signal: string | null; timedOut: boolean }>((resolve) => {
@@ -205,41 +198,21 @@ async function stopScreenRecording(recorder: ScreenRecorder | undefined, testNam
         resolved = true;
         resolve({ code: null, signal: null, timedOut: true });
       }
-    }, 5000);
+    }, 10_000); // ffmpeg may need time to finalize the file
   });
 
   if (exitResult.timedOut) {
-    logRecording(testName, "screencapture did not exit within 5s after SIGINT, sending SIGKILL");
+    logRecording(testName, "ffmpeg did not exit within 10s after SIGINT, sending SIGKILL");
     proc.kill("SIGKILL");
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   } else {
-    logRecording(testName, `screencapture stopped: code=${exitResult.code}, signal=${exitResult.signal}`);
+    logRecording(testName, `ffmpeg stopped: code=${exitResult.code}, signal=${exitResult.signal}`);
   }
 
   // Check the output file
   if (existsSync(videoPath)) {
     const stat = statSync(videoPath);
     logRecording(testName, `Video file: ${videoPath}, size=${stat.size} bytes (${(stat.size / 1024 / 1024).toFixed(2)} MB)`);
-
-    // Use ffprobe or mdls to get video metadata if available
-    try {
-      const mdls = execSync(`mdls -name kMDItemDurationSeconds -name kMDItemCodecs -name kMDItemPixelWidth -name kMDItemPixelHeight ${JSON.stringify(videoPath)} 2>&1`, {
-        encoding: "utf-8",
-        timeout: 10_000,
-      }).trim();
-      logRecording(testName, `Video metadata (mdls):\n${mdls}`);
-    } catch {
-      // mdls may not be available
-    }
-
-    // Check if the video has actual content by looking at file size
-    // A completely blank 75s video would still be fairly large (several MB)
-    // A very small file (<100KB) likely means recording failed
-    if (stat.size < 1024) {
-      logRecording(testName, "WARNING: Video file is very small (<1KB), likely empty or failed");
-    } else if (stat.size < 100 * 1024) {
-      logRecording(testName, "WARNING: Video file is small (<100KB), may be blank or very short");
-    }
   } else {
     logRecording(testName, `WARNING: Video file does not exist at ${videoPath}`);
   }
@@ -273,10 +246,7 @@ for (const file of caseFiles) {
         fixtureCtx = await setupFixture(fixture, { workerIndex: testInfo.workerIndex });
       }
 
-      // Probe screen recording capabilities (runs once across all tests)
-      probeScreenRecording(testName);
-
-      // Start macOS screen recording (captures the desktop for native app tests)
+      // Start desktop screen recording via ffmpeg (captures actual macOS desktop)
       const videoDir = path.resolve(
         __dirname,
         "../test-results/agent-videos",
@@ -337,34 +307,35 @@ for (const file of caseFiles) {
         // screenshot dir may not exist
       }
 
-      // Attach the macOS screen recording if available
+      // Attach the desktop screen recording if available
       if (stoppedVideoPath && existsSync(stoppedVideoPath)) {
         try {
-          const videoSize = statSync(stoppedVideoPath).size;
-          logRecording(testName, `Attaching video to report: ${stoppedVideoPath} (${videoSize} bytes)`);
           await testInfo.attach("screen-recording.mov", {
             path: stoppedVideoPath,
             contentType: "video/quicktime",
           });
-        } catch (e) {
-          logRecording(testName, `Failed to attach video: ${e}`);
+        } catch {
+          // video file may be empty or corrupt
         }
-      } else {
-        logRecording(testName, `Video not available for attachment (path=${stoppedVideoPath})`);
       }
 
-      // Attach the screen recording diagnostic log
-      try {
-        const recLogPath = path.join(RECORDING_LOG_DIR, `${testName}-screen-recording.log`);
-        if (existsSync(recLogPath)) {
-          const recLogContent = readFileSync(recLogPath, "utf-8");
-          await testInfo.attach("screen-recording-diagnostics", {
-            body: recLogContent,
-            contentType: "text/plain",
-          });
+      // Attach the ffmpeg log for debugging
+      if (stoppedVideoPath) {
+        const ffmpegLogPath = path.join(
+          path.dirname(stoppedVideoPath),
+          "ffmpeg.log",
+        );
+        try {
+          if (existsSync(ffmpegLogPath)) {
+            const ffmpegLog = readFileSync(ffmpegLogPath, "utf-8");
+            await testInfo.attach("ffmpeg-log", {
+              body: ffmpegLog,
+              contentType: "text/plain",
+            });
+          }
+        } catch {
+          // best-effort
         }
-      } catch {
-        // best-effort
       }
 
       // Attach the agent's reasoning to the Playwright report

@@ -294,42 +294,31 @@ jobs:
         working-directory: playwright/agent-xcode
         run: swift build -c release
 
-      - name: Log screen recording diagnostics
+      - name: Install ffmpeg
         run: |
-          echo "=== macOS Version ==="
-          sw_vers
-          echo ""
-          echo "=== screencapture help ==="
-          screencapture -h 2>&1 || true
-          echo ""
-          echo "=== Display info ==="
-          system_profiler SPDisplaysDataType 2>&1 | head -40 || true
-          echo ""
-          echo "=== Screen Recording permissions (TCC) ==="
-          # Check if screencapture can take a test screenshot
-          screencapture -x /tmp/test-screenshot.png 2>&1 && echo "Screenshot OK" || echo "Screenshot FAILED"
-          ls -la /tmp/test-screenshot.png 2>/dev/null || echo "No screenshot file"
-          echo ""
-          echo "=== Test video recording (5s) ==="
-          screencapture -V 5 -x /tmp/test-video.mov 2>&1 &
-          SCPID=$!
-          echo "screencapture PID: $SCPID"
-          sleep 6
-          # Check if process is still running
-          if kill -0 $SCPID 2>/dev/null; then
-            echo "screencapture still running after 6s, sending SIGINT"
-            kill -INT $SCPID
-            sleep 2
+          if ! command -v ffmpeg &> /dev/null; then
+            echo "ffmpeg not found, installing via brew..."
+            brew install ffmpeg
           else
-            echo "screencapture already exited"
-            wait $SCPID 2>/dev/null
-            echo "Exit code: $?"
+            echo "ffmpeg already installed: $(ffmpeg -version | head -1)"
           fi
+
+      - name: Verify ffmpeg screen recording
+        run: |
+          echo "=== ffmpeg version ==="
+          ffmpeg -version | head -3
+          echo ""
+          echo "=== avfoundation devices ==="
+          ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true
+          echo ""
+          echo "=== Test 3s recording ==="
+          ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 -i "1:none" \
+            -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p \
+            -t 3 -y /tmp/test-ffmpeg.mov 2>&1 || true
           echo ""
           echo "=== Test video file ==="
-          ls -la /tmp/test-video.mov 2>/dev/null || echo "No video file created"
-          file /tmp/test-video.mov 2>/dev/null || true
-          mdls -name kMDItemDurationSeconds -name kMDItemCodecs -name kMDItemPixelWidth -name kMDItemPixelHeight /tmp/test-video.mov 2>/dev/null || true
+          ls -la /tmp/test-ffmpeg.mov 2>/dev/null || echo "No video file created"
+          file /tmp/test-ffmpeg.mov 2>/dev/null || true
 
       - name: Run Playwright tests
         id: tests
