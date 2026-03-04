@@ -19,7 +19,8 @@ import {
   findGuardianForChannel,
   hasContacts,
 } from "../contacts/contact-store.js";
-import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
+import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
+import type { ContactWithChannels } from "../contacts/types.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type { IngressMember } from "../memory/ingress-member-store.js";
 import { findMember } from "../memory/ingress-member-store.js";
@@ -110,50 +111,6 @@ export interface ResolveActorTrustInput {
   actorExternalId?: string;
   actorUsername?: string;
   actorDisplayName?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Contact → IngressMember shim
-// ---------------------------------------------------------------------------
-
-/**
- * Synthesize an IngressMember-compatible record from a Contact + ContactChannel.
- * This enables the contacts-first path to populate memberRecord without changing
- * the ActorTrustContext interface or downstream consumers.
- */
-function contactChannelToMemberRecord(
-  contact: ContactWithChannels,
-  channel: ContactChannel,
-): IngressMember {
-  return {
-    id: channel.id,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-    sourceChannel: channel.type,
-    externalUserId: channel.externalUserId,
-    externalChatId: channel.externalChatId,
-    displayName: contact.displayName,
-    username: null,
-    status:
-      channel.status === "active"
-        ? "active"
-        : channel.status === "pending"
-          ? "pending"
-          : channel.status === "unverified"
-            ? "pending"
-            : channel.status === "revoked"
-              ? "revoked"
-              : channel.status === "blocked"
-                ? "blocked"
-                : "active",
-    policy: channel.policy,
-    inviteId: channel.inviteId,
-    createdBySessionId: null,
-    revokedReason: channel.revokedReason,
-    blockedReason: channel.blockedReason,
-    lastSeenAt: channel.lastSeenAt,
-    createdAt: channel.createdAt,
-    updatedAt: channel.updatedAt ?? channel.createdAt,
-  };
 }
 
 // ---------------------------------------------------------------------------

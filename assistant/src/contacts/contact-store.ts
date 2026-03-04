@@ -657,6 +657,59 @@ export function findContactByChannelExternalId(
 }
 
 /**
+ * Find a contact by channel external chat ID. This is the fallback lookup path
+ * when externalUserId is not available — matches by (type, externalChatId).
+ */
+export function findContactByChannelExternalChatId(
+  channelType: string,
+  externalChatId: string,
+): ContactWithChannels | null {
+  const db = getDb();
+  const channel = db
+    .select()
+    .from(contactChannels)
+    .where(
+      and(
+        eq(contactChannels.type, channelType),
+        eq(contactChannels.externalChatId, externalChatId),
+      ),
+    )
+    .get();
+  if (!channel) return null;
+  return getContact(channel.contactId);
+}
+
+/**
+ * Find a contact and matching channel by trying externalUserId first, then
+ * falling back to externalChatId. Mirrors the findMember lookup strategy.
+ */
+export function findContactChannel(params: {
+  channelType: string;
+  externalUserId?: string;
+  externalChatId?: string;
+}): { contact: ContactWithChannels; channel: ContactChannel } | null {
+  if (params.externalUserId) {
+    const contact = findContactByChannelExternalId(params.channelType, params.externalUserId);
+    if (contact) {
+      const ch = contact.channels.find(
+        (c) => c.type === params.channelType && c.externalUserId === params.externalUserId,
+      );
+      if (ch) return { contact, channel: ch };
+    }
+  }
+  if (params.externalChatId) {
+    const contact = findContactByChannelExternalChatId(params.channelType, params.externalChatId);
+    if (contact) {
+      const ch = contact.channels.find(
+        (c) => c.type === params.channelType && c.externalChatId === params.externalChatId,
+      );
+      if (ch) return { contact, channel: ch };
+    }
+  }
+  return null;
+}
+
+/**
  * Find the guardian contact and their specific channel entry for a given channel type.
  * This is the contacts-based equivalent of getGuardianBinding(assistantId, channel).
  * Returns null if no guardian contact has a channel of the specified type.
