@@ -22,6 +22,7 @@ import { skills } from "./commands/skills";
 import { sleep } from "./commands/sleep";
 import { ssh } from "./commands/ssh";
 import { tunnel } from "./commands/tunnel";
+import { use } from "./commands/use";
 import { wake } from "./commands/wake";
 
 const commands = {
@@ -41,6 +42,7 @@ const commands = {
   sleep,
   ssh,
   tunnel,
+  use,
   wake,
   whoami,
 } as const;
@@ -103,6 +105,7 @@ async function main() {
     console.log("  sleep    Stop the assistant process");
     console.log("  ssh      SSH into a remote assistant instance");
     console.log("  tunnel   Create a tunnel for a locally hosted assistant");
+    console.log("  use      Set the active assistant for commands");
     console.log("  wake     Start the assistant and gateway");
     console.log("  whoami   Show current logged-in user");
     process.exit(0);

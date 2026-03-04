@@ -49,6 +49,7 @@ export interface AssistantEntry {
 
 interface LockfileData {
   assistants?: AssistantEntry[];
+  activeAssistant?: string;
   platformBaseUrl?: string;
   [key: string]: unknown;
 }
@@ -126,6 +127,54 @@ export function removeAssistantEntry(assistantId: string): void {
 
 export function loadAllAssistants(): AssistantEntry[] {
   return readAssistants();
+}
+
+export function getActiveAssistant(): string | null {
+  const data = readLockfile();
+  return data.activeAssistant ?? null;
+}
+
+export function setActiveAssistant(assistantId: string): void {
+  const data = readLockfile();
+  data.activeAssistant = assistantId;
+  writeLockfile(data);
+}
+
+/**
+ * Resolve which assistant to target for a command. Priority:
+ * 1. Explicit name argument
+ * 2. Active assistant set via `vellum use`
+ * 3. Sole local assistant (when exactly one exists)
+ */
+export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
+  if (nameArg) {
+    const entry = findAssistantByName(nameArg);
+    if (!entry) {
+      console.error(`No assistant found with name '${nameArg}'.`);
+      process.exit(1);
+    }
+    return entry;
+  }
+
+  const active = getActiveAssistant();
+  if (active) {
+    const entry = findAssistantByName(active);
+    if (entry) return entry;
+    // Active assistant no longer exists in lockfile — fall through
+  }
+
+  const all = readAssistants();
+  const locals = all.filter((e) => e.cloud === "local");
+  if (locals.length === 1) return locals[0];
+
+  if (locals.length === 0) {
+    console.error("No local assistant found. Run 'vellum hatch local' first.");
+  } else {
+    console.error(
+      `Multiple assistants found. Set an active assistant with 'vellum use <name>'.`,
+    );
+  }
+  process.exit(1);
 }
 
 export function saveAssistantEntry(entry: AssistantEntry): void {

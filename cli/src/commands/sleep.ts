@@ -1,20 +1,32 @@
-import { homedir } from "os";
 import { join } from "path";
 
+import {
+  defaultLocalResources,
+  resolveTargetAssistant,
+} from "../lib/assistant-config.js";
 import { stopProcessByPidFile } from "../lib/process";
 
 export async function sleep(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum sleep");
+    console.log("Usage: vellum sleep [<name>]");
     console.log("");
     console.log("Stop the assistant, gateway, and outbound-proxy processes.");
+    console.log("");
+    console.log("Arguments:");
+    console.log(
+      "  <name>    Name of the assistant to stop (default: active or only local)",
+    );
     process.exit(0);
   }
 
-  const vellumDir = join(homedir(), ".vellum");
-  const daemonPidFile = join(vellumDir, "vellum.pid");
-  const socketFile = join(vellumDir, "vellum.sock");
+  const nameArg = args.find((a) => !a.startsWith("-"));
+  const entry = resolveTargetAssistant(nameArg);
+  const resources = entry.resources ?? defaultLocalResources();
+
+  const daemonPidFile = resources.pidFile;
+  const socketFile = resources.socketPath;
+  const vellumDir = join(resources.instanceDir, ".vellum");
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
 
