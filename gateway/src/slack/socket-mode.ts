@@ -89,27 +89,32 @@ export class SlackSocketModeClient {
           user?: string;
           team?: string;
         };
-        if (data.ok) {
-          if (data.user_id) {
-            this.config.botUserId = data.user_id;
-          }
-          if (data.user) {
-            this.config.botUsername = data.user;
-          }
-          if (data.team) {
-            this.config.teamName = data.team;
-          }
-          log.info(
-            {
-              botUserId: data.user_id,
-              botUsername: data.user,
-              teamName: data.team,
-            },
-            "Resolved Slack bot identity",
+        if (!data.ok) {
+          throw new Error(
+            "Slack auth.test failed: bot token is invalid or expired",
           );
         }
+        if (data.user_id) {
+          this.config.botUserId = data.user_id;
+        }
+        if (data.user) {
+          this.config.botUsername = data.user;
+        }
+        if (data.team) {
+          this.config.teamName = data.team;
+        }
+        log.info(
+          {
+            botUserId: data.user_id,
+            botUsername: data.user,
+            teamName: data.team,
+          },
+          "Resolved Slack bot identity",
+        );
       } catch (err) {
-        log.warn({ err }, "Failed to resolve bot identity via auth.test");
+        throw new Error("Failed to resolve Slack bot identity via auth.test", {
+          cause: err,
+        });
       }
     }
 
