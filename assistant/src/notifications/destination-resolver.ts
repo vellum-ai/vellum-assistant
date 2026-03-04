@@ -17,7 +17,10 @@ import { isNotificationDeliverable } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { getActiveBinding } from "../memory/channel-guardian-store.js";
+import { getLogger } from "../util/logger.js";
 import type { ChannelDestination, NotificationChannel } from "./types.js";
+
+const log = getLogger("destination-resolver");
 
 /**
  * Resolve destination information for each requested channel.
@@ -59,11 +62,17 @@ export function resolveDestinations(
           channel: "vellum",
           metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         });
+        log.debug('destination resolved', {
+          channel: 'vellum',
+          source: guardianResult ? 'contacts' : 'legacy',
+          hasEndpoint: false,
+        });
         break;
       }
       case "telegram":
       case "sms": {
         const guardianResult = findGuardianForChannel(channel);
+        let binding: ReturnType<typeof getActiveBinding> = null;
         if (guardianResult) {
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
@@ -74,7 +83,7 @@ export function resolveDestinations(
           });
         } else {
           // Legacy fallback: contacts not yet synced
-          const binding = getActiveBinding(assistantId, channel);
+          binding = getActiveBinding(assistantId, channel);
           if (binding) {
             result.set(channel as NotificationChannel, {
               channel: channel as NotificationChannel,
@@ -85,6 +94,11 @@ export function resolveDestinations(
             });
           }
         }
+        log.debug('destination resolved', {
+          channel,
+          source: guardianResult ? 'contacts' : 'legacy',
+          hasEndpoint: !!guardianResult?.channel.externalChatId || !!binding?.guardianDeliveryChatId,
+        });
         break;
       }
       default: {

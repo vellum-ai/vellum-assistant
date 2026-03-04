@@ -102,6 +102,7 @@ export function notifyGuardianOfAccessRequest(
   let guardianExternalUserId: string | null = null;
   let guardianPrincipalId: string | null = null;
   let guardianBindingChannel: string | null = null;
+  let guardianResolutionSource: 'contacts' | 'contacts-fallback' | 'legacy' | 'none' = 'none';
 
   // Try contacts-first: source channel
   const sourceGuardian = findGuardianForChannel(sourceChannel);
@@ -109,6 +110,7 @@ export function notifyGuardianOfAccessRequest(
     guardianExternalUserId = sourceGuardian.channel.externalUserId;
     guardianPrincipalId = sourceGuardian.contact.principalId;
     guardianBindingChannel = sourceGuardian.channel.type;
+    guardianResolutionSource = 'contacts';
   } else {
     // Try contacts-first: any active guardian channel
     const allGuardianChannels = listGuardianChannels();
@@ -117,6 +119,7 @@ export function notifyGuardianOfAccessRequest(
       guardianExternalUserId = fallbackChannel.externalUserId;
       guardianPrincipalId = allGuardianChannels.contact.principalId;
       guardianBindingChannel = fallbackChannel.type;
+      guardianResolutionSource = 'contacts-fallback';
       log.debug(
         { sourceChannel, fallbackChannel: guardianBindingChannel, canonicalAssistantId },
         'Using cross-channel guardian contact fallback for access request',
@@ -128,12 +131,14 @@ export function notifyGuardianOfAccessRequest(
         guardianExternalUserId = sourceBinding.guardianExternalUserId;
         guardianPrincipalId = sourceBinding.guardianPrincipalId;
         guardianBindingChannel = sourceBinding.channel;
+        guardianResolutionSource = 'legacy';
       } else {
         const allBindings = listActiveBindingsByAssistant(canonicalAssistantId);
         if (allBindings.length > 0) {
           guardianExternalUserId = allBindings[0].guardianExternalUserId;
           guardianPrincipalId = allBindings[0].guardianPrincipalId;
           guardianBindingChannel = allBindings[0].channel;
+          guardianResolutionSource = 'legacy';
           log.debug(
             { sourceChannel, fallbackChannel: guardianBindingChannel, canonicalAssistantId },
             'Using cross-channel guardian binding fallback for access request',
@@ -163,6 +168,13 @@ export function notifyGuardianOfAccessRequest(
       guardianBindingChannel = guardianBindingChannel ?? 'vellum';
     }
   }
+
+  log.debug('access request guardian resolved', {
+    sourceChannel,
+    source: guardianResolutionSource,
+    hasGuardianPrincipal: !!guardianPrincipalId,
+    guardianBindingChannel,
+  });
 
   // The conversationId is assistant-scoped so the dedupe query below only
   // matches requests for the same assistant. Without this, a pending request

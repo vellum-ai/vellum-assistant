@@ -236,6 +236,11 @@ export async function emitNotificationSignal<TEventName extends string>(
     // Step 2: Evaluate the signal through the decision engine
     const connectedChannels = getConnectedChannels(assistantId);
 
+    log.debug('connected channels resolved', {
+      channels: connectedChannels,
+      assistantId,
+    });
+
     let decision = await evaluateSignal(signal, connectedChannels);
 
     // Step 2.5: Enforce routing intent policy (fire-time guard)
