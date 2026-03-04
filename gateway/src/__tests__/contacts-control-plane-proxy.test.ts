@@ -17,8 +17,8 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createIngressControlPlaneProxyHandler } =
-  await import("../http/routes/ingress-control-plane-proxy.js");
+const { createContactsControlPlaneProxyHandler } =
+  await import("../http/routes/contacts-control-plane-proxy.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -71,7 +71,7 @@ afterEach(() => {
   fetchMock = mock(async () => new Response());
 });
 
-describe("ingress control-plane proxy", () => {
+describe("contacts control-plane proxy", () => {
   test("forwards contact endpoints to the runtime", async () => {
     const captured: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
@@ -82,7 +82,7 @@ describe("ingress control-plane proxy", () => {
       });
     });
 
-    const handler = createIngressControlPlaneProxyHandler(makeConfig());
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
 
     await handler.handleListContacts(
       new Request("http://localhost:7830/v1/contacts?limit=10"),
@@ -125,7 +125,7 @@ describe("ingress control-plane proxy", () => {
       });
     });
 
-    const handler = createIngressControlPlaneProxyHandler(makeConfig());
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
 
     await handler.handleListInvites(
       new Request("http://localhost:7830/v1/contacts/invites?status=active"),
@@ -164,7 +164,7 @@ describe("ingress control-plane proxy", () => {
       },
     );
 
-    const handler = createIngressControlPlaneProxyHandler(makeConfig());
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
       new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
@@ -195,7 +195,7 @@ describe("ingress control-plane proxy", () => {
       );
     });
 
-    const handler = createIngressControlPlaneProxyHandler(makeConfig());
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
       new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
@@ -217,7 +217,7 @@ describe("ingress control-plane proxy", () => {
       );
     });
 
-    const handler = createIngressControlPlaneProxyHandler(
+    const handler = createContactsControlPlaneProxyHandler(
       makeConfig({ runtimeTimeoutMs: 100 }),
     );
     const res = await handler.handleListInvites(
