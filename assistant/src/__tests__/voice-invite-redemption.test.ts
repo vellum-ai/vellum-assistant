@@ -26,7 +26,7 @@ mock.module("../util/logger.js", () => ({
 
 import { upsertMember } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
-import { createInvite, revokeInvite } from "../memory/ingress-invite-store.js";
+import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 

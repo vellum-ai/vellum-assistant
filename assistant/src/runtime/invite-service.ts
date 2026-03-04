@@ -17,7 +17,7 @@ import {
   type InviteStatus,
   listInvites,
   revokeInvite,
-} from "../memory/ingress-invite-store.js";
+} from "../memory/invite-store.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { getTransport } from "./channel-invite-transport.js";

@@ -90,7 +90,7 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertMember } from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { createInvite, revokeInvite } from "../memory/ingress-invite-store.js";
+import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();

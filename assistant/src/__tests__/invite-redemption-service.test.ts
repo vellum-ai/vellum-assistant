@@ -29,7 +29,7 @@ import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   createInvite,
   revokeInvite as revokeStoreFn,
-} from "../memory/ingress-invite-store.js";
+} from "../memory/invite-store.js";
 import {
   type InviteRedemptionOutcome,
   redeemInvite,

@@ -186,7 +186,7 @@ import {
 } from "../memory/channel-guardian-store.js";
 import { addMessage, getMessages } from "../memory/conversation-store.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
-import { createInvite } from "../memory/ingress-invite-store.js";
+import { createInvite } from "../memory/invite-store.js";
 import { conversations } from "../memory/schema.js";
 import {
   createOutboundSession,
