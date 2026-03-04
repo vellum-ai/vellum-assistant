@@ -22,9 +22,9 @@ import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js"
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type { IngressMember } from "../memory/ingress-member-store.js";
 import { findMember } from "../memory/ingress-member-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 const log = getLogger("actor-trust-resolver");
 

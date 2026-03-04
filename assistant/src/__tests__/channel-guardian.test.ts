@@ -143,12 +143,12 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-guardian-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   createBinding,
   getActiveBinding,
   revokeBinding,
 } from "../memory/guardian-bindings.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { channelGuardianVerificationChallenges } from "../memory/schema.js";
 import {
   bindSessionIdentity as serviceBindSessionIdentity,

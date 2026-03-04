@@ -15,10 +15,12 @@ import {
 } from "../../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { resolveUserReference } from "../../config/user-reference.js";
+import { findContactChannel } from "../../contacts/contact-store.js";
 import {
   touchChannelLastSeen,
   upsertMemberContactsFirst,
 } from "../../contacts/contacts-write.js";
+import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
 import { RESEND_COOLDOWN_MS } from "../../daemon/handlers/config-channels.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
@@ -31,8 +33,6 @@ import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
 import { recordConversationSeenSignal } from "../../memory/conversation-attention-store.js";
 import * as conversationStore from "../../memory/conversation-store.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import { findContactChannel } from "../../contacts/contact-store.js";
-import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
 import type { IngressMember } from "../../memory/ingress-member-store.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
@@ -305,7 +305,10 @@ export async function handleChannelInbound(
         externalChatId: conversationExternalId,
       });
       resolvedMember = contactResult
-        ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
+        ? contactChannelToMemberRecord(
+            contactResult.contact,
+            contactResult.channel,
+          )
         : null;
     }
 
@@ -1027,7 +1030,10 @@ export async function handleChannelInbound(
             })
           : null;
       const existingMember = existingContactResult
-        ? contactChannelToMemberRecord(existingContactResult.contact, existingContactResult.channel)
+        ? contactChannelToMemberRecord(
+            existingContactResult.contact,
+            existingContactResult.channel,
+          )
         : null;
       const memberMatchesSender = existingMember?.externalUserId
         ? canonicalizeInboundIdentity(

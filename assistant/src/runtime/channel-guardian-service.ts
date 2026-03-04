@@ -22,8 +22,6 @@ import type {
   VerificationPurpose,
 } from "../memory/channel-guardian-store.js";
 import {
-  getActiveBinding,
-  revokeBinding as legacyRevokeBinding,
   bindSessionIdentity as storeBindSessionIdentity,
   consumeChallenge,
   countRecentSendsToDestination as storeCountRecentSendsToDestination,
@@ -34,9 +32,11 @@ import {
   findPendingChallengeForChannel,
   findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as storeFindSessionByIdentity,
+  getActiveBinding,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
+  revokeBinding as legacyRevokeBinding,
   revokePendingChallenges as storeRevokePendingChallenges,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
@@ -396,12 +396,12 @@ export function getGuardianBinding(
       id: result.channel.id,
       assistantId,
       channel,
-      guardianExternalUserId: result.channel.externalUserId ?? '',
-      guardianDeliveryChatId: result.channel.externalChatId ?? '',
-      guardianPrincipalId: result.contact.principalId ?? '',
-      status: 'active' as const,
+      guardianExternalUserId: result.channel.externalUserId ?? "",
+      guardianDeliveryChatId: result.channel.externalChatId ?? "",
+      guardianPrincipalId: result.contact.principalId ?? "",
+      status: "active" as const,
       verifiedAt: result.channel.verifiedAt ?? 0,
-      verifiedVia: result.channel.verifiedVia ?? '',
+      verifiedVia: result.channel.verifiedVia ?? "",
       metadataJson: result.contact.displayName
         ? JSON.stringify({ displayName: result.contact.displayName })
         : null,
@@ -430,7 +430,10 @@ export function isGuardian(
 
   // Legacy fallback for bindings where contacts write failed
   const legacyBinding = getActiveBinding(assistantId, channel);
-  return legacyBinding != null && legacyBinding.guardianExternalUserId === externalUserId;
+  return (
+    legacyBinding != null &&
+    legacyBinding.guardianExternalUserId === externalUserId
+  );
 }
 
 /**
@@ -439,7 +442,10 @@ export function isGuardian(
  * so that the legacy fallback in getGuardianBinding does not resurface it.
  */
 export function revokeBinding(assistantId: string, channel: string): boolean {
-  const contactsRevoked = revokeGuardianBindingContactsFirst(assistantId, channel);
+  const contactsRevoked = revokeGuardianBindingContactsFirst(
+    assistantId,
+    channel,
+  );
   const legacyRevoked = legacyRevokeBinding(assistantId, channel);
   return contactsRevoked || legacyRevoked;
 }

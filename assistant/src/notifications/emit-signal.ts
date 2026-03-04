@@ -95,7 +95,7 @@ function getBroadcaster(): NotificationBroadcaster {
 
 // ── Connected channels resolution ──────────────────────────────────────
 
-function getConnectedChannels(assistantId: string): NotificationChannel[] {
+function getConnectedChannels(_assistantId: string): NotificationChannel[] {
   const channels: NotificationChannel[] = [];
 
   // getDeliverableChannels() returns ChannelId[] but every returned channel

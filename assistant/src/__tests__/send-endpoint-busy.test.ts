@@ -16,8 +16,8 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import type { Session } from "../daemon/session.js";
 import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { createBinding } from "../memory/guardian-bindings.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
+import { createBinding } from "../memory/guardian-bindings.js";
 
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "send-endpoint-busy-test-")),
