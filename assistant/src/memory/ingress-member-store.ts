@@ -10,8 +10,11 @@ import { v4 as uuid } from 'uuid';
 
 import { syncSingleMember } from '../contacts/contact-sync.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
 import { assistantIngressMembers } from './schema.js';
+
+const log = getLogger('ingress-member-store');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -142,7 +145,11 @@ export function upsertMember(params: {
       .get();
 
     const member = rowToMember(updated!);
-    syncSingleMember(member);
+    try {
+      syncSingleMember(member);
+    } catch (err) {
+      log.warn({ err }, 'Contact sync failed for ingress member update');
+    }
     return member;
   }
 
@@ -170,7 +177,11 @@ export function upsertMember(params: {
   db.insert(assistantIngressMembers).values(row).run();
 
   const member = rowToMember(row);
-  syncSingleMember(member);
+  try {
+    syncSingleMember(member);
+  } catch (err) {
+    log.warn({ err }, 'Contact sync failed for ingress member insert');
+  }
   return member;
 }
 
@@ -255,7 +266,11 @@ export function revokeMember(memberId: string, reason?: string): IngressMember |
 
   if (!updated) return null;
   const member = rowToMember(updated);
-  syncSingleMember(member);
+  try {
+    syncSingleMember(member);
+  } catch (err) {
+    log.warn({ err }, 'Contact sync failed for ingress member revoke');
+  }
   return member;
 }
 
@@ -297,7 +312,11 @@ export function blockMember(memberId: string, reason?: string): IngressMember | 
 
   if (!updated) return null;
   const member = rowToMember(updated);
-  syncSingleMember(member);
+  try {
+    syncSingleMember(member);
+  } catch (err) {
+    log.warn({ err }, 'Contact sync failed for ingress member block');
+  }
   return member;
 }
 

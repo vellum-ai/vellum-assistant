@@ -9,8 +9,11 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { syncSingleGuardianBinding } from '../contacts/contact-sync.js';
+import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
 import { channelGuardianBindings } from './schema.js';
+
+const log = getLogger('guardian-bindings');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,7 +92,11 @@ export function createBinding(params: {
   db.insert(channelGuardianBindings).values(row).run();
 
   const binding = rowToBinding(row);
-  syncSingleGuardianBinding(binding);
+  try {
+    syncSingleGuardianBinding(binding);
+  } catch (err) {
+    log.warn({ err }, 'Contact sync failed for guardian binding');
+  }
 
   return binding;
 }
