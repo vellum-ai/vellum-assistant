@@ -3,31 +3,41 @@
  * dedicated voice conversation thread.
  */
 
-import * as conversationStore from '../memory/conversation-store.js';
-import { getCallEvents, getCallSession } from './call-store.js';
+import * as conversationStore from "../memory/conversation-store.js";
+import { getCallEvents, getCallSession } from "./call-store.js";
 
 export function buildCallCompletionMessage(callSessionId: string): string {
   const callSession = getCallSession(callSessionId);
   const events = getCallEvents(callSessionId);
-  const duration = callSession?.endedAt && callSession?.startedAt
-    ? Math.round((callSession.endedAt - callSession.startedAt) / 1000)
-    : null;
-  const durationStr = duration != null ? ` (${duration}s)` : '';
-  const statusLabel = callSession?.status === 'failed'
-    ? 'Call failed'
-    : callSession?.status === 'cancelled'
-      ? 'Call cancelled'
-      : 'Call completed';
+  const duration =
+    callSession?.endedAt && callSession?.startedAt
+      ? Math.round((callSession.endedAt - callSession.startedAt) / 1000)
+      : null;
+  const durationStr = duration != null ? ` (${duration}s)` : "";
+  const statusLabel =
+    callSession?.status === "failed"
+      ? "Call failed"
+      : callSession?.status === "cancelled"
+        ? "Call cancelled"
+        : "Call completed";
   return `**${statusLabel}**${durationStr}. ${events.length} event(s) recorded.`;
 }
 
-export async function persistCallCompletionMessage(conversationId: string, callSessionId: string): Promise<string> {
+export async function persistCallCompletionMessage(
+  conversationId: string,
+  callSessionId: string,
+): Promise<string> {
   const summaryText = buildCallCompletionMessage(callSessionId);
   await conversationStore.addMessage(
     conversationId,
-    'assistant',
-    JSON.stringify([{ type: 'text', text: summaryText }]),
-    { userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
+    "assistant",
+    JSON.stringify([{ type: "text", text: summaryText }]),
+    {
+      userMessageChannel: "voice",
+      assistantMessageChannel: "voice",
+      userMessageInterface: "voice",
+      assistantMessageInterface: "voice",
+    },
   );
   return summaryText;
 }

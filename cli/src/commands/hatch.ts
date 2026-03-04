@@ -1,5 +1,15 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
 import { homedir, hostname, userInfo } from "os";
 import { join } from "path";
 
@@ -10,7 +20,11 @@ import qrcode from "qrcode-terminal";
 import cliPkg from "../../package.json";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
-import { loadAllAssistants, saveAssistantEntry, syncConfigToLockfile } from "../lib/assistant-config";
+import {
+  loadAllAssistants,
+  saveAssistantEntry,
+  syncConfigToLockfile,
+} from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { hatchAws } from "../lib/aws";
 import {
@@ -22,7 +36,12 @@ import {
 import type { RemoteHost, Species } from "../lib/constants";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
-import { startLocalDaemon, startGateway, startOutboundProxy, stopLocalProcesses } from "../lib/local";
+import {
+  startLocalDaemon,
+  startGateway,
+  startOutboundProxy,
+  stopLocalProcesses,
+} from "../lib/local";
 import { probePort } from "../lib/port-probe";
 import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
@@ -32,14 +51,13 @@ export type { PollResult, WatchHatchingResult } from "../lib/gcp";
 
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 
-
 const HATCH_TIMEOUT_MS: Record<Species, number> = {
   vellum: 2 * 60 * 1000,
   openclaw: 10 * 60 * 1000,
 };
 const DEFAULT_SPECIES: Species = "vellum";
 
-const SPINNER_FRAMES= ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 const IS_DESKTOP = !!process.env.VELLUM_DESKTOP_APP;
 
@@ -77,9 +95,14 @@ export async function buildStartupScript(
   instanceName: string,
   cloud: RemoteHost,
 ): Promise<string> {
-  const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
-  const logPath = cloud === "custom" ? "/tmp/vellum-startup.log" : "/var/log/startup-script.log";
-  const errorPath = cloud === "custom" ? "/tmp/vellum-startup-error" : "/var/log/startup-error";
+  const platformUrl =
+    process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
+  const logPath =
+    cloud === "custom"
+      ? "/tmp/vellum-startup.log"
+      : "/var/log/startup-script.log";
+  const errorPath =
+    cloud === "custom" ? "/tmp/vellum-startup-error" : "/var/log/startup-error";
   const timestampRedirect = buildTimestampRedirect(logPath);
   const userSetup = buildUserSetup(sshUser);
   const ownershipFixup = buildOwnershipFixup();
@@ -174,10 +197,18 @@ function parseArgs(): HatchArgs {
       console.log("Options:");
       console.log("  -d                        Run in detached mode");
       console.log("  --name <name>             Custom instance name");
-      console.log("  --remote <host>           Remote host (local, gcp, aws, custom)");
-      console.log("  --daemon-only             Start daemon only, skip gateway");
-      console.log("  --restart                 Restart processes without onboarding side effects");
-      console.log("  --watch                   Run daemon and gateway in watch mode (hot reload on source changes)");
+      console.log(
+        "  --remote <host>           Remote host (local, gcp, aws, custom)",
+      );
+      console.log(
+        "  --daemon-only             Start daemon only, skip gateway",
+      );
+      console.log(
+        "  --restart                 Restart processes without onboarding side effects",
+      );
+      console.log(
+        "  --watch                   Run daemon and gateway in watch mode (hot reload on source changes)",
+      );
       process.exit(0);
     } else if (arg === "-d") {
       detached = true;
@@ -196,7 +227,9 @@ function parseArgs(): HatchArgs {
       try {
         validateAssistantName(next);
       } catch {
-        console.error(`Error: --name contains invalid characters (path separators or traversal segments are not allowed)`);
+        console.error(
+          `Error: --name contains invalid characters (path separators or traversal segments are not allowed)`,
+        );
         process.exit(1);
       }
       name = next;
@@ -236,7 +269,11 @@ function pickMessage(messages: string[], elapsedMs: number): string {
   return messages[idx];
 }
 
-function getPhaseIcon(hasLogs: boolean, elapsedMs: number, species: Species): string {
+function getPhaseIcon(
+  hasLogs: boolean,
+  elapsedMs: number,
+  species: Species,
+): string {
   if (!hasLogs) {
     return elapsedMs < 30000 ? "🥚" : "🪺";
   }
@@ -292,7 +329,11 @@ export async function watchHatching(
         : pickMessage(config.waitingMessages, elapsed);
     spinnerIdx++;
 
-    const lines = ["", `   ${icon} ${spinner}  ${message}  ⏱  ${formatElapsed(elapsed)}`, ""];
+    const lines = [
+      "",
+      `   ${icon} ${spinner}  ${message}  ⏱  ${formatElapsed(elapsed)}`,
+      "",
+    ];
 
     for (const line of lines) {
       process.stdout.write(`\x1b[K${line}\n`);
@@ -334,7 +375,9 @@ export async function watchHatching(
       if (elapsed >= HATCH_TIMEOUT_MS[species]) {
         clearInterval(interval);
         console.log("");
-        console.log(`   ⏰ Timed out after ${formatElapsed(elapsed)}. Instance is still running.`);
+        console.log(
+          `   ⏰ Timed out after ${formatElapsed(elapsed)}. Instance is still running.`,
+        );
         console.log(`   Monitor with: vel logs ${instanceName}`);
         console.log("");
         resolve({ success: true, errorContent: lastErrorContent });
@@ -378,7 +421,9 @@ function watchHatchingDesktop(
 
       if (elapsed >= HATCH_TIMEOUT_MS[species]) {
         clearInterval(interval);
-        desktopLog(`Timed out after ${formatElapsed(elapsed)}. Instance is still running.`);
+        desktopLog(
+          `Timed out after ${formatElapsed(elapsed)}. Instance is still running.`,
+        );
         desktopLog(`Monitor with: vel logs ${instanceName}`);
         resolve({ success: true, errorContent: lastErrorContent });
         return;
@@ -474,7 +519,9 @@ function ensureLocalBinInShellProfile(localBinDir: string): void {
   if (!profilePath) return;
 
   try {
-    const contents = existsSync(profilePath) ? readFileSync(profilePath, "utf-8") : "";
+    const contents = existsSync(profilePath)
+      ? readFileSync(profilePath, "utf-8")
+      : "";
     // Check if ~/.local/bin is already referenced in PATH exports
     if (contents.includes(localBinDir)) return;
     const line = `\nexport PATH="${localBinDir}:\$PATH"\n`;
@@ -506,10 +553,16 @@ function installCLISymlink(): void {
     return;
   }
 
-  console.log(`   ⚠ Could not create symlink for vellum CLI (tried ${preferredPath} and ${fallbackPath})`);
+  console.log(
+    `   ⚠ Could not create symlink for vellum CLI (tried ${preferredPath} and ${fallbackPath})`,
+  );
 }
 
-async function waitForDaemonReady(runtimeUrl: string, bearerToken: string | undefined, timeoutMs = 15000): Promise<boolean> {
+async function waitForDaemonReady(
+  runtimeUrl: string,
+  bearerToken: string | undefined,
+  timeoutMs = 15000,
+): Promise<boolean> {
   const start = Date.now();
   const pollInterval = 1000;
   while (Date.now() - start < timeoutMs) {
@@ -528,7 +581,10 @@ async function waitForDaemonReady(runtimeUrl: string, bearerToken: string | unde
   return false;
 }
 
-async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | undefined): Promise<void> {
+async function displayPairingQRCode(
+  runtimeUrl: string,
+  bearerToken: string | undefined,
+): Promise<void> {
   try {
     const pairingRequestId = randomUUID();
     const pairingSecret = randomBytes(32).toString("hex");
@@ -539,7 +595,9 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
     // health endpoint through the gateway to ensure it's reachable.
     const daemonReady = await waitForDaemonReady(runtimeUrl, bearerToken);
     if (!daemonReady) {
-      console.warn("⚠ Daemon health check did not pass within 15s. Run `vellum pair` to try again.\n");
+      console.warn(
+        "⚠ Daemon health check did not pass within 15s. Run `vellum pair` to try again.\n",
+      );
       return;
     }
 
@@ -549,16 +607,24 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
         "Content-Type": "application/json",
         ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
       },
-      body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl: runtimeUrl }),
+      body: JSON.stringify({
+        pairingRequestId,
+        pairingSecret,
+        gatewayUrl: runtimeUrl,
+      }),
     });
 
     if (!registerRes.ok) {
       const body = await registerRes.text().catch(() => "");
-      console.warn(`⚠ Could not register pairing request: ${registerRes.status} ${registerRes.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`);
+      console.warn(
+        `⚠ Could not register pairing request: ${registerRes.status} ${registerRes.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`,
+      );
       return;
     }
 
-    const hostId = createHash("sha256").update(hostname() + userInfo().username).digest("hex");
+    const hostId = createHash("sha256")
+      .update(hostname() + userInfo().username)
+      .digest("hex");
     const payload = JSON.stringify({
       type: "vellum-daemon",
       v: 4,
@@ -580,11 +646,15 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
     mkdirSync(qrDir, { recursive: true });
     const qrPngPath = join(qrDir, "initial.png");
     try {
-      const pngBuffer = await QRCode.toBuffer(payload, { type: "png", width: 512 });
+      const pngBuffer = await QRCode.toBuffer(payload, {
+        type: "png",
+        width: 512,
+      });
       writeFileSync(qrPngPath, pngBuffer);
       console.log(`QR code PNG saved to ${qrPngPath}\n`);
     } catch (pngErr) {
-      const pngReason = pngErr instanceof Error ? pngErr.message : String(pngErr);
+      const pngReason =
+        pngErr instanceof Error ? pngErr.message : String(pngErr);
       console.warn(`\u26A0 Could not save QR code PNG: ${pngReason}\n`);
     }
 
@@ -595,18 +665,30 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
   } catch (err) {
     // Non-fatal — pairing is optional
     const reason = err instanceof Error ? err.message : String(err);
-    console.warn(`⚠ Could not generate pairing QR code: ${reason}. Run \`vellum pair\` to try again.\n`);
+    console.warn(
+      `⚠ Could not generate pairing QR code: ${reason}. Run \`vellum pair\` to try again.\n`,
+    );
   }
 }
 
-async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false, restart: boolean = false, watch: boolean = false): Promise<void> {
+async function hatchLocal(
+  species: Species,
+  name: string | null,
+  daemonOnly: boolean = false,
+  restart: boolean = false,
+  watch: boolean = false,
+): Promise<void> {
   if (restart && !name && !process.env.VELLUM_ASSISTANT_NAME) {
-    console.error("Error: Cannot restart without a known assistant ID. Provide --name or ensure VELLUM_ASSISTANT_NAME is set.");
+    console.error(
+      "Error: Cannot restart without a known assistant ID. Provide --name or ensure VELLUM_ASSISTANT_NAME is set.",
+    );
     process.exit(1);
   }
 
   const instanceName =
-    name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
+    name ??
+    process.env.VELLUM_ASSISTANT_NAME ??
+    `${species}-${generateRandomSuffix()}`;
 
   // Clean up stale local state: if daemon/gateway processes are running but
   // the lock file has no entries, stop them before starting fresh.
@@ -617,7 +699,9 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
     const daemonPid = isProcessAlive(join(vellumDir, "vellum.pid"));
     const gatewayPid = isProcessAlive(join(vellumDir, "gateway.pid"));
     if (daemonPid.alive || gatewayPid.alive) {
-      console.log("🧹 Cleaning up stale local processes (no lock file entry)...\n");
+      console.log(
+        "🧹 Cleaning up stale local processes (no lock file entry)...\n",
+      );
       await stopLocalProcesses();
     }
 
@@ -648,7 +732,11 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
     }
   }
 
-  const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
+  const baseDataDir = join(
+    process.env.BASE_DATA_DIR?.trim() ||
+      (process.env.HOME ?? userInfo().homedir),
+    ".vellum",
+  );
 
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
@@ -662,7 +750,9 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.
-    console.error(`\n❌ Gateway startup failed — stopping daemon to avoid orphaned processes.`);
+    console.error(
+      `\n❌ Gateway startup failed — stopping daemon to avoid orphaned processes.`,
+    );
     await stopLocalProcesses();
     throw error;
   }
@@ -717,10 +807,13 @@ export async function hatch(): Promise<void> {
   const cliVersion = getCliVersion();
   console.log(`@vellumai/cli v${cliVersion}`);
 
-  const { species, detached, name, remote, daemonOnly, restart, watch } = parseArgs();
+  const { species, detached, name, remote, daemonOnly, restart, watch } =
+    parseArgs();
 
   if (restart && remote !== "local") {
-    console.error("Error: --restart is only supported for local hatch targets.");
+    console.error(
+      "Error: --restart is only supported for local hatch targets.",
+    );
     process.exit(1);
   }
 

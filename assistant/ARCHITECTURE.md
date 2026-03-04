@@ -1140,11 +1140,11 @@ After each tier, the reducer re-estimates tokens. If the estimate is within budg
 
 When all four reducer tiers are exhausted and the provider still rejects, the overflow policy resolver (`context-overflow-policy.ts`) determines the next action based on config and session interactivity:
 
-| Session Type    | Config Policy           | Action                                                                                                |
-| --------------- | ----------------------- | ----------------------------------------------------------------------------------------------------- |
-| Interactive     | `"summarize"` (default) | `request_user_approval` — prompt the user via `PermissionPrompter` before compressing the latest turn |
-| Non-interactive | `"truncate"` (default)  | `auto_compress_latest_turn` — compress without asking                                                 |
-| Any             | `"drop"`                | `fail_gracefully` — end the turn with a graceful assistant message                                    |
+| Session Type    | Config Policy           | Action                                                                                                 |
+| --------------- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| Interactive     | `"summarize"` (default) | `request_user_approval` — prompt the user via `PermissionPrompter` before compressing the latest turn  |
+| Non-interactive | `"truncate"` (default)  | `auto_compress_latest_turn` — compress without asking                                                  |
+| Any             | `"drop"`                | `fail_gracefully` — fall through to the final context-overflow fallback, which emits a `session_error` |
 
 **Approval gate:** For interactive sessions, the pipeline uses `requestCompressionApproval()` in `context-overflow-approval.ts`, which presents a confirmation prompt through the existing `PermissionPrompter` flow (`POST /v1/confirm`). The prompt uses a reserved pseudo tool name (`context_overflow_compression`) so the UI can display a meaningful label. The decision is one-shot per overflow (no "always allow" option).
 
@@ -1403,6 +1403,25 @@ graph LR
 ## Dynamic Skill Tool System — Runtime Tool Projection
 
 Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKILL.md`. When a skill is activated during a session, its tools are dynamically loaded, registered, and made available to the agent loop. Browser, Gmail, Claude Code, Weather, and other capabilities are delivered as **bundled skills** rather than hardcoded tools. Browser tools (previously the core `headless-browser` tool) are now provided by the bundled `browser` skill with system default allow rules that preserve frictionless auto-approval.
+
+### Bundled Skill Retrieval Contract (CLI-First)
+
+Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`vellum config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or keychain lookups.
+
+```mermaid
+graph LR
+    SKILL["SKILL.md retrieval instruction"] --> BASH["bash tool"]
+    BASH --> CLI["vellum config get / secure credential surfaces / domain reads"]
+    CLI --> GW["Gateway read route (when needed)"]
+    GW --> RT["Runtime handler/config service"]
+```
+
+Rules enforced by guard tests:
+- Retrieval reads use `bash` + canonical CLI surfaces (`vellum config get` and domain read commands where available).
+- Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
+- Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
+- `host_bash` is not used for Vellum CLI retrieval commands unless intentionally allowlisted.
+- Outbound credentialed API calls prefer proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) so credentials are injected by policy-aware plumbing instead of copied into commands.
 
 ### Skill Directory Structure
 

@@ -158,9 +158,7 @@ export async function runNgrokTunnel(): Promise<void> {
     console.error("  macOS:  brew install ngrok/ngrok/ngrok");
     console.error("  Linux:  sudo snap install ngrok");
     console.error("");
-    console.error(
-      "Then authenticate: ngrok config add-authtoken <your-token>",
-    );
+    console.error("Then authenticate: ngrok config add-authtoken <your-token>");
     console.error(
       "  Get your token at: https://dashboard.ngrok.com/get-started/your-authtoken",
     );

@@ -6,13 +6,10 @@
  * This is a generic media-processing primitive with no domain-specific logic.
  */
 
-import { randomUUID } from "node:crypto";
-import { mkdir, rmdir, stat, unlink } from "node:fs/promises";
-import { readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdir, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
-import { uploadAttachment } from "../../../../memory/attachments-store.js";
+import { uploadFileBackedAttachment } from "../../../../memory/attachments-store.js";
 import { getMediaAssetById } from "../../../../memory/media-store.js";
 import type {
   ToolContext,
@@ -53,7 +50,19 @@ function formatTimestamp(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
-  return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  return `${hrs.toString().padStart(2, "0")}:${mins
+    .toString()
+    .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+}
+
+function sanitizeFilename(title: string): string {
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 50) || "clip"
+  );
 }
 
 const MIME_BY_FORMAT: Record<string, string> = {
@@ -95,6 +104,7 @@ export async function run(
   const preRoll = (input.pre_roll as number) ?? 3;
   const postRoll = (input.post_roll as number) ?? 2;
   const outputFormat = (input.output_format as string) ?? "mp4";
+  const title = input.title as string | undefined;
 
   const asset = getMediaAssetById(assetId);
   if (!asset) {
@@ -120,16 +130,22 @@ export async function run(
       : endTime + postRoll;
   const clipDuration = clipEnd - clipStart;
 
-  // Prepare output path
-  const clipDir = join(tmpdir(), `vellum-clips-${randomUUID()}`);
+  // Save clips to the asset's pipeline directory so they persist for
+  // attachment delivery (tmpdir files get cleaned up before the sandbox
+  // attachment system can serve them).
+  const clipDir = join(dirname(asset.filePath), "pipeline", assetId, "clips");
   await mkdir(clipDir, { recursive: true });
 
-  const clipFilename = `clip-${formatTimestamp(startTime).replace(/:/g, "")}-${formatTimestamp(endTime).replace(/:/g, "")}.${outputFormat}`;
+  const clipFilename = title
+    ? `${sanitizeFilename(title)}.${outputFormat}`
+    : `clip-${formatTimestamp(startTime).replace(/:/g, "")}-${formatTimestamp(endTime).replace(/:/g, "")}.${outputFormat}`;
   const clipPath = join(clipDir, clipFilename);
 
   try {
     context.onOutput?.(
-      `Extracting clip ${formatTimestamp(clipStart)} – ${formatTimestamp(clipEnd)} from ${asset.title}...\n`,
+      `Extracting clip ${formatTimestamp(clipStart)} – ${formatTimestamp(
+        clipEnd,
+      )} from ${asset.title}...\n`,
     );
 
     // Use ffmpeg to extract the segment
@@ -152,10 +168,58 @@ export async function run(
     const result = await spawnWithTimeout(ffmpegArgs, FFMPEG_CLIP_TIMEOUT_MS);
 
     if (result.exitCode !== 0) {
-      return {
-        content: `ffmpeg clip extraction failed: ${result.stderr.slice(0, 500)}`,
-        isError: true,
-      };
+      // Stream copy failed — fall back to re-encoding (handles high-bitrate
+      // sources, incompatible codecs, and missing keyframes at cut points)
+      context.onOutput?.("Stream copy failed, re-encoding clip...\n");
+      // Select codecs based on output format (WebM needs VP9/Opus, MP4/MOV use H.264/AAC)
+      const codecArgs =
+        outputFormat === "webm"
+          ? [
+              "-c:v",
+              "libvpx-vp9",
+              "-b:v",
+              "2M",
+              "-c:a",
+              "libopus",
+              "-b:a",
+              "128k",
+            ]
+          : [
+              "-c:v",
+              "libx264",
+              "-preset",
+              "fast",
+              "-crf",
+              "23",
+              "-c:a",
+              "aac",
+              "-b:a",
+              "128k",
+            ];
+      const reencodeArgs = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        String(clipStart),
+        "-i",
+        asset.filePath,
+        "-t",
+        String(clipDuration),
+        ...codecArgs,
+        "-avoid_negative_ts",
+        "make_zero",
+        clipPath,
+      ];
+      const reencodeResult = await spawnWithTimeout(
+        reencodeArgs,
+        FFMPEG_CLIP_TIMEOUT_MS,
+      );
+      if (reencodeResult.exitCode !== 0) {
+        return {
+          content: `ffmpeg clip extraction failed (both stream copy and re-encode): ${reencodeResult.stderr.slice(0, 500)}`,
+          isError: true,
+        };
+      }
     }
 
     // Verify the output file exists and has content
@@ -168,15 +232,19 @@ export async function run(
     }
 
     context.onOutput?.(
-      `Clip extracted (${(clipStat.size / 1024 / 1024).toFixed(1)} MB). Registering as attachment...\n`,
+      `Clip extracted (${(clipStat.size / 1024 / 1024).toFixed(
+        1,
+      )} MB). Registering as attachment...\n`,
     );
 
-    // Read clip file and register as attachment
-    const clipData = await readFile(clipPath);
-    const clipBase64 = clipData.toString("base64");
+    // Register as file-backed attachment (no size limit, no base64 in-memory copy)
     const mimeType = MIME_BY_FORMAT[outputFormat] ?? "video/mp4";
-
-    const attachment = uploadAttachment(clipFilename, mimeType, clipBase64);
+    const attachment = uploadFileBackedAttachment(
+      clipFilename,
+      mimeType,
+      clipPath,
+      clipStat.size,
+    );
 
     context.onOutput?.(`Clip registered as attachment ${attachment.id}.\n`);
 
@@ -197,6 +265,7 @@ export async function run(
             preRoll,
             postRoll,
           },
+          clipPath,
           assetId,
         },
         null,
@@ -209,17 +278,5 @@ export async function run(
       content: `Clip generation failed: ${(err as Error).message}`,
       isError: true,
     };
-  } finally {
-    // Clean up temp file and directory
-    try {
-      await unlink(clipPath);
-    } catch {
-      /* ignore */
-    }
-    try {
-      await rmdir(clipDir);
-    } catch {
-      /* ignore */
-    }
   }
 }

@@ -13,7 +13,7 @@ export interface WrapOptions {
    * - 'off': network access is blocked (sandbox-exec deny network / bwrap --unshare-net). This is the default.
    * - 'proxied': network access is allowed so the process can reach the local credential proxy.
    */
-  networkMode?: 'off' | 'proxied';
+  networkMode?: "off" | "proxied";
 }
 
 /**
@@ -22,5 +22,9 @@ export interface WrapOptions {
  */
 export interface SandboxBackend {
   /** Wrap a command for sandboxed execution in the given working directory. */
-  wrap(command: string, workingDir: string, options?: WrapOptions): SandboxResult;
+  wrap(
+    command: string,
+    workingDir: string,
+    options?: WrapOptions,
+  ): SandboxResult;
 }

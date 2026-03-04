@@ -6,10 +6,10 @@
  * the migration to run before ORDER BY display_order).
  */
 
-import { getLogger } from '../util/logger.js';
-import { rawRun } from './db.js';
+import { getLogger } from "../util/logger.js";
+import { rawRun } from "./db.js";
 
-const log = getLogger('conversation-store');
+const log = getLogger("conversation-store");
 
 function isDuplicateColumnError(err: unknown): boolean {
   return err instanceof Error && /duplicate column name:/i.test(err.message);
@@ -17,18 +17,18 @@ function isDuplicateColumnError(err: unknown): boolean {
 
 function ensureDisplayOrderColumns(): void {
   try {
-    rawRun('ALTER TABLE conversations ADD COLUMN display_order INTEGER');
+    rawRun("ALTER TABLE conversations ADD COLUMN display_order INTEGER");
   } catch (err) {
     if (!isDuplicateColumnError(err)) {
-      log.error({ err }, 'Failed to add display_order column');
+      log.error({ err }, "Failed to add display_order column");
       throw err;
     }
   }
   try {
-    rawRun('ALTER TABLE conversations ADD COLUMN is_pinned INTEGER DEFAULT 0');
+    rawRun("ALTER TABLE conversations ADD COLUMN is_pinned INTEGER DEFAULT 0");
   } catch (err) {
     if (!isDuplicateColumnError(err)) {
-      log.error({ err }, 'Failed to add is_pinned column');
+      log.error({ err }, "Failed to add is_pinned column");
       throw err;
     }
   }

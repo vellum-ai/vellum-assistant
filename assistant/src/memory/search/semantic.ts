@@ -1,23 +1,27 @@
-import { inArray } from 'drizzle-orm';
+import { inArray } from "drizzle-orm";
 
-import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
-import { _getQdrantBreakerState,_resetQdrantBreaker, withQdrantBreaker } from '../qdrant-circuit-breaker.js';
-import type { QdrantSearchResult } from '../qdrant-client.js';
-import { getQdrantClient } from '../qdrant-client.js';
+import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db.js";
+import {
+  _getQdrantBreakerState,
+  _resetQdrantBreaker,
+  withQdrantBreaker,
+} from "../qdrant-circuit-breaker.js";
+import type { QdrantSearchResult } from "../qdrant-client.js";
+import { getQdrantClient } from "../qdrant-client.js";
 import {
   memoryItems,
   memoryItemSources,
   memorySegments,
   memorySummaries,
-} from '../schema.js';
-import { computeRecencyScore } from './ranking.js';
-import type { Candidate } from './types.js';
+} from "../schema.js";
+import { computeRecencyScore } from "./ranking.js";
+import type { Candidate } from "./types.js";
 
-const _log = getLogger('semantic-search');
+const _log = getLogger("semantic-search");
 
 // Re-export for tests that depend on these from this module
-export { _getQdrantBreakerState,_resetQdrantBreaker };
+export { _getQdrantBreakerState, _resetQdrantBreaker };
 
 export async function semanticSearch(
   queryVector: number[],
@@ -39,7 +43,7 @@ export async function semanticSearch(
     qdrant.searchWithFilter(
       queryVector,
       fetchLimit,
-      ['item', 'summary', 'segment'],
+      ["item", "summary", "segment"],
       excludedMessageIds,
     ),
   );
@@ -51,23 +55,31 @@ export async function semanticSearch(
   const summaryTargetIds: string[] = [];
   const segmentTargetIds: string[] = [];
   for (const r of results) {
-    if (r.payload.target_type === 'item') itemTargetIds.push(r.payload.target_id);
-    else if (r.payload.target_type === 'summary') summaryTargetIds.push(r.payload.target_id);
+    if (r.payload.target_type === "item")
+      itemTargetIds.push(r.payload.target_id);
+    else if (r.payload.target_type === "summary")
+      summaryTargetIds.push(r.payload.target_id);
     else segmentTargetIds.push(r.payload.target_id);
   }
 
   const itemsMap = new Map<string, typeof memoryItems.$inferSelect>();
   if (itemTargetIds.length > 0) {
-    const allItems = db.select().from(memoryItems).where(inArray(memoryItems.id, itemTargetIds)).all();
+    const allItems = db
+      .select()
+      .from(memoryItems)
+      .where(inArray(memoryItems.id, itemTargetIds))
+      .all();
     for (const item of allItems) itemsMap.set(item.id, item);
   }
 
   const sourcesMap = new Map<string, string[]>();
   if (itemTargetIds.length > 0) {
-    const allSources = db.select({
-      memoryItemId: memoryItemSources.memoryItemId,
-      messageId: memoryItemSources.messageId,
-    }).from(memoryItemSources)
+    const allSources = db
+      .select({
+        memoryItemId: memoryItemSources.memoryItemId,
+        messageId: memoryItemSources.messageId,
+      })
+      .from(memoryItemSources)
       .where(inArray(memoryItemSources.memoryItemId, itemTargetIds))
       .all();
     for (const s of allSources) {
@@ -79,17 +91,26 @@ export async function semanticSearch(
 
   const summariesMap = new Map<string, typeof memorySummaries.$inferSelect>();
   if (scopeIds && summaryTargetIds.length > 0) {
-    const allSummaries = db.select().from(memorySummaries).where(inArray(memorySummaries.id, summaryTargetIds)).all();
+    const allSummaries = db
+      .select()
+      .from(memorySummaries)
+      .where(inArray(memorySummaries.id, summaryTargetIds))
+      .all();
     for (const s of allSummaries) summariesMap.set(s.id, s);
   }
 
   const segmentsMap = new Map<string, typeof memorySegments.$inferSelect>();
   if (scopeIds && segmentTargetIds.length > 0) {
-    const allSegments = db.select().from(memorySegments).where(inArray(memorySegments.id, segmentTargetIds)).all();
+    const allSegments = db
+      .select()
+      .from(memorySegments)
+      .where(inArray(memorySegments.id, segmentTargetIds))
+      .all();
     for (const seg of allSegments) segmentsMap.set(seg.id, seg);
   }
 
-  const excludedSet = excludedMessageIds.length > 0 ? new Set(excludedMessageIds) : null;
+  const excludedSet =
+    excludedMessageIds.length > 0 ? new Set(excludedMessageIds) : null;
 
   const candidates: Candidate[] = [];
   for (const result of results) {
@@ -97,9 +118,9 @@ export async function semanticSearch(
     const semantic = mapCosineToUnit(score);
     const createdAt = payload.created_at ?? Date.now();
 
-    if (payload.target_type === 'item') {
+    if (payload.target_type === "item") {
       const item = itemsMap.get(payload.target_id);
-      if (!item || item.status !== 'active' || item.invalidAt != null) continue;
+      if (!item || item.status !== "active" || item.invalidAt != null) continue;
       if (scopeIds && !scopeIds.includes(item.scopeId)) continue;
       const sources = sourcesMap.get(payload.target_id);
       if (!sources || sources.length === 0) continue;
@@ -109,9 +130,9 @@ export async function semanticSearch(
       }
       candidates.push({
         key: `item:${payload.target_id}`,
-        type: 'item',
+        type: "item",
         id: payload.target_id,
-        source: 'semantic',
+        source: "semantic",
         text: `${item.subject}: ${item.statement}`,
         kind: item.kind,
         confidence: item.confidence,
@@ -122,18 +143,19 @@ export async function semanticSearch(
         recency: computeRecencyScore(item.lastSeenAt),
         finalScore: 0,
       });
-    } else if (payload.target_type === 'summary') {
+    } else if (payload.target_type === "summary") {
       if (scopeIds) {
         const summary = summariesMap.get(payload.target_id);
         if (!summary || !scopeIds.includes(summary.scopeId)) continue;
       }
       candidates.push({
         key: `summary:${payload.target_id}`,
-        type: 'summary',
+        type: "summary",
         id: payload.target_id,
-        source: 'semantic',
-        text: payload.text.replace(/^\[[^\]]+\]\s*/, ''),
-        kind: payload.kind === 'global' ? 'global_summary' : 'conversation_summary',
+        source: "semantic",
+        text: payload.text.replace(/^\[[^\]]+\]\s*/, ""),
+        kind:
+          payload.kind === "global" ? "global_summary" : "conversation_summary",
         confidence: 0.6,
         importance: 0.6,
         createdAt: payload.last_seen_at ?? createdAt,
@@ -149,11 +171,11 @@ export async function semanticSearch(
       }
       candidates.push({
         key: `segment:${payload.target_id}`,
-        type: 'segment',
+        type: "segment",
         id: payload.target_id,
-        source: 'semantic',
+        source: "semantic",
         text: payload.text,
-        kind: 'segment',
+        kind: "segment",
         confidence: 0.55,
         importance: 0.5,
         createdAt,
@@ -174,5 +196,7 @@ export function mapCosineToUnit(value: number): number {
 
 export function isQdrantConnectionError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(err.message);
+  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(
+    err.message,
+  );
 }

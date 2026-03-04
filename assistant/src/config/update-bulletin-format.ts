@@ -6,8 +6,8 @@
  * simply add a new block at the end without conflicting with existing ones.
  */
 
-const MARKER_PREFIX = '<!-- vellum-update-release:';
-const MARKER_SUFFIX = ' -->';
+const MARKER_PREFIX = "<!-- vellum-update-release:";
+const MARKER_SUFFIX = " -->";
 const MARKER_REGEX = /<!-- vellum-update-release:(.+?) -->/g;
 
 /** Returns the HTML comment marker for a given release version. */
@@ -37,7 +37,7 @@ export function appendReleaseBlock(
 
   if (content.length === 0) return `${block}\n`;
 
-  const separator = content.endsWith('\n') ? '\n' : '\n\n';
+  const separator = content.endsWith("\n") ? "\n" : "\n\n";
   return `${content}${separator}${block}\n`;
 }
 

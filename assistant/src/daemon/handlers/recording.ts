@@ -1,13 +1,21 @@
-import { existsSync, realpathSync, statSync } from 'node:fs';
-import * as net from 'node:net';
-import * as path from 'node:path';
+import { existsSync, realpathSync, statSync } from "node:fs";
+import * as net from "node:net";
+import * as path from "node:path";
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { linkAttachmentToMessage, uploadFileBackedAttachment } from '../../memory/attachments-store.js';
-import * as conversationStore from '../../memory/conversation-store.js';
-import type { RecordingOptions,RecordingStatus } from '../ipc-protocol.js';
-import { defineHandlers, findSocketForSession, type HandlerContext,log } from './shared.js';
+import {
+  linkAttachmentToMessage,
+  uploadFileBackedAttachment,
+} from "../../memory/attachments-store.js";
+import * as conversationStore from "../../memory/conversation-store.js";
+import type { RecordingOptions, RecordingStatus } from "../ipc-protocol.js";
+import {
+  defineHandlers,
+  findSocketForSession,
+  type HandlerContext,
+  log,
+} from "./shared.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -17,9 +25,9 @@ import { defineHandlers, findSocketForSession, type HandlerContext,log } from '.
 const STOP_ACK_TIMEOUT_MS = 30_000;
 
 const RECORDING_MIME_TYPES = new Map<string, string>([
-  ['mov', 'video/quicktime'],
-  ['mp4', 'video/mp4'],
-  ['webm', 'video/webm'],
+  ["mov", "video/quicktime"],
+  ["mp4", "video/mp4"],
+  ["webm", "video/webm"],
 ]);
 
 // ─── Deterministic maps ──────────────────────────────────────────────────────
@@ -83,14 +91,26 @@ export function handleRecordingStart(
 ): string | null {
   const existingRecordingId = recordingOwnerByConversation.get(conversationId);
   if (existingRecordingId) {
-    log.warn({ conversationId, existingRecordingId }, 'Recording already active for conversation');
+    log.warn(
+      { conversationId, existingRecordingId },
+      "Recording already active for conversation",
+    );
     return null;
   }
 
   // Global single-active guard: only one recording at a time
   if (recordingOwnerByConversation.size > 0) {
-    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
-    log.warn({ conversationId, activeConversationId: activeConv, activeRecordingId: activeRec }, 'Recording already active globally');
+    const [activeConv, activeRec] = [
+      ...recordingOwnerByConversation.entries(),
+    ][0];
+    log.warn(
+      {
+        conversationId,
+        activeConversationId: activeConv,
+        activeRecordingId: activeRec,
+      },
+      "Recording already active globally",
+    );
     return null;
   }
 
@@ -100,14 +120,17 @@ export function handleRecordingStart(
   recordingOwnerByConversation.set(conversationId, recordingId);
 
   ctx.send(socket, {
-    type: 'recording_start',
+    type: "recording_start",
     recordingId,
     attachToConversationId: conversationId,
     options,
     ...(operationToken ? { operationToken } : {}),
   });
 
-  log.info({ recordingId, conversationId, operationToken }, 'Standalone recording started');
+  log.info(
+    { recordingId, conversationId, operationToken },
+    "Standalone recording started",
+  );
   return recordingId;
 }
 
@@ -133,31 +156,40 @@ export function handleRecordingStop(
   // Global fallback: since only one recording can be active at a time,
   // resolve globally if the current conversation doesn't own a recording.
   if (!recordingId && recordingOwnerByConversation.size > 0) {
-    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
+    const [activeConv, activeRec] = [
+      ...recordingOwnerByConversation.entries(),
+    ][0];
     recordingId = activeRec;
     ownerConversationId = activeConv;
-    log.info({ conversationId, ownerConversationId, resolvedRecordingId: recordingId }, 'Resolved stop to globally active recording');
+    log.info(
+      { conversationId, ownerConversationId, resolvedRecordingId: recordingId },
+      "Resolved stop to globally active recording",
+    );
   }
 
   if (!recordingId) {
-    log.debug({ conversationId }, 'No active standalone recording to stop');
+    log.debug({ conversationId }, "No active standalone recording to stop");
     return undefined;
   }
 
   // Look up the socket currently bound to the owning conversation so we can
   // send the stop command to the correct client connection.
-  const socket = findSocketForSession(ownerConversationId, ctx)
-    ?? findSocketForSession(conversationId, ctx);
+  const socket =
+    findSocketForSession(ownerConversationId, ctx) ??
+    findSocketForSession(conversationId, ctx);
   if (!socket) {
     // Keep maps intact so the recording can be stopped later when a socket
     // reconnects. Cleaning up here would orphan the client-side recording
     // (still running) while the daemon thinks no recording is active.
-    log.warn({ conversationId, ownerConversationId, recordingId }, 'Cannot send recording_stop: no socket bound to conversation — keeping state for retry');
+    log.warn(
+      { conversationId, ownerConversationId, recordingId },
+      "Cannot send recording_stop: no socket bound to conversation — keeping state for retry",
+    );
     return undefined;
   }
 
   ctx.send(socket, {
-    type: 'recording_stop',
+    type: "recording_stop",
     recordingId,
   });
 
@@ -166,7 +198,14 @@ export function handleRecordingStop(
   // future recordings.
   const timeoutHandle = setTimeout(() => {
     pendingStopTimeouts.delete(recordingId);
-    log.warn({ recordingId, conversationId: ownerConversationId, timeoutMs: STOP_ACK_TIMEOUT_MS }, 'Stop-acknowledgement timeout fired — cleaning up stale recording state');
+    log.warn(
+      {
+        recordingId,
+        conversationId: ownerConversationId,
+        timeoutMs: STOP_ACK_TIMEOUT_MS,
+      },
+      "Stop-acknowledgement timeout fired — cleaning up stale recording state",
+    );
     cleanupMaps(recordingId, ownerConversationId);
 
     // Clean up any deferred restart that was waiting for this stop-ack
@@ -176,12 +215,15 @@ export function handleRecordingStop(
       if (pendingRestartByConversation.size === 0) {
         activeRestartToken = null;
       }
-      log.warn({ recordingId, conversationId: ownerConversationId }, 'Deferred restart cleaned up due to stop-ack timeout');
+      log.warn(
+        { recordingId, conversationId: ownerConversationId },
+        "Deferred restart cleaned up due to stop-ack timeout",
+      );
     }
   }, STOP_ACK_TIMEOUT_MS);
   pendingStopTimeouts.set(recordingId, timeoutHandle);
 
-  log.info({ recordingId, conversationId }, 'Standalone recording stop sent');
+  log.info({ recordingId, conversationId }, "Standalone recording stop sent");
   return recordingId;
 }
 
@@ -195,7 +237,7 @@ export interface RecordingRestartResult {
   /** Response text for the user. */
   responseText: string;
   /** When initiated is false, explains why the restart could not proceed. */
-  reason?: 'no_active_recording' | 'restart_in_progress';
+  reason?: "no_active_recording" | "restart_in_progress";
 }
 
 /**
@@ -231,19 +273,25 @@ export function handleRecordingRestart(
   if (!stoppedRecordingId) {
     // No active recording — check if mid-restart (state is not truly idle)
     if (pendingRestartByConversation.has(conversationId)) {
-      log.info({ conversationId }, 'Restart requested while another restart is pending');
+      log.info(
+        { conversationId },
+        "Restart requested while another restart is pending",
+      );
       return {
         initiated: false,
-        reason: 'restart_in_progress',
-        responseText: 'A restart is already in progress.',
+        reason: "restart_in_progress",
+        responseText: "A restart is already in progress.",
       };
     }
 
-    log.info({ conversationId }, 'Restart requested but no active recording to stop');
+    log.info(
+      { conversationId },
+      "Restart requested but no active recording to stop",
+    );
     return {
       initiated: false,
-      reason: 'no_active_recording',
-      responseText: 'No active recording to restart.',
+      reason: "no_active_recording",
+      responseText: "No active recording to restart.",
     };
   }
 
@@ -253,9 +301,13 @@ export function handleRecordingRestart(
   // conversationId because the stopped callback resolves the conversationId
   // from standaloneRecordingConversationId (which maps to A, the owner).
   // This lookup must happen BEFORE cleanupMaps removes the entry.
-  const ownerConversationId = standaloneRecordingConversationId.get(stoppedRecordingId) ?? conversationId;
+  const ownerConversationId =
+    standaloneRecordingConversationId.get(stoppedRecordingId) ?? conversationId;
   if (ownerConversationId !== conversationId) {
-    log.info({ conversationId, ownerConversationId, stoppedRecordingId }, 'Cross-conversation restart: keying deferred restart by owner conversation');
+    log.info(
+      { conversationId, ownerConversationId, stoppedRecordingId },
+      "Cross-conversation restart: keying deferred restart by owner conversation",
+    );
   }
 
   // Atomically set the restart token and pending state so that:
@@ -274,12 +326,15 @@ export function handleRecordingRestart(
     operationToken,
   });
 
-  log.info({ conversationId, ownerConversationId, operationToken, stoppedRecordingId }, 'Recording restart initiated — start deferred until stop-ack');
+  log.info(
+    { conversationId, ownerConversationId, operationToken, stoppedRecordingId },
+    "Recording restart initiated — start deferred until stop-ack",
+  );
 
   return {
     initiated: true,
     operationToken,
-    responseText: 'Restarting screen recording.',
+    responseText: "Restarting screen recording.",
   };
 }
 
@@ -301,29 +356,35 @@ export function handleRecordingPause(
 
   // Global fallback
   if (!recordingId && recordingOwnerByConversation.size > 0) {
-    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
+    const [activeConv, activeRec] = [
+      ...recordingOwnerByConversation.entries(),
+    ][0];
     recordingId = activeRec;
     ownerConversationId = activeConv;
   }
 
   if (!recordingId) {
-    log.debug({ conversationId }, 'No active recording to pause');
+    log.debug({ conversationId }, "No active recording to pause");
     return undefined;
   }
 
-  const socket = findSocketForSession(ownerConversationId, ctx)
-    ?? findSocketForSession(conversationId, ctx);
+  const socket =
+    findSocketForSession(ownerConversationId, ctx) ??
+    findSocketForSession(conversationId, ctx);
   if (!socket) {
-    log.warn({ conversationId, recordingId }, 'Cannot send recording_pause: no socket bound');
+    log.warn(
+      { conversationId, recordingId },
+      "Cannot send recording_pause: no socket bound",
+    );
     return undefined;
   }
 
   ctx.send(socket, {
-    type: 'recording_pause',
+    type: "recording_pause",
     recordingId,
   });
 
-  log.info({ recordingId, conversationId }, 'Recording pause sent');
+  log.info({ recordingId, conversationId }, "Recording pause sent");
   return recordingId;
 }
 
@@ -345,29 +406,35 @@ export function handleRecordingResume(
 
   // Global fallback
   if (!recordingId && recordingOwnerByConversation.size > 0) {
-    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
+    const [activeConv, activeRec] = [
+      ...recordingOwnerByConversation.entries(),
+    ][0];
     recordingId = activeRec;
     ownerConversationId = activeConv;
   }
 
   if (!recordingId) {
-    log.debug({ conversationId }, 'No active recording to resume');
+    log.debug({ conversationId }, "No active recording to resume");
     return undefined;
   }
 
-  const socket = findSocketForSession(ownerConversationId, ctx)
-    ?? findSocketForSession(conversationId, ctx);
+  const socket =
+    findSocketForSession(ownerConversationId, ctx) ??
+    findSocketForSession(conversationId, ctx);
   if (!socket) {
-    log.warn({ conversationId, recordingId }, 'Cannot send recording_resume: no socket bound');
+    log.warn(
+      { conversationId, recordingId },
+      "Cannot send recording_resume: no socket bound",
+    );
     return undefined;
   }
 
   ctx.send(socket, {
-    type: 'recording_resume',
+    type: "recording_resume",
     recordingId,
   });
 
-  log.info({ recordingId, conversationId }, 'Recording resume sent');
+  log.info({ recordingId, conversationId }, "Recording resume sent");
   return recordingId;
 }
 
@@ -378,7 +445,10 @@ export function handleRecordingResume(
  *  directly to avoid returning "no active recording" during the stop/start
  *  window of a restart cycle. */
 export function isRecordingIdle(): boolean {
-  return recordingOwnerByConversation.size === 0 && pendingRestartByConversation.size === 0;
+  return (
+    recordingOwnerByConversation.size === 0 &&
+    pendingRestartByConversation.size === 0
+  );
 }
 
 /** Returns the current active restart operation token, or null if no restart is in progress. */
@@ -398,7 +468,10 @@ function cancelStopTimeout(recordingId: string): void {
 }
 
 /** Remove a recording from both deterministic maps. */
-function cleanupMaps(recordingId: string, conversationId: string | undefined): void {
+function cleanupMaps(
+  recordingId: string,
+  conversationId: string | undefined,
+): void {
   standaloneRecordingConversationId.delete(recordingId);
   if (conversationId) {
     const current = recordingOwnerByConversation.get(conversationId);
@@ -434,7 +507,10 @@ export async function finalizeAndPublishRecording(params: {
   // Mark as finalized eagerly (before any async work) so concurrent calls
   // for the same recordingId are rejected immediately.
   if (finalizedRecordingIds.has(recordingId)) {
-    log.warn({ recordingId, conversationId }, 'Recording already finalized — skipping duplicate finalization');
+    log.warn(
+      { recordingId, conversationId },
+      "Recording already finalized — skipping duplicate finalization",
+    );
     return { success: false };
   }
   finalizedRecordingIds.add(recordingId);
@@ -442,23 +518,32 @@ export async function finalizeAndPublishRecording(params: {
 
   if (!filePath) {
     // No file path — recording stopped without producing a file
-    log.warn({ recordingId, conversationId }, 'Recording stopped without file path');
-    const errorText = 'Recording stopped but no file was produced.';
+    log.warn(
+      { recordingId, conversationId },
+      "Recording stopped without file path",
+    );
+    const errorText = "Recording stopped but no file was produced.";
     try {
       await conversationStore.addMessage(
         conversationId,
-        'assistant',
-        JSON.stringify([{ type: 'text', text: errorText }]),
+        "assistant",
+        JSON.stringify([{ type: "text", text: errorText }]),
       );
     } catch (persistErr) {
-      log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+      log.warn(
+        { err: persistErr, recordingId, conversationId },
+        "Failed to persist recording error message",
+      );
     }
     ctx.send(notifySocket, {
-      type: 'assistant_text_delta',
+      type: "assistant_text_delta",
       text: errorText,
       sessionId: conversationId,
     });
-    ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+    ctx.send(notifySocket, {
+      type: "message_complete",
+      sessionId: conversationId,
+    });
     return { success: false };
   }
 
@@ -473,8 +558,8 @@ export async function finalizeAndPublishRecording(params: {
     resolvedPath = path.resolve(filePath);
   }
   const allowedDir = path.join(
-    process.env.HOME ?? '',
-    'Library/Application Support/vellum-assistant/recordings',
+    process.env.HOME ?? "",
+    "Library/Application Support/vellum-assistant/recordings",
   );
   let resolvedAllowedDir: string;
   try {
@@ -482,46 +567,64 @@ export async function finalizeAndPublishRecording(params: {
   } catch {
     resolvedAllowedDir = allowedDir;
   }
-  if (!resolvedPath.startsWith(resolvedAllowedDir + path.sep) && resolvedPath !== resolvedAllowedDir) {
-    log.warn({ recordingId, filePath, allowedDir, resolvedAllowedDir }, 'Recording file path outside allowed directory — rejecting');
-    const errorText = 'Recording file is unavailable or expired.';
+  if (
+    !resolvedPath.startsWith(resolvedAllowedDir + path.sep) &&
+    resolvedPath !== resolvedAllowedDir
+  ) {
+    log.warn(
+      { recordingId, filePath, allowedDir, resolvedAllowedDir },
+      "Recording file path outside allowed directory — rejecting",
+    );
+    const errorText = "Recording file is unavailable or expired.";
     try {
       await conversationStore.addMessage(
         conversationId,
-        'assistant',
-        JSON.stringify([{ type: 'text', text: errorText }]),
+        "assistant",
+        JSON.stringify([{ type: "text", text: errorText }]),
       );
     } catch (persistErr) {
-      log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+      log.warn(
+        { err: persistErr, recordingId, conversationId },
+        "Failed to persist recording error message",
+      );
     }
     ctx.send(notifySocket, {
-      type: 'assistant_text_delta',
+      type: "assistant_text_delta",
       text: errorText,
       sessionId: conversationId,
     });
-    ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+    ctx.send(notifySocket, {
+      type: "message_complete",
+      sessionId: conversationId,
+    });
     return { success: false };
   }
 
   try {
     if (!existsSync(resolvedPath)) {
-      log.error({ recordingId, filePath }, 'Recording file does not exist');
-      const errorText = 'Recording failed to save.';
+      log.error({ recordingId, filePath }, "Recording file does not exist");
+      const errorText = "Recording failed to save.";
       try {
         await conversationStore.addMessage(
           conversationId,
-          'assistant',
-          JSON.stringify([{ type: 'text', text: errorText }]),
+          "assistant",
+          JSON.stringify([{ type: "text", text: errorText }]),
         );
       } catch (persistErr) {
-        log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+        log.warn(
+          { err: persistErr, recordingId, conversationId },
+          "Failed to persist recording error message",
+        );
       }
       ctx.send(notifySocket, {
-        type: 'assistant_text_delta',
+        type: "assistant_text_delta",
         text: errorText,
         sessionId: conversationId,
       });
-      ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+      ctx.send(notifySocket, {
+        type: "message_complete",
+        sessionId: conversationId,
+      });
       return { success: false };
     }
 
@@ -529,50 +632,78 @@ export async function finalizeAndPublishRecording(params: {
     const sizeBytes = stat.size;
 
     if (sizeBytes === 0) {
-      log.error({ recordingId, filePath }, 'Recording file is zero-length — treating as failed');
-      const errorText = 'Recording failed to save.';
+      log.error(
+        { recordingId, filePath },
+        "Recording file is zero-length — treating as failed",
+      );
+      const errorText = "Recording failed to save.";
       try {
         await conversationStore.addMessage(
           conversationId,
-          'assistant',
-          JSON.stringify([{ type: 'text', text: errorText }]),
+          "assistant",
+          JSON.stringify([{ type: "text", text: errorText }]),
         );
       } catch (persistErr) {
-        log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+        log.warn(
+          { err: persistErr, recordingId, conversationId },
+          "Failed to persist recording error message",
+        );
       }
       ctx.send(notifySocket, {
-        type: 'assistant_text_delta',
+        type: "assistant_text_delta",
         text: errorText,
         sessionId: conversationId,
       });
-      ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+      ctx.send(notifySocket, {
+        type: "message_complete",
+        sessionId: conversationId,
+      });
       return { success: false };
     }
 
     const filename = path.basename(resolvedPath);
 
     // Infer MIME type from extension
-    const ext = filename.split('.').pop()?.toLowerCase();
-    const mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || 'video/mp4';
+    const ext = filename.split(".").pop()?.toLowerCase();
+    const mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || "video/mp4";
 
     // Store as file-backed attachment (avoids reading large files into memory)
-    const attachment = uploadFileBackedAttachment(filename, mimeType, resolvedPath, sizeBytes);
-    log.info({ recordingId, attachmentId: attachment.id, sizeBytes, filePath: resolvedPath }, 'Created attachment for standalone recording');
+    const attachment = uploadFileBackedAttachment(
+      filename,
+      mimeType,
+      resolvedPath,
+      sizeBytes,
+    );
+    log.info(
+      {
+        recordingId,
+        attachmentId: attachment.id,
+        sizeBytes,
+        filePath: resolvedPath,
+      },
+      "Created attachment for standalone recording",
+    );
 
     // Always create a new assistant message for the recording attachment.
     // Reusing the last assistant message would attach the recording to an
     // unrelated older message after reload.
-    const msgText = 'Screen recording complete. Your recording has been saved.';
+    const msgText = "Screen recording complete. Your recording has been saved.";
     const newMsg = await conversationStore.addMessage(
       conversationId,
-      'assistant',
-      JSON.stringify([{ type: 'text', text: msgText }]),
+      "assistant",
+      JSON.stringify([{ type: "text", text: msgText }]),
     );
     const messageId = newMsg.id;
-    log.info({ recordingId, conversationId, messageId }, 'Created assistant message for recording attachment');
+    log.info(
+      { recordingId, conversationId, messageId },
+      "Created assistant message for recording attachment",
+    );
 
     linkAttachmentToMessage(messageId, attachment.id, 0);
-    log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
+    log.info(
+      { recordingId, messageId, attachmentId: attachment.id },
+      "Linked recording attachment to assistant message",
+    );
 
     // Skip server-side thumbnail generation for recordings — the client
     // generates thumbnails natively from the local file path using
@@ -581,43 +712,54 @@ export async function finalizeAndPublishRecording(params: {
 
     // Notify the client via the reporting socket
     ctx.send(notifySocket, {
-      type: 'assistant_text_delta',
+      type: "assistant_text_delta",
       text: msgText,
       sessionId: conversationId,
     });
     ctx.send(notifySocket, {
-      type: 'message_complete',
+      type: "message_complete",
       sessionId: conversationId,
-      attachments: [{
-        id: attachment.id,
-        filename: attachment.originalFilename,
-        mimeType: attachment.mimeType,
-        data: '',  // empty for file-backed; client uses content endpoint
-        sizeBytes: attachment.sizeBytes,
-        thumbnailData,
-        filePath: resolvedPath,
-      }],
+      attachments: [
+        {
+          id: attachment.id,
+          filename: attachment.originalFilename,
+          mimeType: attachment.mimeType,
+          data: "", // empty for file-backed; client uses content endpoint
+          sizeBytes: attachment.sizeBytes,
+          thumbnailData,
+          filePath: resolvedPath,
+        },
+      ],
     });
 
     return { success: true, messageId };
   } catch (err) {
-    log.error({ err, recordingId, filePath }, 'Failed to create attachment for standalone recording');
-    const errorText = 'Recording saved but failed to attach to conversation.';
+    log.error(
+      { err, recordingId, filePath },
+      "Failed to create attachment for standalone recording",
+    );
+    const errorText = "Recording saved but failed to attach to conversation.";
     try {
       await conversationStore.addMessage(
         conversationId,
-        'assistant',
-        JSON.stringify([{ type: 'text', text: errorText }]),
+        "assistant",
+        JSON.stringify([{ type: "text", text: errorText }]),
       );
     } catch (persistErr) {
-      log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+      log.warn(
+        { err: persistErr, recordingId, conversationId },
+        "Failed to persist recording error message",
+      );
     }
     ctx.send(notifySocket, {
-      type: 'assistant_text_delta',
+      type: "assistant_text_delta",
       text: errorText,
       sessionId: conversationId,
     });
-    ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+    ctx.send(notifySocket, {
+      type: "message_complete",
+      sessionId: conversationId,
+    });
     return { success: false };
   }
 }
@@ -638,11 +780,17 @@ async function handleRecordingStatus(
   // restriction below still prevents arbitrary file attachment.
   if (!conversationId && msg.attachToConversationId) {
     conversationId = msg.attachToConversationId;
-    log.info({ recordingId, conversationId }, 'Resolved conversationId from attachToConversationId (daemon restart fallback)');
+    log.info(
+      { recordingId, conversationId },
+      "Resolved conversationId from attachToConversationId (daemon restart fallback)",
+    );
   }
 
   if (!conversationId) {
-    log.warn({ recordingId }, 'Ignoring recording_status for unknown recording ID with no attachToConversationId');
+    log.warn(
+      { recordingId },
+      "Ignoring recording_status for unknown recording ID with no attachToConversationId",
+    );
     return;
   }
 
@@ -654,10 +802,18 @@ async function handleRecordingStatus(
   // were started before the restart was initiated. These tokenless callbacks
   // are legitimate and necessary for the deferred restart pattern (triggering
   // the new recording_start after the old recording's stopped ack).
-  if (msg.operationToken && activeRestartToken && msg.operationToken !== activeRestartToken) {
+  if (
+    msg.operationToken &&
+    activeRestartToken &&
+    msg.operationToken !== activeRestartToken
+  ) {
     log.warn(
-      { recordingId, expectedToken: activeRestartToken, receivedToken: msg.operationToken },
-      'Rejecting stale recording_status — operation token mismatch (previous restart cycle)',
+      {
+        recordingId,
+        expectedToken: activeRestartToken,
+        receivedToken: msg.operationToken,
+      },
+      "Rejecting stale recording_status — operation token mismatch (previous restart cycle)",
     );
     return;
   }
@@ -668,20 +824,25 @@ async function handleRecordingStatus(
   // sends 'stopped'. A stale tokenless 'started' from the old recording must
   // not cancel it — otherwise restart state can leak indefinitely if the real
   // 'stopped' callback is dropped.
-  const completesRestart = activeRestartToken
-    && msg.operationToken === activeRestartToken
-    && pendingRestartByConversation.get(conversationId) === activeRestartToken;
-  if (msg.status !== 'started' || completesRestart || !activeRestartToken) {
+  const completesRestart =
+    activeRestartToken &&
+    msg.operationToken === activeRestartToken &&
+    pendingRestartByConversation.get(conversationId) === activeRestartToken;
+  if (msg.status !== "started" || completesRestart || !activeRestartToken) {
     cancelStopTimeout(recordingId);
   }
 
   // Use the reporting socket (which delivered this message) as the primary
   // recipient. Fall back to session-based lookup if the user switched sessions.
-  const notifySocket = reportingSocket ?? findSocketForSession(conversationId, ctx);
+  const notifySocket =
+    reportingSocket ?? findSocketForSession(conversationId, ctx);
 
   switch (msg.status) {
-    case 'started': {
-      log.info({ recordingId, conversationId }, 'Standalone recording confirmed started by client');
+    case "started": {
+      log.info(
+        { recordingId, conversationId },
+        "Standalone recording confirmed started by client",
+      );
 
       // If this was part of a restart cycle, clear the pending restart state
       // now that the new recording has successfully started. Gate on matching
@@ -690,15 +851,21 @@ async function handleRecordingStatus(
       if (completesRestart) {
         pendingRestartByConversation.delete(conversationId);
         activeRestartToken = null;
-        log.info({ recordingId, conversationId }, 'Restart cycle complete — new recording started');
+        log.info(
+          { recordingId, conversationId },
+          "Restart cycle complete — new recording started",
+        );
       }
       break;
     }
 
-    case 'restart_cancelled': {
+    case "restart_cancelled": {
       // The user closed/canceled the source picker during a restart.
       // Emit a deterministic response — never "new recording started".
-      log.info({ recordingId, conversationId }, 'Restart cancelled — source picker closed');
+      log.info(
+        { recordingId, conversationId },
+        "Restart cancelled — source picker closed",
+      );
 
       // Clean up restart state
       cleanupMaps(recordingId, conversationId);
@@ -709,27 +876,35 @@ async function handleRecordingStatus(
 
       if (notifySocket) {
         ctx.send(notifySocket, {
-          type: 'assistant_text_delta',
-          text: 'Recording restart cancelled.',
+          type: "assistant_text_delta",
+          text: "Recording restart cancelled.",
           sessionId: conversationId,
         });
-        ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+        ctx.send(notifySocket, {
+          type: "message_complete",
+          sessionId: conversationId,
+        });
       }
       break;
     }
 
-    case 'paused':
-      log.info({ recordingId, conversationId }, 'Recording paused by client');
+    case "paused":
+      log.info({ recordingId, conversationId }, "Recording paused by client");
       break;
 
-    case 'resumed':
-      log.info({ recordingId, conversationId }, 'Recording resumed by client');
+    case "resumed":
+      log.info({ recordingId, conversationId }, "Recording resumed by client");
       break;
 
-    case 'stopped': {
+    case "stopped": {
       log.info(
-        { recordingId, conversationId, filePath: msg.filePath, durationMs: msg.durationMs },
-        'Standalone recording stopped — file ready',
+        {
+          recordingId,
+          conversationId,
+          filePath: msg.filePath,
+          durationMs: msg.durationMs,
+        },
+        "Standalone recording stopped — file ready",
       );
 
       // Release recording state immediately so back-to-back recordings
@@ -746,17 +921,27 @@ async function handleRecordingStatus(
         // Resolve a fresh socket at stop-ack time instead of using the one
         // captured at restart-request time, which may be stale (disconnected
         // or replaced) by the time the async stop completes.
-        const freshSocket = findSocketForSession(deferred.conversationId, ctx)
-          ?? reportingSocket;
+        const freshSocket =
+          findSocketForSession(deferred.conversationId, ctx) ?? reportingSocket;
 
         if (!freshSocket) {
-          log.warn({ conversationId, requesterId: deferred.conversationId }, 'Deferred restart aborted — no socket available at stop-ack time');
+          log.warn(
+            { conversationId, requesterId: deferred.conversationId },
+            "Deferred restart aborted — no socket available at stop-ack time",
+          );
           activeRestartToken = null;
           pendingRestartByConversation.delete(conversationId);
           break;
         }
 
-        log.info({ recordingId, conversationId, operationToken: deferred.operationToken }, 'Stop-ack received — triggering deferred restart start');
+        log.info(
+          {
+            recordingId,
+            conversationId,
+            operationToken: deferred.operationToken,
+          },
+          "Stop-ack received — triggering deferred restart start",
+        );
 
         const newRecordingId = handleRecordingStart(
           deferred.conversationId,
@@ -770,20 +955,38 @@ async function handleRecordingStatus(
           // Start failed — clean up restart state
           activeRestartToken = null;
           pendingRestartByConversation.delete(conversationId);
-          log.warn({ conversationId }, 'Deferred restart start failed after stop-ack');
+          log.warn(
+            { conversationId },
+            "Deferred restart start failed after stop-ack",
+          );
         } else {
           // Cross-conversation restart: the pendingRestartByConversation entry
           // is keyed by the old owner (conversationId), but the new recording
           // is owned by the requester (deferred.conversationId). Migrate the
           // entry so the 'started' handler can find it under the correct key.
-          const startAckKey = conversationId !== deferred.conversationId
-            ? deferred.conversationId : conversationId;
+          const startAckKey =
+            conversationId !== deferred.conversationId
+              ? deferred.conversationId
+              : conversationId;
           if (conversationId !== deferred.conversationId) {
             pendingRestartByConversation.delete(conversationId);
-            pendingRestartByConversation.set(startAckKey, deferred.operationToken);
-            log.info({ oldKey: conversationId, newKey: startAckKey }, 'Migrated pendingRestartByConversation key from owner to requester');
+            pendingRestartByConversation.set(
+              startAckKey,
+              deferred.operationToken,
+            );
+            log.info(
+              { oldKey: conversationId, newKey: startAckKey },
+              "Migrated pendingRestartByConversation key from owner to requester",
+            );
           }
-          log.info({ conversationId, newRecordingId, operationToken: deferred.operationToken }, 'Deferred restart recording started');
+          log.info(
+            {
+              conversationId,
+              newRecordingId,
+              operationToken: deferred.operationToken,
+            },
+            "Deferred restart recording started",
+          );
 
           // Safety timeout: if the 'started' ack doesn't arrive within 30s,
           // clear restart state to prevent wedging. Without this, a dropped
@@ -791,13 +994,17 @@ async function handleRecordingStatus(
           // blocks all future restart requests with 'restart_in_progress'.
           const expectedToken = deferred.operationToken;
           setTimeout(() => {
-            if (pendingRestartByConversation.get(startAckKey) === expectedToken) {
+            if (
+              pendingRestartByConversation.get(startAckKey) === expectedToken
+            ) {
               pendingRestartByConversation.delete(startAckKey);
               if (activeRestartToken === expectedToken) {
                 activeRestartToken = null;
               }
-              log.warn({ conversationId: startAckKey, operationToken: expectedToken },
-                'Restart start-ack timeout — clearing stale restart state');
+              log.warn(
+                { conversationId: startAckKey, operationToken: expectedToken },
+                "Restart start-ack timeout — clearing stale restart state",
+              );
             }
           }, 30_000);
         }
@@ -821,11 +1028,14 @@ async function handleRecordingStatus(
           // the user knows the state.
           if (!newRecordingId && finResult.success) {
             ctx.send(freshSocket, {
-              type: 'assistant_text_delta',
-              text: 'Previous recording saved. New recording failed to start.',
+              type: "assistant_text_delta",
+              text: "Previous recording saved. New recording failed to start.",
               sessionId: deferred.conversationId,
             });
-            ctx.send(freshSocket, { type: 'message_complete', sessionId: deferred.conversationId });
+            ctx.send(freshSocket, {
+              type: "message_complete",
+              sessionId: deferred.conversationId,
+            });
           }
           // Other failure combos:
           // - new-start-failure + old-finalize-failure: finalizeAndPublishRecording
@@ -854,20 +1064,20 @@ async function handleRecordingStatus(
       break;
     }
 
-    case 'failed': {
+    case "failed": {
       log.warn(
         { recordingId, conversationId, error: msg.error },
-        'Standalone recording failed',
+        "Standalone recording failed",
       );
 
       if (notifySocket) {
         ctx.send(notifySocket, {
-          type: 'assistant_text_delta',
-          text: `Recording failed: ${msg.error ?? 'unknown error'}`,
+          type: "assistant_text_delta",
+          text: `Recording failed: ${msg.error ?? "unknown error"}`,
           sessionId: conversationId,
         });
         ctx.send(notifySocket, {
-          type: 'message_complete',
+          type: "message_complete",
           sessionId: conversationId,
         });
       }
@@ -907,7 +1117,10 @@ export function cleanupRecordingsOnDisconnect(
     // Clean up if the owner conversation's socket is the one disconnecting,
     // or if the owner conversation has no socket bound at all.
     if (!ownerSocket || ownerSocket === disconnectedSocket) {
-      log.warn({ conversationId: convId, recordingId: recId }, 'Cleaning up recording state for disconnected socket');
+      log.warn(
+        { conversationId: convId, recordingId: recId },
+        "Cleaning up recording state for disconnected socket",
+      );
       cancelStopTimeout(recId);
       standaloneRecordingConversationId.delete(recId);
       recordingOwnerByConversation.delete(convId);
@@ -928,7 +1141,10 @@ export function cleanupRecordingsOnDisconnect(
  * This allows tests to simulate a second active recording that blocks
  * handleRecordingStart's global single-active guard.
  */
-export function __injectRecordingOwner(conversationId: string, recordingId: string): void {
+export function __injectRecordingOwner(
+  conversationId: string,
+  recordingId: string,
+): void {
   recordingOwnerByConversation.set(conversationId, recordingId);
 }
 

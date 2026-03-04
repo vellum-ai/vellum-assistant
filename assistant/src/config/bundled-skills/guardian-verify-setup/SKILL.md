@@ -5,14 +5,14 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "\ud83d\udd10"}}
 ---
 
-You are helping your user set up guardian verification for a messaging channel (voice or Telegram). This links their identity as the trusted guardian for the chosen channel. All API calls go through the gateway HTTP API using `curl` with bearer auth.
+You are helping your user set up guardian verification for a messaging channel (voice or Telegram). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `vellum integrations guardian status` for status reads.
 
 ## Prerequisites
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
 - Never call the daemon runtime port directly; always call the gateway URL.
-- The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable.
-- Run shell commands for this skill with `host_bash` (not sandbox `bash`) so host auth/token and gateway routing are reliable.
+- The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable for control-plane `curl` requests.
+- Run shell commands for this skill with `bash`.
 - Keep narration minimal: execute required calls first, then provide a concise status update. Do not narrate internal install/check/load chatter unless something fails.
 
 ## Step 1: Confirm Channel
@@ -117,11 +117,10 @@ For **voice** verification only: after telling the user their code and instructi
 **Polling procedure:**
 
 1. Wait ~15 seconds after delivering the code (to give the user time to answer the call and enter the code).
-2. Check the binding status:
+2. Check the binding status via Vellum CLI:
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations guardian status --channel voice --json
 ```
 
 3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Voice verification complete! Your phone number is now the trusted guardian." Stop polling.
@@ -146,8 +145,8 @@ When in a **rebind flow** (i.e., the `start_outbound` request included `"rebind"
 After the user reports entering the code, verify the binding was created:
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=<channel>" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+CHANNEL="<channel>"
+vellum integrations guardian status --channel "$CHANNEL" --json
 ```
 
 If the response shows the guardian is bound, confirm success: "Guardian verified! Your [channel] identity is now the trusted guardian."

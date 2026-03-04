@@ -39,8 +39,8 @@ mock.module("../util/logger.js", () => ({
 
 // ── Config mock ─────────────────────────────────────────────────────
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
+mock.module("../config/loader.js", () => {
+  const config = {
     ui: {},
 
     provider: "anthropic",
@@ -59,8 +59,20 @@ mock.module("../config/loader.js", () => ({
     },
     memory: { enabled: false },
     notifications: { decisionModelIntent: "latency-optimized" },
-  }),
-}));
+  };
+  return {
+    getConfig: () => config,
+    loadConfig: () => config,
+    loadRawConfig: () => ({}),
+    saveConfig: () => {},
+    saveRawConfig: () => {},
+    invalidateConfigCache: () => {},
+    applyNestedDefaults: (c: unknown) => c,
+    getNestedValue: () => undefined,
+    setNestedValue: () => {},
+    API_KEY_PROVIDERS: [],
+  };
+});
 
 // ── Call constants mock ──────────────────────────────────────────────
 
@@ -118,6 +130,19 @@ function createMockVoiceTurn(tokens: string[]) {
 
 let mockStartVoiceTurn: Mock<any>;
 
+// ── Notification pipeline mock (prevent async handle leaks from fire-and-forget dispatches) ──
+
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async () => ({
+    signalId: "mock-signal",
+    deduplicated: false,
+    dispatched: true,
+    reason: "mocked",
+    deliveryResults: [],
+  }),
+  registerBroadcastFn: () => {},
+}));
+
 mock.module("../calls/voice-session-bridge.js", () => {
   mockStartVoiceTurn = mock(createMockVoiceTurn(["Hello", " there"]));
   return {
@@ -143,7 +168,7 @@ import {
   getPendingCanonicalRequestByCallSessionId,
 } from "../memory/canonical-guardian-store.js";
 import { getMessages } from "../memory/conversation-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();
@@ -222,17 +247,18 @@ function ensureConversation(id: string): void {
 }
 
 function resetTables() {
-  const db = getDb();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM guardian_action_deliveries");
-  db.run("DELETE FROM guardian_action_requests");
-  db.run("DELETE FROM call_pending_questions");
-  db.run("DELETE FROM call_events");
-  db.run("DELETE FROM call_sessions");
-  db.run("DELETE FROM tool_invocations");
-  db.run("DELETE FROM messages");
-  db.run("DELETE FROM conversations");
+  resetTestTables(
+    "canonical_guardian_deliveries",
+    "canonical_guardian_requests",
+    "guardian_action_deliveries",
+    "guardian_action_requests",
+    "call_pending_questions",
+    "call_events",
+    "call_sessions",
+    "tool_invocations",
+    "messages",
+    "conversations",
+  );
   ensuredConvIds = new Set();
 }
 
@@ -642,7 +668,7 @@ describe("call-controller", () => {
 
     // handleUserAnswer fires runTurn without awaiting, so give the
     // microtask queue a tick to let the async work complete.
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Should have streamed a response for the answer
     const tokensAfterAnswer = relay.sentTokens.filter((t) =>
@@ -694,7 +720,7 @@ describe("call-controller", () => {
     expect(accepted).toBe(true);
 
     // Give the fire-and-forget LLM call time to complete
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Step 3: Verify call completed
     const endSession = getCallSession(session.id);
@@ -1146,7 +1172,7 @@ describe("call-controller", () => {
     expect(accepted).toBe(true);
 
     // Give fire-and-forget turns time to complete
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 10));
 
     // The answer turn should have fired with the USER_ANSWERED marker
     expect(
@@ -1202,7 +1228,7 @@ describe("call-controller", () => {
         onTextDelta: (t: string) => void;
         onComplete: () => void;
       }) => {
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 20));
         opts.onTextDelta("Response.");
         opts.onComplete();
         return { turnId: "run-proc", abort: () => {} };
@@ -1249,7 +1275,7 @@ describe("call-controller", () => {
     const second = await controller.handleUserAnswer("4pm");
     expect(second).toBe(false);
 
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
     controller.destroy();
   });
 
@@ -1270,7 +1296,7 @@ describe("call-controller", () => {
         turnCount++;
         if (turnCount === 1) {
           // First turn: slow, simulates processing state
-          await new Promise((r) => setTimeout(r, 100));
+          await new Promise((r) => setTimeout(r, 20));
           opts.onTextDelta("Response.");
           opts.onComplete();
           return { turnId: "run-1", abort: () => {} };
@@ -1301,7 +1327,7 @@ describe("call-controller", () => {
     await turnPromise;
 
     // Allow the fire-and-forget flush turn to execute
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // The queued instruction should have been flushed into a new turn
     expect(turnContents.length).toBeGreaterThanOrEqual(1);
@@ -1350,7 +1376,7 @@ describe("call-controller", () => {
     expect(accepted).toBe(true);
 
     // Give fire-and-forget turns time to complete
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 10));
 
     // The answer turn should have fired
     expect(
@@ -1567,7 +1593,7 @@ describe("call-controller", () => {
     await controller.handleCallerUtterance("Can we try another time?");
 
     // Give the queued instruction flush time to fire
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 10));
 
     // The second turn should contain the GUARDIAN_UNAVAILABLE instruction
     expect(turnCount).toBeGreaterThanOrEqual(2);
@@ -1606,7 +1632,7 @@ describe("call-controller", () => {
     await controller.handleCallerUtterance("Send an email to Bob");
 
     // Give the async dispatchGuardianQuestion a tick to create the request
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Controller returns to idle (non-blocking); consultation tracked separately
     expect(controller.getState()).toBe("idle");
@@ -1648,7 +1674,7 @@ describe("call-controller", () => {
     const { session, controller } = setupController("Send email");
 
     await controller.handleCallerUtterance("Send it");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     const request1 = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(request1).not.toBeNull();
@@ -1674,7 +1700,7 @@ describe("call-controller", () => {
     const { session, controller } = setupController("Book appointment");
 
     await controller.handleCallerUtterance("I need to schedule something");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Verify the guardian action request has NO tool metadata
     const pendingRequest = getPendingCanonicalRequestByCallSessionId(
@@ -1731,7 +1757,7 @@ describe("call-controller", () => {
     const { session, relay, controller } = setupController("Send a message");
 
     await controller.handleCallerUtterance("Send it");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Controller returns to idle (non-blocking); consultation tracked separately
     expect(controller.getState()).toBe("idle");
@@ -1770,7 +1796,7 @@ describe("call-controller", () => {
     const { session, controller } = setupController("Test fallback");
 
     await controller.handleCallerUtterance("Do something");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     const pendingRequest = getPendingCanonicalRequestByCallSessionId(
       session.id,
@@ -1836,7 +1862,7 @@ describe("call-controller", () => {
     await callerTurnPromise;
 
     // Give the flushed instruction turn time to complete
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 10));
 
     // The queued USER_ANSWERED instruction should have been applied
     expect(
@@ -1924,7 +1950,7 @@ describe("call-controller", () => {
     );
     const { session, controller } = setupController();
     await controller.handleCallerUtterance("Schedule please");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     const firstQuestionId = controller.getPendingConsultationQuestionId();
     expect(firstQuestionId).not.toBeNull();
@@ -1936,7 +1962,7 @@ describe("call-controller", () => {
       createMockVoiceTurn(["Still checking. [ASK_GUARDIAN: Preferred date?]"]),
     );
     await controller.handleCallerUtterance("Hello? Still there?");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Should coalesce: same consultation ID, same request
     expect(controller.getPendingConsultationQuestionId()).toBe(firstQuestionId);
@@ -1972,7 +1998,7 @@ describe("call-controller", () => {
     );
     const { session, controller } = setupController("Send email");
     await controller.handleCallerUtterance("Send email to Bob");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     const firstQuestionId = controller.getPendingConsultationQuestionId();
     expect(firstQuestionId).not.toBeNull();
@@ -1986,7 +2012,7 @@ describe("call-controller", () => {
       ]),
     );
     await controller.handleCallerUtterance("Can you send it already?");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Should coalesce: same consultation, same request
     expect(controller.getPendingConsultationQuestionId()).toBe(firstQuestionId);
@@ -2014,7 +2040,7 @@ describe("call-controller", () => {
     );
     const { session, controller } = setupController("Process request");
     await controller.handleCallerUtterance("Send email");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(firstRequest).not.toBeNull();
@@ -2034,7 +2060,7 @@ describe("call-controller", () => {
     await controller.handleCallerUtterance(
       "Actually, create a calendar event instead",
     );
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 10));
 
     // New consultation should be active
     const secondRequest = getPendingCanonicalRequestByCallSessionId(session.id);
@@ -2065,7 +2091,7 @@ describe("call-controller", () => {
     );
     const { session, controller } = setupController("Send email");
     await controller.handleCallerUtterance("Send email to Bob");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(firstRequest).not.toBeNull();
@@ -2080,7 +2106,7 @@ describe("call-controller", () => {
       ]),
     );
     await controller.handleCallerUtterance("Can you hurry up?");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Should coalesce: the inherited tool metadata matches the existing consultation
     const currentRequest = getPendingCanonicalRequestByCallSessionId(
@@ -2102,14 +2128,14 @@ describe("call-controller", () => {
   // ── Silence suppression during guardian wait ──────────────────────
 
   test('silence timeout suppressed during guardian wait: does not say "Are you still there?"', async () => {
-    mockSilenceTimeoutMs = 50; // Short timeout for testing
+    mockSilenceTimeoutMs = 20; // Short timeout for testing
     const { relay, controller } = setupController();
 
     // Simulate guardian wait state on the relay
     relay.mockConnectionState = "awaiting_guardian_decision";
 
     // Wait for the silence timeout to fire
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 30));
 
     // "Are you still there?" should NOT have been sent
     const silenceTokens = relay.sentTokens.filter((t) =>
@@ -2121,13 +2147,13 @@ describe("call-controller", () => {
   });
 
   test("silence timeout fires normally when not in guardian wait", async () => {
-    mockSilenceTimeoutMs = 50; // Short timeout for testing
+    mockSilenceTimeoutMs = 20; // Short timeout for testing
     const { relay, controller } = setupController();
 
     // Default connection state is 'connected' (not guardian wait)
 
     // Wait for the silence timeout to fire
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 30));
 
     // "Are you still there?" SHOULD have been sent
     const silenceTokens = relay.sentTokens.filter((t) =>
@@ -2139,7 +2165,7 @@ describe("call-controller", () => {
   });
 
   test("silence timeout suppressed during in-call guardian consultation (pendingGuardianInput)", async () => {
-    mockSilenceTimeoutMs = 50; // Short timeout for testing
+    mockSilenceTimeoutMs = 20; // Short timeout for testing
     mockConsultationTimeoutMs = 10_000; // Long enough to not interfere
 
     // LLM emits an ASK_GUARDIAN marker so the controller creates a pendingGuardianInput
@@ -2153,7 +2179,7 @@ describe("call-controller", () => {
     // Trigger a turn that creates a pending guardian input request
     await controller.handleCallerUtterance("I need to access the account");
     // Allow turn to complete
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Verify a guardian input request is now pending
     expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
@@ -2164,7 +2190,7 @@ describe("call-controller", () => {
     relay.sentTokens.length = 0;
 
     // Wait for the silence timeout to fire
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 30));
 
     // "Are you still there?" should NOT have been sent because
     // pendingGuardianInput is active
@@ -2177,7 +2203,7 @@ describe("call-controller", () => {
   });
 
   test("silence nudge resumes after guardian consultation resolves", async () => {
-    mockSilenceTimeoutMs = 50; // Short timeout for testing
+    mockSilenceTimeoutMs = 25; // Short timeout for testing
     mockConsultationTimeoutMs = 10_000; // Long enough to not interfere
 
     // LLM emits an ASK_GUARDIAN marker so the controller creates a pendingGuardianInput
@@ -2188,7 +2214,7 @@ describe("call-controller", () => {
 
     // Trigger a turn that creates a pending guardian input request
     await controller.handleCallerUtterance("Can I do this?");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Verify guardian input request is pending
     expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
@@ -2201,8 +2227,8 @@ describe("call-controller", () => {
     await controller.handleUserAnswer("Yes, approved");
     // Allow the fire-and-forget answer turn to complete (mock is sync,
     // only needs microtask ticks). Must be shorter than the silence
-    // timeout (50ms) so the nudge timer hasn't fired when we clear tokens.
-    await new Promise((r) => setTimeout(r, 20));
+    // timeout (25ms) so the nudge timer hasn't fired when we clear tokens.
+    await new Promise((r) => setTimeout(r, 10));
 
     // Guardian input request should now be cleared
     expect(controller.getPendingConsultationQuestionId()).toBeNull();
@@ -2211,7 +2237,7 @@ describe("call-controller", () => {
     relay.sentTokens.length = 0;
 
     // Wait for the silence timeout to fire again
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 30));
 
     // "Are you still there?" SHOULD fire now that guardian wait is resolved
     const silenceTokens = relay.sentTokens.filter((t) =>
@@ -2232,7 +2258,7 @@ describe("call-controller", () => {
 
     await controller.handleCallerUtterance("Bye");
     // Allow async pointer write to flush
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 10));
 
     const text = getLatestAssistantText("conv-ctrl-origin");
     expect(text).not.toBeNull();
@@ -2258,7 +2284,7 @@ describe("call-controller", () => {
     const { controller } = setupControllerWithOrigin();
 
     await controller.handleCallerUtterance("End call");
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 10));
 
     const text = getLatestAssistantText("conv-ctrl-origin");
     expect(text).not.toBeNull();

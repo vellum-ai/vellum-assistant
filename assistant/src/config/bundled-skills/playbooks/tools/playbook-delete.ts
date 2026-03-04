@@ -1,17 +1,26 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq } from "drizzle-orm";
 
-import { getDb } from '../../../../memory/db.js';
-import { memoryItems } from '../../../../memory/schema.js';
-import { parsePlaybookStatement } from '../../../../playbooks/types.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { getDb } from "../../../../memory/db.js";
+import { memoryItems } from "../../../../memory/schema.js";
+import { parsePlaybookStatement } from "../../../../playbooks/types.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 
-export async function executePlaybookDelete(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+export async function executePlaybookDelete(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
-  if (!playbookId || typeof playbookId !== 'string') {
-    return { content: 'Error: playbook_id is required and must be a string', isError: true };
+  if (!playbookId || typeof playbookId !== "string") {
+    return {
+      content: "Error: playbook_id is required and must be a string",
+      isError: true,
+    };
   }
 
-  const scopeId = context.memoryScopeId ?? 'default';
+  const scopeId = context.memoryScopeId ?? "default";
 
   try {
     const db = getDb();
@@ -19,15 +28,20 @@ export async function executePlaybookDelete(input: Record<string, unknown>, cont
     const existing = db
       .select()
       .from(memoryItems)
-      .where(and(
-        eq(memoryItems.id, playbookId),
-        eq(memoryItems.kind, 'playbook'),
-        eq(memoryItems.scopeId, scopeId),
-      ))
+      .where(
+        and(
+          eq(memoryItems.id, playbookId),
+          eq(memoryItems.kind, "playbook"),
+          eq(memoryItems.scopeId, scopeId),
+        ),
+      )
       .get();
 
     if (!existing) {
-      return { content: `Error: Playbook with ID "${playbookId}" not found`, isError: true };
+      return {
+        content: `Error: Playbook with ID "${playbookId}" not found`,
+        isError: true,
+      };
     }
 
     const playbook = parsePlaybookStatement(existing.statement);
@@ -38,7 +52,7 @@ export async function executePlaybookDelete(input: Record<string, unknown>, cont
     // Setting invalidAt so the cleanup job can eventually hard-delete it.
     const now = Date.now();
     db.update(memoryItems)
-      .set({ status: 'superseded', invalidAt: now })
+      .set({ status: "superseded", invalidAt: now })
       .where(eq(memoryItems.id, existing.id))
       .run();
 

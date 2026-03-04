@@ -1,8 +1,13 @@
-import { formatIntegrationSummary } from '../../schedule/integration-status.js';
-import { validateRruleSetLines } from '../../schedule/recurrence-engine.js';
-import { normalizeScheduleSyntax } from '../../schedule/recurrence-types.js';
-import { createSchedule, describeCronExpression,formatLocalDate, isValidCronExpression } from '../../schedule/schedule-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { formatIntegrationSummary } from "../../schedule/integration-status.js";
+import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
+import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
+import {
+  createSchedule,
+  describeCronExpression,
+  formatLocalDate,
+  isValidCronExpression,
+} from "../../schedule/schedule-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
@@ -13,31 +18,46 @@ export async function executeScheduleCreate(
   const message = input.message as string;
   const enabled = (input.enabled as boolean) ?? true;
 
-  if (!name || typeof name !== 'string') {
-    return { content: 'Error: name is required and must be a string', isError: true };
+  if (!name || typeof name !== "string") {
+    return {
+      content: "Error: name is required and must be a string",
+      isError: true,
+    };
   }
-  if (!message || typeof message !== 'string') {
-    return { content: 'Error: message is required and must be a string', isError: true };
+  if (!message || typeof message !== "string") {
+    return {
+      content: "Error: message is required and must be a string",
+      isError: true,
+    };
   }
 
   // Resolve syntax and expression from new or legacy fields
   const resolved = normalizeScheduleSyntax({
-    syntax: input.syntax as 'cron' | 'rrule' | undefined,
+    syntax: input.syntax as "cron" | "rrule" | undefined,
     expression: input.expression as string | undefined,
     legacyCronExpression: input.cron_expression as string | undefined,
   });
 
   if (!resolved) {
-    return { content: 'Error: expression (or cron_expression) is required', isError: true };
+    return {
+      content: "Error: expression (or cron_expression) is required",
+      isError: true,
+    };
   }
 
   // Syntax-specific pre-validation for actionable error messages
-  if (resolved.syntax === 'cron' && !isValidCronExpression(resolved.expression)) {
-    return { content: `Error: Invalid cron expression: "${resolved.expression}"`, isError: true };
+  if (
+    resolved.syntax === "cron" &&
+    !isValidCronExpression(resolved.expression)
+  ) {
+    return {
+      content: `Error: Invalid cron expression: "${resolved.expression}"`,
+      isError: true,
+    };
   }
-  if (resolved.syntax === 'rrule') {
-    if (typeof resolved.expression !== 'string') {
-      return { content: 'Error: expression must be a string', isError: true };
+  if (resolved.syntax === "rrule") {
+    if (typeof resolved.expression !== "string") {
+      return { content: "Error: expression must be a string", isError: true };
     }
     const setError = validateRruleSetLines(resolved.expression);
     if (setError) {
@@ -59,9 +79,10 @@ export async function executeScheduleCreate(
       expression: resolved.expression,
     });
 
-    const scheduleDescription = job.syntax === 'rrule'
-      ? job.expression
-      : describeCronExpression(job.cronExpression);
+    const scheduleDescription =
+      job.syntax === "rrule"
+        ? job.expression
+        : describeCronExpression(job.cronExpression);
 
     const nextRunDate = formatLocalDate(job.nextRunAt);
     const integrations = formatIntegrationSummary();
@@ -71,13 +92,15 @@ export async function executeScheduleCreate(
         `  ID: ${job.id}`,
         `  Name: ${job.name}`,
         `  Syntax: ${job.syntax}`,
-        `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ''}`,
+        `  Schedule: ${scheduleDescription}${
+          job.timezone ? ` (${job.timezone})` : ""
+        }`,
         `  Enabled: ${job.enabled}`,
         `  Next run: ${nextRunDate}`,
         ``,
         `Integrations: ${integrations}`,
         `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn the user about any missing capabilities before confirming the schedule is ready.`,
-      ].join('\n'),
+      ].join("\n"),
       isError: false,
     };
   } catch (err) {

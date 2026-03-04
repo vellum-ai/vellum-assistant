@@ -6,12 +6,12 @@
  * to compile until a policy is added below.
  */
 
-import type { ChannelId } from './types.js';
+import type { ChannelId } from "./types.js";
 
 export type ConversationStrategy =
-  | 'start_new_conversation'
-  | 'continue_existing_conversation'
-  | 'not_deliverable';
+  | "start_new_conversation"
+  | "continue_existing_conversation"
+  | "not_deliverable";
 
 export interface ChannelNotificationPolicy {
   notification: {
@@ -24,43 +24,43 @@ const CHANNEL_POLICIES = {
   vellum: {
     notification: {
       deliveryEnabled: true,
-      conversationStrategy: 'start_new_conversation',
+      conversationStrategy: "start_new_conversation",
     },
   },
   telegram: {
     notification: {
       deliveryEnabled: true,
-      conversationStrategy: 'continue_existing_conversation',
+      conversationStrategy: "continue_existing_conversation",
     },
   },
   sms: {
     notification: {
       deliveryEnabled: true,
-      conversationStrategy: 'continue_existing_conversation',
+      conversationStrategy: "continue_existing_conversation",
     },
   },
   whatsapp: {
     notification: {
       deliveryEnabled: false,
-      conversationStrategy: 'continue_existing_conversation',
+      conversationStrategy: "continue_existing_conversation",
     },
   },
   slack: {
     notification: {
       deliveryEnabled: false,
-      conversationStrategy: 'continue_existing_conversation',
+      conversationStrategy: "continue_existing_conversation",
     },
   },
   email: {
     notification: {
       deliveryEnabled: false,
-      conversationStrategy: 'continue_existing_conversation',
+      conversationStrategy: "continue_existing_conversation",
     },
   },
   voice: {
     notification: {
       deliveryEnabled: false,
-      conversationStrategy: 'not_deliverable',
+      conversationStrategy: "not_deliverable",
     },
   },
 } as const satisfies Record<ChannelId, ChannelNotificationPolicy>;
@@ -68,7 +68,9 @@ const CHANNEL_POLICIES = {
 export type ChannelPolicies = typeof CHANNEL_POLICIES;
 
 /** Returns the full notification policy for a channel. */
-export function getChannelPolicy(channelId: ChannelId): ChannelNotificationPolicy {
+export function getChannelPolicy(
+  channelId: ChannelId,
+): ChannelNotificationPolicy {
   return CHANNEL_POLICIES[channelId];
 }
 
@@ -90,6 +92,8 @@ export function isNotificationDeliverable(channelId: ChannelId): boolean {
 }
 
 /** Returns the conversation strategy for the given channel. */
-export function getConversationStrategy(channelId: ChannelId): ConversationStrategy {
+export function getConversationStrategy(
+  channelId: ChannelId,
+): ConversationStrategy {
   return CHANNEL_POLICIES[channelId].notification.conversationStrategy;
 }

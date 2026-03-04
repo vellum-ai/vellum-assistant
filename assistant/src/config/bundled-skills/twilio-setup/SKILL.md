@@ -12,8 +12,7 @@ You are helping your user configure Twilio for voice calls and SMS messaging. Tw
 
 ```bash
 # 1. Check current status
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations twilio config --json
 # 2. Store credentials (after collecting via credential_store prompt)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
@@ -35,7 +34,7 @@ This skill manages the full Twilio lifecycle:
 - **Phone number assignment** — Assign an existing Twilio number to the assistant
 - **Status checking** — Verify credentials and assigned number
 
-All operations go through the Twilio HTTP control-plane endpoints on the gateway, which validates inputs, stores credentials securely, and manages phone number state.
+Mutating operations use Twilio HTTP control-plane endpoints on the gateway. Status/list retrieval uses `vellum integrations ...` CLI reads.
 
 ### Multi-Assistant Setups
 
@@ -66,8 +65,7 @@ All HTTP examples below include the optional `assistantId` query parameter in as
 First, check whether Twilio is already configured:
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations twilio config --json
 ```
 
 The response includes:
@@ -139,8 +137,7 @@ If ingress is not yet configured, webhook setup is skipped gracefully — the nu
 If the user already has a Twilio phone number, first list available numbers:
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations twilio numbers --json
 ```
 
 The response includes a `numbers` array with each number's `phoneNumber`, `friendlyName`, and `capabilities` (voice, SMS). Present these to the user and let them choose.
@@ -204,8 +201,7 @@ Webhook URLs are automatically configured on the Twilio phone number when provis
 After configuration, verify by checking the config endpoint again.
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations twilio config --json
 ```
 
 Confirm:
@@ -241,8 +237,7 @@ After the guardian-verify-setup skill completes (or the user skips), continue to
 To re-check guardian status later:
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations guardian status --channel voice --json
 ```
 
 ## Step 6: Enable Features

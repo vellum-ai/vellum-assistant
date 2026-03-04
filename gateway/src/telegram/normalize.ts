@@ -121,7 +121,10 @@ export function normalizeTelegramUpdate(
       },
       source: {
         updateId: String(updateId),
-        messageId: cbq.message.message_id != null ? String(cbq.message.message_id) : undefined,
+        messageId:
+          cbq.message.message_id != null
+            ? String(cbq.message.message_id)
+            : undefined,
         chatType: cbq.message.chat.type,
       },
       raw: payload,
@@ -155,11 +158,21 @@ export function normalizeTelegramUpdate(
 
   const content = message.text || message.caption || "";
 
-  const attachments: { type: "photo" | "document"; fileId: string; fileName?: string; mimeType?: string; fileSize?: number }[] = [];
+  const attachments: {
+    type: "photo" | "document";
+    fileId: string;
+    fileName?: string;
+    mimeType?: string;
+    fileSize?: number;
+  }[] = [];
   if (message.photo && message.photo.length > 0) {
     // Telegram sends multiple sizes; pick the largest (last in array)
     const largest = message.photo[message.photo.length - 1];
-    attachments.push({ type: "photo", fileId: largest.file_id, fileSize: largest.file_size });
+    attachments.push({
+      type: "photo",
+      fileId: largest.file_id,
+      fileSize: largest.file_size,
+    });
   }
   if (message.document) {
     attachments.push({
@@ -193,7 +206,8 @@ export function normalizeTelegramUpdate(
     },
     source: {
       updateId: String(updateId),
-      messageId: message.message_id != null ? String(message.message_id) : undefined,
+      messageId:
+        message.message_id != null ? String(message.message_id) : undefined,
       chatType: message.chat.type,
     },
     raw: payload,

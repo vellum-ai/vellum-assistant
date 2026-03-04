@@ -34,4 +34,4 @@ export {
   recoverCrashedMigrations,
   validateMigrationState,
   withCrashRecovery,
-} from './migrations/index.js';
+} from "./migrations/index.js";

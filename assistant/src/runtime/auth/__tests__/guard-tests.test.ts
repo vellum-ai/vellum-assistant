@@ -54,25 +54,47 @@ describe("route policy coverage", () => {
     const httpServerSrc = readFileSync(httpServerPath, "utf-8");
     const routePolicySrc = readFileSync(routePolicyPath, "utf-8");
 
-    // Extract endpoint strings from dispatchEndpoint. We look for patterns
-    // like `endpoint === 'foo'` which is the dispatch pattern.
-    const endpointMatches = httpServerSrc.matchAll(
-      /endpoint\s*===\s*'([^']+)'/g,
-    );
+    // Extract endpoint policy keys from the declarative route table returned
+    // by buildRouteTable(). Each route entry has an `endpoint` field and an
+    // optional `policyKey` override. When `policyKey` is present it takes
+    // precedence; otherwise the key is derived by stripping `:param` segments,
+    // mirroring HttpRouter.compileRoute().
+    const lines = httpServerSrc.split("\n");
     const dispatchedEndpoints = new Set<string>();
-    for (const m of endpointMatches) {
-      dispatchedEndpoints.add(m[1]);
+    for (let i = 0; i < lines.length; i++) {
+      const endpointMatch = lines[i].match(/endpoint:\s*"([^"]+)"/);
+      if (!endpointMatch) continue;
+
+      // Look ahead a few lines for an optional policyKey on the same route object.
+      let policyKey: string | null = null;
+      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+        const pkMatch = lines[j].match(/policyKey:\s*"([^"]+)"/);
+        if (pkMatch) {
+          policyKey = pkMatch[1];
+          break;
+        }
+        // Stop at the next endpoint or closing brace (end of route object).
+        if (lines[j].match(/endpoint:\s*"/) || lines[j].trim() === "},") break;
+      }
+
+      const resolvedKey =
+        policyKey ??
+        endpointMatch[1]
+          .split("/")
+          .filter((s) => !s.startsWith(":"))
+          .join("/");
+      dispatchedEndpoints.add(resolvedKey);
     }
 
-    // These endpoints are handled in dispatchEndpoint but intentionally
-    // don't need a route policy (they are unprotected utility endpoints).
+    // These endpoints are in the route table but intentionally don't need
+    // a route policy (they are unprotected utility endpoints).
     const UNPROTECTED_ENDPOINTS = new Set(["health"]);
 
     // Extract registered policy endpoint strings from route-policy.ts.
     // Match: `{ endpoint: 'foo' }` entries, `registerPolicy('foo', ...)`
     // calls, and bare string literals in arrays like INTERNAL_ENDPOINTS.
     const policyEndpointMatches = routePolicySrc.matchAll(
-      /endpoint:\s*'([^']+)'|registerPolicy\(\s*'([^']+)'/g,
+      /endpoint:\s*"([^"]+)"|registerPolicy\(\s*"([^"]+)"/g,
     );
     const registeredPolicies = new Set<string>();
     for (const m of policyEndpointMatches) {
@@ -85,15 +107,15 @@ describe("route policy coverage", () => {
       /INTERNAL_ENDPOINTS\s*=\s*\[([\s\S]*?)\]/,
     );
     if (internalArrayMatch) {
-      const arrayLiterals = internalArrayMatch[1].matchAll(/'([^']+)'/g);
+      const arrayLiterals = internalArrayMatch[1].matchAll(/"([^"]+)"/g);
       for (const m of arrayLiterals) {
         registeredPolicies.add(m[1]);
       }
     }
 
-    // For method-specific dispatches like `endpoint === 'messages' && req.method === 'POST'`,
-    // the policy key might be `messages:POST` or just `messages`. We need to
-    // check that either the plain endpoint key or a method-qualified key exists.
+    // The policy key might be method-qualified (e.g. `messages:POST`) or plain
+    // (`messages`). Check that either the plain key or a method-qualified
+    // variant is registered.
     const missingPolicies: string[] = [];
     for (const endpoint of dispatchedEndpoints) {
       if (UNPROTECTED_ENDPOINTS.has(endpoint)) continue;

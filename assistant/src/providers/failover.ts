@@ -1,8 +1,14 @@
-import { ProviderError } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
-import type { Message, Provider, ProviderResponse, SendMessageOptions, ToolDefinition } from './types.js';
+import { ProviderError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
+import type {
+  Message,
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+  ToolDefinition,
+} from "./types.js";
 
-const log = getLogger('failover');
+const log = getLogger("failover");
 
 const DEFAULT_COOLDOWN_MS = 60_000;
 
@@ -28,12 +34,22 @@ function isFailoverError(error: unknown): boolean {
   // Network errors — try next provider
   if (error instanceof Error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT' || code === 'EPIPE') {
+    if (
+      code === "ECONNRESET" ||
+      code === "ECONNREFUSED" ||
+      code === "ETIMEDOUT" ||
+      code === "EPIPE"
+    ) {
       return true;
     }
     if (error.cause instanceof Error) {
       const causeCode = (error.cause as NodeJS.ErrnoException).code;
-      if (causeCode === 'ECONNRESET' || causeCode === 'ECONNREFUSED' || causeCode === 'ETIMEDOUT' || causeCode === 'EPIPE') {
+      if (
+        causeCode === "ECONNRESET" ||
+        causeCode === "ECONNREFUSED" ||
+        causeCode === "ETIMEDOUT" ||
+        causeCode === "EPIPE"
+      ) {
         return true;
       }
     }
@@ -62,7 +78,7 @@ export class FailoverProvider implements Provider {
     private readonly cooldownMs: number = DEFAULT_COOLDOWN_MS,
   ) {
     if (providers.length === 0) {
-      throw new Error('FailoverProvider requires at least one provider');
+      throw new Error("FailoverProvider requires at least one provider");
     }
     this.name = providers[0].name;
     for (const p of providers) {
@@ -87,20 +103,34 @@ export class FailoverProvider implements Provider {
         const elapsed = now - health.unhealthySince;
         if (elapsed < this.cooldownMs) {
           log.debug(
-            { provider: provider.name, cooldownRemainingMs: this.cooldownMs - elapsed },
-            'Skipping unhealthy provider (in cooldown)',
+            {
+              provider: provider.name,
+              cooldownRemainingMs: this.cooldownMs - elapsed,
+            },
+            "Skipping unhealthy provider (in cooldown)",
           );
           continue;
         }
         // Cooldown expired — give it another chance
-        log.info({ provider: provider.name }, 'Provider cooldown expired, retrying');
+        log.info(
+          { provider: provider.name },
+          "Provider cooldown expired, retrying",
+        );
       }
 
       try {
-        const response = await provider.sendMessage(messages, tools, systemPrompt, options);
+        const response = await provider.sendMessage(
+          messages,
+          tools,
+          systemPrompt,
+          options,
+        );
         // Success — mark healthy
         if (health.unhealthySince != null) {
-          log.info({ provider: provider.name }, 'Provider recovered, marking healthy');
+          log.info(
+            { provider: provider.name },
+            "Provider recovered, marking healthy",
+          );
           health.unhealthySince = null;
         }
         return response;
@@ -113,9 +143,10 @@ export class FailoverProvider implements Provider {
             {
               provider: provider.name,
               error: error instanceof Error ? error.message : String(error),
-              statusCode: error instanceof ProviderError ? error.statusCode : undefined,
+              statusCode:
+                error instanceof ProviderError ? error.statusCode : undefined,
             },
-            'Provider failed, marked unhealthy',
+            "Provider failed, marked unhealthy",
           );
           continue;
         }
@@ -126,10 +157,13 @@ export class FailoverProvider implements Provider {
     }
 
     // All providers exhausted
-    throw lastError ?? new ProviderError(
-      'All configured providers are unavailable',
-      this.name,
-      undefined,
+    throw (
+      lastError ??
+      new ProviderError(
+        "All configured providers are unavailable",
+        this.name,
+        undefined,
+      )
     );
   }
 
@@ -139,9 +173,10 @@ export class FailoverProvider implements Provider {
       return {
         name: p.name,
         healthy: health.unhealthySince == null,
-        unhealthySince: health.unhealthySince != null
-          ? new Date(health.unhealthySince).toISOString()
-          : null,
+        unhealthySince:
+          health.unhealthySince != null
+            ? new Date(health.unhealthySince).toISOString()
+            : null,
       };
     });
   }

@@ -22,17 +22,17 @@ export interface CookieSpec {
 export interface ExtensionCommand {
   id: string; // UUID
   action:
-    | 'evaluate'
-    | 'navigate'
-    | 'get_cookies'
-    | 'set_cookie'
-    | 'screenshot'
-    | 'find_tab'
-    | 'new_tab';
+    | "evaluate"
+    | "navigate"
+    | "get_cookies"
+    | "set_cookie"
+    | "screenshot"
+    | "find_tab"
+    | "new_tab";
   tabId?: number;
-  code?: string;     // for evaluate
-  url?: string;      // for navigate / find_tab / new_tab
-  domain?: string;   // for get_cookies
+  code?: string; // for evaluate
+  url?: string; // for navigate / find_tab / new_tab
+  domain?: string; // for get_cookies
   cookie?: CookieSpec;
   timeoutMs?: number;
 }
@@ -52,7 +52,7 @@ export interface ExtensionResponse {
  * Periodic heartbeat from the extension to the server.
  */
 export interface ExtensionHeartbeat {
-  type: 'heartbeat';
+  type: "heartbeat";
   extensionVersion: string;
   connectedTabs: number;
 }

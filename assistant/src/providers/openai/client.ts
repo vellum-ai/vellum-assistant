@@ -1,8 +1,8 @@
-import OpenAI from 'openai';
+import OpenAI from "openai";
 
-import { ProviderError } from '../../util/errors.js';
-import { escapeXmlAttr } from '../../util/xml.js';
-import { createStreamTimeout } from '../stream-timeout.js';
+import { ProviderError } from "../../util/errors.js";
+import { escapeXmlAttr } from "../../util/xml.js";
+import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
   Message,
@@ -10,7 +10,7 @@ import type {
   ProviderResponse,
   SendMessageOptions,
   ToolDefinition,
-} from '../types.js';
+} from "../types.js";
 
 export interface OpenAICompatibleProviderOptions {
   baseURL?: string;
@@ -20,7 +20,10 @@ export interface OpenAICompatibleProviderOptions {
 }
 
 const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
 ]);
 
 export class OpenAIProvider implements Provider {
@@ -30,9 +33,13 @@ export class OpenAIProvider implements Provider {
   private model: string;
   private streamTimeoutMs: number;
 
-  constructor(apiKey: string, model: string, options: OpenAICompatibleProviderOptions = {}) {
-    this.name = options.providerName ?? 'openai';
-    this.providerLabel = options.providerLabel ?? 'OpenAI';
+  constructor(
+    apiKey: string,
+    model: string,
+    options: OpenAICompatibleProviderOptions = {},
+  ) {
+    this.name = options.providerName ?? "openai";
+    this.providerLabel = options.providerLabel ?? "OpenAI";
     this.client = new OpenAI({
       apiKey,
       baseURL: options.baseURL,
@@ -55,12 +62,13 @@ export class OpenAIProvider implements Provider {
     try {
       const openaiMessages = this.toOpenAIMessages(messages, systemPrompt);
 
-      const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
-        model: modelOverride ?? this.model,
-        messages: openaiMessages,
-        stream: true as const,
-        stream_options: { include_usage: true },
-      };
+      const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
+        {
+          model: modelOverride ?? this.model,
+          messages: openaiMessages,
+          stream: true as const,
+          stream_options: { include_usage: true },
+        };
 
       if (maxTokens) {
         params.max_completion_tokens = maxTokens;
@@ -68,7 +76,7 @@ export class OpenAIProvider implements Provider {
 
       if (tools && tools.length > 0) {
         params.tools = tools.map((t) => ({
-          type: 'function' as const,
+          type: "function" as const,
           function: {
             name: t.name,
             description: t.description,
@@ -77,31 +85,37 @@ export class OpenAIProvider implements Provider {
         }));
       }
 
-      const { signal: timeoutSignal, cleanup: cleanupTimeout } = createStreamTimeout(this.streamTimeoutMs, signal);
+      const { signal: timeoutSignal, cleanup: cleanupTimeout } =
+        createStreamTimeout(this.streamTimeoutMs, signal);
 
       // Accumulate the response from chunks
-      let contentText = '';
-      const toolCallMap = new Map<number, { id: string; name: string; args: string }>();
-      let finishReason = 'unknown';
+      let contentText = "";
+      const toolCallMap = new Map<
+        number,
+        { id: string; name: string; args: string }
+      >();
+      let finishReason = "unknown";
       let responseModel = modelOverride ?? this.model;
       let promptTokens = 0;
       let completionTokens = 0;
 
       try {
-        const stream = await this.client.chat.completions.create(params, { signal: timeoutSignal });
+        const stream = await this.client.chat.completions.create(params, {
+          signal: timeoutSignal,
+        });
 
         for await (const chunk of stream) {
           const choice = chunk.choices[0];
           if (choice) {
             if (choice.delta.content) {
               contentText += choice.delta.content;
-              onEvent?.({ type: 'text_delta', text: choice.delta.content });
+              onEvent?.({ type: "text_delta", text: choice.delta.content });
             }
 
             if (choice.delta.tool_calls) {
               for (const tc of choice.delta.tool_calls) {
                 if (!toolCallMap.has(tc.index)) {
-                  toolCallMap.set(tc.index, { id: '', name: '', args: '' });
+                  toolCallMap.set(tc.index, { id: "", name: "", args: "" });
                 }
                 const entry = toolCallMap.get(tc.index)!;
                 if (tc.id) entry.id = tc.id;
@@ -129,7 +143,7 @@ export class OpenAIProvider implements Provider {
       // Build content blocks
       const content: ContentBlock[] = [];
       if (contentText) {
-        content.push({ type: 'text', text: contentText });
+        content.push({ type: "text", text: contentText });
       }
       for (const [, tc] of toolCallMap) {
         let input: Record<string, unknown>;
@@ -139,7 +153,7 @@ export class OpenAIProvider implements Provider {
           input = { _raw: tc.args };
         }
         content.push({
-          type: 'tool_use',
+          type: "tool_use",
           id: tc.id,
           name: tc.name,
           input,
@@ -149,21 +163,27 @@ export class OpenAIProvider implements Provider {
       // Build a synthetic response object from accumulated streaming data
       const rawResponse = {
         model: responseModel,
-        choices: [{
-          message: {
-            role: 'assistant',
-            content: contentText || null,
-            tool_calls: toolCallMap.size > 0
-              ? Array.from(toolCallMap.values()).map((tc) => ({
-                  id: tc.id,
-                  type: 'function',
-                  function: { name: tc.name, arguments: tc.args },
-                }))
-              : undefined,
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: contentText || null,
+              tool_calls:
+                toolCallMap.size > 0
+                  ? Array.from(toolCallMap.values()).map((tc) => ({
+                      id: tc.id,
+                      type: "function",
+                      function: { name: tc.name, arguments: tc.args },
+                    }))
+                  : undefined,
+            },
+            finish_reason: finishReason,
           },
-          finish_reason: finishReason,
-        }],
-        usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens },
+        ],
+        usage: {
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+        },
       };
 
       return {
@@ -183,7 +203,9 @@ export class OpenAIProvider implements Provider {
         );
       }
       throw new ProviderError(
-        `${this.providerLabel} request failed: ${error instanceof Error ? error.message : String(error)}`,
+        `${this.providerLabel} request failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
         this.name,
         undefined,
         { cause: error },
@@ -199,19 +221,23 @@ export class OpenAIProvider implements Provider {
     const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     if (systemPrompt) {
-      result.push({ role: 'system', content: systemPrompt });
+      result.push({ role: "system", content: systemPrompt });
     }
 
     for (const msg of messages) {
-      if (msg.role === 'assistant') {
+      if (msg.role === "assistant") {
         result.push(this.toOpenAIAssistantMessage(msg));
       } else {
         // User messages may contain tool_result blocks mixed with text/image
         const toolResults = msg.content.filter(
-          (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+          (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
+            b.type === "tool_result",
         );
         const otherBlocks = msg.content.filter(
-          (b) => b.type !== 'tool_result' && b.type !== 'thinking' && b.type !== 'redacted_thinking',
+          (b) =>
+            b.type !== "tool_result" &&
+            b.type !== "thinking" &&
+            b.type !== "redacted_thinking",
         );
 
         // Emit tool results as separate tool-role messages
@@ -222,17 +248,20 @@ export class OpenAIProvider implements Provider {
           let textContent = tr.content;
           if (tr.contentBlocks && tr.contentBlocks.length > 0) {
             const extraText = tr.contentBlocks
-              .filter((cb): cb is Extract<ContentBlock, { type: 'text' }> => cb.type === 'text')
+              .filter(
+                (cb): cb is Extract<ContentBlock, { type: "text" }> =>
+                  cb.type === "text",
+              )
               .map((cb) => cb.text);
             if (extraText.length > 0) {
-              textContent = textContent + '\n' + extraText.join('\n');
+              textContent = textContent + "\n" + extraText.join("\n");
             }
             for (const cb of tr.contentBlocks) {
-              if (cb.type === 'image') toolResultImages.push(cb);
+              if (cb.type === "image") toolResultImages.push(cb);
             }
           }
           result.push({
-            role: 'tool',
+            role: "tool",
             tool_call_id: tr.tool_use_id,
             content: tr.is_error ? `[ERROR] ${textContent}` : textContent,
           });
@@ -256,17 +285,18 @@ export class OpenAIProvider implements Provider {
     msg: Message,
   ): OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam {
     const textParts: string[] = [];
-    const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] = [];
+    const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] =
+      [];
 
     for (const block of msg.content) {
       switch (block.type) {
-        case 'text':
+        case "text":
           textParts.push(block.text);
           break;
-        case 'tool_use':
+        case "tool_use":
           toolCalls.push({
             id: block.id,
-            type: 'function',
+            type: "function",
             function: {
               name: block.name,
               arguments: JSON.stringify(block.input),
@@ -277,10 +307,11 @@ export class OpenAIProvider implements Provider {
       }
     }
 
-    const result: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam = {
-      role: 'assistant',
-      content: textParts.length > 0 ? textParts.join('') : null,
-    };
+    const result: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam =
+      {
+        role: "assistant",
+        content: textParts.length > 0 ? textParts.join("") : null,
+      };
 
     if (toolCalls.length > 0) {
       result.tool_calls = toolCalls;
@@ -294,42 +325,49 @@ export class OpenAIProvider implements Provider {
     blocks: ContentBlock[],
   ): OpenAI.Chat.Completions.ChatCompletionUserMessageParam {
     // If only a single text block, use plain string (simpler, fewer tokens)
-    if (blocks.length === 1 && blocks[0].type === 'text') {
-      return { role: 'user', content: blocks[0].text };
+    if (blocks.length === 1 && blocks[0].type === "text") {
+      return { role: "user", content: blocks[0].text };
     }
 
     const parts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
     for (const block of blocks) {
       switch (block.type) {
-        case 'text':
-          parts.push({ type: 'text', text: block.text });
+        case "text":
+          parts.push({ type: "text", text: block.text });
           break;
-        case 'image':
+        case "image":
           if (!OPENAI_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
-            parts.push({ type: 'text', text: `[Image: ${block.source.media_type} — format not supported by this provider]` });
+            parts.push({
+              type: "text",
+              text: `[Image: ${block.source.media_type} — format not supported by this provider]`,
+            });
           } else {
             parts.push({
-              type: 'image_url',
+              type: "image_url",
               image_url: {
                 url: `data:${block.source.media_type};base64,${block.source.data}`,
               },
             });
           }
           break;
-        case 'file':
+        case "file":
           parts.push({
-            type: 'text',
+            type: "text",
             text: this.fileBlockToText(block),
           });
           break;
       }
     }
 
-    return { role: 'user', content: parts };
+    return { role: "user", content: parts };
   }
 
-  private fileBlockToText(block: Extract<ContentBlock, { type: 'file' }>): string {
-    const header = `<attached_file name="${escapeXmlAttr(block.source.filename)}" type="${escapeXmlAttr(block.source.media_type)}" />`;
+  private fileBlockToText(
+    block: Extract<ContentBlock, { type: "file" }>,
+  ): string {
+    const header = `<attached_file name="${escapeXmlAttr(
+      block.source.filename,
+    )}" type="${escapeXmlAttr(block.source.media_type)}" />`;
     if (block.extracted_text && block.extracted_text.trim().length > 0) {
       return `${header}\n${block.extracted_text}`;
     }

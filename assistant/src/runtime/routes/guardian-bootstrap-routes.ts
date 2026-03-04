@@ -9,30 +9,30 @@
  * Only the hashed tokens are persisted.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import {
-  getActiveBinding,
-} from '../../memory/guardian-bindings.js';
-import { createGuardianBindingContactsFirst } from '../../contacts/contacts-write.js';
-import { getLogger } from '../../util/logger.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
-import { mintCredentialPair } from '../auth/credential-service.js';
-import { httpError } from '../http-errors.js';
+import { findGuardianForChannel } from "../../contacts/contact-store.js";
+import { createGuardianBindingContactsFirst } from "../../contacts/contacts-write.js";
+import { getLogger } from "../../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { mintCredentialPair } from "../auth/credential-service.js";
+import { httpError } from "../http-errors.js";
 
 /** Bun server shape needed for requestIP -- avoids importing the full Bun type. */
 type ServerWithRequestIP = {
-  requestIP(req: Request): { address: string; family: string; port: number } | null;
+  requestIP(
+    req: Request,
+  ): { address: string; family: string; port: number } | null;
 };
-import { isHttpAuthDisabled } from '../../config/env.js';
+import { isHttpAuthDisabled } from "../../config/env.js";
 
-const log = getLogger('guardian-bootstrap');
+const log = getLogger("guardian-bootstrap");
 
 /** Hash a device ID for storage (same pattern as approved-devices-store). */
 function hashDeviceId(deviceId: string): string {
-  return createHash('sha256').update(deviceId).digest('hex');
+  return createHash("sha256").update(deviceId).digest("hex");
 }
 
 /**
@@ -44,9 +44,12 @@ function ensureGuardianPrincipal(assistantId: string): {
   guardianPrincipalId: string;
   isNew: boolean;
 } {
-  const existing = getActiveBinding(assistantId, 'vellum');
-  if (existing) {
-    return { guardianPrincipalId: existing.guardianExternalUserId, isNew: false };
+  const guardianResult = findGuardianForChannel("vellum");
+  if (guardianResult && guardianResult.contact.principalId) {
+    return {
+      guardianPrincipalId: guardianResult.contact.principalId,
+      isNew: false,
+    };
   }
 
   // Mint a new principal ID for the vellum channel
@@ -54,20 +57,23 @@ function ensureGuardianPrincipal(assistantId: string): {
 
   createGuardianBindingContactsFirst({
     assistantId,
-    channel: 'vellum',
+    channel: "vellum",
     guardianExternalUserId: guardianPrincipalId,
-    guardianDeliveryChatId: 'local',
+    guardianDeliveryChatId: "local",
     guardianPrincipalId,
-    verifiedVia: 'bootstrap',
+    verifiedVia: "bootstrap",
     metadataJson: JSON.stringify({ bootstrappedAt: Date.now() }),
   });
 
-  log.info({ assistantId, guardianPrincipalId }, 'Created vellum guardian principal via bootstrap');
+  log.info(
+    { assistantId, guardianPrincipalId },
+    "Created vellum guardian principal via bootstrap",
+  );
   return { guardianPrincipalId, isNew: true };
 }
 
 /** Loopback addresses — used to gate the bootstrap endpoint to local-only. */
-const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
 /**
  * Handle POST /v1/integrations/guardian/vellum/bootstrap
@@ -78,29 +84,42 @@ const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
  * This endpoint is loopback-only (macOS local use only). iOS devices
  * obtain actor tokens exclusively through the QR pairing flow.
  */
-export async function handleGuardianBootstrap(req: Request, server: ServerWithRequestIP): Promise<Response> {
+export async function handleGuardianBootstrap(
+  req: Request,
+  server: ServerWithRequestIP,
+): Promise<Response> {
   // Reject proxied requests — bootstrap is local-only
-  if (req.headers.get('x-forwarded-for') && !isHttpAuthDisabled()) {
-    return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
+  if (req.headers.get("x-forwarded-for") && !isHttpAuthDisabled()) {
+    return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 
   // Reject non-loopback peers
   const peerIp = server.requestIP(req)?.address;
   if ((!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) && !isHttpAuthDisabled()) {
-    return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
+    return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 
   try {
-    const body = await req.json() as Record<string, unknown>;
-    const platform = typeof body.platform === 'string' ? body.platform.trim() : '';
-    const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+    const body = (await req.json()) as Record<string, unknown>;
+    const platform =
+      typeof body.platform === "string" ? body.platform.trim() : "";
+    const deviceId =
+      typeof body.deviceId === "string" ? body.deviceId.trim() : "";
 
     if (!platform || !deviceId) {
-      return httpError('BAD_REQUEST', 'Missing required fields: platform, deviceId', 400);
+      return httpError(
+        "BAD_REQUEST",
+        "Missing required fields: platform, deviceId",
+        400,
+      );
     }
 
-    if (platform !== 'macos' && platform !== 'cli') {
-      return httpError('BAD_REQUEST', 'Invalid platform. Bootstrap is macOS/CLI-only; iOS uses QR pairing.', 400);
+    if (platform !== "macos" && platform !== "cli") {
+      return httpError(
+        "BAD_REQUEST",
+        "Invalid platform. Bootstrap is macOS/CLI-only; iOS uses QR pairing.",
+        400,
+      );
     }
 
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
@@ -118,7 +137,7 @@ export async function handleGuardianBootstrap(req: Request, server: ServerWithRe
 
     log.info(
       { assistantId, platform, guardianPrincipalId, isNew },
-      'Guardian bootstrap completed',
+      "Guardian bootstrap completed",
     );
 
     return Response.json({
@@ -131,7 +150,7 @@ export async function handleGuardianBootstrap(req: Request, server: ServerWithRe
       isNew,
     });
   } catch (err) {
-    log.error({ err }, 'Guardian bootstrap failed');
-    return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+    log.error({ err }, "Guardian bootstrap failed");
+    return httpError("INTERNAL_ERROR", "Internal server error", 500);
   }
 }

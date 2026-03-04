@@ -1,12 +1,12 @@
-import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 
-import { getLogger } from '../../util/logger.js';
-import { getDb, rawAll } from '../db.js';
-import { memorySegments } from '../schema.js';
-import { computeRecencyScore } from './ranking.js';
-import type { Candidate, CandidateType } from './types.js';
+import { getLogger } from "../../util/logger.js";
+import { getDb, rawAll } from "../db.js";
+import { memorySegments } from "../schema.js";
+import { computeRecencyScore } from "./ranking.js";
+import type { Candidate, CandidateType } from "./types.js";
 
-const log = getLogger('memory-retriever');
+const log = getLogger("memory-retriever");
 
 // Threshold beyond which a raw SQL query is considered slow and logged as a warning.
 const SLOW_QUERY_MS = 2000;
@@ -21,7 +21,10 @@ function timedRawQuery<T>(label: string, fn: () => T[]): T[] {
   const result = fn();
   const elapsed = performance.now() - start;
   if (elapsed >= SLOW_QUERY_MS) {
-    log.warn({ label, elapsedMs: Math.round(elapsed) }, 'Raw SQL query exceeded slow threshold');
+    log.warn(
+      { label, elapsedMs: Math.round(elapsed) },
+      "Raw SQL query exceeded slow threshold",
+    );
   }
   return result;
 }
@@ -34,15 +37,20 @@ interface FtsRow {
   rank: number;
 }
 
-export function lexicalSearch(query: string, limit: number, excludedMessageIds: string[] = [], scopeIds?: string[]): Candidate[] {
+export function lexicalSearch(
+  query: string,
+  limit: number,
+  excludedMessageIds: string[] = [],
+  scopeIds?: string[],
+): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
   const matchQuery = buildFtsMatchQuery(trimmed);
   if (!matchQuery) return [];
   const excluded = new Set(excludedMessageIds);
   const scopeClause = scopeIds
-    ? ` AND s.scope_id IN (${scopeIds.map(() => '?').join(',')})`
-    : '';
+    ? ` AND s.scope_id IN (${scopeIds.map(() => "?").join(",")})`
+    : "";
 
   // Adaptive overfetch: when exclusions are present, double the SQL LIMIT until we
   // collect `limit` visible rows or the DB has no more matching results to offer.
@@ -54,8 +62,9 @@ export function lexicalSearch(query: string, limit: number, excludedMessageIds: 
   while (true) {
     let rows: FtsRow[] = [];
     try {
-      rows = timedRawQuery('lexicalSearch', () =>
-        rawAll<FtsRow>(`
+      rows = timedRawQuery("lexicalSearch", () =>
+        rawAll<FtsRow>(
+          `
           SELECT
             f.segment_id AS segment_id,
             s.message_id AS message_id,
@@ -67,20 +76,32 @@ export function lexicalSearch(query: string, limit: number, excludedMessageIds: 
           WHERE memory_segment_fts MATCH ?${scopeClause}
           ORDER BY rank
           LIMIT ?
-        `, matchQuery, ...(scopeIds ?? []), queryLimit),
+        `,
+          matchQuery,
+          ...(scopeIds ?? []),
+          queryLimit,
+        ),
       );
     } catch (err) {
-      log.warn({ err, query: truncate(trimmed, 80) }, 'Memory lexical search query parse failed');
+      log.warn(
+        { err, query: truncate(trimmed, 80) },
+        "Memory lexical search query parse failed",
+      );
       return [];
     }
 
-    visibleRows = excluded.size > 0
-      ? rows.filter((row) => !excluded.has(row.message_id))
-      : rows;
+    visibleRows =
+      excluded.size > 0
+        ? rows.filter((row) => !excluded.has(row.message_id))
+        : rows;
 
     // Stop when we have enough rows, the DB returned fewer than requested
     // (no more results exist), or we've reached the safety cap.
-    if (visibleRows.length >= limit || rows.length < queryLimit || queryLimit >= limit * MAX_FETCH_MULTIPLIER) {
+    if (
+      visibleRows.length >= limit ||
+      rows.length < queryLimit ||
+      queryLimit >= limit * MAX_FETCH_MULTIPLIER
+    ) {
       break;
     }
     queryLimit = Math.min(queryLimit * 2, limit * MAX_FETCH_MULTIPLIER);
@@ -98,11 +119,11 @@ export function lexicalSearch(query: string, limit: number, excludedMessageIds: 
     const lexical = lexicalRankToScore(row.rank, minRank, maxRank);
     return {
       key: `segment:${row.segment_id}`,
-      type: 'segment' as CandidateType,
+      type: "segment" as CandidateType,
       id: row.segment_id,
-      source: 'lexical',
+      source: "lexical",
       text: row.text,
-      kind: 'segment',
+      kind: "segment",
       confidence: 0.55,
       importance: 0.5,
       createdAt: row.created_at,
@@ -114,7 +135,12 @@ export function lexicalSearch(query: string, limit: number, excludedMessageIds: 
   });
 }
 
-export function recencySearch(conversationId: string, limit: number, excludedMessageIds: string[] = [], scopeIds?: string[]): Candidate[] {
+export function recencySearch(
+  conversationId: string,
+  limit: number,
+  excludedMessageIds: string[] = [],
+  scopeIds?: string[],
+): Candidate[] {
   if (!conversationId || limit <= 0) return [];
   const db = getDb();
   const conditions = [eq(memorySegments.conversationId, conversationId)];
@@ -124,7 +150,8 @@ export function recencySearch(conversationId: string, limit: number, excludedMes
   if (scopeIds && scopeIds.length > 0) {
     conditions.push(inArray(memorySegments.scopeId, scopeIds));
   }
-  const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
+  const whereClause =
+    conditions.length > 1 ? and(...conditions) : conditions[0];
   const rows = db
     .select()
     .from(memorySegments)
@@ -134,11 +161,11 @@ export function recencySearch(conversationId: string, limit: number, excludedMes
     .all();
   return rows.map((row) => ({
     key: `segment:${row.id}`,
-    type: 'segment' as CandidateType,
+    type: "segment" as CandidateType,
     id: row.id,
-    source: 'recency',
+    source: "recency",
     text: row.text,
-    kind: 'segment',
+    kind: "segment",
     confidence: 0.55,
     importance: 0.5,
     createdAt: row.createdAt,
@@ -153,11 +180,19 @@ export function recencySearch(conversationId: string, limit: number, excludedMes
  * Direct search over memory_items table by subject and statement text.
  * Supplements FTS-based lexical search with LIKE-based matching on items.
  */
-export function directItemSearch(query: string, limit: number, scopeIds?: string[]): Candidate[] {
-  const tokens = [...new Set(query
-    .toLowerCase()
-    .split(/[^a-z0-9_.-]+/g)
-    .filter((t) => t.length >= 2))];
+export function directItemSearch(
+  query: string,
+  limit: number,
+  scopeIds?: string[],
+): Candidate[] {
+  const tokens = [
+    ...new Set(
+      query
+        .toLowerCase()
+        .split(/[^a-z0-9_.-]+/g)
+        .filter((t) => t.length >= 2),
+    ),
+  ];
   if (tokens.length === 0) return [];
 
   const likeClauses = tokens.map(
@@ -168,12 +203,14 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
     return [pattern, pattern];
   });
   const scopeClause = scopeIds
-    ? ` AND scope_id IN (${scopeIds.map(() => '?').join(',')})`
-    : '';
+    ? ` AND scope_id IN (${scopeIds.map(() => "?").join(",")})`
+    : "";
   const sqlQuery = `
     SELECT id, kind, subject, statement, status, confidence, importance, first_seen_at, last_seen_at
     FROM memory_items
-    WHERE status = 'active' AND invalid_at IS NULL AND (${likeClauses.join(' OR ')})${scopeClause}
+    WHERE status = 'active' AND invalid_at IS NULL AND (${likeClauses.join(
+      " OR ",
+    )})${scopeClause}
     ORDER BY last_seen_at DESC
     LIMIT ?
   `;
@@ -191,7 +228,7 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
 
   let rows: ItemRow[] = [];
   try {
-    rows = timedRawQuery('directItemSearch', () =>
+    rows = timedRawQuery("directItemSearch", () =>
       rawAll<ItemRow>(sqlQuery, ...likeParams, ...(scopeIds ?? []), limit),
     );
   } catch {
@@ -209,9 +246,9 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
 
     return {
       key: `item:${row.id}`,
-      type: 'item' as CandidateType,
+      type: "item" as CandidateType,
       id: row.id,
-      source: 'item_direct',
+      source: "item_direct",
       text: `${row.subject}: ${row.statement}`,
       kind: row.kind,
       confidence: row.confidence,
@@ -225,7 +262,11 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
   });
 }
 
-export function lexicalRankToScore(rank: number, minRank: number, maxRank: number): number {
+export function lexicalRankToScore(
+  rank: number,
+  minRank: number,
+  maxRank: number,
+): number {
   if (!Number.isFinite(rank)) return 0;
   if (!Number.isFinite(minRank) || !Number.isFinite(maxRank)) return 0;
   const span = maxRank - minRank;
@@ -242,13 +283,11 @@ export function buildFtsMatchQuery(text: string): string | null {
     .filter((token) => token.length >= 2);
   if (tokens.length === 0) return null;
   const unique = [...new Set(tokens)].slice(0, 24);
-  return unique
-    .map((token) => `"${token.replace(/"/g, '""')}"`)
-    .join(' OR ');
+  return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" OR ");
 }
 
 export function escapeLikeWildcards(s: string): string {
-  return s.replace(/%/g, '').replace(/_/g, '');
+  return s.replace(/%/g, "").replace(/_/g, "");
 }
 
 function truncate(text: string, max: number): string {

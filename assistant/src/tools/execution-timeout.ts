@@ -1,6 +1,6 @@
-import type { ToolExecutionResult } from './types.js';
+import type { ToolExecutionResult } from "./types.js";
 
-const TIMEOUT_SENTINEL = Symbol('tool-timeout');
+const TIMEOUT_SENTINEL = Symbol("tool-timeout");
 
 export const DEFAULT_TOOL_TIMEOUT_SEC = 120;
 
@@ -26,9 +26,10 @@ export async function executeWithTimeout(
   toolName: string,
 ): Promise<ToolExecutionResult> {
   // Guard against NaN/invalid values that would cause setTimeout to fire immediately
-  const safeMs = Number.isFinite(timeoutMs) && timeoutMs > 0
-    ? timeoutMs
-    : DEFAULT_TOOL_TIMEOUT_SEC * 1000;
+  const safeMs =
+    Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? timeoutMs
+      : DEFAULT_TOOL_TIMEOUT_SEC * 1000;
   let timeoutHandle: ReturnType<typeof setTimeout>;
   const timeoutPromise = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
     timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), safeMs);

@@ -2,19 +2,23 @@ import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createIngressControlPlaneProxyHandler } = await import(
-  "../http/routes/ingress-control-plane-proxy.js"
-);
+const { createIngressControlPlaneProxyHandler } =
+  await import("../http/routes/ingress-control-plane-proxy.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -81,30 +85,44 @@ describe("ingress control-plane proxy", () => {
     const handler = createIngressControlPlaneProxyHandler(makeConfig());
 
     await handler.handleListMembers(
-      new Request("http://localhost:7830/v1/ingress/members?sourceChannel=telegram"),
+      new Request(
+        "http://localhost:7830/v1/ingress/members?sourceChannel=telegram",
+      ),
     );
     await handler.handleUpsertMember(
-      new Request("http://localhost:7830/v1/ingress/members", { method: "POST" }),
+      new Request("http://localhost:7830/v1/ingress/members", {
+        method: "POST",
+      }),
     );
     await handler.handleRevokeMember(
-      new Request("http://localhost:7830/v1/ingress/members/mbr_123", { method: "DELETE" }),
+      new Request("http://localhost:7830/v1/ingress/members/mbr_123", {
+        method: "DELETE",
+      }),
       "mbr_123",
     );
     await handler.handleBlockMember(
-      new Request("http://localhost:7830/v1/ingress/members/mbr_123/block", { method: "POST" }),
+      new Request("http://localhost:7830/v1/ingress/members/mbr_123/block", {
+        method: "POST",
+      }),
       "mbr_123",
     );
     await handler.handleListInvites(
       new Request("http://localhost:7830/v1/ingress/invites?status=active"),
     );
     await handler.handleCreateInvite(
-      new Request("http://localhost:7830/v1/ingress/invites", { method: "POST" }),
+      new Request("http://localhost:7830/v1/ingress/invites", {
+        method: "POST",
+      }),
     );
     await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/ingress/invites/redeem", { method: "POST" }),
+      new Request("http://localhost:7830/v1/ingress/invites/redeem", {
+        method: "POST",
+      }),
     );
     await handler.handleRevokeInvite(
-      new Request("http://localhost:7830/v1/ingress/invites/inv_123", { method: "DELETE" }),
+      new Request("http://localhost:7830/v1/ingress/invites/inv_123", {
+        method: "DELETE",
+      }),
       "inv_123",
     );
 
@@ -122,10 +140,12 @@ describe("ingress control-plane proxy", () => {
 
   test("replaces caller auth with runtime auth", async () => {
     let capturedHeaders: Headers | undefined;
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = init?.headers as unknown as Headers;
-      return new Response("ok", { status: 200 });
-    });
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
+        return new Response("ok", { status: 200 });
+      },
+    );
 
     const handler = createIngressControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleUpsertMember(
@@ -135,7 +155,10 @@ describe("ingress control-plane proxy", () => {
           authorization: "Bearer caller-token",
           host: "localhost:7830",
         },
-        body: JSON.stringify({ sourceChannel: "telegram", externalUserId: "u_1" }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          externalUserId: "u_1",
+        }),
       }),
     );
 
@@ -146,27 +169,40 @@ describe("ingress control-plane proxy", () => {
 
   test("passes through upstream client errors", async () => {
     fetchMock = mock(async () => {
-      return new Response(JSON.stringify({ ok: false, error: "sourceChannel is required" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ ok: false, error: "sourceChannel is required" }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        },
+      );
     });
 
     const handler = createIngressControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
-      new Request("http://localhost:7830/v1/ingress/invites", { method: "POST" }),
+      new Request("http://localhost:7830/v1/ingress/invites", {
+        method: "POST",
+      }),
     );
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ ok: false, error: "sourceChannel is required" });
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: "sourceChannel is required",
+    });
   });
 
   test("returns 504 when upstream times out", async () => {
     fetchMock = mock(async () => {
-      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      throw new DOMException(
+        "The operation was aborted due to timeout",
+        "TimeoutError",
+      );
     });
 
-    const handler = createIngressControlPlaneProxyHandler(makeConfig({ runtimeTimeoutMs: 100 }));
+    const handler = createIngressControlPlaneProxyHandler(
+      makeConfig({ runtimeTimeoutMs: 100 }),
+    );
     const res = await handler.handleListMembers(
       new Request("http://localhost:7830/v1/ingress/members"),
     );

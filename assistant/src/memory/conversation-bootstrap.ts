@@ -1,0 +1,28 @@
+import { createConversation } from "./conversation-store.js";
+import {
+  GENERATING_TITLE,
+  queueGenerateConversationTitle,
+  type TitleOrigin,
+} from "./conversation-title-service.js";
+
+export interface BootstrapConversationOptions {
+  threadType?: "standard" | "private" | "background";
+  source?: string;
+  origin: TitleOrigin;
+  systemHint: string;
+  scheduleJobId?: string;
+}
+
+export function bootstrapConversation(opts: BootstrapConversationOptions) {
+  const conversation = createConversation({
+    title: GENERATING_TITLE,
+    ...(opts.threadType && { threadType: opts.threadType }),
+    ...(opts.source && { source: opts.source }),
+    ...(opts.scheduleJobId && { scheduleJobId: opts.scheduleJobId }),
+  });
+  queueGenerateConversationTitle({
+    conversationId: conversation.id,
+    context: { origin: opts.origin, systemHint: opts.systemHint },
+  });
+  return conversation;
+}

@@ -13,7 +13,6 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { getActiveBinding } from "../memory/channel-guardian-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
@@ -96,7 +95,7 @@ function getBroadcaster(): NotificationBroadcaster {
 
 // ── Connected channels resolution ──────────────────────────────────────
 
-function getConnectedChannels(assistantId: string): NotificationChannel[] {
+function getConnectedChannels(_assistantId: string): NotificationChannel[] {
   const channels: NotificationChannel[] = [];
 
   // getDeliverableChannels() returns ChannelId[] but every returned channel
@@ -116,12 +115,8 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         // externalChatId check ensures we don't report a channel as
         // connected when the contacts record exists but lacks the
         // delivery address the destination-resolver needs.
-        // Falls back to legacy binding check if contacts are not yet synced.
         const guardian = findGuardianForChannel(channel);
-        if (
-          (guardian && guardian.channel.externalChatId) ||
-          getActiveBinding(assistantId, channel)
-        ) {
+        if (guardian && guardian.channel.externalChatId) {
           channels.push(channel);
         }
         break;

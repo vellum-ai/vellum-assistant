@@ -63,9 +63,7 @@ function validateAllowlistFile(): AllowlistValidationError[] | null {
   if (!existsSync(filePath)) return null;
 
   const raw = readFileSync(filePath, "utf-8");
-  const allowlistConfig: AllowlistConfig = JSON.parse(
-    raw,
-  ) as AllowlistConfig;
+  const allowlistConfig: AllowlistConfig = JSON.parse(raw) as AllowlistConfig;
   return validateAllowlist(allowlistConfig);
 }
 
@@ -79,9 +77,7 @@ function printUsage(): void {
   console.log(
     "  set <key> <value>      Set a config value (supports dotted paths like apiKeys.anthropic)",
   );
-  console.log(
-    "  list                   List all config values",
-  );
+  console.log("  list                   List all config values");
   console.log(
     "  validate-allowlist     Validate regex patterns in secret-allowlist.json",
   );

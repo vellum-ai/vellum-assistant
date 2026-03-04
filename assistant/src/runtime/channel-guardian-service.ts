@@ -6,10 +6,21 @@
  * and consuming them, and managing guardian bindings.
  */
 
-import { createHash,randomBytes } from 'crypto';
-import { v4 as uuid } from 'uuid';
+import { createHash, randomBytes } from "crypto";
+import { v4 as uuid } from "uuid";
 
-import type { GuardianBinding, IdentityBindingStatus, SessionStatus, VerificationChallenge, VerificationPurpose } from '../memory/channel-guardian-store.js';
+import { findGuardianForChannel } from "../contacts/contact-store.js";
+import {
+  createGuardianBindingContactsFirst,
+  revokeGuardianBindingContactsFirst,
+} from "../contacts/contacts-write.js";
+import type {
+  GuardianBinding,
+  IdentityBindingStatus,
+  SessionStatus,
+  VerificationChallenge,
+  VerificationPurpose,
+} from "../memory/channel-guardian-store.js";
 import {
   bindSessionIdentity as storeBindSessionIdentity,
   consumeChallenge,
@@ -21,16 +32,14 @@ import {
   findPendingChallengeForChannel,
   findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as storeFindSessionByIdentity,
-  getActiveBinding,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
   revokePendingChallenges as storeRevokePendingChallenges,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
-} from '../memory/channel-guardian-store.js';
-import { createGuardianBindingContactsFirst, revokeGuardianBindingContactsFirst } from '../contacts/contacts-write.js';
-import { composeApprovalMessage } from './approval-message-composer.js';
+} from "../memory/channel-guardian-store.js";
+import { composeApprovalMessage } from "./approval-message-composer.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,8 +70,8 @@ export interface CreateChallengeResult {
 }
 
 export type ValidateChallengeResult =
-  | { success: true; bindingId: string; verificationType: 'guardian' }
-  | { success: true; verificationType: 'trusted_contact' }
+  | { success: true; bindingId: string; verificationType: "guardian" }
+  | { success: true; verificationType: "trusted_contact" }
   | { success: false; reason: string };
 
 // ---------------------------------------------------------------------------
@@ -70,7 +79,7 @@ export type ValidateChallengeResult =
 // ---------------------------------------------------------------------------
 
 function hashSecret(secret: string): string {
-  return createHash('sha256').update(secret).digest('hex');
+  return createHash("sha256").update(secret).digest("hex");
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +96,7 @@ function generateNumericSecret(digits: number = 6): string {
   const buf = randomBytes(4);
   const num = buf.readUInt32BE(0);
   const max = 10 ** digits;
-  return String(num % max).padStart(digits, '0');
+  return String(num % max).padStart(digits, "0");
 }
 
 /**
@@ -112,7 +121,7 @@ export function createVerificationChallenge(
 ): CreateChallengeResult {
   // High-entropy hex for unbound inbound challenges — 6-digit numeric
   // codes are only safe when identity binding provides a second factor.
-  const secret = randomBytes(32).toString('hex');
+  const secret = randomBytes(32).toString("hex");
   const challengeHash = hashSecret(secret);
   const challengeId = uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;
@@ -134,7 +143,7 @@ export function createVerificationChallenge(
     verifyCommand: secret,
     ttlSeconds,
     instruction: composeApprovalMessage({
-      scenario: 'guardian_verify_challenge_setup',
+      scenario: "guardian_verify_challenge_setup",
       channel,
       verifyCommand: secret,
     }),
@@ -163,46 +172,69 @@ export function validateAndConsumeChallenge(
   actorDisplayName?: string,
 ): ValidateChallengeResult {
   // ── Rate-limit check ──
-  const existing = getRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
-  if (existing && existing.lockedUntil != null && Date.now() < existing.lockedUntil) {
+  const existing = getRateLimit(
+    assistantId,
+    channel,
+    actorExternalUserId,
+    actorChatId,
+  );
+  if (
+    existing &&
+    existing.lockedUntil != null &&
+    Date.now() < existing.lockedUntil
+  ) {
     // Use the same generic failure message to avoid leaking whether the
     // actor is rate-limited vs. the code is genuinely wrong.
     return {
       success: false,
       reason: composeApprovalMessage({
-        scenario: 'guardian_verify_failed',
-        failureReason: 'The verification code is invalid or has expired.',
+        scenario: "guardian_verify_failed",
+        failureReason: "The verification code is invalid or has expired.",
       }),
     };
   }
 
   const challengeHash = hashSecret(secret);
 
-  const challenge = findPendingChallengeByHash(assistantId, channel, challengeHash);
+  const challenge = findPendingChallengeByHash(
+    assistantId,
+    channel,
+    challengeHash,
+  );
   if (!challenge) {
     recordInvalidAttempt(
-      assistantId, channel, actorExternalUserId, actorChatId,
-      RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_LOCKOUT_MS,
+      assistantId,
+      channel,
+      actorExternalUserId,
+      actorChatId,
+      RATE_LIMIT_WINDOW_MS,
+      RATE_LIMIT_MAX_ATTEMPTS,
+      RATE_LIMIT_LOCKOUT_MS,
     );
     return {
       success: false,
       reason: composeApprovalMessage({
-        scenario: 'guardian_verify_failed',
-        failureReason: 'The verification code is invalid or has expired.',
+        scenario: "guardian_verify_failed",
+        failureReason: "The verification code is invalid or has expired.",
       }),
     };
   }
 
   if (Date.now() > challenge.expiresAt) {
     recordInvalidAttempt(
-      assistantId, channel, actorExternalUserId, actorChatId,
-      RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_LOCKOUT_MS,
+      assistantId,
+      channel,
+      actorExternalUserId,
+      actorChatId,
+      RATE_LIMIT_WINDOW_MS,
+      RATE_LIMIT_MAX_ATTEMPTS,
+      RATE_LIMIT_LOCKOUT_MS,
     );
     return {
       success: false,
       reason: composeApprovalMessage({
-        scenario: 'guardian_verify_failed',
-        failureReason: 'The verification code is invalid or has expired.',
+        scenario: "guardian_verify_failed",
+        failureReason: "The verification code is invalid or has expired.",
       }),
     };
   }
@@ -218,14 +250,16 @@ export function validateAndConsumeChallenge(
     challenge.expectedChatId != null ||
     challenge.expectedPhoneE164 != null;
 
-  if (hasExpectedIdentity && challenge.identityBindingStatus === 'bound') {
+  if (hasExpectedIdentity && challenge.identityBindingStatus === "bound") {
     let identityMatch = false;
 
     // For SMS/voice: verify actorExternalUserId matches expectedPhoneE164
     // OR actorExternalUserId matches expectedExternalUserId
     if (challenge.expectedPhoneE164 != null) {
-      if (actorExternalUserId === challenge.expectedPhoneE164 ||
-          actorExternalUserId === challenge.expectedExternalUserId) {
+      if (
+        actorExternalUserId === challenge.expectedPhoneE164 ||
+        actorExternalUserId === challenge.expectedExternalUserId
+      ) {
         identityMatch = true;
       }
     }
@@ -248,8 +282,11 @@ export function validateAndConsumeChallenge(
     }
 
     // Fallback: if only expectedExternalUserId is set (no phone/chat)
-    if (challenge.expectedPhoneE164 == null && challenge.expectedChatId == null &&
-        challenge.expectedExternalUserId != null) {
+    if (
+      challenge.expectedPhoneE164 == null &&
+      challenge.expectedChatId == null &&
+      challenge.expectedExternalUserId != null
+    ) {
       if (actorExternalUserId === challenge.expectedExternalUserId) {
         identityMatch = true;
       }
@@ -259,14 +296,19 @@ export function validateAndConsumeChallenge(
       // Anti-oracle: use the same generic error message to avoid leaking
       // whether the identity is wrong vs. the code is wrong.
       recordInvalidAttempt(
-        assistantId, channel, actorExternalUserId, actorChatId,
-        RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_LOCKOUT_MS,
+        assistantId,
+        channel,
+        actorExternalUserId,
+        actorChatId,
+        RATE_LIMIT_WINDOW_MS,
+        RATE_LIMIT_MAX_ATTEMPTS,
+        RATE_LIMIT_LOCKOUT_MS,
       );
       return {
         success: false,
         reason: composeApprovalMessage({
-          scenario: 'guardian_verify_failed',
-          failureReason: 'The verification code is invalid or has expired.',
+          scenario: "guardian_verify_failed",
+          failureReason: "The verification code is invalid or has expired.",
         }),
       };
     }
@@ -285,16 +327,20 @@ export function validateAndConsumeChallenge(
   // becoming a trusted contact, not a guardian. The explicit verificationPurpose
   // field distinguishes this from guardian outbound verification which also uses
   // identity-bound sessions.
-  if (challenge.verificationPurpose === 'trusted_contact') {
-    return { success: true, verificationType: 'trusted_contact' };
+  if (challenge.verificationPurpose === "trusted_contact") {
+    return { success: true, verificationType: "trusted_contact" };
   }
 
   // Reject if a different user already holds the guardian binding
-  const existingBinding = getActiveBinding(assistantId, channel);
-  if (existingBinding && existingBinding.guardianExternalUserId !== actorExternalUserId) {
+  const existingBinding = getGuardianBinding(assistantId, channel);
+  if (
+    existingBinding &&
+    existingBinding.guardianExternalUserId !== actorExternalUserId
+  ) {
     return {
       success: false,
-      reason: 'A guardian is already bound for this channel. The existing guardian must be revoked before a new one can be verified.',
+      reason:
+        "A guardian is already bound for this channel. The existing guardian must be revoked before a new one can be verified.",
     };
   }
 
@@ -311,8 +357,9 @@ export function validateAndConsumeChallenge(
 
   // Unify all channel bindings onto the canonical (vellum) principal so that
   // cross-channel authorization reduces to strict principal equality.
-  const vellumBinding = getActiveBinding(assistantId, 'vellum');
-  const canonicalPrincipal = vellumBinding?.guardianPrincipalId ?? actorExternalUserId;
+  const vellumBinding = getGuardianBinding(assistantId, "vellum");
+  const canonicalPrincipal =
+    vellumBinding?.guardianPrincipalId ?? actorExternalUserId;
 
   // Create the new guardian binding
   const binding = createGuardianBindingContactsFirst({
@@ -321,21 +368,45 @@ export function validateAndConsumeChallenge(
     guardianExternalUserId: actorExternalUserId,
     guardianDeliveryChatId: actorChatId,
     guardianPrincipalId: canonicalPrincipal,
-    verifiedVia: 'challenge',
-    metadataJson: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
+    verifiedVia: "challenge",
+    metadataJson:
+      Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
   });
 
-  return { success: true, bindingId: binding.id, verificationType: 'guardian' };
+  return { success: true, bindingId: binding.id, verificationType: "guardian" };
 }
 
 /**
  * Look up the active guardian binding for a given assistant and channel.
+ * Reads from the contacts table via findGuardianForChannel and
+ * synthesizes a GuardianBinding-shaped object for backward compatibility.
+ * Returns null when no contacts match.
  */
 export function getGuardianBinding(
   assistantId: string,
   channel: string,
 ): GuardianBinding | null {
-  return getActiveBinding(assistantId, channel);
+  const result = findGuardianForChannel(channel, assistantId);
+  if (result) {
+    return {
+      id: result.channel.id,
+      assistantId,
+      channel,
+      guardianExternalUserId: result.channel.externalUserId ?? "",
+      guardianDeliveryChatId: result.channel.externalChatId ?? "",
+      guardianPrincipalId: result.contact.principalId ?? "",
+      status: "active" as const,
+      verifiedAt: result.channel.verifiedAt ?? 0,
+      verifiedVia: result.channel.verifiedVia ?? "",
+      metadataJson: result.contact.displayName
+        ? JSON.stringify({ displayName: result.contact.displayName })
+        : null,
+      createdAt: result.channel.createdAt,
+      updatedAt: result.channel.updatedAt ?? result.channel.createdAt,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -347,17 +418,18 @@ export function isGuardian(
   channel: string,
   externalUserId: string,
 ): boolean {
-  const binding = getActiveBinding(assistantId, channel);
-  return binding != null && binding.guardianExternalUserId === externalUserId;
+  const result = findGuardianForChannel(channel, assistantId);
+  if (result) {
+    return result.channel.externalUserId === externalUserId;
+  }
+
+  return false;
 }
 
 /**
  * Revoke the active guardian binding for a given assistant and channel.
  */
-export function revokeBinding(
-  assistantId: string,
-  channel: string,
-): boolean {
+export function revokeBinding(assistantId: string, channel: string): boolean {
   return revokeGuardianBindingContactsFirst(assistantId, channel);
 }
 
@@ -423,9 +495,9 @@ export function createOutboundSession(params: {
 }): CreateOutboundSessionResult {
   // Use high-entropy hex for unbound bootstrap sessions to prevent brute-force;
   // 6-digit numeric codes are only safe when identity is already bound.
-  const isUnbound = params.identityBindingStatus === 'pending_bootstrap';
+  const isUnbound = params.identityBindingStatus === "pending_bootstrap";
   const secret = isUnbound
-    ? randomBytes(32).toString('hex')
+    ? randomBytes(32).toString("hex")
     : generateNumericSecret(params.codeDigits ?? 6);
   const challengeHash = hashSecret(secret);
   const sessionId = params.sessionId ?? uuid();
@@ -437,11 +509,14 @@ export function createOutboundSession(params: {
     channel: params.channel,
     challengeHash,
     expiresAt,
-    status: params.identityBindingStatus === 'pending_bootstrap' ? 'pending_bootstrap' : 'awaiting_response',
+    status:
+      params.identityBindingStatus === "pending_bootstrap"
+        ? "pending_bootstrap"
+        : "awaiting_response",
     expectedExternalUserId: params.expectedExternalUserId,
     expectedChatId: params.expectedChatId,
     expectedPhoneE164: params.expectedPhoneE164,
-    identityBindingStatus: params.identityBindingStatus ?? 'bound',
+    identityBindingStatus: params.identityBindingStatus ?? "bound",
     destinationAddress: params.destinationAddress,
     codeDigits: params.codeDigits,
     maxAttempts: params.maxAttempts,
@@ -479,7 +554,13 @@ export function findSessionByIdentity(
   chatId?: string,
   phoneE164?: string,
 ): VerificationChallenge | null {
-  return storeFindSessionByIdentity(assistantId, channel, externalUserId, chatId, phoneE164);
+  return storeFindSessionByIdentity(
+    assistantId,
+    channel,
+    externalUserId,
+    chatId,
+    phoneE164,
+  );
 }
 
 /**
@@ -518,7 +599,11 @@ export function countRecentSendsToDestination(
   destinationAddress: string,
   windowMs: number,
 ): number {
-  return storeCountRecentSendsToDestination(channel, destinationAddress, windowMs);
+  return storeCountRecentSendsToDestination(
+    channel,
+    destinationAddress,
+    windowMs,
+  );
 }
 
 /**

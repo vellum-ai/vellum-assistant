@@ -7,9 +7,9 @@
  * stored bot token.
  */
 
-import type { TelegramGetMeResponse } from './types.js';
+import type { TelegramGetMeResponse } from "./types.js";
 
-const TELEGRAM_API_BASE = 'https://api.telegram.org';
+const TELEGRAM_API_BASE = "https://api.telegram.org";
 const DELIVERY_TIMEOUT_MS = 30_000;
 
 export class TelegramApiError extends Error {
@@ -18,7 +18,7 @@ export class TelegramApiError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'TelegramApiError';
+    this.name = "TelegramApiError";
   }
 }
 
@@ -28,7 +28,7 @@ export class TelegramApiError extends Error {
  */
 export async function getMe(botToken: string): Promise<TelegramGetMeResponse> {
   const resp = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/getMe`, {
-    method: 'POST',
+    method: "POST",
     signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
   });
 
@@ -85,9 +85,9 @@ async function deliverToGateway(
 ): Promise<void> {
   const url = `${gatewayUrl}/deliver/telegram`;
   const resp = await fetch(url, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${bearerToken}`,
     },
     body: JSON.stringify(payload),
@@ -95,7 +95,7 @@ async function deliverToGateway(
   });
 
   if (!resp.ok) {
-    const body = await resp.text().catch(() => '<unreadable>');
+    const body = await resp.text().catch(() => "<unreadable>");
     throw new TelegramApiError(
       resp.status,
       `Gateway /deliver/telegram failed (${resp.status}): ${body}`,

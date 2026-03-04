@@ -12,13 +12,13 @@ for (const [k, v] of Object.entries(env)) {
   saved[k] = process.env[k];
   process.env[k] = v;
 }
-saved["GATEWAY_RUNTIME_PROXY_ENABLED"] = process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
+saved["GATEWAY_RUNTIME_PROXY_ENABLED"] =
+  process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
 delete process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
 
 const { loadConfig } = await import("../config.js");
-const { createTelegramWebhookHandler } = await import(
-  "../http/routes/telegram-webhook.js"
-);
+const { createTelegramWebhookHandler } =
+  await import("../http/routes/telegram-webhook.js");
 
 const config = loadConfig();
 
@@ -74,7 +74,9 @@ describe("/readyz", () => {
   test("returns 503 when draining", async () => {
     draining = true;
     try {
-      const res = await handleRequest(new Request("http://gateway.test/readyz"));
+      const res = await handleRequest(
+        new Request("http://gateway.test/readyz"),
+      );
       expect(res.status).toBe(503);
       const body = await res.json();
       expect(body.status).toBe("draining");

@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Add role and principal_id columns to the contacts table.
@@ -11,6 +11,16 @@ import type { DrizzleDb } from '../db-connection.js';
  * Uses ALTER TABLE ADD COLUMN with try/catch for idempotency.
  */
 export function migrateContactsRolePrincipal(database: DrizzleDb): void {
-  try { database.run(/*sql*/ `ALTER TABLE contacts ADD COLUMN role TEXT NOT NULL DEFAULT 'contact'`); } catch { /* already exists */ }
-  try { database.run(/*sql*/ `ALTER TABLE contacts ADD COLUMN principal_id TEXT`); } catch { /* already exists */ }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE contacts ADD COLUMN role TEXT NOT NULL DEFAULT 'contact'`,
+    );
+  } catch {
+    /* already exists */
+  }
+  try {
+    database.run(/*sql*/ `ALTER TABLE contacts ADD COLUMN principal_id TEXT`);
+  } catch {
+    /* already exists */
+  }
 }

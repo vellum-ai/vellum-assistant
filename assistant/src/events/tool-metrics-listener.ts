@@ -1,9 +1,9 @@
-import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
-import type { EventBus, Subscription } from './bus.js';
-import type { AssistantDomainEvents } from './domain-events.js';
+import { getLogger, isDebug, truncateForLog } from "../util/logger.js";
+import type { EventBus, Subscription } from "./bus.js";
+import type { AssistantDomainEvents } from "./domain-events.js";
 
 const INPUT_PREVIEW_LIMIT = 300;
-const defaultLogger = getLogger('tool-metrics-listener');
+const defaultLogger = getLogger("tool-metrics-listener");
 
 interface MetricsLogger {
   debug(meta: object, message: string): void;
@@ -28,7 +28,7 @@ export function registerToolMetricsLoggingListener(
 
   return eventBus.onAny((event) => {
     switch (event.type) {
-      case 'tool.execution.started':
+      case "tool.execution.started":
         if (!debugEnabled()) return;
         logger.debug(
           {
@@ -38,10 +38,10 @@ export function registerToolMetricsLoggingListener(
             conversationId: event.payload.conversationId,
             requestId: event.payload.requestId,
           },
-          'Tool execute start',
+          "Tool execute start",
         );
         return;
-      case 'tool.permission.requested':
+      case "tool.permission.requested":
         logger.info(
           {
             tool: event.payload.toolName,
@@ -50,10 +50,10 @@ export function registerToolMetricsLoggingListener(
             conversationId: event.payload.conversationId,
             requestId: event.payload.requestId,
           },
-          'Tool permission requested',
+          "Tool permission requested",
         );
         return;
-      case 'tool.permission.decided': {
+      case "tool.permission.decided": {
         const meta = {
           tool: event.payload.toolName,
           decision: event.payload.decision,
@@ -63,17 +63,22 @@ export function registerToolMetricsLoggingListener(
           requestId: event.payload.requestId,
         };
 
-        if (event.payload.decision === 'deny' || event.payload.decision === 'always_deny') {
-          logger.info(meta, 'Tool permission denied');
+        if (
+          event.payload.decision === "deny" ||
+          event.payload.decision === "always_deny"
+        ) {
+          logger.info(meta, "Tool permission denied");
           return;
         }
         if (debugEnabled()) {
-          logger.debug(meta, 'Tool permission decided');
+          logger.debug(meta, "Tool permission decided");
         }
         return;
       }
-      case 'tool.secret.detected': {
-        const types = [...new Set(event.payload.matches.map((match) => match.type))];
+      case "tool.secret.detected": {
+        const types = [
+          ...new Set(event.payload.matches.map((match) => match.type)),
+        ];
         logger.warn(
           {
             toolName: event.payload.toolName,
@@ -84,11 +89,11 @@ export function registerToolMetricsLoggingListener(
             conversationId: event.payload.conversationId,
             requestId: event.payload.requestId,
           },
-          'Secrets detected in tool output',
+          "Secrets detected in tool output",
         );
         return;
       }
-      case 'tool.execution.finished':
+      case "tool.execution.finished":
         if (!debugEnabled()) return;
         logger.debug(
           {
@@ -101,10 +106,10 @@ export function registerToolMetricsLoggingListener(
             conversationId: event.payload.conversationId,
             requestId: event.payload.requestId,
           },
-          'Tool execute result',
+          "Tool execute result",
         );
         return;
-      case 'tool.execution.failed':
+      case "tool.execution.failed":
         if (event.payload.isExpected) {
           logger.warn(
             {
@@ -120,7 +125,7 @@ export function registerToolMetricsLoggingListener(
               conversationId: event.payload.conversationId,
               requestId: event.payload.requestId,
             },
-            'Tool execution failed (expected)',
+            "Tool execution failed (expected)",
           );
           return;
         }
@@ -138,7 +143,7 @@ export function registerToolMetricsLoggingListener(
             conversationId: event.payload.conversationId,
             requestId: event.payload.requestId,
           },
-          'Tool execution error',
+          "Tool execution error",
         );
         return;
       default:
@@ -154,6 +159,6 @@ function formatInputForLog(
   try {
     return truncate(JSON.stringify(input), INPUT_PREVIEW_LIMIT);
   } catch {
-    return '[unserializable-input]';
+    return "[unserializable-input]";
   }
 }

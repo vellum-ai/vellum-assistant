@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
 import { contactChannels, contacts } from "../memory/schema.js";
+import { emitContactChange } from "./contact-events.js";
 import type {
   ChannelPolicy,
   ChannelStatus,
@@ -11,31 +12,6 @@ import type {
   ContactRole,
   ContactWithChannels,
 } from "./types.js";
-
-// ── Contacts-populated cache ─────────────────────────────────────────
-// Tracks whether the contacts table has any rows. Callers can skip
-// expensive contacts-first queries when the table is known to be empty
-// (e.g., before first contact-sync). Invalidated on upsert/delete.
-
-let contactsPopulatedCache: boolean | null = null;
-
-/** Returns true if the contacts table has at least one row. Cached. */
-export function hasContacts(): boolean {
-  if (contactsPopulatedCache != null) return contactsPopulatedCache;
-  const db = getDb();
-  const row = db
-    .select({ n: sql<number>`1` })
-    .from(contacts)
-    .limit(1)
-    .get();
-  contactsPopulatedCache = row != null;
-  return contactsPopulatedCache;
-}
-
-/** Invalidate the contacts-populated cache (call after inserts/deletes). */
-export function invalidateContactsCache(): void {
-  contactsPopulatedCache = null;
-}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -59,6 +35,7 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     updatedAt: row.updatedAt,
     role: row.role as Contact["role"],
     principalId: row.principalId,
+    assistantId: row.assistantId ?? null,
   };
 }
 
@@ -129,6 +106,20 @@ export function getContact(id: string): ContactWithChannels | null {
   return withChannels(parseContact(row));
 }
 
+/**
+ * Look up a single contact channel by its primary key.
+ * Returns the parsed channel row, or null if it does not exist.
+ */
+export function getChannelById(channelId: string): ContactChannel | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(contactChannels)
+    .where(eq(contactChannels.id, channelId))
+    .get();
+  return row ? parseChannel(row) : null;
+}
+
 export function upsertContact(params: {
   id?: string;
   displayName: string;
@@ -138,6 +129,7 @@ export function upsertContact(params: {
   preferredTone?: string | null;
   role?: ContactRole;
   principalId?: string | null;
+  assistantId?: string | null;
   channels?: SyncChannelData[];
 }): ContactWithChannels & { created: boolean } {
   const db = getDb();
@@ -176,6 +168,8 @@ export function upsertContact(params: {
       if (params.role !== undefined) updateSet.role = params.role;
       if (params.principalId !== undefined)
         updateSet.principalId = params.principalId;
+      if (params.assistantId !== undefined)
+        updateSet.assistantId = params.assistantId;
 
       db.update(contacts)
         .set(updateSet)
@@ -247,6 +241,8 @@ export function upsertContact(params: {
         if (params.role !== undefined) updateSet.role = params.role;
         if (params.principalId !== undefined)
           updateSet.principalId = params.principalId;
+        if (params.assistantId !== undefined)
+          updateSet.assistantId = params.assistantId;
 
         db.update(contacts)
           .set(updateSet)
@@ -273,11 +269,11 @@ export function upsertContact(params: {
       interactionCount: 0,
       role: params.role ?? "contact",
       principalId: params.principalId ?? null,
+      assistantId: params.assistantId ?? null,
       createdAt: now,
       updatedAt: now,
     })
     .run();
-  invalidateContactsCache();
 
   if (params.channels) {
     syncChannels(contactId, params.channels, now);
@@ -482,8 +478,10 @@ export function searchContacts(params: {
 export function listContacts(
   limit = 50,
   role?: ContactRole,
+  opts?: { uncapped?: boolean },
 ): ContactWithChannels[] {
   const db = getDb();
+  const effectiveLimit = opts?.uncapped ? limit : Math.min(limit, 200);
   const rows = db
     .select()
     .from(contacts)
@@ -493,7 +491,7 @@ export function listContacts(
       desc(contacts.importance),
       desc(contacts.lastInteraction),
     )
-    .limit(Math.min(limit, 200))
+    .limit(effectiveLimit)
     .all();
   return rows.map((r) => withChannels(parseContact(r)));
 }
@@ -656,14 +654,86 @@ export function findContactByChannelExternalId(
 }
 
 /**
+ * Find a contact by channel external chat ID. This is the fallback lookup path
+ * when externalUserId is not available — matches by (type, externalChatId).
+ */
+export function findContactByChannelExternalChatId(
+  channelType: string,
+  externalChatId: string,
+): ContactWithChannels | null {
+  const db = getDb();
+  const channel = db
+    .select()
+    .from(contactChannels)
+    .where(
+      and(
+        eq(contactChannels.type, channelType),
+        eq(contactChannels.externalChatId, externalChatId),
+      ),
+    )
+    .get();
+  if (!channel) return null;
+  return getContact(channel.contactId);
+}
+
+/**
+ * Find a contact and matching channel by trying externalUserId first, then
+ * falling back to externalChatId. Mirrors the findMember lookup strategy.
+ */
+export function findContactChannel(params: {
+  channelType: string;
+  externalUserId?: string;
+  externalChatId?: string;
+}): { contact: ContactWithChannels; channel: ContactChannel } | null {
+  if (params.externalUserId) {
+    const contact = findContactByChannelExternalId(
+      params.channelType,
+      params.externalUserId,
+    );
+    if (contact) {
+      const ch = contact.channels.find(
+        (c) =>
+          c.type === params.channelType &&
+          c.externalUserId === params.externalUserId,
+      );
+      if (ch) return { contact, channel: ch };
+    }
+  }
+  if (params.externalChatId) {
+    const contact = findContactByChannelExternalChatId(
+      params.channelType,
+      params.externalChatId,
+    );
+    if (contact) {
+      const ch = contact.channels.find(
+        (c) =>
+          c.type === params.channelType &&
+          c.externalChatId === params.externalChatId,
+      );
+      if (ch) return { contact, channel: ch };
+    }
+  }
+  return null;
+}
+
+/**
  * Find the guardian contact and their specific channel entry for a given channel type.
  * This is the contacts-based equivalent of getGuardianBinding(assistantId, channel).
  * Returns null if no guardian contact has a channel of the specified type.
  */
 export function findGuardianForChannel(
   channelType: string,
+  assistantId?: string,
 ): { contact: Contact; channel: ContactChannel } | null {
   const db = getDb();
+  const conditions = [
+    eq(contacts.role, "guardian"),
+    eq(contactChannels.type, channelType),
+    eq(contactChannels.status, "active"),
+  ];
+  if (assistantId) {
+    conditions.push(eq(contacts.assistantId, assistantId));
+  }
   const rows = db
     .select({
       contact: contacts,
@@ -671,13 +741,7 @@ export function findGuardianForChannel(
     })
     .from(contacts)
     .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(
-        eq(contacts.role, "guardian"),
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.status, "active"),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(contactChannels.verifiedAt))
     .limit(1)
     .all();
@@ -698,21 +762,26 @@ export function findGuardianForChannel(
  *
  * Returns true if a channel was found and revoked, false otherwise.
  */
-export function revokeGuardianChannel(channelType: string): boolean {
+export function revokeGuardianChannel(
+  channelType: string,
+  assistantId?: string,
+): boolean {
   const db = getDb();
+  const conditions = [
+    eq(contacts.role, "guardian"),
+    eq(contactChannels.type, channelType),
+    eq(contactChannels.status, "active"),
+  ];
+  if (assistantId) {
+    conditions.push(eq(contacts.assistantId, assistantId));
+  }
   const rows = db
     .select({
       channelId: contactChannels.id,
     })
     .from(contacts)
     .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(
-        eq(contacts.role, "guardian"),
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.status, "active"),
-      ),
-    )
+    .where(and(...conditions))
     .all();
 
   if (rows.length === 0) return false;
@@ -752,10 +821,7 @@ export function listGuardianChannels(): {
     .from(contacts)
     .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
     .where(
-      and(
-        eq(contacts.role, "guardian"),
-        eq(contactChannels.status, "active"),
-      ),
+      and(eq(contacts.role, "guardian"), eq(contactChannels.status, "active")),
     )
     .orderBy(desc(contactChannels.verifiedAt))
     .all();
@@ -808,15 +874,32 @@ export function updateChannelStatus(
       .set(updateSet)
       .where(eq(contactChannels.id, channelId))
       .run();
+
+    const updated = db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+
+    const result = updated ? parseChannel(updated) : null;
+    emitContactChange();
+    return result;
   }
 
-  const updated = db
-    .select()
-    .from(contactChannels)
-    .where(eq(contactChannels.id, channelId))
-    .get();
+  return parseChannel(existing);
+}
 
-  return updated ? parseChannel(updated) : null;
+/**
+ * Update the lastSeenAt timestamp on a contact channel by its primary key.
+ * Optimized for the hot path — single UPDATE with no prior SELECT.
+ */
+export function updateChannelLastSeenById(channelId: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(contactChannels)
+    .set({ lastSeenAt: now, updatedAt: now })
+    .where(eq(contactChannels.id, channelId))
+    .run();
 }
 
 /**

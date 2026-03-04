@@ -13,11 +13,15 @@ describe("validateAssistantName", () => {
   });
 
   test("rejects names with forward slashes", () => {
-    expect(() => validateAssistantName("foo/bar")).toThrow("Invalid assistant name");
+    expect(() => validateAssistantName("foo/bar")).toThrow(
+      "Invalid assistant name",
+    );
   });
 
   test("rejects names with backslashes", () => {
-    expect(() => validateAssistantName("foo\\bar")).toThrow("Invalid assistant name");
+    expect(() => validateAssistantName("foo\\bar")).toThrow(
+      "Invalid assistant name",
+    );
   });
 
   test("rejects dot-dot traversal", () => {

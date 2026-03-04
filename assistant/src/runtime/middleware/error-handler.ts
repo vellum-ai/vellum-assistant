@@ -2,11 +2,11 @@
  * Centralized error handling for runtime HTTP request dispatch.
  */
 
-import { ConfigError, IngressBlockedError } from '../../util/errors.js';
-import { getLogger } from '../../util/logger.js';
-import { httpError } from '../http-errors.js';
+import { ConfigError, IngressBlockedError } from "../../util/errors.js";
+import { getLogger } from "../../util/logger.js";
+import { httpError } from "../http-errors.js";
 
-const log = getLogger('runtime-http');
+const log = getLogger("runtime-http");
 
 /**
  * Wrap an async endpoint handler with standard error handling.
@@ -20,15 +20,19 @@ export async function withErrorHandling(
     return await handler();
   } catch (err) {
     if (err instanceof IngressBlockedError) {
-      log.warn({ endpoint, detectedTypes: err.detectedTypes }, 'Blocked HTTP request containing secrets');
-      return httpError('UNPROCESSABLE_ENTITY', err.message, 422);
+      log.warn(
+        { endpoint, detectedTypes: err.detectedTypes },
+        "Blocked HTTP request containing secrets",
+      );
+      return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
     }
     if (err instanceof ConfigError) {
-      log.warn({ err, endpoint }, 'Runtime HTTP config error');
-      return httpError('UNPROCESSABLE_ENTITY', err.message, 422);
+      log.warn({ err, endpoint }, "Runtime HTTP config error");
+      return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
     }
-    log.error({ err, endpoint }, 'Runtime HTTP handler error');
-    const message = err instanceof Error ? err.message : 'Internal server error';
-    return httpError('INTERNAL_ERROR', message, 500);
+    log.error({ err, endpoint }, "Runtime HTTP handler error");
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
+    return httpError("INTERNAL_ERROR", message, 500);
   }
 }

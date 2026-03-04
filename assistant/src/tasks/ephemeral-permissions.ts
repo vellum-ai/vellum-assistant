@@ -1,4 +1,4 @@
-import type { TrustRule } from '../permissions/types.js';
+import type { TrustRule } from "../permissions/types.js";
 
 // In-memory map: task_run_id -> ephemeral rules
 const activeTaskRules = new Map<string, TrustRule[]>();
@@ -34,13 +34,17 @@ export function clearTaskRunRules(taskRunId: string): void {
  * pre-approves tools via the preflight flow before execution begins,
  * so there is no interactive prompt during the run itself.
  */
-export function buildTaskRules(taskRunId: string, requiredTools: string[], _workingDir: string): TrustRule[] {
+export function buildTaskRules(
+  taskRunId: string,
+  requiredTools: string[],
+  _workingDir: string,
+): TrustRule[] {
   return requiredTools.map((tool) => ({
     id: `ephemeral:${taskRunId}:${tool}`,
     tool,
-    pattern: '**',
-    scope: 'everywhere',
-    decision: 'allow' as const,
+    pattern: "**",
+    scope: "everywhere",
+    decision: "allow" as const,
     allowHighRisk: true,
     priority: 75,
     createdAt: Date.now(),

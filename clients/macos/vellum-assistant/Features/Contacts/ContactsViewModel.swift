@@ -69,6 +69,10 @@ final class ContactsViewModel: ObservableObject {
             }
         }
 
+        daemonClient.onContactsChanged = { [weak self] _ in
+            self?.loadContacts()
+        }
+
         do {
             try daemonClient.sendListContacts(limit: 500)
         } catch {

@@ -138,7 +138,7 @@ function parseTar(buffer: Uint8Array): TarEntry[] {
 function decodeNullTerminated(
   buf: Uint8Array,
   start: number,
-  maxLen: number
+  maxLen: number,
 ): string {
   let end = start;
   while (end < start + maxLen && buf[end] !== 0) {

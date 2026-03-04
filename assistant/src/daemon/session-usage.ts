@@ -1,12 +1,12 @@
-import { getConfig } from '../config/loader.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { recordUsageEvent } from '../memory/llm-usage-store.js';
-import type { UsageActor } from '../usage/actors.js';
-import { getLogger } from '../util/logger.js';
-import { estimateCost, resolvePricingWithOverrides } from '../util/pricing.js';
-import type { ServerMessage, UsageStats } from './ipc-protocol.js';
+import { getConfig } from "../config/loader.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import type { UsageActor } from "../usage/actors.js";
+import { getLogger } from "../util/logger.js";
+import { estimateCost, resolvePricingWithOverrides } from "../util/pricing.js";
+import type { ServerMessage, UsageStats } from "./ipc-protocol.js";
 
-const log = getLogger('session-usage');
+const log = getLogger("session-usage");
 
 export interface UsageContext {
   conversationId: string;
@@ -25,7 +25,12 @@ export function recordUsage(
 ): void {
   if (inputTokens <= 0 && outputTokens <= 0) return;
 
-  const estimatedCost = estimateCost(inputTokens, outputTokens, model, ctx.providerName);
+  const estimatedCost = estimateCost(
+    inputTokens,
+    outputTokens,
+    model,
+    ctx.providerName,
+  );
   ctx.usageStats.inputTokens += inputTokens;
   ctx.usageStats.outputTokens += outputTokens;
   ctx.usageStats.estimatedCost += estimatedCost;
@@ -37,7 +42,7 @@ export function recordUsage(
     ctx.usageStats.estimatedCost,
   );
   onEvent({
-    type: 'usage_update',
+    type: "usage_update",
     inputTokens,
     outputTokens,
     totalInputTokens: ctx.usageStats.inputTokens,
@@ -49,7 +54,13 @@ export function recordUsage(
   // Dual-write: persist per-turn usage event to the new ledger table
   try {
     const config = getConfig();
-    const pricing = resolvePricingWithOverrides(ctx.providerName, model, inputTokens, outputTokens, config.pricingOverrides);
+    const pricing = resolvePricingWithOverrides(
+      ctx.providerName,
+      model,
+      inputTokens,
+      outputTokens,
+      config.pricingOverrides,
+    );
     recordUsageEvent(
       {
         actor,
@@ -66,7 +77,9 @@ export function recordUsage(
       pricing,
     );
   } catch (err) {
-    log.warn({ err, conversationId: ctx.conversationId }, 'Failed to persist usage event (non-fatal)');
+    log.warn(
+      { err, conversationId: ctx.conversationId },
+      "Failed to persist usage event (non-fatal)",
+    );
   }
 }
-

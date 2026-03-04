@@ -7,18 +7,26 @@
  * passed to asset_materialize (PR 35) to retrieve actual content.
  */
 
-import { and, desc,eq, gte, like } from 'drizzle-orm';
+import { and, desc, eq, gte, like } from "drizzle-orm";
 
-import { type AttachmentContext,isAttachmentVisible } from '../../daemon/media-visibility-policy.js';
-import type { StoredAttachment } from '../../memory/attachments-store.js';
-import { getConversationThreadType } from '../../memory/conversation-store.js';
-import { getDb, rawAll } from '../../memory/db.js';
-import { attachments, conversations,messageAttachments, messages } from '../../memory/schema.js';
-import { escapeLikeWildcards } from '../../memory/search/lexical.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import {
+  type AttachmentContext,
+  isAttachmentVisible,
+} from "../../daemon/media-visibility-policy.js";
+import type { StoredAttachment } from "../../memory/attachments-store.js";
+import { getConversationThreadType } from "../../memory/conversation-store.js";
+import { getDb, rawAll } from "../../memory/db.js";
+import {
+  attachments,
+  conversations,
+  messageAttachments,
+  messages,
+} from "../../memory/schema.js";
+import { escapeLikeWildcards } from "../../memory/search/lexical.js";
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import { registerTool } from "../registry.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Recency presets — map human-readable labels to epoch-ms cutoff offsets
@@ -50,7 +58,7 @@ function formatAttachment(a: StoredAttachment): string {
     `- **${a.originalFilename}** (ID: ${a.id})`,
     `  Type: ${a.mimeType} | Kind: ${a.kind} | Size: ${formatBytes(a.sizeBytes)}`,
     `  Created: ${date}`,
-  ].join('\n');
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -87,20 +95,26 @@ export function getAttachmentSourceConversations(
  * - All-private attachments are visible only if the caller is in one of
  *   the source private threads.
  */
-function isAttachmentVisibleFromContext(attachmentId: string, currentContext: AttachmentContext): boolean {
+function isAttachmentVisibleFromContext(
+  attachmentId: string,
+  currentContext: AttachmentContext,
+): boolean {
   const sources = getAttachmentSourceConversations(attachmentId);
   if (sources.length === 0) {
     return true;
   }
 
-  const hasStandard = sources.some((s) => s.threadType !== 'private');
+  const hasStandard = sources.some((s) => s.threadType !== "private");
   if (hasStandard) {
     return true;
   }
 
   // All sources are private — visible only if the caller is in one of those threads
-  return sources.some(
-    (s) => isAttachmentVisible({ conversationId: s.conversationId, isPrivate: true }, currentContext),
+  return sources.some((s) =>
+    isAttachmentVisible(
+      { conversationId: s.conversationId, isPrivate: true },
+      currentContext,
+    ),
   );
 }
 
@@ -119,19 +133,26 @@ export interface AssetSearchParams {
 const MAX_RESULTS = 100;
 const DEFAULT_LIMIT = 20;
 
-export function searchAttachments(params: AssetSearchParams): StoredAttachment[] {
+export function searchAttachments(
+  params: AssetSearchParams,
+): StoredAttachment[] {
   const db = getDb();
   const conditions = [];
 
   // MIME type filter — supports wildcards like 'image/*' via LIKE
   if (params.mime_type) {
-    const mimePattern = params.mime_type.replace(/\*/g, '%');
+    const mimePattern = params.mime_type.replace(/\*/g, "%");
     conditions.push(like(attachments.mimeType, mimePattern));
   }
 
   // Filename filter — case-insensitive substring match (escape LIKE wildcards)
   if (params.filename) {
-    conditions.push(like(attachments.originalFilename, `%${escapeLikeWildcards(params.filename)}%`));
+    conditions.push(
+      like(
+        attachments.originalFilename,
+        `%${escapeLikeWildcards(params.filename)}%`,
+      ),
+    );
   }
 
   // Recency filter — computed cutoff timestamp
@@ -158,7 +179,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       return [];
     }
 
-    const placeholders = linkedIds.map(() => '?').join(', ');
+    const placeholders = linkedIds.map(() => "?").join(", ");
 
     // Build WHERE clauses for raw query (FTS5 virtual table not involved,
     // but dynamic IN-list with optional filters is simpler in raw SQL)
@@ -166,7 +187,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
     const bindValues: (string | number)[] = [...linkedIds];
 
     if (params.mime_type) {
-      const mimePattern = params.mime_type.replace(/\*/g, '%');
+      const mimePattern = params.mime_type.replace(/\*/g, "%");
       whereParts.push(`a.mime_type LIKE ?`);
       bindValues.push(mimePattern);
     }
@@ -196,10 +217,11 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
     const rows = rawAll<AttachmentRow>(
       `SELECT a.id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.created_at
        FROM attachments a
-       WHERE ${whereParts.join(' AND ')}
+       WHERE ${whereParts.join(" AND ")}
        ORDER BY a.created_at DESC
        LIMIT ?`,
-      ...bindValues, limit,
+      ...bindValues,
+      limit,
     );
 
     return rows.map((r) => ({
@@ -242,42 +264,44 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
 // ---------------------------------------------------------------------------
 
 const definition: ToolDefinition = {
-  name: 'asset_search',
+  name: "asset_search",
   description:
-    'Search for previously uploaded media assets (images, documents, etc.) by metadata. ' +
-    'Returns attachment IDs and metadata — not file content. Use the returned IDs with ' +
-    'asset_materialize to retrieve actual file data.',
+    "Search for previously uploaded media assets (images, documents, etc.) by metadata. " +
+    "Returns attachment IDs and metadata — not file content. Use the returned IDs with " +
+    "asset_materialize to retrieve actual file data.",
   input_schema: {
-    type: 'object',
+    type: "object",
     properties: {
       mime_type: {
-        type: 'string',
+        type: "string",
         description:
           'Filter by MIME type. Supports wildcards: "image/*" matches all images, ' +
           '"application/pdf" matches PDFs exactly.',
       },
       filename: {
-        type: 'string',
-        description: 'Search by original filename (case-insensitive substring match).',
+        type: "string",
+        description:
+          "Search by original filename (case-insensitive substring match).",
       },
       recency: {
-        type: 'string',
+        type: "string",
         enum: VALID_RECENCY_VALUES,
         description:
-          'Filter by recency. One of: last_hour, last_24_hours, last_7_days, last_30_days, last_90_days.',
+          "Filter by recency. One of: last_hour, last_24_hours, last_7_days, last_30_days, last_90_days.",
       },
       conversation_id: {
-        type: 'string',
+        type: "string",
         description:
-          'Constrain results to attachments linked to messages in a specific conversation.',
+          "Constrain results to attachments linked to messages in a specific conversation.",
       },
       limit: {
-        type: 'number',
+        type: "number",
         description: `Maximum results to return (default ${DEFAULT_LIMIT}, max ${MAX_RESULTS}).`,
       },
       reason: {
-        type: 'string',
-        description: 'Brief non-technical explanation of what you are searching for and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+        type: "string",
+        description:
+          "Brief non-technical explanation of what you are searching for and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
       },
     },
     required: [],
@@ -289,16 +313,19 @@ const definition: ToolDefinition = {
 // ---------------------------------------------------------------------------
 
 class AssetSearchTool implements Tool {
-  name = 'asset_search';
+  name = "asset_search";
   description = definition.description;
-  category = 'assets';
+  category = "assets";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return definition;
   }
 
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     const mimeType = input.mime_type as string | undefined;
     const filename = input.filename as string | undefined;
     const recency = input.recency as string | undefined;
@@ -308,15 +335,15 @@ class AssetSearchTool implements Tool {
     // Validate recency if provided
     if (recency && !RECENCY_MS[recency]) {
       return {
-        content: `Error: Invalid recency value "${recency}". Valid values: ${VALID_RECENCY_VALUES.join(', ')}`,
+        content: `Error: Invalid recency value "${recency}". Valid values: ${VALID_RECENCY_VALUES.join(", ")}`,
         isError: true,
       };
     }
 
     // Validate limit if provided
-    if (limit !== undefined && (typeof limit !== 'number' || limit < 1)) {
+    if (limit !== undefined && (typeof limit !== "number" || limit < 1)) {
       return {
-        content: 'Error: limit must be a positive number.',
+        content: "Error: limit must be a positive number.",
         isError: true,
       };
     }
@@ -334,19 +361,26 @@ class AssetSearchTool implements Tool {
 
       // Enforce private-thread visibility: filter out attachments that
       // belong exclusively to private threads the caller cannot access.
-      const currentThreadType = getConversationThreadType(context.conversationId);
+      const currentThreadType = getConversationThreadType(
+        context.conversationId,
+      );
       const currentContext: AttachmentContext = {
         conversationId: context.conversationId,
-        isPrivate: currentThreadType === 'private',
+        isPrivate: currentThreadType === "private",
       };
 
       const effectiveLimit = Math.min(limit ?? DEFAULT_LIMIT, MAX_RESULTS);
       const visible = results
-        .filter((attachment) => isAttachmentVisibleFromContext(attachment.id, currentContext))
+        .filter((attachment) =>
+          isAttachmentVisibleFromContext(attachment.id, currentContext),
+        )
         .slice(0, effectiveLimit);
 
       if (visible.length === 0) {
-        return { content: 'No assets found matching the search criteria.', isError: false };
+        return {
+          content: "No assets found matching the search criteria.",
+          isError: false,
+        };
       }
 
       const lines = [`Found ${visible.length} asset(s):\n`];
@@ -354,7 +388,7 @@ class AssetSearchTool implements Tool {
         lines.push(formatAttachment(attachment));
       }
 
-      return { content: lines.join('\n'), isError: false };
+      return { content: lines.join("\n"), isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: `Error: ${msg}`, isError: true };

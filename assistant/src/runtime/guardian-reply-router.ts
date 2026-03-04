@@ -20,30 +20,34 @@
 import {
   applyCanonicalGuardianDecision,
   type CanonicalDecisionResult,
-} from '../approvals/guardian-decision-primitive.js';
-import type { ActorContext, ChannelDeliveryContext, ResolverEmissionContext } from '../approvals/guardian-request-resolvers.js';
+} from "../approvals/guardian-decision-primitive.js";
+import type {
+  ActorContext,
+  ChannelDeliveryContext,
+  ResolverEmissionContext,
+} from "../approvals/guardian-request-resolvers.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   getCanonicalGuardianRequestByCode,
   listCanonicalGuardianRequests,
-} from '../memory/canonical-guardian-store.js';
+} from "../memory/canonical-guardian-store.js";
 import {
   buildGuardianCodeOnlyClarification,
   buildGuardianDisambiguationExample,
   buildGuardianDisambiguationLabel,
   buildGuardianInvalidActionReply,
   resolveGuardianInstructionModeForRequest,
-} from '../notifications/guardian-question-mode.js';
-import { getLogger } from '../util/logger.js';
-import { runApprovalConversationTurn } from './approval-conversation-turn.js';
-import type { ApprovalAction } from './channel-approval-types.js';
+} from "../notifications/guardian-question-mode.js";
+import { getLogger } from "../util/logger.js";
+import { runApprovalConversationTurn } from "./approval-conversation-turn.js";
+import type { ApprovalAction } from "./channel-approval-types.js";
 import type {
   ApprovalConversationContext,
   ApprovalConversationGenerator,
-} from './http-types.js';
+} from "./http-types.js";
 
-const log = getLogger('guardian-reply-router');
+const log = getLogger("guardian-reply-router");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,13 +76,13 @@ export interface GuardianReplyContext {
 }
 
 export type GuardianReplyResultType =
-  | 'canonical_decision_applied'
-  | 'canonical_decision_stale'
-  | 'canonical_resolver_failed'
-  | 'code_only_clarification'
-  | 'disambiguation_needed'
-  | 'nl_keep_pending'
-  | 'not_consumed';
+  | "canonical_decision_applied"
+  | "canonical_decision_stale"
+  | "canonical_resolver_failed"
+  | "code_only_clarification"
+  | "disambiguation_needed"
+  | "nl_keep_pending"
+  | "not_consumed";
 
 /** Result from the guardian reply router. */
 export interface GuardianReplyResult {
@@ -107,11 +111,11 @@ export interface GuardianReplyResult {
 // ---------------------------------------------------------------------------
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set([
-  'approve_once',
-  'approve_10m',
-  'approve_thread',
-  'approve_always',
-  'reject',
+  "approve_once",
+  "approve_10m",
+  "approve_thread",
+  "approve_always",
+  "reject",
 ]);
 
 interface ParsedCallback {
@@ -120,10 +124,10 @@ interface ParsedCallback {
 }
 
 function parseCallbackAction(data: string): ParsedCallback | null {
-  const parts = data.split(':');
-  if (parts.length < 3 || parts[0] !== 'apr') return null;
+  const parts = data.split(":");
+  if (parts.length < 3 || parts[0] !== "apr") return null;
   const requestId = parts[1];
-  const action = parts.slice(2).join(':');
+  const action = parts.slice(2).join(":");
   if (!requestId || !VALID_ACTIONS.has(action)) return null;
   return { requestId, action: action as ApprovalAction };
 }
@@ -146,7 +150,10 @@ interface CodeParseResult {
   remainingText: string;
 }
 
-function parseRequestCode(text: string, scopeConversationId?: string): CodeParseResult | null {
+function parseRequestCode(
+  text: string,
+  scopeConversationId?: string,
+): CodeParseResult | null {
   // Request codes are 6 hex chars (A-F, 0-9), uppercase
   const upper = text.toUpperCase();
   const match = upper.match(/^([A-F0-9]{6})(?:\s|$)/);
@@ -159,10 +166,20 @@ function parseRequestCode(text: string, scopeConversationId?: string): CodeParse
   // Scope to the current conversation when requested, so a code belonging
   // to a different session/conversation is not consumed here. Requests with
   // null conversationId are global/unscoped and match any conversation.
-  if (scopeConversationId && request.conversationId && request.conversationId !== scopeConversationId) {
+  if (
+    scopeConversationId &&
+    request.conversationId &&
+    request.conversationId !== scopeConversationId
+  ) {
     log.info(
-      { event: 'router_code_conversation_mismatch', code, requestId: request.id, expected: scopeConversationId, actual: request.conversationId },
-      'Request code matched a canonical request from a different conversation — ignoring',
+      {
+        event: "router_code_conversation_mismatch",
+        code,
+        requestId: request.id,
+        expected: scopeConversationId,
+        actual: request.conversationId,
+      },
+      "Request code matched a canonical request from a different conversation — ignoring",
     );
     return null;
   }
@@ -188,13 +205,13 @@ function findPendingCanonicalRequests(
     }
     return pendingRequestIds
       .map(getCanonicalGuardianRequest)
-      .filter((r): r is CanonicalGuardianRequest => r?.status === 'pending');
+      .filter((r): r is CanonicalGuardianRequest => r?.status === "pending");
   }
 
   // Query by guardian identity when available
   if (actor.externalUserId) {
     return listCanonicalGuardianRequests({
-      status: 'pending',
+      status: "pending",
       guardianExternalUserId: actor.externalUserId,
     });
   }
@@ -205,9 +222,11 @@ function findPendingCanonicalRequests(
   // sees requests they are authorized to act on.
   if (conversationId) {
     return listCanonicalGuardianRequests({
-      status: 'pending',
+      status: "pending",
       conversationId,
-      ...(actor.guardianPrincipalId ? { guardianPrincipalId: actor.guardianPrincipalId } : {}),
+      ...(actor.guardianPrincipalId
+        ? { guardianPrincipalId: actor.guardianPrincipalId }
+        : {}),
     });
   }
 
@@ -216,7 +235,7 @@ function findPendingCanonicalRequests(
   // discover pending guardian work via their bound principal.
   if (actor.guardianPrincipalId) {
     return listCanonicalGuardianRequests({
-      status: 'pending',
+      status: "pending",
       guardianPrincipalId: actor.guardianPrincipalId,
     });
   }
@@ -226,11 +245,11 @@ function findPendingCanonicalRequests(
 
 /** Map an approval action string to the NL engine's allowed actions for guardians. */
 function guardianAllowedActions(): ApprovalAction[] {
-  return ['approve_once', 'reject'];
+  return ["approve_once", "reject"];
 }
 
 function notConsumed(): GuardianReplyResult {
-  return { decisionApplied: false, consumed: false, type: 'not_consumed' };
+  return { decisionApplied: false, consumed: false, type: "not_consumed" };
 }
 
 // ---------------------------------------------------------------------------
@@ -253,11 +272,24 @@ function notConsumed(): GuardianReplyResult {
 export async function routeGuardianReply(
   ctx: GuardianReplyContext,
 ): Promise<GuardianReplyResult> {
-  const { messageText, actor, conversationId, callbackData, approvalConversationGenerator, channelDeliveryContext, emissionContext } = ctx;
-  const pendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds, conversationId);
-  const scopedPendingRequestIds = ctx.pendingRequestIds && ctx.pendingRequestIds.length > 0
-    ? new Set(ctx.pendingRequestIds)
-    : null;
+  const {
+    messageText,
+    actor,
+    conversationId,
+    callbackData,
+    approvalConversationGenerator,
+    channelDeliveryContext,
+    emissionContext,
+  } = ctx;
+  const pendingRequests = findPendingCanonicalRequests(
+    actor,
+    ctx.pendingRequestIds,
+    conversationId,
+  );
+  const scopedPendingRequestIds =
+    ctx.pendingRequestIds && ctx.pendingRequestIds.length > 0
+      ? new Set(ctx.pendingRequestIds)
+      : null;
 
   // ── 1. Deterministic callback parsing (button presses) ──
   // No conversationId scoping here — the guardian's reply comes from a
@@ -267,7 +299,14 @@ export async function routeGuardianReply(
   if (callbackData) {
     const parsed = parseCallbackAction(callbackData);
     if (parsed) {
-      return applyDecision(parsed.requestId, parsed.action, actor, undefined, channelDeliveryContext, emissionContext);
+      return applyDecision(
+        parsed.requestId,
+        parsed.action,
+        actor,
+        undefined,
+        channelDeliveryContext,
+        emissionContext,
+      );
     }
   }
 
@@ -281,26 +320,34 @@ export async function routeGuardianReply(
       if (scopedPendingRequestIds && !scopedPendingRequestIds.has(request.id)) {
         log.info(
           {
-            event: 'router_code_out_of_scope',
+            event: "router_code_out_of_scope",
             requestId: request.id,
             pendingHintCount: scopedPendingRequestIds.size,
           },
-          'Request code matched a pending request outside the caller-provided scope; ignoring',
+          "Request code matched a pending request outside the caller-provided scope; ignoring",
         );
         return notConsumed();
       }
 
-      if (request.status !== 'pending') {
+      if (request.status !== "pending") {
         log.info(
-          { event: 'router_code_already_resolved', requestId: request.id, status: request.status },
-          'Request code matched a non-pending canonical request',
+          {
+            event: "router_code_already_resolved",
+            requestId: request.id,
+            status: request.status,
+          },
+          "Request code matched a non-pending canonical request",
         );
         return {
           decisionApplied: false,
           consumed: true,
-          type: 'canonical_decision_stale',
+          type: "canonical_decision_stale",
           requestId: request.id,
-          replyText: failureReplyText('already_resolved', request.requestCode, request),
+          replyText: failureReplyText(
+            "already_resolved",
+            request.requestCode,
+            request,
+          ),
         };
       }
 
@@ -308,7 +355,10 @@ export async function routeGuardianReply(
       // clarification inquiries — the guardian may be asking "what is this?"
       // rather than intending to approve. Return helpful context instead of
       // silently defaulting to approve_once.
-      if (!codeResult.remainingText || codeResult.remainingText.trim().length === 0) {
+      if (
+        !codeResult.remainingText ||
+        codeResult.remainingText.trim().length === 0
+      ) {
         // Identity check: only expose request details to the assigned guardian
         // principal. Strict principal equality prevents leaking request details
         // (toolName, questionText) to unauthorized senders.
@@ -316,9 +366,9 @@ export async function routeGuardianReply(
           return {
             decisionApplied: false,
             consumed: true,
-            type: 'code_only_clarification',
+            type: "code_only_clarification",
             requestId: request.id,
-            replyText: 'Request not found.',
+            replyText: "Request not found.",
           };
         }
 
@@ -328,30 +378,34 @@ export async function routeGuardianReply(
         ) {
           log.warn(
             {
-              event: 'router_code_only_principal_mismatch',
+              event: "router_code_only_principal_mismatch",
               requestId: request.id,
               expectedPrincipal: request.guardianPrincipalId,
               actualPrincipal: actor.guardianPrincipalId,
             },
-            'Code-only clarification blocked: actor principal does not match request principal',
+            "Code-only clarification blocked: actor principal does not match request principal",
           );
           return {
             decisionApplied: false,
             consumed: true,
-            type: 'code_only_clarification',
+            type: "code_only_clarification",
             requestId: request.id,
-            replyText: 'Request not found.',
+            replyText: "Request not found.",
           };
         }
 
         log.info(
-          { event: 'router_code_only_clarification', requestId: request.id, code: request.requestCode },
-          'Code-only message treated as clarification inquiry',
+          {
+            event: "router_code_only_clarification",
+            requestId: request.id,
+            code: request.requestCode,
+          },
+          "Code-only message treated as clarification inquiry",
         );
         return {
           decisionApplied: false,
           consumed: true,
-          type: 'code_only_clarification',
+          type: "code_only_clarification",
           requestId: request.id,
           replyText: composeCodeOnlyClarification(request),
         };
@@ -361,7 +415,14 @@ export async function routeGuardianReply(
       // If the text indicates rejection, use reject; otherwise approve_once.
       const action = inferActionFromText(codeResult.remainingText);
 
-      return applyDecision(request.id, action, actor, codeResult.remainingText, channelDeliveryContext, emissionContext);
+      return applyDecision(
+        request.id,
+        action,
+        actor,
+        codeResult.remainingText,
+        channelDeliveryContext,
+        emissionContext,
+      );
     }
   }
 
@@ -370,18 +431,26 @@ export async function routeGuardianReply(
   // pending access_request, return not_consumed so the message falls through
   // to the normal assistant turn and can invoke the Trusted Contacts skill.
   if (messageText.length > 0 && pendingRequests.length > 0) {
-    const normalized = messageText.trim().toLowerCase().replace(/[.!?]+$/g, '');
-    if (normalized === 'open invite flow') {
-      const hasAccessRequest = pendingRequests.some(r => r.kind === 'access_request');
+    const normalized = messageText
+      .trim()
+      .toLowerCase()
+      .replace(/[.!?]+$/g, "");
+    if (normalized === "open invite flow") {
+      const hasAccessRequest = pendingRequests.some(
+        (r) => r.kind === "access_request",
+      );
       if (hasAccessRequest) {
         log.info(
-          { event: 'router_invite_handoff', pendingCount: pendingRequests.length },
+          {
+            event: "router_invite_handoff",
+            pendingCount: pendingRequests.length,
+          },
           'Guardian sent "open invite flow" with pending access_request — passing through to assistant',
         );
         return {
           consumed: false,
           decisionApplied: false,
-          type: 'not_consumed' as const,
+          type: "not_consumed" as const,
           skipApprovalInterception: true,
         };
       }
@@ -411,7 +480,7 @@ export async function routeGuardianReply(
       return {
         decisionApplied: false,
         consumed: true,
-        type: 'disambiguation_needed',
+        type: "disambiguation_needed",
         replyText: disambiguationReply,
       };
     }
@@ -433,12 +502,12 @@ export async function routeGuardianReply(
 
     // Build the conversation context for the NL engine
     const engineContext: ApprovalConversationContext = {
-      toolName: pendingRequestsForClassification[0].toolName ?? 'unknown',
+      toolName: pendingRequestsForClassification[0].toolName ?? "unknown",
       allowedActions: guardianAllowedActions(),
-      role: 'guardian',
-      pendingApprovals: pendingRequestsForClassification.map(r => ({
+      role: "guardian",
+      pendingApprovals: pendingRequestsForClassification.map((r) => ({
         requestId: r.id,
-        toolName: r.toolName ?? 'unknown',
+        toolName: r.toolName ?? "unknown",
       })),
       userMessage: messageText,
     };
@@ -448,7 +517,7 @@ export async function routeGuardianReply(
       approvalConversationGenerator,
     );
 
-    if (engineResult.disposition === 'keep_pending') {
+    if (engineResult.disposition === "keep_pending") {
       // When the engine returns keep_pending with multiple pending requests,
       // this likely means the NL classification understood a decision intent
       // but runApprovalConversationTurn fail-closed because no targetRequestId
@@ -456,14 +525,20 @@ export async function routeGuardianReply(
       // a generic "I couldn't process that" message.
       if (pendingRequestsForClassification.length > 1) {
         log.info(
-          { event: 'router_nl_disambiguation_needed', pendingCount: pendingRequestsForClassification.length },
-          'Engine returned keep_pending with multiple pending requests — producing disambiguation',
+          {
+            event: "router_nl_disambiguation_needed",
+            pendingCount: pendingRequestsForClassification.length,
+          },
+          "Engine returned keep_pending with multiple pending requests — producing disambiguation",
         );
-        const disambiguationReply = composeDisambiguationReply(pendingRequestsForClassification, undefined);
+        const disambiguationReply = composeDisambiguationReply(
+          pendingRequestsForClassification,
+          undefined,
+        );
         return {
           decisionApplied: false,
           consumed: true,
-          type: 'disambiguation_needed',
+          type: "disambiguation_needed",
           replyText: disambiguationReply,
         };
       }
@@ -471,7 +546,7 @@ export async function routeGuardianReply(
         decisionApplied: false,
         replyText: engineResult.replyText,
         consumed: true,
-        type: 'nl_keep_pending',
+        type: "nl_keep_pending",
       };
     }
 
@@ -480,39 +555,64 @@ export async function routeGuardianReply(
 
     // Guardians cannot use broad allow modes — the canonical primitive
     // enforces this too, but enforce it here for clarity.
-    if (decisionAction === 'approve_always' || decisionAction === 'approve_10m' || decisionAction === 'approve_thread') {
-      decisionAction = 'approve_once';
+    if (
+      decisionAction === "approve_always" ||
+      decisionAction === "approve_10m" ||
+      decisionAction === "approve_thread"
+    ) {
+      decisionAction = "approve_once";
     }
 
     // Resolve the target request
-    const targetId = engineResult.targetRequestId
-      ?? (pendingRequestsForClassification.length === 1 ? pendingRequestsForClassification[0].id : undefined);
+    const targetId =
+      engineResult.targetRequestId ??
+      (pendingRequestsForClassification.length === 1
+        ? pendingRequestsForClassification[0].id
+        : undefined);
 
     if (!targetId) {
       // Multi-pending and engine didn't pick a target — need disambiguation.
       // Fail-closed: never auto-resolve when the target is ambiguous.
       log.info(
-        { event: 'router_nl_disambiguation_needed', pendingCount: pendingRequestsForClassification.length },
-        'NL engine returned a decision but no target for multi-pending requests',
+        {
+          event: "router_nl_disambiguation_needed",
+          pendingCount: pendingRequestsForClassification.length,
+        },
+        "NL engine returned a decision but no target for multi-pending requests",
       );
-      const disambiguationReply = composeDisambiguationReply(pendingRequestsForClassification, engineResult.replyText);
+      const disambiguationReply = composeDisambiguationReply(
+        pendingRequestsForClassification,
+        engineResult.replyText,
+      );
       return {
         decisionApplied: false,
         consumed: true,
-        type: 'disambiguation_needed',
+        type: "disambiguation_needed",
         replyText: disambiguationReply,
       };
     }
 
-    const result = await applyDecision(targetId, decisionAction, actor, messageText, channelDeliveryContext, emissionContext);
+    const result = await applyDecision(
+      targetId,
+      decisionAction,
+      actor,
+      messageText,
+      channelDeliveryContext,
+      emissionContext,
+    );
 
     // Attach the engine's reply text for stale/expired/identity-mismatch cases,
     // but preserve resolver-authored replies (for example verification codes)
     // and explicit resolver-failure text.
     const hasResolverReplyText = Boolean(
-      result.canonicalResult?.applied && result.canonicalResult.resolverReplyText,
+      result.canonicalResult?.applied &&
+      result.canonicalResult.resolverReplyText,
     );
-    if (engineResult.replyText && result.type !== 'canonical_resolver_failed' && !hasResolverReplyText) {
+    if (
+      engineResult.replyText &&
+      result.type !== "canonical_resolver_failed" &&
+      !hasResolverReplyText
+    ) {
       result.replyText = engineResult.replyText;
     }
 
@@ -551,19 +651,19 @@ async function applyDecision(
     if (canonicalResult.resolverFailed) {
       log.warn(
         {
-          event: 'router_resolver_failed',
+          event: "router_resolver_failed",
           requestId,
           action,
           reason: canonicalResult.resolverFailureReason,
         },
-        'Guardian reply router: resolver failed to execute side effects',
+        "Guardian reply router: resolver failed to execute side effects",
       );
 
       return {
         decisionApplied: false,
         consumed: true,
-        type: 'canonical_resolver_failed',
-        replyText: `Decision recorded but could not be completed: ${canonicalResult.resolverFailureReason ?? 'unknown error'}. Please try again.`,
+        type: "canonical_resolver_failed",
+        replyText: `Decision recorded but could not be completed: ${canonicalResult.resolverFailureReason ?? "unknown error"}. Please try again.`,
         requestId,
         canonicalResult,
       };
@@ -571,19 +671,21 @@ async function applyDecision(
 
     log.info(
       {
-        event: 'router_decision_applied',
+        event: "router_decision_applied",
         requestId,
         action,
         grantMinted: canonicalResult.grantMinted,
       },
-      'Guardian reply router applied canonical decision',
+      "Guardian reply router applied canonical decision",
     );
 
     return {
       decisionApplied: true,
       consumed: true,
-      type: 'canonical_decision_applied',
-      ...(canonicalResult.resolverReplyText ? { replyText: canonicalResult.resolverReplyText } : {}),
+      type: "canonical_decision_applied",
+      ...(canonicalResult.resolverReplyText
+        ? { replyText: canonicalResult.resolverReplyText }
+        : {}),
       requestId,
       canonicalResult,
     };
@@ -591,7 +693,7 @@ async function applyDecision(
 
   log.info(
     {
-      event: 'router_decision_not_applied',
+      event: "router_decision_not_applied",
       requestId,
       action,
       reason: canonicalResult.reason,
@@ -601,7 +703,7 @@ async function applyDecision(
 
   // When the canonical request doesn't exist, allow the message to fall
   // through so the legacy handleApprovalInterception handler can process it.
-  if (canonicalResult.reason === 'not_found') {
+  if (canonicalResult.reason === "not_found") {
     return notConsumed();
   }
 
@@ -610,10 +712,14 @@ async function applyDecision(
   return {
     decisionApplied: false,
     consumed: true,
-    type: 'canonical_decision_stale',
+    type: "canonical_decision_stale",
     requestId,
     canonicalResult,
-    replyText: failureReplyText(canonicalResult.reason, request?.requestCode, request ?? undefined),
+    replyText: failureReplyText(
+      canonicalResult.reason,
+      request?.requestCode,
+      request ?? undefined,
+    ),
   };
 }
 
@@ -623,33 +729,33 @@ async function applyDecision(
 
 const CODE_REJECT_PATTERNS = /^(no|deny|reject|decline|cancel|block)\b/i;
 const EXPLICIT_APPROVE_PHRASES: ReadonlySet<string> = new Set([
-  'approve',
-  'approved',
-  'approve once',
-  'yes',
-  'y',
-  'allow',
-  'go for it',
-  'go ahead',
-  'proceed',
-  'do it',
+  "approve",
+  "approved",
+  "approve once",
+  "yes",
+  "y",
+  "allow",
+  "go for it",
+  "go ahead",
+  "proceed",
+  "do it",
 ]);
 const EXPLICIT_REJECT_PHRASES: ReadonlySet<string> = new Set([
-  'reject',
-  'deny',
-  'decline',
-  'no',
-  'n',
-  'block',
-  'cancel',
+  "reject",
+  "deny",
+  "decline",
+  "no",
+  "n",
+  "block",
+  "cancel",
 ]);
 
 function normalizeDecisionPhrase(text: string): string {
   return text
     .trim()
     .toLowerCase()
-    .replace(/[.!?]+$/g, '')
-    .replace(/\s+/g, ' ');
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ");
 }
 
 /**
@@ -659,8 +765,8 @@ function normalizeDecisionPhrase(text: string): string {
 function inferDecisionActionFromFreeText(text: string): ApprovalAction | null {
   const normalized = normalizeDecisionPhrase(text);
   if (!normalized) return null;
-  if (EXPLICIT_REJECT_PHRASES.has(normalized)) return 'reject';
-  if (EXPLICIT_APPROVE_PHRASES.has(normalized)) return 'approve_once';
+  if (EXPLICIT_REJECT_PHRASES.has(normalized)) return "reject";
+  if (EXPLICIT_APPROVE_PHRASES.has(normalized)) return "approve_once";
   return null;
 }
 
@@ -670,19 +776,19 @@ function inferDecisionActionFromFreeText(text: string): ApprovalAction | null {
  */
 function inferActionFromText(text: string): ApprovalAction {
   if (!text || text.trim().length === 0) {
-    return 'approve_once';
+    return "approve_once";
   }
 
   if (CODE_REJECT_PATTERNS.test(text.trim())) {
-    return 'reject';
+    return "reject";
   }
 
-  return 'approve_once';
+  return "approve_once";
 }
 
 function resolveRequestInstructionMode(
-  request?: Pick<CanonicalGuardianRequest, 'kind' | 'toolName'> | null,
-): 'approval' | 'answer' {
+  request?: Pick<CanonicalGuardianRequest, "kind" | "toolName"> | null,
+): "approval" | "answer" {
   return resolveGuardianInstructionModeForRequest(request);
 }
 
@@ -690,7 +796,11 @@ function resolveRequestInstructionMode(
 // Failure reason reply text
 // ---------------------------------------------------------------------------
 
-type CanonicalFailureReason = 'already_resolved' | 'identity_mismatch' | 'invalid_action' | 'expired';
+type CanonicalFailureReason =
+  | "already_resolved"
+  | "identity_mismatch"
+  | "invalid_action"
+  | "expired";
 
 /**
  * Map a canonical decision failure reason to a distinct, actionable reply
@@ -702,14 +812,17 @@ function failureReplyText(
   request?: CanonicalGuardianRequest,
 ): string {
   switch (reason) {
-    case 'already_resolved':
-      return 'This request has already been resolved.';
-    case 'expired':
-      return 'This request has expired.';
-    case 'identity_mismatch':
+    case "already_resolved":
+      return "This request has already been resolved.";
+    case "expired":
+      return "This request has expired.";
+    case "identity_mismatch":
       return "You don't have permission to decide on this request.";
-    case 'invalid_action':
-      return buildGuardianInvalidActionReply(resolveRequestInstructionMode(request), requestCode ?? undefined);
+    case "invalid_action":
+      return buildGuardianInvalidActionReply(
+        resolveRequestInstructionMode(request),
+        requestCode ?? undefined,
+      );
     default:
       return "I couldn't process that request. Please try again.";
   }
@@ -724,8 +837,10 @@ function failureReplyText(
  * code without any decision text. Provides context about the request and
  * tells the guardian how to approve or reject it.
  */
-function composeCodeOnlyClarification(request: CanonicalGuardianRequest): string {
-  const code = request.requestCode ?? 'unknown';
+function composeCodeOnlyClarification(
+  request: CanonicalGuardianRequest,
+): string {
+  const code = request.requestCode ?? "unknown";
   const mode = resolveRequestInstructionMode(request);
   return buildGuardianCodeOnlyClarification(mode, {
     requestCode: code,
@@ -755,10 +870,12 @@ function composeDisambiguationReply(
 
   if (engineReplyText) {
     lines.push(engineReplyText);
-    lines.push('');
+    lines.push("");
   }
 
-  lines.push(`You have ${pendingRequests.length} pending requests. Please specify which one:`);
+  lines.push(
+    `You have ${pendingRequests.length} pending requests. Please specify which one:`,
+  );
 
   for (const { request, mode } of requestsWithMode) {
     const toolLabel = buildGuardianDisambiguationLabel(mode, {
@@ -769,17 +886,29 @@ function composeDisambiguationReply(
     lines.push(`  - ${code}: ${toolLabel}`);
   }
 
-  const questionRequest = requestsWithMode.find(({ mode }) => mode === 'answer');
-  const decisionRequest = requestsWithMode.find(({ mode }) => mode === 'approval');
-  lines.push('');
+  const questionRequest = requestsWithMode.find(
+    ({ mode }) => mode === "answer",
+  );
+  const decisionRequest = requestsWithMode.find(
+    ({ mode }) => mode === "approval",
+  );
+  lines.push("");
   if (questionRequest) {
-    const exampleCode = questionRequest.request.requestCode ?? questionRequest.request.id.slice(0, 6).toUpperCase();
-    lines.push(buildGuardianDisambiguationExample(questionRequest.mode, exampleCode));
+    const exampleCode =
+      questionRequest.request.requestCode ??
+      questionRequest.request.id.slice(0, 6).toUpperCase();
+    lines.push(
+      buildGuardianDisambiguationExample(questionRequest.mode, exampleCode),
+    );
   }
   if (decisionRequest) {
-    const exampleCode = decisionRequest.request.requestCode ?? decisionRequest.request.id.slice(0, 6).toUpperCase();
-    lines.push(buildGuardianDisambiguationExample(decisionRequest.mode, exampleCode));
+    const exampleCode =
+      decisionRequest.request.requestCode ??
+      decisionRequest.request.id.slice(0, 6).toUpperCase();
+    lines.push(
+      buildGuardianDisambiguationExample(decisionRequest.mode, exampleCode),
+    );
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }

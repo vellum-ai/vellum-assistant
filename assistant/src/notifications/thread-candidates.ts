@@ -10,14 +10,20 @@
  * needs for a routing decision, not full conversation contents.
  */
 
-import { and, count, desc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 
-import { getDb } from '../memory/db.js';
-import { channelGuardianApprovalRequests, conversations, notificationDecisions, notificationDeliveries, notificationEvents } from '../memory/schema.js';
-import { getLogger } from '../util/logger.js';
-import type { NotificationChannel } from './types.js';
+import { getDb } from "../memory/db.js";
+import {
+  channelGuardianApprovalRequests,
+  conversations,
+  notificationDecisions,
+  notificationDeliveries,
+  notificationEvents,
+} from "../memory/schema.js";
+import { getLogger } from "../util/logger.js";
+import type { NotificationChannel } from "./types.js";
 
-const log = getLogger('thread-candidates');
+const log = getLogger("thread-candidates");
 
 /** Maximum number of candidate threads to surface per channel. */
 const MAX_CANDIDATES_PER_CHANNEL = 5;
@@ -46,7 +52,9 @@ export interface ThreadCandidate {
 }
 
 /** Candidate set for the decision engine, keyed by channel. */
-export type ThreadCandidateSet = Partial<Record<NotificationChannel, ThreadCandidate[]>>;
+export type ThreadCandidateSet = Partial<
+  Record<NotificationChannel, ThreadCandidate[]>
+>;
 
 // -- Core builder -------------------------------------------------------------
 
@@ -69,13 +77,20 @@ export function buildThreadCandidates(
 
   for (const channel of channels) {
     try {
-      const candidates = buildCandidatesForChannel(channel, assistantId, cutoff);
+      const candidates = buildCandidatesForChannel(
+        channel,
+        assistantId,
+        cutoff,
+      );
       if (candidates.length > 0) {
         result[channel] = candidates;
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      log.warn({ err: errMsg, channel }, 'Failed to build thread candidates for channel');
+      log.warn(
+        { err: errMsg, channel },
+        "Failed to build thread candidates for channel",
+      );
     }
   }
 
@@ -112,7 +127,10 @@ function buildCandidatesForChannel(
     .from(notificationDeliveries)
     .innerJoin(
       notificationDecisions,
-      eq(notificationDeliveries.notificationDecisionId, notificationDecisions.id),
+      eq(
+        notificationDeliveries.notificationDecisionId,
+        notificationDecisions.id,
+      ),
     )
     .innerJoin(
       notificationEvents,
@@ -126,7 +144,7 @@ function buildCandidatesForChannel(
       and(
         eq(notificationDeliveries.channel, channel),
         eq(notificationDeliveries.assistantId, assistantId),
-        eq(notificationDeliveries.status, 'sent'),
+        eq(notificationDeliveries.status, "sent"),
         isNotNull(notificationDeliveries.conversationId),
       ),
     )
@@ -167,7 +185,9 @@ function buildCandidatesForChannel(
     for (const candidate of candidates) {
       const pendingCount = pendingCounts.get(candidate.conversationId) ?? 0;
       if (pendingCount > 0) {
-        candidate.guardianContext = { pendingUnresolvedRequestCount: pendingCount };
+        candidate.guardianContext = {
+          pendingUnresolvedRequestCount: pendingCount,
+        };
       }
     }
   }
@@ -200,8 +220,11 @@ function batchCountPendingByConversation(
       .from(channelGuardianApprovalRequests)
       .where(
         and(
-          inArray(channelGuardianApprovalRequests.conversationId, conversationIds),
-          eq(channelGuardianApprovalRequests.status, 'pending'),
+          inArray(
+            channelGuardianApprovalRequests.conversationId,
+            conversationIds,
+          ),
+          eq(channelGuardianApprovalRequests.status, "pending"),
           eq(channelGuardianApprovalRequests.assistantId, assistantId),
         ),
       )
@@ -215,7 +238,10 @@ function batchCountPendingByConversation(
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn({ err: errMsg }, 'Failed to batch-query guardian context for candidates');
+    log.warn(
+      { err: errMsg },
+      "Failed to batch-query guardian context for candidates",
+    );
   }
 
   return result;
@@ -230,8 +256,13 @@ function batchCountPendingByConversation(
  * Designed to be token-efficient while giving the LLM enough context
  * to make a reuse decision.
  */
-export function serializeCandidatesForPrompt(candidateSet: ThreadCandidateSet): string | null {
-  const channelEntries = Object.entries(candidateSet) as [NotificationChannel, ThreadCandidate[]][];
+export function serializeCandidatesForPrompt(
+  candidateSet: ThreadCandidateSet,
+): string | null {
+  const channelEntries = Object.entries(candidateSet) as [
+    NotificationChannel,
+    ThreadCandidate[],
+  ][];
   if (channelEntries.length === 0) return null;
 
   const sections: string[] = [];
@@ -246,24 +277,29 @@ export function serializeCandidatesForPrompt(candidateSet: ThreadCandidateSet): 
       // quoted string; we strip the outer quotes since we wrap in our own.
       const safeTitle = c.title
         ? JSON.stringify(c.title).slice(1, -1)
-        : '(untitled)';
+        : "(untitled)";
       const parts: string[] = [
         `  - id=${c.conversationId}`,
         `title="${safeTitle}"`,
         `updated=${new Date(c.updatedAt).toISOString()}`,
       ];
       if (c.latestSourceEventName) {
-        const safeEventName = JSON.stringify(c.latestSourceEventName).slice(1, -1);
+        const safeEventName = JSON.stringify(c.latestSourceEventName).slice(
+          1,
+          -1,
+        );
         parts.push(`lastEvent="${safeEventName}"`);
       }
       if (c.guardianContext) {
-        parts.push(`pendingRequests=${c.guardianContext.pendingUnresolvedRequestCount}`);
+        parts.push(
+          `pendingRequests=${c.guardianContext.pendingUnresolvedRequestCount}`,
+        );
       }
-      lines.push(parts.join(' '));
+      lines.push(parts.join(" "));
     }
-    sections.push(lines.join('\n'));
+    sections.push(lines.join("\n"));
   }
 
   if (sections.length === 0) return null;
-  return sections.join('\n\n');
+  return sections.join("\n\n");
 }

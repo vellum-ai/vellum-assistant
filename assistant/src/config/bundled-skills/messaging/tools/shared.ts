@@ -2,12 +2,18 @@
  * Shared utilities for messaging skill tools.
  */
 
-import { request as httpsRequest, type RequestOptions as HttpsRequestOptions } from 'node:https';
+import {
+  request as httpsRequest,
+  type RequestOptions as HttpsRequestOptions,
+} from "node:https";
 
-import type { MessagingProvider } from '../../../../messaging/provider.js';
-import { getConnectedProviders,getMessagingProvider } from '../../../../messaging/registry.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import type { ToolExecutionResult } from '../../../../tools/types.js';
+import type { MessagingProvider } from "../../../../messaging/provider.js";
+import {
+  getConnectedProviders,
+  getMessagingProvider,
+} from "../../../../messaging/registry.js";
+import { withValidToken } from "../../../../security/token-manager.js";
+import type { ToolExecutionResult } from "../../../../tools/types.js";
 
 export function ok(content: string): ToolExecutionResult {
   return { content, isError: false };
@@ -29,11 +35,15 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
   const connected = getConnectedProviders();
   if (connected.length === 1) return connected[0];
   if (connected.length === 0) {
-    throw new Error('No messaging platforms are connected. Use messaging_auth_test to check connection status, then set up a platform.');
+    throw new Error(
+      "No messaging platforms are connected. Use messaging_auth_test to check connection status, then set up a platform.",
+    );
   }
 
-  const names = connected.map((p) => `"${p.id}"`).join(', ');
-  throw new Error(`Multiple platforms connected (${names}). Specify platform parameter.`);
+  const names = connected.map((p) => `"${p.id}"`).join(", ");
+  throw new Error(
+    `Multiple platforms connected (${names}). Specify platform parameter.`,
+  );
 }
 
 /**
@@ -46,7 +56,7 @@ export async function withProviderToken<T>(
   fn: (token: string) => Promise<T>,
 ): Promise<T> {
   if (provider.isConnected?.()) {
-    return fn('');
+    return fn("");
   }
   return withValidToken(provider.credentialService, fn);
 }
@@ -55,11 +65,15 @@ export async function withProviderToken<T>(
 export function pinnedHttpsRequest(
   target: URL,
   resolvedAddress: string,
-  options?: { method?: string; headers?: Record<string, string>; body?: string },
+  options?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+  },
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const reqOpts: HttpsRequestOptions = {
-      method: options?.method ?? 'GET',
+      method: options?.method ?? "GET",
       hostname: resolvedAddress,
       port: target.port ? Number(target.port) : undefined,
       path: `${target.pathname}${target.search}`,
@@ -70,7 +84,7 @@ export function pinnedHttpsRequest(
       res.resume();
       resolve(res.statusCode ?? 0);
     });
-    req.once('error', reject);
+    req.once("error", reject);
     if (options?.body) req.write(options.body);
     req.end();
   });

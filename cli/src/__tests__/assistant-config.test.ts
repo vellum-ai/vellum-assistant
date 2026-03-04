@@ -28,7 +28,11 @@ function writeLockfile(data: unknown): void {
   );
 }
 
-const makeEntry = (id: string, runtimeUrl = "http://localhost:7821", extra?: Partial<AssistantEntry>): AssistantEntry => ({
+const makeEntry = (
+  id: string,
+  runtimeUrl = "http://localhost:7821",
+  extra?: Partial<AssistantEntry>,
+): AssistantEntry => ({
   assistantId: id,
   runtimeUrl,
   cloud: "local",
@@ -103,9 +107,15 @@ describe("assistant-config", () => {
   test("loadLatestAssistant returns most recently hatched entry", () => {
     writeLockfile({
       assistants: [
-        makeEntry("old", "http://localhost:7821", { hatchedAt: "2024-01-01T00:00:00Z" }),
-        makeEntry("new", "http://localhost:7822", { hatchedAt: "2025-06-15T00:00:00Z" }),
-        makeEntry("mid", "http://localhost:7823", { hatchedAt: "2024-06-15T00:00:00Z" }),
+        makeEntry("old", "http://localhost:7821", {
+          hatchedAt: "2024-01-01T00:00:00Z",
+        }),
+        makeEntry("new", "http://localhost:7822", {
+          hatchedAt: "2025-06-15T00:00:00Z",
+        }),
+        makeEntry("mid", "http://localhost:7823", {
+          hatchedAt: "2024-06-15T00:00:00Z",
+        }),
       ],
     });
     const latest = loadLatestAssistant();
@@ -117,7 +127,9 @@ describe("assistant-config", () => {
     writeLockfile({
       assistants: [
         makeEntry("no-date"),
-        makeEntry("with-date", "http://localhost:7822", { hatchedAt: "2025-01-01T00:00:00Z" }),
+        makeEntry("with-date", "http://localhost:7822", {
+          hatchedAt: "2025-01-01T00:00:00Z",
+        }),
       ],
     });
     const latest = loadLatestAssistant();

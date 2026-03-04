@@ -6,15 +6,15 @@
 import {
   getExpiredPendingApprovals,
   updateApprovalDecision,
-} from '../../memory/channel-guardian-store.js';
-import { getLogger } from '../../util/logger.js';
-import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
-import type { ApprovalDecisionResult } from '../channel-approval-types.js';
-import { handleChannelDecision } from '../channel-approvals.js';
-import { deliverChannelReply } from '../gateway-client.js';
-import type { ApprovalCopyGenerator } from '../http-types.js';
+} from "../../memory/channel-guardian-store.js";
+import { getLogger } from "../../util/logger.js";
+import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
+import type { ApprovalDecisionResult } from "../channel-approval-types.js";
+import { handleChannelDecision } from "../channel-approvals.js";
+import { deliverChannelReply } from "../gateway-client.js";
+import type { ApprovalCopyGenerator } from "../http-types.js";
 
-const log = getLogger('runtime-http');
+const log = getLogger("runtime-http");
 
 /** Interval at which the expiry sweep runs (60 seconds). */
 const GUARDIAN_EXPIRY_SWEEP_INTERVAL_MS = 60_000;
@@ -40,12 +40,12 @@ export function sweepExpiredGuardianApprovals(
   const expired = getExpiredPendingApprovals();
   for (const approval of expired) {
     // Mark the approval as expired
-    updateApprovalDecision(approval.id, { status: 'expired' });
+    updateApprovalDecision(approval.id, { status: "expired" });
 
     // Auto-deny the underlying request via the pending-interactions tracker
     const expiredDecision: ApprovalDecisionResult = {
-      action: 'reject',
-      source: 'plain_text',
+      action: "reject",
+      source: "plain_text",
     };
     handleChannelDecision(approval.conversationId, expiredDecision);
 
@@ -54,40 +54,62 @@ export function sweepExpiredGuardianApprovals(
 
     // Notify the requester that the approval expired
     void (async () => {
-      const requesterText = await composeApprovalMessageGenerative({
-        scenario: 'guardian_expired_requester',
-        toolName: approval.toolName,
-        channel: approval.channel,
-      }, {}, approvalCopyGenerator);
-      await deliverChannelReply(deliverUrl, {
-        chatId: approval.requesterChatId,
-        text: requesterText,
-        assistantId: approval.assistantId,
-      }, mintBearerToken?.());
+      const requesterText = await composeApprovalMessageGenerative(
+        {
+          scenario: "guardian_expired_requester",
+          toolName: approval.toolName,
+          channel: approval.channel,
+        },
+        {},
+        approvalCopyGenerator,
+      );
+      await deliverChannelReply(
+        deliverUrl,
+        {
+          chatId: approval.requesterChatId,
+          text: requesterText,
+          assistantId: approval.assistantId,
+        },
+        mintBearerToken?.(),
+      );
     })().catch((err) => {
-      log.error({ err, approvalId: approval.id }, 'Failed to notify requester of guardian approval expiry');
+      log.error(
+        { err, approvalId: approval.id },
+        "Failed to notify requester of guardian approval expiry",
+      );
     });
 
     // Notify the guardian that the approval expired
     void (async () => {
-      const guardianText = await composeApprovalMessageGenerative({
-        scenario: 'guardian_expired_guardian',
-        toolName: approval.toolName,
-        requesterIdentifier: approval.requesterExternalUserId,
-        channel: approval.channel,
-      }, {}, approvalCopyGenerator);
-      await deliverChannelReply(deliverUrl, {
-        chatId: approval.guardianChatId,
-        text: guardianText,
-        assistantId: approval.assistantId,
-      }, mintBearerToken?.());
+      const guardianText = await composeApprovalMessageGenerative(
+        {
+          scenario: "guardian_expired_guardian",
+          toolName: approval.toolName,
+          requesterIdentifier: approval.requesterExternalUserId,
+          channel: approval.channel,
+        },
+        {},
+        approvalCopyGenerator,
+      );
+      await deliverChannelReply(
+        deliverUrl,
+        {
+          chatId: approval.guardianChatId,
+          text: guardianText,
+          assistantId: approval.assistantId,
+        },
+        mintBearerToken?.(),
+      );
     })().catch((err) => {
-      log.error({ err, approvalId: approval.id }, 'Failed to notify guardian of approval expiry');
+      log.error(
+        { err, approvalId: approval.id },
+        "Failed to notify guardian of approval expiry",
+      );
     });
 
     log.info(
       { requestId: approval.requestId, approvalId: approval.id },
-      'Auto-denied expired guardian approval request',
+      "Auto-denied expired guardian approval request",
     );
   }
 }
@@ -104,9 +126,13 @@ export function startGuardianExpirySweep(
   if (expirySweepTimer) return;
   expirySweepTimer = setInterval(() => {
     try {
-      sweepExpiredGuardianApprovals(gatewayBaseUrl, mintBearerToken, approvalCopyGenerator);
+      sweepExpiredGuardianApprovals(
+        gatewayBaseUrl,
+        mintBearerToken,
+        approvalCopyGenerator,
+      );
     } catch (err) {
-      log.error({ err }, 'Guardian expiry sweep failed');
+      log.error({ err }, "Guardian expiry sweep failed");
     }
   }, GUARDIAN_EXPIRY_SWEEP_INTERVAL_MS);
 }

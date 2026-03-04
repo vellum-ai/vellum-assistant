@@ -1,7 +1,9 @@
 export type EventMap = Record<string, object>;
 type EventShape<TEvents> = Record<keyof TEvents & string, object>;
 
-export type EventListener<TPayload extends object> = (payload: TPayload) => void | Promise<void>;
+export type EventListener<TPayload extends object> = (
+  payload: TPayload,
+) => void | Promise<void>;
 
 export type AnyEventEnvelope<TEvents extends EventShape<TEvents>> = {
   [K in keyof TEvents & string]: {
@@ -11,7 +13,9 @@ export type AnyEventEnvelope<TEvents extends EventShape<TEvents>> = {
   };
 }[keyof TEvents & string];
 
-export type AnyEventListener<TEvents extends EventShape<TEvents>> = (event: AnyEventEnvelope<TEvents>) => void | Promise<void>;
+export type AnyEventListener<TEvents extends EventShape<TEvents>> = (
+  event: AnyEventEnvelope<TEvents>,
+) => void | Promise<void>;
 
 export interface Subscription {
   readonly active: boolean;
@@ -47,21 +51,29 @@ class BasicSubscription implements Subscription {
 
 export class EventBusDisposedError extends Error {
   constructor() {
-    super('Event bus has been disposed');
-    this.name = 'EventBusDisposedError';
+    super("Event bus has been disposed");
+    this.name = "EventBusDisposedError";
   }
 }
 
 export class EventBus<TEvents extends EventShape<TEvents>> {
-  private readonly listeners = new Map<keyof TEvents & string, Set<DirectListenerEntry>>();
+  private readonly listeners = new Map<
+    keyof TEvents & string,
+    Set<DirectListenerEntry>
+  >();
   private readonly anyListeners = new Set<AnyListenerEntry<TEvents>>();
   private readonly subscriptions = new Set<BasicSubscription>();
   private disposed = false;
 
-  on<K extends keyof TEvents & string>(type: K, listener: EventListener<TEvents[K]>): Subscription {
+  on<K extends keyof TEvents & string>(
+    type: K,
+    listener: EventListener<TEvents[K]>,
+  ): Subscription {
     this.ensureActive();
     const set = this.getOrCreateSet(type);
-    const entry: DirectListenerEntry = { listener: listener as EventListener<object> };
+    const entry: DirectListenerEntry = {
+      listener: listener as EventListener<object>,
+    };
     set.add(entry);
 
     return this.createSubscription(() => {
@@ -91,7 +103,10 @@ export class EventBus<TEvents extends EventShape<TEvents>> {
     return this.anyListeners.size;
   }
 
-  async emit<K extends keyof TEvents & string>(type: K, payload: TEvents[K]): Promise<void> {
+  async emit<K extends keyof TEvents & string>(
+    type: K,
+    payload: TEvents[K],
+  ): Promise<void> {
     this.ensureActive();
 
     const emittedAtMs = Date.now();
@@ -119,7 +134,10 @@ export class EventBus<TEvents extends EventShape<TEvents>> {
     }
 
     if (errors.length > 0) {
-      throw new AggregateError(errors, `One or more listeners failed for event "${type}"`);
+      throw new AggregateError(
+        errors,
+        `One or more listeners failed for event "${type}"`,
+      );
     }
   }
 
@@ -138,7 +156,9 @@ export class EventBus<TEvents extends EventShape<TEvents>> {
     if (this.disposed) throw new EventBusDisposedError();
   }
 
-  private getOrCreateSet(type: keyof TEvents & string): Set<DirectListenerEntry> {
+  private getOrCreateSet(
+    type: keyof TEvents & string,
+  ): Set<DirectListenerEntry> {
     const existing = this.listeners.get(type);
     if (existing) return existing;
     const created = new Set<DirectListenerEntry>();

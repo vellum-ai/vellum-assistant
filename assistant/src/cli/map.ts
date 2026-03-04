@@ -5,24 +5,25 @@
  * the given domain, then analyzes captured network traffic into a deduplicated API map.
  */
 
-import { spawn as spawnChild } from 'node:child_process';
-import * as net from 'node:net';
-import { homedir } from 'node:os';
-import { join as pathJoin } from 'node:path';
+import { spawn as spawnChild } from "node:child_process";
+import * as net from "node:net";
+import { homedir } from "node:os";
+import { join as pathJoin } from "node:path";
 
-import { Command } from 'commander';
-import { parse as parseTld } from 'tldts';
+import { Command } from "commander";
+import { parse as parseTld } from "tldts";
 
+import { createMessageParser, serialize } from "../daemon/ipc-protocol.js";
 import {
-  createMessageParser,
-  serialize,
-} from '../daemon/ipc-protocol.js';
-import { analyzeApiMap, printApiMapTable,saveApiMap } from '../tools/browser/api-map.js';
-import { loadRecording } from '../tools/browser/recording-store.js';
-import { getCliLogger } from '../util/logger.js';
-import { getSocketPath, readSessionToken } from '../util/platform.js';
+  analyzeApiMap,
+  printApiMapTable,
+  saveApiMap,
+} from "../tools/browser/api-map.js";
+import { loadRecording } from "../tools/browser/recording-store.js";
+import { getCliLogger } from "../util/logger.js";
+import { getSocketPath, readSessionToken } from "../util/platform.js";
 
-const log = getCliLogger('cli:map');
+const log = getCliLogger("cli:map");
 
 /**
  * Extract the registrable base domain from a hostname.
@@ -40,7 +41,7 @@ function getBaseDomain(domain: string): string {
 
 function output(data: unknown, json: boolean): void {
   process.stdout.write(
-    json ? JSON.stringify(data) + '\n' : JSON.stringify(data, null, 2) + '\n',
+    json ? JSON.stringify(data) + "\n" : JSON.stringify(data, null, 2) + "\n",
   );
 }
 
@@ -62,10 +63,10 @@ function getJson(cmd: Command): boolean {
 // Chrome CDP helpers
 // ---------------------------------------------------------------------------
 
-const CDP_BASE = 'http://localhost:9222';
+const CDP_BASE = "http://localhost:9222";
 const CHROME_DATA_DIR = pathJoin(
   homedir(),
-  'Library/Application Support/Google/Chrome-CDP',
+  "Library/Application Support/Google/Chrome-CDP",
 );
 
 async function isCdpReady(): Promise<boolean> {
@@ -81,12 +82,18 @@ async function isCdpReady(): Promise<boolean> {
  * Bring the Chrome CDP tab to the foreground so the user sees the right window.
  * Optionally navigates to a URL first (used when Chrome was already running).
  */
-async function bringChromeToFront(navigateUrl?: string): Promise<string | null> {
+async function bringChromeToFront(
+  navigateUrl?: string,
+): Promise<string | null> {
   try {
     const res = await fetch(`${CDP_BASE}/json/list`);
     if (!res.ok) return null;
-    const targets = (await res.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
-    const pageTarget = targets.find(t => t.type === 'page');
+    const targets = (await res.json()) as Array<{
+      type: string;
+      url: string;
+      webSocketDebuggerUrl: string;
+    }>;
+    const pageTarget = targets.find((t) => t.type === "page");
     if (!pageTarget?.webSocketDebuggerUrl) return null;
 
     const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
@@ -96,14 +103,17 @@ async function bringChromeToFront(navigateUrl?: string): Promise<string | null> 
     });
 
     let nextId = 1;
-    const cdpSend = (method: string, params?: Record<string, unknown>): Promise<unknown> =>
+    const cdpSend = (
+      method: string,
+      params?: Record<string, unknown>,
+    ): Promise<unknown> =>
       new Promise((resolve, reject) => {
         const id = nextId++;
         const cleanup = () => {
           clearTimeout(timeout);
-          ws.removeEventListener('message', handler);
-          ws.removeEventListener('close', onClose);
-          ws.removeEventListener('error', onError);
+          ws.removeEventListener("message", handler);
+          ws.removeEventListener("close", onClose);
+          ws.removeEventListener("error", onError);
         };
         const timeout = setTimeout(() => {
           cleanup();
@@ -111,7 +121,7 @@ async function bringChromeToFront(navigateUrl?: string): Promise<string | null> 
         }, 5000);
         const onClose = () => {
           cleanup();
-          reject(new Error('WebSocket closed before CDP response'));
+          reject(new Error("WebSocket closed before CDP response"));
         };
         const onError = (e: Event) => {
           cleanup();
@@ -125,19 +135,19 @@ async function bringChromeToFront(navigateUrl?: string): Promise<string | null> 
             else resolve(msg.result);
           }
         };
-        ws.addEventListener('message', handler);
-        ws.addEventListener('close', onClose);
-        ws.addEventListener('error', onError);
+        ws.addEventListener("message", handler);
+        ws.addEventListener("close", onClose);
+        ws.addEventListener("error", onError);
         ws.send(JSON.stringify({ id, method, params }));
       });
 
     if (navigateUrl) {
-      await cdpSend('Page.navigate', { url: navigateUrl });
+      await cdpSend("Page.navigate", { url: navigateUrl });
       // Brief wait for navigation to start
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500));
     }
 
-    await cdpSend('Page.bringToFront');
+    await cdpSend("Page.bringToFront");
     const tabUrl = navigateUrl ?? pageTarget.url;
     ws.close();
     return tabUrl;
@@ -152,23 +162,27 @@ async function ensureChromeWithCDP(domain: string): Promise<void> {
 
   // Launch a separate Chrome instance with CDP flags alongside any existing Chrome.
   const chromeApp =
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  spawnChild(chromeApp, [
-    `--remote-debugging-port=9222`,
-    `--force-renderer-accessibility`,
-    `--user-data-dir=${CHROME_DATA_DIR}`,
-    `https://${domain}/`,
-  ], {
-    detached: true,
-    stdio: 'ignore',
-  }).unref();
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  spawnChild(
+    chromeApp,
+    [
+      `--remote-debugging-port=9222`,
+      `--force-renderer-accessibility`,
+      `--user-data-dir=${CHROME_DATA_DIR}`,
+      `https://${domain}/`,
+    ],
+    {
+      detached: true,
+      stdio: "ignore",
+    },
+  ).unref();
 
   // Wait for CDP to be ready
   for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 500));
     if (await isCdpReady()) return;
   }
-  throw new Error('Chrome started but CDP endpoint not responding after 15s');
+  throw new Error("Chrome started but CDP endpoint not responding after 15s");
 }
 
 // ---------------------------------------------------------------------------
@@ -200,14 +214,23 @@ async function startLearnSession(
     const socket = net.createConnection(socketPath);
     const parser = createMessageParser();
 
-    socket.on('error', (err) => {
-      reject(new Error(`Cannot connect to daemon: ${err.message}. Is the daemon running?`));
+    socket.on("error", (err) => {
+      reject(
+        new Error(
+          `Cannot connect to daemon: ${err.message}. Is the daemon running?`,
+        ),
+      );
     });
 
-    const timeoutHandle = setTimeout(() => {
-      socket.destroy();
-      reject(new Error(`Learn session timed out after ${durationSeconds + 30}s`));
-    }, (durationSeconds + 30) * 1000);
+    const timeoutHandle = setTimeout(
+      () => {
+        socket.destroy();
+        reject(
+          new Error(`Learn session timed out after ${durationSeconds + 30}s`),
+        );
+      },
+      (durationSeconds + 30) * 1000,
+    );
     timeoutHandle.unref();
 
     let authenticated = !sessionToken;
@@ -215,45 +238,45 @@ async function startLearnSession(
     const sendStartCommand = () => {
       socket.write(
         serialize({
-          type: 'ride_shotgun_start',
+          type: "ride_shotgun_start",
           durationSeconds,
           intervalSeconds: 5,
-          mode: 'learn',
+          mode: "learn",
           targetDomain: recordDomain,
           navigateDomain,
           autoNavigate,
-        } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+        } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
       );
     };
 
-    socket.on('data', (chunk) => {
-      const messages = parser.feed(chunk.toString('utf-8'));
+    socket.on("data", (chunk) => {
+      const messages = parser.feed(chunk.toString("utf-8"));
       for (const msg of messages) {
         const m = msg as unknown as Record<string, unknown>;
 
-        if (!authenticated && m.type === 'auth_result') {
+        if (!authenticated && m.type === "auth_result") {
           if ((m as { success: boolean }).success) {
             authenticated = true;
             sendStartCommand();
           } else {
             clearTimeout(timeoutHandle);
             socket.destroy();
-            reject(new Error('Daemon authentication failed'));
+            reject(new Error("Daemon authentication failed"));
           }
           continue;
         }
 
-        if (m.type === 'auth_result') {
+        if (m.type === "auth_result") {
           continue;
         }
 
-        if (m.type === 'ride_shotgun_progress') {
+        if (m.type === "ride_shotgun_progress") {
           // Live progress from auto-navigator
           process.stderr.write(`  ${m.message}\n`);
           continue;
         }
 
-        if (m.type === 'ride_shotgun_result') {
+        if (m.type === "ride_shotgun_result") {
           clearTimeout(timeoutHandle);
           socket.destroy();
           resolve({
@@ -264,13 +287,13 @@ async function startLearnSession(
       }
     });
 
-    socket.on('connect', () => {
+    socket.on("connect", () => {
       if (sessionToken) {
         socket.write(
           serialize({
-            type: 'auth',
+            type: "auth",
             token: sessionToken,
-          } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+          } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
         );
       } else {
         sendStartCommand();
@@ -285,80 +308,104 @@ async function startLearnSession(
 
 export function registerMapCommand(program: Command): void {
   program
-    .command('map')
+    .command("map")
     .description(
-      'Auto-navigate a domain and produce a deduplicated API map. ' +
-      'Launches Chrome with CDP, starts a Ride Shotgun learn session, ' +
-      'then analyzes captured network traffic.',
+      "Auto-navigate a domain and produce a deduplicated API map. " +
+        "Launches Chrome with CDP, starts a Ride Shotgun learn session, " +
+        "then analyzes captured network traffic.",
     )
-    .argument('<domain>', 'Domain to map (e.g., example.com)')
-    .option('--duration <seconds>', 'Recording duration in seconds')
-    .option('--manual', 'Manual mode: browse the site yourself while network traffic is recorded')
-    .option('--json', 'Machine-readable JSON output')
-    .action(async (domain: string, opts: { duration?: string; manual?: boolean; json?: boolean }, cmd: Command) => {
-      const json = getJson(cmd);
-      const manual = opts.manual ?? false;
-      const duration = opts.duration
-        ? parseInt(opts.duration, 10)
-        : manual ? 60 : 120;
+    .argument("<domain>", "Domain to map (e.g., example.com)")
+    .option("--duration <seconds>", "Recording duration in seconds")
+    .option(
+      "--manual",
+      "Manual mode: browse the site yourself while network traffic is recorded",
+    )
+    .option("--json", "Machine-readable JSON output")
+    .action(
+      async (
+        domain: string,
+        opts: { duration?: string; manual?: boolean; json?: boolean },
+        cmd: Command,
+      ) => {
+        const json = getJson(cmd);
+        const manual = opts.manual ?? false;
+        const duration = opts.duration
+          ? parseInt(opts.duration, 10)
+          : manual
+            ? 60
+            : 120;
 
-      try {
-        // Split into navigation domain (what Chrome browses) and recording domain (network filter).
-        // e.g. "open.spotify.com" → navigate open.spotify.com, record *.spotify.com
-        const navigateDomain = domain;
-        const recordDomain = getBaseDomain(domain);
+        try {
+          // Split into navigation domain (what Chrome browses) and recording domain (network filter).
+          // e.g. "open.spotify.com" → navigate open.spotify.com, record *.spotify.com
+          const navigateDomain = domain;
+          const recordDomain = getBaseDomain(domain);
 
-        if (!json) {
-          if (manual) {
-            log.info(`Starting manual API map session for ${domain} (${duration}s)...`);
-            log.info('Browse the site manually. Press Ctrl+C or wait for idle detection to stop recording.');
-          } else if (navigateDomain !== recordDomain) {
-            log.info(`Starting API map session: navigating ${navigateDomain}, recording *.${recordDomain} (${duration}s)...`);
-          } else {
-            log.info(`Starting API map session for ${domain} (${duration}s)...`);
+          if (!json) {
+            if (manual) {
+              log.info(
+                `Starting manual API map session for ${domain} (${duration}s)...`,
+              );
+              log.info(
+                "Browse the site manually. Press Ctrl+C or wait for idle detection to stop recording.",
+              );
+            } else if (navigateDomain !== recordDomain) {
+              log.info(
+                `Starting API map session: navigating ${navigateDomain}, recording *.${recordDomain} (${duration}s)...`,
+              );
+            } else {
+              log.info(
+                `Starting API map session for ${domain} (${duration}s)...`,
+              );
+            }
           }
+          const result = await startLearnSession(
+            navigateDomain,
+            recordDomain,
+            duration,
+            !manual,
+          );
+
+          if (!result.recordingId) {
+            outputError("Recording completed but no recording ID returned");
+            return;
+          }
+
+          // 2. Load the recording
+          const recording = loadRecording(result.recordingId);
+          if (!recording) {
+            outputError(`Failed to load recording ${result.recordingId}`);
+            return;
+          }
+
+          // 3. Analyze the API map
+          const apiMap = analyzeApiMap(recording.networkEntries, domain);
+
+          // 4. Save the API map
+          const savedPath = saveApiMap(domain, apiMap);
+
+          // 5. Display results
+          if (!json) {
+            printApiMapTable(apiMap);
+            log.info(`API map saved to: ${savedPath}`);
+          }
+
+          // 6. Output JSON result
+          output(
+            {
+              ok: true,
+              domain,
+              recordingId: result.recordingId,
+              savedPath,
+              totalRequests: apiMap.totalRequests,
+              endpointCount: apiMap.endpoints.length,
+              apiMap,
+            },
+            json,
+          );
+        } catch (err) {
+          outputError(err instanceof Error ? err.message : String(err));
         }
-        const result = await startLearnSession(navigateDomain, recordDomain, duration, !manual);
-
-        if (!result.recordingId) {
-          outputError('Recording completed but no recording ID returned');
-          return;
-        }
-
-        // 2. Load the recording
-        const recording = loadRecording(result.recordingId);
-        if (!recording) {
-          outputError(`Failed to load recording ${result.recordingId}`);
-          return;
-        }
-
-        // 3. Analyze the API map
-        const apiMap = analyzeApiMap(recording.networkEntries, domain);
-
-        // 4. Save the API map
-        const savedPath = saveApiMap(domain, apiMap);
-
-        // 5. Display results
-        if (!json) {
-          printApiMapTable(apiMap);
-          log.info(`API map saved to: ${savedPath}`);
-        }
-
-        // 6. Output JSON result
-        output(
-          {
-            ok: true,
-            domain,
-            recordingId: result.recordingId,
-            savedPath,
-            totalRequests: apiMap.totalRequests,
-            endpointCount: apiMap.endpoints.length,
-            apiMap,
-          },
-          json,
-        );
-      } catch (err) {
-        outputError(err instanceof Error ? err.message : String(err));
-      }
-    });
+      },
+    );
 }

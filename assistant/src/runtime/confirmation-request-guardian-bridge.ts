@@ -12,18 +12,18 @@
  * canonical records.
  */
 
-import type { TrustContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
   type CanonicalGuardianRequest,
   createCanonicalGuardianDelivery,
-} from '../memory/canonical-guardian-store.js';
-import { emitNotificationSignal } from '../notifications/emit-signal.js';
-import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
-import { getLogger } from '../util/logger.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
-import { getGuardianBinding } from './channel-guardian-service.js';
+} from "../memory/canonical-guardian-store.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { getGuardianBinding } from "./channel-guardian-service.js";
 
-const log = getLogger('confirmation-request-guardian-bridge');
+const log = getLogger("confirmation-request-guardian-bridge");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,7 +44,14 @@ export interface BridgeConfirmationRequestParams {
 
 export type BridgeConfirmationRequestResult =
   | { bridged: true; signalId: string }
-  | { skipped: true; reason: 'not_trusted_contact' | 'no_guardian_binding' | 'missing_guardian_identity' | 'binding_identity_mismatch' };
+  | {
+      skipped: true;
+      reason:
+        | "not_trusted_contact"
+        | "no_guardian_binding"
+        | "missing_guardian_identity"
+        | "binding_identity_mismatch";
+    };
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -72,16 +79,16 @@ export function bridgeConfirmationRequestToGuardian(
 
   // Only bridge for trusted-contact sessions. Guardians self-approve and
   // unknown actors are fail-closed by the routing layer.
-  if (trustContext.trustClass !== 'trusted_contact') {
-    return { skipped: true, reason: 'not_trusted_contact' };
+  if (trustContext.trustClass !== "trusted_contact") {
+    return { skipped: true, reason: "not_trusted_contact" };
   }
 
   if (!trustContext.guardianExternalUserId) {
     log.debug(
       { conversationId, sourceChannel: trustContext.sourceChannel },
-      'Skipping guardian bridge: no guardian identity on trusted-contact context',
+      "Skipping guardian bridge: no guardian identity on trusted-contact context",
     );
-    return { skipped: true, reason: 'missing_guardian_identity' };
+    return { skipped: true, reason: "missing_guardian_identity" };
   }
 
   const sourceChannel = trustContext.sourceChannel;
@@ -89,9 +96,9 @@ export function bridgeConfirmationRequestToGuardian(
   if (!binding) {
     log.debug(
       { sourceChannel, assistantId },
-      'No guardian binding for confirmation request bridge',
+      "No guardian binding for confirmation request bridge",
     );
-    return { skipped: true, reason: 'no_guardian_binding' };
+    return { skipped: true, reason: "no_guardian_binding" };
   }
 
   // Validate that the binding's guardian identity matches the canonical request's
@@ -103,14 +110,17 @@ export function bridgeConfirmationRequestToGuardian(
   // value was normalized by resolveTrustContext() while the binding stores the
   // raw identity. On phone channels the same guardian can have format variance
   // (e.g. "+1 555-123-4567" vs "+15551234567") that would cause a false mismatch.
-  const canonicalBindingId = canonicalizeInboundIdentity(sourceChannel, binding.guardianExternalUserId);
+  const canonicalBindingId = canonicalizeInboundIdentity(
+    sourceChannel,
+    binding.guardianExternalUserId,
+  );
   const canonicalRequestId = canonicalRequest.guardianExternalUserId
-    ? canonicalizeInboundIdentity(sourceChannel, canonicalRequest.guardianExternalUserId)
+    ? canonicalizeInboundIdentity(
+        sourceChannel,
+        canonicalRequest.guardianExternalUserId,
+      )
     : null;
-  if (
-    canonicalRequestId &&
-    canonicalBindingId !== canonicalRequestId
-  ) {
+  if (canonicalRequestId && canonicalBindingId !== canonicalRequestId) {
     log.warn(
       {
         sourceChannel,
@@ -119,33 +129,36 @@ export function bridgeConfirmationRequestToGuardian(
         expectedGuardianId: canonicalRequest.guardianExternalUserId,
         requestId: canonicalRequest.id,
       },
-      'Guardian binding identity does not match canonical request guardian — skipping notification to prevent misrouting',
+      "Guardian binding identity does not match canonical request guardian — skipping notification to prevent misrouting",
     );
-    return { skipped: true, reason: 'binding_identity_mismatch' };
+    return { skipped: true, reason: "binding_identity_mismatch" };
   }
 
-  const senderLabel = trustContext.requesterIdentifier
-    || trustContext.requesterExternalUserId
-    || 'unknown';
+  const senderLabel =
+    trustContext.requesterIdentifier ||
+    trustContext.requesterExternalUserId ||
+    "unknown";
 
   const questionText = `Tool approval request: ${toolName}`;
 
   // Emit guardian.question notification so the guardian is alerted.
   const signalPromise = emitNotificationSignal({
-    sourceEventName: 'guardian.question',
+    sourceEventName: "guardian.question",
     sourceChannel,
     sourceSessionId: conversationId,
     assistantId,
     attentionHints: {
       requiresAction: true,
-      urgency: 'high',
+      urgency: "high",
       isAsyncBackground: false,
       visibleInSourceNow: false,
     },
     contextPayload: {
-      requestKind: 'tool_approval' as const,
+      requestKind: "tool_approval" as const,
       requestId: canonicalRequest.id,
-      requestCode: canonicalRequest.requestCode ?? canonicalRequest.id.slice(0, 6).toUpperCase(),
+      requestCode:
+        canonicalRequest.requestCode ??
+        canonicalRequest.id.slice(0, 6).toUpperCase(),
       sourceChannel,
       requesterExternalUserId: trustContext.requesterExternalUserId,
       requesterChatId: trustContext.requesterChatId ?? null,
@@ -157,26 +170,32 @@ export function bridgeConfirmationRequestToGuardian(
     onThreadCreated: (info) => {
       createCanonicalGuardianDelivery({
         requestId: canonicalRequest.id,
-        destinationChannel: 'vellum',
+        destinationChannel: "vellum",
         destinationConversationId: info.conversationId,
       });
     },
   });
 
   // Record channel deliveries from the notification pipeline (fire-and-forget).
-  void signalPromise.then((signalResult) => {
-    for (const result of signalResult.deliveryResults) {
-      if (result.channel === 'vellum') continue; // handled in onThreadCreated
-      if (result.channel !== 'telegram' && result.channel !== 'sms') continue;
-      createCanonicalGuardianDelivery({
-        requestId: canonicalRequest.id,
-        destinationChannel: result.channel,
-        destinationChatId: result.destination.length > 0 ? result.destination : undefined,
-      });
-    }
-  }).catch((err) => {
-    log.warn({ err, requestId: canonicalRequest.id }, 'Failed to record channel deliveries for guardian bridge');
-  });
+  void signalPromise
+    .then((signalResult) => {
+      for (const result of signalResult.deliveryResults) {
+        if (result.channel === "vellum") continue; // handled in onThreadCreated
+        if (result.channel !== "telegram" && result.channel !== "sms") continue;
+        createCanonicalGuardianDelivery({
+          requestId: canonicalRequest.id,
+          destinationChannel: result.channel,
+          destinationChatId:
+            result.destination.length > 0 ? result.destination : undefined,
+        });
+      }
+    })
+    .catch((err) => {
+      log.warn(
+        { err, requestId: canonicalRequest.id },
+        "Failed to record channel deliveries for guardian bridge",
+      );
+    });
 
   log.info(
     {
@@ -186,7 +205,7 @@ export function bridgeConfirmationRequestToGuardian(
       requestId: canonicalRequest.id,
       requestCode: canonicalRequest.requestCode,
     },
-    'Guardian notified of trusted-contact confirmation request',
+    "Guardian notified of trusted-contact confirmation request",
   );
 
   // Return the signal ID synchronously from the promise-producing call.

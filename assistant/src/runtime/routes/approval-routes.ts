@@ -8,19 +8,18 @@
  * header. Guardian decisions additionally verify that the actor is the
  * bound guardian.
  */
-import { isHttpAuthDisabled } from '../../config/env.js';
-import { getConversationByKey } from '../../memory/conversation-key-store.js';
-import { getActiveBinding } from '../../memory/guardian-bindings.js';
-import { addRule } from '../../permissions/trust-store.js';
-import type { UserDecision } from '../../permissions/types.js';
-import { getTool } from '../../tools/registry.js';
-import { getLogger } from '../../util/logger.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
-import type { AuthContext } from '../auth/types.js';
-import { httpError } from '../http-errors.js';
-import * as pendingInteractions from '../pending-interactions.js';
+import { isHttpAuthDisabled } from "../../config/env.js";
+import { findGuardianForChannel } from "../../contacts/contact-store.js";
+import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import { addRule } from "../../permissions/trust-store.js";
+import type { UserDecision } from "../../permissions/types.js";
+import { getTool } from "../../tools/registry.js";
+import { getLogger } from "../../util/logger.js";
+import type { AuthContext } from "../auth/types.js";
+import { httpError } from "../http-errors.js";
+import * as pendingInteractions from "../pending-interactions.js";
 
-const log = getLogger('approval-routes');
+const log = getLogger("approval-routes");
 
 /**
  * Verify the actor from AuthContext is the bound guardian for the vellum channel.
@@ -33,15 +32,26 @@ function requireBoundGuardian(authContext: AuthContext): Response | null {
     return null;
   }
   if (!authContext.actorPrincipalId) {
-    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
+    return httpError(
+      "FORBIDDEN",
+      "Actor is not the bound guardian for this channel",
+      403,
+    );
   }
-  const binding = getActiveBinding(DAEMON_INTERNAL_ASSISTANT_ID, 'vellum');
-  if (!binding) {
-    // No binding yet — in pre-bootstrap state, allow through
+  const guardianResult = findGuardianForChannel("vellum");
+  if (!guardianResult) {
+    // No guardian yet — in pre-bootstrap state, allow through
     return null;
   }
-  if (binding.guardianExternalUserId !== authContext.actorPrincipalId) {
-    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
+  if (
+    (guardianResult.channel.externalUserId ??
+      guardianResult.contact.principalId) !== authContext.actorPrincipalId
+  ) {
+    return httpError(
+      "FORBIDDEN",
+      "Actor is not the bound guardian for this channel",
+      403,
+    );
   }
   return null;
 }
@@ -50,34 +60,55 @@ function requireBoundGuardian(authContext: AuthContext): Response | null {
  * POST /v1/confirm — resolve a pending confirmation by requestId.
  * Requires AuthContext with guardian-bound actor.
  */
-export async function handleConfirm(req: Request, authContext: AuthContext): Promise<Response> {
+export async function handleConfirm(
+  req: Request,
+  authContext: AuthContext,
+): Promise<Response> {
   const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     requestId?: string;
     decision?: string;
   };
 
   const { requestId, decision } = body;
 
-  if (!requestId || typeof requestId !== 'string') {
-    return httpError('BAD_REQUEST', 'requestId is required', 400);
+  if (!requestId || typeof requestId !== "string") {
+    return httpError("BAD_REQUEST", "requestId is required", 400);
   }
 
-  const validConfirmDecisions = ['allow', 'allow_10m', 'allow_thread', 'deny'];
-  if (typeof decision !== 'string' || !validConfirmDecisions.includes(decision)) {
-    return httpError('BAD_REQUEST', `decision must be one of: ${validConfirmDecisions.join(', ')}`, 400);
+  const validConfirmDecisions = ["allow", "allow_10m", "allow_thread", "deny"];
+  if (
+    typeof decision !== "string" ||
+    !validConfirmDecisions.includes(decision)
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      `decision must be one of: ${validConfirmDecisions.join(", ")}`,
+      400,
+    );
   }
 
   const interaction = pendingInteractions.resolve(requestId);
   if (!interaction) {
-    return httpError('NOT_FOUND', 'No pending interaction found for this requestId', 404);
+    return httpError(
+      "NOT_FOUND",
+      "No pending interaction found for this requestId",
+      404,
+    );
   }
 
-  interaction.session.handleConfirmationResponse(requestId, decision as UserDecision, undefined, undefined, undefined, {
-    source: 'button',
-  });
+  interaction.session.handleConfirmationResponse(
+    requestId,
+    decision as UserDecision,
+    undefined,
+    undefined,
+    undefined,
+    {
+      source: "button",
+    },
+  );
   return Response.json({ accepted: true });
 }
 
@@ -85,11 +116,14 @@ export async function handleConfirm(req: Request, authContext: AuthContext): Pro
  * POST /v1/secret — resolve a pending secret request by requestId.
  * Requires AuthContext with guardian-bound actor.
  */
-export async function handleSecret(req: Request, authContext: AuthContext): Promise<Response> {
+export async function handleSecret(
+  req: Request,
+  authContext: AuthContext,
+): Promise<Response> {
   const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     requestId?: string;
     value?: string;
     delivery?: string;
@@ -97,23 +131,35 @@ export async function handleSecret(req: Request, authContext: AuthContext): Prom
 
   const { requestId, value, delivery } = body;
 
-  if (!requestId || typeof requestId !== 'string') {
-    return httpError('BAD_REQUEST', 'requestId is required', 400);
+  if (!requestId || typeof requestId !== "string") {
+    return httpError("BAD_REQUEST", "requestId is required", 400);
   }
 
-  if (delivery !== undefined && delivery !== 'store' && delivery !== 'transient_send') {
-    return httpError('BAD_REQUEST', 'delivery must be "store" or "transient_send"', 400);
+  if (
+    delivery !== undefined &&
+    delivery !== "store" &&
+    delivery !== "transient_send"
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      'delivery must be "store" or "transient_send"',
+      400,
+    );
   }
 
   const interaction = pendingInteractions.resolve(requestId);
   if (!interaction) {
-    return httpError('NOT_FOUND', 'No pending interaction found for this requestId', 404);
+    return httpError(
+      "NOT_FOUND",
+      "No pending interaction found for this requestId",
+      404,
+    );
   }
 
   interaction.session.handleSecretResponse(
     requestId,
     value,
-    delivery as 'store' | 'transient_send' | undefined,
+    delivery as "store" | "transient_send" | undefined,
   );
   return Response.json({ accepted: true });
 }
@@ -127,11 +173,14 @@ export async function handleSecret(req: Request, authContext: AuthContext): Prom
  * against the server-provided allowlist options from the original
  * confirmation_request.
  */
-export async function handleTrustRule(req: Request, authContext: AuthContext): Promise<Response> {
+export async function handleTrustRule(
+  req: Request,
+  authContext: AuthContext,
+): Promise<Response> {
   const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     requestId?: string;
     pattern?: string;
     scope?: string;
@@ -140,69 +189,96 @@ export async function handleTrustRule(req: Request, authContext: AuthContext): P
 
   const { requestId, pattern, scope, decision } = body;
 
-  if (!requestId || typeof requestId !== 'string') {
-    return httpError('BAD_REQUEST', 'requestId is required', 400);
+  if (!requestId || typeof requestId !== "string") {
+    return httpError("BAD_REQUEST", "requestId is required", 400);
   }
 
-  if (!pattern || typeof pattern !== 'string') {
-    return httpError('BAD_REQUEST', 'pattern is required', 400);
+  if (!pattern || typeof pattern !== "string") {
+    return httpError("BAD_REQUEST", "pattern is required", 400);
   }
 
-  if (!scope || typeof scope !== 'string') {
-    return httpError('BAD_REQUEST', 'scope is required', 400);
+  if (!scope || typeof scope !== "string") {
+    return httpError("BAD_REQUEST", "scope is required", 400);
   }
 
-  if (decision !== 'allow' && decision !== 'deny') {
-    return httpError('BAD_REQUEST', 'decision must be "allow" or "deny"', 400);
+  if (decision !== "allow" && decision !== "deny") {
+    return httpError("BAD_REQUEST", 'decision must be "allow" or "deny"', 400);
   }
 
   // Look up without removing — trust rule doesn't resolve the confirmation
   const interaction = pendingInteractions.get(requestId);
   if (!interaction) {
-    return httpError('NOT_FOUND', 'No pending interaction found for this requestId', 404);
+    return httpError(
+      "NOT_FOUND",
+      "No pending interaction found for this requestId",
+      404,
+    );
   }
 
   if (!interaction.confirmationDetails) {
-    return httpError('CONFLICT', 'No confirmation details available for this request', 409);
+    return httpError(
+      "CONFLICT",
+      "No confirmation details available for this request",
+      409,
+    );
   }
 
   const confirmation = interaction.confirmationDetails;
 
   if (confirmation.persistentDecisionsAllowed === false) {
-    return httpError('FORBIDDEN', 'Persistent trust rules are not allowed for this tool invocation', 403);
+    return httpError(
+      "FORBIDDEN",
+      "Persistent trust rules are not allowed for this tool invocation",
+      403,
+    );
   }
 
   // Validate pattern against server-provided allowlist options
-  const validPatterns = (confirmation.allowlistOptions ?? []).map((o) => o.pattern);
+  const validPatterns = (confirmation.allowlistOptions ?? []).map(
+    (o) => o.pattern,
+  );
   if (!validPatterns.includes(pattern)) {
-    return httpError('FORBIDDEN', 'pattern does not match any server-provided allowlist option', 403);
+    return httpError(
+      "FORBIDDEN",
+      "pattern does not match any server-provided allowlist option",
+      403,
+    );
   }
 
   // Validate scope against server-provided scope options.
   // Non-scoped tools have empty scopeOptions — only "everywhere" is valid for them.
   const validScopes = (confirmation.scopeOptions ?? []).map((o) => o.scope);
   if (validScopes.length === 0) {
-    if (scope !== 'everywhere') {
-      return httpError('FORBIDDEN', 'non-scoped tools only accept scope "everywhere"', 403);
+    if (scope !== "everywhere") {
+      return httpError(
+        "FORBIDDEN",
+        'non-scoped tools only accept scope "everywhere"',
+        403,
+      );
     }
   } else if (!validScopes.includes(scope)) {
-    return httpError('FORBIDDEN', 'scope does not match any server-provided scope option', 403);
+    return httpError(
+      "FORBIDDEN",
+      "scope does not match any server-provided scope option",
+      403,
+    );
   }
 
   try {
     const tool = getTool(confirmation.toolName);
-    const executionTarget = tool?.origin === 'skill' ? confirmation.executionTarget : undefined;
+    const executionTarget =
+      tool?.origin === "skill" ? confirmation.executionTarget : undefined;
     addRule(confirmation.toolName, pattern, scope, decision, undefined, {
       executionTarget,
     });
     log.info(
       { tool: confirmation.toolName, pattern, scope, decision, requestId },
-      'Trust rule added via HTTP (bound to pending confirmation)',
+      "Trust rule added via HTTP (bound to pending confirmation)",
     );
     return Response.json({ accepted: true });
   } catch (err) {
-    log.error({ err }, 'Failed to add trust rule');
-    return httpError('INTERNAL_ERROR', 'Failed to add trust rule', 500);
+    log.error({ err }, "Failed to add trust rule");
+    return httpError("INTERNAL_ERROR", "Failed to add trust rule", 500);
   }
 }
 
@@ -214,12 +290,15 @@ export async function handleTrustRule(req: Request, authContext: AuthContext): P
  * polling-based clients (like the CLI) to discover approval requests
  * without SSE.
  */
-export function handleListPendingInteractions(url: URL, _authContext: AuthContext): Response {
+export function handleListPendingInteractions(
+  url: URL,
+  _authContext: AuthContext,
+): Response {
   // Auth is already verified by JWT middleware upstream — no additional
   // verification needed here. The _authContext parameter is accepted for
   // type consistency and potential future use.
-  const conversationKey = url.searchParams.get('conversationKey');
-  const conversationId = url.searchParams.get('conversationId');
+  const conversationKey = url.searchParams.get("conversationKey");
+  const conversationId = url.searchParams.get("conversationId");
 
   let resolvedConversationId: string | undefined;
   if (conversationId) {
@@ -228,17 +307,23 @@ export function handleListPendingInteractions(url: URL, _authContext: AuthContex
     const mapping = getConversationByKey(conversationKey);
     resolvedConversationId = mapping?.conversationId;
   } else {
-    return httpError('BAD_REQUEST', 'conversationKey or conversationId query parameter is required', 400);
+    return httpError(
+      "BAD_REQUEST",
+      "conversationKey or conversationId query parameter is required",
+      400,
+    );
   }
 
   if (!resolvedConversationId) {
     return Response.json({ pendingConfirmation: null, pendingSecret: null });
   }
 
-  const interactions = pendingInteractions.getByConversation(resolvedConversationId);
+  const interactions = pendingInteractions.getByConversation(
+    resolvedConversationId,
+  );
 
-  const confirmation = interactions.find((i) => i.kind === 'confirmation');
-  const secret = interactions.find((i) => i.kind === 'secret');
+  const confirmation = interactions.find((i) => i.kind === "confirmation");
+  const secret = interactions.find((i) => i.kind === "secret");
 
   return Response.json({
     pendingConfirmation: confirmation
@@ -247,15 +332,18 @@ export function handleListPendingInteractions(url: URL, _authContext: AuthContex
           toolName: confirmation.confirmationDetails?.toolName,
           toolUseId: confirmation.requestId,
           input: confirmation.confirmationDetails?.input ?? {},
-          riskLevel: confirmation.confirmationDetails?.riskLevel ?? 'unknown',
+          riskLevel: confirmation.confirmationDetails?.riskLevel ?? "unknown",
           executionTarget: confirmation.confirmationDetails?.executionTarget,
-          allowlistOptions: confirmation.confirmationDetails?.allowlistOptions?.map((o) => ({
-            label: o.label,
-            pattern: o.pattern,
-          })),
+          allowlistOptions:
+            confirmation.confirmationDetails?.allowlistOptions?.map((o) => ({
+              label: o.label,
+              pattern: o.pattern,
+            })),
           scopeOptions: confirmation.confirmationDetails?.scopeOptions,
-          persistentDecisionsAllowed: confirmation.confirmationDetails?.persistentDecisionsAllowed,
-          temporaryOptionsAvailable: confirmation.confirmationDetails?.temporaryOptionsAvailable,
+          persistentDecisionsAllowed:
+            confirmation.confirmationDetails?.persistentDecisionsAllowed,
+          temporaryOptionsAvailable:
+            confirmation.confirmationDetails?.temporaryOptionsAvailable,
         }
       : null,
     pendingSecret: secret

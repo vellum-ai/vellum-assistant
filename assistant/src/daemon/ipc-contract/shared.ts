@@ -1,16 +1,18 @@
 // Shared types used across multiple IPC domains.
 
-export type ThreadType = 'standard' | 'private';
+export type ThreadType = "standard" | "private";
 
 /** Runtime normalizer — collapses unknown/legacy DB values to 'standard'. */
-export function normalizeThreadType(raw: string | null | undefined): ThreadType {
-  return raw === 'private' ? 'private' : 'standard';
+export function normalizeThreadType(
+  raw: string | null | undefined,
+): ThreadType {
+  return raw === "private" ? "private" : "standard";
 }
 
 export interface IpcBlobRef {
   id: string;
-  kind: 'ax_tree' | 'screenshot_jpeg';
-  encoding: 'utf8' | 'binary';
+  kind: "ax_tree" | "screenshot_jpeg";
+  encoding: "utf8" | "binary";
   byteLength: number;
   sha256?: string;
 }
@@ -31,8 +33,8 @@ export interface DictationContext {
 
 /** Structured command intent — bypasses text parsing when present. */
 export interface CommandIntent {
-  domain: 'screen_recording';
-  action: 'start' | 'stop' | 'restart' | 'pause' | 'resume';
+  domain: "screen_recording";
+  action: "start" | "stop" | "restart" | "pause" | "resume";
 }
 
 export interface UserMessageAttachment {

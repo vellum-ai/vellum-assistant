@@ -329,7 +329,8 @@ describe("AgentLoop", () => {
     const toolExecutor = async () => {
       // Abort from a timer while this tool is "stuck"
       setTimeout(() => controller.abort(), 50);
-      // Simulate being stuck for a long time
+      // Simulate being stuck for a long time — must be well above the
+      // assertion threshold (2000ms) so the test catches abort regressions
       await new Promise((resolve) => setTimeout(resolve, 10_000));
       return { content: "should never return", isError: false };
     };

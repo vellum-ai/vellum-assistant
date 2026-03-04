@@ -1,5 +1,5 @@
-import { getSubagentManager } from '../../subagent/index.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { getSubagentManager } from "../../subagent/index.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeSubagentAbort(
   input: Record<string, unknown>,
@@ -11,7 +11,9 @@ export async function executeSubagentAbort(
   }
 
   const manager = getSubagentManager();
-  const sendToClient = context.sendToClient as ((msg: unknown) => void) | undefined;
+  const sendToClient = context.sendToClient as
+    | ((msg: unknown) => void)
+    | undefined;
   const aborted = manager.abort(
     subagentId,
     sendToClient as ((msg: unknown) => void) | undefined,
@@ -27,7 +29,11 @@ export async function executeSubagentAbort(
   }
 
   return {
-    content: JSON.stringify({ subagentId, status: 'aborted', message: 'Subagent aborted successfully.' }),
+    content: JSON.stringify({
+      subagentId,
+      status: "aborted",
+      message: "Subagent aborted successfully.",
+    }),
     isError: false,
   };
 }

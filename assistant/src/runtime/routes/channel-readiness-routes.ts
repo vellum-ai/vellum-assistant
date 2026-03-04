@@ -5,8 +5,8 @@
  * POST  /v1/channels/readiness/refresh  — invalidate cache and refresh readiness
  */
 
-import type { ChannelId } from '../../channels/types.js';
-import { getReadinessService } from '../../daemon/handlers/config-channels.js';
+import type { ChannelId } from "../../channels/types.js";
+import { getReadinessService } from "../../daemon/handlers/config-channels.js";
 
 /**
  * GET /v1/channels/readiness
@@ -14,8 +14,9 @@ import { getReadinessService } from '../../daemon/handlers/config-channels.js';
  * Query params: channel? (optional ChannelId), includeRemote? (optional boolean)
  */
 export async function handleGetChannelReadiness(url: URL): Promise<Response> {
-  const channel = (url.searchParams.get('channel') as ChannelId | null) ?? undefined;
-  const includeRemote = url.searchParams.get('includeRemote') === 'true';
+  const channel =
+    (url.searchParams.get("channel") as ChannelId | null) ?? undefined;
+  const includeRemote = url.searchParams.get("includeRemote") === "true";
 
   const service = getReadinessService();
   const snapshots = await service.getReadiness(channel, includeRemote);
@@ -39,7 +40,9 @@ export async function handleGetChannelReadiness(url: URL): Promise<Response> {
  *
  * Body: { channel?: ChannelId, includeRemote?: boolean }
  */
-export async function handleRefreshChannelReadiness(req: Request): Promise<Response> {
+export async function handleRefreshChannelReadiness(
+  req: Request,
+): Promise<Response> {
   const body = (await req.json().catch(() => ({}))) as {
     channel?: ChannelId;
     includeRemote?: boolean;
@@ -54,7 +57,10 @@ export async function handleRefreshChannelReadiness(req: Request): Promise<Respo
     service.invalidateAll();
   }
 
-  const snapshots = await service.getReadiness(body.channel, body.includeRemote);
+  const snapshots = await service.getReadiness(
+    body.channel,
+    body.includeRemote,
+  );
 
   return Response.json({
     success: true,

@@ -416,6 +416,7 @@ export const contacts = sqliteTable("contacts", {
   updatedAt: integer("updated_at").notNull(),
   role: text("role").notNull().default("contact"), // 'guardian' | 'contact'
   principalId: text("principal_id"), // internal auth principal (nullable)
+  assistantId: text("assistant_id"), // which assistant this guardian is for (nullable, daemon default is DAEMON_INTERNAL_ASSISTANT_ID)
 });
 
 export const contactChannels = sqliteTable(
@@ -723,25 +724,8 @@ export const externalConversationBindings = sqliteTable(
 );
 
 // ── Channel Guardian Bindings ────────────────────────────────────────
-// UNIQUE (assistant_id, channel) WHERE status = 'active' enforced via index in db.ts
-
-export const channelGuardianBindings = sqliteTable(
-  "channel_guardian_bindings",
-  {
-    id: text("id").primaryKey(),
-    assistantId: text("assistant_id").notNull(),
-    channel: text("channel").notNull(),
-    guardianExternalUserId: text("guardian_external_user_id").notNull(),
-    guardianDeliveryChatId: text("guardian_delivery_chat_id").notNull(),
-    guardianPrincipalId: text("guardian_principal_id").notNull(),
-    status: text("status").notNull().default("active"),
-    verifiedAt: integer("verified_at").notNull(),
-    verifiedVia: text("verified_via").notNull().default("challenge"),
-    metadataJson: text("metadata_json"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-);
+// Dropped in migration 131-drop-legacy-member-guardian-tables.
+// Data lives in the contacts/contact_channels tables.
 
 // ── Channel Guardian Verification Challenges ─────────────────────────
 
@@ -1115,31 +1099,9 @@ export const assistantIngressInvites = sqliteTable(
   },
 );
 
-export const assistantIngressMembers = sqliteTable(
-  "assistant_ingress_members",
-  {
-    id: text("id").primaryKey(),
-    assistantId: text("assistant_id")
-      .notNull()
-      .default(DAEMON_INTERNAL_ASSISTANT_ID),
-    sourceChannel: text("source_channel").notNull(),
-    externalUserId: text("external_user_id"),
-    externalChatId: text("external_chat_id"),
-    displayName: text("display_name"),
-    username: text("username"),
-    status: text("status").notNull().default("pending"),
-    policy: text("policy").notNull().default("allow"),
-    inviteId: text("invite_id").references(() => assistantIngressInvites.id, {
-      onDelete: "cascade",
-    }),
-    createdBySessionId: text("created_by_session_id"),
-    revokedReason: text("revoked_reason"),
-    blockedReason: text("blocked_reason"),
-    lastSeenAt: integer("last_seen_at"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-);
+// ── Assistant Ingress Members ─────────────────────────────────────────
+// Dropped in migration 131-drop-legacy-member-guardian-tables.
+// Data lives in the contacts/contact_channels tables.
 
 export const assistantInboxThreadState = sqliteTable(
   "assistant_inbox_thread_state",

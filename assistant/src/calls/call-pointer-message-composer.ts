@@ -11,11 +11,11 @@
 // ---------------------------------------------------------------------------
 
 export type CallPointerMessageScenario =
-  | 'started'
-  | 'completed'
-  | 'failed'
-  | 'guardian_verification_succeeded'
-  | 'guardian_verification_failed';
+  | "started"
+  | "completed"
+  | "failed"
+  | "guardian_verification_succeeded"
+  | "guardian_verification_failed";
 
 export interface CallPointerMessageContext {
   scenario: CallPointerMessageScenario;
@@ -34,25 +34,28 @@ export interface CallPointerMessageContext {
  * Build an instruction message to send to the daemon session so the
  * assistant generates a natural pointer status update as a conversation turn.
  */
-export function buildPointerInstruction(context: CallPointerMessageContext): string {
+export function buildPointerInstruction(
+  context: CallPointerMessageContext,
+): string {
   const parts: string[] = [
-    '[CALL_STATUS_EVENT]',
+    "[CALL_STATUS_EVENT]",
     `Event: ${context.scenario}`,
     `Phone number: ${context.phoneNumber}`,
   ];
   if (context.duration) parts.push(`Duration: ${context.duration}`);
   if (context.reason) parts.push(`Reason: ${context.reason}`);
-  if (context.verificationCode) parts.push(`Verification code: ${context.verificationCode}`);
+  if (context.verificationCode)
+    parts.push(`Verification code: ${context.verificationCode}`);
   if (context.channel) parts.push(`Channel: ${context.channel}`);
 
-  parts.push('');
+  parts.push("");
   parts.push(
-    'Write a brief (1-2 sentence) status update about this phone call event for the user. '
-    + 'Preserve all factual details exactly (phone numbers, durations, failure reasons, verification codes). '
-    + 'Be concise, natural, and informative.',
+    "Write a brief (1-2 sentence) status update about this phone call event for the user. " +
+      "Preserve all factual details exactly (phone numbers, durations, failure reasons, verification codes). " +
+      "Be concise, natural, and informative.",
   );
 
-  return parts.join('\n');
+  return parts.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -64,26 +67,28 @@ export function buildPointerInstruction(context: CallPointerMessageContext): str
  *
  * Used for untrusted audiences and when the daemon processor is unavailable.
  */
-export function getPointerFallbackMessage(context: CallPointerMessageContext): string {
+export function getPointerFallbackMessage(
+  context: CallPointerMessageContext,
+): string {
   switch (context.scenario) {
-    case 'started':
+    case "started":
       return context.verificationCode
         ? `\u{1F4DE} Call to ${context.phoneNumber} started. Verification code: ${context.verificationCode}`
         : `\u{1F4DE} Call to ${context.phoneNumber} started.`;
-    case 'completed':
+    case "completed":
       return context.duration
         ? `\u{1F4DE} Call to ${context.phoneNumber} completed (${context.duration}).`
         : `\u{1F4DE} Call to ${context.phoneNumber} completed.`;
-    case 'failed':
+    case "failed":
       return context.reason
         ? `\u{1F4DE} Call to ${context.phoneNumber} failed: ${context.reason}.`
         : `\u{1F4DE} Call to ${context.phoneNumber} failed.`;
-    case 'guardian_verification_succeeded': {
-      const ch = context.channel ?? 'voice';
+    case "guardian_verification_succeeded": {
+      const ch = context.channel ?? "voice";
       return `\u{2705} Guardian verification (${ch}) for ${context.phoneNumber} succeeded.`;
     }
-    case 'guardian_verification_failed': {
-      const ch = context.channel ?? 'voice';
+    case "guardian_verification_failed": {
+      const ch = context.channel ?? "voice";
       return context.reason
         ? `\u{274C} Guardian verification (${ch}) for ${context.phoneNumber} failed: ${context.reason}.`
         : `\u{274C} Guardian verification (${ch}) for ${context.phoneNumber} failed.`;

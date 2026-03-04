@@ -164,7 +164,9 @@ export function setSecureKey(account: string, value: string): boolean {
       if (keychain.getKey(account) != null) {
         keychain.deleteKey(account);
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
   return result;
 }
@@ -304,7 +306,9 @@ export async function setSecureKeyAsync(
         if (exists != null) {
           await keychain.deleteKeyAsync(account);
         }
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     }
     return result;
   }
@@ -326,7 +330,9 @@ export async function setSecureKeyAsync(
         if (exists != null) {
           await keychain.deleteKeyAsync(account);
         }
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     }
     return fallbackResult;
   }

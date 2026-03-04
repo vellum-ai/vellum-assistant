@@ -1,10 +1,10 @@
-import { existsSync,mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { getLogger } from '../../util/logger.js';
-import { getDataDir } from '../../util/platform.js';
+import { getLogger } from "../../util/logger.js";
+import { getDataDir } from "../../util/platform.js";
 
-const log = getLogger('auth-cache');
+const log = getLogger("auth-cache");
 
 const DEFAULT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -12,7 +12,7 @@ export interface AuthSession {
   domain: string;
   authenticatedAt: number; // epoch ms
   expiresAt?: number; // epoch ms, optional
-  method: 'jit' | 'stored';
+  method: "jit" | "stored";
 }
 
 /**
@@ -22,7 +22,7 @@ export interface AuthSession {
  */
 function normalizeDomain(domain: string): string {
   let d = domain.toLowerCase().trim();
-  if (d.startsWith('www.')) {
+  if (d.startsWith("www.")) {
     d = d.slice(4);
   }
   return d;
@@ -36,7 +36,7 @@ export class AuthSessionCache {
 
   constructor(dataDir?: string, defaultExpiryMs?: number) {
     const base = dataDir ?? getDataDir();
-    this.filePath = join(base, 'browser-auth', 'sessions.json');
+    this.filePath = join(base, "browser-auth", "sessions.json");
     this.defaultExpiryMs = defaultExpiryMs ?? DEFAULT_EXPIRY_MS;
   }
 
@@ -49,21 +49,24 @@ export class AuthSessionCache {
     if (this.loaded) return;
     try {
       if (existsSync(this.filePath)) {
-        const raw = readFileSync(this.filePath, 'utf-8');
+        const raw = readFileSync(this.filePath, "utf-8");
         const entries: AuthSession[] = JSON.parse(raw);
         this.sessions.clear();
         const now = Date.now();
         for (const entry of entries) {
           const key = normalizeDomain(entry.domain);
           if (entry.expiresAt != null && entry.expiresAt <= now) {
-            log.debug({ domain: key }, 'Skipping expired session during ensureLoaded');
+            log.debug(
+              { domain: key },
+              "Skipping expired session during ensureLoaded",
+            );
             continue;
           }
           this.sessions.set(key, { ...entry, domain: key });
         }
       }
     } catch (err) {
-      log.warn({ err }, 'Failed to load auth session cache, starting fresh');
+      log.warn({ err }, "Failed to load auth session cache, starting fresh");
       this.sessions.clear();
     }
     this.loaded = true;
@@ -72,7 +75,7 @@ export class AuthSessionCache {
   async load(): Promise<void> {
     try {
       if (existsSync(this.filePath)) {
-        const raw = readFileSync(this.filePath, 'utf-8');
+        const raw = readFileSync(this.filePath, "utf-8");
         const entries: AuthSession[] = JSON.parse(raw);
         this.sessions.clear();
         const now = Date.now();
@@ -80,14 +83,14 @@ export class AuthSessionCache {
           const key = normalizeDomain(entry.domain);
           // Skip expired sessions during load
           if (entry.expiresAt != null && entry.expiresAt <= now) {
-            log.debug({ domain: key }, 'Skipping expired session during load');
+            log.debug({ domain: key }, "Skipping expired session during load");
             continue;
           }
           this.sessions.set(key, { ...entry, domain: key });
         }
       }
     } catch (err) {
-      log.warn({ err }, 'Failed to load auth session cache, starting fresh');
+      log.warn({ err }, "Failed to load auth session cache, starting fresh");
       this.sessions.clear();
     }
     this.loaded = true;
@@ -95,12 +98,12 @@ export class AuthSessionCache {
 
   async save(): Promise<void> {
     try {
-      const dir = join(this.filePath, '..');
+      const dir = join(this.filePath, "..");
       mkdirSync(dir, { recursive: true });
       const entries = Array.from(this.sessions.values());
-      writeFileSync(this.filePath, JSON.stringify(entries, null, 2), 'utf-8');
+      writeFileSync(this.filePath, JSON.stringify(entries, null, 2), "utf-8");
     } catch (err) {
-      log.warn({ err }, 'Failed to save auth session cache');
+      log.warn({ err }, "Failed to save auth session cache");
     }
   }
 
@@ -120,7 +123,7 @@ export class AuthSessionCache {
     return true;
   }
 
-  markAuthenticated(domain: string, method: 'jit' | 'stored'): void {
+  markAuthenticated(domain: string, method: "jit" | "stored"): void {
     this.ensureLoaded();
     const key = normalizeDomain(domain);
     const now = Date.now();

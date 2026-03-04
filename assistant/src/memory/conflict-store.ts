@@ -1,25 +1,28 @@
-import { and, asc, eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, asc, eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb, getSqlite, rawAll, rawChanges } from './db.js';
-import { enqueueMemoryJob } from './jobs-store.js';
-import { memoryItemConflicts, memoryItems } from './schema.js';
-import { clampUnitInterval } from './validation.js';
+import { getDb, getSqlite, rawAll, rawChanges } from "./db.js";
+import { enqueueMemoryJob } from "./jobs-store.js";
+import { memoryItemConflicts, memoryItems } from "./schema.js";
+import { clampUnitInterval } from "./validation.js";
 
 export type MemoryConflictRelationship =
-  | 'contradiction'
-  | 'ambiguous_contradiction'
-  | 'update'
-  | 'complement';
+  | "contradiction"
+  | "ambiguous_contradiction"
+  | "update"
+  | "complement";
 
 export type MemoryConflictStatus =
-  | 'pending_clarification'
-  | 'resolved_keep_existing'
-  | 'resolved_keep_candidate'
-  | 'resolved_merge'
-  | 'dismissed';
+  | "pending_clarification"
+  | "resolved_keep_existing"
+  | "resolved_keep_candidate"
+  | "resolved_merge"
+  | "dismissed";
 
-export type ResolvedMemoryConflictStatus = Exclude<MemoryConflictStatus, 'pending_clarification'>;
+export type ResolvedMemoryConflictStatus = Exclude<
+  MemoryConflictStatus,
+  "pending_clarification"
+>;
 
 export interface MemoryItemConflict {
   id: string;
@@ -56,7 +59,10 @@ export interface PendingConflictDetail extends MemoryItemConflict {
   candidateKind: string;
 }
 
-export type ConflictResolutionAction = 'keep_existing' | 'keep_candidate' | 'merge';
+export type ConflictResolutionAction =
+  | "keep_existing"
+  | "keep_candidate"
+  | "merge";
 
 export interface ApplyConflictResolutionInput {
   conflictId: string;
@@ -65,55 +71,68 @@ export interface ApplyConflictResolutionInput {
   resolutionNote?: string | null;
 }
 
-export function createOrUpdatePendingConflict(input: CreatePendingConflictInput): MemoryItemConflict {
+export function createOrUpdatePendingConflict(
+  input: CreatePendingConflictInput,
+): MemoryItemConflict {
   // Wrap in BEGIN IMMEDIATE so the SELECT-then-INSERT is atomic against concurrent
   // writers. Without this, two parallel memory workers could both observe no
   // existing conflict and both attempt to INSERT the same pair, resulting in a
   // duplicate or an unexpected constraint violation.
-  return getSqlite().transaction((): MemoryItemConflict => {
-    const db = getDb();
-    const now = Date.now();
-    const scopeId = input.scopeId;
-    const existing = getPendingConflictByPair(scopeId, input.existingItemId, input.candidateItemId);
+  return getSqlite()
+    .transaction((): MemoryItemConflict => {
+      const db = getDb();
+      const now = Date.now();
+      const scopeId = input.scopeId;
+      const existing = getPendingConflictByPair(
+        scopeId,
+        input.existingItemId,
+        input.candidateItemId,
+      );
 
-    if (existing) {
-      db.update(memoryItemConflicts)
-        .set({
+      if (existing) {
+        db.update(memoryItemConflicts)
+          .set({
+            relationship: input.relationship,
+            clarificationQuestion:
+              input.clarificationQuestion !== undefined
+                ? input.clarificationQuestion
+                : existing.clarificationQuestion,
+            updatedAt: now,
+          })
+          .where(eq(memoryItemConflicts.id, existing.id))
+          .run();
+        const updated = getConflictById(existing.id);
+        if (!updated) {
+          throw new Error(`Failed to reload updated conflict: ${existing.id}`);
+        }
+        return updated;
+      }
+
+      const id = uuid();
+      db.insert(memoryItemConflicts)
+        .values({
+          id,
+          scopeId,
+          existingItemId: input.existingItemId,
+          candidateItemId: input.candidateItemId,
           relationship: input.relationship,
-          clarificationQuestion: input.clarificationQuestion !== undefined ? input.clarificationQuestion : existing.clarificationQuestion,
+          status: "pending_clarification",
+          clarificationQuestion: input.clarificationQuestion ?? null,
+          resolutionNote: null,
+          lastAskedAt: null,
+          resolvedAt: null,
+          createdAt: now,
           updatedAt: now,
         })
-        .where(eq(memoryItemConflicts.id, existing.id))
         .run();
-      const updated = getConflictById(existing.id);
-      if (!updated) {
-        throw new Error(`Failed to reload updated conflict: ${existing.id}`);
+
+      const created = getConflictById(id);
+      if (!created) {
+        throw new Error(`Failed to load created conflict: ${id}`);
       }
-      return updated;
-    }
-
-    const id = uuid();
-    db.insert(memoryItemConflicts).values({
-      id,
-      scopeId,
-      existingItemId: input.existingItemId,
-      candidateItemId: input.candidateItemId,
-      relationship: input.relationship,
-      status: 'pending_clarification',
-      clarificationQuestion: input.clarificationQuestion ?? null,
-      resolutionNote: null,
-      lastAskedAt: null,
-      resolvedAt: null,
-      createdAt: now,
-      updatedAt: now,
-    }).run();
-
-    const created = getConflictById(id);
-    if (!created) {
-      throw new Error(`Failed to load created conflict: ${id}`);
-    }
-    return created;
-  }).immediate();
+      return created;
+    })
+    .immediate();
 }
 
 export function getConflictById(conflictId: string): MemoryItemConflict | null {
@@ -135,26 +154,33 @@ export function getPendingConflictByPair(
   const row = db
     .select()
     .from(memoryItemConflicts)
-    .where(and(
-      eq(memoryItemConflicts.scopeId, scopeId),
-      eq(memoryItemConflicts.existingItemId, existingItemId),
-      eq(memoryItemConflicts.candidateItemId, candidateItemId),
-      eq(memoryItemConflicts.status, 'pending_clarification'),
-    ))
+    .where(
+      and(
+        eq(memoryItemConflicts.scopeId, scopeId),
+        eq(memoryItemConflicts.existingItemId, existingItemId),
+        eq(memoryItemConflicts.candidateItemId, candidateItemId),
+        eq(memoryItemConflicts.status, "pending_clarification"),
+      ),
+    )
     .get();
   return row ? toConflict(row) : null;
 }
 
-export function listPendingConflicts(scopeId: string, limit = 100): MemoryItemConflict[] {
+export function listPendingConflicts(
+  scopeId: string,
+  limit = 100,
+): MemoryItemConflict[] {
   if (limit <= 0) return [];
   const db = getDb();
   const rows = db
     .select()
     .from(memoryItemConflicts)
-    .where(and(
-      eq(memoryItemConflicts.scopeId, scopeId),
-      eq(memoryItemConflicts.status, 'pending_clarification'),
-    ))
+    .where(
+      and(
+        eq(memoryItemConflicts.scopeId, scopeId),
+        eq(memoryItemConflicts.status, "pending_clarification"),
+      ),
+    )
     .orderBy(asc(memoryItemConflicts.createdAt))
     .limit(limit)
     .all();
@@ -187,11 +213,12 @@ export function listPendingConflictDetails(
   }
   const cursorClause = cursor
     ? `AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?))`
-    : '';
+    : "";
   const params: (string | number)[] = cursor
     ? [scopeId, cursor.createdAt, cursor.createdAt, cursor.id, limit]
     : [scopeId, limit];
-  const rows = rawAll<ConflictDetailRow>(`
+  const rows = rawAll<ConflictDetailRow>(
+    `
     SELECT
       c.id,
       c.scope_id,
@@ -217,7 +244,9 @@ export function listPendingConflictDetails(
       ${cursorClause}
     ORDER BY c.created_at ASC, c.id ASC
     LIMIT ?
-  `, ...params);
+  `,
+    ...params,
+  );
 
   return rows.map((row) => ({
     id: row.id,
@@ -239,7 +268,10 @@ export function listPendingConflictDetails(
   }));
 }
 
-export function markConflictAsked(conflictId: string, askedAt = Date.now()): boolean {
+export function markConflictAsked(
+  conflictId: string,
+  askedAt = Date.now(),
+): boolean {
   const db = getDb();
   db.update(memoryItemConflicts)
     .set({
@@ -252,7 +284,10 @@ export function markConflictAsked(conflictId: string, askedAt = Date.now()): boo
   return rawChanges() > 0;
 }
 
-export function resolveConflict(conflictId: string, input: ResolveConflictInput): MemoryItemConflict | null {
+export function resolveConflict(
+  conflictId: string,
+  input: ResolveConflictInput,
+): MemoryItemConflict | null {
   const existing = getConflictById(conflictId);
   if (!existing) return null;
 
@@ -261,7 +296,10 @@ export function resolveConflict(conflictId: string, input: ResolveConflictInput)
   db.update(memoryItemConflicts)
     .set({
       status: input.status,
-      resolutionNote: input.resolutionNote !== undefined ? input.resolutionNote : existing.resolutionNote,
+      resolutionNote:
+        input.resolutionNote !== undefined
+          ? input.resolutionNote
+          : existing.resolutionNote,
       resolvedAt: now,
       updatedAt: now,
     })
@@ -271,9 +309,11 @@ export function resolveConflict(conflictId: string, input: ResolveConflictInput)
   return getConflictById(conflictId);
 }
 
-export function applyConflictResolution(input: ApplyConflictResolutionInput): boolean {
+export function applyConflictResolution(
+  input: ApplyConflictResolutionInput,
+): boolean {
   const conflict = getConflictById(input.conflictId);
-  if (!conflict || conflict.status !== 'pending_clarification') return false;
+  if (!conflict || conflict.status !== "pending_clarification") return false;
 
   const db = getDb();
   const now = Date.now();
@@ -290,59 +330,67 @@ export function applyConflictResolution(input: ApplyConflictResolutionInput): bo
 
   if (!existingItem || !candidateItem) {
     resolveConflict(conflict.id, {
-      status: 'dismissed',
-      resolutionNote: input.resolutionNote ?? 'Conflict items missing at resolution time.',
+      status: "dismissed",
+      resolutionNote:
+        input.resolutionNote ?? "Conflict items missing at resolution time.",
     });
     return false;
   }
 
   switch (input.resolution) {
-    case 'keep_existing': {
+    case "keep_existing": {
       db.update(memoryItems)
-        .set({ status: 'superseded', invalidAt: now })
+        .set({ status: "superseded", invalidAt: now })
         .where(eq(memoryItems.id, candidateItem.id))
         .run();
       resolveConflict(conflict.id, {
-        status: 'resolved_keep_existing',
+        status: "resolved_keep_existing",
         resolutionNote: input.resolutionNote ?? null,
       });
       return true;
     }
-    case 'keep_candidate': {
+    case "keep_candidate": {
       db.update(memoryItems)
-        .set({ status: 'superseded', invalidAt: now })
+        .set({ status: "superseded", invalidAt: now })
         .where(eq(memoryItems.id, existingItem.id))
         .run();
       db.update(memoryItems)
-        .set({ status: 'active', validFrom: now })
+        .set({ status: "active", validFrom: now })
         .where(eq(memoryItems.id, candidateItem.id))
         .run();
       resolveConflict(conflict.id, {
-        status: 'resolved_keep_candidate',
+        status: "resolved_keep_candidate",
         resolutionNote: input.resolutionNote ?? null,
       });
       return true;
     }
-    case 'merge': {
-      const mergedStatement = (input.mergedStatement ?? '').trim();
-      const nextStatement = mergedStatement.length > 0 ? mergedStatement : candidateItem.statement;
+    case "merge": {
+      const mergedStatement = (input.mergedStatement ?? "").trim();
+      const nextStatement =
+        mergedStatement.length > 0 ? mergedStatement : candidateItem.statement;
       db.update(memoryItems)
         .set({
           statement: nextStatement,
-          status: 'active',
+          status: "active",
           invalidAt: null,
-          lastSeenAt: Math.max(existingItem.lastSeenAt, candidateItem.lastSeenAt, now),
-          confidence: clampUnitInterval(Math.max(existingItem.confidence, candidateItem.confidence)),
+          lastSeenAt: Math.max(
+            existingItem.lastSeenAt,
+            candidateItem.lastSeenAt,
+            now,
+          ),
+          confidence: clampUnitInterval(
+            Math.max(existingItem.confidence, candidateItem.confidence),
+          ),
         })
         .where(eq(memoryItems.id, existingItem.id))
         .run();
       db.update(memoryItems)
-        .set({ status: 'superseded', invalidAt: now })
+        .set({ status: "superseded", invalidAt: now })
         .where(eq(memoryItems.id, candidateItem.id))
         .run();
-      enqueueMemoryJob('embed_item', { itemId: existingItem.id });
+      enqueueMemoryJob("embed_item", { itemId: existingItem.id });
       resolveConflict(conflict.id, {
-        status: 'resolved_merge',
+        status: "resolved_merge",
         resolutionNote: input.resolutionNote ?? null,
       });
       return true;
@@ -350,7 +398,9 @@ export function applyConflictResolution(input: ApplyConflictResolutionInput): bo
   }
 }
 
-function toConflict(row: typeof memoryItemConflicts.$inferSelect): MemoryItemConflict {
+function toConflict(
+  row: typeof memoryItemConflicts.$inferSelect,
+): MemoryItemConflict {
   return {
     id: row.id,
     scopeId: row.scopeId,

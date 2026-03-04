@@ -40,7 +40,7 @@ export type {
   TimeoutConfig,
   UiConfig,
   WorkspaceGitConfig,
-} from './schema.js';
+} from "./schema.js";
 
 /**
  * Legacy feature flags section (Record<string, boolean>).

@@ -4,8 +4,16 @@ import { DedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
-import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
-import { AttachmentValidationError, CircuitBreakerOpenError, resetConversation, uploadAttachment } from "../../runtime/client.js";
+import {
+  resolveAssistant,
+  isRejection,
+} from "../../routing/resolve-assistant.js";
+import {
+  AttachmentValidationError,
+  CircuitBreakerOpenError,
+  resetConversation,
+  uploadAttachment,
+} from "../../runtime/client.js";
 import { callTelegramApi } from "../../telegram/api.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
@@ -18,7 +26,9 @@ const log = getLogger("telegram-webhook");
  * Parse `/start` or `/start <payload>` from Telegram message content.
  * Returns null if the message is not a /start command.
  */
-export function parseTelegramStartCommand(content: string): { payload?: string } | null {
+export function parseTelegramStartCommand(
+  content: string,
+): { payload?: string } | null {
   const trimmed = content.trim();
   if (/^\/start$/i.test(trimmed)) return {};
   const match = trimmed.match(/^\/start\s+(.+)$/i);
@@ -27,7 +37,8 @@ export function parseTelegramStartCommand(content: string): { payload?: string }
 }
 
 const rejectionLimiter = new RejectionRateLimiter();
-const START_COMMAND_ACK_TEXT = "Starting up... you'll get my first message in a moment.";
+const START_COMMAND_ACK_TEXT =
+  "Starting up... you'll get my first message in a moment.";
 
 export function createTelegramWebhookHandler(config: GatewayConfig) {
   const dedupCache = new DedupCache();
@@ -42,13 +53,19 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
 
     // Payload size guard
     const contentLength = req.headers.get("content-length");
-    if (contentLength && Number(contentLength) > config.maxWebhookPayloadBytes) {
+    if (
+      contentLength &&
+      Number(contentLength) > config.maxWebhookPayloadBytes
+    ) {
       tlog.warn({ contentLength }, "Webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
     // Verify webhook secret
-    if (!config.telegramWebhookSecret || !verifyWebhookSecret(req.headers, config.telegramWebhookSecret)) {
+    if (
+      !config.telegramWebhookSecret ||
+      !verifyWebhookSecret(req.headers, config.telegramWebhookSecret)
+    ) {
       tlog.warn("Telegram webhook request failed secret verification");
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -61,7 +78,10 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     }
 
     if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
-      tlog.warn({ bodyLength: Buffer.byteLength(rawBody) }, "Webhook payload too large");
+      tlog.warn(
+        { bodyLength: Buffer.byteLength(rawBody) },
+        "Webhook payload too large",
+      );
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
@@ -74,7 +94,8 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
 
     // Dedup check — reserve the update_id immediately so concurrent retries
     // are blocked even while the first request is still processing.
-    const updateId = typeof payload.update_id === "number" ? payload.update_id : undefined;
+    const updateId =
+      typeof payload.update_id === "number" ? payload.update_id : undefined;
     if (updateId !== undefined) {
       const status = dedupCache.reserve(updateId);
       if (status !== "reserved") {
@@ -82,24 +103,36 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           // High-water mark rejection — this update_id was fully processed
           // previously but the TTL entry has expired. Return idempotent success
           // so Telegram stops retrying.
-          tlog.info({ updateId }, "Update_id below high-water mark, returning idempotent success");
+          tlog.info(
+            { updateId },
+            "Update_id below high-water mark, returning idempotent success",
+          );
           return Response.json({ ok: true }, { status: 200 });
         }
         // status === "duplicate" — entry is in the cache (in-flight or finalized)
         const cached = dedupCache.get(updateId);
         if (cached) {
-          tlog.info({ updateId }, "Duplicate update_id, returning cached response");
+          tlog.info(
+            { updateId },
+            "Duplicate update_id, returning cached response",
+          );
           return new Response(cached.body, {
             status: cached.status,
             headers: { "content-type": "application/json" },
           });
         }
         // Still being processed by the first handler — ask Telegram to retry
-        tlog.info({ updateId }, "Duplicate update_id while still processing, returning 503");
-        return new Response(JSON.stringify({ error: "Processing in progress" }), {
-          status: 503,
-          headers: { "content-type": "application/json", "Retry-After": "1" },
-        });
+        tlog.info(
+          { updateId },
+          "Duplicate update_id while still processing, returning 503",
+        );
+        return new Response(
+          JSON.stringify({ error: "Processing in progress" }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json", "Retry-After": "1" },
+          },
+        );
       }
     }
 
@@ -115,12 +148,18 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       });
     };
 
-    const acknowledgeCallbackQuery = (callbackQueryId: string | undefined, phase: string): void => {
+    const acknowledgeCallbackQuery = (
+      callbackQueryId: string | undefined,
+      phase: string,
+    ): void => {
       if (!callbackQueryId) return;
       callTelegramApi(config, "answerCallbackQuery", {
         callback_query_id: callbackQueryId,
       }).catch((err) => {
-        tlog.error({ err, callbackQueryId, phase }, "Failed to acknowledge callback query");
+        tlog.error(
+          { err, callbackQueryId, phase },
+          "Failed to acknowledge callback query",
+        );
       });
     };
 
@@ -132,7 +171,10 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       if (!messageId) return;
       const parsedMessageId = Number(messageId);
       if (!Number.isFinite(parsedMessageId)) {
-        tlog.warn({ messageId, phase }, "Skipping inline approval button clear due to invalid message id");
+        tlog.warn(
+          { messageId, phase },
+          "Skipping inline approval button clear due to invalid message id",
+        );
         return;
       }
       const basePayload = {
@@ -144,7 +186,10 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         return msg.includes("message is not modified");
       };
 
-      const deleteApprovalPrompt = (primaryErr: unknown, fallbackErr: unknown): void => {
+      const deleteApprovalPrompt = (
+        primaryErr: unknown,
+        fallbackErr: unknown,
+      ): void => {
         // "message is not modified" means the inline keyboard was already
         // removed (e.g. duplicate/stale callback clicks). The prompt is still
         // valid — skip the delete so we don't remove audit-worthy messages.
@@ -156,12 +201,21 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           return;
         }
 
-        callTelegramApi(config, "deleteMessage", basePayload).catch((deleteErr) => {
-          tlog.error(
-            { primaryErr, fallbackErr, deleteErr, chatId, messageId: parsedMessageId, phase },
-            "Failed to clear inline approval buttons and delete prompt message",
-          );
-        });
+        callTelegramApi(config, "deleteMessage", basePayload).catch(
+          (deleteErr) => {
+            tlog.error(
+              {
+                primaryErr,
+                fallbackErr,
+                deleteErr,
+                chatId,
+                messageId: parsedMessageId,
+                phase,
+              },
+              "Failed to clear inline approval buttons and delete prompt message",
+            );
+          },
+        );
       };
 
       // Bot API behavior differs across wrappers/clients for "remove markup".
@@ -176,11 +230,15 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         callTelegramApi(config, "editMessageReplyMarkup", {
           ...basePayload,
           reply_markup: { inline_keyboard: [] },
-        }).catch((fallbackErr) => deleteApprovalPrompt(primaryErr, fallbackErr))
+        }).catch((fallbackErr) =>
+          deleteApprovalPrompt(primaryErr, fallbackErr),
+        ),
       );
     };
 
-    const isApprovalCallbackData = (callbackData: string | undefined): boolean => {
+    const isApprovalCallbackData = (
+      callbackData: string | undefined,
+    ): boolean => {
       if (!callbackData) return false;
       return callbackData.startsWith("apr:");
     };
@@ -221,19 +279,30 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
 
       if (isRejection(startRouting)) {
         tlog.warn(
-          { chatId: normalized.message.conversationExternalId, reason: startRouting.reason },
+          {
+            chatId: normalized.message.conversationExternalId,
+            reason: startRouting.reason,
+          },
           "Routing rejected /start command",
         );
-        if (rejectionLimiter.shouldSend(normalized.message.conversationExternalId)) {
+        if (
+          rejectionLimiter.shouldSend(normalized.message.conversationExternalId)
+        ) {
           sendTelegramReply(
             config,
             normalized.message.conversationExternalId,
             "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
           ).catch((err) => {
-            tlog.error({ err, chatId: normalized.message.conversationExternalId }, "Failed to send /start routing rejection notice");
+            tlog.error(
+              { err, chatId: normalized.message.conversationExternalId },
+              "Failed to send /start routing rejection notice",
+            );
           });
         }
-        acknowledgeCallbackQuery(normalized.message.callbackQueryId, "start_command_routing_rejected");
+        acknowledgeCallbackQuery(
+          normalized.message.callbackQueryId,
+          "start_command_routing_rejected",
+        );
         return respond({ ok: true });
       }
 
@@ -245,7 +314,10 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           normalized.message.conversationExternalId,
           START_COMMAND_ACK_TEXT,
         ).catch((err) => {
-          tlog.error({ err, chatId: normalized.message.conversationExternalId }, "Failed to send /start acknowledgement");
+          tlog.error(
+            { err, chatId: normalized.message.conversationExternalId },
+            "Failed to send /start acknowledgement",
+          );
         });
       }
 
@@ -265,20 +337,33 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
 
         if (result.rejected) {
           tlog.warn(
-            { chatId: normalized.message.conversationExternalId, reason: result.rejectionReason },
+            {
+              chatId: normalized.message.conversationExternalId,
+              reason: result.rejectionReason,
+            },
             "Routing rejected /start forward",
           );
-          if (rejectionLimiter.shouldSend(normalized.message.conversationExternalId)) {
+          if (
+            rejectionLimiter.shouldSend(
+              normalized.message.conversationExternalId,
+            )
+          ) {
             sendTelegramReply(
               config,
               normalized.message.conversationExternalId,
               "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
             ).catch((err) => {
-              tlog.error({ err, chatId: normalized.message.conversationExternalId }, "Failed to send /start rejection notice");
+              tlog.error(
+                { err, chatId: normalized.message.conversationExternalId },
+                "Failed to send /start rejection notice",
+              );
             });
           }
         } else if (!result.forwarded) {
-          tlog.error({ updateId: payload.update_id }, "Failed to forward /start to runtime");
+          tlog.error(
+            { updateId: payload.update_id },
+            "Failed to forward /start to runtime",
+          );
           sendTelegramReply(
             config,
             normalized.message.conversationExternalId,
@@ -291,14 +376,23 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         }
       } catch (err) {
         if (err instanceof CircuitBreakerOpenError) {
-          acknowledgeCallbackQuery(normalized.message.callbackQueryId, "start_command_circuit_open");
+          acknowledgeCallbackQuery(
+            normalized.message.callbackQueryId,
+            "start_command_circuit_open",
+          );
           if (updateId !== undefined) dedupCache.unreserve(updateId);
           return Response.json(
             { error: "Service temporarily unavailable" },
-            { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+            {
+              status: 503,
+              headers: { "Retry-After": String(err.retryAfterSecs) },
+            },
           );
         }
-        tlog.error({ err, updateId: payload.update_id }, "Failed to process /start command");
+        tlog.error(
+          { err, updateId: payload.update_id },
+          "Failed to process /start command",
+        );
         sendTelegramReply(
           config,
           normalized.message.conversationExternalId,
@@ -308,7 +402,10 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         });
       }
 
-      acknowledgeCallbackQuery(normalized.message.callbackQueryId, "start_command");
+      acknowledgeCallbackQuery(
+        normalized.message.callbackQueryId,
+        "start_command",
+      );
       return respond({ ok: true });
     }
 
@@ -322,16 +419,24 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
 
       if (isRejection(routing)) {
         tlog.warn(
-          { chatId: normalized.message.conversationExternalId, reason: routing.reason },
+          {
+            chatId: normalized.message.conversationExternalId,
+            reason: routing.reason,
+          },
           "Routing rejected /new command",
         );
-        if (rejectionLimiter.shouldSend(normalized.message.conversationExternalId)) {
+        if (
+          rejectionLimiter.shouldSend(normalized.message.conversationExternalId)
+        ) {
           sendTelegramReply(
             config,
             normalized.message.conversationExternalId,
             "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
           ).catch((err) => {
-            tlog.error({ err, chatId: normalized.message.conversationExternalId }, "Failed to send /new routing rejection notice");
+            tlog.error(
+              { err, chatId: normalized.message.conversationExternalId },
+              "Failed to send /new routing rejection notice",
+            );
           });
         }
       } else {
@@ -341,19 +446,30 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             normalized.sourceChannel,
             normalized.message.conversationExternalId,
           );
-          sendTelegramReply(config, normalized.message.conversationExternalId, "Starting a new conversation!").catch((err) => {
+          sendTelegramReply(
+            config,
+            normalized.message.conversationExternalId,
+            "Starting a new conversation!",
+          ).catch((err) => {
             tlog.error({ err }, "Failed to send /new confirmation");
           });
         } catch (err) {
           tlog.error({ err }, "Failed to reset conversation");
-          sendTelegramReply(config, normalized.message.conversationExternalId, "Failed to reset conversation. Please try again.").catch((replyErr) => {
+          sendTelegramReply(
+            config,
+            normalized.message.conversationExternalId,
+            "Failed to reset conversation. Please try again.",
+          ).catch((replyErr) => {
             tlog.error({ err: replyErr }, "Failed to send /new error reply");
           });
         }
       }
 
       // Acknowledge callback query so the button spinner clears
-      acknowledgeCallbackQuery(normalized.message.callbackQueryId, "new_command");
+      acknowledgeCallbackQuery(
+        normalized.message.callbackQueryId,
+        "new_command",
+      );
 
       return respond({ ok: true });
     }
@@ -374,15 +490,28 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     // queries — edits only update text, callbacks have no media to process)
     let attachmentIds: string[] | undefined;
     const eventAttachments = normalized.message.attachments;
-    if (eventAttachments && eventAttachments.length > 0 && routable && !isEdit && !isCallback) {
+    if (
+      eventAttachments &&
+      eventAttachments.length > 0 &&
+      routable &&
+      !isEdit &&
+      !isCallback
+    ) {
       try {
         attachmentIds = [];
 
         // Filter oversized attachments
         const eligible = eventAttachments.filter((att) => {
-          if (att.fileSize !== undefined && att.fileSize > config.maxAttachmentBytes) {
+          if (
+            att.fileSize !== undefined &&
+            att.fileSize > config.maxAttachmentBytes
+          ) {
             tlog.warn(
-              { fileId: att.fileId, fileSize: att.fileSize, limit: config.maxAttachmentBytes },
+              {
+                fileId: att.fileId,
+                fileSize: att.fileSize,
+                limit: config.maxAttachmentBytes,
+              },
               "Skipping oversized attachment",
             );
             return false;
@@ -395,22 +524,33 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         // doesn't drop the user's message. Transient errors (download timeout,
         // upload 5xx, network failures) are propagated so that Telegram retries
         // the webhook delivery.
-        for (let i = 0; i < eligible.length; i += config.maxAttachmentConcurrency) {
+        for (
+          let i = 0;
+          i < eligible.length;
+          i += config.maxAttachmentConcurrency
+        ) {
           const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
           const results = await Promise.allSettled(
             batch.map(async (att) => {
-              const downloaded = await downloadTelegramFile(config, att.fileId, {
-                fileName: att.fileName,
-                mimeType: att.mimeType,
-              });
+              const downloaded = await downloadTelegramFile(
+                config,
+                att.fileId,
+                {
+                  fileName: att.fileName,
+                  mimeType: att.mimeType,
+                },
+              );
               return uploadAttachment(config, downloaded);
             }),
           );
           for (const result of results) {
-            if (result.status === 'fulfilled') {
+            if (result.status === "fulfilled") {
               attachmentIds.push(result.value.id);
             } else if (result.reason instanceof AttachmentValidationError) {
-              tlog.warn({ err: result.reason }, "Skipping attachment with validation error");
+              tlog.warn(
+                { err: result.reason },
+                "Skipping attachment with validation error",
+              );
             } else {
               // Transient failure — propagate so the webhook returns 500 and
               // Telegram retries the update delivery.
@@ -422,9 +562,15 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         // Transient attachment failure — return 500 so Telegram retries.
         // Use Response.json() instead of respond() to bypass the dedup cache,
         // otherwise the cached 500 prevents Telegram retries from being processed.
-        tlog.error({ err }, "Attachment processing failed with transient error");
+        tlog.error(
+          { err },
+          "Attachment processing failed with transient error",
+        );
         if (updateId !== undefined) dedupCache.unreserve(updateId);
-        return Response.json({ error: "Attachment processing failed" }, { status: 500 });
+        return Response.json(
+          { error: "Attachment processing failed" },
+          { status: 500 },
+        );
       }
     }
 
@@ -449,17 +595,31 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             chatId,
             "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
           ).catch((err) => {
-            tlog.error({ err, chatId }, "Failed to send routing rejection notice");
+            tlog.error(
+              { err, chatId },
+              "Failed to send routing rejection notice",
+            );
           });
         }
         // Acknowledge rejected callback queries so the button spinner clears
-        if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "routing_rejected");
+        if (isCallback)
+          acknowledgeCallbackQuery(
+            normalized.message.callbackQueryId,
+            "routing_rejected",
+          );
         return respond({ ok: true });
       }
 
       if (!result.forwarded) {
-        tlog.error({ updateId: payload.update_id }, "Failed to forward inbound event");
-        if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "forward_not_forwarded");
+        tlog.error(
+          { updateId: payload.update_id },
+          "Failed to forward inbound event",
+        );
+        if (isCallback)
+          acknowledgeCallbackQuery(
+            normalized.message.callbackQueryId,
+            "forward_not_forwarded",
+          );
         if (updateId !== undefined) dedupCache.unreserve(updateId);
         return Response.json({ error: "Internal error" }, { status: 500 });
       }
@@ -468,17 +628,24 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
 
       // Acknowledge the callback query to clear the button spinner in the
       // Telegram client. Best-effort — log errors but don't fail the flow.
-      if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "forwarded");
+      if (isCallback)
+        acknowledgeCallbackQuery(
+          normalized.message.callbackQueryId,
+          "forwarded",
+        );
 
       // Once a callback decision is consumed, remove the inline keyboard so
       // users cannot click obsolete approval buttons again.
       const approval = result.runtimeResponse?.approval;
-      const consumedApprovalDecision = approval === "decision_applied" ||
+      const consumedApprovalDecision =
+        approval === "decision_applied" ||
         approval === "guardian_decision_applied" ||
         approval === "stale_ignored";
       const fallbackApprovalCallback =
-        approval === undefined && isApprovalCallbackData(normalized.message.callbackData);
-      const shouldClearInlineButtons = consumedApprovalDecision || fallbackApprovalCallback;
+        approval === undefined &&
+        isApprovalCallbackData(normalized.message.callbackData);
+      const shouldClearInlineButtons =
+        consumedApprovalDecision || fallbackApprovalCallback;
       if (isCallback && shouldClearInlineButtons) {
         clearInlineApprovalButtons(
           normalized.message.conversationExternalId,
@@ -488,16 +655,33 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       }
     } catch (err) {
       if (err instanceof CircuitBreakerOpenError) {
-        tlog.warn({ retryAfterSecs: err.retryAfterSecs }, "Circuit breaker open — returning 503");
-        if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "circuit_open");
+        tlog.warn(
+          { retryAfterSecs: err.retryAfterSecs },
+          "Circuit breaker open — returning 503",
+        );
+        if (isCallback)
+          acknowledgeCallbackQuery(
+            normalized.message.callbackQueryId,
+            "circuit_open",
+          );
         if (updateId !== undefined) dedupCache.unreserve(updateId);
         return Response.json(
           { error: "Service temporarily unavailable" },
-          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+          {
+            status: 503,
+            headers: { "Retry-After": String(err.retryAfterSecs) },
+          },
         );
       }
-      tlog.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
-      if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "forward_exception");
+      tlog.error(
+        { err, updateId: payload.update_id },
+        "Failed to process inbound event",
+      );
+      if (isCallback)
+        acknowledgeCallbackQuery(
+          normalized.message.callbackQueryId,
+          "forward_exception",
+        );
       if (updateId !== undefined) dedupCache.unreserve(updateId);
       return Response.json({ error: "Internal error" }, { status: 500 });
     }

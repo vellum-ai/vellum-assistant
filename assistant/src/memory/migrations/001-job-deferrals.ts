@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * One-shot migration: reconcile old deferral history into the new `deferrals` column.
@@ -17,9 +17,11 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
  */
 export function migrateJobDeferrals(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = 'migration_job_deferrals'`
-  ).get();
+  const checkpoint = raw
+    .query(
+      `SELECT 1 FROM memory_checkpoints WHERE key = 'migration_job_deferrals'`,
+    )
+    .get();
   if (checkpoint) return;
 
   try {
@@ -39,7 +41,11 @@ export function migrateJobDeferrals(database: DrizzleDb): void {
       COMMIT;
     `);
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   }
 }

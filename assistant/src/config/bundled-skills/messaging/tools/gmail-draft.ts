@@ -1,10 +1,16 @@
-import { createDraft } from '../../../../messaging/providers/gmail/client.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { err,ok } from './shared.js';
+import { createDraft } from "../../../../messaging/providers/gmail/client.js";
+import { getMessagingProvider } from "../../../../messaging/registry.js";
+import { withValidToken } from "../../../../security/token-manager.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { err, ok } from "./shared.js";
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
   const to = input.to as string;
   const subject = input.subject as string;
   const body = input.body as string;
@@ -12,15 +18,25 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   const cc = input.cc as string | undefined;
   const bcc = input.bcc as string | undefined;
 
-  if (!to) return err('to is required.');
-  if (!subject) return err('subject is required.');
-  if (!body) return err('body is required.');
+  if (!to) return err("to is required.");
+  if (!subject) return err("subject is required.");
+  if (!body) return err("body is required.");
 
   try {
-    const provider = getMessagingProvider('gmail');
+    const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
-      const draft = await createDraft(token, to, subject, body, inReplyTo, cc, bcc);
-      return ok(`Draft created (ID: ${draft.id}). It will appear in your Gmail Drafts.`);
+      const draft = await createDraft(
+        token,
+        to,
+        subject,
+        body,
+        inReplyTo,
+        cc,
+        bcc,
+      );
+      return ok(
+        `Draft created (ID: ${draft.id}). It will appear in your Gmail Drafts.`,
+      );
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));

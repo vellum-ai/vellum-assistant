@@ -72,9 +72,15 @@ describe("/schema route", () => {
     expect(body.paths["/v1/ingress/invites/{inviteId}"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/challenge"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/status"]).toBeDefined();
-    expect(body.paths["/v1/integrations/guardian/outbound/start"]).toBeDefined();
-    expect(body.paths["/v1/integrations/guardian/outbound/resend"]).toBeDefined();
-    expect(body.paths["/v1/integrations/guardian/outbound/cancel"]).toBeDefined();
+    expect(
+      body.paths["/v1/integrations/guardian/outbound/start"],
+    ).toBeDefined();
+    expect(
+      body.paths["/v1/integrations/guardian/outbound/resend"],
+    ).toBeDefined();
+    expect(
+      body.paths["/v1/integrations/guardian/outbound/cancel"],
+    ).toBeDefined();
     expect(body.paths["/deliver/telegram"]).toBeDefined();
     expect(body.paths["/{path}"]).toBeDefined();
   });
@@ -109,7 +115,10 @@ describe("buildSchema()", () => {
     const schema = buildSchema();
 
     // THEN it contains all expected component schemas
-    const components = schema.components as Record<string, Record<string, unknown>>;
+    const components = schema.components as Record<
+      string,
+      Record<string, unknown>
+    >;
     const schemaNames = Object.keys(components.schemas);
     expect(schemaNames).toContain("HealthResponse");
     expect(schemaNames).toContain("ReadyResponse");
@@ -143,33 +152,41 @@ describe("buildSchema()", () => {
   test("TelegramDeliverRequest supports typing chatAction payloads", () => {
     const schema = buildSchema();
     const components = schema.components as {
-      schemas: Record<string, {
-        properties?: Record<string, unknown>;
-        anyOf?: Array<Record<string, unknown>>;
-      }>;
+      schemas: Record<
+        string,
+        {
+          properties?: Record<string, unknown>;
+          anyOf?: Array<Record<string, unknown>>;
+        }
+      >;
     };
     const telegramDeliver = components.schemas.TelegramDeliverRequest;
 
     expect(telegramDeliver.properties?.chatAction).toEqual({
       type: "string",
       enum: ["typing"],
-      description: "Optional Telegram chat action to emit (currently only `typing`)",
+      description:
+        "Optional Telegram chat action to emit (currently only `typing`)",
     });
     expect(telegramDeliver.anyOf).toContainEqual({ required: ["chatAction"] });
   });
 
   test("ingress member block request body is optional", () => {
     const schema = buildSchema() as {
-      paths: Record<string, {
-        post?: {
-          requestBody?: {
-            required?: boolean;
+      paths: Record<
+        string,
+        {
+          post?: {
+            requestBody?: {
+              required?: boolean;
+            };
           };
-        };
-      }>;
+        }
+      >;
     };
 
-    const ingressMemberBlockPost = schema.paths["/v1/ingress/members/{memberId}/block"]?.post;
+    const ingressMemberBlockPost =
+      schema.paths["/v1/ingress/members/{memberId}/block"]?.post;
     expect(ingressMemberBlockPost).toBeDefined();
     expect(ingressMemberBlockPost?.requestBody?.required).toBe(false);
   });

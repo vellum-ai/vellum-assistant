@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Follow-ups table and indexes.
@@ -19,9 +19,19 @@ export function createFollowupsTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_status ON followups(status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_channel ON followups(channel)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_contact_id ON followups(contact_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_channel_thread ON followups(channel, thread_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_status_expected ON followups(status, expected_response_by)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_status ON followups(status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_channel ON followups(channel)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_contact_id ON followups(contact_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_channel_thread ON followups(channel, thread_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_status_expected ON followups(status, expected_response_by)`,
+  );
 }

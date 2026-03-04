@@ -11,7 +11,7 @@ export class ConcurrencyPool {
 
   constructor(private readonly maxConcurrency: number = 10) {
     if (maxConcurrency < 1) {
-      throw new Error('maxConcurrency must be at least 1');
+      throw new Error("maxConcurrency must be at least 1");
     }
   }
 

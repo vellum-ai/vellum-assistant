@@ -1,4 +1,4 @@
-export type ContactRole = 'guardian' | 'contact';
+export type ContactRole = "guardian" | "contact";
 
 export interface Contact {
   id: string;
@@ -13,15 +13,21 @@ export interface Contact {
   updatedAt: number;
   role: ContactRole;
   principalId: string | null;
+  assistantId: string | null;
 }
 
-export type ChannelStatus = 'active' | 'pending' | 'revoked' | 'blocked' | 'unverified';
-export type ChannelPolicy = 'allow' | 'deny' | 'escalate';
+export type ChannelStatus =
+  | "active"
+  | "pending"
+  | "revoked"
+  | "blocked"
+  | "unverified";
+export type ChannelPolicy = "allow" | "deny" | "escalate";
 
 export interface ContactChannel {
   id: string;
   contactId: string;
-  type: string;       // 'email' | 'slack' | 'whatsapp' | 'phone' | etc.
+  type: string; // 'email' | 'slack' | 'whatsapp' | 'phone' | etc.
   address: string;
   isPrimary: boolean;
   externalUserId: string | null;
@@ -42,5 +48,13 @@ export interface ContactWithChannels extends Contact {
   channels: ContactChannel[];
 }
 
-export const CHANNEL_TYPES = ['email', 'slack', 'whatsapp', 'phone', 'telegram', 'discord', 'other'] as const;
+export const CHANNEL_TYPES = [
+  "email",
+  "slack",
+  "whatsapp",
+  "phone",
+  "telegram",
+  "discord",
+  "other",
+] as const;
 export type ChannelType = (typeof CHANNEL_TYPES)[number];

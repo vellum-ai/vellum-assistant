@@ -1,13 +1,13 @@
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
-import { getOllamaBaseUrlEnv } from '../config/env.js';
-import type { AssistantConfig } from '../config/types.js';
-import { getLogger } from '../util/logger.js';
-import { GeminiEmbeddingBackend } from './embedding-gemini.js';
-import { OllamaEmbeddingBackend } from './embedding-ollama.js';
-import { OpenAIEmbeddingBackend } from './embedding-openai.js';
+import { getOllamaBaseUrlEnv } from "../config/env.js";
+import type { AssistantConfig } from "../config/types.js";
+import { getLogger } from "../util/logger.js";
+import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
+import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
+import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
 
-const log = getLogger('memory-embeddings');
+const log = getLogger("memory-embeddings");
 
 // Tracks whether the local embedding backend has permanently failed to load
 // (e.g., onnxruntime-node missing in a compiled binary). Once set, `auto` mode
@@ -24,7 +24,7 @@ let localBackendBroken = false;
  */
 
 class LazyLocalEmbeddingBackend implements EmbeddingBackend {
-  readonly provider = 'local' as const;
+  readonly provider = "local" as const;
   readonly model: string;
   private delegate: EmbeddingBackend | null = null;
   private initPromise: Promise<EmbeddingBackend> | null = null;
@@ -33,7 +33,10 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
     this.model = model;
   }
 
-  async embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
+  async embed(
+    texts: string[],
+    options?: EmbeddingRequestOptions,
+  ): Promise<number[][]> {
     const backend = await this.getDelegate();
     try {
       return await backend.embed(texts, options);
@@ -43,7 +46,10 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
       // selecting local on subsequent requests.
       if (!localBackendBroken && isInitializationError(err)) {
         localBackendBroken = true;
-        log.warn({ err }, 'Local embedding backend permanently unavailable; auto mode will skip it');
+        log.warn(
+          { err },
+          "Local embedding backend permanently unavailable; auto mode will skip it",
+        );
       }
       throw err;
     }
@@ -54,12 +60,16 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
     if (!this.initPromise) {
       this.initPromise = (async () => {
         try {
-          const { LocalEmbeddingBackend } = await import('./embedding-local.js');
+          const { LocalEmbeddingBackend } =
+            await import("./embedding-local.js");
           this.delegate = new LocalEmbeddingBackend(this.model);
           return this.delegate;
         } catch (err) {
           localBackendBroken = true;
-          log.warn({ err }, 'Local embedding backend permanently unavailable; auto mode will skip it');
+          log.warn(
+            { err },
+            "Local embedding backend permanently unavailable; auto mode will skip it",
+          );
           throw err;
         }
       })();
@@ -72,7 +82,7 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
  *  distinguish permanent init failures from transient embed-time errors. */
 function isInitializationError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return err.message.includes('Local embedding backend unavailable');
+  return err.message.includes("Local embedding backend unavailable");
 }
 
 /** Global cache of embedding backend instances, keyed by "provider:model". */
@@ -94,10 +104,16 @@ function estimateEntryBytes(key: string, vector: number[]): number {
 }
 
 function vectorCacheKey(provider: string, model: string, text: string): string {
-  return createHash('sha256').update(`${provider}\0${model}\0${text}`).digest('hex');
+  return createHash("sha256")
+    .update(`${provider}\0${model}\0${text}`)
+    .digest("hex");
 }
 
-function getFromVectorCache(provider: string, model: string, text: string): number[] | undefined {
+function getFromVectorCache(
+  provider: string,
+  model: string,
+  text: string,
+): number[] | undefined {
   const key = vectorCacheKey(provider, model, text);
   const v = vectorCache.get(key);
   if (v !== undefined) {
@@ -108,7 +124,12 @@ function getFromVectorCache(provider: string, model: string, text: string): numb
   return v;
 }
 
-function putInVectorCache(provider: string, model: string, text: string, vector: number[]): void {
+function putInVectorCache(
+  provider: string,
+  model: string,
+  text: string,
+  vector: number[],
+): void {
   const key = vectorCacheKey(provider, model, text);
   // If replacing an existing entry, subtract its old cost first
   const existing = vectorCache.get(key);
@@ -118,7 +139,10 @@ function putInVectorCache(provider: string, model: string, text: string, vector:
   }
   const entryBytes = estimateEntryBytes(key, vector);
   // Evict oldest entries until we have room
-  while (vectorCacheBytes + entryBytes > VECTOR_CACHE_MAX_BYTES && vectorCache.size > 0) {
+  while (
+    vectorCacheBytes + entryBytes > VECTOR_CACHE_MAX_BYTES &&
+    vectorCache.size > 0
+  ) {
     const oldest = vectorCache.keys().next().value;
     if (oldest === undefined) break;
     const oldVec = vectorCache.get(oldest)!;
@@ -141,7 +165,11 @@ function cacheKey(provider: string, model: string): string {
   return `${provider}:${model}`;
 }
 
-function getCachedOrCreate<T extends EmbeddingBackend>(provider: string, model: string, create: () => T): T {
+function getCachedOrCreate<T extends EmbeddingBackend>(
+  provider: string,
+  model: string,
+  create: () => T,
+): T {
   const key = cacheKey(provider, model);
   const existing = backendCache.get(key);
   if (existing) return existing as T;
@@ -150,7 +178,7 @@ function getCachedOrCreate<T extends EmbeddingBackend>(provider: string, model: 
   return instance;
 }
 
-export type EmbeddingProviderName = 'local' | 'openai' | 'gemini' | 'ollama';
+export type EmbeddingProviderName = "local" | "openai" | "gemini" | "ollama";
 
 export interface EmbeddingRequestOptions {
   signal?: AbortSignal;
@@ -159,7 +187,10 @@ export interface EmbeddingRequestOptions {
 export interface EmbeddingBackend {
   readonly provider: EmbeddingProviderName;
   readonly model: string;
-  embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]>;
+  embed(
+    texts: string[],
+    options?: EmbeddingRequestOptions,
+  ): Promise<number[][]>;
 }
 
 export interface EmbeddingBackendSelection {
@@ -167,68 +198,104 @@ export interface EmbeddingBackendSelection {
   reason: string | null;
 }
 
-export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBackendSelection {
+export function selectEmbeddingBackend(
+  config: AssistantConfig,
+): EmbeddingBackendSelection {
   const requested = config.memory.embeddings.provider;
-  if (requested === 'local') {
+  if (requested === "local") {
     return {
-      backend: getCachedOrCreate('local', config.memory.embeddings.localModel,
-        () => new LazyLocalEmbeddingBackend(config.memory.embeddings.localModel)),
+      backend: getCachedOrCreate(
+        "local",
+        config.memory.embeddings.localModel,
+        () =>
+          new LazyLocalEmbeddingBackend(config.memory.embeddings.localModel),
+      ),
       reason: null,
     };
   }
-  if (requested === 'ollama') {
+  if (requested === "ollama") {
     return {
-      backend: getCachedOrCreate('ollama', config.memory.embeddings.ollamaModel,
-        () => new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-          apiKey: config.apiKeys.ollama,
-        })),
+      backend: getCachedOrCreate(
+        "ollama",
+        config.memory.embeddings.ollamaModel,
+        () =>
+          new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
+            apiKey: config.apiKeys.ollama,
+          }),
+      ),
       reason: null,
     };
   }
 
   // Auto order: local → openai → gemini → ollama
-  const order: EmbeddingProviderName[] = requested === 'auto'
-    ? ['local', 'openai', 'gemini', 'ollama']
-    : [requested];
+  const order: EmbeddingProviderName[] =
+    requested === "auto"
+      ? ["local", "openai", "gemini", "ollama"]
+      : [requested];
 
   for (const provider of order) {
     switch (provider) {
-      case 'local':
+      case "local":
         if (localBackendBroken) continue;
         return {
-          backend: getCachedOrCreate('local', config.memory.embeddings.localModel,
-            () => new LazyLocalEmbeddingBackend(config.memory.embeddings.localModel)),
+          backend: getCachedOrCreate(
+            "local",
+            config.memory.embeddings.localModel,
+            () =>
+              new LazyLocalEmbeddingBackend(
+                config.memory.embeddings.localModel,
+              ),
+          ),
           reason: null,
         };
-      case 'openai':
+      case "openai":
         if (!config.apiKeys.openai) continue;
         return {
-          backend: getCachedOrCreate('openai', config.memory.embeddings.openaiModel,
-            () => new OpenAIEmbeddingBackend(config.apiKeys.openai, config.memory.embeddings.openaiModel)),
+          backend: getCachedOrCreate(
+            "openai",
+            config.memory.embeddings.openaiModel,
+            () =>
+              new OpenAIEmbeddingBackend(
+                config.apiKeys.openai,
+                config.memory.embeddings.openaiModel,
+              ),
+          ),
           reason: null,
         };
-      case 'gemini':
+      case "gemini":
         if (!config.apiKeys.gemini) continue;
         return {
-          backend: getCachedOrCreate('gemini', config.memory.embeddings.geminiModel,
-            () => new GeminiEmbeddingBackend(config.apiKeys.gemini, config.memory.embeddings.geminiModel)),
+          backend: getCachedOrCreate(
+            "gemini",
+            config.memory.embeddings.geminiModel,
+            () =>
+              new GeminiEmbeddingBackend(
+                config.apiKeys.gemini,
+                config.memory.embeddings.geminiModel,
+              ),
+          ),
           reason: null,
         };
-      case 'ollama':
+      case "ollama":
         if (!isOllamaConfigured(config)) continue;
         return {
-          backend: getCachedOrCreate('ollama', config.memory.embeddings.ollamaModel,
-            () => new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-              apiKey: config.apiKeys.ollama,
-            })),
+          backend: getCachedOrCreate(
+            "ollama",
+            config.memory.embeddings.ollamaModel,
+            () =>
+              new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
+                apiKey: config.apiKeys.ollama,
+              }),
+          ),
           reason: null,
         };
     }
   }
 
-  const reason = requested === 'auto'
-    ? 'No embedding backend configured'
-    : `Embedding backend "${requested}" is not configured`;
+  const reason =
+    requested === "auto"
+      ? "No embedding backend configured"
+      : `Embedding backend "${requested}" is not configured`;
   return { backend: null, reason };
 }
 
@@ -240,7 +307,13 @@ export function getMemoryBackendStatus(config: AssistantConfig): {
   reason: string | null;
 } {
   if (!config.memory.enabled) {
-    return { enabled: false, degraded: false, provider: null, model: null, reason: 'memory.disabled' };
+    return {
+      enabled: false,
+      degraded: false,
+      provider: null,
+      model: null,
+      reason: "memory.disabled",
+    };
   }
   const selection = selectEmbeddingBackend(config);
   if (!selection.backend) {
@@ -272,7 +345,9 @@ export async function embedWithBackend(
 }> {
   const selection = selectEmbeddingBackend(config);
   if (!selection.backend) {
-    throw new Error(selection.reason ?? 'No memory embedding backend configured');
+    throw new Error(
+      selection.reason ?? "No memory embedding backend configured",
+    );
   }
 
   const expectedDim = config.memory.qdrant.vectorSize;
@@ -280,12 +355,13 @@ export async function embedWithBackend(
 
   // ── Build fallback backends list (needed for embed fallback) ──
   const fallbacks: EmbeddingBackend[] =
-    config.memory.embeddings.provider === 'auto' && selection.backend.provider === 'local'
-      ? selectFallbackBackends(config, 'local')
+    config.memory.embeddings.provider === "auto" &&
+    selection.backend.provider === "local"
+      ? selectFallbackBackends(config, "local")
       : [];
 
   // ── In-memory cache check (primary provider only) ──────────────
-  const cached: (number[] | null)[] = texts.map(t => {
+  const cached: (number[] | null)[] = texts.map((t) => {
     const v = getFromVectorCache(primaryProvider, primaryModel, t);
     if (v && v.length === expectedDim) return v;
     return null;
@@ -295,7 +371,11 @@ export async function embedWithBackend(
     if (!cached[i]) uncachedIndices.push(i);
   }
   if (uncachedIndices.length === 0) {
-    return { provider: primaryProvider, model: primaryModel, vectors: cached as number[][] };
+    return {
+      provider: primaryProvider,
+      model: primaryModel,
+      vectors: cached as number[][],
+    };
   }
 
   // ── Embed uncached texts ────────────────────────────────────────
@@ -306,12 +386,16 @@ export async function embedWithBackend(
     const isPrimary = backend === selection.backend;
     // For the primary backend, only embed uncached texts and merge with cached.
     // For fallback backends, embed ALL texts since the cache was keyed to the primary.
-    const textsToEmbed = isPrimary ? uncachedIndices.map(i => texts[i]) : texts;
+    const textsToEmbed = isPrimary
+      ? uncachedIndices.map((i) => texts[i])
+      : texts;
 
     try {
       const vectors = await backend.embed(textsToEmbed, options);
       if (vectors.length !== textsToEmbed.length) {
-        throw new Error(`Embedding backend returned ${vectors.length} vectors for ${textsToEmbed.length} texts`);
+        throw new Error(
+          `Embedding backend returned ${vectors.length} vectors for ${textsToEmbed.length} texts`,
+        );
       }
       for (const vec of vectors) {
         if (vec.length !== expectedDim) {
@@ -323,7 +407,12 @@ export async function embedWithBackend(
 
       // Populate cache with freshly embedded vectors
       for (let i = 0; i < textsToEmbed.length; i++) {
-        putInVectorCache(backend.provider, backend.model, textsToEmbed[i], vectors[i]);
+        putInVectorCache(
+          backend.provider,
+          backend.model,
+          textsToEmbed[i],
+          vectors[i],
+        );
       }
 
       if (isPrimary) {
@@ -331,13 +420,20 @@ export async function embedWithBackend(
         for (let i = 0; i < uncachedIndices.length; i++) {
           merged[uncachedIndices[i]] = vectors[i];
         }
-        return { provider: backend.provider, model: backend.model, vectors: merged };
+        return {
+          provider: backend.provider,
+          model: backend.model,
+          vectors: merged,
+        };
       }
       return { provider: backend.provider, model: backend.model, vectors };
     } catch (err) {
       lastErr = err;
       if (backends.length > 1) {
-        log.warn({ err, provider: backend.provider }, 'Embedding backend failed, trying next');
+        log.warn(
+          { err, provider: backend.provider },
+          "Embedding backend failed, trying next",
+        );
       }
     }
   }
@@ -348,30 +444,60 @@ export function logMemoryEmbeddingWarning(err: unknown, context: string): void {
   log.warn({ err }, `Memory embeddings failed (${context})`);
 }
 
-function selectFallbackBackends(config: AssistantConfig, exclude: EmbeddingProviderName): EmbeddingBackend[] {
+function selectFallbackBackends(
+  config: AssistantConfig,
+  exclude: EmbeddingProviderName,
+): EmbeddingBackend[] {
   const backends: EmbeddingBackend[] = [];
-  const order: EmbeddingProviderName[] = ['openai', 'gemini', 'ollama'];
+  const order: EmbeddingProviderName[] = ["openai", "gemini", "ollama"];
   for (const provider of order) {
     if (provider === exclude) continue;
     switch (provider) {
-      case 'openai':
+      case "openai":
         if (config.apiKeys.openai) {
-          backends.push(getCachedOrCreate('openai', config.memory.embeddings.openaiModel,
-            () => new OpenAIEmbeddingBackend(config.apiKeys.openai, config.memory.embeddings.openaiModel)));
+          backends.push(
+            getCachedOrCreate(
+              "openai",
+              config.memory.embeddings.openaiModel,
+              () =>
+                new OpenAIEmbeddingBackend(
+                  config.apiKeys.openai,
+                  config.memory.embeddings.openaiModel,
+                ),
+            ),
+          );
         }
         break;
-      case 'gemini':
+      case "gemini":
         if (config.apiKeys.gemini) {
-          backends.push(getCachedOrCreate('gemini', config.memory.embeddings.geminiModel,
-            () => new GeminiEmbeddingBackend(config.apiKeys.gemini, config.memory.embeddings.geminiModel)));
+          backends.push(
+            getCachedOrCreate(
+              "gemini",
+              config.memory.embeddings.geminiModel,
+              () =>
+                new GeminiEmbeddingBackend(
+                  config.apiKeys.gemini,
+                  config.memory.embeddings.geminiModel,
+                ),
+            ),
+          );
         }
         break;
-      case 'ollama':
+      case "ollama":
         if (isOllamaConfigured(config)) {
-          backends.push(getCachedOrCreate('ollama', config.memory.embeddings.ollamaModel,
-            () => new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-              apiKey: config.apiKeys.ollama,
-            })));
+          backends.push(
+            getCachedOrCreate(
+              "ollama",
+              config.memory.embeddings.ollamaModel,
+              () =>
+                new OllamaEmbeddingBackend(
+                  config.memory.embeddings.ollamaModel,
+                  {
+                    apiKey: config.apiKeys.ollama,
+                  },
+                ),
+            ),
+          );
         }
         break;
     }
@@ -380,7 +506,9 @@ function selectFallbackBackends(config: AssistantConfig, exclude: EmbeddingProvi
 }
 
 function isOllamaConfigured(config: AssistantConfig): boolean {
-  return config.provider === 'ollama'
-    || Boolean(config.apiKeys.ollama)
-    || Boolean(getOllamaBaseUrlEnv());
+  return (
+    config.provider === "ollama" ||
+    Boolean(config.apiKeys.ollama) ||
+    Boolean(getOllamaBaseUrlEnv())
+  );
 }

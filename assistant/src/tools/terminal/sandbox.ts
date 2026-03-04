@@ -1,8 +1,12 @@
-import type { SandboxConfig } from '../../config/schema.js';
-import { NativeBackend } from './backends/native.js';
-import type { SandboxResult, WrapOptions } from './backends/types.js';
+import type { SandboxConfig } from "../../config/schema.js";
+import { NativeBackend } from "./backends/native.js";
+import type { SandboxResult, WrapOptions } from "./backends/types.js";
 
-export type { SandboxBackend, SandboxResult, WrapOptions } from './backends/types.js';
+export type {
+  SandboxBackend,
+  SandboxResult,
+  WrapOptions,
+} from "./backends/types.js";
 
 const nativeBackend = new NativeBackend();
 
@@ -23,8 +27,8 @@ export function wrapCommand(
 ): SandboxResult {
   if (!config.enabled) {
     return {
-      command: 'bash',
-      args: ['-c', '--', command],
+      command: "bash",
+      args: ["-c", "--", command],
       sandboxed: false,
     };
   }

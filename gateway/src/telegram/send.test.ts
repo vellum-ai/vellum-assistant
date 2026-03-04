@@ -5,8 +5,13 @@ import type { GatewayConfig } from "../config.js";
 // Mock fetch at the transport level (same pattern as all other test files)
 // instead of mocking ./api.js — mock.module for api.js leaks across test
 // files in the same Bun process, poisoning callTelegramApi for other tests.
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
@@ -51,10 +56,10 @@ const baseConfig: GatewayConfig = {
   whatsappTimeoutMs: 15000,
   whatsappMaxRetries: 3,
   whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
-    trustProxy: false,
+  slackChannelBotToken: undefined,
+  slackChannelAppToken: undefined,
+  slackDeliverAuthBypass: false,
+  trustProxy: false,
 };
 
 const sampleApproval: ApprovalPayload = {
@@ -78,15 +83,24 @@ let fetchCalls: { url: string; body: unknown }[];
 
 beforeEach(() => {
   fetchCalls = [];
-  fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    let body: unknown;
-    try {
-      if (init?.body) body = JSON.parse(String(init.body));
-    } catch { /* FormData or non-JSON body */ }
-    fetchCalls.push({ url, body });
-    return makeTelegramResponse({});
-  });
+  fetchMock = mock(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      let body: unknown;
+      try {
+        if (init?.body) body = JSON.parse(String(init.body));
+      } catch {
+        /* FormData or non-JSON body */
+      }
+      fetchCalls.push({ url, body });
+      return makeTelegramResponse({});
+    },
+  );
 });
 
 afterEach(() => {
@@ -127,7 +141,9 @@ describe("buildInlineKeyboard", () => {
       plainTextFallback: "do it",
     };
     const result = buildInlineKeyboard(approval);
-    expect(result.inline_keyboard[0][0].callback_data).toBe("apr:abc-def:my_action");
+    expect(result.inline_keyboard[0][0].callback_data).toBe(
+      "apr:abc-def:my_action",
+    );
   });
 
   it("throws when callback_data exceeds 64 bytes", () => {
@@ -150,7 +166,9 @@ describe("buildInlineKeyboard", () => {
     };
     expect(Buffer.byteLength(`apr:${requestId}:${actionId}`)).toBe(64);
     const result = buildInlineKeyboard(approval);
-    expect(result.inline_keyboard[0][0].callback_data).toBe(`apr:${requestId}:${actionId}`);
+    expect(result.inline_keyboard[0][0].callback_data).toBe(
+      `apr:${requestId}:${actionId}`,
+    );
   });
 });
 
@@ -178,7 +196,9 @@ describe("sendTelegramReply", () => {
       inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
     };
     expect(markup.inline_keyboard).toHaveLength(3);
-    expect(markup.inline_keyboard[0][0].callback_data).toBe("apr:req-456:approve_once");
+    expect(markup.inline_keyboard[0][0].callback_data).toBe(
+      "apr:req-456:approve_once",
+    );
   });
 
   it("attaches inline keyboard only to the last chunk for long messages", async () => {

@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * Migrate existing tool_invocations table to add FK constraint with ON DELETE CASCADE.
@@ -7,13 +7,17 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
  */
 export function migrateToolInvocationsFk(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
-  const row = raw.query(`SELECT sql FROM sqlite_master WHERE type='table' AND name='tool_invocations'`).get() as { sql: string } | null;
+  const row = raw
+    .query(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='tool_invocations'`,
+    )
+    .get() as { sql: string } | null;
   if (!row) return; // table doesn't exist yet (will be created above)
 
   // If the DDL already contains REFERENCES, the FK is in place
-  if (row.sql.includes('REFERENCES')) return;
+  if (row.sql.includes("REFERENCES")) return;
 
-  raw.exec('PRAGMA foreign_keys = OFF');
+  raw.exec("PRAGMA foreign_keys = OFF");
   try {
     raw.exec(/*sql*/ `
       BEGIN;
@@ -35,9 +39,13 @@ export function migrateToolInvocationsFk(database: DrizzleDb): void {
       COMMIT;
     `);
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   } finally {
-    raw.exec('PRAGMA foreign_keys = ON');
+    raw.exec("PRAGMA foreign_keys = ON");
   }
 }

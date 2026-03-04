@@ -1,13 +1,16 @@
-import { getLogger } from '../util/logger.js';
-import { getEnrichmentService } from './commit-message-enrichment-service.js';
+import { getLogger } from "../util/logger.js";
+import { getEnrichmentService } from "./commit-message-enrichment-service.js";
 import {
   type CommitContext,
   type CommitMessageProvider,
   DefaultCommitMessageProvider,
-} from './commit-message-provider.js';
-import { getAllWorkspaceGitServices, type WorkspaceGitService } from './git-service.js';
+} from "./commit-message-provider.js";
+import {
+  getAllWorkspaceGitServices,
+  type WorkspaceGitService,
+} from "./git-service.js";
 
-const log = getLogger('heartbeat');
+const log = getLogger("heartbeat");
 
 /** Threshold: commit if changes are older than this (ms). Default: 5 minutes. */
 const DEFAULT_AGE_THRESHOLD_MS = 5 * 60 * 1000;
@@ -80,7 +83,8 @@ export class WorkspaceHeartbeatService {
     this.intervalMs = options?.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.getServices = options?.getServices ?? getAllWorkspaceGitServices;
     this.now = options?.now ?? Date.now;
-    this.commitMessageProvider = options?.commitMessageProvider ?? new DefaultCommitMessageProvider();
+    this.commitMessageProvider =
+      options?.commitMessageProvider ?? new DefaultCommitMessageProvider();
   }
 
   /**
@@ -90,12 +94,16 @@ export class WorkspaceHeartbeatService {
   start(): void {
     if (this.timer) return;
     log.info(
-      { intervalMs: this.intervalMs, ageThresholdMs: this.ageThresholdMs, fileThreshold: this.fileThreshold },
-      'Heartbeat service started',
+      {
+        intervalMs: this.intervalMs,
+        ageThresholdMs: this.ageThresholdMs,
+        fileThreshold: this.fileThreshold,
+      },
+      "Heartbeat service started",
     );
     this.timer = setInterval(() => {
       this.check().catch((err) => {
-        log.error({ err }, 'Heartbeat check failed');
+        log.error({ err }, "Heartbeat check failed");
       });
     }, this.intervalMs);
   }
@@ -112,7 +120,7 @@ export class WorkspaceHeartbeatService {
     if (this.activeCheck) {
       await this.activeCheck;
     }
-    log.info('Heartbeat service stopped');
+    log.info("Heartbeat service stopped");
   }
 
   /**
@@ -156,13 +164,16 @@ export class WorkspaceHeartbeatService {
             result.skipped++;
           }
         } catch (err) {
-          log.warn({ err, workspaceDir }, 'Heartbeat check failed for workspace');
+          log.warn(
+            { err, workspaceDir },
+            "Heartbeat check failed for workspace",
+          );
           result.failed++;
         }
       }
 
       if (result.committed > 0) {
-        log.info(result, 'Heartbeat check completed with commits');
+        log.info(result, "Heartbeat check completed with commits");
       }
 
       return result;
@@ -200,20 +211,28 @@ export class WorkspaceHeartbeatService {
       try {
         const now = this.now();
         let shutdownFiles: string[] = [];
-        const { committed } = await service.commitIfDirty((st) => {
-          const uniqueFiles = [...new Set([...st.staged, ...st.modified, ...st.untracked])];
-          shutdownFiles = uniqueFiles;
-          log.info({ workspaceDir, totalChanges: uniqueFiles.length }, 'Committing pending changes on shutdown');
+        const { committed } = await service.commitIfDirty(
+          (st) => {
+            const uniqueFiles = [
+              ...new Set([...st.staged, ...st.modified, ...st.untracked]),
+            ];
+            shutdownFiles = uniqueFiles;
+            log.info(
+              { workspaceDir, totalChanges: uniqueFiles.length },
+              "Committing pending changes on shutdown",
+            );
 
-          const ctx: CommitContext = {
-            workspaceDir,
-            trigger: 'shutdown',
-            changedFiles: uniqueFiles,
-            timestampMs: now,
-          };
+            const ctx: CommitContext = {
+              workspaceDir,
+              trigger: "shutdown",
+              changedFiles: uniqueFiles,
+              timestampMs: now,
+            };
 
-          return this.commitMessageProvider.buildImmediateMessage(ctx);
-        }, { bypassBreaker: true });
+            return this.commitMessageProvider.buildImmediateMessage(ctx);
+          },
+          { bypassBreaker: true },
+        );
 
         if (committed) {
           firstSeenDirty.delete(workspaceDir);
@@ -224,25 +243,33 @@ export class WorkspaceHeartbeatService {
             const commitHash = await service.getHeadHash();
             const shutdownCtx: CommitContext = {
               workspaceDir,
-              trigger: 'shutdown',
+              trigger: "shutdown",
               changedFiles: shutdownFiles,
               timestampMs: this.now(),
             };
-            getEnrichmentService().enqueue({ workspaceDir, commitHash, context: shutdownCtx, gitService: service });
+            getEnrichmentService().enqueue({
+              workspaceDir,
+              commitHash,
+              context: shutdownCtx,
+              gitService: service,
+            });
           } catch (enrichErr) {
-            log.debug({ enrichErr }, 'Failed to enqueue shutdown enrichment (non-fatal)');
+            log.debug(
+              { enrichErr },
+              "Failed to enqueue shutdown enrichment (non-fatal)",
+            );
           }
         } else {
           result.skipped++;
         }
       } catch (err) {
-        log.warn({ err, workspaceDir }, 'Shutdown commit failed for workspace');
+        log.warn({ err, workspaceDir }, "Shutdown commit failed for workspace");
         result.failed++;
       }
     }
 
     if (result.committed > 0) {
-      log.info(result, 'Shutdown commits completed');
+      log.info(result, "Shutdown commits completed");
     }
 
     return result;
@@ -263,7 +290,9 @@ export class WorkspaceHeartbeatService {
 
     // Atomic status check + conditional commit within a single mutex lock.
     const { committed, status } = await service.commitIfDirty((st) => {
-      const uniqueFiles = [...new Set([...st.staged, ...st.modified, ...st.untracked])];
+      const uniqueFiles = [
+        ...new Set([...st.staged, ...st.modified, ...st.untracked]),
+      ];
       const totalChanges = uniqueFiles.length;
 
       // Track when we first saw this workspace as dirty
@@ -280,7 +309,7 @@ export class WorkspaceHeartbeatService {
       if (!ageExceeded && !fileCountExceeded) {
         log.debug(
           { workspaceDir, totalChanges, dirtyAgeMs: dirtyAge },
-          'Changes below threshold, skipping heartbeat commit',
+          "Changes below threshold, skipping heartbeat commit",
         );
         return null; // Don't commit yet
       }
@@ -294,12 +323,12 @@ export class WorkspaceHeartbeatService {
 
       log.info(
         { workspaceDir, totalChanges, dirtyAgeMs: dirtyAge, reason },
-        'Heartbeat auto-committing workspace changes',
+        "Heartbeat auto-committing workspace changes",
       );
 
       const ctx: CommitContext = {
         workspaceDir,
-        trigger: 'heartbeat',
+        trigger: "heartbeat",
         changedFiles: uniqueFiles,
         timestampMs: now,
         reason,
@@ -316,14 +345,22 @@ export class WorkspaceHeartbeatService {
         const commitHash = await service.getHeadHash();
         const hbCtx: CommitContext = {
           workspaceDir,
-          trigger: 'heartbeat',
+          trigger: "heartbeat",
           changedFiles: heartbeatFiles,
           timestampMs: now,
           reason: heartbeatReason,
         };
-        getEnrichmentService().enqueue({ workspaceDir, commitHash, context: hbCtx, gitService: service });
+        getEnrichmentService().enqueue({
+          workspaceDir,
+          commitHash,
+          context: hbCtx,
+          gitService: service,
+        });
       } catch (enrichErr) {
-        log.debug({ enrichErr }, 'Failed to enqueue heartbeat enrichment (non-fatal)');
+        log.debug(
+          { enrichErr },
+          "Failed to enqueue heartbeat enrichment (non-fatal)",
+        );
       }
 
       return true;

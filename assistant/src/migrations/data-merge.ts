@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, renameSync } from "node:fs";
+import { join } from "node:path";
 
-import { migrationLog } from './log.js';
+import { migrationLog } from "./log.js";
 
 /**
  * When migratePath skips the data directory because workspace/data already
@@ -10,10 +10,13 @@ import { migrationLog } from './log.js';
  * subdirectories (db/, logs/, sandbox/, etc.) that need to be preserved.
  * This merges any missing entries from the legacy data path into workspace/data.
  */
-export function mergeLegacyDataEntries(legacyDir: string, workspaceDir: string): void {
+export function mergeLegacyDataEntries(
+  legacyDir: string,
+  workspaceDir: string,
+): void {
   if (!existsSync(legacyDir) || !existsSync(workspaceDir)) return;
 
-  let entries: import('node:fs').Dirent[];
+  let entries: import("node:fs").Dirent[];
   try {
     entries = readdirSync(legacyDir, { withFileTypes: true });
   } catch {
@@ -26,9 +29,16 @@ export function mergeLegacyDataEntries(legacyDir: string, workspaceDir: string):
     if (existsSync(dest)) continue; // already present in workspace
     try {
       renameSync(src, dest);
-      migrationLog('info', 'Merged legacy data entry into workspace', { from: src, to: dest });
+      migrationLog("info", "Merged legacy data entry into workspace", {
+        from: src,
+        to: dest,
+      });
     } catch (err) {
-      migrationLog('warn', 'Failed to merge legacy data entry', { err: String(err), from: src, to: dest });
+      migrationLog("warn", "Failed to merge legacy data entry", {
+        err: String(err),
+        from: src,
+        to: dest,
+      });
     }
   }
 }

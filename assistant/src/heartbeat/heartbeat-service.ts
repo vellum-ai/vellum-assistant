@@ -1,19 +1,21 @@
-import { getConfig } from '../config/loader.js';
-import type { HeartbeatAlert } from '../daemon/ipc-contract.js';
-import { createConversation } from '../memory/conversation-store.js';
-import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
-import { readTextFileSync } from '../util/fs.js';
-import { getLogger } from '../util/logger.js';
-import { getWorkspacePromptPath } from '../util/platform.js';
+import { getConfig } from "../config/loader.js";
+import type { HeartbeatAlert } from "../daemon/ipc-contract.js";
+import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { readTextFileSync } from "../util/fs.js";
+import { getLogger } from "../util/logger.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
-const log = getLogger('heartbeat-check');
+const log = getLogger("heartbeat-check");
 
 const DEFAULT_CHECKLIST = `- Check the current weather and note anything notable
 - Review any recent news headlines worth flagging
 - Look for calendar events or reminders coming up soon`;
 
 export interface HeartbeatDeps {
-  processMessage: (conversationId: string, content: string) => Promise<{ messageId: string }>;
+  processMessage: (
+    conversationId: string,
+    content: string,
+  ) => Promise<{ messageId: string }>;
   alerter: (alert: HeartbeatAlert) => void;
   /** Override for current hour (0-23), for testing. */
   getCurrentHour?: () => number;
@@ -31,15 +33,15 @@ export class HeartbeatService {
   start(): void {
     const config = getConfig().heartbeat;
     if (!config.enabled) {
-      log.info('Heartbeat disabled by config');
+      log.info("Heartbeat disabled by config");
       return;
     }
     if (this.timer) return;
 
-    log.info({ intervalMs: config.intervalMs }, 'Heartbeat service started');
+    log.info({ intervalMs: config.intervalMs }, "Heartbeat service started");
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
-        log.error({ err }, 'Heartbeat runOnce failed');
+        log.error({ err }, "Heartbeat runOnce failed");
       });
     }, config.intervalMs);
   }
@@ -60,31 +62,47 @@ export class HeartbeatService {
     }
     if (this.activeRun) {
       let timerId: ReturnType<typeof setTimeout>;
-      const timeout = new Promise<void>((resolve) => { timerId = setTimeout(resolve, 5_000); });
+      const timeout = new Promise<void>((resolve) => {
+        timerId = setTimeout(resolve, 5_000);
+      });
       await Promise.race([this.activeRun, timeout]);
       clearTimeout(timerId!);
     }
-    log.info('Heartbeat service stopped');
+    log.info("Heartbeat service stopped");
   }
 
-  /** Returns true if the heartbeat actually ran, false if skipped. */
-  async runOnce(): Promise<boolean> {
+  /** Returns true if the heartbeat actually ran, false if skipped.
+   *  When `force` is true (e.g. manual "Run Now"), skip enabled & active-hours guards. */
+  async runOnce({ force = false }: { force?: boolean } = {}): Promise<boolean> {
     const config = getConfig().heartbeat;
-    if (!config.enabled) return false;
+    if (!force && !config.enabled) return false;
 
     // Active hours guard — only applied when both bounds are set.
     // The schema rejects configs where only one bound is provided.
-    if (config.activeHoursStart != null && config.activeHoursEnd != null) {
+    if (!force && config.activeHoursStart != null && config.activeHoursEnd != null) {
       const hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
-      if (!isWithinActiveHours(hour, config.activeHoursStart, config.activeHoursEnd)) {
-        log.debug({ hour, activeHoursStart: config.activeHoursStart, activeHoursEnd: config.activeHoursEnd }, 'Outside active hours, skipping');
+      if (
+        !isWithinActiveHours(
+          hour,
+          config.activeHoursStart,
+          config.activeHoursEnd,
+        )
+      ) {
+        log.debug(
+          {
+            hour,
+            activeHoursStart: config.activeHoursStart,
+            activeHoursEnd: config.activeHoursEnd,
+          },
+          "Outside active hours, skipping",
+        );
         return false;
       }
     }
 
     // Overlap prevention
     if (this.activeRun) {
-      log.debug('Previous heartbeat run still active, skipping');
+      log.debug("Previous heartbeat run still active, skipping");
       return false;
     }
 
@@ -99,40 +117,40 @@ export class HeartbeatService {
   }
 
   private async executeRun(): Promise<void> {
-    log.info('Running heartbeat');
+    log.info("Running heartbeat");
 
     try {
       const checklist = this.readChecklist();
       const prompt = this.buildPrompt(checklist);
 
-      const conversation = createConversation({
-        title: GENERATING_TITLE,
-        threadType: 'background',
-        source: 'heartbeat',
-      });
-      queueGenerateConversationTitle({
-        conversationId: conversation.id,
-        context: { origin: 'heartbeat', systemHint: 'Heartbeat' },
+      const conversation = bootstrapConversation({
+        threadType: "background",
+        source: "heartbeat",
+        origin: "heartbeat",
+        systemHint: "Heartbeat",
       });
 
       await this.deps.processMessage(conversation.id, prompt);
-      log.info({ conversationId: conversation.id }, 'Heartbeat completed');
+      log.info({ conversationId: conversation.id }, "Heartbeat completed");
     } catch (err) {
-      log.error({ err }, 'Heartbeat failed');
+      log.error({ err }, "Heartbeat failed");
       try {
         this.deps.alerter({
-          type: 'heartbeat_alert',
-          title: 'Heartbeat Failed',
+          type: "heartbeat_alert",
+          title: "Heartbeat Failed",
           body: err instanceof Error ? err.message : String(err),
         });
       } catch (alertErr) {
-        log.warn({ alertErr }, 'Failed to broadcast heartbeat alert');
+        log.warn({ alertErr }, "Failed to broadcast heartbeat alert");
       }
     }
   }
 
   private readChecklist(): string {
-    return readTextFileSync(getWorkspacePromptPath('HEARTBEAT.md')) ?? DEFAULT_CHECKLIST;
+    return (
+      readTextFileSync(getWorkspacePromptPath("HEARTBEAT.md")) ??
+      DEFAULT_CHECKLIST
+    );
   }
 
   /** @internal Exposed for testing. */
@@ -155,7 +173,11 @@ After completing your review, end your response with one of:
  * Check if the given hour falls within the active window.
  * Handles overnight windows (e.g. start=22, end=6).
  */
-function isWithinActiveHours(hour: number, start: number, end: number): boolean {
+function isWithinActiveHours(
+  hour: number,
+  start: number,
+  end: number,
+): boolean {
   if (start <= end) {
     return hour >= start && hour < end;
   }

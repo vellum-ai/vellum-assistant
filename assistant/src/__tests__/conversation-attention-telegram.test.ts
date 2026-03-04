@@ -47,39 +47,12 @@ mock.module("../daemon/handlers.js", () => ({
   }),
 }));
 
-// Mock ingress member store to return an active member for all lookups
-mock.module("../memory/ingress-member-store.js", () => ({
-  findMember: () => ({
-    id: "member-test-default",
-    assistantId: "self",
-    sourceChannel: "telegram",
-    externalUserId: "telegram-user-default",
-    externalChatId: null,
-    displayName: null,
-    username: null,
-    status: "active",
-    policy: "allow",
-    inviteId: null,
-    createdBySessionId: null,
-    revokedReason: null,
-    blockedReason: null,
-    lastSeenAt: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  }),
-  updateLastSeen: () => {},
-  upsertMember: () => {},
-}));
-
 import { eq } from "drizzle-orm";
 
+import { upsertContact } from "../contacts/contact-store.js";
 import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import {
-  attachments,
-  conversationAssistantAttentionState,
-  conversationAttentionEvents,
-} from "../memory/schema.js";
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { attachments, conversationAttentionEvents } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
@@ -99,19 +72,36 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 function resetTables(): void {
-  const db = getDb();
-  db.delete(conversationAttentionEvents).run();
-  db.delete(conversationAssistantAttentionState).run();
-  db.run("DELETE FROM channel_guardian_approval_requests");
-  db.run("DELETE FROM channel_guardian_verification_challenges");
-  db.run("DELETE FROM channel_guardian_bindings");
-  db.run("DELETE FROM conversation_keys");
-  db.run("DELETE FROM message_runs");
-  db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM messages");
-  db.run("DELETE FROM conversations");
+  resetTestTables(
+    "conversation_attention_events",
+    "conversation_assistant_attention_state",
+    "channel_guardian_approval_requests",
+    "channel_guardian_verification_challenges",
+    "conversation_keys",
+    "message_runs",
+    "channel_inbound_events",
+    "messages",
+    "conversations",
+    "contact_channels",
+    "contacts",
+  );
   channelDeliveryStore.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
+}
+
+function ensureTestContact(): void {
+  upsertContact({
+    displayName: "Test User",
+    channels: [
+      {
+        type: "telegram",
+        address: "telegram-user-default",
+        externalUserId: "telegram-user-default",
+        status: "active",
+        policy: "allow",
+      },
+    ],
+  });
 }
 
 const TEST_BEARER_TOKEN = "token";
@@ -150,6 +140,7 @@ function getAttentionEvents(conversationId: string) {
 
 beforeEach(() => {
   resetTables();
+  ensureTestContact();
   noopProcessMessage.mockClear();
 });
 
@@ -301,10 +292,10 @@ describe("Telegram callback seen signals", () => {
       },
     });
 
-    // Create a guardian binding so approval can be handled
-    const { createBinding } =
-      await import("../memory/channel-guardian-store.js");
-    createBinding({
+    // Create a guardian binding (via contacts) so approval can be handled
+    const { createGuardianBindingContactsFirst } =
+      await import("../contacts/contacts-write.js");
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",

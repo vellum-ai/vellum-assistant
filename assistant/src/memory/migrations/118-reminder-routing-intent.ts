@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Add routing_intent and routing_hints_json columns to reminders table.
@@ -16,11 +16,15 @@ export function migrateReminderRoutingIntent(database: DrizzleDb): void {
     database.run(
       /*sql*/ `ALTER TABLE reminders ADD COLUMN routing_intent TEXT NOT NULL DEFAULT 'all_channels'`,
     );
-  } catch { /* already exists */ }
+  } catch {
+    /* already exists */
+  }
 
   try {
     database.run(
       /*sql*/ `ALTER TABLE reminders ADD COLUMN routing_hints_json TEXT NOT NULL DEFAULT '{}'`,
     );
-  } catch { /* already exists */ }
+  } catch {
+    /* already exists */
+  }
 }

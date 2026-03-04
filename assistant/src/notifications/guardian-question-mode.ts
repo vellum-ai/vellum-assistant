@@ -7,33 +7,37 @@
  */
 
 export const GUARDIAN_QUESTION_REQUEST_KINDS = {
-  pending_question: 'pending_question',
-  tool_approval: 'tool_approval',
-  tool_grant_request: 'tool_grant_request',
-  access_request: 'access_request',
+  pending_question: "pending_question",
+  tool_approval: "tool_approval",
+  tool_grant_request: "tool_grant_request",
+  access_request: "access_request",
 } as const;
 
-export type GuardianQuestionRequestKind = keyof typeof GUARDIAN_QUESTION_REQUEST_KINDS;
-export type GuardianQuestionInstructionMode = 'approval' | 'answer';
+export type GuardianQuestionRequestKind =
+  keyof typeof GUARDIAN_QUESTION_REQUEST_KINDS;
+export type GuardianQuestionInstructionMode = "approval" | "answer";
 
 interface GuardianRequestKindModeConfig {
   defaultMode: GuardianQuestionInstructionMode;
   modeWhenToolNamePresent?: GuardianQuestionInstructionMode;
 }
 
-const REQUEST_KIND_MODE_CONFIG: Record<GuardianQuestionRequestKind, GuardianRequestKindModeConfig> = {
+const REQUEST_KIND_MODE_CONFIG: Record<
+  GuardianQuestionRequestKind,
+  GuardianRequestKindModeConfig
+> = {
   pending_question: {
-    defaultMode: 'answer',
-    modeWhenToolNamePresent: 'approval',
+    defaultMode: "answer",
+    modeWhenToolNamePresent: "approval",
   },
   tool_approval: {
-    defaultMode: 'approval',
+    defaultMode: "approval",
   },
   tool_grant_request: {
-    defaultMode: 'approval',
+    defaultMode: "approval",
   },
   access_request: {
-    defaultMode: 'approval',
+    defaultMode: "approval",
   },
 };
 
@@ -59,42 +63,54 @@ export interface GuardianRequestTextInput {
   toolName?: string | null;
 }
 
-type GuardianDisambiguationCategory = 'questions' | 'approvals';
+type GuardianDisambiguationCategory = "questions" | "approvals";
 
 interface GuardianModeTextConfig {
   invalidActionWithCode: (requestCode: string) => string;
   invalidActionWithoutCode: string;
   buildCodeOnlyHeader: (request: GuardianRequestTextInput) => string;
   buildCodeOnlyDetailLine: (request: GuardianRequestTextInput) => string | null;
-  buildDisambiguationLabel: (request: Pick<GuardianRequestTextInput, 'questionText' | 'toolName'>) => string;
+  buildDisambiguationLabel: (
+    request: Pick<GuardianRequestTextInput, "questionText" | "toolName">,
+  ) => string;
   disambiguationCategory: GuardianDisambiguationCategory;
 }
 
-const MODE_TEXT_CONFIG: Record<GuardianQuestionInstructionMode, GuardianModeTextConfig> = {
+const MODE_TEXT_CONFIG: Record<
+  GuardianQuestionInstructionMode,
+  GuardianModeTextConfig
+> = {
   answer: {
     invalidActionWithCode: (requestCode) =>
       `I found request ${requestCode}, but I still need your answer. Reply "${requestCode} <your answer>".`,
     invalidActionWithoutCode:
-      "I couldn't determine your answer. Reply with the request code followed by your answer (e.g., \"ABC123 3pm works\").",
-    buildCodeOnlyHeader: (request) => `I found question ${request.requestCode}.`,
-    buildCodeOnlyDetailLine: (request) => request.questionText ? `Question: ${request.questionText}` : null,
-    buildDisambiguationLabel: (request) => request.questionText ?? 'question',
-    disambiguationCategory: 'questions',
+      'I couldn\'t determine your answer. Reply with the request code followed by your answer (e.g., "ABC123 3pm works").',
+    buildCodeOnlyHeader: (request) =>
+      `I found question ${request.requestCode}.`,
+    buildCodeOnlyDetailLine: (request) =>
+      request.questionText ? `Question: ${request.questionText}` : null,
+    buildDisambiguationLabel: (request) => request.questionText ?? "question",
+    disambiguationCategory: "questions",
   },
   approval: {
     invalidActionWithCode: (requestCode) =>
       `I found request ${requestCode}, but I need to know your decision. Reply "${requestCode} approve" or "${requestCode} reject".`,
     invalidActionWithoutCode:
       "I couldn't determine your intended action. Reply with the request code followed by 'approve' or 'reject' (e.g., \"ABC123 approve\").",
-    buildCodeOnlyHeader: (request) => `I found request ${request.requestCode} for ${request.toolName ?? 'an action'}.`,
-    buildCodeOnlyDetailLine: (request) => request.questionText ? `Details: ${request.questionText}` : null,
-    buildDisambiguationLabel: (request) => request.toolName ?? request.questionText ?? 'action',
-    disambiguationCategory: 'approvals',
+    buildCodeOnlyHeader: (request) =>
+      `I found request ${request.requestCode} for ${
+        request.toolName ?? "an action"
+      }.`,
+    buildCodeOnlyDetailLine: (request) =>
+      request.questionText ? `Details: ${request.questionText}` : null,
+    buildDisambiguationLabel: (request) =>
+      request.toolName ?? request.questionText ?? "action",
+    disambiguationCategory: "approvals",
   },
 };
 
 export interface PendingQuestionGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
-  requestKind: 'pending_question';
+  requestKind: "pending_question";
   callSessionId: string;
   activeGuardianRequestCount: number;
   /**
@@ -105,17 +121,17 @@ export interface PendingQuestionGuardianPayload extends GuardianQuestionPayloadB
 }
 
 export interface ToolApprovalGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
-  requestKind: 'tool_approval';
+  requestKind: "tool_approval";
   toolName: string;
 }
 
 export interface ToolGrantGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
-  requestKind: 'tool_grant_request';
+  requestKind: "tool_grant_request";
   toolName: string;
 }
 
 export interface AccessRequestGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
-  requestKind: 'access_request';
+  requestKind: "access_request";
 }
 
 export type GuardianQuestionPayload =
@@ -131,7 +147,7 @@ export interface GuardianQuestionModeResolution {
 }
 
 function nonEmptyString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
@@ -143,17 +159,19 @@ export function parseGuardianQuestionRequestKind(
   if (!raw) return null;
 
   switch (raw) {
-    case 'pending_question':
-    case 'tool_approval':
-    case 'tool_grant_request':
-    case 'access_request':
+    case "pending_question":
+    case "tool_approval":
+    case "tool_grant_request":
+    case "access_request":
       return raw;
     default:
       return null;
   }
 }
 
-function parseBasePayload(payload: Record<string, unknown>): GuardianQuestionPayloadBase | null {
+function parseBasePayload(
+  payload: Record<string, unknown>,
+): GuardianQuestionPayloadBase | null {
   const requestId = nonEmptyString(payload.requestId);
   const requestCode = nonEmptyString(payload.requestCode);
   const questionText = nonEmptyString(payload.questionText);
@@ -177,13 +195,18 @@ export function parseGuardianQuestionPayload(
   if (!base) return null;
 
   switch (requestKind) {
-    case 'pending_question': {
+    case "pending_question": {
       const callSessionId = nonEmptyString(payload.callSessionId);
-      const activeGuardianRequestCount = typeof payload.activeGuardianRequestCount === 'number'
-        ? payload.activeGuardianRequestCount
-        : undefined;
+      const activeGuardianRequestCount =
+        typeof payload.activeGuardianRequestCount === "number"
+          ? payload.activeGuardianRequestCount
+          : undefined;
       const toolName = nonEmptyString(payload.toolName);
-      if (!callSessionId || activeGuardianRequestCount === undefined || Number.isNaN(activeGuardianRequestCount)) {
+      if (
+        !callSessionId ||
+        activeGuardianRequestCount === undefined ||
+        Number.isNaN(activeGuardianRequestCount)
+      ) {
         return null;
       }
       const pendingQuestionPayload: PendingQuestionGuardianPayload = {
@@ -199,8 +222,8 @@ export function parseGuardianQuestionPayload(
         ...pendingQuestionPayload,
       };
     }
-    case 'tool_approval':
-    case 'tool_grant_request': {
+    case "tool_approval":
+    case "tool_grant_request": {
       const toolName = nonEmptyString(payload.toolName);
       if (!toolName) return null;
       return {
@@ -209,7 +232,7 @@ export function parseGuardianQuestionPayload(
         toolName,
       };
     }
-    case 'access_request':
+    case "access_request":
       return {
         requestKind,
         ...base,
@@ -235,26 +258,39 @@ export function resolveGuardianInstructionModeForRequestKind(
 export function resolveGuardianInstructionModeFromFields(
   requestKindValue: unknown,
   toolNameValue: unknown,
-): { requestKind: GuardianQuestionRequestKind; mode: GuardianQuestionInstructionMode } | null {
-  const requestKind = parseGuardianQuestionRequestKind({ requestKind: requestKindValue });
+): {
+  requestKind: GuardianQuestionRequestKind;
+  mode: GuardianQuestionInstructionMode;
+} | null {
+  const requestKind = parseGuardianQuestionRequestKind({
+    requestKind: requestKindValue,
+  });
   if (!requestKind) return null;
 
   return {
     requestKind,
-    mode: resolveGuardianInstructionModeForRequestKind(requestKind, nonEmptyString(toolNameValue)),
+    mode: resolveGuardianInstructionModeForRequestKind(
+      requestKind,
+      nonEmptyString(toolNameValue),
+    ),
   };
 }
 
 export function resolveGuardianInstructionModeForRequest(
   request?: GuardianRequestModeInput | null,
 ): GuardianQuestionInstructionMode {
-  if (!request) return 'approval';
-  const modeResolution = resolveGuardianInstructionModeFromFields(request.kind, request.toolName);
-  if (!modeResolution) return 'approval';
+  if (!request) return "approval";
+  const modeResolution = resolveGuardianInstructionModeFromFields(
+    request.kind,
+    request.toolName,
+  );
+  if (!modeResolution) return "approval";
   return modeResolution.mode;
 }
 
-function getModeTextConfig(mode: GuardianQuestionInstructionMode): GuardianModeTextConfig {
+function getModeTextConfig(
+  mode: GuardianQuestionInstructionMode,
+): GuardianModeTextConfig {
   return MODE_TEXT_CONFIG[mode];
 }
 
@@ -263,9 +299,9 @@ export function buildGuardianReplyDirective(
   mode: GuardianQuestionInstructionMode,
 ): string {
   switch (mode) {
-    case 'approval':
+    case "approval":
       return `Reply "${requestCode} approve" or "${requestCode} reject".`;
-    case 'answer':
+    case "answer":
       return `Reply "${requestCode} <your answer>".`;
     default: {
       const _never: never = mode;
@@ -278,7 +314,10 @@ export function buildGuardianRequestCodeInstruction(
   requestCode: string,
   mode: GuardianQuestionInstructionMode,
 ): string {
-  return `Reference code: ${requestCode}. ${buildGuardianReplyDirective(requestCode, mode)}`;
+  return `Reference code: ${requestCode}. ${buildGuardianReplyDirective(
+    requestCode,
+    mode,
+  )}`;
 }
 
 export function buildGuardianInvalidActionReply(
@@ -295,20 +334,18 @@ export function buildGuardianCodeOnlyClarification(
   request: GuardianRequestTextInput,
 ): string {
   const config = getModeTextConfig(mode);
-  const lines = [
-    config.buildCodeOnlyHeader(request),
-  ];
+  const lines = [config.buildCodeOnlyHeader(request)];
   const detailLine = config.buildCodeOnlyDetailLine(request);
   if (detailLine) {
     lines.push(detailLine);
   }
   lines.push(buildGuardianReplyDirective(request.requestCode, mode));
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 export function buildGuardianDisambiguationLabel(
   mode: GuardianQuestionInstructionMode,
-  request: Pick<GuardianRequestTextInput, 'questionText' | 'toolName'>,
+  request: Pick<GuardianRequestTextInput, "questionText" | "toolName">,
 ): string {
   return getModeTextConfig(mode).buildDisambiguationLabel(request);
 }
@@ -319,7 +356,7 @@ export function buildGuardianDisambiguationExample(
 ): string {
   const category = getModeTextConfig(mode).disambiguationCategory;
   const replyDirective = buildGuardianReplyDirective(requestCode, mode);
-  return `For ${category}: ${replyDirective.replace(/^Reply/, 'reply')}`;
+  return `For ${category}: ${replyDirective.replace(/^Reply/, "reply")}`;
 }
 
 export function hasGuardianRequestCodeInstruction(
@@ -327,16 +364,23 @@ export function hasGuardianRequestCodeInstruction(
   requestCode: string,
   mode: GuardianQuestionInstructionMode,
 ): boolean {
-  if (typeof text !== 'string') return false;
+  if (typeof text !== "string") return false;
   const upper = text.toUpperCase();
   const normalizedCode = requestCode.toUpperCase();
 
   switch (mode) {
-    case 'approval':
-      return upper.includes(`${normalizedCode} APPROVE`) && upper.includes(`${normalizedCode} REJECT`);
-    case 'answer': {
-      const hasAnswerInstruction = upper.includes(`${normalizedCode} <YOUR ANSWER>`);
-      const hasApprovalInstruction = upper.includes(`${normalizedCode} APPROVE`) || upper.includes(`${normalizedCode} REJECT`);
+    case "approval":
+      return (
+        upper.includes(`${normalizedCode} APPROVE`) &&
+        upper.includes(`${normalizedCode} REJECT`)
+      );
+    case "answer": {
+      const hasAnswerInstruction = upper.includes(
+        `${normalizedCode} <YOUR ANSWER>`,
+      );
+      const hasApprovalInstruction =
+        upper.includes(`${normalizedCode} APPROVE`) ||
+        upper.includes(`${normalizedCode} REJECT`);
       return hasAnswerInstruction && !hasApprovalInstruction;
     }
     default: {
@@ -347,13 +391,13 @@ export function hasGuardianRequestCodeInstruction(
 }
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeInstructionText(value: string): string {
   return value
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -365,16 +409,17 @@ export function stripConflictingGuardianRequestInstructions(
   const escapedCode = escapeRegExp(requestCode);
   const approvalInstructionPattern = new RegExp(
     `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+approve"\\s+or\\s+"${escapedCode}\\s+reject"\\.?`,
-    'ig',
+    "ig",
   );
   const answerInstructionPattern = new RegExp(
     `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+<your\\s+answer>"\\.?`,
-    'ig',
+    "ig",
   );
 
-  const next = mode === 'answer'
-    ? text.replace(approvalInstructionPattern, '')
-    : text.replace(answerInstructionPattern, '');
+  const next =
+    mode === "answer"
+      ? text.replace(approvalInstructionPattern, "")
+      : text.replace(answerInstructionPattern, "");
 
   return normalizeInstructionText(next);
 }
@@ -390,9 +435,14 @@ export function resolveGuardianQuestionInstructionMode(
 ): GuardianQuestionModeResolution {
   const parsed = parseGuardianQuestionPayload(payload);
   if (parsed) {
-    const parsedToolName = nonEmptyString('toolName' in parsed ? parsed.toolName : null);
+    const parsedToolName = nonEmptyString(
+      "toolName" in parsed ? parsed.toolName : null,
+    );
     return {
-      mode: resolveGuardianInstructionModeForRequestKind(parsed.requestKind, parsedToolName),
+      mode: resolveGuardianInstructionModeForRequestKind(
+        parsed.requestKind,
+        parsedToolName,
+      ),
       requestKind: parsed.requestKind,
       legacyFallbackUsed: false,
     };
@@ -412,7 +462,7 @@ export function resolveGuardianQuestionInstructionMode(
 
   const toolName = nonEmptyString(payload.toolName);
   return {
-    mode: toolName ? 'approval' : 'answer',
+    mode: toolName ? "approval" : "answer",
     requestKind: null,
     legacyFallbackUsed: true,
   };

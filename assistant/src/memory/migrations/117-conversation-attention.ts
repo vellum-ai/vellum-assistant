@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Conversation attention tables: append-only evidence log and single-row
@@ -21,9 +21,15 @@ export function createConversationAttentionTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_events_conv_observed ON conversation_attention_events(conversation_id, observed_at DESC)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_events_assistant_observed ON conversation_attention_events(assistant_id, observed_at DESC)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_events_channel_observed ON conversation_attention_events(source_channel, observed_at DESC)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_events_conv_observed ON conversation_attention_events(conversation_id, observed_at DESC)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_events_assistant_observed ON conversation_attention_events(assistant_id, observed_at DESC)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_events_channel_observed ON conversation_attention_events(source_channel, observed_at DESC)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS conversation_assistant_attention_state (
@@ -44,6 +50,10 @@ export function createConversationAttentionTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_assistant_latest_msg ON conversation_assistant_attention_state(assistant_id, latest_assistant_message_at DESC)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_assistant_last_seen ON conversation_assistant_attention_state(assistant_id, last_seen_assistant_message_at DESC)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_assistant_latest_msg ON conversation_assistant_attention_state(assistant_id, latest_assistant_message_at DESC)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_assistant_last_seen ON conversation_assistant_attention_state(assistant_id, last_seen_assistant_message_at DESC)`,
+  );
 }

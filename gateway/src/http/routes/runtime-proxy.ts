@@ -1,4 +1,8 @@
-import { validateEdgeToken, mintExchangeToken, mintServiceToken } from "../../auth/token-exchange.js";
+import {
+  validateEdgeToken,
+  mintExchangeToken,
+  mintServiceToken,
+} from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
@@ -48,7 +52,10 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         log.debug({ reason: result.reason }, "Edge token validation failed");
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
-      exchangeToken = mintExchangeToken(result.claims, result.claims.scope_profile);
+      exchangeToken = mintExchangeToken(
+        result.claims,
+        result.claims.scope_profile,
+      );
     } else {
       exchangeToken = mintServiceToken();
     }
@@ -56,7 +63,9 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // The daemon uses flat /v1/... paths. Rewrite any legacy
     // /v1/assistants/:assistantId/... requests from clients to flat paths.
     let upstreamPath = url.pathname;
-    const assistantScopedMatch = url.pathname.match(/^\/v1\/assistants\/[^/]+\/(.+)$/);
+    const assistantScopedMatch = url.pathname.match(
+      /^\/v1\/assistants\/[^/]+\/(.+)$/,
+    );
     if (assistantScopedMatch) {
       upstreamPath = `/v1/${assistantScopedMatch[1]}`;
     }
@@ -72,7 +81,7 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // Inject the real client IP so the runtime can rate-limit per-user,
     // overwriting any client-supplied value to prevent spoofing.
     if (clientIp) {
-      reqHeaders.set('x-forwarded-for', clientIp);
+      reqHeaders.set("x-forwarded-for", clientIp);
     }
 
     // Replace with the exchange token for the runtime (proves gateway origin)
@@ -83,7 +92,12 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // cleared so streaming responses (SSE, chunked) can run indefinitely.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+      controller.abort(
+        new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        ),
+      );
     }, config.runtimeTimeoutMs);
 
     // Buffer the request body instead of streaming req.body to avoid
@@ -109,7 +123,12 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       const duration = Math.round(performance.now() - start);
       if (err instanceof DOMException && err.name === "TimeoutError") {
         log.error(
-          { method: req.method, path: url.pathname, duration, timeoutMs: config.runtimeTimeoutMs },
+          {
+            method: req.method,
+            path: url.pathname,
+            duration,
+            timeoutMs: config.runtimeTimeoutMs,
+          },
           "Upstream request timed out",
         );
         return Response.json({ error: "Gateway Timeout" }, { status: 504 });
@@ -127,9 +146,16 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     if (response.status >= 400) {
       const body = await response.text();
       const level = response.status >= 500 ? "error" : "warn";
-      const bodySnippet = body.length > 256 ? body.slice(0, 256) + "…[truncated]" : body;
+      const bodySnippet =
+        body.length > 256 ? body.slice(0, 256) + "…[truncated]" : body;
       log[level](
-        { method: req.method, path: url.pathname, status: response.status, duration, body: bodySnippet },
+        {
+          method: req.method,
+          path: url.pathname,
+          status: response.status,
+          duration,
+          body: bodySnippet,
+        },
         "Upstream returned error",
       );
       return new Response(body, {
@@ -139,7 +165,12 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     }
 
     log.info(
-      { method: req.method, path: url.pathname, status: response.status, duration },
+      {
+        method: req.method,
+        path: url.pathname,
+        status: response.status,
+        duration,
+      },
       "Proxy request completed",
     );
 

@@ -7,15 +7,15 @@ import {
   getBrowserRelayWebsocketHandlers,
 } from "../http/routes/browser-relay-websocket.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
 /** Mint a valid edge JWT for browser relay auth. */
 function mintEdgeToken(): string {
   return mintToken({
-    aud: 'vellum-gateway',
-    sub: 'actor:test-assistant:test-user',
-    scope_profile: 'actor_client_v1',
+    aud: "vellum-gateway",
+    sub: "actor:test-assistant:test-user",
+    scope_profile: "actor_client_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -95,9 +95,11 @@ function createFakeUpstreamWs() {
     readyState: WS_CONNECTING as number,
     sent,
     listeners,
-    addEventListener: mock((event: string, cb: (...args: unknown[]) => void) => {
-      (listeners[event] ??= []).push(cb);
-    }),
+    addEventListener: mock(
+      (event: string, cb: (...args: unknown[]) => void) => {
+        (listeners[event] ??= []).push(cb);
+      },
+    ),
     send: mock((msg: unknown) => {
       sent.push(msg);
     }),
@@ -121,7 +123,11 @@ describe("createBrowserRelayWebsocketHandler", () => {
       { headers: { upgrade: "websocket" } },
     );
     const fakeServer = {
-      requestIP: mock(() => ({ address: "127.0.0.1", family: "IPv4", port: 54000 })),
+      requestIP: mock(() => ({
+        address: "127.0.0.1",
+        family: "IPv4",
+        port: 54000,
+      })),
       upgrade: mock(() => true),
     } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
@@ -137,7 +143,11 @@ describe("createBrowserRelayWebsocketHandler", () => {
       headers: { upgrade: "websocket" },
     });
     const fakeServer = {
-      requestIP: mock(() => ({ address: "127.0.0.1", family: "IPv4", port: 54000 })),
+      requestIP: mock(() => ({
+        address: "127.0.0.1",
+        family: "IPv4",
+        port: 54000,
+      })),
       upgrade: mock(() => true),
     } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
@@ -148,13 +158,17 @@ describe("createBrowserRelayWebsocketHandler", () => {
   });
 
   test("allows unauthenticated upgrade when runtime proxy auth is disabled", () => {
-    const config = makeConfig({ runtimeProxyRequireAuth: false});
+    const config = makeConfig({ runtimeProxyRequireAuth: false });
     const handler = createBrowserRelayWebsocketHandler(config);
     const req = new Request("http://localhost:7830/v1/browser-relay", {
       headers: { upgrade: "websocket" },
     });
     const fakeServer = {
-      requestIP: mock(() => ({ address: "127.0.0.1", family: "IPv4", port: 54000 })),
+      requestIP: mock(() => ({
+        address: "127.0.0.1",
+        family: "IPv4",
+        port: 54000,
+      })),
       upgrade: mock(() => true),
     } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
@@ -171,7 +185,11 @@ describe("createBrowserRelayWebsocketHandler", () => {
       { headers: { upgrade: "websocket" } },
     );
     const fakeServer = {
-      requestIP: mock(() => ({ address: "8.8.8.8", family: "IPv4", port: 54000 })),
+      requestIP: mock(() => ({
+        address: "8.8.8.8",
+        family: "IPv4",
+        port: 54000,
+      })),
       upgrade: mock(() => true),
     } as unknown as import("bun").Server<any>;
 
@@ -190,7 +208,11 @@ describe("createBrowserRelayWebsocketHandler", () => {
       { headers: { upgrade: "websocket" } },
     );
     const fakeServer = {
-      requestIP: mock(() => ({ address: "8.8.8.8", family: "IPv4", port: 54000 })),
+      requestIP: mock(() => ({
+        address: "8.8.8.8",
+        family: "IPv4",
+        port: 54000,
+      })),
       upgrade: mock(() => true),
     } as unknown as import("bun").Server<any>;
 
@@ -209,7 +231,11 @@ describe("createBrowserRelayWebsocketHandler", () => {
       { headers: { upgrade: "websocket" } },
     );
     const fakeServer = {
-      requestIP: mock(() => ({ address: "10.42.0.8", family: "IPv4", port: 54000 })),
+      requestIP: mock(() => ({
+        address: "10.42.0.8",
+        family: "IPv4",
+        port: 54000,
+      })),
       upgrade: mock(() => true),
     } as unknown as import("bun").Server<any>;
 
@@ -255,7 +281,9 @@ describe("getBrowserRelayWebsocketHandlers", () => {
 
     const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
     const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
-    expect(calledUrl).toMatch(/^ws:\/\/runtime\.internal:7821\/v1\/browser-relay\?token=ey/);
+    expect(calledUrl).toMatch(
+      /^ws:\/\/runtime\.internal:7821\/v1\/browser-relay\?token=ey/,
+    );
 
     fakeUpstream.readyState = WS_OPEN;
     fakeUpstream.emit("open");

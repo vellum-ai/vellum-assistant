@@ -5,7 +5,7 @@
  * the proxy resolver, which forwards the call to the connected macOS client.
  */
 
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
  * Forward a computer-use proxy tool call through the context's proxyToolResolver.

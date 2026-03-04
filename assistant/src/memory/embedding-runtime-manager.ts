@@ -13,29 +13,38 @@
  * Follows the same download/install pattern as qdrant-manager.ts.
  */
 
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { arch, platform } from 'node:os';
-import { join } from 'node:path';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { arch, platform } from "node:os";
+import { join } from "node:path";
 
-import { getLogger } from '../util/logger.js';
-import { getEmbeddingModelsDir } from '../util/platform.js';
-import { PromiseGuard } from '../util/promise-guard.js';
+import { getLogger } from "../util/logger.js";
+import { getEmbeddingModelsDir } from "../util/platform.js";
+import { PromiseGuard } from "../util/promise-guard.js";
 
-const log = getLogger('embedding-runtime-manager');
+const log = getLogger("embedding-runtime-manager");
 
 // Pinned versions matching assistant/bun.lock
-const ONNXRUNTIME_NODE_VERSION = '1.21.0';
-const ONNXRUNTIME_COMMON_VERSION = '1.21.0';
-const TRANSFORMERS_VERSION = '3.8.1';
-const JINJA_VERSION = '0.5.5';
+const ONNXRUNTIME_NODE_VERSION = "1.21.0";
+const ONNXRUNTIME_COMMON_VERSION = "1.21.0";
+const TRANSFORMERS_VERSION = "3.8.1";
+const JINJA_VERSION = "0.5.5";
 
 /** Bun version to download when system bun is not available. */
-const BUN_VERSION = '1.2.0';
+const BUN_VERSION = "1.2.0";
 
 /** Composite version string for cache invalidation. */
 const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}_jinja-${JINJA_VERSION}`;
 
-const WORKER_FILENAME = 'embed-worker.mjs';
+const WORKER_FILENAME = "embed-worker.mjs";
 
 /** Module-level guard so concurrent in-process calls share one download. */
 const installGuard = new PromiseGuard<void>();
@@ -54,8 +63,8 @@ interface VersionManifest {
 
 function npmTarballUrl(pkg: string, version: string): string {
   // Scoped packages encode the scope in the URL
-  const encoded = pkg.replace('/', '%2f');
-  const basename = pkg.startsWith('@') ? pkg.split('/')[1] : pkg;
+  const encoded = pkg.replace("/", "%2f");
+  const basename = pkg.startsWith("@") ? pkg.split("/")[1] : pkg;
   return `https://registry.npmjs.org/${encoded}/-/${basename}-${version}.tgz`;
 }
 
@@ -64,11 +73,13 @@ async function downloadAndExtract(
   targetDir: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  log.info({ url, targetDir }, 'Downloading npm package');
+  log.info({ url, targetDir }, "Downloading npm package");
 
   const response = await fetch(url, { signal });
   if (!response.ok) {
-    throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Failed to download ${url}: ${response.status} ${response.statusText}`,
+    );
   }
 
   const tarball = await response.arrayBuffer();
@@ -82,9 +93,9 @@ async function downloadAndExtract(
   try {
     // Extract tarball, stripping the leading "package/" directory
     const proc = Bun.spawn({
-      cmd: ['tar', 'xzf', tmpTar, '-C', targetDir, '--strip-components=1'],
-      stdout: 'ignore',
-      stderr: 'pipe',
+      cmd: ["tar", "xzf", tmpTar, "-C", targetDir, "--strip-components=1"],
+      stdout: "ignore",
+      stderr: "pipe",
     });
     await proc.exited;
     if (proc.exitCode !== 0) {
@@ -92,7 +103,11 @@ async function downloadAndExtract(
       throw new Error(`Failed to extract ${url}: ${stderr}`);
     }
   } finally {
-    try { rmSync(tmpTar); } catch { /* ignore */ }
+    try {
+      rmSync(tmpTar);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -189,16 +204,16 @@ export class EmbeddingRuntimeManager {
    */
   getBunPath(): string | undefined {
     // 1. Downloaded bun
-    const downloadedBun = join(this.baseDir, 'bin', 'bun');
+    const downloadedBun = join(this.baseDir, "bin", "bun");
     if (existsSync(downloadedBun)) return downloadedBun;
 
     // 2. Common installation paths — the compiled daemon inherits a
     //    restricted PATH, so we check well-known prefixes directly.
-    const home = process.env.HOME ?? '';
+    const home = process.env.HOME ?? "";
     for (const p of [
-      join(home, '.bun', 'bin', 'bun'),
-      '/opt/homebrew/bin/bun',
-      '/usr/local/bin/bun',
+      join(home, ".bun", "bin", "bun"),
+      "/opt/homebrew/bin/bun",
+      "/usr/local/bin/bun",
     ]) {
       if (existsSync(p)) return p;
     }
@@ -229,18 +244,21 @@ export class EmbeddingRuntimeManager {
     if (this.isReady()) return;
 
     // Cross-process lock to prevent duplicate downloads
-    const lockPath = join(this.baseDir, '.downloading');
+    const lockPath = join(this.baseDir, ".downloading");
     if (existsSync(lockPath)) {
       try {
-        const lockContent = readFileSync(lockPath, 'utf-8').trim();
+        const lockContent = readFileSync(lockPath, "utf-8").trim();
         const lockPid = parseInt(lockContent, 10);
         if (!isNaN(lockPid) && lockPid !== process.pid) {
           try {
             process.kill(lockPid, 0);
-            log.info({ lockPid }, 'Another process is downloading the embedding runtime, skipping');
+            log.info(
+              { lockPid },
+              "Another process is downloading the embedding runtime, skipping",
+            );
             return;
           } catch {
-            log.info({ lockPid }, 'Cleaning up stale download lock');
+            log.info({ lockPid }, "Cleaning up stale download lock");
           }
         }
       } catch {
@@ -251,9 +269,9 @@ export class EmbeddingRuntimeManager {
     mkdirSync(this.baseDir, { recursive: true });
 
     // Write a .gitignore so the workspace git repo ignores this directory
-    const gitignorePath = join(this.baseDir, '.gitignore');
+    const gitignorePath = join(this.baseDir, ".gitignore");
     if (!existsSync(gitignorePath)) {
-      writeFileSync(gitignorePath, '*\n!.gitignore\n');
+      writeFileSync(gitignorePath, "*\n!.gitignore\n");
     }
 
     writeFileSync(lockPath, String(process.pid));
@@ -261,47 +279,54 @@ export class EmbeddingRuntimeManager {
     try {
       await this.install(signal);
     } finally {
-      try { rmSync(lockPath); } catch { /* ignore */ }
+      try {
+        rmSync(lockPath);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
   private async install(signal?: AbortSignal): Promise<void> {
     const os = platform();
     const cpu = arch();
-    log.info({ os, cpu, runtimeVersion: RUNTIME_VERSION }, 'Installing embedding runtime');
+    log.info(
+      { os, cpu, runtimeVersion: RUNTIME_VERSION },
+      "Installing embedding runtime",
+    );
 
     // Work in a temp directory for atomic install
     const tmpDir = join(this.baseDir, `.installing-${Date.now()}`);
     mkdirSync(tmpDir, { recursive: true });
 
     // Declared outside try so catch/finally can reference them for cleanup
-    const modelCacheDir = join(this.baseDir, 'model-cache');
-    const existingBinDir = join(this.baseDir, 'bin');
+    const modelCacheDir = join(this.baseDir, "model-cache");
+    const existingBinDir = join(this.baseDir, "bin");
     let tmpModelCache: string | null = null;
     let tmpBinDir: string | null = null;
 
     try {
       // Step 1: Download npm packages (and bun if needed) in parallel
-      const nodeModules = join(tmpDir, 'node_modules');
+      const nodeModules = join(tmpDir, "node_modules");
       const downloads: Promise<void>[] = [
         downloadAndExtract(
-          npmTarballUrl('onnxruntime-node', ONNXRUNTIME_NODE_VERSION),
-          join(nodeModules, 'onnxruntime-node'),
+          npmTarballUrl("onnxruntime-node", ONNXRUNTIME_NODE_VERSION),
+          join(nodeModules, "onnxruntime-node"),
           signal,
         ),
         downloadAndExtract(
-          npmTarballUrl('onnxruntime-common', ONNXRUNTIME_COMMON_VERSION),
-          join(nodeModules, 'onnxruntime-common'),
+          npmTarballUrl("onnxruntime-common", ONNXRUNTIME_COMMON_VERSION),
+          join(nodeModules, "onnxruntime-common"),
           signal,
         ),
         downloadAndExtract(
-          npmTarballUrl('@huggingface/transformers', TRANSFORMERS_VERSION),
-          join(nodeModules, '@huggingface', 'transformers'),
+          npmTarballUrl("@huggingface/transformers", TRANSFORMERS_VERSION),
+          join(nodeModules, "@huggingface", "transformers"),
           signal,
         ),
         downloadAndExtract(
-          npmTarballUrl('@huggingface/jinja', JINJA_VERSION),
-          join(nodeModules, '@huggingface', 'jinja'),
+          npmTarballUrl("@huggingface/jinja", JINJA_VERSION),
+          join(nodeModules, "@huggingface", "jinja"),
           signal,
         ),
       ];
@@ -313,12 +338,17 @@ export class EmbeddingRuntimeManager {
 
       await Promise.all(downloads);
 
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
-      log.info('npm packages downloaded, stripping non-platform binaries');
+      log.info("npm packages downloaded, stripping non-platform binaries");
 
       // Step 2: Strip non-platform native binaries
-      const onnxBinDir = join(nodeModules, 'onnxruntime-node', 'bin', 'napi-v3');
+      const onnxBinDir = join(
+        nodeModules,
+        "onnxruntime-node",
+        "bin",
+        "napi-v3",
+      );
       if (existsSync(onnxBinDir)) {
         const entries = readdirSync(onnxBinDir);
         for (const entry of entries) {
@@ -333,26 +363,34 @@ export class EmbeddingRuntimeManager {
       // Strip non-runtime files to reduce disk usage.
       // Keep lib/ directories — they contain JS entry points needed for bare
       // specifier imports in the worker subprocess.
-      const onnxNodeDir = join(nodeModules, 'onnxruntime-node');
-      rmSync(join(onnxNodeDir, 'script'), { recursive: true, force: true });
-      rmSync(join(onnxNodeDir, 'README.md'), { force: true });
-      rmSync(join(nodeModules, 'onnxruntime-common', 'README.md'), { force: true });
+      const onnxNodeDir = join(nodeModules, "onnxruntime-node");
+      rmSync(join(onnxNodeDir, "script"), { recursive: true, force: true });
+      rmSync(join(onnxNodeDir, "README.md"), { force: true });
+      rmSync(join(nodeModules, "onnxruntime-common", "README.md"), {
+        force: true,
+      });
 
       // Step 3: Create a stub "sharp" package so that the pre-built
       // transformers.node.mjs can import it without error. The bundle checks
       // `if (sharp)` at module initialization time — the stub must be truthy.
       // We only use text embeddings, never image processing.
-      const sharpDir = join(nodeModules, 'sharp');
+      const sharpDir = join(nodeModules, "sharp");
       mkdirSync(sharpDir, { recursive: true });
-      writeFileSync(join(sharpDir, 'package.json'), '{"name":"sharp","version":"0.0.0","main":"index.js"}\n');
-      writeFileSync(join(sharpDir, 'index.js'), [
-        '// Stub: only text embeddings are used, no image processing.',
-        '// Must be a truthy function so transformers.node.mjs initialization passes.',
-        'function sharp() { throw new Error("sharp stub: image processing not available"); }',
-        'sharp.format = {};',
-        'module.exports = sharp;',
-        '',
-      ].join('\n'));
+      writeFileSync(
+        join(sharpDir, "package.json"),
+        '{"name":"sharp","version":"0.0.0","main":"index.js"}\n',
+      );
+      writeFileSync(
+        join(sharpDir, "index.js"),
+        [
+          "// Stub: only text embeddings are used, no image processing.",
+          "// Must be a truthy function so transformers.node.mjs initialization passes.",
+          'function sharp() { throw new Error("sharp stub: image processing not available"); }',
+          "sharp.format = {};",
+          "module.exports = sharp;",
+          "",
+        ].join("\n"),
+      );
 
       // Step 4: Write embed worker script
       writeFileSync(join(tmpDir, WORKER_FILENAME), generateWorkerScript());
@@ -367,18 +405,24 @@ export class EmbeddingRuntimeManager {
         arch: cpu,
         installedAt: new Date().toISOString(),
       };
-      writeFileSync(join(tmpDir, 'version.json'), JSON.stringify(manifest, null, 2) + '\n');
+      writeFileSync(
+        join(tmpDir, "version.json"),
+        JSON.stringify(manifest, null, 2) + "\n",
+      );
 
       // Step 6: Atomic swap — remove old install and rename temp to final
       // Preserve model-cache/, bin/ (downloaded bun), and .gitignore
       const hadModelCache = existsSync(modelCacheDir);
       if (hadModelCache) {
-        tmpModelCache = join(this.baseDir, `.model-cache-preserve-${Date.now()}`);
+        tmpModelCache = join(
+          this.baseDir,
+          `.model-cache-preserve-${Date.now()}`,
+        );
         renameSync(modelCacheDir, tmpModelCache);
       }
 
       // Preserve downloaded bun binary if it exists and we didn't just download a new one
-      const newBinDir = join(tmpDir, 'bin');
+      const newBinDir = join(tmpDir, "bin");
       const hadBinDir = existsSync(existingBinDir) && !existsSync(newBinDir);
       if (hadBinDir) {
         tmpBinDir = join(this.baseDir, `.bin-preserve-${Date.now()}`);
@@ -387,7 +431,8 @@ export class EmbeddingRuntimeManager {
 
       // Remove old install (preserving dotfiles like .gitignore, .downloading, temp dirs)
       for (const entry of readdirSync(this.baseDir)) {
-        if (entry.startsWith('.') || entry === tmpDir.split('/').pop()) continue;
+        if (entry.startsWith(".") || entry === tmpDir.split("/").pop())
+          continue;
         rmSync(join(this.baseDir, entry), { recursive: true, force: true });
       }
 
@@ -406,43 +451,67 @@ export class EmbeddingRuntimeManager {
         renameSync(tmpBinDir, existingBinDir);
       }
 
-      log.info({ runtimeVersion: RUNTIME_VERSION }, 'Embedding runtime installed successfully');
+      log.info(
+        { runtimeVersion: RUNTIME_VERSION },
+        "Embedding runtime installed successfully",
+      );
     } catch (err) {
       // Restore preserved directories if the swap failed
-      if (tmpModelCache && existsSync(tmpModelCache) && !existsSync(modelCacheDir)) {
-        try { renameSync(tmpModelCache, modelCacheDir); } catch { /* best effort */ }
+      if (
+        tmpModelCache &&
+        existsSync(tmpModelCache) &&
+        !existsSync(modelCacheDir)
+      ) {
+        try {
+          renameSync(tmpModelCache, modelCacheDir);
+        } catch {
+          /* best effort */
+        }
       }
       if (tmpBinDir && existsSync(tmpBinDir) && !existsSync(existingBinDir)) {
-        try { renameSync(tmpBinDir, existingBinDir); } catch { /* best effort */ }
+        try {
+          renameSync(tmpBinDir, existingBinDir);
+        } catch {
+          /* best effort */
+        }
       }
-      log.error({ err }, 'Failed to install embedding runtime');
+      log.error({ err }, "Failed to install embedding runtime");
       throw err;
     } finally {
       // Clean up temp directory and any leftover preserve dirs
       rmSync(tmpDir, { recursive: true, force: true });
-      if (tmpModelCache) rmSync(tmpModelCache, { recursive: true, force: true });
+      if (tmpModelCache)
+        rmSync(tmpModelCache, { recursive: true, force: true });
       if (tmpBinDir) rmSync(tmpBinDir, { recursive: true, force: true });
     }
   }
 
-  private async downloadBunBinary(installDir: string, signal?: AbortSignal): Promise<void> {
+  private async downloadBunBinary(
+    installDir: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const os = platform();
-    const cpu = arch() === 'arm64' ? 'aarch64' : arch();
+    const cpu = arch() === "arm64" ? "aarch64" : arch();
     const target = `${os}-${cpu}`;
     const url = `https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-${target}.zip`;
 
-    log.info({ url, target, bunVersion: BUN_VERSION }, 'Downloading bun binary');
+    log.info(
+      { url, target, bunVersion: BUN_VERSION },
+      "Downloading bun binary",
+    );
 
     const response = await fetch(url, {
       signal,
-      redirect: 'follow',
+      redirect: "follow",
     });
     if (!response.ok) {
-      throw new Error(`Failed to download bun: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to download bun: ${response.status} ${response.statusText}`,
+      );
     }
 
     const zipData = await response.arrayBuffer();
-    const binDir = join(installDir, 'bin');
+    const binDir = join(installDir, "bin");
     mkdirSync(binDir, { recursive: true });
 
     const tmpZip = join(binDir, `bun-download-${Date.now()}.zip`);
@@ -451,9 +520,9 @@ export class EmbeddingRuntimeManager {
     try {
       // Extract zip
       const proc = Bun.spawn({
-        cmd: ['unzip', '-o', tmpZip, '-d', binDir],
-        stdout: 'ignore',
-        stderr: 'pipe',
+        cmd: ["unzip", "-o", tmpZip, "-d", binDir],
+        stdout: "ignore",
+        stderr: "pipe",
       });
       await proc.exited;
       if (proc.exitCode !== 0) {
@@ -462,26 +531,30 @@ export class EmbeddingRuntimeManager {
       }
 
       // Move binary from bun-{target}/bun to bin/bun
-      const extractedBun = join(binDir, `bun-${target}`, 'bun');
+      const extractedBun = join(binDir, `bun-${target}`, "bun");
       if (existsSync(extractedBun)) {
-        renameSync(extractedBun, join(binDir, 'bun'));
+        renameSync(extractedBun, join(binDir, "bun"));
         rmSync(join(binDir, `bun-${target}`), { recursive: true, force: true });
       }
 
       // Make executable
-      chmodSync(join(binDir, 'bun'), 0o755);
+      chmodSync(join(binDir, "bun"), 0o755);
     } finally {
-      try { rmSync(tmpZip); } catch { /* ignore */ }
+      try {
+        rmSync(tmpZip);
+      } catch {
+        /* ignore */
+      }
     }
 
-    log.info('Bun binary downloaded successfully');
+    log.info("Bun binary downloaded successfully");
   }
 
   private readManifest(): VersionManifest | null {
-    const manifestPath = join(this.baseDir, 'version.json');
+    const manifestPath = join(this.baseDir, "version.json");
     if (!existsSync(manifestPath)) return null;
     try {
-      return JSON.parse(readFileSync(manifestPath, 'utf-8'));
+      return JSON.parse(readFileSync(manifestPath, "utf-8"));
     } catch {
       return null;
     }

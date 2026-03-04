@@ -10,7 +10,10 @@ const BASE_ENV = {
   ASSISTANT_RUNTIME_BASE_URL: "http://localhost:7821",
 };
 
-function withEnv(overrides: Record<string, string | undefined>, fn: () => void) {
+function withEnv(
+  overrides: Record<string, string | undefined>,
+  fn: () => void,
+) {
   const saved: Record<string, string | undefined> = {};
   const allKeys = [
     ...Object.keys(BASE_ENV),

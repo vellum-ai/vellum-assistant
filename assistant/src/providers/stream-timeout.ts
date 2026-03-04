@@ -13,7 +13,9 @@ export function createStreamTimeout(
   const controller = new AbortController();
 
   const handle = setTimeout(() => {
-    controller.abort(new Error(`Provider stream timed out after ${timeoutMs / 1000}s`));
+    controller.abort(
+      new Error(`Provider stream timed out after ${timeoutMs / 1000}s`),
+    );
   }, timeoutMs);
 
   const onExternalAbort = () => {
@@ -25,13 +27,13 @@ export function createStreamTimeout(
       clearTimeout(handle);
       controller.abort(externalSignal.reason);
     } else {
-      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
     }
   }
 
   const cleanup = () => {
     clearTimeout(handle);
-    externalSignal?.removeEventListener('abort', onExternalAbort);
+    externalSignal?.removeEventListener("abort", onExternalAbort);
   };
 
   return { signal: controller.signal, cleanup };

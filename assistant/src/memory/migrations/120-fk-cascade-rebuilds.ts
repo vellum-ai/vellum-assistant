@@ -1,4 +1,4 @@
-import { type DrizzleDb, getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * Rebuild messages, task_runs, and assistant_ingress_members tables to add
@@ -16,16 +16,21 @@ export function migrateFkCascadeRebuilds(database: DrizzleDb): void {
   rebuildAssistantIngressMembers(raw);
 }
 
-function hasCascade(raw: ReturnType<typeof getSqliteFrom>, tableName: string): boolean {
-  const row = raw.query(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`).get(tableName) as { sql: string } | null;
+function hasCascade(
+  raw: ReturnType<typeof getSqliteFrom>,
+  tableName: string,
+): boolean {
+  const row = raw
+    .query(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(tableName) as { sql: string } | null;
   if (!row) return true; // table doesn't exist yet — will be created with correct DDL
-  return row.sql.includes('ON DELETE CASCADE');
+  return row.sql.includes("ON DELETE CASCADE");
 }
 
 function rebuildMessages(raw: ReturnType<typeof getSqliteFrom>): void {
-  if (hasCascade(raw, 'messages')) return;
+  if (hasCascade(raw, "messages")) return;
 
-  raw.exec('PRAGMA foreign_keys = OFF');
+  raw.exec("PRAGMA foreign_keys = OFF");
   try {
     raw.exec(/*sql*/ `
       BEGIN;
@@ -71,17 +76,21 @@ function rebuildMessages(raw: ReturnType<typeof getSqliteFrom>): void {
       COMMIT;
     `);
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   } finally {
-    raw.exec('PRAGMA foreign_keys = ON');
+    raw.exec("PRAGMA foreign_keys = ON");
   }
 }
 
 function rebuildTaskRuns(raw: ReturnType<typeof getSqliteFrom>): void {
-  if (hasCascade(raw, 'task_runs')) return;
+  if (hasCascade(raw, "task_runs")) return;
 
-  raw.exec('PRAGMA foreign_keys = OFF');
+  raw.exec("PRAGMA foreign_keys = OFF");
   try {
     raw.exec(/*sql*/ `
       BEGIN;
@@ -108,17 +117,23 @@ function rebuildTaskRuns(raw: ReturnType<typeof getSqliteFrom>): void {
       COMMIT;
     `);
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   } finally {
-    raw.exec('PRAGMA foreign_keys = ON');
+    raw.exec("PRAGMA foreign_keys = ON");
   }
 }
 
-function rebuildAssistantIngressMembers(raw: ReturnType<typeof getSqliteFrom>): void {
-  if (hasCascade(raw, 'assistant_ingress_members')) return;
+function rebuildAssistantIngressMembers(
+  raw: ReturnType<typeof getSqliteFrom>,
+): void {
+  if (hasCascade(raw, "assistant_ingress_members")) return;
 
-  raw.exec('PRAGMA foreign_keys = OFF');
+  raw.exec("PRAGMA foreign_keys = OFF");
   try {
     raw.exec(/*sql*/ `
       BEGIN;
@@ -153,9 +168,13 @@ function rebuildAssistantIngressMembers(raw: ReturnType<typeof getSqliteFrom>): 
       COMMIT;
     `);
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   } finally {
-    raw.exec('PRAGMA foreign_keys = ON');
+    raw.exec("PRAGMA foreign_keys = ON");
   }
 }

@@ -44,14 +44,6 @@ mock.module("../security/secret-ingress.js", () => ({
   checkIngressForSecrets: () => ({ blocked: false }),
 }));
 
-// Mock ingress member store: findMember always returns null (non-member),
-// updateLastSeen is a no-op.
-mock.module("../memory/ingress-member-store.js", () => ({
-  findMember: () => null,
-  updateLastSeen: () => {},
-  upsertMember: () => {},
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -93,11 +85,11 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
-import { createBinding } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
@@ -122,7 +114,6 @@ const TEST_BEARER_TOKEN = "test-token";
 function resetState(): void {
   const db = getDb();
   db.run("DELETE FROM channel_guardian_approval_requests");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
@@ -198,12 +189,13 @@ describe("non-member access request notification", () => {
 
   test("guardian is notified when a non-member messages and a guardian binding exists", async () => {
     // Set up a guardian binding for this channel
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "test-principal-id",
+      verifiedVia: "test",
     });
 
     const req = buildInboundRequest();
@@ -243,12 +235,13 @@ describe("non-member access request notification", () => {
   });
 
   test("no duplicate approval requests for repeated messages from same non-member", async () => {
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "test-principal-id",
+      verifiedVia: "test",
     });
 
     // First message
@@ -313,12 +306,13 @@ describe("non-member access request notification", () => {
 
   test("cross-channel fallback: SMS guardian binding resolves for Telegram access request", async () => {
     // Only an SMS guardian binding exists — no Telegram binding
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "guardian-sms-user",
       guardianDeliveryChatId: "guardian-sms-chat",
       guardianPrincipalId: "test-principal-id",
+      verifiedVia: "test",
     });
 
     const req = buildInboundRequest();
@@ -348,12 +342,13 @@ describe("non-member access request notification", () => {
   });
 
   test("no notification when actorExternalId is absent", async () => {
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "test-principal-id",
+      verifiedVia: "test",
     });
 
     // Message without actorExternalId — the handler returns BAD_REQUEST.
@@ -424,12 +419,13 @@ describe("access-request-helper unit tests", () => {
 
   test("notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing", () => {
     // Only SMS binding exists
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "guardian-sms",
       guardianDeliveryChatId: "sms-chat",
       guardianPrincipalId: "test-principal-id",
+      verifiedVia: "test",
     });
 
     const result = notifyGuardianOfAccessRequest({
@@ -459,19 +455,21 @@ describe("access-request-helper unit tests", () => {
 
   test("notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback", () => {
     // Both Telegram and SMS bindings exist
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-tg",
       guardianDeliveryChatId: "tg-chat",
       guardianPrincipalId: "test-principal-tg",
+      verifiedVia: "test",
     });
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "guardian-sms",
       guardianDeliveryChatId: "sms-chat",
       guardianPrincipalId: "test-principal-sms",
+      verifiedVia: "test",
     });
 
     const result = notifyGuardianOfAccessRequest({

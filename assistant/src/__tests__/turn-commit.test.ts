@@ -23,7 +23,7 @@ import type {
 } from "../workspace/commit-message-provider.js";
 import {
   _resetGitServiceRegistry,
-  WorkspaceGitService,
+  getWorkspaceGitService,
 } from "../workspace/git-service.js";
 import type { GenerateCommitMessageResult } from "../workspace/provider-commit-message-generator.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
@@ -64,7 +64,7 @@ describe("commitTurnChanges", () => {
 
   test("turn with file edits creates a commit", async () => {
     // Initialize workspace git
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     // Simulate file edits during a turn
@@ -96,7 +96,7 @@ describe("commitTurnChanges", () => {
 
   test("turn with no changes creates no commit", async () => {
     // Initialize workspace git
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     // Count commits before
@@ -122,7 +122,7 @@ describe("commitTurnChanges", () => {
 
   test("multiple tool calls in one turn result in single commit at end", async () => {
     // Initialize workspace git
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     // Simulate multiple tool call outputs (file writes) within a single turn
@@ -157,7 +157,7 @@ describe("commitTurnChanges", () => {
   });
 
   test("commit message includes correct metadata", async () => {
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     writeFileSync(join(testDir, "doc.md"), "# Document");
@@ -182,7 +182,7 @@ describe("commitTurnChanges", () => {
   });
 
   test("commit summary shows single file name for one change", async () => {
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     writeFileSync(join(testDir, "only-file.txt"), "content");
@@ -199,7 +199,7 @@ describe("commitTurnChanges", () => {
   });
 
   test('commit summary shows "and N more" for many changes', async () => {
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     for (let i = 0; i < 5; i++) {
@@ -224,7 +224,7 @@ describe("commitTurnChanges", () => {
   });
 
   test("successive turns produce separate commits", async () => {
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     // Turn 1
@@ -266,7 +266,7 @@ describe("commitTurnChanges", () => {
   });
 
   test("custom commit message provider output is used in commit", async () => {
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     const customProvider: CommitMessageProvider = {
@@ -296,7 +296,7 @@ describe("commitTurnChanges", () => {
   });
 
   test("custom provider metadata is included in commit message", async () => {
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     const customProvider: CommitMessageProvider = {
@@ -373,7 +373,7 @@ describe("LLM commit message integration", () => {
     const { commitTurnChanges: commit } =
       await import("../workspace/turn-commit.js");
 
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     writeFileSync(join(testDir, "auth.ts"), "export class Auth {}");
@@ -404,7 +404,7 @@ describe("LLM commit message integration", () => {
     const { commitTurnChanges: commit } =
       await import("../workspace/turn-commit.js");
 
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     writeFileSync(join(testDir, "missing-key.txt"), "content");
@@ -433,7 +433,7 @@ describe("LLM commit message integration", () => {
     const { commitTurnChanges: commit } =
       await import("../workspace/turn-commit.js");
 
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     writeFileSync(join(testDir, "error-test.txt"), "content");
@@ -466,7 +466,7 @@ describe("LLM commit message integration", () => {
     const { commitTurnChanges: commit } =
       await import("../workspace/turn-commit.js");
 
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     writeFileSync(join(testDir, "timeout-test.txt"), "content");
@@ -497,7 +497,7 @@ describe("LLM commit message integration", () => {
     const { commitTurnChanges: commit } =
       await import("../workspace/turn-commit.js");
 
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     writeFileSync(join(testDir, "invalid-test.txt"), "content");
@@ -528,7 +528,7 @@ describe("LLM commit message integration", () => {
     const { commitTurnChanges: commit } =
       await import("../workspace/turn-commit.js");
 
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     writeFileSync(join(testDir, "breaker-test.txt"), "content");
@@ -568,7 +568,7 @@ describe("LLM commit message integration", () => {
     const { commitTurnChanges: commit } =
       await import("../workspace/turn-commit.js");
 
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     writeFileSync(join(testDir, "alpha.ts"), "export const a = 1;");
@@ -603,7 +603,7 @@ describe("LLM commit message integration", () => {
     const { commitTurnChanges: commit } =
       await import("../workspace/turn-commit.js");
 
-    const service = new WorkspaceGitService(testDir);
+    const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     // No file changes — workspace is clean

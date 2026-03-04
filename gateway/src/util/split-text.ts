@@ -12,7 +12,11 @@ export function splitText(text: string, maxLength: number): string[] {
   while (cursor < text.length) {
     let end = Math.min(cursor + maxLength, text.length);
     // Avoid splitting a surrogate pair
-    if (end < text.length && text.charCodeAt(end - 1) >= 0xd800 && text.charCodeAt(end - 1) <= 0xdbff) {
+    if (
+      end < text.length &&
+      text.charCodeAt(end - 1) >= 0xd800 &&
+      text.charCodeAt(end - 1) <= 0xdbff
+    ) {
       end--;
     }
     chunks.push(text.slice(cursor, end));

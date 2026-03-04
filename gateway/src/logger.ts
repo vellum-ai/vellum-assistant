@@ -1,4 +1,10 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import pino from "pino";
 import pinoPretty from "pino-pretty";
@@ -54,7 +60,10 @@ let activeConfig: LogFileConfig | null = null;
 
 function buildLogger(config: LogFileConfig | null): pino.Logger {
   if (!config?.dir) {
-    return pino({ name: "gateway", serializers: logSerializers }, pinoPretty({ destination: 1 }));
+    return pino(
+      { name: "gateway", serializers: logSerializers },
+      pinoPretty({ destination: 1 }),
+    );
   }
 
   if (!existsSync(config.dir)) {
@@ -63,9 +72,18 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
 
   const today = formatDate(new Date());
   const filePath = logFilePathForDate(config.dir, new Date());
-  const fileStream = pino.destination({ dest: filePath, sync: false, mkdir: true, mode: 0o600 });
+  const fileStream = pino.destination({
+    dest: filePath,
+    sync: false,
+    mkdir: true,
+    mode: 0o600,
+  });
   // Tighten permissions on pre-existing log files that may have been created with looser modes
-  try { chmodSync(filePath, 0o600); } catch { /* best-effort */ }
+  try {
+    chmodSync(filePath, 0o600);
+  } catch {
+    /* best-effort */
+  }
 
   activeLogDate = today;
   activeConfig = config;
@@ -93,7 +111,10 @@ export function initLogger(config: LogFileConfig): void {
   if (config.dir && config.retentionDays > 0) {
     const removed = pruneOldLogFiles(config.dir, config.retentionDays);
     if (removed > 0) {
-      rootLogger.info({ removed, retentionDays: config.retentionDays }, "Pruned old log files");
+      rootLogger.info(
+        { removed, retentionDays: config.retentionDays },
+        "Pruned old log files",
+      );
     }
   }
 }

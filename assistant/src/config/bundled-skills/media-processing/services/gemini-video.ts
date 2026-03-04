@@ -83,7 +83,9 @@ export async function analyzeVideoDirectly(
   const fileStat = await stat(filePath);
   if (fileStat.size > MAX_FILE_SIZE_BYTES) {
     throw new Error(
-      `Video file is ${(fileStat.size / (1024 * 1024 * 1024)).toFixed(1)} GB, ` +
+      `Video file is ${(fileStat.size / (1024 * 1024 * 1024)).toFixed(
+        1,
+      )} GB, ` +
         `which exceeds Gemini's 2 GB file size limit. Use mode: 'keyframes' instead.`,
     );
   }
@@ -94,7 +96,10 @@ export async function analyzeVideoDirectly(
   await mkdir(pipelineDir, { recursive: true });
 
   onProgress?.(
-    `Uploading video to Gemini Files API (${(fileStat.size / (1024 * 1024)).toFixed(1)} MB)...\n`,
+    `Uploading video to Gemini Files API (${(
+      fileStat.size /
+      (1024 * 1024)
+    ).toFixed(1)} MB)...\n`,
   );
 
   let uploadedFileName: string | undefined;
@@ -123,9 +128,15 @@ export async function analyzeVideoDirectly(
     let lastError: string | undefined;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        let promptText = `Analyzing full video (${durationSeconds.toFixed(1)}s duration).`;
+        let promptText = `Analyzing full video (${durationSeconds.toFixed(
+          1,
+        )}s duration).`;
         if (options.context) {
-          promptText += `\n\nAdditional context:\n${JSON.stringify(options.context, null, 2)}`;
+          promptText += `\n\nAdditional context:\n${JSON.stringify(
+            options.context,
+            null,
+            2,
+          )}`;
         }
 
         const response = await client.models.generateContent({
@@ -195,7 +206,9 @@ export async function analyzeVideoDirectly(
           `Analysis complete (${inputTokens + outputTokens} tokens).\n`,
         );
         onProgress?.(
-          `Cost: $${output.costSummary.totalEstimatedUSD.toFixed(4)} (${inputTokens} input + ${outputTokens} output tokens).\n`,
+          `Cost: $${output.costSummary.totalEstimatedUSD.toFixed(
+            4,
+          )} (${inputTokens} input + ${outputTokens} output tokens).\n`,
         );
 
         return output;
@@ -225,7 +238,9 @@ export async function analyzeVideoDirectly(
                 ? "rate limited"
                 : `server error (${err.status})`;
             onProgress?.(
-              `  ${reason}, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})...\n`,
+              `  ${reason}, retrying in ${Math.round(delay)}ms (attempt ${
+                attempt + 1
+              }/${maxRetries})...\n`,
             );
             await sleep(delay);
             continue;

@@ -1,12 +1,18 @@
-import * as slack from '../../../../messaging/providers/slack/client.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { err, ok, withSlackToken } from './shared.js';
+import * as slack from "../../../../messaging/providers/slack/client.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { err, ok, withSlackToken } from "./shared.js";
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
   const channelId = input.channel_id as string;
 
   if (!channelId) {
-    return err('channel_id is required.');
+    return err("channel_id is required.");
   }
 
   try {

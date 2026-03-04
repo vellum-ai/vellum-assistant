@@ -1,7 +1,11 @@
-import { getTask } from '../../tasks/task-store.js';
-import { runWorkItemInBackground } from '../../work-items/work-item-runner.js';
-import { getWorkItem, identifyEntityById,listWorkItems } from '../../work-items/work-item-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { getTask } from "../../tasks/task-store.js";
+import { runWorkItemInBackground } from "../../work-items/work-item-runner.js";
+import {
+  getWorkItem,
+  identifyEntityById,
+  listWorkItems,
+} from "../../work-items/work-item-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeTaskQueueRun(
   input: Record<string, unknown>,
@@ -13,7 +17,8 @@ export async function executeTaskQueueRun(
 
   if (!workItemId && !taskName && !title) {
     return {
-      content: 'Error: Provide work_item_id, task_name, or title to identify the task to run.',
+      content:
+        "Error: Provide work_item_id, task_name, or title to identify the task to run.",
       isError: true,
     };
   }
@@ -25,35 +30,49 @@ export async function executeTaskQueueRun(
       const item = getWorkItem(workItemId);
       if (!item) {
         const entity = identifyEntityById(workItemId);
-        if (entity.type === 'task_template') {
+        if (entity.type === "task_template") {
           return {
             content: `Error: "${workItemId}" is a task template ID, not a work item. Use task_list_show to find the work item ID.`,
             isError: true,
           };
         }
-        return { content: `Error: No work item found with ID "${workItemId}".`, isError: true };
+        return {
+          content: `Error: No work item found with ID "${workItemId}".`,
+          isError: true,
+        };
       }
       resolvedId = item.id;
     } else {
       // Search by task_name or title among active work items
       const needle = (taskName ?? title)!.toLowerCase();
       const allItems = listWorkItems();
-      const activeItems = allItems.filter((i) => !['archived', 'done'].includes(i.status));
-      const matches = activeItems.filter((i) => i.title.toLowerCase().includes(needle));
+      const activeItems = allItems.filter(
+        (i) => !["archived", "done"].includes(i.status),
+      );
+      const matches = activeItems.filter((i) =>
+        i.title.toLowerCase().includes(needle),
+      );
 
       if (matches.length === 0) {
         return {
-          content: `Error: No active work item matching "${taskName ?? title}". Use task_list_show to see your task queue.`,
+          content: `Error: No active work item matching "${
+            taskName ?? title
+          }". Use task_list_show to see your task queue.`,
           isError: true,
         };
       }
 
       if (matches.length > 1) {
-        const lines = [`Multiple work items match "${taskName ?? title}". Please specify by ID:`, ''];
+        const lines = [
+          `Multiple work items match "${
+            taskName ?? title
+          }". Please specify by ID:`,
+          "",
+        ];
         for (const m of matches) {
           lines.push(`- ${m.title} (ID: ${m.id}, status: ${m.status})`);
         }
-        return { content: lines.join('\n'), isError: true };
+        return { content: lines.join("\n"), isError: true };
       }
 
       resolvedId = matches[0].id;
@@ -68,7 +87,9 @@ export async function executeTaskQueueRun(
     const item = getWorkItem(resolvedId)!;
     const task = getTask(item.taskId);
     return {
-      content: `Started running task "${item.title}"${task ? ` (template: ${task.title})` : ''}. It will execute in the background. Use task_list_show to check progress.`,
+      content: `Started running task "${item.title}"${
+        task ? ` (template: ${task.title})` : ""
+      }. It will execute in the background. Use task_list_show to check progress.`,
       isError: false,
     };
   } catch (err) {

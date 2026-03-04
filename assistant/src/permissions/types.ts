@@ -1,7 +1,7 @@
 export enum RiskLevel {
-  Low = 'low',
-  Medium = 'medium',
-  High = 'high',
+  Low = "low",
+  Medium = "medium",
+  High = "high",
 }
 
 export interface TrustRule {
@@ -9,27 +9,37 @@ export interface TrustRule {
   tool: string;
   pattern: string;
   scope: string;
-  decision: 'allow' | 'deny' | 'ask';
+  decision: "allow" | "deny" | "ask";
   priority: number;
   createdAt: number;
   executionTarget?: string;
   allowHighRisk?: boolean;
 }
 
-export type UserDecision = 'allow' | 'allow_10m' | 'allow_thread' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny' | 'temporary_override';
+export type UserDecision =
+  | "allow"
+  | "allow_10m"
+  | "allow_thread"
+  | "always_allow"
+  | "always_allow_high_risk"
+  | "deny"
+  | "always_deny"
+  | "temporary_override";
 
 /** Returns true for any allow-variant decision. Centralizes the check to prevent omissions when new allow variants are added. */
 export function isAllowDecision(decision: UserDecision): boolean {
-  return decision === 'allow'
-    || decision === 'allow_10m'
-    || decision === 'allow_thread'
-    || decision === 'always_allow'
-    || decision === 'always_allow_high_risk'
-    || decision === 'temporary_override';
+  return (
+    decision === "allow" ||
+    decision === "allow_10m" ||
+    decision === "allow_thread" ||
+    decision === "always_allow" ||
+    decision === "always_allow_high_risk" ||
+    decision === "temporary_override"
+  );
 }
 
 export interface PermissionCheckResult {
-  decision: 'allow' | 'deny' | 'prompt';
+  decision: "allow" | "deny" | "prompt";
   reason: string;
   matchedRule?: TrustRule;
 }

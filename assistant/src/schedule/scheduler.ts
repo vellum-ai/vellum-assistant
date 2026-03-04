@@ -1,8 +1,4 @@
-import { createConversation } from "../memory/conversation-store.js";
-import {
-  GENERATING_TITLE,
-  queueGenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import {
@@ -178,14 +174,11 @@ async function runScheduleOnce(
           "Scheduled task execution failed",
         );
         // Create a fallback conversation for the schedule run record
-        const fallbackConversation = createConversation({
-          title: GENERATING_TITLE,
+        const fallbackConversation = bootstrapConversation({
           source: "schedule",
           scheduleJobId: job.id,
-        });
-        queueGenerateConversationTitle({
-          conversationId: fallbackConversation.id,
-          context: { origin: "schedule", systemHint: `Schedule: ${job.name}` },
+          origin: "schedule",
+          systemHint: `Schedule: ${job.name}`,
         });
         onScheduleThreadCreated?.({
           conversationId: fallbackConversation.id,
@@ -198,14 +191,11 @@ async function runScheduleOnce(
       continue;
     }
 
-    const conversation = createConversation({
-      title: GENERATING_TITLE,
+    const conversation = bootstrapConversation({
       source: "schedule",
       scheduleJobId: job.id,
-    });
-    queueGenerateConversationTitle({
-      conversationId: conversation.id,
-      context: { origin: "schedule", systemHint: `Schedule: ${job.name}` },
+      origin: "schedule",
+      systemHint: `Schedule: ${job.name}`,
     });
     onScheduleThreadCreated?.({
       conversationId: conversation.id,
@@ -262,16 +252,10 @@ async function runScheduleOnce(
   const dueReminders = claimDueReminders(now);
   for (const reminder of dueReminders) {
     if (reminder.mode === "execute") {
-      const conversation = createConversation({
-        title: GENERATING_TITLE,
+      const conversation = bootstrapConversation({
         source: "reminder",
-      });
-      queueGenerateConversationTitle({
-        conversationId: conversation.id,
-        context: {
-          origin: "reminder",
-          systemHint: `Reminder: ${reminder.label}`,
-        },
+        origin: "reminder",
+        systemHint: `Reminder: ${reminder.label}`,
       });
       setReminderConversationId(reminder.id, conversation.id);
       try {

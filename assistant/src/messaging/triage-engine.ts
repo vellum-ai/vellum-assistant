@@ -7,24 +7,29 @@
  * table for accuracy review.
  */
 
-import { and, desc,eq, isNull } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { findContactByAddress } from '../contacts/contact-store.js';
-import type { ContactWithChannels } from '../contacts/types.js';
-import { getDb } from '../memory/db.js';
-import { memoryItems, triageResults } from '../memory/schema.js';
-import type { Playbook } from '../playbooks/types.js';
-import { parsePlaybookStatement } from '../playbooks/types.js';
-import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
-import { getLogger } from '../util/logger.js';
-import { truncate } from '../util/truncate.js';
-import type { InboundMessage, TriageResult } from './types.js';
-import { DEFAULT_TRIAGE_CATEGORIES } from './types.js';
+import { findContactByAddress } from "../contacts/contact-store.js";
+import type { ContactWithChannels } from "../contacts/types.js";
+import { getDb } from "../memory/db.js";
+import { memoryItems, triageResults } from "../memory/schema.js";
+import type { Playbook } from "../playbooks/types.js";
+import { parsePlaybookStatement } from "../playbooks/types.js";
+import {
+  createTimeout,
+  extractToolUse,
+  getConfiguredProvider,
+  userMessage,
+} from "../providers/provider-send-message.js";
+import { getLogger } from "../util/logger.js";
+import { truncate } from "../util/truncate.js";
+import type { InboundMessage, TriageResult } from "./types.js";
+import { DEFAULT_TRIAGE_CATEGORIES } from "./types.js";
 
-const log = getLogger('triage-engine');
+const log = getLogger("triage-engine");
 
-const TRIAGE_MODEL_INTENT = 'latency-optimized' as const;
+const TRIAGE_MODEL_INTENT = "latency-optimized" as const;
 const TRIAGE_CLASSIFICATION_TIMEOUT_MS = 15_000;
 
 // ── Playbook fetching ────────────────────────────────────────────────
@@ -38,7 +43,10 @@ interface PlaybookMatch {
  * Fetch all active playbooks that could apply to this message's channel,
  * returning both the parsed Playbook and the memory item ID.
  */
-function fetchMatchingPlaybooks(channel: string, scopeId = 'default'): PlaybookMatch[] {
+function fetchMatchingPlaybooks(
+  channel: string,
+  scopeId = "default",
+): PlaybookMatch[] {
   const db = getDb();
 
   const rows = db
@@ -47,12 +55,14 @@ function fetchMatchingPlaybooks(channel: string, scopeId = 'default'): PlaybookM
       statement: memoryItems.statement,
     })
     .from(memoryItems)
-    .where(and(
-      eq(memoryItems.kind, 'playbook'),
-      eq(memoryItems.status, 'active'),
-      eq(memoryItems.scopeId, scopeId),
-      isNull(memoryItems.invalidAt),
-    ))
+    .where(
+      and(
+        eq(memoryItems.kind, "playbook"),
+        eq(memoryItems.status, "active"),
+        eq(memoryItems.scopeId, scopeId),
+        isNull(memoryItems.invalidAt),
+      ),
+    )
     .orderBy(desc(memoryItems.importance))
     .all();
 
@@ -62,7 +72,7 @@ function fetchMatchingPlaybooks(channel: string, scopeId = 'default'): PlaybookM
     if (!playbook) continue;
 
     // Include if the playbook applies to all channels or matches this channel
-    if (playbook.channel === '*' || playbook.channel === channel) {
+    if (playbook.channel === "*" || playbook.channel === channel) {
       matches.push({ id: row.id, playbook });
     }
   }
@@ -84,15 +94,15 @@ function buildSystemPrompt(
   ];
 
   if (contact) {
-    sections.push(
-      ``,
-      `<sender-context>`,
-      `Name: ${contact.displayName}`,
-    );
-    if (contact.relationship) sections.push(`Relationship: ${contact.relationship}`);
-    if (contact.importance !== 0.5) sections.push(`Importance: ${contact.importance}`);
-    if (contact.responseExpectation) sections.push(`Response expectation: ${contact.responseExpectation}`);
-    if (contact.preferredTone) sections.push(`Preferred tone: ${contact.preferredTone}`);
+    sections.push(``, `<sender-context>`, `Name: ${contact.displayName}`);
+    if (contact.relationship)
+      sections.push(`Relationship: ${contact.relationship}`);
+    if (contact.importance !== 0.5)
+      sections.push(`Importance: ${contact.importance}`);
+    if (contact.responseExpectation)
+      sections.push(`Response expectation: ${contact.responseExpectation}`);
+    if (contact.preferredTone)
+      sections.push(`Preferred tone: ${contact.preferredTone}`);
     sections.push(
       `Interaction count: ${contact.interactionCount}`,
       `</sender-context>`,
@@ -104,12 +114,14 @@ function buildSystemPrompt(
   if (playbookMatches.length > 0) {
     sections.push(``, `<action-playbooks>`);
     for (const { playbook } of playbookMatches) {
-      const channelLabel = playbook.channel === '*' ? 'all channels' : playbook.channel;
-      const autonomyLabel = playbook.autonomyLevel === 'auto'
-        ? 'execute automatically'
-        : playbook.autonomyLevel === 'draft'
-          ? 'draft for review'
-          : 'notify only';
+      const channelLabel =
+        playbook.channel === "*" ? "all channels" : playbook.channel;
+      const autonomyLabel =
+        playbook.autonomyLevel === "auto"
+          ? "execute automatically"
+          : playbook.autonomyLevel === "draft"
+            ? "draft for review"
+            : "notify only";
       sections.push(
         `- WHEN "${playbook.trigger}" on ${channelLabel} → ${playbook.action} [${autonomyLabel}, priority=${playbook.priority}]`,
       );
@@ -122,34 +134,41 @@ function buildSystemPrompt(
     `You MUST respond using the \`store_triage_result\` tool. Do not respond with text.`,
   );
 
-  return sections.join('\n');
+  return sections.join("\n");
 }
 
 const STORE_TRIAGE_TOOL = {
-  name: 'store_triage_result',
-  description: 'Store the triage classification result for this message',
+  name: "store_triage_result",
+  description: "Store the triage classification result for this message",
   input_schema: {
-    type: 'object' as const,
+    type: "object" as const,
     properties: {
       category: {
-        type: 'string',
-        description: 'The triage category (e.g. needs_response, fyi, newsletter, cold_outreach, transactional, urgent, scheduling, or a custom category)',
+        type: "string",
+        description:
+          "The triage category (e.g. needs_response, fyi, newsletter, cold_outreach, transactional, urgent, scheduling, or a custom category)",
       },
       confidence: {
-        type: 'number',
-        description: 'Confidence score between 0 and 1',
+        type: "number",
+        description: "Confidence score between 0 and 1",
       },
       suggestedAction: {
-        type: 'string',
-        description: 'A concise description of the recommended action to take',
+        type: "string",
+        description: "A concise description of the recommended action to take",
       },
       matchedPlaybookTriggers: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'List of playbook trigger strings that matched this message (empty array if none)',
+        type: "array",
+        items: { type: "string" },
+        description:
+          "List of playbook trigger strings that matched this message (empty array if none)",
       },
     },
-    required: ['category', 'confidence', 'suggestedAction', 'matchedPlaybookTriggers'],
+    required: [
+      "category",
+      "confidence",
+      "suggestedAction",
+      "matchedPlaybookTriggers",
+    ],
   },
 };
 
@@ -162,16 +181,16 @@ function buildUserPrompt(message: InboundMessage): string {
   if (message.threadId) parts.push(`Thread ID: ${message.threadId}`);
   parts.push(``, `Body:`, message.body);
 
-  return `Classify this inbound message:\n\n${parts.join('\n')}`;
+  return `Classify this inbound message:\n\n${parts.join("\n")}`;
 }
 
 // ── Fallback classification ─────────────────────────────────────────
 
 function buildFallbackResult(): TriageResult {
   return {
-    category: 'needs_response',
+    category: "needs_response",
     confidence: 0.3,
-    suggestedAction: 'Review manually — LLM classification unavailable',
+    suggestedAction: "Review manually — LLM classification unavailable",
     matchedPlaybooks: [],
   };
 }
@@ -191,7 +210,9 @@ export async function triageMessage(
   // Step 3: Classify with LLM
   const provider = getConfiguredProvider();
   if (!provider) {
-    log.warn('Configured provider unavailable for triage classification, returning fallback');
+    log.warn(
+      "Configured provider unavailable for triage classification, returning fallback",
+    );
     const result = buildFallbackResult();
     persistTriageResult(message, result, playbookMatches);
     return result;
@@ -202,7 +223,7 @@ export async function triageMessage(
     result = await classifyWithLLM(message, contact, playbookMatches);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn({ err: errMsg }, 'Triage LLM call failed, returning fallback');
+    log.warn({ err: errMsg }, "Triage LLM call failed, returning fallback");
     result = buildFallbackResult();
   }
 
@@ -232,7 +253,7 @@ async function classifyWithLLM(
         config: {
           modelIntent: TRIAGE_MODEL_INTENT,
           max_tokens: 1024,
-          tool_choice: { type: 'tool' as const, name: 'store_triage_result' },
+          tool_choice: { type: "tool" as const, name: "store_triage_result" },
         },
         signal,
       },
@@ -241,7 +262,7 @@ async function classifyWithLLM(
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) {
-      log.warn('No tool_use block in triage response, returning fallback');
+      log.warn("No tool_use block in triage response, returning fallback");
       return buildFallbackResult();
     }
 
@@ -253,7 +274,9 @@ async function classifyWithLLM(
     };
 
     const matchedTriggers = new Set(
-      Array.isArray(input.matchedPlaybookTriggers) ? input.matchedPlaybookTriggers : [],
+      Array.isArray(input.matchedPlaybookTriggers)
+        ? input.matchedPlaybookTriggers
+        : [],
     );
 
     // Map LLM-identified triggers back to the full playbook data
@@ -265,16 +288,19 @@ async function classifyWithLLM(
         autonomyLevel: playbook.autonomyLevel,
       }));
 
-    const confidence = typeof input.confidence === 'number'
-      ? Math.max(0, Math.min(1, input.confidence))
-      : 0.5;
+    const confidence =
+      typeof input.confidence === "number"
+        ? Math.max(0, Math.min(1, input.confidence))
+        : 0.5;
 
     return {
-      category: typeof input.category === 'string' ? input.category : 'needs_response',
+      category:
+        typeof input.category === "string" ? input.category : "needs_response",
       confidence,
-      suggestedAction: typeof input.suggestedAction === 'string'
-        ? truncate(input.suggestedAction, 500, '')
-        : 'Review manually',
+      suggestedAction:
+        typeof input.suggestedAction === "string"
+          ? truncate(input.suggestedAction, 500, "")
+          : "Review manually",
       matchedPlaybooks,
     };
   } finally {
@@ -297,19 +323,22 @@ function persistTriageResult(
       )
       .map(({ id }) => id);
 
-    db.insert(triageResults).values({
-      id: uuid(),
-      channel: message.channel,
-      sender: message.sender,
-      category: result.category,
-      confidence: result.confidence,
-      suggestedAction: result.suggestedAction,
-      matchedPlaybookIds: matchedIds.length > 0 ? JSON.stringify(matchedIds) : null,
-      messageId: (message.metadata?.messageId as string) ?? null,
-      createdAt: Date.now(),
-    }).run();
+    db.insert(triageResults)
+      .values({
+        id: uuid(),
+        channel: message.channel,
+        sender: message.sender,
+        category: result.category,
+        confidence: result.confidence,
+        suggestedAction: result.suggestedAction,
+        matchedPlaybookIds:
+          matchedIds.length > 0 ? JSON.stringify(matchedIds) : null,
+        messageId: (message.metadata?.messageId as string) ?? null,
+        createdAt: Date.now(),
+      })
+      .run();
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn({ err: errMsg }, 'Failed to persist triage result');
+    log.warn({ err: errMsg }, "Failed to persist triage result");
   }
 }

@@ -1,4 +1,4 @@
-import type { GalleryManifest } from './gallery-manifest.js';
+import type { GalleryManifest } from "./gallery-manifest.js";
 
 const focusTimerHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -754,63 +754,66 @@ const expenseTrackerHtml = `<!DOCTYPE html>
 
 export const defaultGallery: GalleryManifest = {
   version: 1,
-  updatedAt: '2026-02-15T00:00:00Z',
+  updatedAt: "2026-02-15T00:00:00Z",
   categories: [
-    { id: 'productivity', name: 'Productivity', icon: '\u{1F4CB}' },
-    { id: 'health', name: 'Health', icon: '\u{2764}\u{FE0F}' },
-    { id: 'finance', name: 'Finance', icon: '\u{1F4B0}' },
+    { id: "productivity", name: "Productivity", icon: "\u{1F4CB}" },
+    { id: "health", name: "Health", icon: "\u{2764}\u{FE0F}" },
+    { id: "finance", name: "Finance", icon: "\u{1F4B0}" },
   ],
   apps: [
     {
-      id: 'gallery-focus-timer',
-      name: 'Focus Timer',
-      description: 'A clean countdown timer with 25-minute work sessions and 5-minute breaks. Track your completed sessions and total focus time.',
-      icon: '\u{1F345}',
-      category: 'productivity',
-      version: '1.0.0',
+      id: "gallery-focus-timer",
+      name: "Focus Timer",
+      description:
+        "A clean countdown timer with 25-minute work sessions and 5-minute breaks. Track your completed sessions and total focus time.",
+      icon: "\u{1F345}",
+      category: "productivity",
+      version: "1.0.0",
       featured: true,
       schemaJson: JSON.stringify({
-        type: 'object',
+        type: "object",
         properties: {},
         additionalProperties: false,
       }),
       htmlDefinition: focusTimerHtml,
     },
     {
-      id: 'gallery-habit-tracker',
-      name: 'Habit Tracker',
-      description: 'Track daily habits with a 7-day view. Mark habits as complete each day and build streaks over time.',
-      icon: '\u{2705}',
-      category: 'health',
-      version: '1.0.0',
+      id: "gallery-habit-tracker",
+      name: "Habit Tracker",
+      description:
+        "Track daily habits with a 7-day view. Mark habits as complete each day and build streaks over time.",
+      icon: "\u{2705}",
+      category: "health",
+      version: "1.0.0",
       featured: true,
       schemaJson: JSON.stringify({
-        type: 'object',
+        type: "object",
         properties: {
-          name: { type: 'string' },
-          completedDates: { type: 'string' },
+          name: { type: "string" },
+          completedDates: { type: "string" },
         },
-        required: ['name', 'completedDates'],
+        required: ["name", "completedDates"],
       }),
       htmlDefinition: habitTrackerHtml,
     },
     {
-      id: 'gallery-expense-tracker',
-      name: 'Expense Tracker',
-      description: 'Log expenses with amount, category, and date. View your total spending and per-category breakdown at a glance.',
-      icon: '\u{1F4B8}',
-      category: 'finance',
-      version: '1.0.0',
+      id: "gallery-expense-tracker",
+      name: "Expense Tracker",
+      description:
+        "Log expenses with amount, category, and date. View your total spending and per-category breakdown at a glance.",
+      icon: "\u{1F4B8}",
+      category: "finance",
+      version: "1.0.0",
       featured: true,
       schemaJson: JSON.stringify({
-        type: 'object',
+        type: "object",
         properties: {
-          amount: { type: 'number' },
-          category: { type: 'string' },
-          description: { type: 'string' },
-          date: { type: 'string' },
+          amount: { type: "number" },
+          category: { type: "string" },
+          description: { type: "string" },
+          date: { type: "string" },
         },
-        required: ['amount', 'category', 'description', 'date'],
+        required: ["amount", "category", "description", "date"],
       }),
       htmlDefinition: expenseTrackerHtml,
     },

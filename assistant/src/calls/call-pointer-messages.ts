@@ -9,19 +9,24 @@
  * written directly to the conversation store.
  */
 
-import * as conversationStore from '../memory/conversation-store.js';
-import { getLogger } from '../util/logger.js';
+import * as conversationStore from "../memory/conversation-store.js";
+import { getLogger } from "../util/logger.js";
 import {
   buildPointerInstruction,
   type CallPointerMessageContext,
   getPointerFallbackMessage,
-} from './call-pointer-message-composer.js';
+} from "./call-pointer-message-composer.js";
 
-const log = getLogger('call-pointer-messages');
+const log = getLogger("call-pointer-messages");
 
-export type PointerEvent = 'started' | 'completed' | 'failed' | 'guardian_verification_succeeded' | 'guardian_verification_failed';
+export type PointerEvent =
+  | "started"
+  | "completed"
+  | "failed"
+  | "guardian_verification_succeeded"
+  | "guardian_verification_failed";
 
-export type PointerAudienceMode = 'auto' | 'trusted' | 'untrusted';
+export type PointerAudienceMode = "auto" | "trusted" | "untrusted";
 
 /**
  * Daemon-injected function that sends a message through the daemon session
@@ -50,7 +55,9 @@ let pointerMessageProcessor: PointerMessageProcessor | undefined;
  * Called from daemon/lifecycle.ts at startup, following the same pattern
  * as setRelayBroadcast.
  */
-export function setPointerMessageProcessor(processor: PointerMessageProcessor): void {
+export function setPointerMessageProcessor(
+  processor: PointerMessageProcessor,
+): void {
   pointerMessageProcessor = processor;
 }
 
@@ -78,14 +85,20 @@ function resolvePointerAudienceTrust(conversationId: string): boolean {
     // Check provenance trust class on recent messages first — this catches
     // trusted contacts who initiate calls from gateway channels (e.g. WhatsApp)
     // where the conversation itself isn't a desktop-origin private thread.
-    const provenance = conversationStore.getConversationRecentProvenanceTrustClass(conversationId);
-    if (provenance === 'guardian' || provenance === 'trusted_contact') return true;
+    const provenance =
+      conversationStore.getConversationRecentProvenanceTrustClass(
+        conversationId,
+      );
+    if (provenance === "guardian" || provenance === "trusted_contact")
+      return true;
 
-    const threadType = conversationStore.getConversationThreadType(conversationId);
-    if (threadType === 'private') return true;
+    const threadType =
+      conversationStore.getConversationThreadType(conversationId);
+    if (threadType === "private") return true;
 
-    const originChannel = conversationStore.getConversationOriginChannel(conversationId);
-    if (originChannel === 'vellum') return true;
+    const originChannel =
+      conversationStore.getConversationOriginChannel(conversationId);
+    if (originChannel === "vellum") return true;
   } catch {
     // Conversation may not exist or DB may be unavailable — default untrusted.
   }
@@ -101,8 +114,13 @@ export async function addPointerMessage(
   conversationId: string,
   event: PointerEvent,
   phoneNumber: string,
-  extra?: { duration?: string; reason?: string; verificationCode?: string; channel?: string },
-  audienceMode: PointerAudienceMode = 'auto',
+  extra?: {
+    duration?: string;
+    reason?: string;
+    verificationCode?: string;
+    channel?: string;
+  },
+  audienceMode: PointerAudienceMode = "auto",
 ): Promise<void> {
   const context: CallPointerMessageContext = {
     scenario: event,
@@ -124,18 +142,18 @@ export async function addPointerMessage(
   // "failed" event as a success — the generated text must contain the
   // outcome word verbatim.
   const eventOutcomeKeywords: Record<PointerEvent, string | undefined> = {
-    started: 'started',
-    completed: 'completed',
-    failed: 'failed',
-    guardian_verification_succeeded: 'succeeded',
-    guardian_verification_failed: 'failed',
+    started: "started",
+    completed: "completed",
+    failed: "failed",
+    guardian_verification_succeeded: "succeeded",
+    guardian_verification_failed: "failed",
   };
   const outcomeKeyword = eventOutcomeKeywords[event];
   if (outcomeKeyword) requiredFacts.push(outcomeKeyword);
 
   const trustedAudience =
-    audienceMode === 'trusted' ||
-    (audienceMode === 'auto' && resolvePointerAudienceTrust(conversationId));
+    audienceMode === "trusted" ||
+    (audienceMode === "auto" && resolvePointerAudienceTrust(conversationId));
 
   if (trustedAudience && pointerMessageProcessor) {
     // Route through the daemon session — the assistant generates the
@@ -146,10 +164,16 @@ export async function addPointerMessage(
       await pointerMessageProcessor(conversationId, instruction, requiredFacts);
       return;
     } catch (err) {
-      log.warn({ err, event, conversationId }, 'Daemon pointer processing failed, falling back to deterministic');
+      log.warn(
+        { err, event, conversationId },
+        "Daemon pointer processing failed, falling back to deterministic",
+      );
     }
   } else if (!trustedAudience && pointerMessageProcessor) {
-    log.debug({ event, conversationId }, 'Untrusted audience — using deterministic pointer copy');
+    log.debug(
+      { event, conversationId },
+      "Untrusted audience — using deterministic pointer copy",
+    );
   }
 
   // Deterministic fallback: write directly to the conversation store.
@@ -163,8 +187,8 @@ export async function addPointerMessage(
   // desktop thread list as a channel-bound session.
   await conversationStore.addMessage(
     conversationId,
-    'assistant',
-    JSON.stringify([{ type: 'text', text }]),
+    "assistant",
+    JSON.stringify([{ type: "text", text }]),
   );
 }
 

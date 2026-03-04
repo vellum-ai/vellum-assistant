@@ -1,8 +1,13 @@
-import { getConfig } from '../config/loader.js';
+import { getConfig } from "../config/loader.js";
 
 // Emergency/high-risk numbers that should never be called
 export const DENIED_NUMBERS = new Set([
-  '911', '112', '999', '000', '110', '119',
+  "911",
+  "112",
+  "999",
+  "000",
+  "110",
+  "119",
 ]);
 
 /**
@@ -15,7 +20,9 @@ export const DENIED_NUMBERS = new Set([
  */
 export function isDeniedNumber(phoneNumber: string): boolean {
   // Strip leading '+' to get a digits-only string
-  const digits = phoneNumber.startsWith('+') ? phoneNumber.slice(1) : phoneNumber;
+  const digits = phoneNumber.startsWith("+")
+    ? phoneNumber.slice(1)
+    : phoneNumber;
 
   // Exact match (covers bare short codes like "911", "112")
   if (DENIED_NUMBERS.has(digits)) return true;

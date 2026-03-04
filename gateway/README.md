@@ -26,35 +26,35 @@ bun run dev
 
 ## Configuration
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | No | — | Bot token from @BotFather (Telegram disabled when unset). When not set as an env var, the gateway reads from the assistant's secure credential store via the credential reader fallback chain: macOS Keychain first (via `security` CLI), then encrypted file store (`~/.vellum/protected/keys.enc`). The keychain reader discriminates exit code 44 (`errSecItemNotFound` — credential genuinely missing) from other non-zero exit codes (transient errors), logging the latter as warnings. On non-macOS platforms, only the encrypted store is used. |
-| `TELEGRAM_WEBHOOK_SECRET` | No | — | Secret for verifying webhook requests (Telegram disabled when unset). Same credential reader fallback behavior as `TELEGRAM_BOT_TOKEN`. |
-| `TELEGRAM_API_BASE_URL` | No | `https://api.telegram.org` | Override Telegram API base URL |
-| `ASSISTANT_RUNTIME_BASE_URL` | Yes | — | Base URL of the assistant runtime HTTP server |
-| `GATEWAY_ASSISTANT_ROUTING_JSON` | No | `{}` | JSON mapping of Telegram identities to assistant IDs |
-| `GATEWAY_DEFAULT_ASSISTANT_ID` | No | — | Default assistant ID for unmapped users |
-| `GATEWAY_UNMAPPED_POLICY` | No | `reject` | Policy for unmapped users: `reject` or `default` |
-| `GATEWAY_PORT` | No | `7830` | Port for the gateway HTTP server |
-| `GATEWAY_INTERNAL_BASE_URL` | No | `http://127.0.0.1:${GATEWAY_PORT}` | Base URL for runtime→gateway callbacks (e.g., the `replyCallbackUrl` sent to the assistant runtime for Telegram reply delivery). Defaults to `http://127.0.0.1:${GATEWAY_PORT}`. Override when the gateway and runtime are not co-located (e.g., separate containers, hosts, or behind a service mesh). |
-| `INGRESS_PUBLIC_BASE_URL` | No | — | Public URL where the gateway is reachable (e.g. `https://abc123.ngrok-free.app`). Used by the assistant runtime to construct webhook and OAuth callback URLs. Set this to your tunnel's public URL. |
-| `GATEWAY_RUNTIME_PROXY_ENABLED` | No | `false` | Enable runtime proxy for non-Telegram requests |
-| `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
-| `RUNTIME_BEARER_TOKEN` | No | `~/.vellum/http-token` (if present) | Bearer token used by gateway when forwarding requests to assistant runtime internal endpoints (Twilio/OAuth/proxy upstream). |
-| `RUNTIME_PROXY_BEARER_TOKEN` | Conditional | — | Bearer token for proxy auth (required when proxy + auth enabled) |
-| `GATEWAY_SHUTDOWN_DRAIN_MS` | No | `5000` | Graceful shutdown drain window in milliseconds |
-| `GATEWAY_RUNTIME_TIMEOUT_MS` | No | `30000` | Timeout for runtime HTTP calls (ms) |
-| `GATEWAY_RUNTIME_MAX_RETRIES` | No | `2` | Max retries for runtime forward on 5xx/network errors |
-| `GATEWAY_RUNTIME_INITIAL_BACKOFF_MS` | No | `500` | Initial backoff between retries (doubles each attempt) |
-| `GATEWAY_TELEGRAM_TIMEOUT_MS` | No | `15000` | Timeout for Telegram API/download calls (ms) |
-| `GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES` | No | `1048576` | Max inbound webhook payload size (rejects with 413) |
-| `GATEWAY_MAX_ATTACHMENT_BYTES` | No | `20971520` | Max single attachment size (oversized are skipped) |
-| `GATEWAY_MAX_ATTACHMENT_CONCURRENCY` | No | `3` | Max concurrent attachment download/upload operations |
-| `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` | No | `false` | Dev-only: skip bearer auth on `/deliver/telegram` when no token is configured |
-| `TWILIO_ACCOUNT_SID` | No | — | Twilio Account SID for sending outbound SMS via the Messages API |
-| `TWILIO_AUTH_TOKEN` | No | — | Twilio Auth Token for HMAC-SHA1 webhook signature validation and outbound SMS |
-| `TWILIO_PHONE_NUMBER` | No | — | Twilio phone number (E.164) used as the `From` for outbound SMS |
-| `GATEWAY_SMS_DELIVER_AUTH_BYPASS` | No | `false` | Dev-only: skip bearer auth on `/deliver/sms` when no token is configured |
+| Variable                               | Required    | Default                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------- | ----------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`                   | No          | —                                   | Bot token from @BotFather (Telegram disabled when unset). When not set as an env var, the gateway reads from the assistant's secure credential store via the credential reader fallback chain: macOS Keychain first (via `security` CLI), then encrypted file store (`~/.vellum/protected/keys.enc`). The keychain reader discriminates exit code 44 (`errSecItemNotFound` — credential genuinely missing) from other non-zero exit codes (transient errors), logging the latter as warnings. On non-macOS platforms, only the encrypted store is used. |
+| `TELEGRAM_WEBHOOK_SECRET`              | No          | —                                   | Secret for verifying webhook requests (Telegram disabled when unset). Same credential reader fallback behavior as `TELEGRAM_BOT_TOKEN`.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `TELEGRAM_API_BASE_URL`                | No          | `https://api.telegram.org`          | Override Telegram API base URL                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `ASSISTANT_RUNTIME_BASE_URL`           | Yes         | —                                   | Base URL of the assistant runtime HTTP server                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `GATEWAY_ASSISTANT_ROUTING_JSON`       | No          | `{}`                                | JSON mapping of Telegram identities to assistant IDs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `GATEWAY_DEFAULT_ASSISTANT_ID`         | No          | —                                   | Default assistant ID for unmapped users                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `GATEWAY_UNMAPPED_POLICY`              | No          | `reject`                            | Policy for unmapped users: `reject` or `default`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GATEWAY_PORT`                         | No          | `7830`                              | Port for the gateway HTTP server                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GATEWAY_INTERNAL_BASE_URL`            | No          | `http://127.0.0.1:${GATEWAY_PORT}`  | Base URL for runtime→gateway callbacks (e.g., the `replyCallbackUrl` sent to the assistant runtime for Telegram reply delivery). Defaults to `http://127.0.0.1:${GATEWAY_PORT}`. Override when the gateway and runtime are not co-located (e.g., separate containers, hosts, or behind a service mesh).                                                                                                                                                                                                                                                 |
+| `INGRESS_PUBLIC_BASE_URL`              | No          | —                                   | Public URL where the gateway is reachable (e.g. `https://abc123.ngrok-free.app`). Used by the assistant runtime to construct webhook and OAuth callback URLs. Set this to your tunnel's public URL.                                                                                                                                                                                                                                                                                                                                                     |
+| `GATEWAY_RUNTIME_PROXY_ENABLED`        | No          | `false`                             | Enable runtime proxy for non-Telegram requests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH`   | No          | `true`                              | Require bearer auth for proxied requests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `RUNTIME_BEARER_TOKEN`                 | No          | `~/.vellum/http-token` (if present) | Bearer token used by gateway when forwarding requests to assistant runtime internal endpoints (Twilio/OAuth/proxy upstream).                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `RUNTIME_PROXY_BEARER_TOKEN`           | Conditional | —                                   | Bearer token for proxy auth (required when proxy + auth enabled)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GATEWAY_SHUTDOWN_DRAIN_MS`            | No          | `5000`                              | Graceful shutdown drain window in milliseconds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `GATEWAY_RUNTIME_TIMEOUT_MS`           | No          | `30000`                             | Timeout for runtime HTTP calls (ms)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `GATEWAY_RUNTIME_MAX_RETRIES`          | No          | `2`                                 | Max retries for runtime forward on 5xx/network errors                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `GATEWAY_RUNTIME_INITIAL_BACKOFF_MS`   | No          | `500`                               | Initial backoff between retries (doubles each attempt)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `GATEWAY_TELEGRAM_TIMEOUT_MS`          | No          | `15000`                             | Timeout for Telegram API/download calls (ms)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES`    | No          | `1048576`                           | Max inbound webhook payload size (rejects with 413)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `GATEWAY_MAX_ATTACHMENT_BYTES`         | No          | `20971520`                          | Max single attachment size (oversized are skipped)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `GATEWAY_MAX_ATTACHMENT_CONCURRENCY`   | No          | `3`                                 | Max concurrent attachment download/upload operations                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` | No          | `false`                             | Dev-only: skip bearer auth on `/deliver/telegram` when no token is configured                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `TWILIO_ACCOUNT_SID`                   | No          | —                                   | Twilio Account SID for sending outbound SMS via the Messages API                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `TWILIO_AUTH_TOKEN`                    | No          | —                                   | Twilio Auth Token for HMAC-SHA1 webhook signature validation and outbound SMS                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `TWILIO_PHONE_NUMBER`                  | No          | —                                   | Twilio phone number (E.164) used as the `From` for outbound SMS                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `GATEWAY_SMS_DELIVER_AUTH_BYPASS`      | No          | `false`                             | Dev-only: skip bearer auth on `/deliver/sms` when no token is configured                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 ## Routing
 
@@ -79,6 +79,7 @@ v1 uses deterministic settings-based routing (no database):
 Webhook registration is now handled automatically by the gateway. On startup, the gateway reconciles the Telegram webhook by registering it at `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram` with the configured secret and allowed updates. This also runs whenever the credential watcher detects changes to the bot token or webhook secret (e.g., secret rotation). If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
 
 For manual setup (or reference), register the webhook with Telegram using the `setWebhook` API method. Pass:
+
 - `url` — your gateway URL, e.g. `https://your-host/webhooks/telegram`
 - The verify value matching your `TELEGRAM_WEBHOOK_SECRET` env var
 - `allowed_updates` — `["message", "edited_message", "callback_query"]`
@@ -89,12 +90,12 @@ See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) f
 
 The `/deliver/telegram` endpoint requires bearer auth by default (fail-closed). The security behavior is:
 
-| Condition | Result |
-|-----------|--------|
-| Bearer token configured + valid `Authorization` header | Request allowed |
-| Bearer token configured + missing/invalid `Authorization` header | 401 Unauthorized |
+| Condition                                                                | Result                     |
+| ------------------------------------------------------------------------ | -------------------------- |
+| Bearer token configured + valid `Authorization` header                   | Request allowed            |
+| Bearer token configured + missing/invalid `Authorization` header         | 401 Unauthorized           |
 | No bearer token configured + `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS=true` | Request allowed (dev-only) |
-| No bearer token configured + bypass not set | 503 Service Not Configured |
+| No bearer token configured + bypass not set                              | 503 Service Not Configured |
 
 This ensures that misconfiguration cannot expose an unauthenticated public message-send surface. In production, always configure `RUNTIME_PROXY_BEARER_TOKEN`. The `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` flag is intended for local development only.
 
@@ -140,12 +141,12 @@ SMS is text-only in v1 — MMS payloads are explicitly rejected with a user-faci
 
 The `/deliver/sms` endpoint requires the same fail-closed bearer auth as `/deliver/telegram`:
 
-| Condition | Result |
-|-----------|--------|
-| Bearer token configured + valid `Authorization` header | Request allowed |
-| Bearer token configured + missing/invalid `Authorization` header | 401 Unauthorized |
+| Condition                                                           | Result                     |
+| ------------------------------------------------------------------- | -------------------------- |
+| Bearer token configured + valid `Authorization` header              | Request allowed            |
+| Bearer token configured + missing/invalid `Authorization` header    | 401 Unauthorized           |
 | No bearer token configured + `GATEWAY_SMS_DELIVER_AUTH_BYPASS=true` | Request allowed (dev-only) |
-| No bearer token configured + bypass not set | 503 Service Not Configured |
+| No bearer token configured + bypass not set                         | 503 Service Not Configured |
 
 The endpoint also requires `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` to be configured. If any are missing, requests return `503 SMS integration not configured`.
 
@@ -156,7 +157,7 @@ Outbound SMS is sent via the Twilio Messages API using the configured `TWILIO_PH
 The gateway normalizes Telegram `callback_query` updates (inline button clicks) into the same `GatewayInboundEvent` format used for regular messages. When a `callback_query` is present in the webhook payload, the normalizer extracts:
 
 - `callbackQueryId` — the Telegram callback query ID
-- `callbackData` — the opaque data string attached to the button (e.g., `apr:<runId>:<action>`)
+- `callbackData` — the opaque data string attached to the button (e.g., `apr:<requestId>:<action>`)
 - `content` — set to the callback data string (so the runtime always has content to process)
 
 These fields are forwarded to the runtime in the `/channels/inbound` payload alongside the standard `conversationExternalId`, `externalMessageId`, and actor metadata. The runtime uses `callbackData` to route the click to the appropriate approval handler.
@@ -176,7 +177,6 @@ The `/deliver/telegram` endpoint accepts an optional `approval` field in the req
   "chatId": "123456",
   "text": "The assistant wants to use the tool \"bash\". Do you want to allow this?",
   "approval": {
-    "runId": "run-uuid",
     "requestId": "request-uuid",
     "actions": [
       { "id": "approve_once", "label": "Approve once" },
@@ -188,7 +188,7 @@ The `/deliver/telegram` endpoint accepts an optional `approval` field in the req
 }
 ```
 
-**Inline keyboard format:** Each action is rendered as a single-button row. The callback data uses the compact format `apr:<runId>:<action>` (e.g., `apr:run-uuid:approve_once`) so the runtime can parse it back when the button is clicked.
+**Inline keyboard format:** Each action is rendered as a single-button row. The callback data uses the compact format `apr:<requestId>:<action>` (e.g., `apr:request-uuid:approve_once`) so the runtime can parse it back when the button is clicked.
 
 **Fallback behavior:** For non-Telegram channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions (e.g., "Reply yes/no/always") so the user can respond via text. The `channelSupportsRichApprovalUI()` function in the runtime determines which format to use; currently only `telegram` is classified as a rich channel.
 
@@ -204,46 +204,46 @@ This can be sent as an action-only payload (without `text` or `attachments`) whe
 
 The gateway serves as the single public ingress point for all external callbacks. The following routes are handled directly by the gateway before any proxy forwarding:
 
-| Route | Method | Description |
-|-------|--------|-------------|
-| `/webhooks/telegram` | POST | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`) |
-| `/deliver/telegram` | POST | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats |
-| `/webhooks/twilio/voice` | POST | Twilio voice webhook (validated via HMAC-SHA1 signature) |
-| `/webhooks/twilio/status` | POST | Twilio status callback (validated via HMAC-SHA1 signature) |
-| `/webhooks/twilio/connect-action` | POST | Twilio connect-action callback (validated via HMAC-SHA1 signature) |
-| `/webhooks/twilio/relay` | WS | Twilio ConversationRelay WebSocket (bidirectional proxy to runtime, requires `callSessionId` query param) |
-| `/webhooks/twilio/sms` | POST | Twilio SMS webhook — validates X-Twilio-Signature (HMAC-SHA1), normalizes into `GatewayInboundEvent` with `sourceChannel: "sms"`, deduplicates by `MessageSid`, and forwards to runtime |
-| `/deliver/sms` | POST | Internal endpoint for the assistant runtime to deliver outbound SMS messages via the Twilio Messages API |
-| `/webhooks/oauth/callback` | GET | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
-| `/v1/integrations/guardian/challenge` | POST | Authenticated control-plane proxy for creating guardian verification challenges |
-| `/v1/integrations/guardian/status` | GET | Authenticated control-plane proxy for guardian binding status |
-| `/v1/integrations/guardian/outbound/start` | POST | Authenticated control-plane proxy for starting outbound guardian verification |
-| `/v1/integrations/guardian/outbound/resend` | POST | Authenticated control-plane proxy for resending outbound guardian verification |
-| `/v1/integrations/guardian/outbound/cancel` | POST | Authenticated control-plane proxy for cancelling outbound guardian verification |
-| `/v1/integrations/telegram/config` | GET/POST/DELETE | Authenticated control-plane proxy for Telegram integration config |
-| `/v1/integrations/telegram/commands` | POST | Authenticated control-plane proxy for Telegram command registration |
-| `/v1/integrations/telegram/setup` | POST | Authenticated control-plane proxy for Telegram setup orchestration |
-| `/v1/ingress/members` | GET/POST | Authenticated control-plane proxy for listing/upserting ingress members |
-| `/v1/ingress/members/:id` | DELETE | Authenticated control-plane proxy for revoking an ingress member |
-| `/v1/ingress/members/:id/block` | POST | Authenticated control-plane proxy for blocking an ingress member |
-| `/v1/ingress/invites` | GET/POST | Authenticated control-plane proxy for listing/creating ingress invites |
-| `/v1/ingress/invites/:id` | DELETE | Authenticated control-plane proxy for revoking an ingress invite |
-| `/v1/ingress/invites/redeem` | POST | Authenticated control-plane proxy for redeeming an ingress invite |
-| `/v1/health` | GET | Authenticated runtime health proxy (`/v1/health` on runtime) |
-| `/healthz` | GET | Liveness probe |
-| `/readyz` | GET | Readiness probe |
-| `/schema` | GET | Returns the OpenAPI 3.1 schema for this gateway |
+| Route                                       | Method          | Description                                                                                                                                                                             |
+| ------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/webhooks/telegram`                        | POST            | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`)                                                                                                                          |
+| `/deliver/telegram`                         | POST            | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats                                                                                  |
+| `/webhooks/twilio/voice`                    | POST            | Twilio voice webhook (validated via HMAC-SHA1 signature)                                                                                                                                |
+| `/webhooks/twilio/status`                   | POST            | Twilio status callback (validated via HMAC-SHA1 signature)                                                                                                                              |
+| `/webhooks/twilio/connect-action`           | POST            | Twilio connect-action callback (validated via HMAC-SHA1 signature)                                                                                                                      |
+| `/webhooks/twilio/relay`                    | WS              | Twilio ConversationRelay WebSocket (bidirectional proxy to runtime, requires `callSessionId` query param)                                                                               |
+| `/webhooks/twilio/sms`                      | POST            | Twilio SMS webhook — validates X-Twilio-Signature (HMAC-SHA1), normalizes into `GatewayInboundEvent` with `sourceChannel: "sms"`, deduplicates by `MessageSid`, and forwards to runtime |
+| `/deliver/sms`                              | POST            | Internal endpoint for the assistant runtime to deliver outbound SMS messages via the Twilio Messages API                                                                                |
+| `/webhooks/oauth/callback`                  | GET             | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime                                           |
+| `/v1/integrations/guardian/challenge`       | POST            | Authenticated control-plane proxy for creating guardian verification challenges                                                                                                         |
+| `/v1/integrations/guardian/status`          | GET             | Authenticated control-plane proxy for guardian binding status                                                                                                                           |
+| `/v1/integrations/guardian/outbound/start`  | POST            | Authenticated control-plane proxy for starting outbound guardian verification                                                                                                           |
+| `/v1/integrations/guardian/outbound/resend` | POST            | Authenticated control-plane proxy for resending outbound guardian verification                                                                                                          |
+| `/v1/integrations/guardian/outbound/cancel` | POST            | Authenticated control-plane proxy for cancelling outbound guardian verification                                                                                                         |
+| `/v1/integrations/telegram/config`          | GET/POST/DELETE | Authenticated control-plane proxy for Telegram integration config                                                                                                                       |
+| `/v1/integrations/telegram/commands`        | POST            | Authenticated control-plane proxy for Telegram command registration                                                                                                                     |
+| `/v1/integrations/telegram/setup`           | POST            | Authenticated control-plane proxy for Telegram setup orchestration                                                                                                                      |
+| `/v1/ingress/members`                       | GET/POST        | Authenticated control-plane proxy for listing/upserting ingress members                                                                                                                 |
+| `/v1/ingress/members/:id`                   | DELETE          | Authenticated control-plane proxy for revoking an ingress member                                                                                                                        |
+| `/v1/ingress/members/:id/block`             | POST            | Authenticated control-plane proxy for blocking an ingress member                                                                                                                        |
+| `/v1/ingress/invites`                       | GET/POST        | Authenticated control-plane proxy for listing/creating ingress invites                                                                                                                  |
+| `/v1/ingress/invites/:id`                   | DELETE          | Authenticated control-plane proxy for revoking an ingress invite                                                                                                                        |
+| `/v1/ingress/invites/redeem`                | POST            | Authenticated control-plane proxy for redeeming an ingress invite                                                                                                                       |
+| `/v1/health`                                | GET             | Authenticated runtime health proxy (`/v1/health` on runtime)                                                                                                                            |
+| `/healthz`                                  | GET             | Liveness probe                                                                                                                                                                          |
+| `/readyz`                                   | GET             | Readiness probe                                                                                                                                                                         |
+| `/schema`                                   | GET             | Returns the OpenAPI 3.1 schema for this gateway                                                                                                                                         |
 
 #### Backward-Compatibility Paths
 
 The following legacy paths are aliases that map to their canonical equivalents above:
 
-| Legacy Path | Canonical Path |
-|-------------|---------------|
-| `/v1/calls/twilio/voice-webhook` | `/webhooks/twilio/voice` |
-| `/v1/calls/twilio/status` | `/webhooks/twilio/status` |
+| Legacy Path                       | Canonical Path                    |
+| --------------------------------- | --------------------------------- |
+| `/v1/calls/twilio/voice-webhook`  | `/webhooks/twilio/voice`          |
+| `/v1/calls/twilio/status`         | `/webhooks/twilio/status`         |
 | `/v1/calls/twilio/connect-action` | `/webhooks/twilio/connect-action` |
-| `/v1/calls/relay` | `/webhooks/twilio/relay` |
+| `/v1/calls/relay`                 | `/webhooks/twilio/relay`          |
 
 ### Tunnel Setup
 
@@ -347,11 +347,11 @@ Text and attachments are sent separately — the text reply goes first via `send
 
 ## Health & Readiness Probes
 
-| Endpoint | Method | Behavior |
-|----------|--------|----------|
-| `/v1/health` | GET | Authenticated proxy to runtime health (`/v1/health`) |
-| `/healthz` | GET | Always returns `200` while the process is alive |
-| `/readyz` | GET | Returns `200` while accepting traffic; `503` during graceful shutdown drain |
+| Endpoint     | Method | Behavior                                                                    |
+| ------------ | ------ | --------------------------------------------------------------------------- |
+| `/v1/health` | GET    | Authenticated proxy to runtime health (`/v1/health`)                        |
+| `/healthz`   | GET    | Always returns `200` while the process is alive                             |
+| `/readyz`    | GET    | Returns `200` while accepting traffic; `503` during graceful shutdown drain |
 
 On `SIGTERM` the gateway enters drain mode: `/readyz` begins returning `503` so the load balancer stops sending new traffic. After `GATEWAY_SHUTDOWN_DRAIN_MS` (default 5 s) the process exits.
 
@@ -386,13 +386,14 @@ Both checks run in CI on every pull request touching `gateway/`.
 
 ## CI/CD
 
-| Workflow | Trigger | What it does |
-|----------|---------|--------------|
-| `ci-gateway.yml` | PR (`gateway/**`) | Typecheck + tests |
-| `ci-gateway-image.yml` | PR (`gateway/**`) | Build Docker image + smoke check |
-| `cd-gateway-image.yml` | Push to `main` (`gateway/**`) | Build + push image to GCR |
+| Workflow               | Trigger                       | What it does                     |
+| ---------------------- | ----------------------------- | -------------------------------- |
+| `ci-gateway.yml`       | PR (`gateway/**`)             | Typecheck + tests                |
+| `ci-gateway-image.yml` | PR (`gateway/**`)             | Build Docker image + smoke check |
+| `cd-gateway-image.yml` | Push to `main` (`gateway/**`) | Build + push image to GCR        |
 
 The CD workflow requires these GitHub repository variables:
+
 - `GCP_WORKLOAD_IDENTITY_PROVIDER` — OIDC provider for keyless auth
 - `GCP_SERVICE_ACCOUNT` — Service account with push permissions
 - `GCP_PROJECT_ID` — GCP project ID
@@ -405,21 +406,21 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 
 ## Troubleshooting
 
-| Symptom | Check |
-|---------|-------|
-| Telegram messages not arriving | Is the webhook registered? `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo` |
-| 401 on webhook | Does `TELEGRAM_WEBHOOK_SECRET` match the `secret_token` in setWebhook? |
-| "No route configured" replies | Add a routing entry or set `GATEWAY_UNMAPPED_POLICY=default` with a default assistant |
-| Runtime errors | Is `ASSISTANT_RUNTIME_BASE_URL` reachable? Check runtime logs. |
-| No reply from assistant | Is the assistant runtime processing messages? Check for `RUNTIME_HTTP_PORT` env var. |
-| 403 on channel inbound | The runtime rejected the request because JWT authentication failed. Ensure the gateway and runtime share the same signing key (`~/.vellum/protected/actor-token-signing-key`). |
+| Symptom                        | Check                                                                                                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Telegram messages not arriving | Is the webhook registered? `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`                                                                                           |
+| 401 on webhook                 | Does `TELEGRAM_WEBHOOK_SECRET` match the `secret_token` in setWebhook?                                                                                                         |
+| "No route configured" replies  | Add a routing entry or set `GATEWAY_UNMAPPED_POLICY=default` with a default assistant                                                                                          |
+| Runtime errors                 | Is `ASSISTANT_RUNTIME_BASE_URL` reachable? Check runtime logs.                                                                                                                 |
+| No reply from assistant        | Is the assistant runtime processing messages? Check for `RUNTIME_HTTP_PORT` env var.                                                                                           |
+| 403 on channel inbound         | The runtime rejected the request because JWT authentication failed. Ensure the gateway and runtime share the same signing key (`~/.vellum/protected/actor-token-signing-key`). |
 
 ### Guardian-Specific Troubleshooting
 
-| Symptom | Cause | Resolution |
-|---------|-------|------------|
-| Guardian verification code reply gets no response | The verification message did not reach the runtime, or the challenge expired | Ensure the gateway is running, the bot token is valid, and the Telegram webhook is registered. Challenges expire after 10 minutes -- generate a new one via the desktop UI. |
-| Non-guardian actions auto-denied with "no guardian configured" | No guardian binding exists for the channel. The runtime is fail-closed for unverified channels. | Set up a guardian by running the verification flow from the desktop UI. |
-| Approval prompt not delivered to guardian | The `replyCallbackUrl` may be unreachable, or the guardian's chat ID is stale | Verify `GATEWAY_INTERNAL_BASE_URL` is set correctly (especially in containerized deployments). Re-verify the guardian if the chat ID has changed. |
-| Guardian approval expired | The 30-minute TTL elapsed without a decision. A proactive sweep (every 60s) auto-denied the approval and notified both the requester and guardian. | The non-guardian user must re-trigger the action. |
-| "Only the verified guardian can approve or deny" | A non-guardian sender attempted to respond to a guardian approval prompt | Only the guardian whose `actorExternalId` matches the approval request can approve or deny. |
+| Symptom                                                        | Cause                                                                                                                                              | Resolution                                                                                                                                                                  |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Guardian verification code reply gets no response              | The verification message did not reach the runtime, or the challenge expired                                                                       | Ensure the gateway is running, the bot token is valid, and the Telegram webhook is registered. Challenges expire after 10 minutes -- generate a new one via the desktop UI. |
+| Non-guardian actions auto-denied with "no guardian configured" | No guardian binding exists for the channel. The runtime is fail-closed for unverified channels.                                                    | Set up a guardian by running the verification flow from the desktop UI.                                                                                                     |
+| Approval prompt not delivered to guardian                      | The `replyCallbackUrl` may be unreachable, or the guardian's chat ID is stale                                                                      | Verify `GATEWAY_INTERNAL_BASE_URL` is set correctly (especially in containerized deployments). Re-verify the guardian if the chat ID has changed.                           |
+| Guardian approval expired                                      | The 30-minute TTL elapsed without a decision. A proactive sweep (every 60s) auto-denied the approval and notified both the requester and guardian. | The non-guardian user must re-trigger the action.                                                                                                                           |
+| "Only the verified guardian can approve or deny"               | A non-guardian sender attempted to respond to a guardian approval prompt                                                                           | Only the guardian whose `actorExternalId` matches the approval request can approve or deny.                                                                                 |

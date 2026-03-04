@@ -95,7 +95,7 @@ export interface ServerUseByIdSuccess {
   credentialId: string;
   service: string;
   field: string;
-  injectionTemplates: import('./policy-types.js').CredentialInjectionTemplate[];
+  injectionTemplates: import("./policy-types.js").CredentialInjectionTemplate[];
 }
 
 /** Denied or not-found by-id lookup result. */

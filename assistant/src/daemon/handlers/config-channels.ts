@@ -1,8 +1,13 @@
 import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
+import { findContactChannel } from "../../contacts/contact-store.js";
+import {
+  revokeGuardianBindingContactsFirst,
+  revokeMemberContactsFirst,
+} from "../../contacts/contacts-write.js";
+import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import { findMember } from "../../memory/ingress-member-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
   createVerificationChallenge,
@@ -11,7 +16,6 @@ import {
   getPendingChallenge,
   revokePendingChallenges,
 } from "../../runtime/channel-guardian-service.js";
-import { revokeGuardianBindingContactsFirst, revokeMemberContactsFirst } from "../../contacts/contacts-write.js";
 import {
   type ChannelReadinessService,
   createReadinessService,
@@ -206,20 +210,25 @@ export function revokeGuardianForChannel(
     };
   }
 
-  revokeGuardianBindingContactsFirst(assistantId, resolvedChannel);
-
-  const member = findMember({
-    assistantId,
-    sourceChannel: resolvedChannel,
+  // Revoke the member BEFORE the guardian binding so that
+  // revokeMemberContactsFirst sees the channel as active/pending and sets the
+  // correct revokedReason ("guardian_binding_revoked"). If the guardian binding
+  // is revoked first, the channel is already marked revoked and the member
+  // revocation becomes a no-op (wrong reason or skipped entirely).
+  const contactResult = findContactChannel({
+    channelType: resolvedChannel,
     externalUserId: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
-  // Only revoke active/pending members — a blocked member must not be
-  // downgraded to revoked (revokeMemberContactsFirst has its own guard,
-  // but we check here to make the intent explicit at the call site).
+  const member = contactResult
+    ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
+    : null;
+
   if (member && (member.status === "active" || member.status === "pending")) {
     revokeMemberContactsFirst(member.id, "guardian_binding_revoked");
   }
+
+  revokeGuardianBindingContactsFirst(assistantId, resolvedChannel);
 
   return {
     success: true,

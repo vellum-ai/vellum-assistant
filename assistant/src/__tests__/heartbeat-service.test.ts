@@ -253,6 +253,49 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls).toHaveLength(0);
   });
 
+  test("force bypasses disabled config", async () => {
+    mockConfig.heartbeat.enabled = false;
+    const service = createService();
+    await service.runOnce({ force: true });
+
+    expect(processMessageCalls).toHaveLength(1);
+  });
+
+  test("force bypasses active hours guard", async () => {
+    mockConfig.heartbeat.activeHoursStart = 9;
+    mockConfig.heartbeat.activeHoursEnd = 17;
+
+    const service = createService({ getCurrentHour: () => 3 });
+    await service.runOnce({ force: true });
+
+    expect(processMessageCalls).toHaveLength(1);
+  });
+
+  test("force does not bypass overlap prevention", async () => {
+    let resolveFirst: () => void;
+    const firstPromise = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+
+    const service = createService({
+      processMessage: async () => {
+        await firstPromise;
+        processMessageCalls.push({ conversationId: "slow", content: "slow" });
+        return { messageId: "msg-1" };
+      },
+    });
+
+    const run1 = service.runOnce({ force: true });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const didRun = await service.runOnce({ force: true });
+    expect(didRun).toBe(false);
+
+    resolveFirst!();
+    await run1;
+    expect(processMessageCalls).toHaveLength(1);
+  });
+
   test("alerts on processMessage failure", async () => {
     const service = createService({
       processMessage: async () => {

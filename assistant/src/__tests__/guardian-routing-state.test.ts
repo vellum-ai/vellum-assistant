@@ -37,38 +37,10 @@ mock.module("../security/secret-ingress.js", () => ({
   checkIngressForSecrets: () => ({ blocked: false }),
 }));
 
-// Mock ingress member store with a configurable member lookup.
-// By default returns an active member so ACL passes.
-let mockFindMember: (() => unknown) | null = null;
-mock.module("../memory/ingress-member-store.js", () => ({
-  findMember: (..._args: unknown[]) => {
-    if (mockFindMember) return mockFindMember();
-    return {
-      id: "member-test-default",
-      assistantId: "self",
-      sourceChannel: "telegram",
-      externalUserId: "telegram-user-default",
-      externalChatId: null,
-      displayName: null,
-      username: null,
-      status: "active",
-      policy: "allow",
-      inviteId: null,
-      createdBySessionId: null,
-      revokedReason: null,
-      blockedReason: null,
-      lastSeenAt: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-  },
-  updateLastSeen: () => {},
-  upsertMember: () => {},
-}));
-
+import { upsertContact } from "../contacts/contact-store.js";
+import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
-import { createBinding } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
@@ -92,13 +64,11 @@ afterAll(() => {
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
-  db.run("DELETE FROM assistant_ingress_members");
   db.run("DELETE FROM external_conversation_bindings");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
@@ -212,7 +182,19 @@ describe("resolveRoutingStateFromRuntime", () => {
 describe("inbound-message-handler trusted-contact interactivity", () => {
   beforeEach(() => {
     resetTables();
-    mockFindMember = null;
+    // Insert a test contact so the contacts-based ACL lookup passes
+    upsertContact({
+      displayName: "Test User",
+      channels: [
+        {
+          type: "telegram",
+          address: "telegram-user-default",
+          externalUserId: "telegram-user-default",
+          status: "active",
+          policy: "allow",
+        },
+      ],
+    });
   });
 
   function makeInboundRequest(
@@ -228,7 +210,9 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
         sourceChannel: "telegram",
         interface: "telegram",
         conversationExternalId: "chat-123",
-        externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        externalMessageId: `msg-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`,
         content: "hello",
         actorExternalId: "telegram-user-default",
         replyCallbackUrl: "https://gateway.test/deliver/telegram",
@@ -238,8 +222,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
   }
 
   test("trusted contact with guardian binding gets interactive turn", async () => {
-    // Create guardian binding so the trusted contact has a resolvable route
-    createBinding({
+    // Create guardian binding in contacts table so the trust resolver finds it
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-for-tc",
@@ -339,8 +323,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
   });
 
   test("guardian actors remain interactive regardless", async () => {
-    // Guardian binding matches the sender
-    createBinding({
+    // Guardian binding matches the sender — use contacts-first so trust resolver finds it
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -391,10 +375,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
   });
 
   test("unknown actors remain non-interactive (denied at gate)", async () => {
-    // No member record => non-member denied at the ACL gate,
+    // No contact record => non-member denied at the ACL gate,
     // which is the strongest form of "not interactive".
-    mockFindMember = () => null;
-
     const req = makeInboundRequest({
       externalMessageId: `msg-unknown-${Date.now()}`,
       actorExternalId: "unknown-user-no-member",
@@ -416,7 +398,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
 describe("channel-retry-sweep routing state", () => {
   beforeEach(() => {
     resetTables();
-    mockFindMember = null;
   });
 
   function seedFailedEvent(

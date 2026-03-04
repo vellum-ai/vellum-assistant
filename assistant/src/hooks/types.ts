@@ -1,24 +1,24 @@
 export type HookEventName =
   // Daemon lifecycle
-  | 'daemon-start'
-  | 'daemon-stop'
+  | "daemon-start"
+  | "daemon-stop"
   // Session lifecycle
-  | 'session-start'
-  | 'session-end'
+  | "session-start"
+  | "session-end"
   // LLM call lifecycle
-  | 'pre-llm-call'
-  | 'post-llm-call'
+  | "pre-llm-call"
+  | "post-llm-call"
   // Tool execution lifecycle
-  | 'pre-tool-execute'
-  | 'post-tool-execute'
+  | "pre-tool-execute"
+  | "post-tool-execute"
   // Permission lifecycle
-  | 'permission-request'
-  | 'permission-resolve'
+  | "permission-request"
+  | "permission-resolve"
   // Message lifecycle
-  | 'pre-message'
-  | 'post-message'
+  | "pre-message"
+  | "post-message"
   // Error
-  | 'on-error';
+  | "on-error";
 
 export interface HookSettingsSchemaEntry {
   type: string;

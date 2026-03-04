@@ -1,8 +1,8 @@
-import { getLogger } from '../util/logger.js';
-import { rawGet, rawRun } from './raw-query.js';
-import { bumpMemoryVersion } from './recall-cache.js';
+import { getLogger } from "../util/logger.js";
+import { rawGet, rawRun } from "./raw-query.js";
+import { bumpMemoryVersion } from "./recall-cache.js";
 
-const log = getLogger('task-memory-cleanup');
+const log = getLogger("task-memory-cleanup");
 
 /**
  * Check whether a conversation belongs to a failed task run or failed
@@ -40,7 +40,9 @@ export function isConversationFailed(conversationId: string): boolean {
  * from mutually protecting each other — if two conversations both source
  * a memory item and both fail, the item is correctly invalidated.
  */
-export function invalidateAssistantInferredItemsForConversation(conversationId: string): number {
+export function invalidateAssistantInferredItemsForConversation(
+  conversationId: string,
+): number {
   // Cancel pending extract_items jobs for this conversation's messages
   // so the worker never processes them. Jobs already running will be
   // caught by the isConversationFailed check in the extraction handler.
@@ -84,7 +86,10 @@ export function invalidateAssistantInferredItemsForConversation(conversationId: 
 
   if (affected > 0) {
     bumpMemoryVersion();
-    log.info({ conversationId, affected }, 'Invalidated assistant-inferred memory items after task failure');
+    log.info(
+      { conversationId, affected },
+      "Invalidated assistant-inferred memory items after task failure",
+    );
   }
 
   return affected;
@@ -95,7 +100,9 @@ export function invalidateAssistantInferredItemsForConversation(conversationId: 
  * belongs to the given conversation. This drains the queue so the worker never
  * processes them, complementing the runtime check in the extraction handler.
  */
-function cancelPendingExtractionJobsForConversation(conversationId: string): number {
+function cancelPendingExtractionJobsForConversation(
+  conversationId: string,
+): number {
   const now = Date.now();
   const cancelled = rawRun(
     `UPDATE memory_jobs
@@ -112,7 +119,10 @@ function cancelPendingExtractionJobsForConversation(conversationId: string): num
   );
 
   if (cancelled > 0) {
-    log.info({ conversationId, cancelled }, 'Cancelled pending extraction jobs for failed conversation');
+    log.info(
+      { conversationId, cancelled },
+      "Cancelled pending extraction jobs for failed conversation",
+    );
   }
 
   return cancelled;

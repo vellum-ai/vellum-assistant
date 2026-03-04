@@ -12,16 +12,16 @@
  * to encrypted-at-rest storage when the keychain is not accessible.
  */
 
-import { execFile, execFileSync } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 
-import { getLogger } from '../util/logger.js';
-import { isLinux,isMacOS } from '../util/platform.js';
+import { getLogger } from "../util/logger.js";
+import { isLinux, isMacOS } from "../util/platform.js";
 
-const log = getLogger('keychain');
+const log = getLogger("keychain");
 const execFileAsync = promisify(execFile);
 
-const SERVICE_NAME = 'vellum-assistant';
+const SERVICE_NAME = "vellum-assistant";
 
 // ---------------------------------------------------------------------------
 // Injectable deps — avoids process-global mock.module for testing
@@ -50,8 +50,8 @@ export function isKeychainAvailable(): boolean {
   try {
     if (deps.isMacOS()) {
       // Verify `security` CLI exists and can list keychains
-      deps.execFileSync('security', ['list-keychains'], {
-        stdio: ['ignore', 'ignore', 'ignore'],
+      deps.execFileSync("security", ["list-keychains"], {
+        stdio: ["ignore", "ignore", "ignore"],
         timeout: 5000,
       });
       return true;
@@ -59,8 +59,8 @@ export function isKeychainAvailable(): boolean {
 
     if (deps.isLinux()) {
       // Verify `secret-tool` exists
-      deps.execFileSync('which', ['secret-tool'], {
-        stdio: ['ignore', 'ignore', 'ignore'],
+      deps.execFileSync("which", ["secret-tool"], {
+        stdio: ["ignore", "ignore", "ignore"],
         timeout: 5000,
       });
       return true;
@@ -76,14 +76,14 @@ export function isKeychainAvailable(): boolean {
 export async function isKeychainAvailableAsync(): Promise<boolean> {
   try {
     if (deps.isMacOS()) {
-      await execFileAsync('security', ['list-keychains'], {
+      await execFileAsync("security", ["list-keychains"], {
         timeout: 5000,
       });
       return true;
     }
 
     if (deps.isLinux()) {
-      await execFileAsync('which', ['secret-tool'], {
+      await execFileAsync("which", ["secret-tool"], {
         timeout: 5000,
       });
       return true;
@@ -124,7 +124,7 @@ export function setKey(account: string, value: string): boolean {
     }
     return false;
   } catch (err) {
-    log.warn({ err, account }, 'Failed to write to keychain');
+    log.warn({ err, account }, "Failed to write to keychain");
     return false;
   }
 }
@@ -143,7 +143,7 @@ export function deleteKey(account: string): boolean {
     }
     return false;
   } catch (err) {
-    log.debug({ err, account }, 'Failed to delete from keychain');
+    log.debug({ err, account }, "Failed to delete from keychain");
     return false;
   }
 }
@@ -154,22 +154,33 @@ export function deleteKey(account: string): boolean {
 
 function macosGetKey(account: string): string | null {
   try {
-    const result = deps.execFileSync('security', [
-      'find-generic-password',
-      '-s', SERVICE_NAME,
-      '-a', account,
-      '-w', // output password only
-    ], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 5000,
-      encoding: 'utf-8',
-    });
+    const result = deps.execFileSync(
+      "security",
+      [
+        "find-generic-password",
+        "-s",
+        SERVICE_NAME,
+        "-a",
+        account,
+        "-w", // output password only
+      ],
+      {
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5000,
+        encoding: "utf-8",
+      },
+    );
     // Strip only the trailing newline added by the security CLI
-    return result.replace(/\n$/, '') || null;
+    return result.replace(/\n$/, "") || null;
   } catch (err: unknown) {
     // Exit code 44 = item not found — return null.
     // All other errors are runtime failures — re-throw.
-    if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 44) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "status" in err &&
+      (err as { status: number }).status === 44
+    ) {
       return null;
     }
     throw err;
@@ -182,16 +193,23 @@ function macosSetKey(account: string, value: string): boolean {
   // it does NOT read from stdin. Using `-w` without a value causes
   // the next flag to be consumed as the password.
   try {
-    deps.execFileSync('security', [
-      'add-generic-password',
-      '-s', SERVICE_NAME,
-      '-a', account,
-      '-w', value,
-      '-U', // update if exists
-    ], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-      timeout: 5000,
-    });
+    deps.execFileSync(
+      "security",
+      [
+        "add-generic-password",
+        "-s",
+        SERVICE_NAME,
+        "-a",
+        account,
+        "-w",
+        value,
+        "-U", // update if exists
+      ],
+      {
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 5000,
+      },
+    );
     return true;
   } catch {
     return false;
@@ -200,14 +218,14 @@ function macosSetKey(account: string, value: string): boolean {
 
 function macosDeleteKey(account: string): boolean {
   try {
-    deps.execFileSync('security', [
-      'delete-generic-password',
-      '-s', SERVICE_NAME,
-      '-a', account,
-    ], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-      timeout: 5000,
-    });
+    deps.execFileSync(
+      "security",
+      ["delete-generic-password", "-s", SERVICE_NAME, "-a", account],
+      {
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 5000,
+      },
+    );
     return true;
   } catch {
     return false;
@@ -220,23 +238,28 @@ function macosDeleteKey(account: string): boolean {
 
 function linuxGetKey(account: string): string | null {
   try {
-    const result = deps.execFileSync('secret-tool', [
-      'lookup',
-      'service', SERVICE_NAME,
-      'account', account,
-    ], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 5000,
-      encoding: 'utf-8',
-    });
+    const result = deps.execFileSync(
+      "secret-tool",
+      ["lookup", "service", SERVICE_NAME, "account", account],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 5000,
+        encoding: "utf-8",
+      },
+    );
     // Strip only the trailing newline added by secret-tool
-    return result.replace(/\n$/, '') || null;
+    return result.replace(/\n$/, "") || null;
   } catch (err: unknown) {
     // secret-tool exits with code 1 for BOTH "not found" and runtime errors
     // (D-Bus failures, keyring locked, etc.). Distinguish by checking stderr:
     // empty stderr → key not found; non-empty stderr → runtime error.
-    if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 1) {
-      const stderr = String((err as { stderr?: unknown }).stderr ?? '').trim();
+    if (
+      err &&
+      typeof err === "object" &&
+      "status" in err &&
+      (err as { status: number }).status === 1
+    ) {
+      const stderr = String((err as { stderr?: unknown }).stderr ?? "").trim();
       if (stderr.length > 0) {
         throw err;
       }
@@ -248,16 +271,23 @@ function linuxGetKey(account: string): string | null {
 
 function linuxSetKey(account: string, value: string): boolean {
   try {
-    deps.execFileSync('secret-tool', [
-      'store',
-      '--label', `${SERVICE_NAME}: ${account}`,
-      'service', SERVICE_NAME,
-      'account', account,
-    ], {
-      input: value,
-      stdio: ['pipe', 'ignore', 'ignore'],
-      timeout: 5000,
-    });
+    deps.execFileSync(
+      "secret-tool",
+      [
+        "store",
+        "--label",
+        `${SERVICE_NAME}: ${account}`,
+        "service",
+        SERVICE_NAME,
+        "account",
+        account,
+      ],
+      {
+        input: value,
+        stdio: ["pipe", "ignore", "ignore"],
+        timeout: 5000,
+      },
+    );
     return true;
   } catch {
     return false;
@@ -266,14 +296,14 @@ function linuxSetKey(account: string, value: string): boolean {
 
 function linuxDeleteKey(account: string): boolean {
   try {
-    deps.execFileSync('secret-tool', [
-      'clear',
-      'service', SERVICE_NAME,
-      'account', account,
-    ], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-      timeout: 5000,
-    });
+    deps.execFileSync(
+      "secret-tool",
+      ["clear", "service", SERVICE_NAME, "account", account],
+      {
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 5000,
+      },
+    );
     return true;
   } catch {
     return false;
@@ -300,13 +330,16 @@ export async function getKeyAsync(account: string): Promise<string | null> {
  * Async version of `setKey` — store a secret without blocking the event loop.
  * Returns true on success, false on failure.
  */
-export async function setKeyAsync(account: string, value: string): Promise<boolean> {
+export async function setKeyAsync(
+  account: string,
+  value: string,
+): Promise<boolean> {
   try {
     if (deps.isMacOS()) return await macosSetKeyAsync(account, value);
     if (deps.isLinux()) return await linuxSetKeyAsync(account, value);
     return false;
   } catch (err) {
-    log.warn({ err, account }, 'Failed to write to keychain');
+    log.warn({ err, account }, "Failed to write to keychain");
     return false;
   }
 }
@@ -321,7 +354,7 @@ export async function deleteKeyAsync(account: string): Promise<boolean> {
     if (deps.isLinux()) return await linuxDeleteKeyAsync(account);
     return false;
   } catch (err) {
-    log.debug({ err, account }, 'Failed to delete from keychain');
+    log.debug({ err, account }, "Failed to delete from keychain");
     return false;
   }
 }
@@ -332,31 +365,45 @@ export async function deleteKeyAsync(account: string): Promise<boolean> {
 
 async function macosGetKeyAsync(account: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('security', [
-      'find-generic-password',
-      '-s', SERVICE_NAME,
-      '-a', account,
-      '-w',
-    ], { timeout: 5000 });
-    return stdout.replace(/\n$/, '') || null;
+    const { stdout } = await execFileAsync(
+      "security",
+      ["find-generic-password", "-s", SERVICE_NAME, "-a", account, "-w"],
+      { timeout: 5000 },
+    );
+    return stdout.replace(/\n$/, "") || null;
   } catch (err: unknown) {
     // Exit code 44 = item not found — return null.
-    if (err && typeof err === 'object' && 'code' in err && (err as { code: number }).code === 44) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code: number }).code === 44
+    ) {
       return null;
     }
     throw err;
   }
 }
 
-async function macosSetKeyAsync(account: string, value: string): Promise<boolean> {
+async function macosSetKeyAsync(
+  account: string,
+  value: string,
+): Promise<boolean> {
   try {
-    await execFileAsync('security', [
-      'add-generic-password',
-      '-s', SERVICE_NAME,
-      '-a', account,
-      '-w', value,
-      '-U',
-    ], { timeout: 5000 });
+    await execFileAsync(
+      "security",
+      [
+        "add-generic-password",
+        "-s",
+        SERVICE_NAME,
+        "-a",
+        account,
+        "-w",
+        value,
+        "-U",
+      ],
+      { timeout: 5000 },
+    );
     return true;
   } catch {
     return false;
@@ -365,11 +412,11 @@ async function macosSetKeyAsync(account: string, value: string): Promise<boolean
 
 async function macosDeleteKeyAsync(account: string): Promise<boolean> {
   try {
-    await execFileAsync('security', [
-      'delete-generic-password',
-      '-s', SERVICE_NAME,
-      '-a', account,
-    ], { timeout: 5000 });
+    await execFileAsync(
+      "security",
+      ["delete-generic-password", "-s", SERVICE_NAME, "-a", account],
+      { timeout: 5000 },
+    );
     return true;
   } catch {
     return false;
@@ -382,15 +429,20 @@ async function macosDeleteKeyAsync(account: string): Promise<boolean> {
 
 async function linuxGetKeyAsync(account: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('secret-tool', [
-      'lookup',
-      'service', SERVICE_NAME,
-      'account', account,
-    ], { timeout: 5000 });
-    return stdout.replace(/\n$/, '') || null;
+    const { stdout } = await execFileAsync(
+      "secret-tool",
+      ["lookup", "service", SERVICE_NAME, "account", account],
+      { timeout: 5000 },
+    );
+    return stdout.replace(/\n$/, "") || null;
   } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'code' in err && (err as { code: number }).code === 1) {
-      const stderr = String((err as { stderr?: unknown }).stderr ?? '').trim();
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code: number }).code === 1
+    ) {
+      const stderr = String((err as { stderr?: unknown }).stderr ?? "").trim();
       if (stderr.length > 0) throw err;
       return null;
     }
@@ -398,28 +450,39 @@ async function linuxGetKeyAsync(account: string): Promise<string | null> {
   }
 }
 
-async function linuxSetKeyAsync(account: string, value: string): Promise<boolean> {
+async function linuxSetKeyAsync(
+  account: string,
+  value: string,
+): Promise<boolean> {
   // secret-tool reads the secret from stdin
   return new Promise<boolean>((resolve) => {
-    const child = execFile('secret-tool', [
-      'store',
-      '--label', `${SERVICE_NAME}: ${account}`,
-      'service', SERVICE_NAME,
-      'account', account,
-    ], { timeout: 5000 }, (err) => {
-      resolve(!err);
-    });
+    const child = execFile(
+      "secret-tool",
+      [
+        "store",
+        "--label",
+        `${SERVICE_NAME}: ${account}`,
+        "service",
+        SERVICE_NAME,
+        "account",
+        account,
+      ],
+      { timeout: 5000 },
+      (err) => {
+        resolve(!err);
+      },
+    );
     child.stdin?.end(value);
   });
 }
 
 async function linuxDeleteKeyAsync(account: string): Promise<boolean> {
   try {
-    await execFileAsync('secret-tool', [
-      'clear',
-      'service', SERVICE_NAME,
-      'account', account,
-    ], { timeout: 5000 });
+    await execFileAsync(
+      "secret-tool",
+      ["clear", "service", SERVICE_NAME, "account", account],
+      { timeout: 5000 },
+    );
     return true;
   } catch {
     return false;

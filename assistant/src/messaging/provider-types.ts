@@ -3,7 +3,7 @@
 export interface Conversation {
   id: string;
   name: string;
-  type: 'channel' | 'dm' | 'group' | 'inbox' | 'thread';
+  type: "channel" | "dm" | "group" | "inbox" | "thread";
   platform: string;
   unreadCount: number;
   lastActivityAt: number;
@@ -56,7 +56,7 @@ export interface ConnectionInfo {
 }
 
 export interface ListOptions {
-  types?: Array<'channel' | 'dm' | 'group' | 'inbox'>;
+  types?: Array<"channel" | "dm" | "group" | "inbox">;
   excludeArchived?: boolean;
   limit?: number;
   cursor?: string;

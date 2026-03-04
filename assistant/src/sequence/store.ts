@@ -7,13 +7,18 @@
  * - Optimistic locking for claimDueEnrollments
  */
 
-import { and, asc, eq, lte, sql } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb, rawChanges } from '../memory/db.js';
-import { sequenceEnrollments,sequences } from '../memory/schema.js';
-import { AssistantError, ErrorCode } from '../util/errors.js';
-import { cast, createRowMapper, parseJson, parseJsonNullable } from '../util/row-mapper.js';
+import { getDb, rawChanges } from "../memory/db.js";
+import { sequenceEnrollments, sequences } from "../memory/schema.js";
+import { AssistantError, ErrorCode } from "../util/errors.js";
+import {
+  cast,
+  createRowMapper,
+  parseJson,
+  parseJsonNullable,
+} from "../util/row-mapper.js";
 import type {
   CreateSequenceInput,
   EnrollContactInput,
@@ -25,34 +30,43 @@ import type {
   SequenceStep,
   SequenceStore,
   UpdateSequenceInput,
-} from './types.js';
+} from "./types.js";
 
 // ── Row Mappers ─────────────────────────────────────────────────────
 
-const parseSequenceRow = createRowMapper<typeof sequences.$inferSelect, Sequence>({
-  id: 'id',
-  name: 'name',
-  description: 'description',
-  channel: 'channel',
-  steps: { from: 'steps', transform: parseJson<SequenceStep[]>([]) },
-  exitOnReply: 'exitOnReply',
-  status: { from: 'status', transform: cast<Sequence['status']>() },
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
+const parseSequenceRow = createRowMapper<
+  typeof sequences.$inferSelect,
+  Sequence
+>({
+  id: "id",
+  name: "name",
+  description: "description",
+  channel: "channel",
+  steps: { from: "steps", transform: parseJson<SequenceStep[]>([]) },
+  exitOnReply: "exitOnReply",
+  status: { from: "status", transform: cast<Sequence["status"]>() },
+  createdAt: "createdAt",
+  updatedAt: "updatedAt",
 });
 
-const parseEnrollmentRow = createRowMapper<typeof sequenceEnrollments.$inferSelect, SequenceEnrollment>({
-  id: 'id',
-  sequenceId: 'sequenceId',
-  contactEmail: 'contactEmail',
-  contactName: 'contactName',
-  currentStep: 'currentStep',
-  status: { from: 'status', transform: cast<SequenceEnrollment['status']>() },
-  threadId: 'threadId',
-  nextStepAt: 'nextStepAt',
-  context: { from: 'context', transform: parseJsonNullable<Record<string, unknown>>() },
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
+const parseEnrollmentRow = createRowMapper<
+  typeof sequenceEnrollments.$inferSelect,
+  SequenceEnrollment
+>({
+  id: "id",
+  sequenceId: "sequenceId",
+  contactEmail: "contactEmail",
+  contactName: "contactName",
+  currentStep: "currentStep",
+  status: { from: "status", transform: cast<SequenceEnrollment["status"]>() },
+  threadId: "threadId",
+  nextStepAt: "nextStepAt",
+  context: {
+    from: "context",
+    transform: parseJsonNullable<Record<string, unknown>>(),
+  },
+  createdAt: "createdAt",
+  updatedAt: "updatedAt",
 });
 
 // ── Sequence CRUD ───────────────────────────────────────────────────
@@ -67,7 +81,7 @@ export function createSequence(input: CreateSequenceInput): Sequence {
     channel: input.channel,
     steps: JSON.stringify(input.steps),
     exitOnReply: input.exitOnReply ?? true,
-    status: 'active' as const,
+    status: "active" as const,
     createdAt: now,
     updatedAt: now,
   };
@@ -86,13 +100,21 @@ export function listSequences(filter?: ListSequencesFilter): Sequence[] {
   const conditions = [];
   if (filter?.status) conditions.push(eq(sequences.status, filter.status));
 
-  const rows = conditions.length > 0
-    ? db.select().from(sequences).where(and(...conditions)).all()
-    : db.select().from(sequences).all();
+  const rows =
+    conditions.length > 0
+      ? db
+          .select()
+          .from(sequences)
+          .where(and(...conditions))
+          .all()
+      : db.select().from(sequences).all();
   return rows.map(parseSequenceRow);
 }
 
-export function updateSequence(id: string, patch: UpdateSequenceInput): Sequence | undefined {
+export function updateSequence(
+  id: string,
+  patch: UpdateSequenceInput,
+): Sequence | undefined {
   const db = getDb();
   const now = Date.now();
   const updates: Record<string, unknown> = { updatedAt: now };
@@ -110,11 +132,13 @@ export function deleteSequence(id: string): void {
   const db = getDb();
   // Cancel all active enrollments first (cascade handles FK, but we want explicit status update)
   db.update(sequenceEnrollments)
-    .set({ status: 'cancelled', updatedAt: Date.now() })
-    .where(and(
-      eq(sequenceEnrollments.sequenceId, id),
-      eq(sequenceEnrollments.status, 'active'),
-    ))
+    .set({ status: "cancelled", updatedAt: Date.now() })
+    .where(
+      and(
+        eq(sequenceEnrollments.sequenceId, id),
+        eq(sequenceEnrollments.status, "active"),
+      ),
+    )
     .run();
   db.delete(sequences).where(eq(sequences.id, id)).run();
 }
@@ -127,11 +151,16 @@ export function enrollContact(input: EnrollContactInput): SequenceEnrollment {
 
   // Look up the sequence to compute initial nextStepAt
   const seq = getSequence(input.sequenceId);
-  if (!seq) throw new AssistantError(`Sequence not found: ${input.sequenceId}`, ErrorCode.INTERNAL_ERROR);
-  if (seq.steps.length === 0) throw new AssistantError('Sequence has no steps', ErrorCode.INTERNAL_ERROR);
+  if (!seq)
+    throw new AssistantError(
+      `Sequence not found: ${input.sequenceId}`,
+      ErrorCode.INTERNAL_ERROR,
+    );
+  if (seq.steps.length === 0)
+    throw new AssistantError("Sequence has no steps", ErrorCode.INTERNAL_ERROR);
 
   const firstStep = seq.steps[0];
-  const nextStepAt = now + (firstStep.delaySeconds * 1000);
+  const nextStepAt = now + firstStep.delaySeconds * 1000;
 
   const row = {
     id: uuid(),
@@ -139,7 +168,7 @@ export function enrollContact(input: EnrollContactInput): SequenceEnrollment {
     contactEmail: input.contactEmail.toLowerCase(),
     contactName: input.contactName ?? null,
     currentStep: 0,
-    status: 'active' as const,
+    status: "active" as const,
     threadId: null,
     nextStepAt,
     context: input.context ? JSON.stringify(input.context) : null,
@@ -152,20 +181,34 @@ export function enrollContact(input: EnrollContactInput): SequenceEnrollment {
 
 export function getEnrollment(id: string): SequenceEnrollment | undefined {
   const db = getDb();
-  const row = db.select().from(sequenceEnrollments).where(eq(sequenceEnrollments.id, id)).get();
+  const row = db
+    .select()
+    .from(sequenceEnrollments)
+    .where(eq(sequenceEnrollments.id, id))
+    .get();
   return row ? parseEnrollmentRow(row) : undefined;
 }
 
-export function listEnrollments(filter?: ListEnrollmentsFilter): SequenceEnrollment[] {
+export function listEnrollments(
+  filter?: ListEnrollmentsFilter,
+): SequenceEnrollment[] {
   const db = getDb();
   const conditions = [];
-  if (filter?.sequenceId) conditions.push(eq(sequenceEnrollments.sequenceId, filter.sequenceId));
-  if (filter?.status) conditions.push(eq(sequenceEnrollments.status, filter.status));
-  if (filter?.contactEmail) conditions.push(eq(sequenceEnrollments.contactEmail, filter.contactEmail));
+  if (filter?.sequenceId)
+    conditions.push(eq(sequenceEnrollments.sequenceId, filter.sequenceId));
+  if (filter?.status)
+    conditions.push(eq(sequenceEnrollments.status, filter.status));
+  if (filter?.contactEmail)
+    conditions.push(eq(sequenceEnrollments.contactEmail, filter.contactEmail));
 
-  const rows = conditions.length > 0
-    ? db.select().from(sequenceEnrollments).where(and(...conditions)).all()
-    : db.select().from(sequenceEnrollments).all();
+  const rows =
+    conditions.length > 0
+      ? db
+          .select()
+          .from(sequenceEnrollments)
+          .where(and(...conditions))
+          .all()
+      : db.select().from(sequenceEnrollments).all();
   return rows.map(parseEnrollmentRow);
 }
 
@@ -177,15 +220,20 @@ export function listEnrollments(filter?: ListEnrollmentsFilter): SequenceEnrollm
  * 2. For each, UPDATE with WHERE status='active' — only succeeds if not already claimed
  * 3. Check rawChanges() to confirm the lock was acquired
  */
-export function claimDueEnrollments(now: number, limit = 10): SequenceEnrollment[] {
+export function claimDueEnrollments(
+  now: number,
+  limit = 10,
+): SequenceEnrollment[] {
   const db = getDb();
   const candidates = db
     .select()
     .from(sequenceEnrollments)
-    .where(and(
-      eq(sequenceEnrollments.status, 'active'),
-      lte(sequenceEnrollments.nextStepAt, now),
-    ))
+    .where(
+      and(
+        eq(sequenceEnrollments.status, "active"),
+        lte(sequenceEnrollments.nextStepAt, now),
+      ),
+    )
     .orderBy(asc(sequenceEnrollments.nextStepAt))
     .limit(limit)
     .all();
@@ -200,16 +248,20 @@ export function claimDueEnrollments(now: number, limit = 10): SequenceEnrollment
     // status from 'pending' to 'firing').
     db.update(sequenceEnrollments)
       .set({ nextStepAt: null, updatedAt: now })
-      .where(and(
-        eq(sequenceEnrollments.id, row.id),
-        eq(sequenceEnrollments.status, 'active'),
-        sql`${sequenceEnrollments.nextStepAt} = ${row.nextStepAt}`,
-      ))
+      .where(
+        and(
+          eq(sequenceEnrollments.id, row.id),
+          eq(sequenceEnrollments.status, "active"),
+          sql`${sequenceEnrollments.nextStepAt} = ${row.nextStepAt}`,
+        ),
+      )
       .run();
 
     if (rawChanges() === 0) continue;
 
-    claimed.push(parseEnrollmentRow({ ...row, nextStepAt: null, updatedAt: now }));
+    claimed.push(
+      parseEnrollmentRow({ ...row, nextStepAt: null, updatedAt: now }),
+    );
   }
   return claimed;
 }
@@ -223,7 +275,11 @@ export function advanceEnrollment(
   const now = Date.now();
   const updates: Record<string, unknown> = {
     updatedAt: now,
-    currentStep: db.select({ val: sequenceEnrollments.currentStep }).from(sequenceEnrollments).where(eq(sequenceEnrollments.id, id)).get()?.val,
+    currentStep: db
+      .select({ val: sequenceEnrollments.currentStep })
+      .from(sequenceEnrollments)
+      .where(eq(sequenceEnrollments.id, id))
+      .get()?.val,
   };
 
   // Load current to increment step
@@ -254,22 +310,26 @@ export function exitEnrollment(id: string, reason: EnrollmentExitReason): void {
 export function pauseEnrollment(id: string): void {
   const db = getDb();
   db.update(sequenceEnrollments)
-    .set({ status: 'paused', nextStepAt: null, updatedAt: Date.now() })
+    .set({ status: "paused", nextStepAt: null, updatedAt: Date.now() })
     .where(eq(sequenceEnrollments.id, id))
     .run();
 }
 
 // ── Query Helpers ───────────────────────────────────────────────────
 
-export function findActiveEnrollmentsByEmail(email: string): SequenceEnrollment[] {
+export function findActiveEnrollmentsByEmail(
+  email: string,
+): SequenceEnrollment[] {
   const db = getDb();
   const rows = db
     .select()
     .from(sequenceEnrollments)
-    .where(and(
-      eq(sequenceEnrollments.contactEmail, email),
-      eq(sequenceEnrollments.status, 'active'),
-    ))
+    .where(
+      and(
+        eq(sequenceEnrollments.contactEmail, email),
+        eq(sequenceEnrollments.status, "active"),
+      ),
+    )
     .all();
   return rows.map(parseEnrollmentRow);
 }
@@ -279,10 +339,12 @@ export function countActiveEnrollments(sequenceId: string): number {
   const rows = db
     .select()
     .from(sequenceEnrollments)
-    .where(and(
-      eq(sequenceEnrollments.sequenceId, sequenceId),
-      eq(sequenceEnrollments.status, 'active'),
-    ))
+    .where(
+      and(
+        eq(sequenceEnrollments.sequenceId, sequenceId),
+        eq(sequenceEnrollments.status, "active"),
+      ),
+    )
     .all();
   return rows.length;
 }

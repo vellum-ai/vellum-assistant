@@ -754,6 +754,8 @@ export async function runAgentLoopImpl(
 
     turnStarted = true;
 
+    let denyCompressionMessage: Message | null = null;
+
     let updatedHistory = await ctx.agentLoop.run(
       runMessages,
       eventHandler,
@@ -993,7 +995,7 @@ export async function runAgentLoopImpl(
               JSON.stringify(denyMessage.content),
               loopChannelMeta,
             );
-            ctx.messages.push(denyMessage);
+            denyCompressionMessage = denyMessage;
             onEvent({
               type: "assistant_text_delta",
               text: denyText,
@@ -1155,6 +1157,10 @@ export async function runAgentLoopImpl(
       const cleanedBlocks = cleanedContent as ContentBlock[];
       return { ...msg, content: cleanedBlocks };
     });
+
+    if (denyCompressionMessage) {
+      newMessages.push(denyCompressionMessage);
+    }
 
     const hasAssistantResponse = newMessages.some(
       (msg) => msg.role === "assistant",

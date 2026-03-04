@@ -1,8 +1,14 @@
-import { classifyActivity } from '../../../../messaging/activity-analyzer.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { err,ok, resolveProvider, withProviderToken } from './shared.js';
+import { classifyActivity } from "../../../../messaging/activity-analyzer.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
 
   try {

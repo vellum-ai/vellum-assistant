@@ -3,9 +3,7 @@
  *
  * Produces a single trust-resolved actor context from raw inbound identity
  * fields. Normalizes sender identity via channel-agnostic canonicalization,
- * then resolves trust classification by checking contacts/contact_channels
- * first, falling back to legacy guardian_bindings/ingress_members tables
- * when contacts are empty (e.g., fresh install before first sync).
+ * then resolves trust classification by checking contacts/contact_channels.
  *
  * Trust classifications:
  * - `guardian`: sender matches the guardian contact's channel for this channel type.
@@ -17,16 +15,12 @@ import type { ChannelId } from "../channels/types.js";
 import {
   findContactByChannelExternalId,
   findGuardianForChannel,
-  hasContacts,
 } from "../contacts/contact-store.js";
-import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
+import type { IngressMember } from "../contacts/member-record-shim.js";
+import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import type { IngressMember } from "../memory/ingress-member-store.js";
-import { findMember } from "../memory/ingress-member-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
-import { getGuardianBinding } from "./channel-guardian-service.js";
 
 const log = getLogger("actor-trust-resolver");
 
@@ -113,50 +107,6 @@ export interface ResolveActorTrustInput {
 }
 
 // ---------------------------------------------------------------------------
-// Contact → IngressMember shim
-// ---------------------------------------------------------------------------
-
-/**
- * Synthesize an IngressMember-compatible record from a Contact + ContactChannel.
- * This enables the contacts-first path to populate memberRecord without changing
- * the ActorTrustContext interface or downstream consumers.
- */
-function contactChannelToMemberRecord(
-  contact: ContactWithChannels,
-  channel: ContactChannel,
-): IngressMember {
-  return {
-    id: channel.id,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-    sourceChannel: channel.type,
-    externalUserId: channel.externalUserId,
-    externalChatId: channel.externalChatId,
-    displayName: contact.displayName,
-    username: null,
-    status:
-      channel.status === "active"
-        ? "active"
-        : channel.status === "pending"
-          ? "pending"
-          : channel.status === "unverified"
-            ? "pending"
-            : channel.status === "revoked"
-              ? "revoked"
-              : channel.status === "blocked"
-                ? "blocked"
-                : "active",
-    policy: channel.policy,
-    inviteId: channel.inviteId,
-    createdBySessionId: null,
-    revokedReason: channel.revokedReason,
-    blockedReason: channel.blockedReason,
-    lastSeenAt: channel.lastSeenAt,
-    createdAt: channel.createdAt,
-    updatedAt: channel.updatedAt ?? channel.createdAt,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Resolver
 // ---------------------------------------------------------------------------
 
@@ -172,8 +122,6 @@ function contactChannelToMemberRecord(
 export function resolveActorTrust(
   input: ResolveActorTrustInput,
 ): ActorTrustContext {
-  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-
   const rawUserId =
     typeof input.actorExternalId === "string" &&
     input.actorExternalId.trim().length > 0
@@ -222,21 +170,13 @@ export function resolveActorTrust(
     };
   }
 
-  // Skip contacts-first queries when the contacts table is empty.
-  // This avoids two JOIN queries per trust resolution call when no
-  // contact-sync has happened yet (fresh install, test environments).
-  const useContacts = hasContacts();
-
-  // --- Guardian lookup: contacts-first, legacy fallback ---
-  const guardianResult = useContacts
-    ? findGuardianForChannel(input.sourceChannel)
-    : null;
+  // --- Guardian lookup ---
+  const guardianResult = findGuardianForChannel(input.sourceChannel);
   let guardianBindingMatch: ActorTrustContext["guardianBindingMatch"] = null;
   let guardianPrincipalId: string | undefined;
   let isGuardian = false;
 
   if (guardianResult) {
-    // Contacts-based guardian resolution
     const { contact: guardianContact, channel: guardianChannel } =
       guardianResult;
     const canonicalGuardianId = guardianChannel.externalUserId
@@ -252,78 +192,47 @@ export function resolveActorTrust(
     guardianPrincipalId = guardianContact.principalId ?? undefined;
     isGuardian =
       canonicalGuardianId != null && canonicalGuardianId === canonicalSenderId;
-  } else {
-    // Legacy fallback: guardian binding not yet synced to contacts
-    const binding = getGuardianBinding(assistantId, input.sourceChannel);
-    if (binding) {
-      guardianBindingMatch = {
-        guardianExternalUserId: binding.guardianExternalUserId,
-        guardianDeliveryChatId: binding.guardianDeliveryChatId,
-      };
-      guardianPrincipalId = binding.guardianPrincipalId;
-      const canonicalGuardianId = canonicalizeInboundIdentity(
-        input.sourceChannel,
-        binding.guardianExternalUserId,
-      );
-      isGuardian = canonicalGuardianId === canonicalSenderId;
-    }
   }
 
   log.debug(
     {
       channel: input.sourceChannel,
-      source: guardianResult ? "contacts" : "legacy",
+      source: "contacts",
       found: !!guardianBindingMatch,
     },
     "trust-resolver guardian lookup",
   );
 
-  // --- Member lookup: contacts-first, legacy fallback ---
+  // --- Member lookup via contacts ---
   let memberRecord: IngressMember | null = null;
-  let contactMatch: ContactWithChannels | null = null;
-  if (useContacts) {
-    contactMatch = findContactByChannelExternalId(
-      input.sourceChannel,
-      canonicalSenderId,
+  const contactMatch = findContactByChannelExternalId(
+    input.sourceChannel,
+    canonicalSenderId,
+  );
+  if (contactMatch) {
+    const matchingChannel = contactMatch.channels.find(
+      (ch) =>
+        ch.type === input.sourceChannel &&
+        ch.externalUserId === canonicalSenderId,
     );
-    if (contactMatch) {
-      // Find the specific channel entry matching the sender's channel type + canonical ID
-      const matchingChannel = contactMatch.channels.find(
-        (ch) =>
-          ch.type === input.sourceChannel &&
-          ch.externalUserId === canonicalSenderId,
+    if (matchingChannel) {
+      memberRecord = contactChannelToMemberRecord(
+        contactMatch,
+        matchingChannel,
       );
-      if (matchingChannel) {
-        memberRecord = contactChannelToMemberRecord(
-          contactMatch,
-          matchingChannel,
-        );
-      }
     }
   }
-  if (!memberRecord) {
-    // Legacy fallback: member not yet synced to contacts
-    memberRecord = findMember({
-      assistantId,
-      sourceChannel: input.sourceChannel,
-      externalUserId: canonicalSenderId,
-      externalChatId: input.conversationExternalId,
-    });
-  }
-
   log.debug(
     {
       channel: input.sourceChannel,
       canonicalSenderId,
-      source: contactMatch ? "contacts" : "legacy",
       found: !!memberRecord,
     },
     "trust-resolver member lookup",
   );
 
-  // In group chats, findMember may match on externalChatId and return a
-  // record for a different user. Only use member metadata when the record's
-  // externalUserId matches the current sender to avoid misidentification.
+  // Only use member metadata when the record's externalUserId matches the
+  // current sender to avoid misidentification in group chats.
   // Canonicalize the stored member ID to handle formatting variance (e.g.
   // phone numbers stored without E.164 normalization).
   const memberMatchesSender = memberRecord?.externalUserId

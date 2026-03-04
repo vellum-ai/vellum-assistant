@@ -1,5 +1,8 @@
-import { listWatcherEvents,listWatchers } from '../../watcher/watcher-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import {
+  listWatcherEvents,
+  listWatchers,
+} from "../../watcher/watcher-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeWatcherDigest(
   input: Record<string, unknown>,
@@ -14,7 +17,7 @@ export async function executeWatcherDigest(
   const events = listWatcherEvents({ watcherId, limit, since });
 
   if (events.length === 0) {
-    const period = hours === 24 ? 'today' : `the last ${hours} hours`;
+    const period = hours === 24 ? "today" : `the last ${hours} hours`;
     return { content: `No watcher events detected ${period}.`, isError: false };
   }
 
@@ -34,11 +37,12 @@ export async function executeWatcherDigest(
 
   for (const [wId, wEvents] of watcherMap) {
     const name = nameMap.get(wId) ?? wId;
-    lines.push('', `${name} (${wEvents.length} events):`);
+    lines.push("", `${name} (${wEvents.length} events):`);
 
     for (const event of wEvents) {
       const time = new Date(event.createdAt).toLocaleString();
-      const disposition = event.disposition !== 'pending' ? ` [${event.disposition}]` : '';
+      const disposition =
+        event.disposition !== "pending" ? ` [${event.disposition}]` : "";
       lines.push(`  - ${event.summary}${disposition} (${time})`);
       if (event.llmAction) {
         lines.push(`    Action: ${event.llmAction}`);
@@ -46,5 +50,5 @@ export async function executeWatcherDigest(
     }
   }
 
-  return { content: lines.join('\n'), isError: false };
+  return { content: lines.join("\n"), isError: false };
 }

@@ -7,28 +7,45 @@
  * answer resolves the request and all other deliveries are marked answered.
  */
 
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { getLogger } from '../util/logger.js';
-import { getDb, rawChanges } from './db.js';
-import {
-  guardianActionDeliveries,
-  guardianActionRequests,
-} from './schema.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getLogger } from "../util/logger.js";
+import { getDb, rawChanges } from "./db.js";
+import { guardianActionDeliveries, guardianActionRequests } from "./schema.js";
 
-const log = getLogger('guardian-action-store');
+const log = getLogger("guardian-action-store");
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type GuardianActionRequestStatus = 'pending' | 'answered' | 'expired' | 'cancelled';
-export type GuardianActionDeliveryStatus = 'pending' | 'sent' | 'failed' | 'answered' | 'expired' | 'cancelled';
-export type ExpiredReason = 'call_timeout' | 'sweep_timeout' | 'cancelled' | 'superseded';
-export type FollowupState = 'none' | 'awaiting_guardian_choice' | 'dispatching' | 'completed' | 'declined' | 'failed';
-export type FollowupAction = 'call_back' | 'message_back' | 'decline';
+export type GuardianActionRequestStatus =
+  | "pending"
+  | "answered"
+  | "expired"
+  | "cancelled";
+export type GuardianActionDeliveryStatus =
+  | "pending"
+  | "sent"
+  | "failed"
+  | "answered"
+  | "expired"
+  | "cancelled";
+export type ExpiredReason =
+  | "call_timeout"
+  | "sweep_timeout"
+  | "cancelled"
+  | "superseded";
+export type FollowupState =
+  | "none"
+  | "awaiting_guardian_choice"
+  | "dispatching"
+  | "completed"
+  | "declined"
+  | "failed";
+export type FollowupAction = "call_back" | "message_back" | "decline";
 
 export interface GuardianActionRequest {
   id: string;
@@ -79,7 +96,9 @@ export interface GuardianActionDelivery {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToRequest(row: typeof guardianActionRequests.$inferSelect): GuardianActionRequest {
+function rowToRequest(
+  row: typeof guardianActionRequests.$inferSelect,
+): GuardianActionRequest {
   return {
     id: row.id,
     assistantId: row.assistantId,
@@ -97,7 +116,7 @@ function rowToRequest(row: typeof guardianActionRequests.$inferSelect): Guardian
     answeredAt: row.answeredAt,
     expiresAt: row.expiresAt,
     expiredReason: (row.expiredReason as ExpiredReason) ?? null,
-    followupState: (row.followupState as FollowupState) ?? 'none',
+    followupState: (row.followupState as FollowupState) ?? "none",
     lateAnswerText: row.lateAnswerText ?? null,
     lateAnsweredAt: row.lateAnsweredAt ?? null,
     followupAction: (row.followupAction as FollowupAction) ?? null,
@@ -111,7 +130,9 @@ function rowToRequest(row: typeof guardianActionRequests.$inferSelect): Guardian
   };
 }
 
-function rowToDelivery(row: typeof guardianActionDeliveries.$inferSelect): GuardianActionDelivery {
+function rowToDelivery(
+  row: typeof guardianActionDeliveries.$inferSelect,
+): GuardianActionDelivery {
   return {
     id: row.id,
     requestId: row.requestId,
@@ -130,7 +151,7 @@ function rowToDelivery(row: typeof guardianActionDeliveries.$inferSelect): Guard
 
 /** Generate a short human-readable request code (6 hex chars). */
 function generateRequestCode(): string {
-  return uuid().replace(/-/g, '').slice(0, 6).toUpperCase();
+  return uuid().replace(/-/g, "").slice(0, 6).toUpperCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -169,14 +190,14 @@ export function createGuardianActionRequest(params: {
     pendingQuestionId: params.pendingQuestionId,
     questionText: params.questionText,
     requestCode: generateRequestCode(),
-    status: 'pending' as const,
+    status: "pending" as const,
     answerText: null,
     answeredByChannel: null,
     answeredByExternalUserId: null,
     answeredAt: null,
     expiresAt: params.expiresAt,
     expiredReason: null,
-    followupState: 'none' as const,
+    followupState: "none" as const,
     lateAnswerText: null,
     lateAnsweredAt: null,
     followupAction: null,
@@ -193,7 +214,9 @@ export function createGuardianActionRequest(params: {
   return rowToRequest(row);
 }
 
-export function getGuardianActionRequest(id: string): GuardianActionRequest | null {
+export function getGuardianActionRequest(
+  id: string,
+): GuardianActionRequest | null {
   const db = getDb();
   const row = db
     .select()
@@ -203,7 +226,9 @@ export function getGuardianActionRequest(id: string): GuardianActionRequest | nu
   return row ? rowToRequest(row) : null;
 }
 
-export function getByPendingQuestionId(questionId: string): GuardianActionRequest | null {
+export function getByPendingQuestionId(
+  questionId: string,
+): GuardianActionRequest | null {
   const db = getDb();
   const row = db
     .select()
@@ -217,7 +242,9 @@ export function getByPendingQuestionId(questionId: string): GuardianActionReques
  * Find the most recent pending guardian action request for a given call session.
  * Used by the consultation timeout handler to mark the linked request as timed out.
  */
-export function getPendingRequestByCallSessionId(callSessionId: string): GuardianActionRequest | null {
+export function getPendingRequestByCallSessionId(
+  callSessionId: string,
+): GuardianActionRequest | null {
   const db = getDb();
   const row = db
     .select()
@@ -225,7 +252,7 @@ export function getPendingRequestByCallSessionId(callSessionId: string): Guardia
     .where(
       and(
         eq(guardianActionRequests.callSessionId, callSessionId),
-        eq(guardianActionRequests.status, 'pending'),
+        eq(guardianActionRequests.status, "pending"),
       ),
     )
     .orderBy(desc(guardianActionRequests.createdAt))
@@ -250,7 +277,7 @@ export function resolveGuardianActionRequest(
   // Atomically check-and-update: only update if status is still 'pending'
   db.update(guardianActionRequests)
     .set({
-      status: 'answered',
+      status: "answered",
       answerText,
       answeredByChannel,
       answeredByExternalUserId: answeredByExternalUserId ?? null,
@@ -260,7 +287,7 @@ export function resolveGuardianActionRequest(
     .where(
       and(
         eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, 'pending'),
+        eq(guardianActionRequests.status, "pending"),
       ),
     )
     .run();
@@ -270,7 +297,7 @@ export function resolveGuardianActionRequest(
 
   // Mark all deliveries as 'answered'
   db.update(guardianActionDeliveries)
-    .set({ status: 'answered', respondedAt: now, updatedAt: now })
+    .set({ status: "answered", respondedAt: now, updatedAt: now })
     .where(eq(guardianActionDeliveries.requestId, id))
     .run();
 
@@ -281,26 +308,33 @@ export function resolveGuardianActionRequest(
  * Expire a guardian action request and all its deliveries.
  * When reason is not provided, defaults to 'sweep_timeout' for backward compatibility.
  */
-export function expireGuardianActionRequest(id: string, reason?: ExpiredReason): void {
+export function expireGuardianActionRequest(
+  id: string,
+  reason?: ExpiredReason,
+): void {
   const db = getDb();
   const now = Date.now();
 
   db.update(guardianActionRequests)
-    .set({ status: 'expired', expiredReason: reason ?? 'sweep_timeout', updatedAt: now })
+    .set({
+      status: "expired",
+      expiredReason: reason ?? "sweep_timeout",
+      updatedAt: now,
+    })
     .where(
       and(
         eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, 'pending'),
+        eq(guardianActionRequests.status, "pending"),
       ),
     )
     .run();
 
   db.update(guardianActionDeliveries)
-    .set({ status: 'expired', updatedAt: now })
+    .set({ status: "expired", updatedAt: now })
     .where(
       and(
         eq(guardianActionDeliveries.requestId, id),
-        inArray(guardianActionDeliveries.status, ['pending', 'sent']),
+        inArray(guardianActionDeliveries.status, ["pending", "sent"]),
       ),
     )
     .run();
@@ -323,8 +357,8 @@ export function supersedeGuardianActionRequest(
 
   db.update(guardianActionRequests)
     .set({
-      status: 'expired',
-      expiredReason: 'superseded',
+      status: "expired",
+      expiredReason: "superseded",
       supersededByRequestId,
       supersededAt: now,
       updatedAt: now,
@@ -332,7 +366,7 @@ export function supersedeGuardianActionRequest(
     .where(
       and(
         eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, 'pending'),
+        eq(guardianActionRequests.status, "pending"),
       ),
     )
     .run();
@@ -341,11 +375,11 @@ export function supersedeGuardianActionRequest(
 
   // Also expire active deliveries
   db.update(guardianActionDeliveries)
-    .set({ status: 'expired', updatedAt: now })
+    .set({ status: "expired", updatedAt: now })
     .where(
       and(
         eq(guardianActionDeliveries.requestId, id),
-        inArray(guardianActionDeliveries.status, ['pending', 'sent']),
+        inArray(guardianActionDeliveries.status, ["pending", "sent"]),
       ),
     )
     .run();
@@ -378,7 +412,7 @@ export function backfillSupersessionMetadata(
     .where(
       and(
         eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, 'expired'),
+        eq(guardianActionRequests.status, "expired"),
       ),
     )
     .run();
@@ -395,7 +429,7 @@ export function getExpiredGuardianActionRequests(): GuardianActionRequest[] {
     .from(guardianActionRequests)
     .where(
       and(
-        eq(guardianActionRequests.status, 'pending'),
+        eq(guardianActionRequests.status, "pending"),
         lt(guardianActionRequests.expiresAt, now),
       ),
     )
@@ -406,7 +440,9 @@ export function getExpiredGuardianActionRequests(): GuardianActionRequest[] {
 /**
  * Get all deliveries for a specific request.
  */
-export function getDeliveriesByRequestId(requestId: string): GuardianActionDelivery[] {
+export function getDeliveriesByRequestId(
+  requestId: string,
+): GuardianActionDelivery[] {
   const db = getDb();
   return db
     .select()
@@ -424,21 +460,21 @@ export function cancelGuardianActionRequest(id: string): void {
   const now = Date.now();
 
   db.update(guardianActionRequests)
-    .set({ status: 'cancelled', updatedAt: now })
+    .set({ status: "cancelled", updatedAt: now })
     .where(
       and(
         eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, 'pending'),
+        eq(guardianActionRequests.status, "pending"),
       ),
     )
     .run();
 
   db.update(guardianActionDeliveries)
-    .set({ status: 'cancelled', updatedAt: now })
+    .set({ status: "cancelled", updatedAt: now })
     .where(
       and(
         eq(guardianActionDeliveries.requestId, id),
-        inArray(guardianActionDeliveries.status, ['pending', 'sent']),
+        inArray(guardianActionDeliveries.status, ["pending", "sent"]),
       ),
     )
     .run();
@@ -453,7 +489,7 @@ export function cancelGuardianActionRequest(id: string): void {
  * finalizeFollowup, which properly sets followupCompletedAt. */
 const FOLLOWUP_TRANSITIONS: Record<FollowupState, FollowupState[]> = {
   none: [],
-  awaiting_guardian_choice: ['dispatching'],
+  awaiting_guardian_choice: ["dispatching"],
   dispatching: [],
   completed: [],
   declined: [],
@@ -462,9 +498,11 @@ const FOLLOWUP_TRANSITIONS: Record<FollowupState, FollowupState[]> = {
 
 /** Valid terminal transitions for finalizeFollowup. Maps from current
  * followup_state to the terminal states reachable from it. */
-const FOLLOWUP_FINALIZE_TRANSITIONS: Partial<Record<FollowupState, FollowupState[]>> = {
-  awaiting_guardian_choice: ['declined'],
-  dispatching: ['completed', 'failed'],
+const FOLLOWUP_FINALIZE_TRANSITIONS: Partial<
+  Record<FollowupState, FollowupState[]>
+> = {
+  awaiting_guardian_choice: ["declined"],
+  dispatching: ["completed", "failed"],
 };
 
 /**
@@ -472,16 +510,19 @@ const FOLLOWUP_FINALIZE_TRANSITIONS: Partial<Record<FollowupState, FollowupState
  * Returns the updated request on success, or null if the request was not
  * in 'pending' status (first-writer-wins).
  */
-export function markTimedOutWithReason(id: string, reason: ExpiredReason): GuardianActionRequest | null {
+export function markTimedOutWithReason(
+  id: string,
+  reason: ExpiredReason,
+): GuardianActionRequest | null {
   const db = getDb();
   const now = Date.now();
 
   db.update(guardianActionRequests)
-    .set({ status: 'expired', expiredReason: reason, updatedAt: now })
+    .set({ status: "expired", expiredReason: reason, updatedAt: now })
     .where(
       and(
         eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, 'pending'),
+        eq(guardianActionRequests.status, "pending"),
       ),
     )
     .run();
@@ -490,11 +531,11 @@ export function markTimedOutWithReason(id: string, reason: ExpiredReason): Guard
 
   // Also expire active deliveries
   db.update(guardianActionDeliveries)
-    .set({ status: 'expired', updatedAt: now })
+    .set({ status: "expired", updatedAt: now })
     .where(
       and(
         eq(guardianActionDeliveries.requestId, id),
-        inArray(guardianActionDeliveries.status, ['pending', 'sent']),
+        inArray(guardianActionDeliveries.status, ["pending", "sent"]),
       ),
     )
     .run();
@@ -517,7 +558,7 @@ export function startFollowupFromExpiredRequest(
 
   db.update(guardianActionRequests)
     .set({
-      followupState: 'awaiting_guardian_choice',
+      followupState: "awaiting_guardian_choice",
       lateAnswerText,
       lateAnsweredAt: now,
       updatedAt: now,
@@ -525,8 +566,8 @@ export function startFollowupFromExpiredRequest(
     .where(
       and(
         eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, 'expired'),
-        eq(guardianActionRequests.followupState, 'none'),
+        eq(guardianActionRequests.status, "expired"),
+        eq(guardianActionRequests.followupState, "none"),
       ),
     )
     .run();
@@ -566,7 +607,7 @@ export function progressFollowupState(
     .where(
       and(
         eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, 'expired'),
+        eq(guardianActionRequests.status, "expired"),
         eq(guardianActionRequests.followupState, request.followupState),
       ),
     )
@@ -583,7 +624,7 @@ export function progressFollowupState(
  */
 export function finalizeFollowup(
   id: string,
-  finalState: 'completed' | 'declined' | 'failed',
+  finalState: "completed" | "declined" | "failed",
 ): GuardianActionRequest | null {
   const request = getGuardianActionRequest(id);
   if (!request) return null;
@@ -603,7 +644,7 @@ export function finalizeFollowup(
     .where(
       and(
         eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, 'expired'),
+        eq(guardianActionRequests.status, "expired"),
         eq(guardianActionRequests.followupState, request.followupState),
       ),
     )
@@ -635,7 +676,7 @@ export function createGuardianActionDelivery(params: {
     destinationConversationId: params.destinationConversationId ?? null,
     destinationChatId: params.destinationChatId ?? null,
     destinationExternalUserId: params.destinationExternalUserId ?? null,
-    status: 'pending' as const,
+    status: "pending" as const,
     sentAt: null,
     respondedAt: null,
     lastError: null,
@@ -672,18 +713,18 @@ export function getPendingDeliveriesByDestination(
       .where(
         and(
           eq(guardianActionRequests.assistantId, assistantId),
-          eq(guardianActionRequests.status, 'pending'),
+          eq(guardianActionRequests.status, "pending"),
           eq(guardianActionDeliveries.destinationChannel, channel),
           eq(guardianActionDeliveries.destinationChatId, chatId),
-          eq(guardianActionDeliveries.status, 'sent'),
+          eq(guardianActionDeliveries.status, "sent"),
         ),
       )
       .all();
 
     return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
-    if (err instanceof Error && err.message.includes('no such table')) {
-      log.warn({ err }, 'guardian tables not yet created');
+    if (err instanceof Error && err.message.includes("no such table")) {
+      log.warn({ err }, "guardian tables not yet created");
       return [];
     }
     throw err;
@@ -693,7 +734,9 @@ export function getPendingDeliveriesByDestination(
 /**
  * Look up a pending delivery by destination conversation ID (for mac channel routing).
  */
-export function getPendingDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
+export function getPendingDeliveryByConversation(
+  conversationId: string,
+): GuardianActionDelivery | null {
   const all = getPendingDeliveriesByConversation(conversationId);
   return all.length > 0 ? all[0] : null;
 }
@@ -703,7 +746,9 @@ export function getPendingDeliveryByConversation(conversationId: string): Guardi
  * Used for disambiguation when a reused vellum thread has multiple active
  * guardian requests.
  */
-export function getPendingDeliveriesByConversation(conversationId: string): GuardianActionDelivery[] {
+export function getPendingDeliveriesByConversation(
+  conversationId: string,
+): GuardianActionDelivery[] {
   try {
     const db = getDb();
     const rows = db
@@ -715,16 +760,19 @@ export function getPendingDeliveriesByConversation(conversationId: string): Guar
       )
       .where(
         and(
-          eq(guardianActionDeliveries.destinationConversationId, conversationId),
-          eq(guardianActionDeliveries.status, 'sent'),
-          eq(guardianActionRequests.status, 'pending'),
+          eq(
+            guardianActionDeliveries.destinationConversationId,
+            conversationId,
+          ),
+          eq(guardianActionDeliveries.status, "sent"),
+          eq(guardianActionRequests.status, "pending"),
         ),
       )
       .all();
     return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
-    if (err instanceof Error && err.message.includes('no such table')) {
-      log.warn({ err }, 'guardian tables not yet created');
+    if (err instanceof Error && err.message.includes("no such table")) {
+      log.warn({ err }, "guardian tables not yet created");
       return [];
     }
     throw err;
@@ -755,19 +803,19 @@ export function getExpiredDeliveriesByDestination(
       .where(
         and(
           eq(guardianActionRequests.assistantId, assistantId),
-          eq(guardianActionRequests.status, 'expired'),
-          eq(guardianActionRequests.followupState, 'none'),
+          eq(guardianActionRequests.status, "expired"),
+          eq(guardianActionRequests.followupState, "none"),
           eq(guardianActionDeliveries.destinationChannel, channel),
           eq(guardianActionDeliveries.destinationChatId, chatId),
-          eq(guardianActionDeliveries.status, 'expired'),
+          eq(guardianActionDeliveries.status, "expired"),
         ),
       )
       .all();
 
     return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
-    if (err instanceof Error && err.message.includes('no such table')) {
-      log.warn({ err }, 'guardian tables not yet created');
+    if (err instanceof Error && err.message.includes("no such table")) {
+      log.warn({ err }, "guardian tables not yet created");
       return [];
     }
     throw err;
@@ -777,7 +825,9 @@ export function getExpiredDeliveriesByDestination(
 /**
  * Look up an expired delivery by destination conversation ID (for mac channel routing).
  */
-export function getExpiredDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
+export function getExpiredDeliveryByConversation(
+  conversationId: string,
+): GuardianActionDelivery | null {
   const all = getExpiredDeliveriesByConversation(conversationId);
   return all.length > 0 ? all[0] : null;
 }
@@ -787,7 +837,9 @@ export function getExpiredDeliveryByConversation(conversationId: string): Guardi
  * Used for disambiguation when a reused vellum thread has multiple expired
  * guardian requests eligible for follow-up.
  */
-export function getExpiredDeliveriesByConversation(conversationId: string): GuardianActionDelivery[] {
+export function getExpiredDeliveriesByConversation(
+  conversationId: string,
+): GuardianActionDelivery[] {
   try {
     const db = getDb();
     const rows = db
@@ -799,17 +851,20 @@ export function getExpiredDeliveriesByConversation(conversationId: string): Guar
       )
       .where(
         and(
-          eq(guardianActionDeliveries.destinationConversationId, conversationId),
-          eq(guardianActionDeliveries.status, 'expired'),
-          eq(guardianActionRequests.status, 'expired'),
-          eq(guardianActionRequests.followupState, 'none'),
+          eq(
+            guardianActionDeliveries.destinationConversationId,
+            conversationId,
+          ),
+          eq(guardianActionDeliveries.status, "expired"),
+          eq(guardianActionRequests.status, "expired"),
+          eq(guardianActionRequests.followupState, "none"),
         ),
       )
       .all();
     return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
-    if (err instanceof Error && err.message.includes('no such table')) {
-      log.warn({ err }, 'guardian tables not yet created');
+    if (err instanceof Error && err.message.includes("no such table")) {
+      log.warn({ err }, "guardian tables not yet created");
       return [];
     }
     throw err;
@@ -841,19 +896,19 @@ export function getFollowupDeliveriesByDestination(
       .where(
         and(
           eq(guardianActionRequests.assistantId, assistantId),
-          eq(guardianActionRequests.status, 'expired'),
-          eq(guardianActionRequests.followupState, 'awaiting_guardian_choice'),
+          eq(guardianActionRequests.status, "expired"),
+          eq(guardianActionRequests.followupState, "awaiting_guardian_choice"),
           eq(guardianActionDeliveries.destinationChannel, channel),
           eq(guardianActionDeliveries.destinationChatId, chatId),
-          eq(guardianActionDeliveries.status, 'expired'),
+          eq(guardianActionDeliveries.status, "expired"),
         ),
       )
       .all();
 
     return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
-    if (err instanceof Error && err.message.includes('no such table')) {
-      log.warn({ err }, 'guardian tables not yet created');
+    if (err instanceof Error && err.message.includes("no such table")) {
+      log.warn({ err }, "guardian tables not yet created");
       return [];
     }
     throw err;
@@ -864,7 +919,9 @@ export function getFollowupDeliveriesByDestination(
  * Look up a delivery for a request in `awaiting_guardian_choice` follow-up
  * state by destination conversation ID (for mac channel routing).
  */
-export function getFollowupDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
+export function getFollowupDeliveryByConversation(
+  conversationId: string,
+): GuardianActionDelivery | null {
   const all = getFollowupDeliveriesByConversation(conversationId);
   return all.length > 0 ? all[0] : null;
 }
@@ -874,7 +931,9 @@ export function getFollowupDeliveryByConversation(conversationId: string): Guard
  * state by destination conversation ID. Used for disambiguation when a reused
  * vellum thread has multiple follow-up guardian requests.
  */
-export function getFollowupDeliveriesByConversation(conversationId: string): GuardianActionDelivery[] {
+export function getFollowupDeliveriesByConversation(
+  conversationId: string,
+): GuardianActionDelivery[] {
   try {
     const db = getDb();
     const rows = db
@@ -886,17 +945,20 @@ export function getFollowupDeliveriesByConversation(conversationId: string): Gua
       )
       .where(
         and(
-          eq(guardianActionDeliveries.destinationConversationId, conversationId),
-          eq(guardianActionDeliveries.status, 'expired'),
-          eq(guardianActionRequests.status, 'expired'),
-          eq(guardianActionRequests.followupState, 'awaiting_guardian_choice'),
+          eq(
+            guardianActionDeliveries.destinationConversationId,
+            conversationId,
+          ),
+          eq(guardianActionDeliveries.status, "expired"),
+          eq(guardianActionRequests.status, "expired"),
+          eq(guardianActionRequests.followupState, "awaiting_guardian_choice"),
         ),
       )
       .all();
     return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
-    if (err instanceof Error && err.message.includes('no such table')) {
-      log.warn({ err }, 'guardian tables not yet created');
+    if (err instanceof Error && err.message.includes("no such table")) {
+      log.warn({ err }, "guardian tables not yet created");
       return [];
     }
     throw err;
@@ -912,8 +974,8 @@ export function updateDeliveryStatus(
   const now = Date.now();
 
   const updates: Record<string, unknown> = { status, updatedAt: now };
-  if (status === 'sent') updates.sentAt = now;
-  if (status === 'answered') updates.respondedAt = now;
+  if (status === "sent") updates.sentAt = now;
+  if (status === "answered") updates.respondedAt = now;
   if (error !== undefined) updates.lastError = error;
 
   db.update(guardianActionDeliveries)

@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildCredentialRefTrace, buildDecisionTrace, type CredentialRefTrace, type ProxyDecisionTrace } from '@vellumai/outbound-proxy';
-import type { PolicyDecision } from "../tools/network/script-proxy/types.js";
+import {
+  buildCredentialRefTrace,
+  buildDecisionTrace,
+  type CredentialRefTrace,
+  type PolicyDecision,
+  type ProxyDecisionTrace,
+} from "@vellumai/outbound-proxy";
 
 describe("buildDecisionTrace", () => {
   test("matched decision includes selected pattern and credential", () => {

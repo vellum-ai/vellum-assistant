@@ -1,6 +1,6 @@
-import { parseJsonSafe } from '../util/json.js';
-import { truncate } from '../util/truncate.js';
-import type { SwarmRole, SwarmTaskResult } from './types.js';
+import { parseJsonSafe } from "../util/json.js";
+import { truncate } from "../util/truncate.js";
+import type { SwarmRole, SwarmTaskResult } from "./types.js";
 
 /**
  * Build a role-specific worker prompt for a swarm task.
@@ -13,14 +13,16 @@ export function buildWorkerPrompt(opts: {
 }): string {
   const parts: string[] = [];
 
-  parts.push(`You are a ${opts.role} worker in a swarm. Your objective:\n${opts.objective}`);
+  parts.push(
+    `You are a ${opts.role} worker in a swarm. Your objective:\n${opts.objective}`,
+  );
 
   if (opts.upstreamContext) {
     parts.push(`\nContext from the orchestrator:\n${opts.upstreamContext}`);
   }
 
   if (opts.dependencyOutputs && opts.dependencyOutputs.length > 0) {
-    parts.push('\nOutputs from prerequisite tasks:');
+    parts.push("\nOutputs from prerequisite tasks:");
     for (const dep of opts.dependencyOutputs) {
       parts.push(`- [${dep.taskId}]: ${dep.summary}`);
     }
@@ -28,7 +30,7 @@ export function buildWorkerPrompt(opts: {
 
   parts.push(WORKER_OUTPUT_CONTRACT);
 
-  return parts.join('\n');
+  return parts.join("\n");
 }
 
 const WORKER_OUTPUT_CONTRACT = `
@@ -52,13 +54,15 @@ If you cannot produce valid JSON, just write a plain-text summary.`;
  * matches the worker-result contract (has a `summary` string field).
  * Falls back to treating the entire output as a plain-text summary.
  */
-export function parseWorkerOutput(raw: string): Pick<SwarmTaskResult, 'summary' | 'artifacts' | 'issues' | 'nextSteps'> {
+export function parseWorkerOutput(
+  raw: string,
+): Pick<SwarmTaskResult, "summary" | "artifacts" | "issues" | "nextSteps"> {
   const jsonBlocks = Array.from(raw.matchAll(/```json\s*\n([\s\S]*?)\n```/g));
 
   // Walk backwards to prefer the final valid contract block.
   for (let i = jsonBlocks.length - 1; i >= 0; i--) {
     const parsed = parseJsonSafe<Record<string, unknown>>(jsonBlocks[i][1]);
-    if (!parsed || typeof parsed.summary !== 'string') continue;
+    if (!parsed || typeof parsed.summary !== "string") continue;
     return {
       summary: parsed.summary,
       artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
@@ -68,7 +72,7 @@ export function parseWorkerOutput(raw: string): Pick<SwarmTaskResult, 'summary' 
   }
 
   return {
-    summary: truncate(raw, 500, ''),
+    summary: truncate(raw, 500, ""),
     artifacts: [],
     issues: [],
     nextSteps: [],

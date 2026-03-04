@@ -15,7 +15,7 @@ import type {
   EmailWebhook,
   ProviderHealth,
   SendResult,
-} from './types.js';
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Setup operations

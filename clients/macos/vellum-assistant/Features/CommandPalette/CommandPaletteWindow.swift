@@ -67,6 +67,9 @@ final class CommandPaletteWindow {
 
         let hostingController = NSHostingController(rootView: view)
         hostingController.sizingOptions = [.intrinsicContentSize]
+        hostingController.view.wantsLayer = true
+        hostingController.view.layer?.cornerRadius = VRadius.lg
+        hostingController.view.layer?.masksToBounds = true
 
         let newPanel = CommandPalettePanel(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 120),
@@ -157,8 +160,7 @@ final class CommandPaletteWindow {
             let width = max(fittingSize.width, 600)
             let height = fittingSize.height
             let x = screenFrame.midX - width / 2
-            // Position ~1/3 from top (Spotlight-style)
-            let y = screenFrame.midY + screenFrame.height * 0.15
+            let y = screenFrame.midY - height / 2
             panel.setFrame(
                 NSRect(x: x, y: y, width: width, height: height),
                 display: true

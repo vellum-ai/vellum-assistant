@@ -1,12 +1,12 @@
-import { eq } from 'drizzle-orm';
+import { eq } from "drizzle-orm";
 
-import { getDb } from '../memory/db.js';
-import { messages as messagesTable } from '../memory/schema.js';
-import { parseJsonSafe } from '../util/json.js';
-import { truncate } from '../util/truncate.js';
-import type { Task } from './task-store.js';
-import { createTask } from './task-store.js';
-import { sanitizeToolList } from './tool-sanitizer.js';
+import { getDb } from "../memory/db.js";
+import { messages as messagesTable } from "../memory/schema.js";
+import { parseJsonSafe } from "../util/json.js";
+import { truncate } from "../util/truncate.js";
+import type { Task } from "./task-store.js";
+import { createTask } from "./task-store.js";
+import { sanitizeToolList } from "./tool-sanitizer.js";
 
 /** Output schema for the task compiler. */
 export interface CompiledTask {
@@ -27,7 +27,9 @@ export interface CompiledTask {
  * 4. Builds a template from the original request
  * 5. Extracts likely input variables (file paths, URLs, quoted strings)
  */
-export function compileTaskFromConversation(conversationId: string): CompiledTask {
+export function compileTaskFromConversation(
+  conversationId: string,
+): CompiledTask {
   const db = getDb();
   const msgs = db
     .select()
@@ -40,9 +42,11 @@ export function compileTaskFromConversation(conversationId: string): CompiledTas
   }
 
   // Find the first user message to use as the template basis
-  const firstUserMsg = msgs.find((m) => m.role === 'user');
+  const firstUserMsg = msgs.find((m) => m.role === "user");
   if (!firstUserMsg) {
-    throw new Error(`No user messages found in conversation: ${conversationId}`);
+    throw new Error(
+      `No user messages found in conversation: ${conversationId}`,
+    );
   }
 
   // Extract user message text content
@@ -57,7 +61,7 @@ export function compileTaskFromConversation(conversationId: string): CompiledTas
   // Build JSON Schema for extracted placeholders
   const inputSchema =
     Object.keys(properties).length > 0
-      ? { type: 'object' as const, properties }
+      ? { type: "object" as const, properties }
       : null;
 
   // Derive title from the first user message (truncated to 60 chars)
@@ -75,7 +79,10 @@ export function compileTaskFromConversation(conversationId: string): CompiledTas
 /**
  * Save a compiled task to the database.
  */
-export function saveCompiledTask(compiled: CompiledTask, conversationId: string): Task {
+export function saveCompiledTask(
+  compiled: CompiledTask,
+  conversationId: string,
+): Task {
   return createTask({
     title: compiled.title,
     template: compiled.template,
@@ -96,9 +103,9 @@ function extractTextContent(content: string): string {
   const parsed = parseJsonSafe(content);
   if (Array.isArray(parsed)) {
     return parsed
-      .filter((block: Record<string, unknown>) => block.type === 'text')
+      .filter((block: Record<string, unknown>) => block.type === "text")
       .map((block: Record<string, unknown>) => block.text as string)
-      .join('\n');
+      .join("\n");
   }
   return content;
 }
@@ -106,13 +113,11 @@ function extractTextContent(content: string): string {
 /**
  * Extract unique tool names from assistant messages that contain tool_use blocks.
  */
-function extractToolNames(
-  msgs: { role: string; content: string }[],
-): string[] {
+function extractToolNames(msgs: { role: string; content: string }[]): string[] {
   const tools = new Set<string>();
 
   for (const msg of msgs) {
-    if (msg.role !== 'assistant') continue;
+    if (msg.role !== "assistant") continue;
 
     const parsed = parseJsonSafe(msg.content);
     if (!Array.isArray(parsed)) continue;
@@ -120,9 +125,9 @@ function extractToolNames(
     for (const block of parsed) {
       if (
         block &&
-        typeof block === 'object' &&
-        block.type === 'tool_use' &&
-        typeof block.name === 'string'
+        typeof block === "object" &&
+        block.type === "tool_use" &&
+        typeof block.name === "string"
       ) {
         tools.add(block.name);
       }
@@ -149,29 +154,27 @@ function buildTemplate(text: string): {
   let filePathIndex = 0;
 
   // Replace URLs first so they don't get partially matched by file path regex
-  template = template.replace(
-    /https?:\/\/[^\s)>]+/g,
-    () => {
-      const key = urlIndex === 0 ? 'url' : `url_${urlIndex}`;
-      urlIndex++;
-      properties[key] = {
-        type: 'string',
-        description: 'The URL to use',
-      };
-      return `{{${key}}}`;
-    },
-  );
+  template = template.replace(/https?:\/\/[^\s)>]+/g, () => {
+    const key = urlIndex === 0 ? "url" : `url_${urlIndex}`;
+    urlIndex++;
+    properties[key] = {
+      type: "string",
+      description: "The URL to use",
+    };
+    return `{{${key}}}`;
+  });
 
   // Replace absolute file paths (e.g. /Users/foo/bar.txt, ~/docs/file)
   // Only match paths starting with / or ~/ that have at least two segments
   template = template.replace(
     /(?:~\/|\/(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]+)/g,
     () => {
-      const key = filePathIndex === 0 ? 'file_path' : `file_path_${filePathIndex}`;
+      const key =
+        filePathIndex === 0 ? "file_path" : `file_path_${filePathIndex}`;
       filePathIndex++;
       properties[key] = {
-        type: 'string',
-        description: 'The file path to operate on',
+        type: "string",
+        description: "The file path to operate on",
       };
       return `{{${key}}}`;
     },
@@ -186,6 +189,6 @@ function buildTemplate(text: string): {
  */
 function deriveTitle(text: string): string {
   // Take the first line and trim whitespace
-  const firstLine = text.split('\n')[0].trim();
+  const firstLine = text.split("\n")[0].trim();
   return truncate(firstLine, 60);
 }

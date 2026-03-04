@@ -1,7 +1,7 @@
-import { getSummaryFromContextMessage } from '../context/window-manager.js';
-import type { Message } from '../providers/types.js';
+import { getSummaryFromContextMessage } from "../context/window-manager.js";
+import type { Message } from "../providers/types.js";
 
-const TRUNCATION_MARKER = '<truncated />';
+const TRUNCATION_MARKER = "<truncated />";
 
 export interface MemoryQueryBuilderOptions {
   maxUserRequestChars?: number;
@@ -25,10 +25,13 @@ export function buildMemoryQuery(
     .map((message) => getSummaryFromContextMessage(message))
     .find((summary): summary is string => summary != null);
 
-  const content = requestText.length > 0 ? requestText : '(empty)';
+  const content = requestText.length > 0 ? requestText : "(empty)";
 
   if (sessionSummary && sessionSummary.trim().length > 0) {
-    const compactSummary = clampSection(sessionSummary.trim(), maxSessionSummaryChars);
+    const compactSummary = clampSection(
+      sessionSummary.trim(),
+      maxSessionSummaryChars,
+    );
     return `${content}\n\nContext summary:\n${compactSummary}`;
   }
 
@@ -36,10 +39,9 @@ export function buildMemoryQuery(
 }
 
 function clampSection(value: string, maxChars: number): string {
-  if (maxChars <= 0) return '';
+  if (maxChars <= 0) return "";
   if (value.length <= maxChars) return value;
   const half = Math.floor((maxChars - TRUNCATION_MARKER.length) / 2);
   if (half <= 0) return value.slice(0, maxChars);
   return value.slice(0, half) + TRUNCATION_MARKER + value.slice(-half);
 }
-

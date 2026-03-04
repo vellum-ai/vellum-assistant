@@ -1,25 +1,64 @@
-import { randomUUID } from 'node:crypto';
-import type { Server } from 'node:http';
-import { join } from 'node:path';
+import { randomUUID } from "node:crypto";
+import type { Server } from "node:http";
+import { join } from "node:path";
 
-import { getSecureKey } from '../../../security/secure-keys.js';
-import { getLogger } from '../../../util/logger.js';
-import { silentlyWithLog } from '../../../util/silently.js';
-import { compareMatchSpecificity, type HostMatchKind,matchHostPattern } from '../../credentials/host-pattern-match.js';
-import { listCredentialMetadata } from '../../credentials/metadata-store.js';
-import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
-import { resolveById } from '../../credentials/resolve.js';
-import { buildDecisionTrace, createProxyServer, ensureCombinedCABundle, ensureLocalCA, evaluateRequestWithApproval, getCAPath, stripQueryString, type PolicyCallback, type ProxyServerConfig } from '@vellumai/outbound-proxy';
 import {
+  buildDecisionTrace,
+  createProxyServer,
+  ensureCombinedCABundle,
+  ensureLocalCA,
+  evaluateRequestWithApproval,
+  getCAPath,
   routeConnection,
+  stripQueryString,
+  type PolicyCallback,
+  type ProxyApprovalCallback,
+  type ProxyEnvVars,
+  type ProxyServerConfig,
+  type ProxySession,
+  type ProxySessionConfig,
+  type ProxySessionId,
+} from "@vellumai/outbound-proxy";
+
+import { getSecureKey } from "../../../security/secure-keys.js";
+import { getLogger } from "../../../util/logger.js";
+import { silentlyWithLog } from "../../../util/silently.js";
+import {
+  compareMatchSpecificity,
+  type HostMatchKind,
+  matchHostPattern,
+} from "../../credentials/host-pattern-match.js";
+import { listCredentialMetadata } from "../../credentials/metadata-store.js";
+import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
+import { resolveById } from "../../credentials/resolve.js";
+import {
   type ProxyApprovalCallback,
   type ProxyEnvVars,
   type ProxySession,
   type ProxySessionConfig,
   type ProxySessionId,
-} from '@vellumai/outbound-proxy';
+  routeConnection,
+} from "@vellumai/outbound-proxy";
 
-const log = getLogger('proxy-session');
+import { getSecureKey } from "../../../security/secure-keys.js";
+import { getLogger } from "../../../util/logger.js";
+import { silentlyWithLog } from "../../../util/silently.js";
+import {
+  compareMatchSpecificity,
+  type HostMatchKind,
+  matchHostPattern,
+} from "../../credentials/host-pattern-match.js";
+import { listCredentialMetadata } from "../../credentials/metadata-store.js";
+import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
+import { resolveById } from "../../credentials/resolve.js";
+import { ensureCombinedCABundle, ensureLocalCA, getCAPath } from "./certs.js";
+import type { PolicyCallback } from "./http-forwarder.js";
+import { buildDecisionTrace, stripQueryString } from "./logging.js";
+import { evaluateRequestWithApproval } from "./policy.js";
+import type { ProxyServerConfig } from "./server.js";
+import { createProxyServer } from "./server.js";
+
+const log = getLogger("proxy-session");
 
 const DEFAULT_CONFIG: ProxySessionConfig = {
   idleTimeoutMs: 5 * 60 * 1000, // 5 minutes
@@ -64,8 +103,8 @@ function resetIdleTimer(managed: ManagedSession): void {
     clearTimeout(managed.idleTimer);
   }
   managed.idleTimer = setTimeout(() => {
-    if (managed.session.status === 'active') {
-      silentlyWithLog(stopSession(managed.session.id), 'idle session cleanup');
+    if (managed.session.status === "active") {
+      silentlyWithLog(stopSession(managed.session.id), "idle session cleanup");
     }
   }, managed.config.idleTimeoutMs);
 }
@@ -85,9 +124,7 @@ export function createSession(
 
   // Enforce per-conversation limit
   const existing = getSessionsForConversation(conversationId);
-  const liveCount = existing.filter(
-    (s) => s.status !== 'stopped',
-  ).length;
+  const liveCount = existing.filter((s) => s.status !== "stopped").length;
   if (liveCount >= merged.maxSessionsPerConversation) {
     throw new Error(
       `Max sessions (${merged.maxSessionsPerConversation}) reached for conversation ${conversationId}`,
@@ -98,7 +135,7 @@ export function createSession(
     id: randomUUID(),
     conversationId,
     credentialIds: [...credentialIds],
-    status: 'starting',
+    status: "starting",
     createdAt: new Date(),
     port: null,
   };
@@ -110,7 +147,7 @@ export function createSession(
     config: merged,
     dataDir: dataDir ?? null,
     approvalCallback: approvalCallback ?? null,
-    listenHost: '127.0.0.1',
+    listenHost: "127.0.0.1",
     stopPromise: null,
     combinedCABundlePath: null,
   });
@@ -124,11 +161,16 @@ export function createSession(
  * is configured with a MITM handler that selectively intercepts HTTPS
  * connections to credential-matched hosts.
  */
-export async function startSession(sessionId: ProxySessionId, options?: { listenHost?: string }): Promise<ProxySession> {
+export async function startSession(
+  sessionId: ProxySessionId,
+  options?: { listenHost?: string },
+): Promise<ProxySession> {
   const managed = sessions.get(sessionId);
   if (!managed) throw new Error(`Session not found: ${sessionId}`);
-  if (managed.session.status !== 'starting') {
-    throw new Error(`Session ${sessionId} is ${managed.session.status}, expected starting`);
+  if (managed.session.status !== "starting") {
+    throw new Error(
+      `Session ${sessionId} is ${managed.session.status}, expected starting`,
+    );
   }
 
   const config: ProxyServerConfig = {};
@@ -144,7 +186,7 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
   }
 
   if (managed.dataDir && managed.session.credentialIds.length > 0) {
-    const caDir = join(managed.dataDir, 'proxy-ca');
+    const caDir = join(managed.dataDir, "proxy-ca");
 
     if (templates.size > 0) {
       // Ensure the CA directory and cert/key exist before starting MITM.
@@ -156,7 +198,9 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
         // Build a combined CA bundle (system roots + proxy CA) so
         // non-Node clients like curl, Python, and Go trust the proxy's
         // leaf certs via SSL_CERT_FILE (see getSessionEnv).
-        managed.combinedCABundlePath = await ensureCombinedCABundle(managed.dataDir);
+        managed.combinedCABundlePath = await ensureCombinedCABundle(
+          managed.dataDir,
+        );
       } catch (err) {
         sessions.delete(sessionId);
         throw err;
@@ -164,21 +208,31 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
       config.mitmHandler = {
         caDir,
         shouldIntercept: (hostname: string, port: number) =>
-          routeConnection(hostname, port, managed.session.credentialIds, templates),
+          routeConnection(
+            hostname,
+            port,
+            managed.session.credentialIds,
+            templates,
+          ),
         rewriteCallback: async (req) => {
           // Per-credential best-match selection, mirroring the policy engine's
           // specificity logic (PR 04). For each credential, pick the single
           // best header template by specificity (exact > wildcard).
-          const perCredentialBest: { credId: string; tpl: CredentialInjectionTemplate }[] = [];
+          const perCredentialBest: {
+            credId: string;
+            tpl: CredentialInjectionTemplate;
+          }[] = [];
 
           for (const [credId, tpls] of templates) {
-            let bestMatch: HostMatchKind = 'none';
+            let bestMatch: HostMatchKind = "none";
             let bestCandidates: CredentialInjectionTemplate[] = [];
 
             for (const tpl of tpls) {
-              if (tpl.injectionType === 'query') continue;
-              const match = matchHostPattern(req.hostname, tpl.hostPattern, { includeApexForWildcard: true });
-              if (match === 'none') continue;
+              if (tpl.injectionType === "query") continue;
+              const match = matchHostPattern(req.hostname, tpl.hostPattern, {
+                includeApexForWildcard: true,
+              });
+              if (match === "none") continue;
 
               const cmp = compareMatchSpecificity(match, bestMatch);
               if (cmp < 0) {
@@ -202,16 +256,23 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
           if (perCredentialBest.length > 1) return null;
 
           const { credId, tpl } = perCredentialBest[0];
-          log.debug({ host: req.hostname, pattern: tpl.hostPattern, credentialId: credId }, 'MITM rewrite: injecting credential');
+          log.debug(
+            {
+              host: req.hostname,
+              pattern: tpl.hostPattern,
+              credentialId: credId,
+            },
+            "MITM rewrite: injecting credential",
+          );
 
-          if (tpl.injectionType === 'header' && tpl.headerName) {
+          if (tpl.injectionType === "header" && tpl.headerName) {
             const resolved = resolveById(credId);
             if (!resolved) return req.headers;
             const value = getSecureKey(resolved.storageKey);
             if (!value) return req.headers;
 
             req.headers[tpl.headerName.toLowerCase()] =
-              (tpl.valuePrefix ?? '') + value;
+              (tpl.valuePrefix ?? "") + value;
             return req.headers;
           }
 
@@ -244,17 +305,37 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
   }
 
   // Build the policy callback for HTTP/CONNECT request gating
-  const policyCallback: PolicyCallback = async (hostname: string, port: number | null, reqPath: string, scheme: 'http' | 'https') => {
-
+  const policyCallback: PolicyCallback = async (
+    hostname: string,
+    port: number | null,
+    reqPath: string,
+    scheme: "http" | "https",
+  ) => {
     const decision = evaluateRequestWithApproval(
-      hostname, port, reqPath,
-      managed.session.credentialIds, templates, getAllKnown(), scheme,
+      hostname,
+      port,
+      reqPath,
+      managed.session.credentialIds,
+      templates,
+      getAllKnown(),
+      scheme,
     );
 
-    log.debug({ trace: buildDecisionTrace(hostname, port, stripQueryString(reqPath), scheme, decision) }, 'Policy decision');
+    log.debug(
+      {
+        trace: buildDecisionTrace(
+          hostname,
+          port,
+          stripQueryString(reqPath),
+          scheme,
+          decision,
+        ),
+      },
+      "Policy decision",
+    );
 
     switch (decision.kind) {
-      case 'matched': {
+      case "matched": {
         // Inject the credential value into the outbound request headers.
         // Secret values are read from secure storage at injection time and
         // MUST NEVER be logged — sanitizeHeaders in logging.ts handles redaction.
@@ -264,17 +345,17 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
         const value = getSecureKey(resolved.storageKey);
         if (!value) return {};
 
-        if (template.injectionType === 'header' && template.headerName) {
-          const headerValue = (template.valuePrefix ?? '') + value;
+        if (template.injectionType === "header" && template.headerName) {
+          const headerValue = (template.valuePrefix ?? "") + value;
           return { [template.headerName.toLowerCase()]: headerValue };
         }
         // Query param injection is handled via URL rewriting in the MITM path
         return {};
       }
-      case 'ambiguous':
+      case "ambiguous":
         return null; // block — can't auto-resolve
-      case 'ask_missing_credential':
-      case 'ask_unauthenticated':
+      case "ask_missing_credential":
+      case "ask_unauthenticated":
         if (managed.approvalCallback) {
           const approved = await managed.approvalCallback({
             decision,
@@ -282,10 +363,10 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
           });
           return approved ? {} : null;
         }
-        return decision.kind === 'ask_unauthenticated' ? {} : null;
-      case 'missing':
+        return decision.kind === "ask_unauthenticated" ? {} : null;
+      case "missing":
         return null;
-      case 'unauthenticated':
+      case "unauthenticated":
         return {};
       default:
         return null;
@@ -296,24 +377,24 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
 
   const server = createProxyServer(config);
 
-  const listenHost = options?.listenHost ?? '127.0.0.1';
+  const listenHost = options?.listenHost ?? "127.0.0.1";
 
   try {
     return await new Promise<ProxySession>((resolve, reject) => {
       server.listen(0, listenHost, () => {
         const addr = server.address();
-        if (!addr || typeof addr === 'string') {
-          reject(new Error('Failed to get server address'));
+        if (!addr || typeof addr === "string") {
+          reject(new Error("Failed to get server address"));
           return;
         }
         managed.server = server;
         managed.session.port = addr.port;
-        managed.session.status = 'active';
+        managed.session.status = "active";
         managed.listenHost = listenHost;
         resetIdleTimer(managed);
         resolve(cloneSession(managed.session));
       });
-      server.on('error', reject);
+      server.on("error", reject);
     });
   } catch (err) {
     // Clean up: close the server if it started, and remove the session so it
@@ -330,14 +411,14 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
 export async function stopSession(sessionId: ProxySessionId): Promise<void> {
   const managed = sessions.get(sessionId);
   if (!managed) throw new Error(`Session not found: ${sessionId}`);
-  if (managed.session.status === 'stopped') return;
+  if (managed.session.status === "stopped") return;
 
   // If a shutdown is already in flight, await it instead of returning early.
-  if (managed.session.status === 'stopping' && managed.stopPromise) {
+  if (managed.session.status === "stopping" && managed.stopPromise) {
     return managed.stopPromise;
   }
 
-  managed.session.status = 'stopping';
+  managed.session.status = "stopping";
 
   const doStop = async () => {
     if (managed.idleTimer != null) {
@@ -352,7 +433,7 @@ export async function stopSession(sessionId: ProxySessionId): Promise<void> {
       managed.server = null;
     }
 
-    managed.session.status = 'stopped';
+    managed.session.status = "stopped";
     managed.session.port = null;
     managed.approvalCallback = null;
     managed.stopPromise = null;
@@ -366,12 +447,10 @@ export async function stopSession(sessionId: ProxySessionId): Promise<void> {
  * Build environment variables to inject into a subprocess so its HTTP
  * traffic flows through this proxy session.
  */
-export function getSessionEnv(
-  sessionId: ProxySessionId,
-): ProxyEnvVars {
+export function getSessionEnv(sessionId: ProxySessionId): ProxyEnvVars {
   const managed = sessions.get(sessionId);
   if (!managed) throw new Error(`Session not found: ${sessionId}`);
-  if (managed.session.status !== 'active' || managed.session.port == null) {
+  if (managed.session.status !== "active" || managed.session.port == null) {
     throw new Error(`Session ${sessionId} is not active`);
   }
 
@@ -382,7 +461,7 @@ export function getSessionEnv(
   const env: ProxyEnvVars = {
     HTTP_PROXY: proxyUrl,
     HTTPS_PROXY: proxyUrl,
-    NO_PROXY: 'localhost,127.0.0.1,::1',
+    NO_PROXY: "localhost,127.0.0.1,::1",
   };
 
   if (managed.dataDir) {
@@ -427,7 +506,7 @@ export async function getOrStartSession(
   approvalCallback?: ProxyApprovalCallback,
   options?: { listenHost?: string },
 ): Promise<{ session: ProxySession; created: boolean }> {
-  const requestedHost = options?.listenHost ?? '127.0.0.1';
+  const requestedHost = options?.listenHost ?? "127.0.0.1";
 
   // Fast path — session already active with matching credentials and listen host, no lock needed.
   const existing = getActiveSession(conversationId);
@@ -467,13 +546,23 @@ export async function getOrStartSession(
     const recheck = getActiveSession(conversationId);
     if (recheck) {
       const m = sessions.get(recheck.id);
-      if (credentialIdsMatch(recheck.credentialIds, credentialIds) && m && m.listenHost === requestedHost) {
+      if (
+        credentialIdsMatch(recheck.credentialIds, credentialIds) &&
+        m &&
+        m.listenHost === requestedHost
+      ) {
         return { session: recheck, created: false };
       }
       await stopSession(recheck.id);
     }
 
-    const session = createSession(conversationId, credentialIds, config, dataDir, approvalCallback);
+    const session = createSession(
+      conversationId,
+      credentialIds,
+      config,
+      dataDir,
+      approvalCallback,
+    );
     const started = await startSession(session.id, options);
     return { session: started, created: true };
   })();
@@ -492,11 +581,13 @@ export async function getOrStartSession(
 /**
  * Find an active session for a conversation (returns the first match).
  */
-export function getActiveSession(conversationId: string): ProxySession | undefined {
+export function getActiveSession(
+  conversationId: string,
+): ProxySession | undefined {
   for (const managed of sessions.values()) {
     if (
       managed.session.conversationId === conversationId &&
-      managed.session.status === 'active'
+      managed.session.status === "active"
     ) {
       return cloneSession(managed.session);
     }
@@ -507,7 +598,9 @@ export function getActiveSession(conversationId: string): ProxySession | undefin
 /**
  * Get all sessions for a given conversation.
  */
-export function getSessionsForConversation(conversationId: string): ProxySession[] {
+export function getSessionsForConversation(
+  conversationId: string,
+): ProxySession[] {
   const result: ProxySession[] = [];
   for (const managed of sessions.values()) {
     if (managed.session.conversationId === conversationId) {
@@ -522,6 +615,12 @@ export function getSessionsForConversation(conversationId: string): ProxySession
  */
 export async function stopAllSessions(): Promise<void> {
   const ids = [...sessions.keys()];
-  await Promise.all(ids.map((id) => stopSession(id).catch((err: unknown) => log.debug({ err, id }, 'session shutdown error'))));
+  await Promise.all(
+    ids.map((id) =>
+      stopSession(id).catch((err: unknown) =>
+        log.debug({ err, id }, "session shutdown error"),
+      ),
+    ),
+  );
   sessions.clear();
 }

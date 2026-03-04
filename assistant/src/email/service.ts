@@ -15,11 +15,19 @@ import {
   removeAddressRule,
   setDailySendCap,
   setOutboundPaused,
-} from '../cli/email-guardrails.js';
-import { loadRawConfig, saveRawConfig,setNestedValue } from '../config/loader.js';
-import { ConfigError } from '../util/errors.js';
-import type { EmailProvider } from './provider.js';
-import { createProvider, getActiveProviderName, type SupportedProvider } from './providers/index.js';
+} from "../cli/email-guardrails.js";
+import {
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../config/loader.js";
+import { ConfigError } from "../util/errors.js";
+import type { EmailProvider } from "./provider.js";
+import {
+  createProvider,
+  getActiveProviderName,
+  type SupportedProvider,
+} from "./providers/index.js";
 import type {
   CreateDraftInput,
   DnsRecord,
@@ -31,7 +39,7 @@ import type {
   EmailWebhook,
   ProviderHealth,
   SendResult,
-} from './types.js';
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Guardrail error
@@ -44,7 +52,7 @@ export class GuardrailError extends Error {
     public readonly details?: Record<string, unknown>,
   ) {
     super(message);
-    this.name = 'GuardrailError';
+    this.name = "GuardrailError";
   }
 }
 
@@ -78,7 +86,7 @@ export class EmailService {
 
   setProvider(name: SupportedProvider): void {
     const raw = loadRawConfig();
-    setNestedValue(raw, 'integrations.email.provider', name);
+    setNestedValue(raw, "integrations.email.provider", name);
     saveRawConfig(raw);
     this.resetProvider();
   }
@@ -124,7 +132,11 @@ export class EmailService {
   // Inbox management
   // =========================================================================
 
-  async createInbox(username: string, domain?: string, displayName?: string): Promise<EmailInbox> {
+  async createInbox(
+    username: string,
+    domain?: string,
+    displayName?: string,
+  ): Promise<EmailInbox> {
     const p = await this.provider();
     return p.createInbox({ username, domain, displayName });
   }
@@ -157,12 +169,18 @@ export class EmailService {
     // Resolve inbox from the "from" address — fail fast if not found
     const health = await p.health();
     if (health.inboxes.length === 0) {
-      throw new ConfigError('No inboxes found. Run: vellum email setup inboxes --domain <domain>');
+      throw new ConfigError(
+        "No inboxes found. Run: vellum email setup inboxes --domain <domain>",
+      );
     }
-    const inbox = health.inboxes.find(i => i.address === input.from || i.id === input.from);
+    const inbox = health.inboxes.find(
+      (i) => i.address === input.from || i.id === input.from,
+    );
     if (!inbox) {
-      const available = health.inboxes.map(i => i.address || i.id).join(', ');
-      throw new ConfigError(`No inbox matches --from "${input.from}". Available: ${available}`);
+      const available = health.inboxes.map((i) => i.address || i.id).join(", ");
+      throw new ConfigError(
+        `No inbox matches --from "${input.from}". Available: ${available}`,
+      );
     }
     const inboxId = inbox.id;
     return p.createDraft({
@@ -179,7 +197,7 @@ export class EmailService {
     const p = await this.provider();
     const drafts = await p.listDrafts();
     if (status) {
-      return drafts.filter(d => d.status === status);
+      return drafts.filter((d) => d.status === status);
     }
     return drafts;
   }
@@ -199,21 +217,24 @@ export class EmailService {
    * Throws GuardrailError if blocked.
    * Pass inboxId to avoid incorrect inbox resolution in multi-inbox setups.
    */
-  async approveSend(draftId: string, inboxId?: string): Promise<SendResult & { dailyCount: number }> {
+  async approveSend(
+    draftId: string,
+    inboxId?: string,
+  ): Promise<SendResult & { dailyCount: number }> {
     const p = await this.provider();
 
     // Fetch draft to get recipients — pass inboxId for correct scoping
     const draft = await p.getDraft(draftId, inboxId);
-    const recipients = [
-      ...draft.to,
-      ...(draft.cc ?? []),
-      ...(draft.bcc ?? []),
-    ];
+    const recipients = [...draft.to, ...(draft.cc ?? []), ...(draft.bcc ?? [])];
 
     // Check guardrails
     const blocked = checkSendGuardrails(recipients);
     if (blocked) {
-      throw new GuardrailError(blocked.error, `Send blocked: ${blocked.error}`, blocked);
+      throw new GuardrailError(
+        blocked.error,
+        `Send blocked: ${blocked.error}`,
+        blocked,
+      );
     }
 
     // Send
@@ -225,7 +246,11 @@ export class EmailService {
   /**
    * Reject a draft (delete it with a reason marker).
    */
-  async rejectDraft(draftId: string, _reason?: string, inboxId?: string): Promise<void> {
+  async rejectDraft(
+    draftId: string,
+    _reason?: string,
+    inboxId?: string,
+  ): Promise<void> {
     const p = await this.provider();
     await p.deleteDraft(draftId, inboxId);
   }
@@ -234,7 +259,10 @@ export class EmailService {
   // Inbound / Messages
   // =========================================================================
 
-  async listMessages(threadId?: string, inboxId?: string): Promise<EmailMessage[]> {
+  async listMessages(
+    threadId?: string,
+    inboxId?: string,
+  ): Promise<EmailMessage[]> {
     const p = await this.provider();
     const opts: { threadId?: string; inboxId?: string } = {};
     if (threadId) opts.threadId = threadId;
@@ -275,7 +303,7 @@ export class EmailService {
     return getGuardrailsStatus();
   }
 
-  addRule(type: 'block' | 'allow', pattern: string): AddressRule {
+  addRule(type: "block" | "allow", pattern: string): AddressRule {
     return addAddressRule(type, pattern);
   }
 

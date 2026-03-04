@@ -127,7 +127,7 @@ export async function reduceContextOverflow(
 
   // Tier 2: aggressive tool-result truncation
   if (!applied.includes("tool_result_truncation")) {
-    return applyToolResultTruncation(messages, config, applied);
+    return applyToolResultTruncation(messages, config, applied, state);
   }
 
   // Tier 3: media/file payload stubbing
@@ -196,6 +196,7 @@ function applyToolResultTruncation(
   messages: Message[],
   config: ReducerConfig,
   applied: ReducerTier[],
+  prevState: ReducerState | undefined,
 ): ReducerStepResult {
   const { messages: truncated, truncatedCount } =
     truncateToolResultsAcrossHistory(messages, OVERFLOW_TOOL_RESULT_MAX_CHARS);
@@ -213,8 +214,9 @@ function applyToolResultTruncation(
     tier: "tool_result_truncation",
     state: {
       appliedTiers: nextApplied,
-      injectionMode: "full",
+      injectionMode: prevState?.injectionMode ?? "full",
       toolResultMaxChars: OVERFLOW_TOOL_RESULT_MAX_CHARS,
+      compactionOptions: prevState?.compactionOptions,
       exhausted: false,
     },
     estimatedTokens,

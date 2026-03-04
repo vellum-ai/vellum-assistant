@@ -6,21 +6,26 @@
  * single-row projection per conversation (conversation_assistant_attention_state).
  */
 
-import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb } from './db.js';
-import { conversationAssistantAttentionState, conversationAttentionEvents, conversations, messages } from './schema.js';
+import { getDb } from "./db.js";
+import {
+  conversationAssistantAttentionState,
+  conversationAttentionEvents,
+  conversations,
+  messages,
+} from "./schema.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
 export type SignalType =
-  | 'macos_notification_view'
-  | 'macos_conversation_opened'
-  | 'telegram_inbound_message'
-  | 'telegram_callback';
+  | "macos_notification_view"
+  | "macos_conversation_opened"
+  | "telegram_inbound_message"
+  | "telegram_callback";
 
-export type Confidence = 'explicit' | 'inferred';
+export type Confidence = "explicit" | "inferred";
 
 export interface AttentionEvent {
   id: string;
@@ -55,7 +60,9 @@ export interface AttentionState {
 
 // ── Row mappers ──────────────────────────────────────────────────────
 
-function rowToEvent(row: typeof conversationAttentionEvents.$inferSelect): AttentionEvent {
+function rowToEvent(
+  row: typeof conversationAttentionEvents.$inferSelect,
+): AttentionEvent {
   return {
     id: row.id,
     conversationId: row.conversationId,
@@ -71,7 +78,9 @@ function rowToEvent(row: typeof conversationAttentionEvents.$inferSelect): Atten
   };
 }
 
-function rowToState(row: typeof conversationAssistantAttentionState.$inferSelect): AttentionState {
+function rowToState(
+  row: typeof conversationAssistantAttentionState.$inferSelect,
+): AttentionState {
   return {
     conversationId: row.conversationId,
     assistantId: row.assistantId,
@@ -109,7 +118,9 @@ export function projectAssistantMessage(params: {
   const existing = db
     .select()
     .from(conversationAssistantAttentionState)
-    .where(eq(conversationAssistantAttentionState.conversationId, conversationId))
+    .where(
+      eq(conversationAssistantAttentionState.conversationId, conversationId),
+    )
     .get();
 
   if (!existing) {
@@ -135,7 +146,10 @@ export function projectAssistantMessage(params: {
   }
 
   // Monotonic: only advance if the new message is strictly later
-  if (existing.latestAssistantMessageAt != null && messageAt <= existing.latestAssistantMessageAt) {
+  if (
+    existing.latestAssistantMessageAt != null &&
+    messageAt <= existing.latestAssistantMessageAt
+  ) {
     return;
   }
 
@@ -145,7 +159,9 @@ export function projectAssistantMessage(params: {
       latestAssistantMessageAt: messageAt,
       updatedAt: now,
     })
-    .where(eq(conversationAssistantAttentionState.conversationId, conversationId))
+    .where(
+      eq(conversationAssistantAttentionState.conversationId, conversationId),
+    )
     .run();
 }
 
@@ -182,7 +198,7 @@ export function recordConversationSeenSignal(params: {
   const now = Date.now();
   const eventId = uuid();
   const eventObservedAt = observedAt ?? now;
-  const metadataJson = metadata ? JSON.stringify(metadata) : '{}';
+  const metadataJson = metadata ? JSON.stringify(metadata) : "{}";
 
   const event: typeof conversationAttentionEvents.$inferInsert = {
     id: eventId,
@@ -206,7 +222,9 @@ export function recordConversationSeenSignal(params: {
     const state = tx
       .select()
       .from(conversationAssistantAttentionState)
-      .where(eq(conversationAssistantAttentionState.conversationId, conversationId))
+      .where(
+        eq(conversationAssistantAttentionState.conversationId, conversationId),
+      )
       .get();
 
     if (!state) {
@@ -216,7 +234,12 @@ export function recordConversationSeenSignal(params: {
       const latestMsg = tx
         .select({ id: messages.id, createdAt: messages.createdAt })
         .from(messages)
-        .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'assistant')))
+        .where(
+          and(
+            eq(messages.conversationId, conversationId),
+            eq(messages.role, "assistant"),
+          ),
+        )
         .orderBy(desc(messages.createdAt))
         .limit(1)
         .get();
@@ -279,7 +302,9 @@ export function recordConversationSeenSignal(params: {
 
     tx.update(conversationAssistantAttentionState)
       .set(updates)
-      .where(eq(conversationAssistantAttentionState.conversationId, conversationId))
+      .where(
+        eq(conversationAssistantAttentionState.conversationId, conversationId),
+      )
       .run();
   });
 
@@ -301,7 +326,12 @@ export function getAttentionStateByConversationIds(
   const rows = db
     .select()
     .from(conversationAssistantAttentionState)
-    .where(inArray(conversationAssistantAttentionState.conversationId, conversationIds))
+    .where(
+      inArray(
+        conversationAssistantAttentionState.conversationId,
+        conversationIds,
+      ),
+    )
     .all();
 
   const result = new Map<string, AttentionState>();
@@ -313,7 +343,7 @@ export function getAttentionStateByConversationIds(
 
 // ── listConversationAttention ────────────────────────────────────────
 
-export type AttentionFilterState = 'seen' | 'unseen' | 'all';
+export type AttentionFilterState = "seen" | "unseen" | "all";
 
 export interface ListConversationAttentionParams {
   assistantId: string;
@@ -333,7 +363,7 @@ export function listConversationAttention(
 ): AttentionState[] {
   const {
     assistantId,
-    state: filterState = 'all',
+    state: filterState = "all",
     sourceChannel,
     source,
     limit = 50,
@@ -341,7 +371,9 @@ export function listConversationAttention(
   } = params;
 
   const db = getDb();
-  const conditions = [eq(conversationAssistantAttentionState.assistantId, assistantId)];
+  const conditions = [
+    eq(conversationAssistantAttentionState.assistantId, assistantId),
+  ];
 
   if (sourceChannel) {
     conditions.push(eq(conversations.originChannel, sourceChannel));
@@ -357,7 +389,7 @@ export function listConversationAttention(
     );
   }
 
-  if (filterState === 'unseen') {
+  if (filterState === "unseen") {
     // Unseen: latest assistant message exists but no seen cursor, or seen cursor is behind latest
     conditions.push(
       sql`${conversationAssistantAttentionState.latestAssistantMessageAt} IS NOT NULL`,
@@ -368,7 +400,7 @@ export function listConversationAttention(
         sql`${conversationAssistantAttentionState.lastSeenAssistantMessageAt} < ${conversationAssistantAttentionState.latestAssistantMessageAt}`,
       )!,
     );
-  } else if (filterState === 'seen') {
+  } else if (filterState === "seen") {
     // Seen: seen cursor equals latest assistant message
     conditions.push(
       sql`${conversationAssistantAttentionState.latestAssistantMessageAt} IS NOT NULL`,
@@ -382,16 +414,24 @@ export function listConversationAttention(
     .select({
       conversationId: conversationAssistantAttentionState.conversationId,
       assistantId: conversationAssistantAttentionState.assistantId,
-      latestAssistantMessageId: conversationAssistantAttentionState.latestAssistantMessageId,
-      latestAssistantMessageAt: conversationAssistantAttentionState.latestAssistantMessageAt,
-      lastSeenAssistantMessageId: conversationAssistantAttentionState.lastSeenAssistantMessageId,
-      lastSeenAssistantMessageAt: conversationAssistantAttentionState.lastSeenAssistantMessageAt,
+      latestAssistantMessageId:
+        conversationAssistantAttentionState.latestAssistantMessageId,
+      latestAssistantMessageAt:
+        conversationAssistantAttentionState.latestAssistantMessageAt,
+      lastSeenAssistantMessageId:
+        conversationAssistantAttentionState.lastSeenAssistantMessageId,
+      lastSeenAssistantMessageAt:
+        conversationAssistantAttentionState.lastSeenAssistantMessageAt,
       lastSeenEventAt: conversationAssistantAttentionState.lastSeenEventAt,
-      lastSeenConfidence: conversationAssistantAttentionState.lastSeenConfidence,
-      lastSeenSignalType: conversationAssistantAttentionState.lastSeenSignalType,
-      lastSeenSourceChannel: conversationAssistantAttentionState.lastSeenSourceChannel,
+      lastSeenConfidence:
+        conversationAssistantAttentionState.lastSeenConfidence,
+      lastSeenSignalType:
+        conversationAssistantAttentionState.lastSeenSignalType,
+      lastSeenSourceChannel:
+        conversationAssistantAttentionState.lastSeenSourceChannel,
       lastSeenSource: conversationAssistantAttentionState.lastSeenSource,
-      lastSeenEvidenceText: conversationAssistantAttentionState.lastSeenEvidenceText,
+      lastSeenEvidenceText:
+        conversationAssistantAttentionState.lastSeenEvidenceText,
       createdAt: conversationAssistantAttentionState.createdAt,
       updatedAt: conversationAssistantAttentionState.updatedAt,
     })

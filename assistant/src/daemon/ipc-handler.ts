@@ -3,18 +3,18 @@
  * hub publishing. Extracted from DaemonServer to separate transport
  * concerns from session management and business logic.
  */
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { buildAssistantEvent } from '../runtime/assistant-event.js';
-import { assistantEventHub } from '../runtime/assistant-event-hub.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { CURRENT_POLICY_EPOCH } from '../runtime/auth/policy.js';
-import { resolveScopeProfile } from '../runtime/auth/scopes.js';
-import type { AuthContext } from '../runtime/auth/types.js';
-import { getLogger } from '../util/logger.js';
-import { serialize, type ServerMessage } from './ipc-protocol.js';
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { CURRENT_POLICY_EPOCH } from "../runtime/auth/policy.js";
+import { resolveScopeProfile } from "../runtime/auth/scopes.js";
+import type { AuthContext } from "../runtime/auth/types.js";
+import { getLogger } from "../util/logger.js";
+import { serialize, type ServerMessage } from "./ipc-protocol.js";
 
-const log = getLogger('ipc-handler');
+const log = getLogger("ipc-handler");
 
 /**
  * Manages IPC message delivery: writing to individual sockets,
@@ -61,8 +61,9 @@ export class IpcSender {
       if (socket === excludeSocket) continue;
       this.writeToSocket(socket, msg);
     }
-    const sessionId = extractSessionId(msg)
-      ?? (excludeSocket ? socketToSession.get(excludeSocket) : undefined);
+    const sessionId =
+      extractSessionId(msg) ??
+      (excludeSocket ? socketToSession.get(excludeSocket) : undefined);
     this.publishAssistantEvent(msg, sessionId, assistantId);
   }
 
@@ -71,13 +72,20 @@ export class IpcSender {
    * Publications are serialized via a promise chain so subscribers
    * always observe events in send order.
    */
-  private publishAssistantEvent(msg: ServerMessage, sessionId?: string, assistantId?: string): void {
-    const id = assistantId ?? 'default';
+  private publishAssistantEvent(
+    msg: ServerMessage,
+    sessionId?: string,
+    assistantId?: string,
+  ): void {
+    const id = assistantId ?? "default";
     const event = buildAssistantEvent(id, msg, sessionId);
     this._hubChain = this._hubChain
       .then(() => assistantEventHub.publish(event))
       .catch((err: unknown) => {
-        log.warn({ err }, 'assistant-events hub subscriber threw during IPC send');
+        log.warn(
+          { err },
+          "assistant-events hub subscriber threw during IPC send",
+        );
       });
   }
 }
@@ -93,11 +101,11 @@ export class IpcSender {
 export function buildIpcAuthContext(sessionId: string): AuthContext {
   return {
     subject: `ipc:self:${sessionId}`,
-    principalType: 'ipc',
+    principalType: "ipc",
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     sessionId,
-    scopeProfile: 'ipc_v1',
-    scopes: resolveScopeProfile('ipc_v1'),
+    scopeProfile: "ipc_v1",
+    scopes: resolveScopeProfile("ipc_v1"),
     policyEpoch: CURRENT_POLICY_EPOCH,
   };
 }
@@ -105,7 +113,7 @@ export function buildIpcAuthContext(sessionId: string): AuthContext {
 /** Extract sessionId from a ServerMessage if present. */
 function extractSessionId(msg: ServerMessage): string | undefined {
   const record = msg as unknown as Record<string, unknown>;
-  if ('sessionId' in msg && typeof record.sessionId === 'string') {
+  if ("sessionId" in msg && typeof record.sessionId === "string") {
     return record.sessionId as string;
   }
   return undefined;

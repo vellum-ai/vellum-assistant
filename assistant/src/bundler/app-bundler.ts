@@ -5,26 +5,26 @@
  * zip archive written to a temp file.
  */
 
-import { createHash,randomUUID } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
-import { readFile, stat,writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { extname,join } from 'node:path';
+import { createHash, randomUUID } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { extname, join } from "node:path";
 
-import archiver from 'archiver';
-import JSZip from 'jszip';
+import archiver from "archiver";
+import JSZip from "jszip";
 
-import { getApp } from '../memory/app-store.js';
-import { computeContentId } from '../util/content-id.js';
-import { getLogger } from '../util/logger.js';
-import type { SigningCallback } from './bundle-signer.js';
-import { signBundle } from './bundle-signer.js';
-import type { AppManifest } from './manifest.js';
-import { serializeManifest } from './manifest.js';
+import { getApp } from "../memory/app-store.js";
+import { computeContentId } from "../util/content-id.js";
+import { getLogger } from "../util/logger.js";
+import type { SigningCallback } from "./bundle-signer.js";
+import { signBundle } from "./bundle-signer.js";
+import type { AppManifest } from "./manifest.js";
+import { serializeManifest } from "./manifest.js";
 
-const bundlerLog = getLogger('app-bundler');
+const bundlerLog = getLogger("app-bundler");
 
-import { APP_VERSION } from '../version.js';
+import { APP_VERSION } from "../version.js";
 const PACKAGE_VERSION = APP_VERSION;
 
 const SHORT_HASH_LENGTH = 8;
@@ -56,10 +56,11 @@ export function extractRemoteUrls(html: string): string[] {
 
   // Match href="..." on any element except navigation/resolution tags (not assets).
   // Captures the tag name and href value so we can skip them.
-  const hrefRe = /<(\w+)\b[^>]*?\bhref\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))[^>]*?\/?>/gi;
+  const hrefRe =
+    /<(\w+)\b[^>]*?\bhref\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))[^>]*?\/?>/gi;
   while ((m = hrefRe.exec(html)) != null) {
     const tagName = m[1];
-    if (['a', 'base', 'area'].includes(tagName.toLowerCase())) continue;
+    if (["a", "base", "area"].includes(tagName.toLowerCase())) continue;
     const url = m[2] ?? m[3] ?? m[4];
     if (url && /^https?:\/\//i.test(url)) {
       urls.add(url);
@@ -83,8 +84,11 @@ export function extractRemoteUrls(html: string): string[] {
  * Uses a hash of the URL to avoid collisions, preserving the original extension.
  */
 function assetFilename(url: string): string {
-  const hash = createHash('sha256').update(url).digest('hex').slice(0, HASH_DISPLAY_LENGTH);
-  let ext = '';
+  const hash = createHash("sha256")
+    .update(url)
+    .digest("hex")
+    .slice(0, HASH_DISPLAY_LENGTH);
+  let ext = "";
   try {
     const parsed = new URL(url);
     ext = extname(parsed.pathname);
@@ -93,7 +97,7 @@ function assetFilename(url: string): string {
   }
   // Fallback: if no extension or it's too long/weird, drop it
   if (!ext || ext.length > 10 || !/^\.\w+$/.test(ext)) {
-    ext = '';
+    ext = "";
   }
   return `${hash}${ext}`;
 }
@@ -119,12 +123,18 @@ export async function materializeAssets(
     urls.map(async (url) => {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), ASSET_FETCH_TIMEOUT_MS);
+        const timeout = setTimeout(
+          () => controller.abort(),
+          ASSET_FETCH_TIMEOUT_MS,
+        );
         let buf: Buffer;
         try {
           const resp = await fetch(url, { signal: controller.signal });
           if (!resp.ok) {
-            bundlerLog.warn({ url, status: resp.status }, 'Failed to fetch asset, keeping original URL');
+            bundlerLog.warn(
+              { url, status: resp.status },
+              "Failed to fetch asset, keeping original URL",
+            );
             return;
           }
           buf = Buffer.from(await resp.arrayBuffer());
@@ -136,7 +146,10 @@ export async function materializeAssets(
         assets.push({ archivePath, data: buf });
         urlMap.set(url, archivePath);
       } catch (err) {
-        bundlerLog.warn({ url, err }, 'Failed to fetch asset, keeping original URL');
+        bundlerLog.warn(
+          { url, err },
+          "Failed to fetch asset, keeping original URL",
+        );
       }
     }),
   );
@@ -144,12 +157,14 @@ export async function materializeAssets(
   // Rewrite URLs in HTML — replace each occurrence of the original URL with the local path.
   // Sort by length descending so longer URLs are replaced first, preventing prefix collisions
   // (e.g. "https://cdn/x" replacing part of "https://cdn/x/y.png").
-  const sortedEntries = [...urlMap.entries()].sort((a, b) => b[0].length - a[0].length);
+  const sortedEntries = [...urlMap.entries()].sort(
+    (a, b) => b[0].length - a[0].length,
+  );
   let rewrittenHtml = html;
   for (const [originalUrl, localPath] of sortedEntries) {
     // Escape regex special chars in the URL
-    const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    rewrittenHtml = rewrittenHtml.replace(new RegExp(escaped, 'g'), localPath);
+    const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    rewrittenHtml = rewrittenHtml.replace(new RegExp(escaped, "g"), localPath);
   }
 
   return { rewrittenHtml, assets };
@@ -180,7 +195,7 @@ export async function packageApp(
 
   // Build manifest
   const createdBy = `vellum-assistant/${PACKAGE_VERSION}`;
-  const version = app.version ?? '1.0.0';
+  const version = app.version ?? "1.0.0";
   const contentId = computeContentId(app.name);
 
   const manifest: AppManifest = {
@@ -191,14 +206,16 @@ export async function packageApp(
     ...(app.preview ? { preview: app.preview } : {}),
     created_at: new Date().toISOString(),
     created_by: createdBy,
-    entry: 'index.html',
+    entry: "index.html",
     capabilities: [],
     version,
     content_id: contentId,
   };
 
   // Fetch remote assets and rewrite HTML to reference local copies
-  const { rewrittenHtml, assets: fetchedAssets } = await materializeAssets(app.htmlDefinition);
+  const { rewrittenHtml, assets: fetchedAssets } = await materializeAssets(
+    app.htmlDefinition,
+  );
 
   // Also materialize assets in additional pages
   const rewrittenPages: Record<string, string> = {};
@@ -219,19 +236,22 @@ export async function packageApp(
   const allAssets = [...allAssetsMap.values()];
 
   // Create the zip archive
-  const bundleFilename = `${app.name.replace(/[^a-zA-Z0-9_-]/g, '_')}-${randomUUID().slice(0, SHORT_HASH_LENGTH)}.vellumapp`;
+  const bundleFilename = `${app.name.replace(
+    /[^a-zA-Z0-9_-]/g,
+    "_",
+  )}-${randomUUID().slice(0, SHORT_HASH_LENGTH)}.vellumapp`;
   const bundlePath = join(tmpdir(), bundleFilename);
 
   await new Promise<void>((resolve, reject) => {
     const output = createWriteStream(bundlePath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = archiver("zip", { zlib: { level: 9 } });
 
-    output.on('close', () => resolve());
-    output.on('error', (err: Error) => reject(err));
-    archive.on('error', (err: Error) => reject(err));
-    archive.on('warning', (err: Error) => {
+    output.on("close", () => resolve());
+    output.on("error", (err: Error) => reject(err));
+    archive.on("error", (err: Error) => reject(err));
+    archive.on("warning", (err: Error) => {
       // Only reject on fatal warnings
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         reject(err);
       }
     });
@@ -239,10 +259,10 @@ export async function packageApp(
     archive.pipe(output);
 
     // Add manifest.json at root level
-    archive.append(serializeManifest(manifest), { name: 'manifest.json' });
+    archive.append(serializeManifest(manifest), { name: "manifest.json" });
 
     // Add index.html at root level
-    archive.append(rewrittenHtml, { name: 'index.html' });
+    archive.append(rewrittenHtml, { name: "index.html" });
 
     // Add additional pages alongside index.html (with rewritten asset URLs)
     if (app.pages) {
@@ -268,17 +288,20 @@ export async function packageApp(
       // Re-open the zip and add signature.json
       const zipBuffer = await readFile(bundlePath);
       const zip = await JSZip.loadAsync(zipBuffer);
-      zip.file('signature.json', JSON.stringify(signatureJson, null, 2));
+      zip.file("signature.json", JSON.stringify(signatureJson, null, 2));
       const signedBuffer = await zip.generateAsync({
-        type: 'nodebuffer',
-        compression: 'DEFLATE',
+        type: "nodebuffer",
+        compression: "DEFLATE",
         compressionOptions: { level: 9 },
       });
       await writeFile(bundlePath, signedBuffer);
 
-      bundlerLog.info({ appId }, 'Bundle signed successfully');
+      bundlerLog.info({ appId }, "Bundle signed successfully");
     } catch (err) {
-      bundlerLog.warn({ err, appId }, 'Failed to sign bundle, proceeding unsigned');
+      bundlerLog.warn(
+        { err, appId },
+        "Failed to sign bundle, proceeding unsigned",
+      );
     }
   }
 
@@ -286,10 +309,12 @@ export async function packageApp(
   const stats = await stat(bundlePath);
   if (stats.size > MAX_BUNDLE_SIZE_BYTES) {
     // Clean up the oversized file
-    const { unlink } = await import('node:fs/promises');
+    const { unlink } = await import("node:fs/promises");
     await unlink(bundlePath);
     throw new Error(
-      `Bundle size ${(stats.size / 1024 / 1024).toFixed(1)} MB exceeds the maximum allowed size of 25 MB`,
+      `Bundle size ${(stats.size / 1024 / 1024).toFixed(
+        1,
+      )} MB exceeds the maximum allowed size of 25 MB`,
     );
   }
 

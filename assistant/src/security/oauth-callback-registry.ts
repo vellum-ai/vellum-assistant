@@ -24,7 +24,7 @@ export function registerPendingCallback(
   const existing = pendingCallbacks.get(state);
   if (existing) {
     clearTimeout(existing.timer);
-    existing.reject(new Error('OAuth callback superseded by new registration'));
+    existing.reject(new Error("OAuth callback superseded by new registration"));
     pendingCallbacks.delete(state);
   }
 
@@ -32,7 +32,7 @@ export function registerPendingCallback(
     const entry = pendingCallbacks.get(state);
     if (entry) {
       pendingCallbacks.delete(state);
-      entry.reject(new Error('OAuth callback timed out'));
+      entry.reject(new Error("OAuth callback timed out"));
     }
   }, ttlMs);
 
@@ -60,7 +60,7 @@ export function consumeCallbackError(state: string, error: string): boolean {
 export function clearAllCallbacks(): void {
   for (const entry of pendingCallbacks.values()) {
     clearTimeout(entry.timer);
-    entry.reject(new Error('OAuth callback registry cleared'));
+    entry.reject(new Error("OAuth callback registry cleared"));
   }
   pendingCallbacks.clear();
 }

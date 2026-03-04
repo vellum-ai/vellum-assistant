@@ -3,19 +3,27 @@ import { createHmac } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createTwilioVoiceWebhookHandler } = await import("../http/routes/twilio-voice-webhook.js");
-const { createTwilioStatusWebhookHandler } = await import("../http/routes/twilio-status-webhook.js");
-const { createTwilioConnectActionWebhookHandler } = await import("../http/routes/twilio-connect-action-webhook.js");
+const { createTwilioVoiceWebhookHandler } =
+  await import("../http/routes/twilio-voice-webhook.js");
+const { createTwilioStatusWebhookHandler } =
+  await import("../http/routes/twilio-status-webhook.js");
+const { createTwilioConnectActionWebhookHandler } =
+  await import("../http/routes/twilio-connect-action-webhook.js");
 
 const AUTH_TOKEN = "test-twilio-auth-token";
 
@@ -158,15 +166,17 @@ describe("Twilio voice webhook", () => {
 
   test("forwards valid signed request to runtime and returns response", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    fetchMock = mock(async () =>
-      new Response(twiml, {
-        status: 200,
-        headers: { "Content-Type": "text/xml" },
-      }),
+    fetchMock = mock(
+      async () =>
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
     );
 
     const handler = createTwilioVoiceWebhookHandler(makeConfig());
-    const url = "http://localhost:7830/webhooks/twilio/voice?callSessionId=sess-1";
+    const url =
+      "http://localhost:7830/webhooks/twilio/voice?callSessionId=sess-1";
     const params = { CallSid: "CA123", AccountSid: "AC456" };
     const req = buildSignedRequest(url, params, AUTH_TOKEN);
 
@@ -194,11 +204,14 @@ describe("Twilio voice webhook", () => {
   });
 
   test("returns 502 when runtime is unreachable (outbound call)", async () => {
-    fetchMock = mock(async () => { throw new Error("Connection refused"); });
+    fetchMock = mock(async () => {
+      throw new Error("Connection refused");
+    });
 
     const handler = createTwilioVoiceWebhookHandler(makeConfig());
     // Use callSessionId to simulate an outbound call that bypasses routing
-    const url = "http://localhost:7830/webhooks/twilio/voice?callSessionId=sess-1";
+    const url =
+      "http://localhost:7830/webhooks/twilio/voice?callSessionId=sess-1";
     const params = { CallSid: "CA123" };
     const req = buildSignedRequest(url, params, AUTH_TOKEN);
 
@@ -282,7 +295,9 @@ describe("Twilio status webhook", () => {
   });
 
   test("returns 502 when runtime returns error", async () => {
-    fetchMock = mock(async () => { throw new Error("Runtime down"); });
+    fetchMock = mock(async () => {
+      throw new Error("Runtime down");
+    });
 
     const handler = createTwilioStatusWebhookHandler(makeConfig());
     const url = "http://localhost:7830/webhooks/twilio/status";
@@ -301,25 +316,29 @@ describe("Twilio connect-action webhook", () => {
 
   test("rejects invalid signature with 403", async () => {
     const handler = createTwilioConnectActionWebhookHandler(makeConfig());
-    const req = new Request("http://localhost:7830/webhooks/twilio/connect-action", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-Twilio-Signature": "wrong",
+    const req = new Request(
+      "http://localhost:7830/webhooks/twilio/connect-action",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Twilio-Signature": "wrong",
+        },
+        body: "CallSid=CA123",
       },
-      body: "CallSid=CA123",
-    });
+    );
     const res = await handler(req);
     expect(res.status).toBe(403);
   });
 
   test("forwards valid signed request to runtime", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    fetchMock = mock(async () =>
-      new Response(twiml, {
-        status: 200,
-        headers: { "Content-Type": "text/xml" },
-      }),
+    fetchMock = mock(
+      async () =>
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
     );
 
     const handler = createTwilioConnectActionWebhookHandler(makeConfig());
@@ -345,11 +364,12 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
 
   test("validates signature against ingressPublicBaseUrl when configured", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    fetchMock = mock(async () =>
-      new Response(twiml, {
-        status: 200,
-        headers: { "Content-Type": "text/xml" },
-      }),
+    fetchMock = mock(
+      async () =>
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
     );
 
     const publicBaseUrl = "https://public.example.com";
@@ -357,8 +377,10 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     const handler = createTwilioVoiceWebhookHandler(config);
 
     // Use callSessionId to bypass inbound routing — this test is about signature validation
-    const localUrl = "http://localhost:7830/webhooks/twilio/voice?callSessionId=sig-test";
-    const publicUrl = publicBaseUrl + "/webhooks/twilio/voice?callSessionId=sig-test";
+    const localUrl =
+      "http://localhost:7830/webhooks/twilio/voice?callSessionId=sig-test";
+    const publicUrl =
+      publicBaseUrl + "/webhooks/twilio/voice?callSessionId=sig-test";
     const params = { CallSid: "CA123" };
 
     // Sign against the PUBLIC URL (as Twilio would)
@@ -378,11 +400,12 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
   });
 
   test("accepts when signature matches raw request URL even with public URL configured", async () => {
-    fetchMock = mock(async () =>
-      new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
-        status: 200,
-        headers: { "Content-Type": "text/xml" },
-      }),
+    fetchMock = mock(
+      async () =>
+        new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
     );
 
     const publicBaseUrl = "https://public.example.com";
@@ -390,7 +413,8 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     const handler = createTwilioVoiceWebhookHandler(config);
 
     // Use callSessionId to bypass inbound routing — this test is about signature validation
-    const localUrl = "http://localhost:7830/webhooks/twilio/voice?callSessionId=sig-test";
+    const localUrl =
+      "http://localhost:7830/webhooks/twilio/voice?callSessionId=sig-test";
     const params = { CallSid: "CA123" };
 
     // Sign against the raw request URL — the raw URL is always included as
@@ -411,11 +435,12 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
   });
 
   test("accepts signature from forwarded public URL headers when configured URL is stale", async () => {
-    fetchMock = mock(async () =>
-      new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
-        status: 200,
-        headers: { "Content-Type": "text/xml" },
-      }),
+    fetchMock = mock(
+      async () =>
+        new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
     );
 
     const staleConfiguredBase = "https://stale.example.com";
@@ -423,19 +448,15 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     const handler = createTwilioVoiceWebhookHandler(config);
 
     // Use callSessionId to bypass inbound routing — this test is about signature validation
-    const localUrl = "http://localhost:7830/webhooks/twilio/voice?callSessionId=sig-test";
+    const localUrl =
+      "http://localhost:7830/webhooks/twilio/voice?callSessionId=sig-test";
     const forwardedBase = "https://fresh-tunnel.example.com";
     const signedPublicUrl = `${forwardedBase}/webhooks/twilio/voice?callSessionId=sig-test`;
     const params = { CallSid: "CA123" };
-    const req = buildSignedRequest(
-      signedPublicUrl,
-      params,
-      AUTH_TOKEN,
-      {
-        "X-Forwarded-Proto": "https",
-        "X-Forwarded-Host": "fresh-tunnel.example.com",
-      },
-    );
+    const req = buildSignedRequest(signedPublicUrl, params, AUTH_TOKEN, {
+      "X-Forwarded-Proto": "https",
+      "X-Forwarded-Host": "fresh-tunnel.example.com",
+    });
 
     // Gateway receives the local URL from the tunnel, but should still
     // validate against the forwarded public URL headers.

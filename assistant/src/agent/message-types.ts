@@ -1,17 +1,23 @@
-import type { Message } from '../providers/types.js';
-import { attachmentsToContentBlocks, type MessageAttachmentInput } from './attachments.js';
+import type { Message } from "../providers/types.js";
+import {
+  attachmentsToContentBlocks,
+  type MessageAttachmentInput,
+} from "./attachments.js";
 
-export type { ContentBlock, Message, TextContent } from '../providers/types.js';
+export type { ContentBlock, Message, TextContent } from "../providers/types.js";
 
-export function createUserMessage(text: string, attachments: MessageAttachmentInput[] = []): Message {
+export function createUserMessage(
+  text: string,
+  attachments: MessageAttachmentInput[] = [],
+): Message {
   const content = [] as Message["content"];
   if (text.trim().length > 0) {
-    content.push({ type: 'text', text });
+    content.push({ type: "text", text });
   }
   content.push(...attachmentsToContentBlocks(attachments));
-  return { role: 'user', content };
+  return { role: "user", content };
 }
 
 export function createAssistantMessage(text: string): Message {
-  return { role: 'assistant', content: [{ type: 'text', text }] };
+  return { role: "assistant", content: [{ type: "text", text }] };
 }

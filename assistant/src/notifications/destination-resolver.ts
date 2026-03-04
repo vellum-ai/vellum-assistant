@@ -1,22 +1,19 @@
 /**
  * Resolves per-channel destination endpoints for notification delivery.
  *
- * Uses a contacts-first approach: reads guardian delivery info from the
- * contacts table, falling back to the legacy channel-guardian bindings
- * when contacts have not yet been synced.
+ * Reads guardian delivery info from the contacts table.
  *
  * - Vellum: no external endpoint needed — delivery goes through the IPC
  *   broadcast mechanism to connected desktop/mobile clients. The
  *   guardianPrincipalId is included in metadata so downstream adapters
  *   can scope guardian-sensitive notifications to bound guardian devices.
  * - Binding-based channels (telegram, sms): require a chat/delivery ID
- *   sourced from the guardian contact's channel record (or legacy binding).
+ *   sourced from the guardian contact's channel record.
  */
 
 import { isNotificationDeliverable } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { getActiveBinding } from "../memory/channel-guardian-store.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDestination, NotificationChannel } from "./types.js";
 
@@ -51,12 +48,6 @@ export function resolveDestinations(
         const metadata: Record<string, unknown> = {};
         if (guardianResult) {
           metadata.guardianPrincipalId = guardianResult.contact.principalId;
-        } else {
-          // Legacy fallback: contacts not yet synced
-          const vellumBinding = getActiveBinding(assistantId, "vellum");
-          if (vellumBinding) {
-            metadata.guardianPrincipalId = vellumBinding.guardianExternalUserId;
-          }
         }
         result.set("vellum", {
           channel: "vellum",
@@ -65,7 +56,7 @@ export function resolveDestinations(
         log.debug(
           {
             channel: "vellum",
-            source: guardianResult ? "contacts" : "legacy",
+            source: "contacts",
             hasEndpoint: false,
           },
           "destination resolved",
@@ -75,10 +66,6 @@ export function resolveDestinations(
       case "telegram":
       case "sms": {
         const guardianResult = findGuardianForChannel(channel);
-        let binding: ReturnType<typeof getActiveBinding> = null;
-        // Only use the contacts path when the channel has a valid delivery
-        // endpoint. A partial contact record (active status but no
-        // externalChatId) should not block the legacy fallback.
         if (guardianResult && guardianResult.channel.externalChatId) {
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
@@ -87,28 +74,12 @@ export function resolveDestinations(
               externalUserId: guardianResult.channel.externalUserId,
             },
           });
-        } else {
-          // Legacy fallback: contacts not yet synced or missing endpoint
-          binding = getActiveBinding(assistantId, channel);
-          if (binding) {
-            result.set(channel as NotificationChannel, {
-              channel: channel as NotificationChannel,
-              endpoint: binding.guardianDeliveryChatId,
-              metadata: {
-                externalUserId: binding.guardianExternalUserId,
-              },
-            });
-          }
         }
         log.debug(
           {
             channel,
-            source: guardianResult?.channel.externalChatId
-              ? "contacts"
-              : "legacy",
-            hasEndpoint:
-              !!guardianResult?.channel.externalChatId ||
-              !!binding?.guardianDeliveryChatId,
+            source: "contacts",
+            hasEndpoint: !!guardianResult?.channel.externalChatId,
           },
           "destination resolved",
         );

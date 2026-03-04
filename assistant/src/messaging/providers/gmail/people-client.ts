@@ -3,12 +3,15 @@
  * Separate from the Gmail client due to a different base URL.
  */
 
-import { GmailApiError } from './client.js';
-import type { PeopleConnectionsResponse, PeopleSearchResponse } from './people-types.js';
+import { GmailApiError } from "./client.js";
+import type {
+  PeopleConnectionsResponse,
+  PeopleSearchResponse,
+} from "./people-types.js";
 
-const PEOPLE_API_BASE = 'https://people.googleapis.com/v1';
+const PEOPLE_API_BASE = "https://people.googleapis.com/v1";
 
-const PERSON_FIELDS = 'names,emailAddresses,phoneNumbers,organizations';
+const PERSON_FIELDS = "names,emailAddresses,phoneNumbers,organizations";
 
 async function request<T>(token: string, url: string): Promise<T> {
   const resp = await fetch(url, {
@@ -17,8 +20,12 @@ async function request<T>(token: string, url: string): Promise<T> {
     },
   });
   if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new GmailApiError(resp.status, resp.statusText, `People API ${resp.status}: ${body}`);
+    const body = await resp.text().catch(() => "");
+    throw new GmailApiError(
+      resp.status,
+      resp.statusText,
+      `People API ${resp.status}: ${body}`,
+    );
   }
   return resp.json() as Promise<T>;
 }
@@ -33,8 +40,11 @@ export async function listContacts(
     personFields: PERSON_FIELDS,
     pageSize: String(pageSize),
   });
-  if (pageToken) params.set('pageToken', pageToken);
-  return request<PeopleConnectionsResponse>(token, `${PEOPLE_API_BASE}/people/me/connections?${params}`);
+  if (pageToken) params.set("pageToken", pageToken);
+  return request<PeopleConnectionsResponse>(
+    token,
+    `${PEOPLE_API_BASE}/people/me/connections?${params}`,
+  );
 }
 
 /** Search contacts by name or email. */
@@ -46,5 +56,8 @@ export async function searchContacts(
     query,
     readMask: PERSON_FIELDS,
   });
-  return request<PeopleSearchResponse>(token, `${PEOPLE_API_BASE}/people:searchContacts?${params}`);
+  return request<PeopleSearchResponse>(
+    token,
+    `${PEOPLE_API_BASE}/people:searchContacts?${params}`,
+  );
 }

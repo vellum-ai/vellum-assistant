@@ -9,7 +9,7 @@
  *   3. SHA-256 hash the UTF-8 bytes and return a lowercase hex digest.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
 // ---------------------------------------------------------------------------
 // Canonical JSON serialization
@@ -33,7 +33,7 @@ function sortKeysDeep(value: unknown): unknown {
     return value.map(sortKeysDeep);
   }
 
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     const sorted: Record<string, unknown> = {};
     const keys = Object.keys(value as Record<string, unknown>).sort();
     for (const key of keys) {
@@ -63,5 +63,5 @@ export function computeToolApprovalDigest(
   input: Record<string, unknown>,
 ): string {
   const payload = canonicalJsonSerialize({ input, toolName });
-  return createHash('sha256').update(payload, 'utf8').digest('hex');
+  return createHash("sha256").update(payload, "utf8").digest("hex");
 }

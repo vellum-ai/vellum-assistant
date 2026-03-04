@@ -1,5 +1,11 @@
-export { type DrizzleDb,getDb, getSqlite, getSqliteFrom, resetDb } from './db-connection.js';
-export { initializeDb } from './db-init.js';
+export {
+  type DrizzleDb,
+  getDb,
+  getSqlite,
+  getSqliteFrom,
+  resetDb,
+} from "./db-connection.js";
+export { initializeDb } from "./db-init.js";
 export {
   rawAll,
   rawAllFrom,
@@ -12,4 +18,5 @@ export {
   rawPrepareFrom,
   rawRun,
   rawRunFrom,
-} from './raw-query.js';
+  resetTestTables,
+} from "./raw-query.js";

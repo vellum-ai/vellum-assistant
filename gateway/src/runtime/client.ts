@@ -1,5 +1,5 @@
-import type { ChannelId, InterfaceId } from '../channels/types.js';
-import { mintIngressToken, mintServiceToken } from '../auth/token-exchange.js';
+import type { ChannelId, InterfaceId } from "../channels/types.js";
+import { mintIngressToken, mintServiceToken } from "../auth/token-exchange.js";
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
@@ -73,7 +73,10 @@ function cbOnFailure(): void {
   if (cbState === CircuitState.HALF_OPEN) {
     cbState = CircuitState.OPEN;
     cbOpenedAt = Date.now();
-    log.warn({ failures: cbConsecutiveFailures }, "Circuit breaker re-opening after failed probe");
+    log.warn(
+      { failures: cbConsecutiveFailures },
+      "Circuit breaker re-opening after failed probe",
+    );
     return;
   }
 
@@ -101,13 +104,19 @@ export function _resetCircuitBreaker(): void {
  * itself proves gateway origin — only the gateway holds the signing key
  * needed to mint daemon-audience tokens. No separate origin header needed.
  */
-function runtimeIngressHeaders(config: GatewayConfig, extra?: Record<string, string>): Record<string, string> {
+function runtimeIngressHeaders(
+  config: GatewayConfig,
+  extra?: Record<string, string>,
+): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
   headers["Authorization"] = `Bearer ${mintIngressToken()}`;
   return headers;
 }
 
-function runtimeServiceHeaders(config: GatewayConfig, extra?: Record<string, string>): Record<string, string> {
+function runtimeServiceHeaders(
+  config: GatewayConfig,
+  extra?: Record<string, string>,
+): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
   headers["Authorization"] = `Bearer ${mintServiceToken()}`;
   return headers;
@@ -159,7 +168,11 @@ export type RuntimeInboundResponse = {
   accepted: boolean;
   duplicate: boolean;
   eventId: string;
-  approval?: "decision_applied" | "assistant_turn" | "guardian_decision_applied" | "stale_ignored";
+  approval?:
+    | "decision_applied"
+    | "assistant_turn"
+    | "guardian_decision_applied"
+    | "stale_ignored";
   assistantMessage?: {
     id: string;
     role: "assistant";
@@ -182,7 +195,9 @@ export async function forwardToRuntime(
 
   const url = `${config.assistantRuntimeBaseUrl}/v1/channels/inbound`;
 
-  const extraHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  const extraHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   if (options?.traceId) {
     extraHeaders["X-Trace-Id"] = options.traceId;
   }
@@ -244,10 +259,7 @@ export async function forwardToRuntime(
         throw err;
       }
       lastError = err instanceof Error ? err : new Error(String(err));
-      log.warn(
-        { err: lastError, attempt },
-        "Runtime forward attempt failed",
-      );
+      log.warn({ err: lastError, attempt }, "Runtime forward attempt failed");
     }
   }
 
@@ -268,7 +280,9 @@ export async function resetConversation(
   try {
     response = await fetchImpl(url, {
       method: "DELETE",
-      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, {
+        "Content-Type": "application/json",
+      }),
       body: JSON.stringify({ sourceChannel, conversationExternalId }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -279,7 +293,8 @@ export async function resetConversation(
 
   if (!response.ok) {
     const body = await response.text();
-    if (response.status >= 500) cbOnFailure(); else cbOnSuccess();
+    if (response.status >= 500) cbOnFailure();
+    else cbOnSuccess();
     throw new Error(`Reset conversation failed (${response.status}): ${body}`);
   }
 
@@ -318,7 +333,8 @@ export async function downloadAttachment(
 
   if (!response.ok) {
     const body = await response.text();
-    if (response.status >= 500) cbOnFailure(); else cbOnSuccess();
+    if (response.status >= 500) cbOnFailure();
+    else cbOnSuccess();
     throw new Error(`Attachment download failed (${response.status}): ${body}`);
   }
 
@@ -355,7 +371,9 @@ export async function forwardTwilioVoiceWebhook(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, {
+        "Content-Type": "application/json",
+      }),
       body: JSON.stringify({ params, originalUrl }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -369,7 +387,8 @@ export async function forwardTwilioVoiceWebhook(
   const contentType = response.headers.get("content-type");
   if (contentType) headers["Content-Type"] = contentType;
 
-  if (response.status >= 500) cbOnFailure(); else cbOnSuccess();
+  if (response.status >= 500) cbOnFailure();
+  else cbOnSuccess();
   return { status: response.status, body, headers };
 }
 
@@ -388,7 +407,9 @@ export async function forwardTwilioStatusWebhook(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, {
+        "Content-Type": "application/json",
+      }),
       body: JSON.stringify({ params }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -402,7 +423,8 @@ export async function forwardTwilioStatusWebhook(
   const contentType = response.headers.get("content-type");
   if (contentType) headers["Content-Type"] = contentType;
 
-  if (response.status >= 500) cbOnFailure(); else cbOnSuccess();
+  if (response.status >= 500) cbOnFailure();
+  else cbOnSuccess();
   return { status: response.status, body, headers };
 }
 
@@ -421,7 +443,9 @@ export async function forwardTwilioConnectActionWebhook(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, {
+        "Content-Type": "application/json",
+      }),
       body: JSON.stringify({ params }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -435,7 +459,8 @@ export async function forwardTwilioConnectActionWebhook(
   const contentType = response.headers.get("content-type");
   if (contentType) headers["Content-Type"] = contentType;
 
-  if (response.status >= 500) cbOnFailure(); else cbOnSuccess();
+  if (response.status >= 500) cbOnFailure();
+  else cbOnSuccess();
   return { status: response.status, body, headers };
 }
 
@@ -451,7 +476,9 @@ export async function uploadAttachment(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, {
+        "Content-Type": "application/json",
+      }),
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -505,7 +532,9 @@ export async function forwardOAuthCallback(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, {
+        "Content-Type": "application/json",
+      }),
       body: JSON.stringify({ state, code, error }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -515,6 +544,7 @@ export async function forwardOAuthCallback(
   }
 
   const body = await response.text();
-  if (response.status >= 500) cbOnFailure(); else cbOnSuccess();
+  if (response.status >= 500) cbOnFailure();
+  else cbOnSuccess();
   return { status: response.status, body };
 }

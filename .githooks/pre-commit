@@ -699,6 +699,44 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
     fi
 done
 
+# --- TypeScript type-check for assistant/ ---
+# Full-project tsc catches cross-file type errors that per-file lint misses.
+# Uses --incremental + --declaration false to keep warm runs at ~5s.
+# Without --declaration false, the tsconfig's declaration:true causes tsc to
+# mark all 1600+ files as "pending emit" on every --noEmit run, defeating
+# incremental caching and falling back to ~20s full rebuilds.
+
+ASSISTANT_TS_STAGED=0
+while IFS= read -r -d '' FILE; do
+    if [[ "$FILE" == assistant/*.ts ]] || [[ "$FILE" == assistant/*.tsx ]]; then
+        ASSISTANT_TS_STAGED=1
+        break
+    fi
+done < "$STAGED_ALL_FILE"
+
+if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
+    # Skip tsc in worktrees — the cold cache costs ~20s and CI catches errors.
+    # git rev-parse --git-common-dir differs from --git-dir only in worktrees.
+    _GIT_DIR="$(git rev-parse --git-dir 2>/dev/null)"
+    _GIT_COMMON="$(git rev-parse --git-common-dir 2>/dev/null)"
+    if [ "$_GIT_DIR" != "$_GIT_COMMON" ]; then
+        echo "⏩ Skipping type check in worktree (CI will catch errors)"
+    elif [ ! -x "$BUN" ]; then
+        echo -e "${YELLOW}⚠️  bun not found — skipping type check for assistant/${NC}"
+    else
+        echo "🔍 Type-checking assistant/..."
+        if ! (cd assistant && "$BUN" x tsc --noEmit --incremental --tsBuildInfoFile .tsbuildinfo --declaration false --declarationMap false) 2>&1; then
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}TypeScript type errors found in assistant/!${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Fix the type errors and commit again."
+            exit 1
+        fi
+        echo "✅ Type check OK in assistant/"
+    fi
+fi
+
 # --- IPC contract generation check ---
 # When contract source files are staged, verify generated output is up to date.
 

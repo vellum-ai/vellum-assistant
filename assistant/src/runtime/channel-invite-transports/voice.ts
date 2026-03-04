@@ -11,19 +11,19 @@
  * voice-code path rather than generic token extraction.
  */
 
-import type { ChannelId } from '../../channels/types.js';
+import type { ChannelId } from "../../channels/types.js";
 import {
   type ChannelInviteTransport,
   type InviteSharePayload,
   registerTransport,
-} from '../channel-invite-transport.js';
+} from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
 // Transport implementation
 // ---------------------------------------------------------------------------
 
 export const voiceInviteTransport: ChannelInviteTransport = {
-  channel: 'voice' as ChannelId,
+  channel: "voice" as ChannelId,
 
   buildShareableInvite(_params: {
     rawToken: string;
@@ -32,11 +32,11 @@ export const voiceInviteTransport: ChannelInviteTransport = {
     // Voice invites do not produce a clickable URL. The "url" field contains
     // a placeholder — callers should use displayText for presentation.
     return {
-      url: '',
+      url: "",
       displayText: [
-        'Voice invite created.',
-        'The invitee must call the assistant\'s phone number from the authorized number and enter their invite code when prompted.',
-      ].join(' '),
+        "Voice invite created.",
+        "The invitee must call the assistant's phone number from the authorized number and enter their invite code when prompted.",
+      ].join(" "),
     };
   },
 

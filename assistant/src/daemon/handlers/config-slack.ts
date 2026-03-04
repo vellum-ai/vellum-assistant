@@ -1,13 +1,13 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
-import { getApp } from '../../memory/app-store.js';
-import { postToSlackWebhook } from '../../slack/slack-webhook.js';
+import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
+import { getApp } from "../../memory/app-store.js";
+import { postToSlackWebhook } from "../../slack/slack-webhook.js";
 import type {
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
-} from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+} from "../ipc-protocol.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 export async function handleShareToSlack(
   msg: ShareToSlackRequest,
@@ -19,9 +19,10 @@ export async function handleShareToSlack(
     const webhookUrl = config.slackWebhookUrl as string | undefined;
     if (!webhookUrl) {
       ctx.send(socket, {
-        type: 'share_to_slack_response',
+        type: "share_to_slack_response",
         success: false,
-        error: 'No Slack webhook URL configured. Provide one here in the chat, or set it from the Settings page.',
+        error:
+          "No Slack webhook URL configured. Provide one here in the chat, or set it from the Settings page.",
       });
       return;
     }
@@ -29,7 +30,7 @@ export async function handleShareToSlack(
     const app = getApp(msg.appId);
     if (!app) {
       ctx.send(socket, {
-        type: 'share_to_slack_response',
+        type: "share_to_slack_response",
         success: false,
         error: `App not found: ${msg.appId}`,
       });
@@ -39,16 +40,16 @@ export async function handleShareToSlack(
     await postToSlackWebhook(
       webhookUrl,
       app.name,
-      app.description ?? '',
-      '\u{1F4F1}',
+      app.description ?? "",
+      "\u{1F4F1}",
     );
 
-    ctx.send(socket, { type: 'share_to_slack_response', success: true });
+    ctx.send(socket, { type: "share_to_slack_response", success: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, appId: msg.appId }, 'Failed to share app to Slack');
+    log.error({ err, appId: msg.appId }, "Failed to share app to Slack");
     ctx.send(socket, {
-      type: 'share_to_slack_response',
+      type: "share_to_slack_response",
       success: false,
       error: message,
     });
@@ -62,25 +63,25 @@ export function handleSlackWebhookConfig(
 ): void {
   try {
     const config = loadRawConfig();
-    if (msg.action === 'get') {
+    if (msg.action === "get") {
       ctx.send(socket, {
-        type: 'slack_webhook_config_response',
+        type: "slack_webhook_config_response",
         webhookUrl: (config.slackWebhookUrl as string) ?? undefined,
         success: true,
       });
     } else {
-      config.slackWebhookUrl = msg.webhookUrl ?? '';
+      config.slackWebhookUrl = msg.webhookUrl ?? "";
       saveRawConfig(config);
       ctx.send(socket, {
-        type: 'slack_webhook_config_response',
+        type: "slack_webhook_config_response",
         success: true,
       });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Failed to handle Slack webhook config');
+    log.error({ err }, "Failed to handle Slack webhook config");
     ctx.send(socket, {
-      type: 'slack_webhook_config_response',
+      type: "slack_webhook_config_response",
       success: false,
       error: message,
     });

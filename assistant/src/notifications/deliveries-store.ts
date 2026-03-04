@@ -6,11 +6,14 @@
  * (decision, channel, destination) are tracked via the `attempt` counter.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq } from "drizzle-orm";
 
-import { getDb, rawChanges } from '../memory/db.js';
-import { notificationDeliveries } from '../memory/schema.js';
-import type { NotificationChannel, NotificationDeliveryStatus } from './types.js';
+import { getDb, rawChanges } from "../memory/db.js";
+import { notificationDeliveries } from "../memory/schema.js";
+import type {
+  NotificationChannel,
+  NotificationDeliveryStatus,
+} from "./types.js";
 
 export interface NotificationDeliveryRow {
   id: string;
@@ -38,7 +41,9 @@ export interface NotificationDeliveryRow {
   updatedAt: number;
 }
 
-function rowToDelivery(row: typeof notificationDeliveries.$inferSelect): NotificationDeliveryRow {
+function rowToDelivery(
+  row: typeof notificationDeliveries.$inferSelect,
+): NotificationDeliveryRow {
   return {
     id: row.id,
     notificationDecisionId: row.notificationDecisionId,
@@ -88,7 +93,9 @@ export interface CreateDeliveryParams {
 }
 
 /** Create a new delivery audit record. */
-export function createDelivery(params: CreateDeliveryParams): NotificationDeliveryRow {
+export function createDelivery(
+  params: CreateDeliveryParams,
+): NotificationDeliveryRow {
   const db = getDb();
   const now = Date.now();
 
@@ -110,7 +117,12 @@ export function createDelivery(params: CreateDeliveryParams): NotificationDelive
     conversationStrategy: params.conversationStrategy ?? null,
     threadAction: params.threadAction ?? null,
     threadTargetConversationId: params.threadTargetConversationId ?? null,
-    threadDecisionFallbackUsed: params.threadDecisionFallbackUsed != null ? (params.threadDecisionFallbackUsed ? 1 : 0) : null,
+    threadDecisionFallbackUsed:
+      params.threadDecisionFallbackUsed != null
+        ? params.threadDecisionFallbackUsed
+          ? 1
+          : 0
+        : null,
     clientDeliveryStatus: null,
     clientDeliveryError: null,
     clientDeliveryAt: null,
@@ -133,7 +145,7 @@ export function updateDeliveryStatus(
   const now = Date.now();
 
   const updates: Record<string, unknown> = { status, updatedAt: now };
-  if (status === 'sent') {
+  if (status === "sent") {
     updates.sentAt = now;
   }
   if (error?.code) {
@@ -143,8 +155,7 @@ export function updateDeliveryStatus(
     updates.errorMessage = error.message;
   }
 
-  db
-    .update(notificationDeliveries)
+  db.update(notificationDeliveries)
     .set(updates)
     .where(eq(notificationDeliveries.id, id))
     .run();
@@ -167,7 +178,7 @@ export function updateDeliveryClientOutcome(
   const now = Date.now();
 
   const updates: Record<string, unknown> = {
-    clientDeliveryStatus: success ? 'delivered' : 'client_failed',
+    clientDeliveryStatus: success ? "delivered" : "client_failed",
     clientDeliveryAt: now,
     updatedAt: now,
   };
@@ -183,8 +194,7 @@ export function updateDeliveryClientOutcome(
     updates.clientDeliveryError = error.code;
   }
 
-  db
-    .update(notificationDeliveries)
+  db.update(notificationDeliveries)
     .set(updates)
     .where(eq(notificationDeliveries.id, deliveryId))
     .run();

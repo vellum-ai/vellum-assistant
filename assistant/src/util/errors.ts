@@ -1,36 +1,36 @@
 export enum ErrorCode {
   // Provider errors
-  PROVIDER_ERROR = 'PROVIDER_ERROR',
+  PROVIDER_ERROR = "PROVIDER_ERROR",
 
   // Tool errors
-  TOOL_ERROR = 'TOOL_ERROR',
+  TOOL_ERROR = "TOOL_ERROR",
 
   // Permission errors
-  PERMISSION_DENIED = 'PERMISSION_DENIED',
+  PERMISSION_DENIED = "PERMISSION_DENIED",
 
   // Config errors
-  CONFIG_ERROR = 'CONFIG_ERROR',
+  CONFIG_ERROR = "CONFIG_ERROR",
 
   // Daemon errors
-  DAEMON_ERROR = 'DAEMON_ERROR',
+  DAEMON_ERROR = "DAEMON_ERROR",
 
   // IPC/socket errors
-  IPC_ERROR = 'IPC_ERROR',
+  IPC_ERROR = "IPC_ERROR",
 
   // Platform-specific errors (clipboard, unsupported OS features)
-  PLATFORM_ERROR = 'PLATFORM_ERROR',
+  PLATFORM_ERROR = "PLATFORM_ERROR",
 
   // WASM integrity check failures
-  INTEGRITY_ERROR = 'INTEGRITY_ERROR',
+  INTEGRITY_ERROR = "INTEGRITY_ERROR",
 
   // Rate limit exceeded
-  RATE_LIMIT_ERROR = 'RATE_LIMIT_ERROR',
+  RATE_LIMIT_ERROR = "RATE_LIMIT_ERROR",
 
   // Secret detected in inbound content
-  INGRESS_BLOCKED = 'INGRESS_BLOCKED',
+  INGRESS_BLOCKED = "INGRESS_BLOCKED",
 
   // Internal/unexpected errors
-  INTERNAL_ERROR = 'INTERNAL_ERROR',
+  INTERNAL_ERROR = "INTERNAL_ERROR",
 }
 
 // ── Root ──────────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ export enum ErrorCode {
 export class VellumError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = 'VellumError';
+    this.name = "VellumError";
   }
 }
 
@@ -52,7 +52,7 @@ export class VellumError extends Error {
 export class BackendError extends VellumError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = 'BackendError';
+    this.name = "BackendError";
   }
 }
 
@@ -63,7 +63,7 @@ export class BackendError extends VellumError {
 export class BackendUnavailableError extends BackendError {
   constructor(reason: string) {
     super(reason);
-    this.name = 'BackendUnavailableError';
+    this.name = "BackendUnavailableError";
   }
 }
 
@@ -74,7 +74,7 @@ export class BackendUnavailableError extends BackendError {
 export class RateLimitError extends BackendError {
   constructor(message: string) {
     super(message);
-    this.name = 'RateLimitError';
+    this.name = "RateLimitError";
   }
 }
 
@@ -87,7 +87,7 @@ export class RateLimitError extends BackendError {
 export class UserError extends VellumError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = 'UserError';
+    this.name = "UserError";
   }
 }
 
@@ -104,7 +104,7 @@ export class AssistantError extends VellumError {
     options?: { cause?: unknown },
   ) {
     super(message, options);
-    this.name = 'AssistantError';
+    this.name = "AssistantError";
   }
 }
 
@@ -116,7 +116,7 @@ export class ProviderError extends AssistantError {
     options?: { cause?: unknown },
   ) {
     super(message, ErrorCode.PROVIDER_ERROR, options);
-    this.name = 'ProviderError';
+    this.name = "ProviderError";
   }
 }
 
@@ -126,7 +126,7 @@ export class ToolError extends AssistantError {
     public readonly toolName: string,
   ) {
     super(message, ErrorCode.TOOL_ERROR);
-    this.name = 'ToolError';
+    this.name = "ToolError";
   }
 }
 
@@ -136,42 +136,42 @@ export class PermissionDeniedError extends AssistantError {
     public readonly toolName: string,
   ) {
     super(message, ErrorCode.PERMISSION_DENIED);
-    this.name = 'PermissionDeniedError';
+    this.name = "PermissionDeniedError";
   }
 }
 
 export class ConfigError extends AssistantError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, ErrorCode.CONFIG_ERROR, options);
-    this.name = 'ConfigError';
+    this.name = "ConfigError";
   }
 }
 
 export class DaemonError extends AssistantError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, ErrorCode.DAEMON_ERROR, options);
-    this.name = 'DaemonError';
+    this.name = "DaemonError";
   }
 }
 
 export class IpcError extends AssistantError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, ErrorCode.IPC_ERROR, options);
-    this.name = 'IpcError';
+    this.name = "IpcError";
   }
 }
 
 export class PlatformError extends AssistantError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, ErrorCode.PLATFORM_ERROR, options);
-    this.name = 'PlatformError';
+    this.name = "PlatformError";
   }
 }
 
 export class IntegrityError extends AssistantError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, ErrorCode.INTEGRITY_ERROR, options);
-    this.name = 'IntegrityError';
+    this.name = "IntegrityError";
   }
 }
 
@@ -181,6 +181,6 @@ export class IngressBlockedError extends AssistantError {
     public readonly detectedTypes: string[],
   ) {
     super(message, ErrorCode.INGRESS_BLOCKED);
-    this.name = 'IngressBlockedError';
+    this.name = "IngressBlockedError";
   }
 }

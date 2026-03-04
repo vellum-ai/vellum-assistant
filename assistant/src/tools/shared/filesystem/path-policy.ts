@@ -1,10 +1,17 @@
-import { realpathSync } from 'node:fs';
-import { basename, dirname, isAbsolute,join, relative, resolve } from 'node:path';
+import { realpathSync } from "node:fs";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 
 /**
  * Result type shared by both sandbox and host path policies.
  */
-export type PathFailureReason = 'not_absolute' | 'out_of_bounds';
+export type PathFailureReason = "not_absolute" | "out_of_bounds";
 
 export type PathResult =
   | { ok: true; resolved: string }
@@ -14,8 +21,8 @@ export type PathResult =
 // container. The model generates container-scoped paths (e.g.
 // "/workspace/scratch/file.png") that need to be remapped to the host
 // boundary directory before validation.
-const CONTAINER_WORKSPACE_PREFIX = '/workspace/';
-const CONTAINER_WORKSPACE_EXACT = '/workspace';
+const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
+const CONTAINER_WORKSPACE_EXACT = "/workspace";
 
 // ---------------------------------------------------------------------------
 // Sandbox policy
@@ -46,14 +53,11 @@ export function sandboxPolicy(
   // double-nesting (e.g. /workspace/project/file.ts → /workspace/project/project/file.ts
   // when boundaryDir is /workspace/project).
   let effectivePath = rawPath;
-  if (
-    !rawPath.startsWith(boundaryDir + '/') &&
-    rawPath !== boundaryDir
-  ) {
+  if (!rawPath.startsWith(boundaryDir + "/") && rawPath !== boundaryDir) {
     if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
       effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
     } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
-      effectivePath = '.';
+      effectivePath = ".";
     }
   }
 
@@ -94,10 +98,10 @@ export function sandboxPolicy(
   }
 
   const rel = relative(realBoundary, realResolved);
-  if (rel.startsWith('..') || resolve(realBoundary, rel) !== realResolved) {
+  if (rel.startsWith("..") || resolve(realBoundary, rel) !== realResolved) {
     return {
       ok: false,
-      reason: 'out_of_bounds',
+      reason: "out_of_bounds",
       error: `Path "${rawPath}" resolves to "${realResolved}" which is outside the working directory "${realBoundary}"`,
     };
   }
@@ -117,7 +121,7 @@ export function hostPolicy(rawPath: string): PathResult {
   if (!isAbsolute(rawPath)) {
     return {
       ok: false,
-      reason: 'not_absolute',
+      reason: "not_absolute",
       error: `path must be absolute for host file access: ${rawPath}`,
     };
   }

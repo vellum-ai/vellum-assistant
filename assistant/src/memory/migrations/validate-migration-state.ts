@@ -1,10 +1,13 @@
-import { IntegrityError } from '../../util/errors.js';
-import { getLogger } from '../../util/logger.js';
-import { getDbPath } from '../../util/platform.js';
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
-import { MIGRATION_REGISTRY, type MigrationValidationResult } from './registry.js';
+import { IntegrityError } from "../../util/errors.js";
+import { getLogger } from "../../util/logger.js";
+import { getDbPath } from "../../util/platform.js";
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import {
+  MIGRATION_REGISTRY,
+  type MigrationValidationResult,
+} from "./registry.js";
 
-const log = getLogger('memory-db');
+const log = getLogger("memory-db");
 
 /**
  * Recover from crashed migrations before the migration runner executes.
@@ -23,32 +26,37 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
 
   let rows: Array<{ key: string; value: string }>;
   try {
-    rows = raw.query(`SELECT key, value FROM memory_checkpoints`).all() as Array<{ key: string; value: string }>;
+    rows = raw
+      .query(`SELECT key, value FROM memory_checkpoints`)
+      .all() as Array<{ key: string; value: string }>;
   } catch {
     return [];
   }
 
-  const crashed = rows.filter((r) => r.value === 'started').map((r) => r.key);
+  const crashed = rows.filter((r) => r.value === "started").map((r) => r.key);
   if (crashed.length === 0) return [];
 
   log.error(
     { crashed },
     [
-      '╔══════════════════════════════════════════════════════════════╗',
-      '║  CRASHED MIGRATIONS DETECTED — AUTO-RECOVERING             ║',
-      '╚══════════════════════════════════════════════════════════════╝',
-      '',
-      `The following migrations started but never completed: ${crashed.join(', ')}`,
-      '',
-      'Clearing stalled checkpoints so they can be retried on this startup.',
-      'If retries continue to fail, manually inspect the database:',
+      "╔══════════════════════════════════════════════════════════════╗",
+      "║  CRASHED MIGRATIONS DETECTED — AUTO-RECOVERING             ║",
+      "╚══════════════════════════════════════════════════════════════╝",
+      "",
+      `The following migrations started but never completed: ${crashed.join(", ")}`,
+      "",
+      "Clearing stalled checkpoints so they can be retried on this startup.",
+      "If retries continue to fail, manually inspect the database:",
       `  sqlite3 ${getDbPath()} "SELECT * FROM memory_checkpoints"`,
-    ].join('\n'),
+    ].join("\n"),
   );
 
   for (const key of crashed) {
     raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(key);
-    log.info({ key }, `Cleared stalled checkpoint "${key}" — migration will re-run`);
+    log.info(
+      { key },
+      `Cleared stalled checkpoint "${key}" — migration will re-run`,
+    );
   }
 
   return crashed;
@@ -72,20 +80,24 @@ export function withCrashRecovery(
 ): void {
   const raw = getSqliteFrom(database);
 
-  const existing = raw.query(
-    `SELECT value FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey) as { value: string } | null;
-  if (existing && existing.value !== 'started') return;
+  const existing = raw
+    .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey) as { value: string } | null;
+  if (existing && existing.value !== "started") return;
 
-  raw.query(
-    `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, 'started', ?)`,
-  ).run(checkpointKey, Date.now());
+  raw
+    .query(
+      `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, 'started', ?)`,
+    )
+    .run(checkpointKey, Date.now());
 
   migrationFn();
 
-  raw.query(
-    `UPDATE memory_checkpoints SET value = '1', updated_at = ? WHERE key = ?`,
-  ).run(Date.now(), checkpointKey);
+  raw
+    .query(
+      `UPDATE memory_checkpoints SET value = '1', updated_at = ? WHERE key = ?`,
+    )
+    .run(Date.now(), checkpointKey);
 }
 
 /**
@@ -102,12 +114,16 @@ export function withCrashRecovery(
  * Call this AFTER all DDL and migration functions have run so that the final
  * state is inspected.
  */
-export function validateMigrationState(database: DrizzleDb): MigrationValidationResult {
+export function validateMigrationState(
+  database: DrizzleDb,
+): MigrationValidationResult {
   const raw = getSqliteFrom(database);
 
   let rows: Array<{ key: string; value: string }>;
   try {
-    rows = raw.query(`SELECT key, value FROM memory_checkpoints`).all() as Array<{ key: string; value: string }>;
+    rows = raw
+      .query(`SELECT key, value FROM memory_checkpoints`)
+      .all() as Array<{ key: string; value: string }>;
   } catch {
     // memory_checkpoints may not exist on a very old database; skip.
     return { crashed: [], dependencyViolations: [] };
@@ -115,30 +131,35 @@ export function validateMigrationState(database: DrizzleDb): MigrationValidation
 
   // Any remaining 'started' checkpoints after recovery + migration execution
   // indicate a migration that was retried but failed again.
-  const crashed = rows.filter((r) => r.value === 'started').map((r) => r.key);
+  const crashed = rows.filter((r) => r.value === "started").map((r) => r.key);
   if (crashed.length > 0) {
     log.error(
       { crashed },
       [
-        '╔══════════════════════════════════════════════════════════════╗',
-        '║  MIGRATIONS STILL INCOMPLETE AFTER RETRY                   ║',
-        '╚══════════════════════════════════════════════════════════════╝',
-        '',
-        `The following migrations were retried but still did not complete: ${crashed.join(', ')}`,
-        '',
-        'Manual intervention is required. Inspect the database and resolve:',
+        "╔══════════════════════════════════════════════════════════════╗",
+        "║  MIGRATIONS STILL INCOMPLETE AFTER RETRY                   ║",
+        "╚══════════════════════════════════════════════════════════════╝",
+        "",
+        `The following migrations were retried but still did not complete: ${crashed.join(", ")}`,
+        "",
+        "Manual intervention is required. Inspect the database and resolve:",
         `  sqlite3 ${getDbPath()} "DELETE FROM memory_checkpoints WHERE key = '<migration_key>'"`,
-        'Then restart the daemon.',
-      ].join('\n'),
+        "Then restart the daemon.",
+      ].join("\n"),
     );
   }
 
   // Only rows whose value is NOT 'started' represent truly completed migrations.
   // In-progress/crashed checkpoints (value = 'started') must not count as applied
   // dependencies — the migration never finished, so its postconditions are unmet.
-  const completed = new Set(rows.filter((r) => r.value !== 'started').map((r) => r.key));
+  const completed = new Set(
+    rows.filter((r) => r.value !== "started").map((r) => r.key),
+  );
 
-  const dependencyViolations: Array<{ migration: string; missingDependency: string }> = [];
+  const dependencyViolations: Array<{
+    migration: string;
+    missingDependency: string;
+  }> = [];
 
   // Validate dependency ordering.
   for (const entry of MIGRATION_REGISTRY) {
@@ -149,18 +170,24 @@ export function validateMigrationState(database: DrizzleDb): MigrationValidation
 
     for (const dep of entry.dependsOn) {
       if (!completed.has(dep)) {
-        dependencyViolations.push({ migration: entry.key, missingDependency: dep });
+        dependencyViolations.push({
+          migration: entry.key,
+          missingDependency: dep,
+        });
       }
     }
   }
 
   if (dependencyViolations.length > 0) {
     const details = dependencyViolations
-      .map((v) => `  - "${v.migration}" requires "${v.missingDependency}" but it has no checkpoint`)
-      .join('\n');
+      .map(
+        (v) =>
+          `  - "${v.migration}" requires "${v.missingDependency}" but it has no checkpoint`,
+      )
+      .join("\n");
     throw new IntegrityError(
       `Migration dependency violations detected — database schema may be inconsistent:\n${details}\n` +
-      'The daemon cannot start safely. Inspect the database and re-run missing migrations.',
+        "The daemon cannot start safely. Inspect the database and re-run missing migrations.",
     );
   }
 

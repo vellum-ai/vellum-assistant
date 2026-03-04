@@ -1,17 +1,23 @@
-import { createHash } from 'node:crypto';
-import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { createHash } from "node:crypto";
+import {
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
+import { join, relative } from "node:path";
 
 /**
  * Directories/files to exclude from skill hashing — these are transient
  * runtime artifacts that do not affect the skill's behavior.
  */
 const EXCLUDED_NAMES = new Set([
-  '.vellum-skill-run',
-  'node_modules',
-  '.git',
-  '__pycache__',
-  '.DS_Store',
+  ".vellum-skill-run",
+  "node_modules",
+  ".git",
+  "__pycache__",
+  ".DS_Store",
 ]);
 
 /**
@@ -20,7 +26,11 @@ const EXCLUDED_NAMES = new Set([
  * stack to detect symlink cycles without suppressing legitimate duplicate
  * symlink targets reached via different paths.
  */
-function collectFiles(dir: string, base: string, ancestors: Set<string> = new Set()): string[] {
+function collectFiles(
+  dir: string,
+  base: string,
+  ancestors: Set<string> = new Set(),
+): string[] {
   const entries: string[] = [];
 
   let realDir: string;
@@ -93,18 +103,18 @@ function collectFiles(dir: string, base: string, ancestors: Set<string> = new Se
  */
 export function computeSkillVersionHash(skillDir: string): string {
   const files = collectFiles(skillDir, skillDir);
-  const hash = createHash('sha256');
+  const hash = createHash("sha256");
 
   for (const relPath of files) {
-    const normalized = relPath.replaceAll('\\', '/');
+    const normalized = relPath.replaceAll("\\", "/");
     const content = readFileSync(join(skillDir, relPath));
     hash.update(normalized);
-    hash.update('\0');
+    hash.update("\0");
     hash.update(String(content.length));
-    hash.update('\0');
+    hash.update("\0");
     hash.update(content);
-    hash.update('\n');
+    hash.update("\n");
   }
 
-  return `v1:${hash.digest('hex')}`;
+  return `v1:${hash.digest("hex")}`;
 }

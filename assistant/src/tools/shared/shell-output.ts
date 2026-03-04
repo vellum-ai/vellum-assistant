@@ -21,7 +21,7 @@ export function formatShellOutput(
 ): ShellOutputResult {
   let output = stdout;
   if (stderr) {
-    output += (output ? '\n' : '') + stderr;
+    output += (output ? "\n" : "") + stderr;
   }
 
   const statusParts: string[] = [];
@@ -39,14 +39,15 @@ export function formatShellOutput(
   }
 
   if (!output.trim()) {
-    output = code === 0 ? '<command_completed />' : `<command_exit code="${code}" />`;
+    output =
+      code === 0 ? "<command_completed />" : `<command_exit code="${code}" />`;
   } else if (code !== 0 && !timedOut) {
     statusParts.push(`<command_exit code="${code}" />`);
   }
 
   return {
     content: output,
-    status: statusParts.length > 0 ? statusParts.join('\n') : undefined,
+    status: statusParts.length > 0 ? statusParts.join("\n") : undefined,
     isError: code !== 0 || timedOut,
   };
 }

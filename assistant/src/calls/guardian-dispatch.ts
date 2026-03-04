@@ -15,7 +15,6 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
-import { getActiveBinding } from "../memory/guardian-bindings.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
@@ -99,41 +98,29 @@ async function dispatchGuardianQuestionInner(
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
     // Voice decisions are handled in guardian threads tied to the assistant-
-    // level guardian identity. Resolve the principal from the contacts-first
-    // path (canonical), falling back to the legacy vellum binding.
+    // level guardian identity. Resolve the principal from the contacts table.
     let guardianPrincipalId: string | undefined;
-    let resolvedViaContacts = false;
 
     const guardianResult = findGuardianForChannel("vellum");
     if (guardianResult?.contact.principalId) {
       guardianPrincipalId = guardianResult.contact.principalId;
-      resolvedViaContacts = true;
     }
 
-    // Legacy fallback: contacts not yet synced, or contact exists but
-    // principalId is null (partial/backfill sync state).
+    // Self-heal: if contacts don't have a principalId, bootstrap via
+    // ensureVellumGuardianBinding so the pending_question request can
+    // be attributed.
     if (!guardianPrincipalId) {
-      let vellumBinding = getActiveBinding(assistantId, "vellum");
-      guardianPrincipalId = vellumBinding?.guardianPrincipalId;
-
-      // Self-heal: if the vellum binding is missing, bootstrap it so
-      // the pending_question request can be attributed.
-      if (!guardianPrincipalId) {
-        log.info(
-          { callSessionId, assistantId, hadBinding: !!vellumBinding },
-          "Vellum binding missing — self-healing for voice dispatch",
-        );
-        const healedPrincipalId = ensureVellumGuardianBinding(assistantId);
-        vellumBinding = getActiveBinding(assistantId, "vellum");
-        guardianPrincipalId =
-          vellumBinding?.guardianPrincipalId ?? healedPrincipalId;
-      }
+      log.info(
+        { callSessionId, assistantId },
+        "No guardian principal from contacts — self-healing for voice dispatch",
+      );
+      guardianPrincipalId = ensureVellumGuardianBinding(assistantId);
     }
 
     if (!guardianPrincipalId) {
       log.error(
-        { callSessionId, assistantId, resolvedViaContacts },
-        "Voice guardian dispatch: no guardianPrincipalId after contacts + legacy fallback — cannot create pending_question",
+        { callSessionId, assistantId },
+        "Voice guardian dispatch: no guardianPrincipalId after contacts + self-heal — cannot create pending_question",
       );
       return;
     }

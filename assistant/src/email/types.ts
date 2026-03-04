@@ -17,7 +17,7 @@ export interface EmailDomain {
 }
 
 export interface DnsRecord {
-  type: string;   // TXT, CNAME, MX
+  type: string; // TXT, CNAME, MX
   name: string;
   value: string;
   priority?: number;
@@ -38,7 +38,7 @@ export interface EmailInbox {
 // Draft
 // ---------------------------------------------------------------------------
 
-export type DraftStatus = 'pending' | 'approved' | 'sent' | 'rejected';
+export type DraftStatus = "pending" | "approved" | "sent" | "rejected";
 
 export interface EmailDraft {
   id: string;

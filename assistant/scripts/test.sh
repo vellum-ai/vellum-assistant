@@ -18,6 +18,12 @@ set -uo pipefail
 EXCLUDE_EXPERIMENTAL="${EXCLUDE_EXPERIMENTAL:-false}"
 WORKERS="${TEST_WORKERS:-$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 8)}"
 COVERAGE="${COVERAGE:-false}"
+# Per-test timeout (seconds). Kills bun processes that pass but don't exit due to open handles.
+PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-120}"
+# Longest-first scheduling: provide a durations file from a previous run to sort
+# slow tests to the front, improving parallel utilization.
+TEST_DURATIONS_FILE="${TEST_DURATIONS_FILE:-}"
+TEST_DURATIONS_OUTPUT="${TEST_DURATIONS_OUTPUT:-}"
 
 EXPERIMENTAL_FILES=(
   "skill-load-tool.test.ts"
@@ -53,6 +59,40 @@ if [[ ${#test_files[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Sort tests longest-first using durations from a previous run.
+# This ensures slow tests start immediately across all workers instead of
+# piling up at the end and becoming long poles.
+if [[ -n "${TEST_DURATIONS_FILE}" && -f "${TEST_DURATIONS_FILE}" ]]; then
+  sorted_files=()
+  # Build lookup: basename -> duration_ms
+  declare -A dur_map
+  while IFS=$'\t' read -r ms name; do
+    dur_map["${name}"]="${ms}"
+  done < "${TEST_DURATIONS_FILE}"
+
+  # Partition into known (with durations) and unknown
+  known=()
+  unknown=()
+  for f in "${test_files[@]}"; do
+    base="$(basename "${f}")"
+    if [[ -n "${dur_map["${base}"]:-}" ]]; then
+      known+=("${dur_map["${base}"]}"$'\t'"${f}")
+    else
+      unknown+=("${f}")
+    fi
+  done
+
+  # Sort known by duration descending
+  while IFS= read -r line; do
+    sorted_files+=("${line#*$'\t'}")
+  done < <(printf '%s\n' "${known[@]}" | sort -t$'\t' -k1 -rn)
+
+  # Append unknown files at the end
+  sorted_files+=("${unknown[@]}")
+  test_files=("${sorted_files[@]}")
+  echo "Sorted tests longest-first using ${TEST_DURATIONS_FILE} (${#known[@]} known, ${#unknown[@]} new)"
+fi
+
 echo "Running ${#test_files[@]} test files (${WORKERS} workers)"
 
 # Temp dir for per-file output capture and failure tracking
@@ -72,6 +112,7 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   results_dir="$2"
   exclude_exp="$3"
   coverage_enabled="$4"
+  per_test_timeout="$5"
 
   safe_name="$(echo "${test_file}" | tr "/" "_")"
   out_file="${results_dir}/${safe_name}.out"
@@ -83,12 +124,28 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
     coverage_args="--coverage --coverage-reporter=lcov --coverage-dir=${cov_dir}"
   fi
 
+  # Resolve timeout binary (coreutils `timeout` on Linux, `gtimeout` on macOS via brew)
+  timeout_cmd=""
+  if command -v timeout &>/dev/null; then
+    timeout_cmd="timeout"
+  elif command -v gtimeout &>/dev/null; then
+    timeout_cmd="gtimeout"
+  fi
+
   start_ms=$(perl -MTime::HiRes=time -e "printf \"%d\", time*1000")
 
-  if [[ "${exclude_exp}" == "true" ]]; then
-    bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+  if [[ -n "${timeout_cmd}" ]]; then
+    if [[ "${exclude_exp}" == "true" ]]; then
+      "${timeout_cmd}" -k 10 "${per_test_timeout}" bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+    else
+      "${timeout_cmd}" -k 10 "${per_test_timeout}" bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
+    fi
   else
-    bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
+    if [[ "${exclude_exp}" == "true" ]]; then
+      bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+    else
+      bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
+    fi
   fi
   exit_code=$?
 
@@ -96,13 +153,32 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   elapsed=$(( end_ms - start_ms ))
 
   base="$(basename "${test_file}")"
-  if [[ ${exit_code} -ne 0 ]]; then
+
+  # Record duration for longest-first scheduling in future runs
+  echo -e "${elapsed}\t${base}" >> "${results_dir}/durations"
+
+  if [[ -n "${timeout_cmd}" && ( ${exit_code} -eq 124 || ${exit_code} -eq 137 ) ]]; then
+    # timeout killed the process — check if all tests actually passed.
+    # Bun test outputs "(fail)" for failed tests and a final summary line
+    # "Ran X tests across Y files" when the run completes. Both conditions
+    # must hold: no failures AND the end-of-run summary present. Without
+    # the summary, the process was killed mid-run before finishing all tests.
+    if grep -q "^(fail)" "${out_file}" 2>/dev/null; then
+      echo "${test_file}" >> "${results_dir}/failures"
+      echo "  ✗ ${base} (killed after ${per_test_timeout}s — tests failed and process hung)"
+    elif grep -qE "^Ran [0-9]+ tests across" "${out_file}" 2>/dev/null; then
+      echo "  ⚠ ${base} (tests passed but process hung after ${per_test_timeout}s — likely open handles)"
+    else
+      echo "${test_file}" >> "${results_dir}/failures"
+      echo "  ✗ ${base} (killed after ${per_test_timeout}s — test run did not complete)"
+    fi
+  elif [[ ${exit_code} -ne 0 ]]; then
     echo "${test_file}" >> "${results_dir}/failures"
     echo "  ✗ ${base} (${elapsed}ms)"
   else
     echo "  ✓ ${base} (${elapsed}ms)"
   fi
-' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}" "${COVERAGE}"
+' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}" "${COVERAGE}" "${PER_TEST_TIMEOUT}"
 xargs_exit=$?
 
 # Verify tests actually ran — catch xargs startup failures (e.g. invalid TEST_WORKERS)
@@ -116,6 +192,14 @@ fi
 if [[ ${xargs_exit} -ge 125 ]]; then
   echo "ERROR: xargs failed with exit code ${xargs_exit}"
   exit 1
+fi
+
+# Write observed durations for longest-first scheduling in future CI runs.
+# This must happen before the failure exit so durations are persisted even when
+# tests fail, aligning with the `if: always()` cache save step in CI.
+if [[ -n "${TEST_DURATIONS_OUTPUT}" && -f "${results_dir}/durations" ]]; then
+  sort -t$'\t' -k1 -rn "${results_dir}/durations" > "${TEST_DURATIONS_OUTPUT}"
+  echo "Wrote test durations to ${TEST_DURATIONS_OUTPUT}"
 fi
 
 # Print output for any failed tests

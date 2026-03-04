@@ -47,7 +47,10 @@ export function createPairingProxyHandler(config: GatewayConfig) {
       if (contentLength) {
         const declared = Number(contentLength);
         if (declared > MAX_PAIRING_PAYLOAD_BYTES || Number.isNaN(declared)) {
-          log.warn({ contentLength }, "Pairing proxy payload too large (content-length)");
+          log.warn(
+            { contentLength },
+            "Pairing proxy payload too large (content-length)",
+          );
           return Response.json({ error: "Payload too large" }, { status: 413 });
         }
       }
@@ -58,7 +61,10 @@ export function createPairingProxyHandler(config: GatewayConfig) {
     // Content-Length was absent (chunked) or spoofed.
     if (bodyBuffer !== null) {
       if (bodyBuffer.byteLength > MAX_PAIRING_PAYLOAD_BYTES) {
-        log.warn({ bodyLength: bodyBuffer.byteLength }, "Pairing proxy payload too large");
+        log.warn(
+          { bodyLength: bodyBuffer.byteLength },
+          "Pairing proxy payload too large",
+        );
         return Response.json({ error: "Payload too large" }, { status: 413 });
       }
       reqHeaders.set("content-length", String(bodyBuffer.byteLength));
@@ -66,7 +72,12 @@ export function createPairingProxyHandler(config: GatewayConfig) {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+      controller.abort(
+        new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        ),
+      );
     }, TIMEOUT_MS);
 
     let response: Response;
@@ -82,10 +93,16 @@ export function createPairingProxyHandler(config: GatewayConfig) {
       clearTimeout(timeoutId);
       const duration = Math.round(performance.now() - start);
       if (err instanceof DOMException && err.name === "TimeoutError") {
-        log.error({ path: upstreamPath, duration }, "Pairing proxy upstream timed out");
+        log.error(
+          { path: upstreamPath, duration },
+          "Pairing proxy upstream timed out",
+        );
         return Response.json({ error: "Gateway Timeout" }, { status: 504 });
       }
-      log.error({ err, path: upstreamPath, duration }, "Pairing proxy upstream connection failed");
+      log.error(
+        { err, path: upstreamPath, duration },
+        "Pairing proxy upstream connection failed",
+      );
       return Response.json({ error: "Bad Gateway" }, { status: 502 });
     }
 
@@ -94,12 +111,24 @@ export function createPairingProxyHandler(config: GatewayConfig) {
 
     if (response.status >= 400) {
       const body = await response.text();
-      log.warn({ path: upstreamPath, status: response.status, duration }, "Pairing proxy upstream error");
-      return new Response(body, { status: response.status, headers: resHeaders });
+      log.warn(
+        { path: upstreamPath, status: response.status, duration },
+        "Pairing proxy upstream error",
+      );
+      return new Response(body, {
+        status: response.status,
+        headers: resHeaders,
+      });
     }
 
-    log.info({ path: upstreamPath, status: response.status, duration }, "Pairing proxy completed");
-    return new Response(response.body, { status: response.status, headers: resHeaders });
+    log.info(
+      { path: upstreamPath, status: response.status, duration },
+      "Pairing proxy completed",
+    );
+    return new Response(response.body, {
+      status: response.status,
+      headers: resHeaders,
+    });
   }
 
   return {

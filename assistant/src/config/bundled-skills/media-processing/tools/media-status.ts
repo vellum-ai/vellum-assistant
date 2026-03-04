@@ -4,8 +4,11 @@ import {
   getMediaAssetsByStatus,
   getProcessingStagesForAsset,
   type MediaAssetStatus,
-} from '../../../../memory/media-store.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+} from "../../../../memory/media-store.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Main entry point
@@ -36,7 +39,10 @@ export async function run(
   if (filePath) {
     const asset = getMediaAssetByFilePath(filePath);
     if (!asset) {
-      return { content: `No media asset found for path: ${filePath}`, isError: true };
+      return {
+        content: `No media asset found for path: ${filePath}`,
+        isError: true,
+      };
     }
     const stages = getProcessingStagesForAsset(asset.id);
     return {
@@ -47,10 +53,15 @@ export async function run(
 
   // Query by status filter
   if (statusFilter) {
-    const validStatuses: MediaAssetStatus[] = ['registered', 'processing', 'indexed', 'failed'];
+    const validStatuses: MediaAssetStatus[] = [
+      "registered",
+      "processing",
+      "indexed",
+      "failed",
+    ];
     if (!validStatuses.includes(statusFilter)) {
       return {
-        content: `Invalid status filter: ${statusFilter}. Valid values: ${validStatuses.join(', ')}`,
+        content: `Invalid status filter: ${statusFilter}. Valid values: ${validStatuses.join(", ")}`,
         isError: true,
       };
     }
@@ -60,16 +71,21 @@ export async function run(
       stages: getProcessingStagesForAsset(asset.id),
     }));
     return {
-      content: JSON.stringify({
-        count: results.length,
-        assets: results,
-      }, null, 2),
+      content: JSON.stringify(
+        {
+          count: results.length,
+          assets: results,
+        },
+        null,
+        2,
+      ),
       isError: false,
     };
   }
 
   return {
-    content: 'Provide at least one query parameter: asset_id, file_path, or status_filter.',
+    content:
+      "Provide at least one query parameter: asset_id, file_path, or status_filter.",
     isError: true,
   };
 }

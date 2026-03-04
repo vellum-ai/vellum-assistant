@@ -1,0 +1,5 @@
+# Bulk prettier formatting — formatting-only, no logic changes.
+# To use: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# chore: bulk prettier format all TS source files (#12093)
+cb76abd542b04840a29a7d259bb24397b15b15d0

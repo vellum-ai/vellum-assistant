@@ -1,18 +1,25 @@
-import type * as net from 'node:net';
+import type * as net from "node:net";
 
-import { extractText, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
-import type { WatchObservationEntry,WatchSession } from '../tools/watch/watch-state.js';
+import {
+  extractText,
+  getConfiguredProvider,
+  userMessage,
+} from "../providers/provider-send-message.js";
+import type {
+  WatchObservationEntry,
+  WatchSession,
+} from "../tools/watch/watch-state.js";
 import {
   addObservation,
   fireWatchCommentaryNotifier,
   fireWatchCompletionNotifier,
   watchSessions,
-} from '../tools/watch/watch-state.js';
-import { getLogger } from '../util/logger.js';
-import type { HandlerContext } from './handlers.js';
-import type { WatchObservation } from './ipc-protocol.js';
+} from "../tools/watch/watch-state.js";
+import { getLogger } from "../util/logger.js";
+import type { HandlerContext } from "./handlers.js";
+import type { WatchObservation } from "./ipc-protocol.js";
 
-const log = getLogger('watch-handler');
+const log = getLogger("watch-handler");
 
 /**
  * Module-level maps to store commentary/summary text so that session
@@ -28,8 +35,13 @@ export async function handleWatchObservation(
 ): Promise<void> {
   try {
     log.debug(
-      { watchId: msg.watchId, captureIndex: msg.captureIndex, appName: msg.appName, ocrLen: msg.ocrText?.length ?? 0 },
-      'Received watch_observation from client',
+      {
+        watchId: msg.watchId,
+        captureIndex: msg.captureIndex,
+        appName: msg.appName,
+        ocrLen: msg.ocrText?.length ?? 0,
+      },
+      "Received watch_observation from client",
     );
 
     // 1. Find the WatchSession by watchId
@@ -39,12 +51,15 @@ export async function handleWatchObservation(
     if (!session) {
       log.warn(
         { watchId: msg.watchId, knownWatchIds: [...watchSessions.keys()] },
-        'Watch session not found for observation',
+        "Watch session not found for observation",
       );
       return;
     }
-    if (session.status !== 'active' && session.status !== 'completing') {
-      log.warn({ watchId: msg.watchId, status: session.status }, 'Watch session not active');
+    if (session.status !== "active" && session.status !== "completing") {
+      log.warn(
+        { watchId: msg.watchId, status: session.status },
+        "Watch session not active",
+      );
       return;
     }
 
@@ -59,27 +74,37 @@ export async function handleWatchObservation(
     };
     addObservation(msg.watchId, entry);
     log.debug(
-      { watchId: msg.watchId, totalObservations: session.observations.length, status: session.status },
-      'Observation added to session',
+      {
+        watchId: msg.watchId,
+        totalObservations: session.observations.length,
+        status: session.status,
+      },
+      "Observation added to session",
     );
 
     // 4. Every 3 observations: call the LLM for live commentary (chat-initiated watch only)
     if (!session.isRideShotgun && session.observations.length % 3 === 0) {
       log.debug(
         { watchId: msg.watchId, observationCount: session.observations.length },
-        'Triggering commentary generation (every 3rd observation)',
+        "Triggering commentary generation (every 3rd observation)",
       );
       await generateCommentary(session);
     }
 
     // 5. If session is completing, generate final summary
-    if (session.status === 'completing') {
-      log.debug({ watchId: msg.watchId }, 'Session is completing — generating summary from observation handler');
-      session.status = 'completed';
+    if (session.status === "completing") {
+      log.debug(
+        { watchId: msg.watchId },
+        "Session is completing — generating summary from observation handler",
+      );
+      session.status = "completed";
       await generateSummary(session);
     }
   } catch (err) {
-    log.error({ err, watchId: msg.watchId }, 'Error handling watch observation');
+    log.error(
+      { err, watchId: msg.watchId },
+      "Error handling watch observation",
+    );
   }
 }
 
@@ -87,7 +112,10 @@ async function generateCommentary(session: WatchSession): Promise<void> {
   try {
     const provider = getConfiguredProvider();
     if (!provider) {
-      log.warn({ watchId: session.watchId }, 'Configured provider unavailable for commentary generation');
+      log.warn(
+        { watchId: session.watchId },
+        "Configured provider unavailable for commentary generation",
+      );
       return;
     }
     const lastThree = session.observations.slice(-3);
@@ -95,31 +123,35 @@ async function generateCommentary(session: WatchSession): Promise<void> {
 
     const userContent = [
       `Focus area: ${session.focusArea}`,
-      '',
+      "",
       previousCommentary
         ? `Previous commentary: "${previousCommentary}"`
-        : 'No previous commentary yet.',
-      '',
+        : "No previous commentary yet.",
+      "",
       ...lastThree.map(
         (obs, i) =>
-          `Observation ${i + 1}:\n- App: ${obs.appName ?? 'unknown'}\n- Window: ${obs.windowTitle ?? 'unknown'}\n- Screen text: ${obs.ocrText}`,
+          `Observation ${i + 1}:\n- App: ${
+            obs.appName ?? "unknown"
+          }\n- Window: ${obs.windowTitle ?? "unknown"}\n- Screen text: ${
+            obs.ocrText
+          }`,
       ),
-    ].join('\n\n');
+    ].join("\n\n");
 
     const systemPrompt = [
-      'You are a casual, friendly observer watching someone work on their computer in real time.',
+      "You are a casual, friendly observer watching someone work on their computer in real time.",
       `They asked you to watch them and focus on: "${session.focusArea}".`,
-      '',
-      'Your job is to provide brief, natural live commentary — like a friend glancing over their shoulder.',
-      '',
-      'Guidelines:',
-      '- Write 1-2 sentences max. Be concise and conversational.',
-      '- Comment on what they are doing, patterns you notice, or interesting transitions.',
-      '- Reference specific apps or content you see when relevant.',
-      '- If they seem to be context-switching a lot, gently note it.',
-      '- Do NOT repeat your previous commentary. Say something new or say nothing.',
+      "",
+      "Your job is to provide brief, natural live commentary — like a friend glancing over their shoulder.",
+      "",
+      "Guidelines:",
+      "- Write 1-2 sentences max. Be concise and conversational.",
+      "- Comment on what they are doing, patterns you notice, or interesting transitions.",
+      "- Reference specific apps or content you see when relevant.",
+      "- If they seem to be context-switching a lot, gently note it.",
+      "- Do NOT repeat your previous commentary. Say something new or say nothing.",
       '- If nothing interesting or meaningfully different has happened since the last observations, respond with exactly "SKIP" (no quotes, no extra text).',
-    ].join('\n');
+    ].join("\n");
 
     const response = await provider.sendMessage(
       [userMessage(userContent)],
@@ -127,7 +159,7 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       systemPrompt,
       {
         config: {
-          modelIntent: 'latency-optimized',
+          modelIntent: "latency-optimized",
           max_tokens: 200,
         },
       },
@@ -135,40 +167,60 @@ async function generateCommentary(session: WatchSession): Promise<void> {
 
     const commentaryText = extractText(response);
 
-    if (commentaryText && commentaryText !== 'SKIP') {
+    if (commentaryText && commentaryText !== "SKIP") {
       lastCommentaryBySession.set(session.sessionId, commentaryText);
       fireWatchCommentaryNotifier(session.sessionId, session);
       session.commentaryCount++;
     }
   } catch (err) {
-    log.error({ err, watchId: session.watchId }, 'Error generating watch commentary');
+    log.error(
+      { err, watchId: session.watchId },
+      "Error generating watch commentary",
+    );
   }
 }
 
 export async function generateSummary(session: WatchSession): Promise<void> {
   // Guard against concurrent calls (timeout + last observation race)
   if (session.summaryInFlight) {
-    log.debug({ watchId: session.watchId }, 'generateSummary already in flight — skipping duplicate call');
+    log.debug(
+      { watchId: session.watchId },
+      "generateSummary already in flight — skipping duplicate call",
+    );
     return;
   }
   session.summaryInFlight = true;
 
   try {
     log.debug(
-      { watchId: session.watchId, sessionId: session.sessionId, observationCount: session.observations.length, commentaryCount: session.commentaryCount },
-      'generateSummary starting — calling LLM',
+      {
+        watchId: session.watchId,
+        sessionId: session.sessionId,
+        observationCount: session.observations.length,
+        commentaryCount: session.commentaryCount,
+      },
+      "generateSummary starting — calling LLM",
     );
     const provider = getConfiguredProvider();
     if (!provider) {
-      log.warn({ watchId: session.watchId }, 'Configured provider unavailable for summary generation');
-      lastSummaryBySession.set(session.sessionId, '[error] Configured provider unavailable. Check your settings.');
+      log.warn(
+        { watchId: session.watchId },
+        "Configured provider unavailable for summary generation",
+      );
+      lastSummaryBySession.set(
+        session.sessionId,
+        "[error] Configured provider unavailable. Check your settings.",
+      );
       fireWatchCompletionNotifier(session.sessionId, session);
       return;
     }
 
     // Build observations text with truncation (keep most recent if >50K chars)
     let observations = session.observations;
-    const totalChars = observations.reduce((sum, obs) => sum + obs.ocrText.length, 0);
+    const totalChars = observations.reduce(
+      (sum, obs) => sum + obs.ocrText.length,
+      0,
+    );
     let wasTruncated = false;
 
     if (totalChars > 50_000) {
@@ -194,50 +246,58 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       `Observation period: ${elapsedMinutes} minute(s) (planned: ${expectedMinutes} minute(s))`,
       `Total observations: ${session.observations.length}`,
       ...(wasTruncated
-        ? [`Note: Older observations were trimmed due to size. Showing the most recent ${observations.length} of ${session.observations.length} total.`]
+        ? [
+            `Note: Older observations were trimmed due to size. Showing the most recent ${observations.length} of ${session.observations.length} total.`,
+          ]
         : []),
       ...(wasCancelled
-        ? ['Note: The observation period was ended early by the user. Provide your best analysis based on the data available.']
+        ? [
+            "Note: The observation period was ended early by the user. Provide your best analysis based on the data available.",
+          ]
         : []),
-      '',
-      '--- Observations ---',
-      '',
+      "",
+      "--- Observations ---",
+      "",
       ...observations.map(
         (obs) =>
-          `[${new Date(obs.timestamp).toISOString()}] App: ${obs.appName ?? 'unknown'} | Window: ${obs.windowTitle ?? 'unknown'}\n${obs.ocrText}`,
+          `[${new Date(obs.timestamp).toISOString()}] App: ${
+            obs.appName ?? "unknown"
+          } | Window: ${obs.windowTitle ?? "unknown"}\n${obs.ocrText}`,
       ),
-    ].join('\n\n');
+    ].join("\n\n");
 
     const systemPrompt = [
-      'You are a productivity analyst reviewing a series of screen observations captured from a user\'s computer.',
+      "You are a productivity analyst reviewing a series of screen observations captured from a user's computer.",
       `The user asked you to watch their workflow with this focus: "${session.focusArea}".`,
-      '',
-      'Analyze the observations and produce a structured report using exactly these markdown sections:',
-      '',
-      '## Workflow Summary',
-      'A high-level description (2-4 sentences) of what the user did during the observation period.',
-      '',
-      '## App Usage',
-      'List which applications were used and roughly how much time was spent in each. Use the timestamps to estimate durations. Present as a bullet list.',
-      '',
-      '## Context Switching',
-      'Analyze how often the user switched between different apps or tasks. Note any patterns — were switches frequent and disruptive, or natural and purposeful?',
-      '',
-      '## Tasks & Action Items',
-      'Based on what you observed on screen, describe what tasks the user worked on. Note anything that appeared unfinished or in-progress when the session ended.',
-      '',
-      '## Suggestions',
-      'Provide 3-5 specific, actionable things the assistant could help with based on what you observed. These should be concrete offers, not generic advice.',
+      "",
+      "Analyze the observations and produce a structured report using exactly these markdown sections:",
+      "",
+      "## Workflow Summary",
+      "A high-level description (2-4 sentences) of what the user did during the observation period.",
+      "",
+      "## App Usage",
+      "List which applications were used and roughly how much time was spent in each. Use the timestamps to estimate durations. Present as a bullet list.",
+      "",
+      "## Context Switching",
+      "Analyze how often the user switched between different apps or tasks. Note any patterns — were switches frequent and disruptive, or natural and purposeful?",
+      "",
+      "## Tasks & Action Items",
+      "Based on what you observed on screen, describe what tasks the user worked on. Note anything that appeared unfinished or in-progress when the session ended.",
+      "",
+      "## Suggestions",
+      "Provide 3-5 specific, actionable things the assistant could help with based on what you observed. These should be concrete offers, not generic advice.",
       'Examples: "I could draft that email you started in Gmail", "Want me to summarize the Slack thread you were reading?", "I could help outline the document you were working on in Google Docs".',
-      '',
-      'Important:',
-      '- Base your analysis strictly on what you can see in the observations. Do not invent details.',
-      '- Reference specific apps, window titles, and content when possible.',
-      '- Keep the tone helpful and professional, not judgmental.',
+      "",
+      "Important:",
+      "- Base your analysis strictly on what you can see in the observations. Do not invent details.",
+      "- Reference specific apps, window titles, and content when possible.",
+      "- Keep the tone helpful and professional, not judgmental.",
       ...(wasCancelled
-        ? ['- The observation period was cut short. Acknowledge this briefly and provide the best analysis you can with the available data.']
+        ? [
+            "- The observation period was cut short. Acknowledge this briefly and provide the best analysis you can with the available data.",
+          ]
         : []),
-    ].join('\n');
+    ].join("\n");
 
     const response = await provider.sendMessage(
       [userMessage(userContent)],
@@ -245,34 +305,52 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       systemPrompt,
       {
         config: {
-          modelIntent: 'quality-optimized',
+          modelIntent: "quality-optimized",
           max_tokens: 2000,
         },
       },
     );
 
-    log.debug({ watchId: session.watchId }, 'LLM API call completed successfully');
+    log.debug(
+      { watchId: session.watchId },
+      "LLM API call completed successfully",
+    );
 
     const summaryText = extractText(response);
 
     log.debug(
       { watchId: session.watchId, summaryLength: summaryText.length },
-      'Summary result from Sonnet',
+      "Summary result from Sonnet",
     );
 
     if (summaryText) {
       lastSummaryBySession.set(session.sessionId, summaryText);
-      log.debug({ watchId: session.watchId, sessionId: session.sessionId }, 'Firing completion notifier with summary');
+      log.debug(
+        { watchId: session.watchId, sessionId: session.sessionId },
+        "Firing completion notifier with summary",
+      );
       fireWatchCompletionNotifier(session.sessionId, session);
     } else {
-      log.warn({ watchId: session.watchId }, 'Summary was empty from API response');
-      lastSummaryBySession.set(session.sessionId, '[error] The API returned an empty summary. This may indicate a service issue.');
+      log.warn(
+        { watchId: session.watchId },
+        "Summary was empty from API response",
+      );
+      lastSummaryBySession.set(
+        session.sessionId,
+        "[error] The API returned an empty summary. This may indicate a service issue.",
+      );
       fireWatchCompletionNotifier(session.sessionId, session);
     }
   } catch (err) {
-    log.error({ err, watchId: session.watchId }, 'Error generating watch summary — LLM API call failed');
+    log.error(
+      { err, watchId: session.watchId },
+      "Error generating watch summary — LLM API call failed",
+    );
     const message = err instanceof Error ? err.message : String(err);
-    lastSummaryBySession.set(session.sessionId, `[error] Summary generation failed: ${message}`);
+    lastSummaryBySession.set(
+      session.sessionId,
+      `[error] Summary generation failed: ${message}`,
+    );
     fireWatchCompletionNotifier(session.sessionId, session);
   }
 }

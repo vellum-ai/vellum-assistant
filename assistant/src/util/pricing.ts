@@ -1,8 +1,8 @@
-import type { ModelPricingOverride } from '../config/schema.js';
-import type { PricingResult } from '../usage/types.js';
+import type { ModelPricingOverride } from "../config/schema.js";
+import type { PricingResult } from "../usage/types.js";
 
 interface ModelPricing {
-  inputPer1M: number;  // USD per 1M input tokens
+  inputPer1M: number; // USD per 1M input tokens
   outputPer1M: number; // USD per 1M output tokens
 }
 
@@ -12,29 +12,32 @@ interface ModelPricing {
  */
 const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
   anthropic: {
-    'claude-opus-4': { inputPer1M: 15, outputPer1M: 75 },
-    'claude-opus-4-6-fast': { inputPer1M: 30, outputPer1M: 150 },
-    'claude-sonnet-4': { inputPer1M: 3, outputPer1M: 15 },
-    'claude-haiku-4': { inputPer1M: 0.80, outputPer1M: 4 },
+    "claude-opus-4": { inputPer1M: 15, outputPer1M: 75 },
+    "claude-opus-4-6-fast": { inputPer1M: 30, outputPer1M: 150 },
+    "claude-sonnet-4": { inputPer1M: 3, outputPer1M: 15 },
+    "claude-haiku-4": { inputPer1M: 0.8, outputPer1M: 4 },
   },
   openai: {
-    'gpt-4o': { inputPer1M: 2.50, outputPer1M: 10 },
-    'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.60 },
-    'gpt-4.1': { inputPer1M: 2.00, outputPer1M: 8.00 },
-    'gpt-4.1-mini': { inputPer1M: 0.40, outputPer1M: 1.60 },
-    'gpt-4.1-nano': { inputPer1M: 0.10, outputPer1M: 0.40 },
-    'o3': { inputPer1M: 2.00, outputPer1M: 8.00 },
-    'o3-mini': { inputPer1M: 1.10, outputPer1M: 4.40 },
-    'o3-pro': { inputPer1M: 20, outputPer1M: 80 },
-    'o4-mini': { inputPer1M: 1.10, outputPer1M: 4.40 },
+    "gpt-4o": { inputPer1M: 2.5, outputPer1M: 10 },
+    "gpt-4o-mini": { inputPer1M: 0.15, outputPer1M: 0.6 },
+    "gpt-4.1": { inputPer1M: 2.0, outputPer1M: 8.0 },
+    "gpt-4.1-mini": { inputPer1M: 0.4, outputPer1M: 1.6 },
+    "gpt-4.1-nano": { inputPer1M: 0.1, outputPer1M: 0.4 },
+    o3: { inputPer1M: 2.0, outputPer1M: 8.0 },
+    "o3-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
+    "o3-pro": { inputPer1M: 20, outputPer1M: 80 },
+    "o4-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
   },
   gemini: {
-    'gemini-2.5-pro': { inputPer1M: 1.25, outputPer1M: 10 },
-    'gemini-2.5-flash': { inputPer1M: 0.15, outputPer1M: 0.60 },
-    'gemini-2.0-flash': { inputPer1M: 0.10, outputPer1M: 0.40 },
+    "gemini-2.5-pro": { inputPer1M: 1.25, outputPer1M: 10 },
+    "gemini-2.5-flash": { inputPer1M: 0.15, outputPer1M: 0.6 },
+    "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
   },
   fireworks: {
-    'accounts/fireworks/models/kimi-k2p5': { inputPer1M: 0.60, outputPer1M: 3.00 },
+    "accounts/fireworks/models/kimi-k2p5": {
+      inputPer1M: 0.6,
+      outputPer1M: 3.0,
+    },
   },
 };
 
@@ -42,7 +45,10 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
  * Look up pricing for a model within a provider's catalog.
  * Tries exact match first, then longest prefix match.
  */
-function findPricing(catalog: Record<string, ModelPricing>, model: string): ModelPricing | undefined {
+function findPricing(
+  catalog: Record<string, ModelPricing>,
+  model: string,
+): ModelPricing | undefined {
   // Exact match
   if (catalog[model]) return catalog[model];
 
@@ -61,9 +67,15 @@ function findPricing(catalog: Record<string, ModelPricing>, model: string): Mode
 /**
  * Calculate cost from pricing and token counts.
  */
-function calculateCost(pricing: ModelPricing, inputTokens: number, outputTokens: number): number {
-  return (inputTokens / 1_000_000) * pricing.inputPer1M
-       + (outputTokens / 1_000_000) * pricing.outputPer1M;
+function calculateCost(
+  pricing: ModelPricing,
+  inputTokens: number,
+  outputTokens: number,
+): number {
+  return (
+    (inputTokens / 1_000_000) * pricing.inputPer1M +
+    (outputTokens / 1_000_000) * pricing.outputPer1M
+  );
 }
 
 /**
@@ -78,17 +90,17 @@ export function resolvePricing(
 ): PricingResult {
   const providerCatalog = PROVIDER_PRICING[provider];
   if (!providerCatalog) {
-    return { estimatedCostUsd: null, pricingStatus: 'unpriced' };
+    return { estimatedCostUsd: null, pricingStatus: "unpriced" };
   }
 
   const pricing = findPricing(providerCatalog, model);
   if (!pricing) {
-    return { estimatedCostUsd: null, pricingStatus: 'unpriced' };
+    return { estimatedCostUsd: null, pricingStatus: "unpriced" };
   }
 
   return {
     estimatedCostUsd: calculateCost(pricing, inputTokens, outputTokens),
-    pricingStatus: 'priced',
+    pricingStatus: "priced",
   };
 }
 
@@ -111,7 +123,10 @@ export function resolvePricingWithOverrides(
     for (const override of overrides) {
       if (override.provider !== provider) continue;
       // Exact match or prefix match on modelPattern
-      if (model === override.modelPattern || model.startsWith(override.modelPattern)) {
+      if (
+        model === override.modelPattern ||
+        model.startsWith(override.modelPattern)
+      ) {
         if (override.modelPattern.length > bestLen) {
           bestOverride = override;
           bestLen = override.modelPattern.length;
@@ -120,11 +135,14 @@ export function resolvePricingWithOverrides(
     }
     if (bestOverride) {
       const cost = calculateCost(
-        { inputPer1M: bestOverride.inputPer1M, outputPer1M: bestOverride.outputPer1M },
+        {
+          inputPer1M: bestOverride.inputPer1M,
+          outputPer1M: bestOverride.outputPer1M,
+        },
         inputTokens,
         outputTokens,
       );
-      return { estimatedCostUsd: cost, pricingStatus: 'priced' };
+      return { estimatedCostUsd: cost, pricingStatus: "priced" };
     }
   }
 
@@ -143,7 +161,7 @@ export function estimateCost(
   provider: string,
 ): number {
   const result = resolvePricing(provider, model, inputTokens, outputTokens);
-  if (result.pricingStatus === 'priced' && result.estimatedCostUsd != null) {
+  if (result.pricingStatus === "priced" && result.estimatedCostUsd != null) {
     return result.estimatedCostUsd;
   }
   return 0;

@@ -5,7 +5,20 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "⚙️"}}
 ---
 
-You are helping the user view or change assistant configuration. All configuration is managed through the `vellum config` CLI which reads and writes `~/.vellum/workspace/config.json`.
+You are helping the user view or change assistant configuration through the `vellum` CLI. Treat CLI commands as the canonical interface. Do **not** read or edit config files directly.
+
+## Domain Status Reads First
+
+When a user asks for setup/status of a specific capability, prefer domain commands before generic `vellum config get`:
+
+```bash
+vellum integrations voice config --json
+vellum integrations ingress config --json
+vellum integrations twilio config --json
+vellum email status --json
+```
+
+Use `vellum config get` for generic keys that do not have a domain command.
 
 ## Reading a value
 
@@ -18,7 +31,6 @@ Examples:
 vellum config get platform.baseUrl
 vellum config get memory.qdrant.url
 vellum config get provider
-vellum config get calls.enabled
 ```
 
 If the result is empty, the compiled default is in effect.

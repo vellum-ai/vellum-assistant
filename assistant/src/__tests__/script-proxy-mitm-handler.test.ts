@@ -7,7 +7,14 @@ import { join } from "node:path";
 import { connect as tlsConnect } from "node:tls";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 
-import { createProxyServer, ensureLocalCA, getCAPath, issueLeafCert, type RewriteCallback, type RouteDecision } from '@vellumai/outbound-proxy';
+import {
+  createProxyServer,
+  ensureLocalCA,
+  getCAPath,
+  issueLeafCert,
+  type RewriteCallback,
+  type RouteDecision,
+} from "@vellumai/outbound-proxy";
 
 let dataDir: string;
 let caDir: string;

@@ -12,14 +12,14 @@
  * lazy init, etc.).
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { getLogger } from '../util/logger.js';
-import { getWorkspaceGitService } from '../workspace/git-service.js';
-import { getAppsDir } from './app-store.js';
+import { getLogger } from "../util/logger.js";
+import { getWorkspaceGitService } from "../workspace/git-service.js";
+import { getAppsDir } from "./app-store.js";
 
-const log = getLogger('app-git');
+const log = getLogger("app-git");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,29 +41,28 @@ export interface AppVersion {
  * - *.preview — large base64 preview images
  * - records directories — user data (form submissions), not app code
  */
-const APP_GITIGNORE_RULES = [
-  '*.preview',
-  '*/records/',
-];
+const APP_GITIGNORE_RULES = ["*.preview", "*/records/"];
 
 /**
  * Ensure the apps directory .gitignore contains app-specific exclusion rules.
  * Idempotent: only appends rules that are missing.
  */
 function ensureAppGitignoreRules(appsDir: string): void {
-  const gitignorePath = join(appsDir, '.gitignore');
-  let content = '';
+  const gitignorePath = join(appsDir, ".gitignore");
+  let content = "";
   if (existsSync(gitignorePath)) {
-    content = readFileSync(gitignorePath, 'utf-8');
+    content = readFileSync(gitignorePath, "utf-8");
   }
 
-  const missingRules = APP_GITIGNORE_RULES.filter(rule => !content.includes(rule));
+  const missingRules = APP_GITIGNORE_RULES.filter(
+    (rule) => !content.includes(rule),
+  );
   if (missingRules.length > 0) {
-    if (content && !content.endsWith('\n')) {
-      content += '\n';
+    if (content && !content.endsWith("\n")) {
+      content += "\n";
     }
-    content += missingRules.join('\n') + '\n';
-    writeFileSync(gitignorePath, content, 'utf-8');
+    content += missingRules.join("\n") + "\n";
+    writeFileSync(gitignorePath, content, "utf-8");
   }
 }
 
@@ -80,7 +79,13 @@ function validateCommitHash(hash: string): void {
 
 /** Validate an app ID (UUID-like, no path traversal or git pathspec chars). */
 function validateAppId(id: string): void {
-  if (!id || id.includes('/') || id.includes('\\') || id.includes('..') || id !== id.trim()) {
+  if (
+    !id ||
+    id.includes("/") ||
+    id.includes("\\") ||
+    id.includes("..") ||
+    id !== id.trim()
+  ) {
     throw new Error(`Invalid app ID: ${id}`);
   }
   // Reject git pathspec metacharacters to prevent cross-app operations
@@ -91,7 +96,12 @@ function validateAppId(id: string): void {
 
 /** Validate a relative file path within an app (no traversal). */
 function validateRelativePath(path: string): void {
-  if (!path || path.includes('..') || path.startsWith('/') || path.startsWith('\\')) {
+  if (
+    !path ||
+    path.includes("..") ||
+    path.startsWith("/") ||
+    path.startsWith("\\")
+  ) {
     throw new Error(`Invalid file path: ${path}`);
   }
 }
@@ -116,7 +126,7 @@ export async function initAppGit(): Promise<void> {
     const gitService = getWorkspaceGitService(appsDir);
     await gitService.ensureInitialized();
   } catch (err) {
-    log.error({ err }, 'Failed to initialize app git repo');
+    log.error({ err }, "Failed to initialize app git repo");
   }
 }
 
@@ -138,7 +148,7 @@ export async function commitAppChange(message: string): Promise<void> {
     const gitService = getWorkspaceGitService(appsDir);
     await gitService.commitChanges(message);
   } catch (err) {
-    log.error({ err, message }, 'Failed to commit app change');
+    log.error({ err, message }, "Failed to commit app change");
   }
 }
 
@@ -151,7 +161,10 @@ export async function commitAppChange(message: string): Promise<void> {
  *
  * Fire-and-forget safe: errors are logged but never thrown.
  */
-export async function commitAppTurnChanges(sessionId: string, turnNumber: number): Promise<void> {
+export async function commitAppTurnChanges(
+  sessionId: string,
+  turnNumber: number,
+): Promise<void> {
   try {
     const appsDir = getAppsDir();
     ensureAppGitignoreRules(appsDir);
@@ -162,7 +175,10 @@ export async function commitAppTurnChanges(sessionId: string, turnNumber: number
       metadata: { sessionId, turnNumber },
     }));
   } catch (err) {
-    log.error({ err, sessionId, turnNumber }, 'Failed to commit app turn changes');
+    log.error(
+      { err, sessionId, turnNumber },
+      "Failed to commit app turn changes",
+    );
   }
 }
 
@@ -176,7 +192,10 @@ export async function commitAppTurnChanges(sessionId: string, turnNumber: number
  * Scopes `git log` to files belonging to this app:
  *   {appId}.json, {appId}/index.html, {appId}/pages/*, etc.
  */
-export async function getAppHistory(appId: string, limit = 50): Promise<AppVersion[]> {
+export async function getAppHistory(
+  appId: string,
+  limit = 50,
+): Promise<AppVersion[]> {
   validateAppId(appId);
   const safeLimit = Math.max(1, Math.min(Math.floor(limit) || 50, 500));
   const appsDir = getAppsDir();
@@ -184,24 +203,27 @@ export async function getAppHistory(appId: string, limit = 50): Promise<AppVersi
 
   // Format: hash<TAB>unix-seconds<TAB>subject line
   const { stdout } = await gitService.runReadOnlyGit([
-    'log',
+    "log",
     `--max-count=${safeLimit}`,
-    '--format=%H\t%at\t%s',
-    '--',
+    "--format=%H\t%at\t%s",
+    "--",
     `${appId}.json`,
     `${appId}/`,
   ]);
 
   if (!stdout.trim()) return [];
 
-  return stdout.trim().split('\n').map(line => {
-    const [commitHash, epochSec, ...messageParts] = line.split('\t');
-    return {
-      commitHash,
-      message: messageParts.join('\t'),
-      timestamp: parseInt(epochSec, 10) * 1000,
-    };
-  });
+  return stdout
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const [commitHash, epochSec, ...messageParts] = line.split("\t");
+      return {
+        commitHash,
+        message: messageParts.join("\t"),
+        timestamp: parseInt(epochSec, 10) * 1000,
+      };
+    });
 }
 
 /**
@@ -222,9 +244,9 @@ export async function getAppDiff(
 
   const range = toCommit ? `${fromCommit}..${toCommit}` : `${fromCommit}..HEAD`;
   const { stdout } = await gitService.runReadOnlyGit([
-    'diff',
+    "diff",
     range,
-    '--',
+    "--",
     `${appId}.json`,
     `${appId}/`,
   ]);
@@ -248,7 +270,7 @@ export async function getAppFileAtVersion(
   const gitService = getWorkspaceGitService(appsDir);
 
   const { stdout } = await gitService.runReadOnlyGit([
-    'show',
+    "show",
     `${commitHash}:${appId}/${path}`,
   ]);
 
@@ -265,7 +287,10 @@ export async function getAppFileAtVersion(
  * Uses --no-overlay so files added after the target commit are removed,
  * giving a true restore rather than a merge.
  */
-export async function restoreAppVersion(appId: string, commitHash: string): Promise<void> {
+export async function restoreAppVersion(
+  appId: string,
+  commitHash: string,
+): Promise<void> {
   validateAppId(appId);
   validateCommitHash(commitHash);
 
@@ -276,10 +301,10 @@ export async function restoreAppVersion(appId: string, commitHash: string): Prom
     // Checkout the app's files at the target commit.
     // --no-overlay removes files that don't exist at the target commit.
     await exec([
-      'checkout',
+      "checkout",
       commitHash,
-      '--no-overlay',
-      '--',
+      "--no-overlay",
+      "--",
       `${appId}.json`,
       `${appId}/`,
     ]);
@@ -290,11 +315,11 @@ export async function restoreAppVersion(appId: string, commitHash: string): Prom
     const jsonPath = join(appsDir, `${appId}.json`);
     if (existsSync(jsonPath)) {
       try {
-        const raw = readFileSync(jsonPath, 'utf-8');
+        const raw = readFileSync(jsonPath, "utf-8");
         const app = JSON.parse(raw);
         if (app.name) appName = app.name;
         app.updatedAt = Date.now();
-        writeFileSync(jsonPath, JSON.stringify(app, null, 2) + '\n', 'utf-8');
+        writeFileSync(jsonPath, JSON.stringify(app, null, 2) + "\n", "utf-8");
       } catch {
         // fall back to id
       }
@@ -303,8 +328,13 @@ export async function restoreAppVersion(appId: string, commitHash: string): Prom
     const shortHash = commitHash.substring(0, 7);
 
     // Stage only this app's files and commit atomically within the same mutex lock
-    await exec(['add', '--', `${appId}.json`, `${appId}/`]);
-    await exec(['commit', '-m', `Restore app: ${appName} to ${shortHash}`, '--allow-empty']);
+    await exec(["add", "--", `${appId}.json`, `${appId}/`]);
+    await exec([
+      "commit",
+      "-m",
+      `Restore app: ${appName} to ${shortHash}`,
+      "--allow-empty",
+    ]);
   });
 }
 

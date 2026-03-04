@@ -7,9 +7,13 @@
  * - `notify` — alert the user but take no action (most conservative)
  */
 
-export type AutonomyTier = 'auto' | 'draft' | 'notify';
+export type AutonomyTier = "auto" | "draft" | "notify";
 
-export const AUTONOMY_TIERS: readonly AutonomyTier[] = ['auto', 'draft', 'notify'] as const;
+export const AUTONOMY_TIERS: readonly AutonomyTier[] = [
+  "auto",
+  "draft",
+  "notify",
+] as const;
 
 /**
  * Policy configuration for autonomy tiers. This is persisted as JSON config,
@@ -32,7 +36,7 @@ export interface AutonomyConfig {
 
 /** Sensible defaults — conservative: everything starts as notify-only. */
 export const DEFAULT_AUTONOMY_CONFIG: AutonomyConfig = {
-  defaultTier: 'notify',
+  defaultTier: "notify",
   channelDefaults: {},
   categoryOverrides: {},
   contactOverrides: {},

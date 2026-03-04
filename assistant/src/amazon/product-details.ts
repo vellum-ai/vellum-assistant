@@ -1,11 +1,11 @@
-import type { ProductDetails } from './client.js';
+import type { ProductDetails } from "./client.js";
 import {
   AMAZON_BASE,
   cdpEval,
   handleResult,
   prepareRequest,
   runWithBackoff,
-} from './client.js';
+} from "./client.js";
 
 /**
  * Get product details for a specific ASIN, including variations.
@@ -138,7 +138,7 @@ export async function getProductDetails(
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
     return result.__data as ProductDetails;
   });

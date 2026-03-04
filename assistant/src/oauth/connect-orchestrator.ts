@@ -20,15 +20,15 @@
  * - Running identity verifiers
  */
 
-import type { TokenEndpointAuthMethod } from '../security/oauth2.js';
-import { prepareOAuth2Flow, startOAuth2Flow } from '../security/oauth2.js';
-import { getLogger } from '../util/logger.js';
-import type { OAuthConnectResult } from './connect-types.js';
-import { getProviderProfile, resolveService } from './provider-profiles.js';
-import { resolveScopes } from './scope-policy.js';
-import { storeOAuth2Tokens } from './token-persistence.js';
+import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
+import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
+import { getLogger } from "../util/logger.js";
+import type { OAuthConnectResult } from "./connect-types.js";
+import { getProviderProfile, resolveService } from "./provider-profiles.js";
+import { resolveScopes } from "./scope-policy.js";
+import { storeOAuth2Tokens } from "./token-persistence.js";
 
-const log = getLogger('oauth-connect-orchestrator');
+const log = getLogger("oauth-connect-orchestrator");
 
 // ---------------------------------------------------------------------------
 // Options
@@ -74,7 +74,9 @@ export interface OAuthConnectOptions {
  * - Deferred success:    `{ success: true, deferred: true, authUrl, state, service }`
  * - Error:               `{ success: false, error }`
  */
-export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Promise<OAuthConnectResult> {
+export async function orchestrateOAuthConnect(
+  options: OAuthConnectOptions,
+): Promise<OAuthConnectResult> {
   const resolvedService = resolveService(options.service);
   const profile = getProviderProfile(resolvedService);
 
@@ -83,7 +85,8 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
   const tokenUrl = options.tokenUrl ?? profile?.tokenUrl;
   const extraParams = options.extraParams ?? profile?.extraParams;
   const userinfoUrl = options.userinfoUrl ?? profile?.userinfoUrl;
-  const tokenEndpointAuthMethod = options.tokenEndpointAuthMethod ?? profile?.tokenEndpointAuthMethod;
+  const tokenEndpointAuthMethod =
+    options.tokenEndpointAuthMethod ?? profile?.tokenEndpointAuthMethod;
 
   // Scopes: use explicit override, then try scope policy resolution, then profile defaults
   let finalScopes: string[];
@@ -94,21 +97,37 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
     const scopeResult = resolveScopes(profile, options.requestedScopes);
     if (!scopeResult.ok) {
       const guidance = scopeResult.allowedScopes
-        ? ` Allowed scopes: ${scopeResult.allowedScopes.join(', ')}`
-        : '';
-      return { success: false, error: `${scopeResult.error}${guidance}`, safeError: true };
+        ? ` Allowed scopes: ${scopeResult.allowedScopes.join(", ")}`
+        : "";
+      return {
+        success: false,
+        error: `${scopeResult.error}${guidance}`,
+        safeError: true,
+      };
     }
     finalScopes = scopeResult.scopes;
   } else {
     // No profile and no explicit scopes — cannot proceed
-    return { success: false, error: `No well-known OAuth config found for "${options.service}" and no scopes were provided`, safeError: true };
+    return {
+      success: false,
+      error: `No well-known OAuth config found for "${options.service}" and no scopes were provided`,
+      safeError: true,
+    };
   }
 
   if (!authUrl) {
-    return { success: false, error: 'auth_url is required (no well-known config for this service)', safeError: true };
+    return {
+      success: false,
+      error: "auth_url is required (no well-known config for this service)",
+      safeError: true,
+    };
   }
   if (!tokenUrl) {
-    return { success: false, error: 'token_url is required (no well-known config for this service)', safeError: true };
+    return {
+      success: false,
+      error: "token_url is required (no well-known config for this service)",
+      safeError: true,
+    };
   }
 
   const oauthConfig = {
@@ -138,18 +157,20 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
   // -----------------------------------------------------------------------
   if (!options.isInteractive) {
     try {
-      const callbackTransport = profile?.callbackTransport ?? 'gateway';
+      const callbackTransport = profile?.callbackTransport ?? "gateway";
 
       // Gateway transport needs a public ingress URL
-      if (callbackTransport !== 'loopback') {
-        const { loadConfig } = await import('../config/loader.js');
-        const { getPublicBaseUrl } = await import('../inbound/public-ingress-urls.js');
+      if (callbackTransport !== "loopback") {
+        const { loadConfig } = await import("../config/loader.js");
+        const { getPublicBaseUrl } =
+          await import("../inbound/public-ingress-urls.js");
         try {
           getPublicBaseUrl(loadConfig());
         } catch {
           return {
             success: false,
-            error: 'oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.',
+            error:
+              "oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.",
             safeError: true,
           };
         }
@@ -157,42 +178,55 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
 
       const prepared = await prepareOAuth2Flow(
         oauthConfig,
-        callbackTransport === 'loopback'
+        callbackTransport === "loopback"
           ? { callbackTransport, loopbackPort: profile?.loopbackPort }
           : undefined,
       );
 
       // Fire-and-forget: store tokens when the callback arrives
-      prepared.completion.then(async (result) => {
-        try {
-          let accountInfo: string | undefined;
+      prepared.completion
+        .then(async (result) => {
+          try {
+            let accountInfo: string | undefined;
 
-          // Run identity verifier if available
-          if (profile?.identityVerifier) {
-            try {
-              accountInfo = await profile.identityVerifier(result.tokens.accessToken);
-            } catch {
-              // Non-fatal
+            // Run identity verifier if available
+            if (profile?.identityVerifier) {
+              try {
+                accountInfo = await profile.identityVerifier(
+                  result.tokens.accessToken,
+                );
+              } catch {
+                // Non-fatal
+              }
             }
-          }
 
-          const stored = await storeOAuth2Tokens({
-            ...storageParams,
-            tokens: result.tokens,
-            grantedScopes: result.grantedScopes,
-            rawTokenResponse: result.rawTokenResponse,
-            identityAccountInfo: accountInfo,
-          });
-          log.info(
-            { service: resolvedService, accountInfo: stored.accountInfo ?? accountInfo },
-            'Deferred OAuth2 flow completed — tokens stored',
+            const stored = await storeOAuth2Tokens({
+              ...storageParams,
+              tokens: result.tokens,
+              grantedScopes: result.grantedScopes,
+              rawTokenResponse: result.rawTokenResponse,
+              identityAccountInfo: accountInfo,
+            });
+            log.info(
+              {
+                service: resolvedService,
+                accountInfo: stored.accountInfo ?? accountInfo,
+              },
+              "Deferred OAuth2 flow completed — tokens stored",
+            );
+          } catch (err) {
+            log.error(
+              { err, service: resolvedService },
+              "Failed to store tokens from deferred OAuth2 flow",
+            );
+          }
+        })
+        .catch((err) => {
+          log.error(
+            { err, service: resolvedService },
+            "Deferred OAuth2 flow failed",
           );
-        } catch (err) {
-          log.error({ err, service: resolvedService }, 'Failed to store tokens from deferred OAuth2 flow');
-        }
-      }).catch((err) => {
-        log.error({ err, service: resolvedService }, 'Deferred OAuth2 flow failed');
-      });
+        });
 
       return {
         success: true,
@@ -202,8 +236,14 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
         service: resolvedService,
       };
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error preparing OAuth flow';
-      return { success: false, error: `Error connecting "${resolvedService}": ${message}` };
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Unknown error preparing OAuth flow";
+      return {
+        success: false,
+        error: `Error connecting "${resolvedService}": ${message}`,
+      };
     }
   }
 
@@ -218,12 +258,19 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
           if (options.openUrl) {
             options.openUrl(url);
           } else if (options.sendToClient) {
-            options.sendToClient({ type: 'open_url', url, title: `Connect ${resolvedService}` });
+            options.sendToClient({
+              type: "open_url",
+              url,
+              title: `Connect ${resolvedService}`,
+            });
           }
         },
       },
       profile?.callbackTransport
-        ? { callbackTransport: profile.callbackTransport, loopbackPort: profile.loopbackPort }
+        ? {
+            callbackTransport: profile.callbackTransport,
+            loopbackPort: profile.loopbackPort,
+          }
         : undefined,
     );
 
@@ -252,7 +299,11 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
       accountInfo: accountInfo ?? verifiedIdentity,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error during OAuth flow';
-    return { success: false, error: `Error connecting "${resolvedService}": ${message}` };
+    const message =
+      err instanceof Error ? err.message : "Unknown error during OAuth flow";
+    return {
+      success: false,
+      error: `Error connecting "${resolvedService}": ${message}`,
+    };
   }
 }

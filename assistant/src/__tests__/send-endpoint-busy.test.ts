@@ -13,10 +13,10 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
+import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import type { Session } from "../daemon/session.js";
 import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { createBinding } from "../memory/channel-guardian-store.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 
 const testDir = realpathSync(
@@ -290,15 +290,17 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     db.run("DELETE FROM conversation_keys");
     db.run("DELETE FROM canonical_guardian_deliveries");
     db.run("DELETE FROM canonical_guardian_requests");
-    db.run("DELETE FROM channel_guardian_bindings");
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
     pendingInteractions.clear();
 
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "vellum",
       guardianExternalUserId: "dev-bypass",
       guardianDeliveryChatId: "vellum",
       guardianPrincipalId: "test-principal-id",
+      verifiedVia: "test",
     });
 
     eventHub = new AssistantEventHub();

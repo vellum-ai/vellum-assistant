@@ -10,16 +10,14 @@
  * - Preserves existing guardian bindings for other channels unchanged.
  */
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import {
-  getActiveBinding,
-} from '../memory/guardian-bindings.js';
-import { createGuardianBindingContactsFirst } from '../contacts/contacts-write.js';
-import { getLogger } from '../util/logger.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
+import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
+import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
-const log = getLogger('guardian-vellum-migration');
+const log = getLogger("guardian-vellum-migration");
 
 /**
  * Ensure a vellum guardian binding exists for the given assistant,
@@ -28,31 +26,33 @@ const log = getLogger('guardian-vellum-migration');
  *
  * Returns the guardianPrincipalId (existing or newly created).
  */
-export function ensureVellumGuardianBinding(assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID): string {
-  const existing = getActiveBinding(assistantId, 'vellum');
-  if (existing) {
+export function ensureVellumGuardianBinding(
+  assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
+): string {
+  const guardianResult = findGuardianForChannel("vellum");
+  if (guardianResult && guardianResult.contact.principalId) {
     log.debug(
-      { assistantId, guardianPrincipalId: existing.guardianPrincipalId },
-      'Vellum guardian binding already exists with principal',
+      { assistantId, guardianPrincipalId: guardianResult.contact.principalId },
+      "Vellum guardian binding already exists with principal",
     );
-    return existing.guardianPrincipalId;
+    return guardianResult.contact.principalId;
   }
 
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
 
   createGuardianBindingContactsFirst({
     assistantId,
-    channel: 'vellum',
+    channel: "vellum",
     guardianExternalUserId: guardianPrincipalId,
-    guardianDeliveryChatId: 'local',
+    guardianDeliveryChatId: "local",
     guardianPrincipalId,
-    verifiedVia: 'startup-migration',
+    verifiedVia: "startup-migration",
     metadataJson: JSON.stringify({ migratedAt: Date.now() }),
   });
 
   log.info(
     { assistantId, guardianPrincipalId },
-    'Backfilled vellum guardian binding on startup',
+    "Backfilled vellum guardian binding on startup",
   );
 
   return guardianPrincipalId;

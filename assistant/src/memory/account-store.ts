@@ -1,9 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID } from "node:crypto";
 
-import { and,eq } from 'drizzle-orm';
+import { and, eq } from "drizzle-orm";
 
-import { getDb } from './db.js';
-import { accounts } from './schema.js';
+import { getDb } from "./db.js";
+import { accounts } from "./schema.js";
 
 export interface AccountRecord {
   id: string;
@@ -37,7 +37,7 @@ export function createAccount(params: {
     username: params.username ?? null,
     email: params.email ?? null,
     displayName: params.displayName ?? null,
-    status: params.status ?? 'active',
+    status: params.status ?? "active",
     credentialRef: params.credentialRef ?? null,
     metadataJson: params.metadata ? JSON.stringify(params.metadata) : null,
     createdAt: now,
@@ -68,7 +68,11 @@ export function listAccounts(filters?: {
   if (conditions.length === 1) {
     return db.select().from(accounts).where(conditions[0]).all();
   }
-  return db.select().from(accounts).where(and(...conditions)).all();
+  return db
+    .select()
+    .from(accounts)
+    .where(and(...conditions))
+    .all();
 }
 
 export function getAccount(id: string): AccountRecord | undefined {
@@ -98,10 +102,13 @@ export function updateAccount(
   if (updates.service !== undefined) values.service = updates.service;
   if (updates.username !== undefined) values.username = updates.username;
   if (updates.email !== undefined) values.email = updates.email;
-  if (updates.displayName !== undefined) values.displayName = updates.displayName;
+  if (updates.displayName !== undefined)
+    values.displayName = updates.displayName;
   if (updates.status !== undefined) values.status = updates.status;
-  if (updates.credentialRef !== undefined) values.credentialRef = updates.credentialRef;
-  if (updates.metadata !== undefined) values.metadataJson = JSON.stringify(updates.metadata);
+  if (updates.credentialRef !== undefined)
+    values.credentialRef = updates.credentialRef;
+  if (updates.metadata !== undefined)
+    values.metadataJson = JSON.stringify(updates.metadata);
 
   const db = getDb();
   db.update(accounts).set(values).where(eq(accounts.id, id)).run();

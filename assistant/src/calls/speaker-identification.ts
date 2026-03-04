@@ -2,7 +2,7 @@ export interface PromptSpeakerContext {
   speakerId: string;
   speakerLabel: string;
   speakerConfidence: number | null;
-  source: 'provider' | 'inferred';
+  source: "provider" | "inferred";
 }
 
 export interface PromptSpeakerMetadata {
@@ -17,21 +17,21 @@ interface SpeakerProfile {
   speakerId: string;
   speakerLabel: string;
   speakerConfidence: number | null;
-  source: 'provider' | 'inferred';
+  source: "provider" | "inferred";
   utteranceCount: number;
   firstSeenAt: number;
   lastSeenAt: number;
 }
 
 function toCleanString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
 function toNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed;
   }
@@ -39,17 +39,23 @@ function toNumber(value: unknown): number | null {
 }
 
 function getObject(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
 }
 
-function normalizeSpeakerLabel(metadata: PromptSpeakerMetadata, fallbackIndex: number): string {
-  const preferredLabel = toCleanString(metadata.speakerName) ?? toCleanString(metadata.speakerLabel);
+function normalizeSpeakerLabel(
+  metadata: PromptSpeakerMetadata,
+  fallbackIndex: number,
+): string {
+  const preferredLabel =
+    toCleanString(metadata.speakerName) ?? toCleanString(metadata.speakerLabel);
   if (preferredLabel) return preferredLabel;
   return `Speaker ${fallbackIndex}`;
 }
 
-export function extractPromptSpeakerMetadata(message: Record<string, unknown>): PromptSpeakerMetadata {
+export function extractPromptSpeakerMetadata(
+  message: Record<string, unknown>,
+): PromptSpeakerMetadata {
   const providerMetadata = getObject(message.providerMetadata);
   const metadata = getObject(message.metadata);
   const participant = getObject(message.participant);
@@ -130,9 +136,9 @@ export class SpeakerIdentityTracker {
 
   identifySpeaker(metadata: PromptSpeakerMetadata): PromptSpeakerContext {
     const providerSpeakerId =
-      toCleanString(metadata.speakerId)
-      ?? toCleanString(metadata.participantId)
-      ?? null;
+      toCleanString(metadata.speakerId) ??
+      toCleanString(metadata.participantId) ??
+      null;
 
     if (providerSpeakerId) {
       const existing = this.profiles.get(providerSpeakerId);
@@ -154,7 +160,7 @@ export class SpeakerIdentityTracker {
         speakerId: providerSpeakerId,
         speakerLabel: normalizeSpeakerLabel(metadata, this.nextInferredIndex),
         speakerConfidence: metadata.speakerConfidence ?? null,
-        source: 'provider',
+        source: "provider",
         utteranceCount: 1,
         firstSeenAt: Date.now(),
         lastSeenAt: Date.now(),
@@ -169,7 +175,7 @@ export class SpeakerIdentityTracker {
       };
     }
 
-    const inferredSpeakerId = 'primary-speaker';
+    const inferredSpeakerId = "primary-speaker";
     const existingPrimary = this.profiles.get(inferredSpeakerId);
     if (existingPrimary) {
       existingPrimary.lastSeenAt = Date.now();
@@ -186,7 +192,7 @@ export class SpeakerIdentityTracker {
       speakerId: inferredSpeakerId,
       speakerLabel: normalizeSpeakerLabel(metadata, this.nextInferredIndex),
       speakerConfidence: metadata.speakerConfidence ?? null,
-      source: 'inferred',
+      source: "inferred",
       utteranceCount: 1,
       firstSeenAt: Date.now(),
       lastSeenAt: Date.now(),

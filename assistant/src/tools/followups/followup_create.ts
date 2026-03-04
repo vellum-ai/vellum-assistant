@@ -1,7 +1,7 @@
-import { getContact } from '../../contacts/contact-store.js';
-import { createFollowUp } from '../../followups/followup-store.js';
-import type { FollowUp } from '../../followups/types.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { getContact } from "../../contacts/contact-store.js";
+import { createFollowUp } from "../../followups/followup-store.js";
+import type { FollowUp } from "../../followups/types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function formatFollowUp(f: FollowUp): string {
   const lines = [
@@ -13,10 +13,13 @@ function formatFollowUp(f: FollowUp): string {
   ];
   if (f.contactId) lines.push(`  Contact ID: ${f.contactId}`);
   if (f.expectedResponseBy) {
-    lines.push(`  Expected response by: ${new Date(f.expectedResponseBy).toISOString()}`);
+    lines.push(
+      `  Expected response by: ${new Date(f.expectedResponseBy).toISOString()}`,
+    );
   }
-  if (f.reminderScheduleId) lines.push(`  Reminder schedule: ${f.reminderScheduleId}`);
-  return lines.join('\n');
+  if (f.reminderScheduleId)
+    lines.push(`  Reminder schedule: ${f.reminderScheduleId}`);
+  return lines.join("\n");
 }
 
 export async function executeFollowupCreate(
@@ -24,30 +27,52 @@ export async function executeFollowupCreate(
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const channel = input.channel as string | undefined;
-  if (!channel || typeof channel !== 'string' || channel.trim().length === 0) {
-    return { content: 'Error: channel is required and must be a non-empty string', isError: true };
+  if (!channel || typeof channel !== "string" || channel.trim().length === 0) {
+    return {
+      content: "Error: channel is required and must be a non-empty string",
+      isError: true,
+    };
   }
 
   const threadId = input.thread_id as string | undefined;
-  if (!threadId || typeof threadId !== 'string' || threadId.trim().length === 0) {
-    return { content: 'Error: thread_id is required and must be a non-empty string', isError: true };
+  if (
+    !threadId ||
+    typeof threadId !== "string" ||
+    threadId.trim().length === 0
+  ) {
+    return {
+      content: "Error: thread_id is required and must be a non-empty string",
+      isError: true,
+    };
   }
 
   const contactId = input.contact_id as string | undefined;
-  const expectedResponseHours = input.expected_response_hours as number | undefined;
+  const expectedResponseHours = input.expected_response_hours as
+    | number
+    | undefined;
   // Canonical: reminder_schedule_id; deprecated alias: reminder_cron_id
-  const reminderScheduleId = (input.reminder_schedule_id ?? input.reminder_cron_id) as string | undefined;
+  const reminderScheduleId = (input.reminder_schedule_id ??
+    input.reminder_cron_id) as string | undefined;
 
   // Validate contact exists if provided
   if (contactId) {
     const contact = getContact(contactId);
     if (!contact) {
-      return { content: `Error: Contact "${contactId}" not found`, isError: true };
+      return {
+        content: `Error: Contact "${contactId}" not found`,
+        isError: true,
+      };
     }
   }
 
-  if (expectedResponseHours !== undefined && (typeof expectedResponseHours !== 'number' || expectedResponseHours <= 0)) {
-    return { content: 'Error: expected_response_hours must be a positive number', isError: true };
+  if (
+    expectedResponseHours !== undefined &&
+    (typeof expectedResponseHours !== "number" || expectedResponseHours <= 0)
+  ) {
+    return {
+      content: "Error: expected_response_hours must be a positive number",
+      isError: true,
+    };
   }
 
   try {

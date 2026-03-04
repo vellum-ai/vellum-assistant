@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Create canonical_guardian_requests and canonical_guardian_deliveries tables.
@@ -33,12 +33,24 @@ export function createCanonicalGuardianTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_status ON canonical_guardian_requests(status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_guardian ON canonical_guardian_requests(guardian_external_user_id, status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_conversation ON canonical_guardian_requests(conversation_id, status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_source ON canonical_guardian_requests(source_type, status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_kind ON canonical_guardian_requests(kind, status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_request_code ON canonical_guardian_requests(request_code)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_status ON canonical_guardian_requests(status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_guardian ON canonical_guardian_requests(guardian_external_user_id, status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_conversation ON canonical_guardian_requests(conversation_id, status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_source ON canonical_guardian_requests(source_type, status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_kind ON canonical_guardian_requests(kind, status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_requests_request_code ON canonical_guardian_requests(request_code)`,
+  );
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS canonical_guardian_deliveries (
@@ -54,6 +66,10 @@ export function createCanonicalGuardianTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_deliveries_request_id ON canonical_guardian_deliveries(request_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_deliveries_status ON canonical_guardian_deliveries(status)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_deliveries_request_id ON canonical_guardian_deliveries(request_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_deliveries_status ON canonical_guardian_deliveries(status)`,
+  );
 }

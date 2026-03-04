@@ -11,12 +11,17 @@
  * - "Weeknights after 10pm: only critical notifications"
  */
 
-import { getConfig } from '../config/loader.js';
-import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
-import { getLogger } from '../util/logger.js';
-import type { AppliesWhenConditions } from './preferences-store.js';
+import { getConfig } from "../config/loader.js";
+import {
+  createTimeout,
+  extractToolUse,
+  getConfiguredProvider,
+  userMessage,
+} from "../providers/provider-send-message.js";
+import { getLogger } from "../util/logger.js";
+import type { AppliesWhenConditions } from "./preferences-store.js";
 
-const log = getLogger('notification-preference-extractor');
+const log = getLogger("notification-preference-extractor");
 
 const EXTRACTION_TIMEOUT_MS = 10_000;
 
@@ -58,72 +63,86 @@ You MUST respond using the \`extract_notification_preferences\` tool.`;
 // ── Tool definition ────────────────────────────────────────────────────
 
 const EXTRACTION_TOOL = {
-  name: 'extract_notification_preferences',
-  description: 'Extract notification preferences from a user message',
+  name: "extract_notification_preferences",
+  description: "Extract notification preferences from a user message",
   input_schema: {
-    type: 'object' as const,
+    type: "object" as const,
     properties: {
       detected: {
-        type: 'boolean',
-        description: 'Whether the message contains notification preferences',
+        type: "boolean",
+        description: "Whether the message contains notification preferences",
       },
       preferences: {
-        type: 'array',
-        description: 'Array of extracted preferences (empty if detected=false)',
+        type: "array",
+        description: "Array of extracted preferences (empty if detected=false)",
         items: {
-          type: 'object',
+          type: "object",
           properties: {
             preferenceText: {
-              type: 'string',
-              description: 'The natural language preference as stated by the user',
+              type: "string",
+              description:
+                "The natural language preference as stated by the user",
             },
             appliesWhen: {
-              type: 'object',
-              description: 'Structured conditions for when this preference applies',
+              type: "object",
+              description:
+                "Structured conditions for when this preference applies",
               properties: {
                 timeRange: {
-                  type: 'object',
+                  type: "object",
                   properties: {
-                    after: { type: 'string', description: 'Start time in HH:MM format' },
-                    before: { type: 'string', description: 'End time in HH:MM format' },
+                    after: {
+                      type: "string",
+                      description: "Start time in HH:MM format",
+                    },
+                    before: {
+                      type: "string",
+                      description: "End time in HH:MM format",
+                    },
                   },
                 },
                 channels: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Channels this preference applies to (e.g. telegram, vellum)',
+                  type: "array",
+                  items: { type: "string" },
+                  description:
+                    "Channels this preference applies to (e.g. telegram, vellum)",
                 },
                 urgencyLevels: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Urgency levels this preference applies to (e.g. low, medium, high, critical)',
+                  type: "array",
+                  items: { type: "string" },
+                  description:
+                    "Urgency levels this preference applies to (e.g. low, medium, high, critical)",
                 },
                 contexts: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Situational contexts (e.g. work_calls, meetings, sleeping)',
+                  type: "array",
+                  items: { type: "string" },
+                  description:
+                    "Situational contexts (e.g. work_calls, meetings, sleeping)",
                 },
               },
             },
             priority: {
-              type: 'number',
-              description: 'Priority for conflict resolution: 0=general default, 1=specific override, 2=critical override',
+              type: "number",
+              description:
+                "Priority for conflict resolution: 0=general default, 1=specific override, 2=critical override",
             },
           },
-          required: ['preferenceText', 'appliesWhen', 'priority'],
+          required: ["preferenceText", "appliesWhen", "priority"],
         },
       },
     },
-    required: ['detected', 'preferences'],
+    required: ["detected", "preferences"],
   },
 };
 
 // ── Core extraction function ───────────────────────────────────────────
 
-export async function extractPreferences(message: string): Promise<ExtractionResult> {
+export async function extractPreferences(
+  message: string,
+): Promise<ExtractionResult> {
   const provider = getConfiguredProvider();
   if (!provider) {
-    log.debug('No provider available for preference extraction');
+    log.debug("No provider available for preference extraction");
     return { detected: false, preferences: [] };
   }
 
@@ -141,7 +160,10 @@ export async function extractPreferences(message: string): Promise<ExtractionRes
         config: {
           modelIntent,
           max_tokens: 1024,
-          tool_choice: { type: 'tool' as const, name: 'extract_notification_preferences' },
+          tool_choice: {
+            type: "tool" as const,
+            name: "extract_notification_preferences",
+          },
         },
         signal,
       },
@@ -150,7 +172,7 @@ export async function extractPreferences(message: string): Promise<ExtractionRes
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) {
-      log.debug('No tool_use block in preference extraction response');
+      log.debug("No tool_use block in preference extraction response");
       return { detected: false, preferences: [] };
     }
 
@@ -158,7 +180,7 @@ export async function extractPreferences(message: string): Promise<ExtractionRes
     return validateExtractionOutput(input);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    log.debug({ err: errMsg }, 'Preference extraction failed');
+    log.debug({ err: errMsg }, "Preference extraction failed");
     return { detected: false, preferences: [] };
   } finally {
     cleanup();
@@ -167,8 +189,10 @@ export async function extractPreferences(message: string): Promise<ExtractionRes
 
 // ── Validation ─────────────────────────────────────────────────────────
 
-function validateExtractionOutput(input: Record<string, unknown>): ExtractionResult {
-  if (typeof input.detected !== 'boolean') {
+function validateExtractionOutput(
+  input: Record<string, unknown>,
+): ExtractionResult {
+  if (typeof input.detected !== "boolean") {
     return { detected: false, preferences: [] };
   }
 
@@ -179,35 +203,43 @@ function validateExtractionOutput(input: Record<string, unknown>): ExtractionRes
   const preferences: ExtractedPreference[] = [];
 
   for (const raw of input.preferences) {
-    if (typeof raw !== 'object' || !raw) continue;
+    if (typeof raw !== "object" || !raw) continue;
     const p = raw as Record<string, unknown>;
 
-    if (typeof p.preferenceText !== 'string' || !p.preferenceText.trim()) continue;
+    if (typeof p.preferenceText !== "string" || !p.preferenceText.trim())
+      continue;
 
     const appliesWhen: AppliesWhenConditions = {};
-    if (p.appliesWhen && typeof p.appliesWhen === 'object') {
+    if (p.appliesWhen && typeof p.appliesWhen === "object") {
       const aw = p.appliesWhen as Record<string, unknown>;
-      if (aw.timeRange && typeof aw.timeRange === 'object') {
+      if (aw.timeRange && typeof aw.timeRange === "object") {
         const tr = aw.timeRange as Record<string, unknown>;
         appliesWhen.timeRange = {
-          after: typeof tr.after === 'string' ? tr.after : undefined,
-          before: typeof tr.before === 'string' ? tr.before : undefined,
+          after: typeof tr.after === "string" ? tr.after : undefined,
+          before: typeof tr.before === "string" ? tr.before : undefined,
         };
       }
       if (Array.isArray(aw.channels)) {
-        appliesWhen.channels = aw.channels.filter((c): c is string => typeof c === 'string');
+        appliesWhen.channels = aw.channels.filter(
+          (c): c is string => typeof c === "string",
+        );
       }
       if (Array.isArray(aw.urgencyLevels)) {
-        appliesWhen.urgencyLevels = aw.urgencyLevels.filter((u): u is string => typeof u === 'string');
+        appliesWhen.urgencyLevels = aw.urgencyLevels.filter(
+          (u): u is string => typeof u === "string",
+        );
       }
       if (Array.isArray(aw.contexts)) {
-        appliesWhen.contexts = aw.contexts.filter((c): c is string => typeof c === 'string');
+        appliesWhen.contexts = aw.contexts.filter(
+          (c): c is string => typeof c === "string",
+        );
       }
     }
 
-    const priority = typeof p.priority === 'number'
-      ? Math.max(0, Math.min(2, Math.round(p.priority)))
-      : 0;
+    const priority =
+      typeof p.priority === "number"
+        ? Math.max(0, Math.min(2, Math.round(p.priority)))
+        : 0;
 
     preferences.push({
       preferenceText: p.preferenceText.trim(),

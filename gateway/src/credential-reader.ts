@@ -114,7 +114,13 @@ export function getEncryptedStorePath(): string {
 }
 
 export function getMetadataPath(): string {
-  return join(getRootDir(), "workspace", "data", "credentials", "metadata.json");
+  return join(
+    getRootDir(),
+    "workspace",
+    "data",
+    "credentials",
+    "metadata.json",
+  );
 }
 
 /**
@@ -131,16 +137,15 @@ export function readKeychainCredential(account: string): string | undefined {
   if (process.platform !== "darwin") return undefined;
 
   try {
-    const result = execFileSync("security", [
-      "find-generic-password",
-      "-s", KEYCHAIN_SERVICE,
-      "-a", account,
-      "-w",
-    ], {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
-      encoding: "utf-8",
-    });
+    const result = execFileSync(
+      "security",
+      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account, "-w"],
+      {
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5000,
+        encoding: "utf-8",
+      },
+    );
     const value = result.replace(/\n$/, "");
     if (!value) return undefined;
     log.debug({ account }, "Credential found in keychain");
@@ -149,7 +154,10 @@ export function readKeychainCredential(account: string): string | undefined {
     // Exit code 44 = errSecItemNotFound — credential genuinely missing
     const exitCode = (err as { status?: number }).status;
     if (exitCode !== 44) {
-      log.warn({ account, exitCode }, "Keychain lookup failed with unexpected error");
+      log.warn(
+        { account, exitCode },
+        "Keychain lookup failed with unexpected error",
+      );
     }
     return undefined;
   }
@@ -230,8 +238,12 @@ export function readTelegramCredentials(): TelegramCredentials | null {
 
     if (!hasBotToken || !hasWebhookSecret) return null;
 
-    const botToken = readCredentialWithFallback("credential:telegram:bot_token");
-    const webhookSecret = readCredentialWithFallback("credential:telegram:webhook_secret");
+    const botToken = readCredentialWithFallback(
+      "credential:telegram:bot_token",
+    );
+    const webhookSecret = readCredentialWithFallback(
+      "credential:telegram:webhook_secret",
+    );
 
     if (!botToken || !webhookSecret) {
       log.warn(
@@ -276,8 +288,12 @@ export function readTwilioCredentials(): TwilioCredentials | null {
 
     if (!hasAccountSid || !hasAuthToken) return null;
 
-    const accountSid = readCredentialWithFallback("credential:twilio:account_sid");
-    const authToken = readCredentialWithFallback("credential:twilio:auth_token");
+    const accountSid = readCredentialWithFallback(
+      "credential:twilio:account_sid",
+    );
+    const authToken = readCredentialWithFallback(
+      "credential:twilio:auth_token",
+    );
 
     if (!accountSid || !authToken) {
       log.warn(
@@ -329,8 +345,12 @@ export function readSlackChannelCredentials(): SlackChannelCredentials | null {
 
     if (!hasBotToken || !hasAppToken) return null;
 
-    const botToken = readCredentialWithFallback("credential:slack_channel:bot_token");
-    const appToken = readCredentialWithFallback("credential:slack_channel:app_token");
+    const botToken = readCredentialWithFallback(
+      "credential:slack_channel:bot_token",
+    );
+    const appToken = readCredentialWithFallback(
+      "credential:slack_channel:app_token",
+    );
 
     if (!botToken || !appToken) {
       log.warn(
@@ -392,12 +412,26 @@ export function readWhatsAppCredentials(): WhatsAppCredentials | null {
         c.service === "whatsapp" && c.field === "webhook_verify_token",
     );
 
-    if (!hasPhoneNumberId || !hasAccessToken || !hasAppSecret || !hasWebhookVerifyToken) return null;
+    if (
+      !hasPhoneNumberId ||
+      !hasAccessToken ||
+      !hasAppSecret ||
+      !hasWebhookVerifyToken
+    )
+      return null;
 
-    const phoneNumberId = readCredentialWithFallback("credential:whatsapp:phone_number_id");
-    const accessToken = readCredentialWithFallback("credential:whatsapp:access_token");
-    const appSecret = readCredentialWithFallback("credential:whatsapp:app_secret");
-    const webhookVerifyToken = readCredentialWithFallback("credential:whatsapp:webhook_verify_token");
+    const phoneNumberId = readCredentialWithFallback(
+      "credential:whatsapp:phone_number_id",
+    );
+    const accessToken = readCredentialWithFallback(
+      "credential:whatsapp:access_token",
+    );
+    const appSecret = readCredentialWithFallback(
+      "credential:whatsapp:app_secret",
+    );
+    const webhookVerifyToken = readCredentialWithFallback(
+      "credential:whatsapp:webhook_verify_token",
+    );
 
     if (!phoneNumberId || !accessToken || !appSecret || !webhookVerifyToken) {
       log.warn(

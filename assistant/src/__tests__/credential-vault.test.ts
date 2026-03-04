@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -184,12 +185,16 @@ afterAll(() => {
 });
 
 describe("credential_store tool", () => {
+  beforeAll(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
   beforeEach(() => {
     _resetBackend();
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
+    // Clear content files but preserve the directory structure
+    for (const entry of readdirSync(TEST_DIR)) {
+      rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
     }
-    mkdirSync(TEST_DIR, { recursive: true });
     _setStorePath(STORE_PATH);
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
   });
@@ -202,9 +207,7 @@ describe("credential_store tool", () => {
 
   afterAll(() => {
     _resetDeps();
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
+    rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
   // -----------------------------------------------------------------------

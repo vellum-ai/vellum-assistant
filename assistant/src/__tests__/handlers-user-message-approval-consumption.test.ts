@@ -68,12 +68,33 @@ mock.module("../memory/conversation-store.js", () => ({
 
 mock.module("../config/loader.js", () => ({
   getConfig: getConfigMock,
+  loadConfig: getConfigMock,
+  loadRawConfig: () => ({}),
+  saveConfig: () => {},
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+  applyNestedDefaults: (c: unknown) => c,
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  API_KEY_PROVIDERS: [],
 }));
 
 mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => async () => ({
     disposition: "keep_pending",
     replyText: "pending",
+  }),
+}));
+
+mock.module("../runtime/local-actor-identity.js", () => ({
+  resolveLocalIpcTrustContext: () => ({
+    trustClass: "guardian",
+    sourceChannel: "vellum",
+    guardianPrincipalId: "local-principal",
+  }),
+  resolveLocalIpcAuthContext: () => ({
+    scope: "ipc_v1",
+    actorPrincipalId: "local-principal",
   }),
 }));
 

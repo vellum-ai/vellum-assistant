@@ -18,11 +18,15 @@
  * callback_url that external services should use.
  */
 
-import { getPlatformAssistantId, getPlatformBaseUrl, getPlatformInternalApiKey } from '../config/env.js';
-import { getIsContainerized } from '../config/env-registry.js';
-import { getLogger } from '../util/logger.js';
+import {
+  getPlatformAssistantId,
+  getPlatformBaseUrl,
+  getPlatformInternalApiKey,
+} from "../config/env.js";
+import { getIsContainerized } from "../config/env-registry.js";
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('platform-callback-registration');
+const log = getLogger("platform-callback-registration");
 
 /**
  * Whether the daemon should register callback routes with the platform.
@@ -30,7 +34,9 @@ const log = getLogger('platform-callback-registration');
  * are all set.
  */
 export function shouldUsePlatformCallbacks(): boolean {
-  return getIsContainerized() && !!getPlatformBaseUrl() && !!getPlatformAssistantId();
+  return (
+    getIsContainerized() && !!getPlatformBaseUrl() && !!getPlatformAssistantId()
+  );
 }
 
 interface RegisterCallbackRouteResponse {
@@ -55,18 +61,18 @@ export async function registerCallbackRoute(
   callbackPath: string,
   type: string,
 ): Promise<string> {
-  const platformBaseUrl = getPlatformBaseUrl().replace(/\/+$/, '');
+  const platformBaseUrl = getPlatformBaseUrl().replace(/\/+$/, "");
   const assistantId = getPlatformAssistantId();
   const apiKey = getPlatformInternalApiKey();
 
   const url = `${platformBaseUrl}/v1/internal/gateway/callback-routes/register/`;
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   };
 
   if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
+    headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
   const body = JSON.stringify({
@@ -75,17 +81,17 @@ export async function registerCallbackRoute(
     type,
   });
 
-  log.debug({ callbackPath, type }, 'Registering platform callback route');
+  log.debug({ callbackPath, type }, "Registering platform callback route");
 
   const response = await fetch(url, {
-    method: 'POST',
+    method: "POST",
     headers,
     body,
     signal: AbortSignal.timeout(10_000),
   });
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => '');
+    const detail = await response.text().catch(() => "");
     throw new Error(
       `Platform callback route registration failed (HTTP ${response.status}): ${detail}`,
     );
@@ -95,7 +101,7 @@ export async function registerCallbackRoute(
 
   log.info(
     { callbackPath, type, callbackUrl: data.callback_url },
-    'Platform callback route registered',
+    "Platform callback route registered",
   );
 
   return data.callback_url;
@@ -135,21 +141,21 @@ export async function resolveCallbackUrl(
     let url = await registerCallbackRoute(callbackPath, type);
     if (queryParams && Object.keys(queryParams).length > 0) {
       const params = new URLSearchParams(queryParams);
-      const separator = url.includes('?') ? '&' : '?';
+      const separator = url.includes("?") ? "&" : "?";
       url = `${url}${separator}${params.toString()}`;
     }
     return url;
   } catch (err) {
     log.warn(
       { err, callbackPath, type },
-      'Failed to register platform callback route, falling back to direct URL',
+      "Failed to register platform callback route, falling back to direct URL",
     );
     try {
       return directUrl();
     } catch (fallbackErr) {
       log.error(
         { fallbackErr, callbackPath, type },
-        'Direct URL fallback also failed after platform registration failure',
+        "Direct URL fallback also failed after platform registration failure",
       );
       throw err;
     }

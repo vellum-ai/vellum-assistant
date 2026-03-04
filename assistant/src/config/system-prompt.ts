@@ -117,7 +117,9 @@ export function buildSystemPrompt(): string {
 
   // ── Core sections ──
   const parts: string[] = [];
-  parts.push('IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.');
+  parts.push(
+    "IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.",
+  );
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
@@ -922,9 +924,10 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
   for (const skill of visible) {
     const idAttr = escapeXml(skill.id);
     const nameAttr = escapeXml(skill.name);
-    const descAttr = skill.id === "mcp-setup"
-      ? escapeXml(getMcpSetupDescription())
-      : escapeXml(skill.description);
+    const descAttr =
+      skill.id === "mcp-setup"
+        ? escapeXml(getMcpSetupDescription())
+        : escapeXml(skill.description);
     const locAttr = escapeXml(skill.directoryPath);
     const credAttr = skill.credentialSetupFor
       ? ` credential-setup-for="${escapeXml(skill.credentialSetupFor)}"`

@@ -5,13 +5,13 @@
  * data. Provides upload, delete, and message-linkage operations.
  */
 
-import { unlinkSync } from 'node:fs';
+import { unlinkSync } from "node:fs";
 
-import { eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb, rawAll, rawGet, rawRun } from './db.js';
-import { attachments, messageAttachments } from './schema.js';
+import { getDb, rawAll, rawGet, rawRun } from "./db.js";
+import { attachments, messageAttachments } from "./schema.js";
 
 export interface StoredAttachment {
   id: string;
@@ -24,15 +24,15 @@ export interface StoredAttachment {
 }
 
 function classifyKind(mimeType: string): string {
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  return 'document';
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  return "document";
 }
 
 export class AttachmentUploadError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'AttachmentUploadError';
+    this.name = "AttachmentUploadError";
   }
 }
 
@@ -72,37 +72,80 @@ export function isValidBase64(data: string): boolean {
  */
 const ALLOWED_MIME_TYPES = new Set([
   // Images
-  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
-  'image/svg+xml', 'image/bmp', 'image/tiff', 'image/x-icon',
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+  "image/bmp",
+  "image/tiff",
+  "image/x-icon",
   // Audio
-  'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/flac',
-  'audio/aac', 'audio/x-m4a', 'audio/mp4',
+  "audio/mpeg",
+  "audio/ogg",
+  "audio/wav",
+  "audio/flac",
+  "audio/aac",
+  "audio/x-m4a",
+  "audio/mp4",
   // Video
-  'video/mp4', 'video/webm', 'video/quicktime', 'video/mpeg',
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/mpeg",
   // Documents
-  'application/pdf', 'text/plain', 'text/csv', 'text/markdown',
-  'text/html', 'text/css', 'application/json', 'application/xml', 'text/xml',
+  "application/pdf",
+  "text/plain",
+  "text/csv",
+  "text/markdown",
+  "text/html",
+  "text/css",
+  "application/json",
+  "application/xml",
+  "text/xml",
   // Source code
-  'text/javascript', 'text/typescript',
+  "text/javascript",
+  "text/typescript",
   // Archives
-  'application/zip', 'application/gzip', 'application/x-tar',
-  'application/x-7z-compressed',
+  "application/zip",
+  "application/gzip",
+  "application/x-tar",
+  "application/x-7z-compressed",
   // Office
-  'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   // Fallback for unknown-but-not-dangerous files (Telegram often uses this)
-  'application/octet-stream',
+  "application/octet-stream",
 ]);
 
 /**
  * File extensions that are always rejected regardless of claimed MIME type.
  */
 const DANGEROUS_EXTENSIONS = new Set([
-  'exe', 'sh', 'bat', 'cmd', 'com', 'msi', 'iso',
-  'dmg', 'app', 'scr', 'pif', 'vbs', 'ps1', 'jar',
-  'cpl', 'inf', 'reg', 'hta', 'wsf', 'wsh',
+  "exe",
+  "sh",
+  "bat",
+  "cmd",
+  "com",
+  "msi",
+  "iso",
+  "dmg",
+  "app",
+  "scr",
+  "pif",
+  "vbs",
+  "ps1",
+  "jar",
+  "cpl",
+  "inf",
+  "reg",
+  "hta",
+  "wsf",
+  "wsh",
 ]);
 
 export type AttachmentValidationResult =
@@ -121,9 +164,9 @@ export function validateAttachmentUpload(
 ): AttachmentValidationResult {
   // Normalize filename: trim whitespace and strip trailing dots to prevent
   // bypasses like "payload.exe " or "payload.exe."
-  const normalizedFilename = filename.trim().replace(/\.+$/, '');
+  const normalizedFilename = filename.trim().replace(/\.+$/, "");
 
-  const dot = normalizedFilename.lastIndexOf('.');
+  const dot = normalizedFilename.lastIndexOf(".");
   if (dot !== -1) {
     const ext = normalizedFilename.slice(dot + 1).toLowerCase();
     if (DANGEROUS_EXTENSIONS.has(ext)) {
@@ -135,7 +178,7 @@ export function validateAttachmentUpload(
   }
 
   // Strip MIME parameters (e.g. "text/plain; charset=utf-8" → "text/plain")
-  const normalised = mimeType.toLowerCase().trim().split(';')[0].trim();
+  const normalised = mimeType.toLowerCase().trim().split(";")[0].trim();
   if (!ALLOWED_MIME_TYPES.has(normalised)) {
     return {
       ok: false,
@@ -161,7 +204,7 @@ function computeContentHash(dataBase64: string): string {
 function ensureFilePathColumn(): void {
   try {
     // SQLite allows ALTER TABLE ADD COLUMN for nullable columns
-    rawRun('ALTER TABLE attachments ADD COLUMN file_path TEXT');
+    rawRun("ALTER TABLE attachments ADD COLUMN file_path TEXT");
   } catch {
     // Column already exists — ignore the error
   }
@@ -197,7 +240,13 @@ export function uploadFileBackedAttachment(
   rawRun(
     `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, file_path, created_at)
      VALUES (?, ?, ?, ?, ?, '', ?, ?)`,
-    id, filename, mimeType, sizeBytes, kind, filePath, now,
+    id,
+    filename,
+    mimeType,
+    sizeBytes,
+    kind,
+    filePath,
+    now,
   );
 
   return {
@@ -222,7 +271,7 @@ export function getFilePathForAttachment(attachmentId: string): string | null {
     filePathColumnEnsured = true;
   }
   const row = rawGet<{ file_path: string | null }>(
-    'SELECT file_path FROM attachments WHERE id = ?',
+    "SELECT file_path FROM attachments WHERE id = ?",
     attachmentId,
   );
   return row?.file_path ?? null;
@@ -234,15 +283,24 @@ export function uploadAttachment(
   dataBase64: string,
 ): StoredAttachment {
   if (!isValidBase64(dataBase64)) {
-    throw new AttachmentUploadError('Invalid base64 encoding');
+    throw new AttachmentUploadError("Invalid base64 encoding");
   }
 
-  const padding = dataBase64.endsWith('==') ? 2 : (dataBase64.endsWith('=') ? 1 : 0);
-  const sizeBytes = Math.max(0, Math.floor((dataBase64.length * 3) / 4) - padding);
+  const padding = dataBase64.endsWith("==")
+    ? 2
+    : dataBase64.endsWith("=")
+      ? 1
+      : 0;
+  const sizeBytes = Math.max(
+    0,
+    Math.floor((dataBase64.length * 3) / 4) - padding,
+  );
 
   if (sizeBytes > MAX_UPLOAD_BYTES) {
     throw new AttachmentUploadError(
-      `Attachment too large: ${formatBytes(sizeBytes)} exceeds ${formatBytes(MAX_UPLOAD_BYTES)} limit`,
+      `Attachment too large: ${formatBytes(sizeBytes)} exceeds ${formatBytes(
+        MAX_UPLOAD_BYTES,
+      )} limit`,
     );
   }
 
@@ -299,7 +357,10 @@ export function uploadAttachment(
 /**
  * Update the thumbnail for an existing attachment.
  */
-export function setAttachmentThumbnail(attachmentId: string, thumbnailBase64: string): void {
+export function setAttachmentThumbnail(
+  attachmentId: string,
+  thumbnailBase64: string,
+): void {
   const db = getDb();
   db.update(attachments)
     .set({ thumbnailBase64 })
@@ -307,7 +368,10 @@ export function setAttachmentThumbnail(attachmentId: string, thumbnailBase64: st
     .run();
 }
 
-export type DeleteAttachmentResult = 'deleted' | 'not_found' | 'still_referenced';
+export type DeleteAttachmentResult =
+  | "deleted"
+  | "not_found"
+  | "still_referenced";
 
 export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
   const db = getDb();
@@ -317,7 +381,7 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
     .where(eq(attachments.id, attachmentId))
     .get();
 
-  if (!existing) return 'not_found';
+  if (!existing) return "not_found";
 
   // With content-hash deduplication, multiple messages may reference the same
   // attachment row. Only delete the attachment (and cascade its links) when no
@@ -326,16 +390,13 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
     .select({ id: messageAttachments.id })
     .from(messageAttachments)
     .where(eq(messageAttachments.attachmentId, attachmentId))
-    .all()
-    .length;
+    .all().length;
 
-  if (refCount > 0) return 'still_referenced';
+  if (refCount > 0) return "still_referenced";
 
-  db.delete(attachments)
-    .where(eq(attachments.id, attachmentId))
-    .run();
+  db.delete(attachments).where(eq(attachments.id, attachmentId)).run();
 
-  return 'deleted';
+  return "deleted";
 }
 
 export function getAttachmentsByIds(
@@ -391,7 +452,10 @@ export function getAttachmentsForMessage(
 ): Array<StoredAttachment & { dataBase64: string }> {
   const db = getDb();
   const links = db
-    .select({ attachmentId: messageAttachments.attachmentId, position: messageAttachments.position })
+    .select({
+      attachmentId: messageAttachments.attachmentId,
+      position: messageAttachments.position,
+    })
     .from(messageAttachments)
     .where(eq(messageAttachments.messageId, messageId))
     .orderBy(messageAttachments.position)
@@ -399,7 +463,9 @@ export function getAttachmentsForMessage(
 
   if (links.length === 0) return [];
 
-  const ids = links.map((l) => l.attachmentId).filter((id): id is string => id != null);
+  const ids = links
+    .map((l) => l.attachmentId)
+    .filter((id): id is string => id != null);
   return getAttachmentsByIds(ids);
 }
 
@@ -465,11 +531,11 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   if (candidateIds.length === 0) return 0;
 
   // Identify truly orphaned attachment IDs first (not referenced by any message)
-  const placeholders = candidateIds.map(() => '?').join(', ');
+  const placeholders = candidateIds.map(() => "?").join(", ");
   const orphanIds = rawAll<{ id: string }>(
     `SELECT id FROM attachments WHERE id IN (${placeholders}) AND id NOT IN (SELECT attachment_id FROM message_attachments)`,
     ...candidateIds,
-  ).map(row => row.id);
+  ).map((row) => row.id);
 
   if (orphanIds.length === 0) return 0;
 
@@ -482,7 +548,7 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
 
   // Delete the orphaned DB rows first — if this fails, the on-disk files
   // remain intact alongside their DB rows, so nothing is left inconsistent.
-  const orphanPlaceholders = orphanIds.map(() => '?').join(', ');
+  const orphanPlaceholders = orphanIds.map(() => "?").join(", ");
   const deletedCount = rawRun(
     `DELETE FROM attachments WHERE id IN (${orphanPlaceholders})`,
     ...orphanIds,
@@ -490,7 +556,11 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
 
   // Clean up on-disk files only after the DB rows have been removed
   for (const filePath of orphanFilePaths) {
-    try { unlinkSync(filePath); } catch { /* file may already be gone */ }
+    try {
+      unlinkSync(filePath);
+    } catch {
+      /* file may already be gone */
+    }
   }
 
   return deletedCount;

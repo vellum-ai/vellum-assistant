@@ -1,13 +1,13 @@
 // Session lifecycle, auth, model config, and history types.
 
-import type { ChannelId, InterfaceId } from '../../channels/types.js';
-import type { ThreadType } from './shared.js';
-import type { UserMessageAttachment } from './shared.js';
+import type { ChannelId, InterfaceId } from "../../channels/types.js";
+import type { ThreadType } from "./shared.js";
+import type { UserMessageAttachment } from "./shared.js";
 
 // === Client → Server ===
 
 export interface SessionListRequest {
-  type: 'session_list';
+  type: "session_list";
   /** Number of sessions to skip (for pagination). Defaults to 0. */
   offset?: number;
   /** Maximum number of sessions to return. Defaults to 50. */
@@ -27,7 +27,7 @@ export interface SessionTransportMetadata {
 }
 
 export interface SessionCreateRequest {
-  type: 'session_create';
+  type: "session_create";
   title?: string;
   systemPromptOverride?: string;
   maxResponseTokens?: number;
@@ -41,52 +41,52 @@ export interface SessionCreateRequest {
 }
 
 export interface SessionSwitchRequest {
-  type: 'session_switch';
+  type: "session_switch";
   sessionId: string;
 }
 
 export interface SessionRenameRequest {
-  type: 'session_rename';
+  type: "session_rename";
   sessionId: string;
   title: string;
 }
 
 export interface AuthMessage {
-  type: 'auth';
+  type: "auth";
   token: string;
 }
 
 export interface PingMessage {
-  type: 'ping';
+  type: "ping";
 }
 
 export interface CancelRequest {
-  type: 'cancel';
+  type: "cancel";
   sessionId?: string;
 }
 
 export interface DeleteQueuedMessage {
-  type: 'delete_queued_message';
+  type: "delete_queued_message";
   sessionId: string;
   requestId: string;
 }
 
 export interface ModelGetRequest {
-  type: 'model_get';
+  type: "model_get";
 }
 
 export interface ModelSetRequest {
-  type: 'model_set';
+  type: "model_set";
   model: string;
 }
 
 export interface ImageGenModelSetRequest {
-  type: 'image_gen_model_set';
+  type: "image_gen_model_set";
   model: string;
 }
 
 export interface HistoryRequest {
-  type: 'history_request';
+  type: "history_request";
   sessionId: string;
   /** Max messages to return. When omitted, all messages are returned (unlimited). */
   limit?: number;
@@ -101,7 +101,7 @@ export interface HistoryRequest {
   /** Include surface HTML payloads. Defaults to false in light mode. */
   includeSurfaceData?: boolean;
   /** Shorthand: 'light' = all include flags false (default), 'full' = all include flags true. */
-  mode?: 'light' | 'full';
+  mode?: "light" | "full";
   /** Truncate message text fields beyond this character limit. When omitted, full text is returned. */
   maxTextChars?: number;
   /** Truncate tool result strings beyond this character limit. When omitted, full results are returned. */
@@ -109,45 +109,49 @@ export interface HistoryRequest {
 }
 
 export interface MessageContentRequest {
-  type: 'message_content_request';
+  type: "message_content_request";
   sessionId: string;
   messageId: string;
 }
 
 export interface MessageContentResponse {
-  type: 'message_content_response';
+  type: "message_content_response";
   sessionId: string;
   messageId: string;
   text?: string;
-  toolCalls?: Array<{ name: string; result?: string; input?: Record<string, unknown> }>;
+  toolCalls?: Array<{
+    name: string;
+    result?: string;
+    input?: Record<string, unknown>;
+  }>;
 }
 
 export interface UndoRequest {
-  type: 'undo';
+  type: "undo";
   sessionId: string;
 }
 
 export interface RegenerateRequest {
-  type: 'regenerate';
+  type: "regenerate";
   sessionId: string;
 }
 
 export interface UsageRequest {
-  type: 'usage_request';
+  type: "usage_request";
   sessionId: string;
 }
 
 export interface SandboxSetRequest {
-  type: 'sandbox_set';
+  type: "sandbox_set";
   enabled: boolean;
 }
 
 export interface SessionsClearRequest {
-  type: 'sessions_clear';
+  type: "sessions_clear";
 }
 
 export interface ConversationSearchRequest {
-  type: 'conversation_search';
+  type: "conversation_search";
   /** The search query string. */
   query: string;
   /** Maximum number of conversations to return. Defaults to 20. */
@@ -157,8 +161,12 @@ export interface ConversationSearchRequest {
 }
 
 export interface ReorderThreadsRequest {
-  type: 'reorder_threads';
-  updates: Array<{ sessionId: string; displayOrder: number | null; isPinned: boolean }>;
+  type: "reorder_threads";
+  updates: Array<{
+    sessionId: string;
+    displayOrder: number | null;
+    isPinned: boolean;
+  }>;
 }
 
 // === Server → Client ===
@@ -179,13 +187,13 @@ export interface ConversationSearchResultItem {
 }
 
 export interface ConversationSearchResponse {
-  type: 'conversation_search_response';
+  type: "conversation_search_response";
   query: string;
   results: ConversationSearchResultItem[];
 }
 
 export interface SessionInfo {
-  type: 'session_info';
+  type: "session_info";
   sessionId: string;
   title: string;
   correlationId?: string;
@@ -193,7 +201,7 @@ export interface SessionInfo {
 }
 
 export interface SessionTitleUpdated {
-  type: 'session_title_updated';
+  type: "session_title_updated";
   sessionId: string;
   title: string;
 }
@@ -217,40 +225,54 @@ export interface AssistantAttention {
 }
 
 export interface SessionListResponse {
-  type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; createdAt?: number; updatedAt: number; threadType?: ThreadType; source?: string; scheduleJobId?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId; assistantAttention?: AssistantAttention; displayOrder?: number; isPinned?: boolean }>;
+  type: "session_list_response";
+  sessions: Array<{
+    id: string;
+    title: string;
+    createdAt?: number;
+    updatedAt: number;
+    threadType?: ThreadType;
+    source?: string;
+    scheduleJobId?: string;
+    channelBinding?: ChannelBinding;
+    conversationOriginChannel?: ChannelId;
+    conversationOriginInterface?: InterfaceId;
+    assistantAttention?: AssistantAttention;
+    displayOrder?: number;
+    isPinned?: boolean;
+  }>;
   /** Whether more sessions exist beyond the returned page. */
   hasMore?: boolean;
 }
 
 export interface SessionsClearResponse {
-  type: 'sessions_clear_response';
+  type: "sessions_clear_response";
   cleared: number;
 }
 
 export interface AuthResult {
-  type: 'auth_result';
+  type: "auth_result";
   success: boolean;
   message?: string;
 }
 
 export interface PongMessage {
-  type: 'pong';
+  type: "pong";
 }
 
 export interface DaemonStatusMessage {
-  type: 'daemon_status';
+  type: "daemon_status";
   httpPort?: number;
   version?: string;
 }
 
 export interface GenerationCancelled {
-  type: 'generation_cancelled';
+  type: "generation_cancelled";
   sessionId?: string;
 }
 
 export interface GenerationHandoff {
-  type: 'generation_handoff';
+  type: "generation_handoff";
   sessionId: string;
   requestId?: string;
   queuedCount: number;
@@ -258,7 +280,7 @@ export interface GenerationHandoff {
 }
 
 export interface ModelInfo {
-  type: 'model_info';
+  type: "model_info";
   model: string;
   provider: string;
   configuredProviders?: string[];
@@ -283,10 +305,10 @@ export interface HistoryResponseSurface {
 }
 
 export interface HistoryResponse {
-  type: 'history_response';
+  type: "history_response";
   sessionId: string;
   messages: Array<{
-    id?: string;  // Database message ID (for matching surfaces)
+    id?: string; // Database message ID (for matching surfaces)
     role: string;
     text: string;
     timestamp: number;
@@ -304,7 +326,7 @@ export interface HistoryResponse {
     subagentNotification?: {
       subagentId: string;
       label: string;
-      status: 'completed' | 'failed' | 'aborted';
+      status: "completed" | "failed" | "aborted";
       error?: string;
       conversationId?: string;
     };
@@ -320,13 +342,13 @@ export interface HistoryResponse {
 }
 
 export interface UndoComplete {
-  type: 'undo_complete';
+  type: "undo_complete";
   removedCount: number;
   sessionId?: string;
 }
 
 export interface UsageUpdate {
-  type: 'usage_update';
+  type: "usage_update";
   inputTokens: number;
   outputTokens: number;
   totalInputTokens: number;
@@ -336,7 +358,7 @@ export interface UsageUpdate {
 }
 
 export interface UsageResponse {
-  type: 'usage_response';
+  type: "usage_response";
   totalInputTokens: number;
   totalOutputTokens: number;
   estimatedCost: number;
@@ -344,7 +366,7 @@ export interface UsageResponse {
 }
 
 export interface ContextCompacted {
-  type: 'context_compacted';
+  type: "context_compacted";
   previousEstimatedInputTokens: number;
   estimatedInputTokens: number;
   maxInputTokens: number;
@@ -357,18 +379,18 @@ export interface ContextCompacted {
 }
 
 export type SessionErrorCode =
-  | 'PROVIDER_NETWORK'
-  | 'PROVIDER_RATE_LIMIT'
-  | 'PROVIDER_API'
-  | 'CONTEXT_TOO_LARGE'
-  | 'QUEUE_FULL'
-  | 'SESSION_ABORTED'
-  | 'SESSION_PROCESSING_FAILED'
-  | 'REGENERATE_FAILED'
-  | 'UNKNOWN';
+  | "PROVIDER_NETWORK"
+  | "PROVIDER_RATE_LIMIT"
+  | "PROVIDER_API"
+  | "CONTEXT_TOO_LARGE"
+  | "QUEUE_FULL"
+  | "SESSION_ABORTED"
+  | "SESSION_PROCESSING_FAILED"
+  | "REGENERATE_FAILED"
+  | "UNKNOWN";
 
 export interface SessionErrorMessage {
-  type: 'session_error';
+  type: "session_error";
   sessionId: string;
   code: SessionErrorCode;
   userMessage: string;
@@ -378,7 +400,7 @@ export interface SessionErrorMessage {
 
 /** Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread. */
 export interface ScheduleThreadCreated {
-  type: 'schedule_thread_created';
+  type: "schedule_thread_created";
   conversationId: string;
   scheduleJobId: string;
   title: string;

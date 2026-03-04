@@ -47,11 +47,9 @@ mock.module("../config/env.js", () => ({
   getBaseDataDir: () => testDir,
 }));
 
+import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
-import {
-  createBinding,
-  getActiveBinding,
-} from "../memory/guardian-bindings.js";
 import {
   createActorTokenRecord,
   findActiveByDeviceBinding,
@@ -112,7 +110,6 @@ beforeEach(() => {
   initializeDb();
   const db = getSqlite();
   db.run("DELETE FROM actor_token_records");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
 });
@@ -217,10 +214,10 @@ describe("guardian vellum migration", () => {
     const principalId = ensureVellumGuardianBinding("self");
     expect(principalId).toMatch(/^vellum-principal-/);
 
-    const binding = getActiveBinding("self", "vellum");
-    expect(binding).not.toBeNull();
-    expect(binding!.guardianExternalUserId).toBe(principalId);
-    expect(binding!.verifiedVia).toBe("startup-migration");
+    const guardianResult = findGuardianForChannel("vellum");
+    expect(guardianResult).not.toBeNull();
+    expect(guardianResult!.contact.principalId).toBe(principalId);
+    expect(guardianResult!.channel.verifiedVia).toBe("startup-migration");
   });
 
   test("ensureVellumGuardianBinding is idempotent", () => {
@@ -230,7 +227,7 @@ describe("guardian vellum migration", () => {
   });
 
   test("ensureVellumGuardianBinding preserves existing bindings for other channels", () => {
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-user-123",
@@ -241,12 +238,12 @@ describe("guardian vellum migration", () => {
 
     ensureVellumGuardianBinding("self");
 
-    const tgBinding = getActiveBinding("self", "telegram");
-    expect(tgBinding).not.toBeNull();
-    expect(tgBinding!.guardianExternalUserId).toBe("tg-user-123");
+    const tgGuardian = findGuardianForChannel("telegram");
+    expect(tgGuardian).not.toBeNull();
+    expect(tgGuardian!.channel.externalUserId).toBe("tg-user-123");
 
-    const vBinding = getActiveBinding("self", "vellum");
-    expect(vBinding).not.toBeNull();
+    const vGuardian = findGuardianForChannel("vellum");
+    expect(vGuardian).not.toBeNull();
   });
 });
 
@@ -443,11 +440,13 @@ describe("resolveLocalIpcAuthContext", () => {
 
   test("enriches actorPrincipalId from vellum guardian binding when present", () => {
     ensureVellumGuardianBinding("self");
-    const binding = getActiveBinding("self", "vellum");
-    expect(binding).toBeTruthy();
+    const guardianResult = findGuardianForChannel("vellum");
+    expect(guardianResult).toBeTruthy();
 
     const ctx = resolveLocalIpcAuthContext("session-123");
-    expect(ctx.actorPrincipalId).toBe(binding!.guardianExternalUserId);
+    expect(ctx.actorPrincipalId).toBe(
+      guardianResult!.contact.principalId ?? undefined,
+    );
   });
 
   test("actorPrincipalId is undefined when no vellum binding exists", () => {

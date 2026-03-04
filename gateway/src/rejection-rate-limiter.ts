@@ -37,7 +37,9 @@ export class RejectionRateLimiter {
       // Hard cap: if still over limit after purging expired entries,
       // drop the oldest entries until we're under the limit.
       if (this.timestamps.size >= MAX_REJECTION_CACHE_SIZE) {
-        const sorted = [...this.timestamps.entries()].sort((a, b) => a[1] - b[1]);
+        const sorted = [...this.timestamps.entries()].sort(
+          (a, b) => a[1] - b[1],
+        );
         const toRemove = sorted.length - MAX_REJECTION_CACHE_SIZE + 1; // +1 for the incoming entry
         for (let i = 0; i < toRemove; i++) {
           this.timestamps.delete(sorted[i][0]);

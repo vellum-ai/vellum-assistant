@@ -1,25 +1,26 @@
-import crypto from 'node:crypto';
+import crypto from "node:crypto";
 
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { getLogger } from '../../util/logger.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { WatchSession } from './watch-state.js';
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import { getLogger } from "../../util/logger.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { WatchSession } from "./watch-state.js";
 import {
   fireWatchCompletionNotifier,
   fireWatchStartNotifier,
   getActiveWatchSession,
   watchSessions,
-} from './watch-state.js';
+} from "./watch-state.js";
 
-const log = getLogger('screen-watch');
+const log = getLogger("screen-watch");
 
 const SHORT_HASH_LENGTH = 8;
 
 class ScreenWatchTool implements Tool {
-  name = 'start_screen_watch';
-  description = 'Start observing the screen at regular intervals for a specified duration. Captures OCR text from the active window and provides periodic commentary.';
-  category = 'observation';
+  name = "start_screen_watch";
+  description =
+    "Start observing the screen at regular intervals for a specified duration. Captures OCR text from the active window and provides periodic commentary.";
+  category = "observation";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
@@ -27,51 +28,58 @@ class ScreenWatchTool implements Tool {
       name: this.name,
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           duration_minutes: {
-            type: 'number',
-            description: 'How long to watch in minutes (1-15, default 5)',
+            type: "number",
+            description: "How long to watch in minutes (1-15, default 5)",
           },
           interval_seconds: {
-            type: 'number',
-            description: 'Seconds between screen captures (5-30, default 10)',
+            type: "number",
+            description: "Seconds between screen captures (5-30, default 10)",
           },
           focus_area: {
-            type: 'string',
-            description: 'What to focus on observing',
+            type: "string",
+            description: "What to focus on observing",
           },
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of what you are watching and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of what you are watching and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
-        required: ['focus_area'],
+        required: ["focus_area"],
       },
     };
   }
 
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     const { sessionId } = context;
 
     // Validate focus_area
-    const focusArea = typeof input.focus_area === 'string' && input.focus_area.length > 0
-      ? input.focus_area
-      : undefined;
+    const focusArea =
+      typeof input.focus_area === "string" && input.focus_area.length > 0
+        ? input.focus_area
+        : undefined;
 
     if (!focusArea) {
       return {
-        content: 'Error: focus_area is required and must be a non-empty string',
+        content: "Error: focus_area is required and must be a non-empty string",
         isError: true,
       };
     }
 
     // Clamp duration to 1-15 minutes
-    let durationMinutes = typeof input.duration_minutes === 'number' ? input.duration_minutes : 5;
+    let durationMinutes =
+      typeof input.duration_minutes === "number" ? input.duration_minutes : 5;
     durationMinutes = Math.max(1, Math.min(15, durationMinutes));
 
     // Clamp interval to 5-30 seconds
-    let intervalSeconds = typeof input.interval_seconds === 'number' ? input.interval_seconds : 10;
+    let intervalSeconds =
+      typeof input.interval_seconds === "number" ? input.interval_seconds : 10;
     intervalSeconds = Math.max(5, Math.min(30, intervalSeconds));
 
     // Check for existing active session
@@ -97,7 +105,7 @@ class ScreenWatchTool implements Tool {
       intervalSeconds,
       observations: [],
       commentaryCount: 0,
-      status: 'active',
+      status: "active",
       startedAt: now,
     };
 
@@ -109,24 +117,30 @@ class ScreenWatchTool implements Tool {
 
     // Set timeout for duration expiry
     session.timeoutHandle = setTimeout(() => {
-      session.status = 'completing';
+      session.status = "completing";
       session.timeoutHandle = undefined;
-      log.info({ watchId, focusArea }, 'Watch session duration expired, marking as completing');
+      log.info(
+        { watchId, focusArea },
+        "Watch session duration expired, marking as completing",
+      );
       fireWatchCompletionNotifier(sessionId, session);
     }, durationSeconds * 1000);
 
-    log.info({ watchId, sessionId, focusArea, durationMinutes, intervalSeconds }, 'Screen watch session started');
+    log.info(
+      { watchId, sessionId, focusArea, durationMinutes, intervalSeconds },
+      "Screen watch session started",
+    );
 
     const expectedCaptures = Math.floor(durationSeconds / intervalSeconds);
     const content = [
       `Screen watch started (watchId: ${watchId})`,
       `Focus: ${focusArea}`,
-      `Duration: ${durationMinutes} minute${durationMinutes !== 1 ? 's' : ''}`,
+      `Duration: ${durationMinutes} minute${durationMinutes !== 1 ? "s" : ""}`,
       `Interval: every ${intervalSeconds} seconds`,
       `Expected captures: ~${expectedCaptures}`,
       `Started at: ${new Date(now).toISOString()}`,
       `Expected end: ${new Date(now + durationSeconds * 1000).toISOString()}`,
-    ].join('\n');
+    ].join("\n");
 
     return { content, isError: false };
   }

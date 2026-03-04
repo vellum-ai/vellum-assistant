@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * Add vector_blob BLOB column to memory_embeddings and backfill from vector_json.
@@ -12,25 +12,33 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
  */
 export function migrateEmbeddingVectorBlob(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
-  const checkpointKey = 'migration_embedding_vector_blob_v1';
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey);
+  const checkpointKey = "migration_embedding_vector_blob_v1";
+  const checkpoint = raw
+    .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey);
   if (checkpoint) return;
 
   // Add the column if it doesn't exist yet
-  try { raw.exec(/*sql*/ `ALTER TABLE memory_embeddings ADD COLUMN vector_blob BLOB`); } catch { /* already exists */ }
+  try {
+    raw.exec(
+      /*sql*/ `ALTER TABLE memory_embeddings ADD COLUMN vector_blob BLOB`,
+    );
+  } catch {
+    /* already exists */
+  }
 
   // Backfill: convert each JSON vector to a Float32Array BLOB
-  const rows = raw.query(
-    `SELECT id, vector_json FROM memory_embeddings WHERE vector_blob IS NULL AND vector_json IS NOT NULL`,
-  ).all() as Array<{ id: string; vector_json: string }>;
+  const rows = raw
+    .query(
+      `SELECT id, vector_json FROM memory_embeddings WHERE vector_blob IS NULL AND vector_json IS NOT NULL`,
+    )
+    .all() as Array<{ id: string; vector_json: string }>;
 
   if (rows.length > 0) {
     const update = raw.prepare(
       `UPDATE memory_embeddings SET vector_blob = ? WHERE id = ?`,
     );
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
     try {
       for (const row of rows) {
         const parsed = JSON.parse(row.vector_json) as number[];
@@ -39,19 +47,27 @@ export function migrateEmbeddingVectorBlob(database: DrizzleDb): void {
         update.run(buf, row.id);
       }
 
-      raw.query(
-        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-      ).run(checkpointKey, Date.now());
+      raw
+        .query(
+          `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+        )
+        .run(checkpointKey, Date.now());
 
-      raw.exec('COMMIT');
+      raw.exec("COMMIT");
     } catch (e) {
-      try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+      try {
+        raw.exec("ROLLBACK");
+      } catch {
+        /* no active transaction */
+      }
       throw e;
     }
   } else {
     // No rows to backfill, just record the checkpoint
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
   }
 }

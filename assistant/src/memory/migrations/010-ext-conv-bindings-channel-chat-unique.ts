@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * One-shot migration: deduplicate external_conversation_bindings rows that
@@ -8,25 +8,31 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
  * For each duplicate group, the binding with the newest updatedAt (then
  * createdAt) is kept; older duplicates are deleted.
  */
-export function migrateExtConvBindingsChannelChatUnique(database: DrizzleDb): void {
+export function migrateExtConvBindingsChannelChatUnique(
+  database: DrizzleDb,
+): void {
   const raw = getSqliteFrom(database);
 
   // If the unique index already exists, nothing to do.
-  const idxExists = raw.query(
-    `SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_ext_conv_bindings_channel_chat_unique'`,
-  ).get();
+  const idxExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_ext_conv_bindings_channel_chat_unique'`,
+    )
+    .get();
   if (idxExists) return;
 
   // Check if the table exists (first boot edge case).
-  const tableExists = raw.query(
-    `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'external_conversation_bindings'`,
-  ).get();
+  const tableExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'external_conversation_bindings'`,
+    )
+    .get();
   if (!tableExists) return;
 
   // Remove duplicates: keep the row with the newest updatedAt, then createdAt.
   // Since conversation_id is the PK (rowid alias), we use it for ordering ties.
   try {
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
 
     raw.exec(/*sql*/ `
       DELETE FROM external_conversation_bindings
@@ -48,9 +54,13 @@ export function migrateExtConvBindingsChannelChatUnique(database: DrizzleDb): vo
       ON external_conversation_bindings(source_channel, external_chat_id)
     `);
 
-    raw.exec('COMMIT');
+    raw.exec("COMMIT");
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   }
 }

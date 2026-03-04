@@ -1,10 +1,17 @@
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+} from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 
-import { FRONTMATTER_REGEX } from '../skills/frontmatter.js';
-import { getLogger } from '../util/logger.js';
+import { FRONTMATTER_REGEX } from "../skills/frontmatter.js";
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('cc-commands');
+const log = getLogger("cc-commands");
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -46,7 +53,7 @@ const cache = new Map<string, CCCommandRegistry>();
 /** Clear all cached registries. */
 export function invalidateCCCommandCache(): void {
   cache.clear();
-  log.debug('CC command cache invalidated');
+  log.debug("CC command cache invalidated");
 }
 
 // ─── Partial I/O ─────────────────────────────────────────────────────────────
@@ -58,11 +65,11 @@ export function invalidateCCCommandCache(): void {
  * first few lines for summary extraction.
  */
 function readFileHead(filePath: string, maxBytes: number): string {
-  const fd = openSync(filePath, 'r');
+  const fd = openSync(filePath, "r");
   try {
     const buf = Buffer.alloc(maxBytes);
     const bytesRead = readSync(fd, buf, 0, maxBytes, 0);
-    return buf.toString('utf-8', 0, bytesRead);
+    return buf.toString("utf-8", 0, bytesRead);
   } finally {
     closeSync(fd);
   }
@@ -82,18 +89,18 @@ function extractSummary(content: string): string {
   if (fmMatch) {
     body = content.slice(fmMatch[0].length);
   } else if (/^---\r?\n/.test(content)) {
-    if (Buffer.byteLength(content, 'utf-8') >= SUMMARY_READ_BYTES) {
+    if (Buffer.byteLength(content, "utf-8") >= SUMMARY_READ_BYTES) {
       // Content starts with a frontmatter opening delimiter but the closing
       // delimiter was not found. The content length reached SUMMARY_READ_BYTES,
       // so the read was likely truncated — the missing closing `---` is
       // probably just beyond the read boundary. Return empty rather than
       // surfacing partial frontmatter fields as a summary.
-      return '';
+      return "";
     }
     // Small file that starts with `---` (thematic break or unclosed
     // frontmatter opener). Skip the leading `---` line and extract the
     // first real content line from the remainder.
-    body = content.replace(/^---\r?\n/, '');
+    body = content.replace(/^---\r?\n/, "");
   }
 
   // Find first non-empty line
@@ -103,7 +110,7 @@ function extractSummary(content: string): string {
     if (!trimmed) continue;
 
     // Strip leading # heading markers
-    const stripped = trimmed.replace(/^#+\s*/, '');
+    const stripped = trimmed.replace(/^#+\s*/, "");
     if (!stripped) continue;
 
     // Truncate if needed
@@ -113,7 +120,7 @@ function extractSummary(content: string): string {
     return stripped;
   }
 
-  return '';
+  return "";
 }
 
 // ─── Discovery ───────────────────────────────────────────────────────────────
@@ -123,17 +130,23 @@ function extractSummary(content: string): string {
  * Nearest directory wins on name collisions (child overrides parent).
  * Results are cached per cwd with a 30-second TTL.
  */
-export function discoverCCCommands(cwd: string, ttlMs: number = DEFAULT_CACHE_TTL_MS): CCCommandRegistry {
+export function discoverCCCommands(
+  cwd: string,
+  ttlMs: number = DEFAULT_CACHE_TTL_MS,
+): CCCommandRegistry {
   const resolvedCwd = resolve(cwd);
 
   // Check cache
   const cached = cache.get(resolvedCwd);
-  if (cached && (Date.now() - cached.discoveredAt) < ttlMs) {
-    log.debug({ cwd: resolvedCwd }, 'CC command cache hit');
+  if (cached && Date.now() - cached.discoveredAt < ttlMs) {
+    log.debug({ cwd: resolvedCwd }, "CC command cache hit");
     return cached;
   }
 
-  log.debug({ cwd: resolvedCwd }, 'CC command cache miss, discovering commands');
+  log.debug(
+    { cwd: resolvedCwd },
+    "CC command cache miss, discovering commands",
+  );
 
   const entries = new Map<string, CCCommandEntry>();
   let current = resolvedCwd;
@@ -142,20 +155,23 @@ export function discoverCCCommands(cwd: string, ttlMs: number = DEFAULT_CACHE_TT
   // Since child directories should win on name collisions, we only add entries
   // that haven't been seen yet (first occurrence = nearest ancestor).
   while (true) {
-    const commandsDir = join(current, '.claude', 'commands');
+    const commandsDir = join(current, ".claude", "commands");
 
     if (existsSync(commandsDir)) {
       try {
         const files = readdirSync(commandsDir, { withFileTypes: true });
         for (const file of files) {
           if (!file.isFile()) continue;
-          if (!file.name.endsWith('.md')) continue;
+          if (!file.name.endsWith(".md")) continue;
 
-          const nameWithoutExt = basename(file.name, '.md');
+          const nameWithoutExt = basename(file.name, ".md");
 
           // Validate command name
           if (!COMMAND_NAME_REGEX.test(nameWithoutExt)) {
-            log.warn({ fileName: file.name, dir: commandsDir }, 'Skipping invalid CC command filename');
+            log.warn(
+              { fileName: file.name, dir: commandsDir },
+              "Skipping invalid CC command filename",
+            );
             continue;
           }
 
@@ -166,12 +182,15 @@ export function discoverCCCommands(cwd: string, ttlMs: number = DEFAULT_CACHE_TT
 
           const filePath = join(commandsDir, file.name);
 
-          let summary = '';
+          let summary = "";
           try {
             const head = readFileHead(filePath, SUMMARY_READ_BYTES);
             summary = extractSummary(head);
           } catch (err) {
-            log.warn({ err, filePath }, 'Failed to read CC command file for summary extraction');
+            log.warn(
+              { err, filePath },
+              "Failed to read CC command file for summary extraction",
+            );
           }
 
           entries.set(key, {
@@ -182,7 +201,7 @@ export function discoverCCCommands(cwd: string, ttlMs: number = DEFAULT_CACHE_TT
           });
         }
       } catch (err) {
-        log.warn({ err, commandsDir }, 'Failed to read CC commands directory');
+        log.warn({ err, commandsDir }, "Failed to read CC commands directory");
       }
     }
 
@@ -191,7 +210,10 @@ export function discoverCCCommands(cwd: string, ttlMs: number = DEFAULT_CACHE_TT
     current = parent;
   }
 
-  log.debug({ cwd: resolvedCwd, count: entries.size }, 'CC command discovery complete');
+  log.debug(
+    { cwd: resolvedCwd, count: entries.size },
+    "CC command discovery complete",
+  );
 
   const registry: CCCommandRegistry = {
     entries,
@@ -207,7 +229,10 @@ export function discoverCCCommands(cwd: string, ttlMs: number = DEFAULT_CACHE_TT
 /**
  * Look up a single CC command by name (case-insensitive).
  */
-export function getCCCommand(cwd: string, name: string): CCCommandEntry | undefined {
+export function getCCCommand(
+  cwd: string,
+  name: string,
+): CCCommandEntry | undefined {
   const registry = discoverCCCommands(cwd);
   return registry.entries.get(name.toLowerCase());
 }
@@ -219,5 +244,5 @@ export function getCCCommand(cwd: string, name: string): CCCommandEntry | undefi
  * This is deferred to execution time to avoid reading full files during discovery.
  */
 export function loadCCCommandTemplate(entry: CCCommandEntry): string {
-  return readFileSync(entry.filePath, 'utf-8');
+  return readFileSync(entry.filePath, "utf-8");
 }

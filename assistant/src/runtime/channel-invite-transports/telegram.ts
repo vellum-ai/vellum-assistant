@@ -8,13 +8,13 @@
  * verification) tokens that use the same `/start` deep-link mechanism.
  */
 
-import type { ChannelId } from '../../channels/types.js';
-import { getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import type { ChannelId } from "../../channels/types.js";
+import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
 import {
   type ChannelInviteTransport,
   type InviteSharePayload,
   registerTransport,
-} from '../channel-invite-transport.js';
+} from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
 // Bot username resolution
@@ -26,8 +26,12 @@ import {
  * strategy used in `guardian-outbound-actions.ts`.
  */
 function getTelegramBotUsername(): string | undefined {
-  const meta = getCredentialMetadata('telegram', 'bot_token');
-  if (meta?.accountInfo && typeof meta.accountInfo === 'string' && meta.accountInfo.trim().length > 0) {
+  const meta = getCredentialMetadata("telegram", "bot_token");
+  if (
+    meta?.accountInfo &&
+    typeof meta.accountInfo === "string" &&
+    meta.accountInfo.trim().length > 0
+  ) {
     return meta.accountInfo.trim();
   }
   return process.env.TELEGRAM_BOT_USERNAME || undefined;
@@ -37,14 +41,14 @@ function getTelegramBotUsername(): string | undefined {
 // Token prefix
 // ---------------------------------------------------------------------------
 
-const INVITE_TOKEN_PREFIX = 'iv_';
+const INVITE_TOKEN_PREFIX = "iv_";
 
 // ---------------------------------------------------------------------------
 // Transport implementation
 // ---------------------------------------------------------------------------
 
 export const telegramInviteTransport: ChannelInviteTransport = {
-  channel: 'telegram' as ChannelId,
+  channel: "telegram" as ChannelId,
 
   buildShareableInvite(params: {
     rawToken: string;
@@ -52,7 +56,9 @@ export const telegramInviteTransport: ChannelInviteTransport = {
   }): InviteSharePayload {
     const botUsername = getTelegramBotUsername();
     if (!botUsername) {
-      throw new Error('Telegram bot username is not configured. Set up the Telegram integration first.');
+      throw new Error(
+        "Telegram bot username is not configured. Set up the Telegram integration first.",
+      );
     }
 
     const url = `https://t.me/${botUsername}?start=${INVITE_TOKEN_PREFIX}${params.rawToken}`;
@@ -72,8 +78,8 @@ export const telegramInviteTransport: ChannelInviteTransport = {
     // `{ type: 'start', payload: '<payload>' }`.
     if (
       params.commandIntent &&
-      params.commandIntent.type === 'start' &&
-      typeof params.commandIntent.payload === 'string'
+      params.commandIntent.type === "start" &&
+      typeof params.commandIntent.payload === "string"
     ) {
       const payload = params.commandIntent.payload;
       if (payload.startsWith(INVITE_TOKEN_PREFIX)) {

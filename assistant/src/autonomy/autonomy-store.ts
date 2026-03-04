@@ -7,19 +7,19 @@
  * preferences), so it belongs on disk rather than in the SQLite database.
  */
 
-import { mkdirSync,writeFileSync } from 'node:fs';
-import { dirname,join } from 'node:path';
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-import { readTextFileSync } from '../util/fs.js';
-import { getLogger } from '../util/logger.js';
-import { getWorkspaceDir } from '../util/platform.js';
-import type { AutonomyConfig, AutonomyTier } from './types.js';
-import { AUTONOMY_TIERS,DEFAULT_AUTONOMY_CONFIG } from './types.js';
+import { readTextFileSync } from "../util/fs.js";
+import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
+import type { AutonomyConfig, AutonomyTier } from "./types.js";
+import { AUTONOMY_TIERS, DEFAULT_AUTONOMY_CONFIG } from "./types.js";
 
-const log = getLogger('autonomy-store');
+const log = getLogger("autonomy-store");
 
 function getAutonomyConfigPath(): string {
-  return join(getWorkspaceDir(), 'autonomy.json');
+  return join(getWorkspaceDir(), "autonomy.json");
 }
 
 /**
@@ -35,7 +35,7 @@ export function getAutonomyConfig(): AutonomyConfig {
   try {
     return validateAutonomyConfig(JSON.parse(raw));
   } catch (err) {
-    log.warn({ err }, 'Failed to parse autonomy config; using defaults');
+    log.warn({ err }, "Failed to parse autonomy config; using defaults");
     return structuredClone(DEFAULT_AUTONOMY_CONFIG);
   }
 }
@@ -44,20 +44,31 @@ export function getAutonomyConfig(): AutonomyConfig {
  * Merge partial updates into the existing autonomy configuration and persist.
  * Only the provided fields are updated; omitted fields keep their current values.
  */
-export function setAutonomyConfig(updates: Partial<AutonomyConfig>): AutonomyConfig {
+export function setAutonomyConfig(
+  updates: Partial<AutonomyConfig>,
+): AutonomyConfig {
   const current = getAutonomyConfig();
 
   if (updates.defaultTier !== undefined) {
     current.defaultTier = updates.defaultTier;
   }
   if (updates.channelDefaults !== undefined) {
-    current.channelDefaults = { ...current.channelDefaults, ...updates.channelDefaults };
+    current.channelDefaults = {
+      ...current.channelDefaults,
+      ...updates.channelDefaults,
+    };
   }
   if (updates.categoryOverrides !== undefined) {
-    current.categoryOverrides = { ...current.categoryOverrides, ...updates.categoryOverrides };
+    current.categoryOverrides = {
+      ...current.categoryOverrides,
+      ...updates.categoryOverrides,
+    };
   }
   if (updates.contactOverrides !== undefined) {
-    current.contactOverrides = { ...current.contactOverrides, ...updates.contactOverrides };
+    current.contactOverrides = {
+      ...current.contactOverrides,
+      ...updates.contactOverrides,
+    };
   }
 
   persistConfig(current);
@@ -89,15 +100,17 @@ export function setChannelDefault(channel: string, tier: AutonomyTier): void {
 function persistConfig(config: AutonomyConfig): void {
   const configPath = getAutonomyConfigPath();
   mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
 function isValidTier(value: unknown): value is AutonomyTier {
-  return typeof value === 'string' && AUTONOMY_TIERS.includes(value as AutonomyTier);
+  return (
+    typeof value === "string" && AUTONOMY_TIERS.includes(value as AutonomyTier)
+  );
 }
 
 function validateTierRecord(raw: unknown): Record<string, AutonomyTier> {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result: Record<string, AutonomyTier> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (isValidTier(value)) {
@@ -108,14 +121,16 @@ function validateTierRecord(raw: unknown): Record<string, AutonomyTier> {
 }
 
 function validateAutonomyConfig(raw: unknown): AutonomyConfig {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return structuredClone(DEFAULT_AUTONOMY_CONFIG);
   }
 
   const obj = raw as Record<string, unknown>;
 
   return {
-    defaultTier: isValidTier(obj.defaultTier) ? obj.defaultTier : DEFAULT_AUTONOMY_CONFIG.defaultTier,
+    defaultTier: isValidTier(obj.defaultTier)
+      ? obj.defaultTier
+      : DEFAULT_AUTONOMY_CONFIG.defaultTier,
     channelDefaults: validateTierRecord(obj.channelDefaults),
     categoryOverrides: validateTierRecord(obj.categoryOverrides),
     contactOverrides: validateTierRecord(obj.contactOverrides),

@@ -6,9 +6,9 @@
  * from both the barrel file and the domain files in ipc-contract/.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as ts from 'typescript';
+import * as fs from "fs";
+import * as path from "path";
+import * as ts from "typescript";
 
 export interface ContractInventory {
   clientMessageTypes: string[];
@@ -58,16 +58,13 @@ function extractWireType(
     let wireType: string | null = null;
 
     ts.forEachChild(sourceFile, (node) => {
-      if (
-        ts.isInterfaceDeclaration(node) &&
-        node.name.text === interfaceName
-      ) {
+      if (ts.isInterfaceDeclaration(node) && node.name.text === interfaceName) {
         for (const member of node.members) {
           if (
             ts.isPropertySignature(member) &&
             member.name &&
             ts.isIdentifier(member.name) &&
-            member.name.text === 'type' &&
+            member.name.text === "type" &&
             member.type &&
             ts.isLiteralTypeNode(member.type) &&
             ts.isStringLiteral(member.type.literal)
@@ -96,10 +93,7 @@ function resolveTypeAlias(
   for (const sourceFile of sourceFiles) {
     let resolved: string[] | null = null;
     ts.forEachChild(sourceFile, (node) => {
-      if (
-        ts.isTypeAliasDeclaration(node) &&
-        node.name.text === aliasName
-      ) {
+      if (ts.isTypeAliasDeclaration(node) && node.name.text === aliasName) {
         if (ts.isUnionTypeNode(node.type)) {
           resolved = [];
           for (const member of node.type.types) {
@@ -151,26 +145,26 @@ function extractWireTypes(
  * their parsed ASTs alongside the barrel file's AST.
  */
 function parseDomainFiles(barrelDir: string): ts.SourceFile[] {
-  const domainDir = path.join(barrelDir, 'ipc-contract');
+  const domainDir = path.join(barrelDir, "ipc-contract");
   if (!fs.existsSync(domainDir)) return [];
 
-  return fs.readdirSync(domainDir)
-    .filter((f) => f.endsWith('.ts'))
+  return fs
+    .readdirSync(domainDir)
+    .filter((f) => f.endsWith(".ts"))
     .map((f) => {
       const filePath = path.join(domainDir, f);
-      const source = fs.readFileSync(filePath, 'utf-8');
+      const source = fs.readFileSync(filePath, "utf-8");
       return ts.createSourceFile(f, source, ts.ScriptTarget.Latest, true);
     });
 }
 
 /** Parse the contract file and extract the inventory. */
 export function extractInventory(contractPath?: string): ContractInventory {
-  const resolvedPath = contractPath ?? path.resolve(
-    import.meta.dirname ?? __dirname,
-    'ipc-contract.ts',
-  );
+  const resolvedPath =
+    contractPath ??
+    path.resolve(import.meta.dirname ?? __dirname, "ipc-contract.ts");
 
-  const source = fs.readFileSync(resolvedPath, 'utf-8');
+  const source = fs.readFileSync(resolvedPath, "utf-8");
   const barrelFile = ts.createSourceFile(
     path.basename(resolvedPath),
     source,
@@ -178,14 +172,18 @@ export function extractInventory(contractPath?: string): ContractInventory {
     true,
   );
 
-  const clientMessageTypes = extractUnionMembers(barrelFile, 'ClientMessage');
-  const serverMessageTypes = extractUnionMembers(barrelFile, 'ServerMessage');
+  const clientMessageTypes = extractUnionMembers(barrelFile, "ClientMessage");
+  const serverMessageTypes = extractUnionMembers(barrelFile, "ServerMessage");
 
   if (clientMessageTypes.length === 0) {
-    throw new Error('Failed to extract ClientMessage union members from contract');
+    throw new Error(
+      "Failed to extract ClientMessage union members from contract",
+    );
   }
   if (serverMessageTypes.length === 0) {
-    throw new Error('Failed to extract ServerMessage union members from contract');
+    throw new Error(
+      "Failed to extract ServerMessage union members from contract",
+    );
   }
 
   // Parse domain files for interface declarations (wire type extraction)
@@ -195,5 +193,10 @@ export function extractInventory(contractPath?: string): ContractInventory {
   const clientWireTypes = extractWireTypes(allSourceFiles, clientMessageTypes);
   const serverWireTypes = extractWireTypes(allSourceFiles, serverMessageTypes);
 
-  return { clientMessageTypes, serverMessageTypes, clientWireTypes, serverWireTypes };
+  return {
+    clientMessageTypes,
+    serverMessageTypes,
+    clientWireTypes,
+    serverWireTypes,
+  };
 }

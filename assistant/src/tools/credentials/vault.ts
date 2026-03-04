@@ -1,9 +1,13 @@
-import { getConfig } from '../../config/loader.js';
-import { orchestrateOAuthConnect } from '../../oauth/connect-orchestrator.js';
-import { getProviderProfile, resolveService, SERVICE_ALIASES } from '../../oauth/provider-profiles.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import type { TokenEndpointAuthMethod } from '../../security/oauth2.js';
+import { getConfig } from "../../config/loader.js";
+import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
+import {
+  getProviderProfile,
+  resolveService,
+  SERVICE_ALIASES,
+} from "../../oauth/provider-profiles.js";
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
   deleteSecureKey,
   getBackendType,
@@ -11,21 +15,33 @@ import {
   isDowngradedFromKeychain,
   listSecureKeys,
   setSecureKey,
-} from '../../security/secure-keys.js';
-import { getLogger } from '../../util/logger.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import { credentialBroker } from './broker.js';
-import { assertMetadataWritable,deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, upsertCredentialMetadata } from './metadata-store.js';
-import type { CredentialInjectionTemplate,CredentialPolicyInput } from './policy-types.js';
-import { toPolicyFromInput,validatePolicyInput } from './policy-validate.js';
+} from "../../security/secure-keys.js";
+import { getLogger } from "../../util/logger.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import { credentialBroker } from "./broker.js";
+import {
+  assertMetadataWritable,
+  deleteCredentialMetadata,
+  getCredentialMetadata,
+  listCredentialMetadata,
+  upsertCredentialMetadata,
+} from "./metadata-store.js";
+import type {
+  CredentialInjectionTemplate,
+  CredentialPolicyInput,
+} from "./policy-types.js";
+import { toPolicyFromInput, validatePolicyInput } from "./policy-validate.js";
 
-const log = getLogger('credential-vault');
+const log = getLogger("credential-vault");
 
 /**
  * Look up a stored client_id or client_secret for a service.
  * Checks common field names across both the canonical and alias service names.
  */
-function findStoredOAuthField(service: string, fieldNames: string[]): string | undefined {
+function findStoredOAuthField(
+  service: string,
+  fieldNames: string[],
+): string | undefined {
   const servicesToCheck = [service];
   // Also check the alias if the input is the canonical name, or vice versa
   for (const [alias, canonical] of Object.entries(SERVICE_ALIASES)) {
@@ -42,14 +58,17 @@ function findStoredOAuthField(service: string, fieldNames: string[]): string | u
   // Legacy fallback: check credential metadata on the access_token record.
   // Older OAuth2 flows stored client_id/client_secret only in metadata JSON.
   // New flows persist them in the keychain (checked above) for defense in depth.
-  const metadataKey = fieldNames.some((f) => f.includes('client_id'))
-    ? 'oauth2ClientId' as const
-    : 'oauth2ClientSecret' as const;
+  const metadataKey = fieldNames.some((f) => f.includes("client_id"))
+    ? ("oauth2ClientId" as const)
+    : ("oauth2ClientSecret" as const);
   for (const svc of servicesToCheck) {
-    const meta = getCredentialMetadata(svc, 'access_token');
+    const meta = getCredentialMetadata(svc, "access_token");
     const value = meta?.[metadataKey];
     if (value) {
-      log.debug({ service: svc, field: metadataKey }, 'OAuth client credential resolved from metadata (legacy fallback)');
+      log.debug(
+        { service: svc, field: metadataKey },
+        "OAuth client credential resolved from metadata (legacy fallback)",
+      );
       return value;
     }
   }
@@ -58,9 +77,10 @@ function findStoredOAuthField(service: string, fieldNames: string[]): string | u
 }
 
 class CredentialStoreTool implements Tool {
-  name = 'credential_store';
-  description = 'Store, list, delete, or prompt for credentials in the secure vault';
-  category = 'credentials';
+  name = "credential_store";
+  description =
+    "Store, list, delete, or prompt for credentials in the secure vault";
+  category = "credentials";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
@@ -68,131 +88,187 @@ class CredentialStoreTool implements Tool {
       name: this.name,
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           action: {
-            type: 'string',
-            enum: ['store', 'list', 'delete', 'prompt', 'oauth2_connect', 'describe'],
-            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. Use "describe" to get setup metadata for a well-known OAuth service (dashboard URL, scopes, redirect URI, etc.). For well-known services (gmail, slack), only the service name is required — endpoints, scopes, and stored client credentials are resolved automatically.',
+            type: "string",
+            enum: [
+              "store",
+              "list",
+              "delete",
+              "prompt",
+              "oauth2_connect",
+              "describe",
+            ],
+            description:
+              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. Use "describe" to get setup metadata for a well-known OAuth service (dashboard URL, scopes, redirect URI, etc.). For well-known services (gmail, slack), only the service name is required — endpoints, scopes, and stored client credentials are resolved automatically.',
           },
           service: {
-            type: 'string',
-            description: 'Service name, e.g. gmail, github',
+            type: "string",
+            description: "Service name, e.g. gmail, github",
           },
           field: {
-            type: 'string',
-            description: 'Field name, e.g. password, username, recovery_email',
+            type: "string",
+            description: "Field name, e.g. password, username, recovery_email",
           },
           value: {
-            type: 'string',
-            description: 'The credential value (only for store action)',
+            type: "string",
+            description: "The credential value (only for store action)",
           },
           label: {
-            type: 'string',
-            description: 'Display label for the prompt UI (only for prompt action), e.g. "GitHub Personal Access Token"',
+            type: "string",
+            description:
+              'Display label for the prompt UI (only for prompt action), e.g. "GitHub Personal Access Token"',
           },
           description: {
-            type: 'string',
-            description: 'Optional context shown in the prompt UI (only for prompt action), e.g. "Needed to push changes"',
+            type: "string",
+            description:
+              'Optional context shown in the prompt UI (only for prompt action), e.g. "Needed to push changes"',
           },
           placeholder: {
-            type: 'string',
-            description: 'Placeholder text for the input field (only for prompt action), e.g. "ghp_xxxxxxxxxxxx"',
+            type: "string",
+            description:
+              'Placeholder text for the input field (only for prompt action), e.g. "ghp_xxxxxxxxxxxx"',
           },
           allowed_tools: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Tools allowed to use this credential (for store/prompt actions), e.g. ["browser_fill_credential"]. Empty = deny all.',
+            type: "array",
+            items: { type: "string" },
+            description:
+              'Tools allowed to use this credential (for store/prompt actions), e.g. ["browser_fill_credential"]. Empty = deny all.',
           },
           allowed_domains: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Domains where this credential may be used (for store/prompt actions), e.g. ["github.com"]. Empty = deny all.',
+            type: "array",
+            items: { type: "string" },
+            description:
+              'Domains where this credential may be used (for store/prompt actions), e.g. ["github.com"]. Empty = deny all.',
           },
           usage_description: {
-            type: 'string',
-            description: 'Human-readable description of intended usage (for store/prompt actions), e.g. "GitHub login for pushing changes"',
+            type: "string",
+            description:
+              'Human-readable description of intended usage (for store/prompt actions), e.g. "GitHub login for pushing changes"',
           },
           auth_url: {
-            type: 'string',
-            description: 'OAuth2 authorization endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).',
+            type: "string",
+            description:
+              "OAuth2 authorization endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).",
           },
           token_url: {
-            type: 'string',
-            description: 'OAuth2 token endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).',
+            type: "string",
+            description:
+              "OAuth2 token endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).",
           },
           scopes: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'OAuth2 scopes to request (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).',
+            type: "array",
+            items: { type: "string" },
+            description:
+              "OAuth2 scopes to request (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).",
           },
           client_id: {
-            type: 'string',
-            description: 'OAuth2 client ID (only for oauth2_connect action). If omitted, looked up from previously stored credentials.',
+            type: "string",
+            description:
+              "OAuth2 client ID (only for oauth2_connect action). If omitted, looked up from previously stored credentials.",
           },
           extra_params: {
-            type: 'object',
-            description: 'Extra query params for OAuth2 auth URL (only for oauth2_connect action)',
+            type: "object",
+            description:
+              "Extra query params for OAuth2 auth URL (only for oauth2_connect action)",
           },
           userinfo_url: {
-            type: 'string',
-            description: 'Endpoint to fetch account info after OAuth2 auth (only for oauth2_connect action)',
+            type: "string",
+            description:
+              "Endpoint to fetch account info after OAuth2 auth (only for oauth2_connect action)",
           },
           client_secret: {
-            type: 'string',
-            description: 'OAuth2 client secret for providers that require it (e.g. Google, Slack). If omitted, looked up from previously stored credentials; if still absent, PKCE-only is used (only for oauth2_connect action)',
+            type: "string",
+            description:
+              "OAuth2 client secret for providers that require it (e.g. Google, Slack). If omitted, looked up from previously stored credentials; if still absent, PKCE-only is used (only for oauth2_connect action)",
           },
           token_endpoint_auth_method: {
-            type: 'string',
-            enum: ['client_secret_basic', 'client_secret_post'],
-            description: 'How to send client credentials at the token endpoint: "client_secret_post" (default, in POST body) or "client_secret_basic" (HTTP Basic Auth header). Only for oauth2_connect action.',
+            type: "string",
+            enum: ["client_secret_basic", "client_secret_post"],
+            description:
+              'How to send client credentials at the token endpoint: "client_secret_post" (default, in POST body) or "client_secret_basic" (HTTP Basic Auth header). Only for oauth2_connect action.',
           },
           alias: {
-            type: 'string',
-            description: 'Human-friendly name for this credential (only for store action), e.g. "fal-primary"',
+            type: "string",
+            description:
+              'Human-friendly name for this credential (only for store action), e.g. "fal-primary"',
           },
           injection_templates: {
-            type: 'array',
+            type: "array",
             items: {
-              type: 'object',
+              type: "object",
               properties: {
-                hostPattern: { type: 'string', description: 'Glob pattern for matching request hosts, e.g. "*.fal.ai"' },
-                injectionType: { type: 'string', enum: ['header', 'query'], description: 'Where to inject the credential value' },
-                headerName: { type: 'string', description: 'Header name when injectionType is "header"' },
-                valuePrefix: { type: 'string', description: 'Prefix prepended to the secret value, e.g. "Key ", "Bearer "' },
-                queryParamName: { type: 'string', description: 'Query parameter name when injectionType is "query"' },
+                hostPattern: {
+                  type: "string",
+                  description:
+                    'Glob pattern for matching request hosts, e.g. "*.fal.ai"',
+                },
+                injectionType: {
+                  type: "string",
+                  enum: ["header", "query"],
+                  description: "Where to inject the credential value",
+                },
+                headerName: {
+                  type: "string",
+                  description: 'Header name when injectionType is "header"',
+                },
+                valuePrefix: {
+                  type: "string",
+                  description:
+                    'Prefix prepended to the secret value, e.g. "Key ", "Bearer "',
+                },
+                queryParamName: {
+                  type: "string",
+                  description:
+                    'Query parameter name when injectionType is "query"',
+                },
               },
-              required: ['hostPattern', 'injectionType'],
+              required: ["hostPattern", "injectionType"],
             },
-            description: 'Templates describing how to inject this credential into proxied requests (only for store action)',
+            description:
+              "Templates describing how to inject this credential into proxied requests (only for store action)",
           },
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
-        required: ['action'],
+        required: ["action"],
       },
     };
   }
 
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     const action = input.action as string;
 
     switch (action) {
-      case 'store': {
+      case "store": {
         const service = input.service as string | undefined;
         const field = input.field as string | undefined;
         const value = input.value as string | undefined;
 
-        if (!service || typeof service !== 'string') {
-          return { content: 'Error: service is required for store action', isError: true };
+        if (!service || typeof service !== "string") {
+          return {
+            content: "Error: service is required for store action",
+            isError: true,
+          };
         }
-        if (!field || typeof field !== 'string') {
-          return { content: 'Error: field is required for store action', isError: true };
+        if (!field || typeof field !== "string") {
+          return {
+            content: "Error: field is required for store action",
+            isError: true,
+          };
         }
-        if (!value || typeof value !== 'string') {
-          return { content: 'Error: value is required for store action', isError: true };
+        if (!value || typeof value !== "string") {
+          return {
+            content: "Error: value is required for store action",
+            isError: true,
+          };
         }
 
         const policyInput: CredentialPolicyInput = {
@@ -202,13 +278,16 @@ class CredentialStoreTool implements Tool {
         };
         const policyResult = validatePolicyInput(policyInput);
         if (!policyResult.valid) {
-          return { content: `Error: ${policyResult.errors.join('; ')}`, isError: true };
+          return {
+            content: `Error: ${policyResult.errors.join("; ")}`,
+            isError: true,
+          };
         }
         const policy = toPolicyFromInput(policyInput);
 
         const alias = input.alias;
-        if (alias !== undefined && typeof alias !== 'string') {
-          return { content: 'Error: alias must be a string', isError: true };
+        if (alias !== undefined && typeof alias !== "string") {
+          return { content: "Error: alias must be a string", isError: true };
         }
         const rawTemplates = input.injection_templates as unknown[] | undefined;
 
@@ -216,58 +295,100 @@ class CredentialStoreTool implements Tool {
         let injectionTemplates: CredentialInjectionTemplate[] | undefined;
         if (rawTemplates !== undefined) {
           if (!Array.isArray(rawTemplates)) {
-            return { content: 'Error: injection_templates must be an array', isError: true };
+            return {
+              content: "Error: injection_templates must be an array",
+              isError: true,
+            };
           }
           const templateErrors: string[] = [];
           injectionTemplates = [];
           for (let i = 0; i < rawTemplates.length; i++) {
             const t = rawTemplates[i] as Record<string, unknown>;
-            if (typeof t !== 'object' || t == null) {
-              templateErrors.push(`injection_templates[${i}] must be an object`);
+            if (typeof t !== "object" || t == null) {
+              templateErrors.push(
+                `injection_templates[${i}] must be an object`,
+              );
               continue;
             }
-            if (typeof t.hostPattern !== 'string' || t.hostPattern.trim().length === 0) {
-              templateErrors.push(`injection_templates[${i}].hostPattern must be a non-empty string`);
+            if (
+              typeof t.hostPattern !== "string" ||
+              t.hostPattern.trim().length === 0
+            ) {
+              templateErrors.push(
+                `injection_templates[${i}].hostPattern must be a non-empty string`,
+              );
             }
-            if (t.injectionType !== 'header' && t.injectionType !== 'query') {
-              templateErrors.push(`injection_templates[${i}].injectionType must be 'header' or 'query'`);
-            } else if (t.injectionType === 'header') {
-              if (typeof t.headerName !== 'string' || t.headerName.trim().length === 0) {
-                templateErrors.push(`injection_templates[${i}].headerName is required when injectionType is 'header'`);
+            if (t.injectionType !== "header" && t.injectionType !== "query") {
+              templateErrors.push(
+                `injection_templates[${i}].injectionType must be 'header' or 'query'`,
+              );
+            } else if (t.injectionType === "header") {
+              if (
+                typeof t.headerName !== "string" ||
+                t.headerName.trim().length === 0
+              ) {
+                templateErrors.push(
+                  `injection_templates[${i}].headerName is required when injectionType is 'header'`,
+                );
               }
-            } else if (t.injectionType === 'query') {
-              if (typeof t.queryParamName !== 'string' || t.queryParamName.trim().length === 0) {
-                templateErrors.push(`injection_templates[${i}].queryParamName is required when injectionType is 'query'`);
+            } else if (t.injectionType === "query") {
+              if (
+                typeof t.queryParamName !== "string" ||
+                t.queryParamName.trim().length === 0
+              ) {
+                templateErrors.push(
+                  `injection_templates[${i}].queryParamName is required when injectionType is 'query'`,
+                );
               }
             }
-            if (t.valuePrefix !== undefined && typeof t.valuePrefix !== 'string') {
-              templateErrors.push(`injection_templates[${i}].valuePrefix must be a string`);
+            if (
+              t.valuePrefix !== undefined &&
+              typeof t.valuePrefix !== "string"
+            ) {
+              templateErrors.push(
+                `injection_templates[${i}].valuePrefix must be a string`,
+              );
             }
             if (templateErrors.length === 0) {
               injectionTemplates.push({
                 hostPattern: t.hostPattern as string,
-                injectionType: t.injectionType as 'header' | 'query',
-                headerName: typeof t.headerName === 'string' ? t.headerName : undefined,
-                valuePrefix: typeof t.valuePrefix === 'string' ? t.valuePrefix : undefined,
-                queryParamName: typeof t.queryParamName === 'string' ? t.queryParamName : undefined,
+                injectionType: t.injectionType as "header" | "query",
+                headerName:
+                  typeof t.headerName === "string" ? t.headerName : undefined,
+                valuePrefix:
+                  typeof t.valuePrefix === "string" ? t.valuePrefix : undefined,
+                queryParamName:
+                  typeof t.queryParamName === "string"
+                    ? t.queryParamName
+                    : undefined,
               });
             }
           }
           if (templateErrors.length > 0) {
-            return { content: `Error: ${templateErrors.join('; ')}`, isError: true };
+            return {
+              content: `Error: ${templateErrors.join("; ")}`,
+              isError: true,
+            };
           }
         }
 
         try {
           assertMetadataWritable();
         } catch {
-          return { content: 'Error: credential metadata file has an unrecognized version; cannot store credentials', isError: true };
+          return {
+            content:
+              "Error: credential metadata file has an unrecognized version; cannot store credentials",
+            isError: true,
+          };
         }
 
         const key = `credential:${service}:${field}`;
         const ok = setSecureKey(key, value);
         if (!ok) {
-          return { content: 'Error: failed to store credential', isError: true };
+          return {
+            content: "Error: failed to store credential",
+            isError: true,
+          };
         }
         try {
           upsertCredentialMetadata(service, field, {
@@ -278,18 +399,30 @@ class CredentialStoreTool implements Tool {
             injectionTemplates,
           });
         } catch (err) {
-          log.warn({ service, field, err }, 'metadata write failed after storing credential');
+          log.warn(
+            { service, field, err },
+            "metadata write failed after storing credential",
+          );
         }
         const metadata = getCredentialMetadata(service, field);
-        const credIdSuffix = metadata ? ` (credential_id: ${metadata.credentialId})` : '';
-        return { content: `Stored credential for ${service}/${field}.${credIdSuffix}`, isError: false };
+        const credIdSuffix = metadata
+          ? ` (credential_id: ${metadata.credentialId})`
+          : "";
+        return {
+          content: `Stored credential for ${service}/${field}.${credIdSuffix}`,
+          isError: false,
+        };
       }
 
-      case 'list': {
+      case "list": {
         try {
           assertMetadataWritable();
         } catch {
-          return { content: 'Error: credential metadata file has an unrecognized version; cannot list credentials', isError: true };
+          return {
+            content:
+              "Error: credential metadata file has an unrecognized version; cannot list credentials",
+            isError: true,
+          };
         }
 
         const allMetadata = listCredentialMetadata();
@@ -301,19 +434,27 @@ class CredentialStoreTool implements Tool {
         // batch verification because listSecureKeys() only returns keys from
         // the encrypted store — keychain-only credentials would be hidden.
         const downgraded = isDowngradedFromKeychain();
-        const verifySecrets = getBackendType() === 'encrypted' && !downgraded;
+        const verifySecrets = getBackendType() === "encrypted" && !downgraded;
         let secureKeySet: Set<string> | undefined;
         if (verifySecrets) {
           try {
             secureKeySet = new Set(listSecureKeys());
           } catch (err) {
-            log.error({ err }, 'Failed to read secure store while listing credentials');
-            return { content: 'Error: failed to read secure storage; cannot list credentials', isError: true };
+            log.error(
+              { err },
+              "Failed to read secure store while listing credentials",
+            );
+            return {
+              content:
+                "Error: failed to read secure storage; cannot list credentials",
+              isError: true,
+            };
           }
         }
         const entries = allMetadata
           .filter((m) => {
-            if (secureKeySet) return secureKeySet.has(`credential:${m.service}:${m.field}`);
+            if (secureKeySet)
+              return secureKeySet.has(`credential:${m.service}:${m.field}`);
             return true;
           })
           .map((m) => {
@@ -336,49 +477,77 @@ class CredentialStoreTool implements Tool {
         return { content: JSON.stringify(entries, null, 2), isError: false };
       }
 
-      case 'delete': {
+      case "delete": {
         const service = input.service as string | undefined;
         const field = input.field as string | undefined;
 
-        if (!service || typeof service !== 'string') {
-          return { content: 'Error: service is required for delete action', isError: true };
+        if (!service || typeof service !== "string") {
+          return {
+            content: "Error: service is required for delete action",
+            isError: true,
+          };
         }
-        if (!field || typeof field !== 'string') {
-          return { content: 'Error: field is required for delete action', isError: true };
+        if (!field || typeof field !== "string") {
+          return {
+            content: "Error: field is required for delete action",
+            isError: true,
+          };
         }
 
         try {
           assertMetadataWritable();
         } catch {
-          return { content: 'Error: credential metadata file has an unrecognized version; cannot delete credentials', isError: true };
+          return {
+            content:
+              "Error: credential metadata file has an unrecognized version; cannot delete credentials",
+            isError: true,
+          };
         }
 
         const key = `credential:${service}:${field}`;
         const ok = deleteSecureKey(key);
         if (!ok) {
-          return { content: `Error: credential ${service}/${field} not found`, isError: true };
+          return {
+            content: `Error: credential ${service}/${field} not found`,
+            isError: true,
+          };
         }
         try {
           deleteCredentialMetadata(service, field);
         } catch (err) {
-          log.warn({ service, field, err }, 'metadata delete failed after removing credential');
+          log.warn(
+            { service, field, err },
+            "metadata delete failed after removing credential",
+          );
         }
-        return { content: `Deleted credential for ${service}/${field}.`, isError: false };
+        return {
+          content: `Deleted credential for ${service}/${field}.`,
+          isError: false,
+        };
       }
 
-      case 'prompt': {
+      case "prompt": {
         const service = input.service as string | undefined;
         const field = input.field as string | undefined;
 
-        if (!service || typeof service !== 'string') {
-          return { content: 'Error: service is required for prompt action', isError: true };
+        if (!service || typeof service !== "string") {
+          return {
+            content: "Error: service is required for prompt action",
+            isError: true,
+          };
         }
-        if (!field || typeof field !== 'string') {
-          return { content: 'Error: field is required for prompt action', isError: true };
+        if (!field || typeof field !== "string") {
+          return {
+            content: "Error: field is required for prompt action",
+            isError: true,
+          };
         }
 
         if (!context.requestSecret) {
-          return { content: 'Error: secret prompting not available in this context', isError: true };
+          return {
+            content: "Error: secret prompting not available in this context",
+            isError: true,
+          };
         }
 
         const label = (input.label as string) || `${service} ${field}`;
@@ -392,33 +561,57 @@ class CredentialStoreTool implements Tool {
         };
         const promptPolicyResult = validatePolicyInput(promptPolicyInput);
         if (!promptPolicyResult.valid) {
-          return { content: `Error: ${promptPolicyResult.errors.join('; ')}`, isError: true };
+          return {
+            content: `Error: ${promptPolicyResult.errors.join("; ")}`,
+            isError: true,
+          };
         }
         const promptPolicy = toPolicyFromInput(promptPolicyInput);
 
         try {
           assertMetadataWritable();
         } catch {
-          return { content: 'Error: credential metadata file has an unrecognized version; cannot store credentials', isError: true };
+          return {
+            content:
+              "Error: credential metadata file has an unrecognized version; cannot store credentials",
+            isError: true,
+          };
         }
 
         const result = await context.requestSecret({
-          service, field, label, description, placeholder,
+          service,
+          field,
+          label,
+          description,
+          placeholder,
           purpose: promptPolicy.usageDescription,
-          allowedTools: promptPolicy.allowedTools.length > 0 ? promptPolicy.allowedTools : undefined,
-          allowedDomains: promptPolicy.allowedDomains.length > 0 ? promptPolicy.allowedDomains : undefined,
+          allowedTools:
+            promptPolicy.allowedTools.length > 0
+              ? promptPolicy.allowedTools
+              : undefined,
+          allowedDomains:
+            promptPolicy.allowedDomains.length > 0
+              ? promptPolicy.allowedDomains
+              : undefined,
         });
         if (!result.value) {
-          return { content: 'User cancelled the credential prompt.', isError: false };
+          return {
+            content: "User cancelled the credential prompt.",
+            isError: false,
+          };
         }
 
         // Handle one-time send delivery: inject into context without persisting
-        if (result.delivery === 'transient_send') {
+        if (result.delivery === "transient_send") {
           const config = getConfig();
           if (!config.secretDetection.allowOneTimeSend) {
-            log.warn({ service, field }, 'One-time send requested but not enabled in config');
+            log.warn(
+              { service, field },
+              "One-time send requested but not enabled in config",
+            );
             return {
-              content: 'Error: one-time send is not enabled. Set secretDetection.allowOneTimeSend to true in config.',
+              content:
+                "Error: one-time send is not enabled. Set secretDetection.allowOneTimeSend to true in config.",
               isError: true,
             };
           }
@@ -437,7 +630,10 @@ class CredentialStoreTool implements Tool {
             } catch (err) {
               // Without metadata the broker's policy checks will reject usage,
               // so the transient value would be silently unusable. Fail loudly.
-              log.error({ service, field, err }, 'metadata write failed for transient credential');
+              log.error(
+                { service, field, err },
+                "metadata write failed for transient credential",
+              );
               return {
                 content: `Error: failed to write credential metadata for ${service}/${field}; the one-time value was discarded.`,
                 isError: true,
@@ -446,7 +642,10 @@ class CredentialStoreTool implements Tool {
           }
           // Inject into broker for one-time use by the next tool call, then discard
           credentialBroker.injectTransient(service, field, result.value);
-          log.info({ service, field, delivery: 'transient_send' }, 'One-time secret delivery used');
+          log.info(
+            { service, field, delivery: "transient_send" },
+            "One-time secret delivery used",
+          );
           return {
             content: `One-time credential provided for ${service}/${field}. The value was NOT saved to the vault and will be consumed by the next operation.`,
             isError: false,
@@ -457,7 +656,10 @@ class CredentialStoreTool implements Tool {
         const key = `credential:${service}:${field}`;
         const ok = setSecureKey(key, result.value);
         if (!ok) {
-          return { content: 'Error: failed to store credential', isError: true };
+          return {
+            content: "Error: failed to store credential",
+            isError: true,
+          };
         }
         try {
           upsertCredentialMetadata(service, field, {
@@ -466,16 +668,28 @@ class CredentialStoreTool implements Tool {
             usageDescription: promptPolicy.usageDescription,
           });
         } catch (err) {
-          log.warn({ service, field, err }, 'metadata write failed after storing credential');
+          log.warn(
+            { service, field, err },
+            "metadata write failed after storing credential",
+          );
         }
         const promptMeta = getCredentialMetadata(service, field);
-        const promptCredIdSuffix = promptMeta ? ` (credential_id: ${promptMeta.credentialId})` : '';
-        return { content: `Credential stored for ${service}/${field}.${promptCredIdSuffix}`, isError: false };
+        const promptCredIdSuffix = promptMeta
+          ? ` (credential_id: ${promptMeta.credentialId})`
+          : "";
+        return {
+          content: `Credential stored for ${service}/${field}.${promptCredIdSuffix}`,
+          isError: false,
+        };
       }
 
-      case 'oauth2_connect': {
+      case "oauth2_connect": {
         const rawService = input.service as string | undefined;
-        if (!rawService) return { content: 'Error: service is required for oauth2_connect action', isError: true };
+        if (!rawService)
+          return {
+            content: "Error: service is required for oauth2_connect action",
+            isError: true,
+          };
 
         // Resolve aliases (e.g. "gmail" → "integration:gmail")
         const service = resolveService(rawService);
@@ -484,10 +698,15 @@ class CredentialStoreTool implements Tool {
         const profile = getProviderProfile(service);
 
         // Look up client_id/client_secret from stored credentials if not provided
-        const clientId = (input.client_id as string | undefined)
-          ?? findStoredOAuthField(service, ['client_id', 'oauth_client_id']);
-        const clientSecret = (input.client_secret as string | undefined)
-          ?? findStoredOAuthField(service, ['client_secret', 'oauth_client_secret']);
+        const clientId =
+          (input.client_id as string | undefined) ??
+          findStoredOAuthField(service, ["client_id", "oauth_client_id"]);
+        const clientSecret =
+          (input.client_secret as string | undefined) ??
+          findStoredOAuthField(service, [
+            "client_secret",
+            "oauth_client_secret",
+          ]);
 
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
         const inputScopes = input.scopes as string[] | undefined;
@@ -499,20 +718,43 @@ class CredentialStoreTool implements Tool {
           // If no scopes provided, pass neither — let the orchestrator use profile defaults via scope policy.
         } else {
           // Custom/unknown provider: require authUrl, tokenUrl, scopes from input
-          if (!input.auth_url) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
-          if (!input.token_url) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
-          if (!inputScopes) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
+          if (!input.auth_url)
+            return {
+              content:
+                "Error: auth_url is required for oauth2_connect action (no well-known config for this service)",
+              isError: true,
+            };
+          if (!input.token_url)
+            return {
+              content:
+                "Error: token_url is required for oauth2_connect action (no well-known config for this service)",
+              isError: true,
+            };
+          if (!inputScopes)
+            return {
+              content:
+                "Error: scopes is required for oauth2_connect action (no well-known config for this service)",
+              isError: true,
+            };
         }
 
-        const authUrl = (input.auth_url as string | undefined) ?? profile?.authUrl;
-        const tokenUrl = (input.token_url as string | undefined) ?? profile?.tokenUrl;
-        if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.', isError: true };
+        const authUrl =
+          (input.auth_url as string | undefined) ?? profile?.authUrl;
+        const tokenUrl =
+          (input.token_url as string | undefined) ?? profile?.tokenUrl;
+        if (!clientId)
+          return {
+            content:
+              "Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.",
+            isError: true,
+          };
 
         // Fail early when client_secret is required but missing — guide the
         // agent to collect it from the user rather than letting it improvise
         // browser-automation workarounds that inevitably fail.
-        const requiresSecret = profile?.setup?.requiresClientSecret
-          ?? !!(profile?.tokenEndpointAuthMethod || profile?.extraParams);
+        const requiresSecret =
+          profile?.setup?.requiresClientSecret ??
+          !!(profile?.tokenEndpointAuthMethod || profile?.extraParams);
         if (requiresSecret && !clientSecret) {
           const skillId = profile?.setupSkillId;
           const skillHint = skillId
@@ -527,11 +769,17 @@ class CredentialStoreTool implements Tool {
         try {
           assertMetadataWritable();
         } catch {
-          return { content: 'Error: credential metadata file has an unrecognized version; cannot store credentials', isError: true };
+          return {
+            content:
+              "Error: credential metadata file has an unrecognized version; cannot store credentials",
+            isError: true,
+          };
         }
 
-        const tokenEndpointAuthMethod = (input.token_endpoint_auth_method as TokenEndpointAuthMethod | undefined)
-          ?? profile?.tokenEndpointAuthMethod;
+        const tokenEndpointAuthMethod =
+          (input.token_endpoint_auth_method as
+            | TokenEndpointAuthMethod
+            | undefined) ?? profile?.tokenEndpointAuthMethod;
 
         // Delegate to the shared orchestrator.
         // For profile-based providers, pass user scopes as requestedScopes so the
@@ -556,8 +804,11 @@ class CredentialStoreTool implements Tool {
                 // Custom provider: explicit scopes override (bypasses policy engine)
                 scopes: inputScopes,
               }),
-          extraParams: (input.extra_params as Record<string, string> | undefined) ?? profile?.extraParams,
-          userinfoUrl: (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl,
+          extraParams:
+            (input.extra_params as Record<string, string> | undefined) ??
+            profile?.extraParams,
+          userinfoUrl:
+            (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl,
           tokenEndpointAuthMethod,
         });
 
@@ -573,44 +824,58 @@ class CredentialStoreTool implements Tool {
         }
 
         return {
-          content: `Successfully connected "${service}"${result.accountInfo ? ` as ${result.accountInfo}` : ''}. The service is now ready to use.`,
+          content: `Successfully connected "${service}"${
+            result.accountInfo ? ` as ${result.accountInfo}` : ""
+          }. The service is now ready to use.`,
           isError: false,
         };
       }
 
-      case 'describe': {
-        const rawService = (input.service as string | undefined) ?? '';
+      case "describe": {
+        const rawService = (input.service as string | undefined) ?? "";
         if (!rawService) {
-          return { content: 'Error: service is required for describe action', isError: true };
+          return {
+            content: "Error: service is required for describe action",
+            isError: true,
+          };
         }
         const resolvedService = resolveService(rawService);
         const profile = getProviderProfile(resolvedService);
         if (!profile) {
-          return { content: `No well-known OAuth config found for "${rawService}". Available services: ${Object.keys(SERVICE_ALIASES).join(', ')}`, isError: false };
+          return {
+            content: `No well-known OAuth config found for "${rawService}". Available services: ${Object.keys(
+              SERVICE_ALIASES,
+            ).join(", ")}`,
+            isError: false,
+          };
         }
 
         // Compute the redirect URI based on callback transport
         let redirectUri: string;
-        const transport = profile.callbackTransport ?? 'gateway';
-        if (transport === 'loopback' && profile.loopbackPort) {
+        const transport = profile.callbackTransport ?? "gateway";
+        if (transport === "loopback" && profile.loopbackPort) {
           redirectUri = `http://127.0.0.1:${profile.loopbackPort}/oauth/callback`;
-        } else if (transport === 'loopback') {
-          redirectUri = '(automatic — no redirect URI needed, uses random localhost port)';
+        } else if (transport === "loopback") {
+          redirectUri =
+            "(automatic — no redirect URI needed, uses random localhost port)";
         } else {
           // Try to compute the actual URL from config/env
           try {
-            const { loadConfig } = await import('../../config/loader.js');
-            const { getPublicBaseUrl } = await import('../../inbound/public-ingress-urls.js');
+            const { loadConfig } = await import("../../config/loader.js");
+            const { getPublicBaseUrl } =
+              await import("../../inbound/public-ingress-urls.js");
             const baseUrl = getPublicBaseUrl(loadConfig());
             redirectUri = `${baseUrl}/webhooks/oauth/callback`;
           } catch {
-            redirectUri = '(requires INGRESS_PUBLIC_BASE_URL — not currently configured)';
+            redirectUri =
+              "(requires INGRESS_PUBLIC_BASE_URL — not currently configured)";
           }
         }
 
         // Prefer explicit setup metadata, fall back to heuristic
-        const requiresClientSecret = profile.setup?.requiresClientSecret
-          ?? !!(profile.tokenEndpointAuthMethod || profile.extraParams);
+        const requiresClientSecret =
+          profile.setup?.requiresClientSecret ??
+          !!(profile.tokenEndpointAuthMethod || profile.extraParams);
 
         const info: Record<string, unknown> = {
           service: resolvedService,

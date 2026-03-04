@@ -100,10 +100,10 @@ const baseConfig: GatewayConfig = {
   whatsappTimeoutMs: 15000,
   whatsappMaxRetries: 3,
   whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
-    trustProxy: false,
+  slackChannelBotToken: undefined,
+  slackChannelAppToken: undefined,
+  slackDeliverAuthBypass: false,
+  trustProxy: false,
 };
 
 function makeVoiceRequest(

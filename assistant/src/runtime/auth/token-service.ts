@@ -310,9 +310,9 @@ export function mintEdgeRelayToken(): string {
  */
 export function mintUiPageToken(): string {
   return mintToken({
-    aud: 'vellum-gateway',
-    sub: 'svc:daemon:self',
-    scope_profile: 'ui_page_v1',
+    aud: "vellum-gateway",
+    sub: "svc:daemon:self",
+    scope_profile: "ui_page_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 3600,
   });

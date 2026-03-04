@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 /**
  * Resolve the path to a bundled asset directory, handling compiled Bun binaries
@@ -17,11 +17,15 @@ import { dirname, join } from 'node:path';
  * @param relativePath  Relative path from the source file (used in source/dev mode)
  * @param bundleName  Name of the asset directory in the app bundle
  */
-export function resolveBundledDir(callerDir: string, relativePath: string, bundleName: string): string {
-  if (callerDir.startsWith('/$bunfs/')) {
+export function resolveBundledDir(
+  callerDir: string,
+  relativePath: string,
+  bundleName: string,
+): string {
+  if (callerDir.startsWith("/$bunfs/")) {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary in Contents/MacOS/, resources in Contents/Resources/
-    const resourcesPath = join(execDir, '..', 'Resources', bundleName);
+    const resourcesPath = join(execDir, "..", "Resources", bundleName);
     if (existsSync(resourcesPath)) return resourcesPath;
     // Next to the binary itself (non-app-bundle deployments)
     const execDirPath = join(execDir, bundleName);

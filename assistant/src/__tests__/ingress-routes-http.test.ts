@@ -48,8 +48,9 @@ afterAll(() => {
 });
 
 function resetTables() {
-  getSqlite().run("DELETE FROM assistant_ingress_members");
   getSqlite().run("DELETE FROM assistant_ingress_invites");
+  getSqlite().run("DELETE FROM contact_channels");
+  getSqlite().run("DELETE FROM contacts");
 }
 
 // ---------------------------------------------------------------------------

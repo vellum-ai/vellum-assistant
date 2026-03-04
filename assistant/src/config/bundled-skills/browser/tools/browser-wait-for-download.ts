@@ -1,16 +1,23 @@
-import { browserManager } from '../../../../tools/browser/browser-manager.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { browserManager } from "../../../../tools/browser/browser-manager.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const timeout = typeof input.timeout === 'number'
-    ? Math.min(Math.max(input.timeout, 1000), 120_000)
-    : 30_000;
+  const timeout =
+    typeof input.timeout === "number"
+      ? Math.min(Math.max(input.timeout, 1000), 120_000)
+      : 30_000;
 
   try {
-    const download = await browserManager.waitForDownload(context.sessionId, timeout);
+    const download = await browserManager.waitForDownload(
+      context.sessionId,
+      timeout,
+    );
     return {
       content: JSON.stringify({
         filename: download.filename,

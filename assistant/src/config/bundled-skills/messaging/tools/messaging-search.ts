@@ -1,13 +1,19 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { err,ok, resolveProvider, withProviderToken } from './shared.js';
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const query = input.query as string;
   const maxResults = input.max_results as number | undefined;
 
   if (!query) {
-    return err('query is required.');
+    return err("query is required.");
   }
 
   try {

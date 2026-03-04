@@ -13,7 +13,9 @@ export async function recover(): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum recover <name>");
     console.log("");
-    console.log("Restore a previously retired local assistant from its archive.");
+    console.log(
+      "Restore a previously retired local assistant from its archive.",
+    );
     console.log("");
     console.log("Arguments:");
     console.log("  <name>    Name of the retired assistant to recover");
@@ -39,7 +41,7 @@ export async function recover(): Promise<void> {
   const vellumDir = join(homedir(), ".vellum");
   if (existsSync(vellumDir)) {
     console.error(
-      "Error: ~/.vellum already exists. Retire the current assistant first."
+      "Error: ~/.vellum already exists. Retire the current assistant first.",
     );
     process.exit(1);
   }

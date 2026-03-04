@@ -8,41 +8,40 @@
  *   - inject completion summaries back into parent context
  */
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { getConfig } from '../config/loader.js';
-import type { ServerMessage } from '../daemon/ipc-contract.js';
-import { Session, type SessionMemoryPolicy } from '../daemon/session.js';
-import { createConversation } from '../memory/conversation-store.js';
-import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
-import { RateLimitProvider } from '../providers/ratelimit.js';
-import { getFailoverProvider } from '../providers/registry.js';
-import { getLogger } from '../util/logger.js';
-import { getSandboxWorkingDir } from '../util/platform.js';
+import { getConfig } from "../config/loader.js";
+import type { ServerMessage } from "../daemon/ipc-contract.js";
+import { Session, type SessionMemoryPolicy } from "../daemon/session.js";
+import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { RateLimitProvider } from "../providers/ratelimit.js";
+import { getFailoverProvider } from "../providers/registry.js";
+import { getLogger } from "../util/logger.js";
+import { getSandboxWorkingDir } from "../util/platform.js";
 import {
   SUBAGENT_LIMITS,
   type SubagentConfig,
   type SubagentState,
   type SubagentStatus,
   TERMINAL_STATUSES,
-} from './types.js';
+} from "./types.js";
 
-const log = getLogger('subagent-manager');
+const log = getLogger("subagent-manager");
 
 // ── Default subagent system prompt ──────────────────────────────────────
 
 function buildSubagentSystemPrompt(config: SubagentConfig): string {
   const sections: string[] = [
-    'You are a focused subagent working on a specific task delegated by a parent assistant.',
-    'Complete the task thoroughly and concisely.',
-    '',
+    "You are a focused subagent working on a specific task delegated by a parent assistant.",
+    "Complete the task thoroughly and concisely.",
+    "",
     `## Your Task`,
     config.objective,
   ];
   if (config.context) {
-    sections.push('', '## Context from Parent', config.context);
+    sections.push("", "## Context from Parent", config.context);
   }
-  return sections.join('\n');
+  return sections.join("\n");
 }
 
 // ── Manager ─────────────────────────────────────────────────────────────
@@ -57,7 +56,7 @@ interface ManagedSubagent {
 export interface SubagentNotificationInfo {
   subagentId: string;
   label: string;
-  status: 'completed' | 'failed' | 'aborted';
+  status: "completed" | "failed" | "aborted";
   error?: string;
   conversationId?: string;
 }
@@ -95,7 +94,7 @@ export class SubagentManager {
    * The subagent's agent loop is started asynchronously (fire-and-forget).
    */
   async spawn(
-    config: Omit<SubagentConfig, 'id'>,
+    config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: ServerMessage) => void,
   ): Promise<string> {
     // ── Limit checks ────────────────────────────────────────────────
@@ -112,24 +111,33 @@ export class SubagentManager {
 
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
-    const conversation = createConversation({
-      title: GENERATING_TITLE,
-      threadType: 'background',
-    });
-    queueGenerateConversationTitle({
-      conversationId: conversation.id,
-      context: { origin: 'subagent', systemHint: `Subagent: ${config.label}` },
+    const conversation = bootstrapConversation({
+      threadType: "background",
+      origin: "subagent",
+      systemHint: `Subagent: ${config.label}`,
     });
 
     // ── Build session dependencies ──────────────────────────────────
     const appConfig = getConfig();
-    let provider = getFailoverProvider(appConfig.provider, appConfig.providerOrder);
+    let provider = getFailoverProvider(
+      appConfig.provider,
+      appConfig.providerOrder,
+    );
     const { rateLimit } = appConfig;
-    if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
-      provider = new RateLimitProvider(provider, rateLimit, this.sharedRequestTimestamps);
+    if (
+      rateLimit.maxRequestsPerMinute > 0 ||
+      rateLimit.maxTokensPerSession > 0
+    ) {
+      provider = new RateLimitProvider(
+        provider,
+        rateLimit,
+        this.sharedRequestTimestamps,
+      );
     }
 
-    const systemPrompt = config.systemPromptOverride ?? buildSubagentSystemPrompt({ ...config, id: subagentId });
+    const systemPrompt =
+      config.systemPromptOverride ??
+      buildSubagentSystemPrompt({ ...config, id: subagentId });
     const maxTokens = appConfig.maxTokens;
     const workingDir = getSandboxWorkingDir();
 
@@ -143,7 +151,7 @@ export class SubagentManager {
     const now = Date.now();
     const state: SubagentState = {
       config: { ...config, id: subagentId },
-      status: 'pending',
+      status: "pending",
       conversationId: conversation.id,
       createdAt: now,
       usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
@@ -163,7 +171,7 @@ export class SubagentManager {
     // Reads from managed.parentSendToClient so reconnects are picked up.
     const wrappedSendToClient = (msg: ServerMessage): void => {
       managed.parentSendToClient({
-        type: 'subagent_event',
+        type: "subagent_event",
         subagentId,
         event: msg,
       } as ServerMessage);
@@ -195,7 +203,7 @@ export class SubagentManager {
 
     // Notify client that a subagent was spawned.
     parentSendToClient({
-      type: 'subagent_spawned',
+      type: "subagent_spawned",
       subagentId,
       parentSessionId: config.parentSessionId,
       label: config.label,
@@ -203,13 +211,17 @@ export class SubagentManager {
     } as ServerMessage);
 
     log.info(
-      { subagentId, parentSessionId: config.parentSessionId, label: config.label },
-      'Subagent spawned',
+      {
+        subagentId,
+        parentSessionId: config.parentSessionId,
+        label: config.label,
+      },
+      "Subagent spawned",
     );
 
     // ── Kick off the agent loop (fire-and-forget) ───────────────────
     this.runSubagent(subagentId, config.objective).catch((err) => {
-      log.error({ subagentId, err }, 'Subagent run failed unexpectedly');
+      log.error({ subagentId, err }, "Subagent run failed unexpectedly");
     });
 
     return subagentId;
@@ -227,7 +239,7 @@ export class SubagentManager {
     // Read the current parent sender so reconnects are picked up.
     const getSender = () => managed.parentSendToClient;
 
-    this.setStatus(subagentId, 'running', getSender());
+    this.setStatus(subagentId, "running", getSender());
     managed.state.startedAt = Date.now();
 
     const onEvent = managed.session.sendToClient;
@@ -243,12 +255,12 @@ export class SubagentManager {
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.state.completedAt = Date.now();
-        this.setStatus(subagentId, 'completed', getSender());
+        this.setStatus(subagentId, "completed", getSender());
 
-        log.info({ subagentId }, 'Subagent completed');
+        log.info({ subagentId }, "Subagent completed");
 
         // Notify the parent session so the LLM can call subagent_read.
-        this.notifyParent(managed, 'completed', getSender());
+        this.notifyParent(managed, "completed", getSender());
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -258,11 +270,11 @@ export class SubagentManager {
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
-        this.setStatus(subagentId, 'failed', getSender(), errorMsg);
-        this.notifyParent(managed, 'failed', getSender());
+        this.setStatus(subagentId, "failed", getSender(), errorMsg);
+        this.notifyParent(managed, "failed", getSender());
       }
 
-      log.error({ subagentId, err }, 'Subagent failed');
+      log.error({ subagentId, err }, "Subagent failed");
     }
   }
 
@@ -278,9 +290,18 @@ export class SubagentManager {
     if (!managed) return false;
     if (TERMINAL_STATUSES.has(managed.state.status)) return false;
     // If a caller session is specified, verify ownership.
-    if (callerSessionId && managed.state.config.parentSessionId !== callerSessionId) {
-      log.warn({ subagentId, callerSessionId, parentSessionId: managed.state.config.parentSessionId },
-        'Abort rejected: caller does not own this subagent');
+    if (
+      callerSessionId &&
+      managed.state.config.parentSessionId !== callerSessionId
+    ) {
+      log.warn(
+        {
+          subagentId,
+          callerSessionId,
+          parentSessionId: managed.state.config.parentSessionId,
+        },
+        "Abort rejected: caller does not own this subagent",
+      );
       return false;
     }
 
@@ -292,7 +313,7 @@ export class SubagentManager {
       // different socket (e.g. after thread switching). Fall back to the
       // caller-provided sender if no stored sender exists.
       const statusSender = managed.parentSendToClient ?? parentSendToClient;
-      this.setStatus(subagentId, 'aborted', statusSender);
+      this.setStatus(subagentId, "aborted", statusSender);
       // Notify parent that the subagent was explicitly aborted — tell it NOT to re-spawn.
       // Skip when the parent LLM itself called subagent_abort (it already has the tool result).
       if (this.onSubagentFinished && !options?.suppressNotification) {
@@ -308,17 +329,22 @@ export class SubagentManager {
             managed.state.config.parentSessionId,
             message,
             managed.parentSendToClient,
-            { subagentId, label, status: 'aborted', conversationId: managed.state.conversationId },
+            {
+              subagentId,
+              label,
+              status: "aborted",
+              conversationId: managed.state.conversationId,
+            },
           );
         } catch (err) {
-          log.error({ subagentId, err }, 'Failed to notify parent about abort');
+          log.error({ subagentId, err }, "Failed to notify parent about abort");
         }
       }
     } else {
-      managed.state.status = 'aborted';
+      managed.state.status = "aborted";
     }
 
-    log.info({ subagentId }, 'Subagent aborted');
+    log.info({ subagentId }, "Subagent aborted");
     return true;
   }
 
@@ -351,28 +377,36 @@ export class SubagentManager {
 
   // ── Send message to subagent ──────────────────────────────────────────
 
-  async sendMessage(subagentId: string, content: string): Promise<'sent' | 'empty' | 'not_found' | 'terminal' | 'queue_full'> {
+  async sendMessage(
+    subagentId: string,
+    content: string,
+  ): Promise<"sent" | "empty" | "not_found" | "terminal" | "queue_full"> {
     const trimmed = content?.trim();
-    if (!trimmed) return 'empty';
+    if (!trimmed) return "empty";
 
     const managed = this.subagents.get(subagentId);
-    if (!managed) return 'not_found';
-    if (TERMINAL_STATUSES.has(managed.state.status)) return 'terminal';
+    if (!managed) return "not_found";
+    if (TERMINAL_STATUSES.has(managed.state.status)) return "terminal";
 
     const onEvent = managed.session.sendToClient;
     const requestId = uuid();
 
     // If the session is busy, queue the message; otherwise process immediately.
-    const result = managed.session.enqueueMessage(trimmed, [], onEvent, requestId);
-    if (result.rejected) return 'queue_full';
+    const result = managed.session.enqueueMessage(
+      trimmed,
+      [],
+      onEvent,
+      requestId,
+    );
+    if (result.rejected) return "queue_full";
     if (!result.queued) {
       // Session is idle — send directly.  Fire-and-forget so we don't block.
       const messageId = await managed.session.persistUserMessage(trimmed, []);
       managed.session.runAgentLoop(trimmed, messageId, onEvent).catch((err) => {
-        log.error({ subagentId, err }, 'Subagent message processing failed');
+        log.error({ subagentId, err }, "Subagent message processing failed");
       });
     }
-    return 'sent';
+    return "sent";
   }
 
   // ── Queries ───────────────────────────────────────────────────────────
@@ -400,7 +434,10 @@ export class SubagentManager {
    * Update the parent sender for all active children of a session.
    * Called when the parent client reconnects to a new socket.
    */
-  updateParentSender(parentSessionId: string, newSendToClient: (msg: ServerMessage) => void): void {
+  updateParentSender(
+    parentSessionId: string,
+    newSendToClient: (msg: ServerMessage) => void,
+  ): void {
     const children = this.parentToChildren.get(parentSessionId);
     if (!children) return;
 
@@ -459,7 +496,10 @@ export class SubagentManager {
     if (!managed) return;
 
     // Idempotent terminal state guard.
-    if (TERMINAL_STATUSES.has(managed.state.status) && managed.state.status !== status) {
+    if (
+      TERMINAL_STATUSES.has(managed.state.status) &&
+      managed.state.status !== status
+    ) {
       return;
     }
 
@@ -467,7 +507,7 @@ export class SubagentManager {
     if (error !== undefined) managed.state.error = error;
 
     parentSendToClient({
-      type: 'subagent_status_changed',
+      type: "subagent_status_changed",
       subagentId,
       status,
       error,
@@ -481,7 +521,7 @@ export class SubagentManager {
    */
   private notifyParent(
     managed: ManagedSubagent,
-    outcome: 'completed' | 'failed',
+    outcome: "completed" | "failed",
     parentSendToClient: (msg: ServerMessage) => void,
   ): void {
     if (!this.onSubagentFinished) return;
@@ -489,7 +529,7 @@ export class SubagentManager {
     const { config } = managed.state;
     let message: string;
 
-    if (outcome === 'completed') {
+    if (outcome === "completed") {
       const silent = config.sendResultToUser === false;
       message =
         `[Subagent "${config.label}" completed]\n\n` +
@@ -498,7 +538,7 @@ export class SubagentManager {
           ? `This subagent was spawned for internal processing. Read the result for your own use but do NOT share it with the user.\nDo NOT re-spawn this subagent.`
           : `Do NOT re-spawn this subagent — just read and share the results.`);
     } else {
-      const error = managed.state.error ?? 'Unknown error';
+      const error = managed.state.error ?? "Unknown error";
       message =
         `[Subagent "${config.label}" failed]\n\n` +
         `Error: ${error}\n` +
@@ -510,13 +550,23 @@ export class SubagentManager {
       label: config.label,
       status: outcome,
       conversationId: managed.state.conversationId,
-      ...(outcome === 'failed' ? { error: managed.state.error ?? 'Unknown error' } : {}),
+      ...(outcome === "failed"
+        ? { error: managed.state.error ?? "Unknown error" }
+        : {}),
     };
 
     try {
-      this.onSubagentFinished(config.parentSessionId, message, parentSendToClient, notification);
+      this.onSubagentFinished(
+        config.parentSessionId,
+        message,
+        parentSendToClient,
+        notification,
+      );
     } catch (err) {
-      log.error({ subagentId: config.id, err }, 'Failed to notify parent session');
+      log.error(
+        { subagentId: config.id, err },
+        "Failed to notify parent session",
+      );
     }
   }
 }

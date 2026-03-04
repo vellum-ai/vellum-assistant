@@ -1,31 +1,33 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync } from "node:fs";
 
-import type { SkillToolEntry,SkillToolManifest } from '../config/skills.js';
+import type { SkillToolEntry, SkillToolManifest } from "../config/skills.js";
 
-const VALID_RISK_LEVELS = new Set(['low', 'medium', 'high']);
-const VALID_EXECUTION_TARGETS = new Set(['host', 'sandbox']);
+const VALID_RISK_LEVELS = new Set(["low", "medium", "high"]);
+const VALID_EXECUTION_TARGETS = new Set(["host", "sandbox"]);
 
 /**
  * Parse and validate a raw TOOLS.json payload into a typed SkillToolManifest.
  * Throws descriptive errors for any validation failure.
  */
 export function parseToolManifest(raw: unknown): SkillToolManifest {
-  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error('TOOLS.json must be a JSON object');
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("TOOLS.json must be a JSON object");
   }
 
   const obj = raw as Record<string, unknown>;
 
   // Validate version
-  if (!('version' in obj)) {
+  if (!("version" in obj)) {
     throw new Error('TOOLS.json is missing required field "version"');
   }
   if (obj.version !== 1) {
-    throw new Error(`TOOLS.json "version" must be 1, got: ${JSON.stringify(obj.version)}`);
+    throw new Error(
+      `TOOLS.json "version" must be 1, got: ${JSON.stringify(obj.version)}`,
+    );
   }
 
   // Validate tools array
-  if (!('tools' in obj)) {
+  if (!("tools" in obj)) {
     throw new Error('TOOLS.json is missing required field "tools"');
   }
   if (!Array.isArray(obj.tools)) {
@@ -55,14 +57,14 @@ export function parseToolManifest(raw: unknown): SkillToolManifest {
 }
 
 function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
-  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error(`${prefix}: each tool entry must be a JSON object`);
   }
 
   const entry = raw as Record<string, unknown>;
 
   // name
-  if (!('name' in entry) || typeof entry.name !== 'string') {
+  if (!("name" in entry) || typeof entry.name !== "string") {
     throw new Error(`${prefix}: missing or non-string "name"`);
   }
   const name = entry.name.trim();
@@ -71,7 +73,7 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
   }
 
   // description
-  if (!('description' in entry) || typeof entry.description !== 'string') {
+  if (!("description" in entry) || typeof entry.description !== "string") {
     throw new Error(`${prefix}: missing or non-string "description"`);
   }
   const description = entry.description.trim();
@@ -80,7 +82,7 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
   }
 
   // category
-  if (!('category' in entry) || typeof entry.category !== 'string') {
+  if (!("category" in entry) || typeof entry.category !== "string") {
     throw new Error(`${prefix}: missing or non-string "category"`);
   }
   const category = entry.category.trim();
@@ -89,22 +91,29 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
   }
 
   // risk
-  if (!('risk' in entry) || typeof entry.risk !== 'string') {
+  if (!("risk" in entry) || typeof entry.risk !== "string") {
     throw new Error(`${prefix}: missing or non-string "risk"`);
   }
   if (!VALID_RISK_LEVELS.has(entry.risk)) {
-    throw new Error(`${prefix}: "risk" must be one of "low", "medium", "high", got: "${entry.risk}"`);
+    throw new Error(
+      `${prefix}: "risk" must be one of "low", "medium", "high", got: "${entry.risk}"`,
+    );
   }
-  const risk = entry.risk as SkillToolEntry['risk'];
+  const risk = entry.risk as SkillToolEntry["risk"];
 
   // input_schema
-  if (!('input_schema' in entry) || entry.input_schema == null || typeof entry.input_schema !== 'object' || Array.isArray(entry.input_schema)) {
+  if (
+    !("input_schema" in entry) ||
+    entry.input_schema == null ||
+    typeof entry.input_schema !== "object" ||
+    Array.isArray(entry.input_schema)
+  ) {
     throw new Error(`${prefix}: missing or non-object "input_schema"`);
   }
   const input_schema = entry.input_schema as Record<string, unknown>;
 
   // executor
-  if (!('executor' in entry) || typeof entry.executor !== 'string') {
+  if (!("executor" in entry) || typeof entry.executor !== "string") {
     throw new Error(`${prefix}: missing or non-string "executor"`);
   }
   const executor = entry.executor;
@@ -114,15 +123,29 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
   validateExecutorPath(executor, prefix);
 
   // execution_target
-  if (!('execution_target' in entry) || typeof entry.execution_target !== 'string') {
+  if (
+    !("execution_target" in entry) ||
+    typeof entry.execution_target !== "string"
+  ) {
     throw new Error(`${prefix}: missing or non-string "execution_target"`);
   }
   if (!VALID_EXECUTION_TARGETS.has(entry.execution_target)) {
-    throw new Error(`${prefix}: "execution_target" must be one of "host", "sandbox", got: "${entry.execution_target}"`);
+    throw new Error(
+      `${prefix}: "execution_target" must be one of "host", "sandbox", got: "${entry.execution_target}"`,
+    );
   }
-  const execution_target = entry.execution_target as SkillToolEntry['execution_target'];
+  const execution_target =
+    entry.execution_target as SkillToolEntry["execution_target"];
 
-  return { name, description, category, risk, input_schema, executor, execution_target };
+  return {
+    name,
+    description,
+    category,
+    risk,
+    input_schema,
+    executor,
+    execution_target,
+  };
 }
 
 /**
@@ -130,14 +153,18 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
  * Rejects absolute paths and paths containing `../`.
  */
 function validateExecutorPath(executor: string, prefix: string): void {
-  if (executor.startsWith('/')) {
-    throw new Error(`${prefix}: "executor" must be a relative path, got absolute path: "${executor}"`);
+  if (executor.startsWith("/")) {
+    throw new Error(
+      `${prefix}: "executor" must be a relative path, got absolute path: "${executor}"`,
+    );
   }
   // Reject path traversal sequences
-  const segments = executor.split('/');
+  const segments = executor.split("/");
   for (const segment of segments) {
-    if (segment === '..') {
-      throw new Error(`${prefix}: "executor" must not contain ".." path segments: "${executor}"`);
+    if (segment === "..") {
+      throw new Error(
+        `${prefix}: "executor" must not contain ".." path segments: "${executor}"`,
+      );
     }
   }
 }
@@ -148,7 +175,7 @@ function validateExecutorPath(executor: string, prefix: string): void {
 export function parseToolManifestFile(filePath: string): SkillToolManifest {
   let content: string;
   try {
-    content = readFileSync(filePath, 'utf-8');
+    content = readFileSync(filePath, "utf-8");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to read TOOLS.json at "${filePath}": ${message}`);
@@ -159,7 +186,9 @@ export function parseToolManifestFile(filePath: string): SkillToolManifest {
     parsed = JSON.parse(content);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to parse TOOLS.json at "${filePath}" as JSON: ${message}`);
+    throw new Error(
+      `Failed to parse TOOLS.json at "${filePath}" as JSON: ${message}`,
+    );
   }
 
   return parseToolManifest(parsed);

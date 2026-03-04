@@ -173,18 +173,20 @@ import {
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import {
+  createGuardianBindingContactsFirst,
+  upsertMemberContactsFirst,
+} from "../contacts/contacts-write.js";
+import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import {
-  createBinding,
   createChallenge,
   createVerificationSession,
 } from "../memory/channel-guardian-store.js";
 import { addMessage, getMessages } from "../memory/conversation-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { createInvite } from "../memory/ingress-invite-store.js";
-import { upsertMember } from "../memory/ingress-member-store.js";
 import { conversations } from "../memory/schema.js";
 import {
   createOutboundSession,
@@ -250,24 +252,23 @@ function ensureConversation(id: string): void {
 }
 
 function resetTables() {
-  const db = getDb();
-  db.run("DELETE FROM guardian_action_deliveries");
-  db.run("DELETE FROM guardian_action_requests");
-  db.run("DELETE FROM call_pending_questions");
-  db.run("DELETE FROM call_events");
-  db.run("DELETE FROM call_sessions");
-  db.run("DELETE FROM tool_invocations");
-  db.run("DELETE FROM messages");
-  db.run("DELETE FROM conversations");
-  db.run("DELETE FROM assistant_ingress_members");
-  db.run("DELETE FROM assistant_ingress_invites");
-  db.run("DELETE FROM channel_guardian_verification_challenges");
-  db.run("DELETE FROM channel_guardian_bindings");
-  db.run("DELETE FROM channel_guardian_rate_limits");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM contact_channels");
-  db.run("DELETE FROM contacts");
+  resetTestTables(
+    "guardian_action_deliveries",
+    "guardian_action_requests",
+    "call_pending_questions",
+    "call_events",
+    "call_sessions",
+    "tool_invocations",
+    "messages",
+    "conversations",
+    "assistant_ingress_invites",
+    "channel_guardian_verification_challenges",
+    "channel_guardian_rate_limits",
+    "canonical_guardian_requests",
+    "canonical_guardian_deliveries",
+    "contact_channels",
+    "contacts",
+  );
   ensuredConvIds = new Set();
 }
 
@@ -275,7 +276,7 @@ function addTrustedVoiceContact(
   phoneNumber: string,
   assistantId: string = "self",
 ): void {
-  upsertMember({
+  upsertMemberContactsFirst({
     assistantId,
     sourceChannel: "voice",
     externalUserId: phoneNumber,
@@ -880,7 +881,7 @@ describe("relay-server", () => {
     );
 
     // Let the delayed endSession callback flush to avoid timer bleed across tests.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const finalState = getCallSession(session.id);
     expect(finalState).not.toBeNull();
@@ -1465,12 +1466,13 @@ describe("relay-server", () => {
       assistantId: "self",
     });
 
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
       guardianPrincipalId: "+15550001111",
+      verifiedVia: "test",
     });
 
     mockSendMessage.mockImplementation(
@@ -1514,12 +1516,13 @@ describe("relay-server", () => {
       assistantId: "self",
     });
 
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550009999",
       guardianDeliveryChatId: "+15550009999",
       guardianPrincipalId: "+15550009999",
+      verifiedVia: "test",
     });
     addTrustedVoiceContact("+15550002222", "self");
 
@@ -1568,12 +1571,13 @@ describe("relay-server", () => {
       initiatedFromConversationId: "conv-guardian-outbound-voice-origin",
     });
 
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
       guardianPrincipalId: "+15550001111",
+      verifiedVia: "test",
     });
 
     mockSendMessage.mockImplementation(
@@ -1619,12 +1623,13 @@ describe("relay-server", () => {
       initiatedFromConversationId: "conv-guardian-outbound-strict-origin",
     });
 
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-guardian-user",
       guardianDeliveryChatId: "tg-guardian-chat",
       guardianPrincipalId: "tg-guardian-user",
+      verifiedVia: "test",
     });
 
     // Number matches the configured owner number, but there is no active
@@ -1817,7 +1822,7 @@ describe("relay-server", () => {
     ).toBe(true);
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verify end message was sent
     const endMessages = ws.sentMessages
@@ -1980,7 +1985,7 @@ describe("relay-server", () => {
     expect(originText).toContain("succeeded");
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     relay.destroy();
   });
@@ -2041,7 +2046,7 @@ describe("relay-server", () => {
     expect(originText).toContain("failed");
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     relay.destroy();
   });
@@ -2194,7 +2199,7 @@ describe("relay-server", () => {
     );
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verify end message was sent
     const endMessages = ws.sentMessages
@@ -2468,7 +2473,7 @@ describe("relay-server", () => {
     });
 
     // Create a blocked member
-    upsertMember({
+    upsertMemberContactsFirst({
       assistantId: "self",
       sourceChannel: "voice",
       externalUserId: "+15558881111",
@@ -2503,7 +2508,7 @@ describe("relay-server", () => {
     ).toBe(true);
 
     // Let delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     relay.destroy();
   });
@@ -2723,7 +2728,7 @@ describe("relay-server", () => {
     ).toBe(true);
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     relay.destroy();
   });
@@ -2773,7 +2778,7 @@ describe("relay-server", () => {
     }
 
     // Let async fire-and-forget work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Should be disconnecting after timeout
     expect(relay.getConnectionState()).toBe("disconnecting");
@@ -3412,7 +3417,7 @@ describe("relay-server", () => {
     }
 
     // Let async notification emission settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(relay.getConnectionState()).toBe("disconnecting");
 
@@ -3486,7 +3491,7 @@ describe("relay-server", () => {
     }
 
     // Let async work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(relay.getConnectionState()).toBe("disconnecting");
 
@@ -3633,7 +3638,7 @@ describe("relay-server", () => {
     relay.handleTransportClosed(1000, "Normal closure");
 
     // Let async work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const events = getCallEvents(session.id);
     // Guard should ensure only ONE handoff event
@@ -3715,7 +3720,7 @@ describe("relay-server", () => {
     }
 
     // Let async work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(
@@ -3803,7 +3808,7 @@ describe("relay-server", () => {
     }
 
     // Let async work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(

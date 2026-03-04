@@ -6,9 +6,9 @@
  * assistant events without creating circular dependencies.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID } from "node:crypto";
 
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ export function buildAssistantEvent(
  * ```
  */
 export function formatSseFrame(event: AssistantEvent): string {
-  const sanitizedId = event.id.replace(/[\n\r]/g, '');
+  const sanitizedId = event.id.replace(/[\n\r]/g, "");
   const data = JSON.stringify(event);
   return `event: assistant_event\nid: ${sanitizedId}\ndata: ${data}\n\n`;
 }
@@ -79,5 +79,5 @@ export function formatSseFrame(event: AssistantEvent): string {
  * Clients should ignore comment lines (`:`) per the SSE spec.
  */
 export function formatSseHeartbeat(): string {
-  return ': heartbeat\n\n';
+  return ": heartbeat\n\n";
 }

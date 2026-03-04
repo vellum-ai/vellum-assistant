@@ -76,19 +76,23 @@ export class CredentialWatcher {
     }
 
     try {
-      this.watcher = watch(watchTarget, { persistent: false }, (_event, filename) => {
-        if (
-          this.watchingDirectory &&
-          filename !== "metadata.json"
-        ) {
-          return;
-        }
-        this.scheduleCheck();
-      });
+      this.watcher = watch(
+        watchTarget,
+        { persistent: false },
+        (_event, filename) => {
+          if (this.watchingDirectory && filename !== "metadata.json") {
+            return;
+          }
+          this.scheduleCheck();
+        },
+      );
 
       log.info({ path: watchTarget }, "Watching for credential changes");
     } catch (err) {
-      log.warn({ err, path: watchTarget }, "Failed to start credential file watcher");
+      log.warn(
+        { err, path: watchTarget },
+        "Failed to start credential file watcher",
+      );
     }
   }
 
@@ -126,13 +130,9 @@ export class CredentialWatcher {
     if (!existsSync(this.metadataPath)) return;
 
     try {
-      this.watcher = watch(
-        this.metadataPath,
-        { persistent: false },
-        () => {
-          this.scheduleCheck();
-        },
-      );
+      this.watcher = watch(this.metadataPath, { persistent: false }, () => {
+        this.scheduleCheck();
+      });
       this.watchingDirectory = false;
       log.debug("Upgraded watcher to metadata file");
     } catch (err) {
@@ -153,7 +153,8 @@ export class CredentialWatcher {
     const newWhatsAppPhoneNumberId = whatsappCredentials?.phoneNumberId;
     const newWhatsAppAccessToken = whatsappCredentials?.accessToken;
     const newWhatsAppAppSecret = whatsappCredentials?.appSecret;
-    const newWhatsAppWebhookVerifyToken = whatsappCredentials?.webhookVerifyToken;
+    const newWhatsAppWebhookVerifyToken =
+      whatsappCredentials?.webhookVerifyToken;
     const newSlackChannelBotToken = slackChannelCredentials?.botToken;
     const newSlackChannelAppToken = slackChannelCredentials?.appToken;
 
@@ -175,7 +176,12 @@ export class CredentialWatcher {
       newSlackChannelBotToken !== this.lastSlackChannelBotToken ||
       newSlackChannelAppToken !== this.lastSlackChannelAppToken;
 
-    if (!telegramChanged && !twilioChanged && !whatsappChanged && !slackChannelChanged) {
+    if (
+      !telegramChanged &&
+      !twilioChanged &&
+      !whatsappChanged &&
+      !slackChannelChanged
+    ) {
       return;
     }
 

@@ -12,14 +12,17 @@ import type { ServerWebSocket } from "bun";
 
 import { getConfig } from "../config/loader.js";
 import { resolveUserReference } from "../config/user-reference.js";
-import { findGuardianForChannel, listGuardianChannels } from "../contacts/contact-store.js";
+import {
+  findContactChannel,
+  findGuardianForChannel,
+  listGuardianChannels,
+} from "../contacts/contact-store.js";
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
+import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { listActiveBindingsByAssistant } from "../memory/channel-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
 import { findActiveVoiceInvites } from "../memory/ingress-invite-store.js";
-import { findMember } from "../memory/ingress-member-store.js";
-import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
@@ -1767,12 +1770,17 @@ export class RelayConnection {
     let requesterMemberId: string | null = null;
     if (fromNumber) {
       try {
-        const member = findMember({
-          assistantId,
-          sourceChannel: "voice",
+        const contactResult = findContactChannel({
+          channelType: "voice",
           externalUserId: fromNumber,
           externalChatId: fromNumber,
         });
+        const member = contactResult
+          ? contactChannelToMemberRecord(
+              contactResult.contact,
+              contactResult.channel,
+            )
+          : null;
         if (member && member.status === "active" && member.policy === "allow") {
           requesterMemberId = member.id;
         }
@@ -2009,8 +2017,9 @@ export class RelayConnection {
       // Preserve the username fallback: use the voice channel's externalUserId
       // so downstream parsing can fall back to @username when displayName is a
       // raw external ID (e.g., phone number from contact-sync).
-      const voiceChannel = voiceGuardian?.channel
-        ?? guardianChannels?.channels.find((ch) => ch.type === "voice");
+      const voiceChannel =
+        voiceGuardian?.channel ??
+        guardianChannels?.channels.find((ch) => ch.type === "voice");
       if (voiceChannel?.externalUserId) {
         meta.username = voiceChannel.externalUserId;
       }
@@ -2019,15 +2028,9 @@ export class RelayConnection {
       }
     }
     if (!metadataJson) {
-      // Legacy fallback
       const voiceBinding = getGuardianBinding(assistantId, "voice");
       if (voiceBinding?.metadataJson) {
         metadataJson = voiceBinding.metadataJson;
-      } else {
-        const allBindings = listActiveBindingsByAssistant(assistantId);
-        if (allBindings.length > 0 && allBindings[0].metadataJson) {
-          metadataJson = allBindings[0].metadataJson;
-        }
       }
     }
 

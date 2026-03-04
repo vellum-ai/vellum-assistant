@@ -1,8 +1,8 @@
-import { execSync } from 'node:child_process';
+import { execSync } from "node:child_process";
 
-import { getConfig } from '../../config/loader.js';
-import type { SandboxConfig } from '../../config/schema.js';
-import { isLinux, isMacOS } from '../../util/platform.js';
+import { getConfig } from "../../config/loader.js";
+import type { SandboxConfig } from "../../config/schema.js";
+import { isLinux, isMacOS } from "../../util/platform.js";
 
 export interface SandboxCheckResult {
   label: string;
@@ -22,28 +22,46 @@ export interface SandboxDiagnostics {
 function checkNativeBackend(): SandboxCheckResult {
   if (isMacOS()) {
     try {
-      execSync('sandbox-exec -n no-network true', { stdio: 'pipe', timeout: 5000 });
-      return { label: 'Native sandbox (macOS sandbox-exec)', ok: true };
+      execSync("sandbox-exec -n no-network true", {
+        stdio: "pipe",
+        timeout: 5000,
+      });
+      return { label: "Native sandbox (macOS sandbox-exec)", ok: true };
     } catch {
-      return { label: 'Native sandbox (macOS sandbox-exec)', ok: false, detail: 'sandbox-exec not functional' };
+      return {
+        label: "Native sandbox (macOS sandbox-exec)",
+        ok: false,
+        detail: "sandbox-exec not functional",
+      };
     }
   }
   if (isLinux()) {
     try {
-      execSync('bwrap --ro-bind / / --unshare-net --unshare-pid true', { stdio: 'pipe', timeout: 5000 });
-      return { label: 'Native sandbox (Linux bwrap)', ok: true };
+      execSync("bwrap --ro-bind / / --unshare-net --unshare-pid true", {
+        stdio: "pipe",
+        timeout: 5000,
+      });
+      return { label: "Native sandbox (Linux bwrap)", ok: true };
     } catch {
-      return { label: 'Native sandbox (Linux bwrap)', ok: false, detail: 'bwrap not available — install bubblewrap' };
+      return {
+        label: "Native sandbox (Linux bwrap)",
+        ok: false,
+        detail: "bwrap not available — install bubblewrap",
+      };
     }
   }
-  return { label: 'Native sandbox', ok: false, detail: `not supported on ${process.platform}` };
+  return {
+    label: "Native sandbox",
+    ok: false,
+    detail: `not supported on ${process.platform}`,
+  };
 }
 
 function getActiveBackendReason(sandboxConfig: SandboxConfig): string {
   if (!sandboxConfig.enabled) {
-    return 'Sandbox is disabled in configuration';
+    return "Sandbox is disabled in configuration";
   }
-  return 'Native backend selected';
+  return "Native backend selected";
 }
 
 /**

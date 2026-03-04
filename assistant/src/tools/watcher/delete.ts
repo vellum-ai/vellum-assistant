@@ -1,14 +1,14 @@
-import { getWatcherProvider } from '../../watcher/provider-registry.js';
-import { deleteWatcher,getWatcher } from '../../watcher/watcher-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { getWatcherProvider } from "../../watcher/provider-registry.js";
+import { deleteWatcher, getWatcher } from "../../watcher/watcher-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeWatcherDelete(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const watcherId = input.watcher_id as string;
-  if (!watcherId || typeof watcherId !== 'string') {
-    return { content: 'Error: watcher_id is required', isError: true };
+  if (!watcherId || typeof watcherId !== "string") {
+    return { content: "Error: watcher_id is required", isError: true };
   }
 
   const watcher = getWatcher(watcherId);
@@ -18,7 +18,10 @@ export async function executeWatcherDelete(
 
   const deleted = deleteWatcher(watcherId);
   if (!deleted) {
-    return { content: `Error: Failed to delete watcher: ${watcherId}`, isError: true };
+    return {
+      content: `Error: Failed to delete watcher: ${watcherId}`,
+      isError: true,
+    };
   }
 
   // Evict any in-process provider state (e.g. Linear issue-state cache) now

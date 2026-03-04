@@ -59,11 +59,26 @@ describe("normalizeTelegramUpdate", () => {
       message: {
         message_id: 10,
         chat: { id: 200, type: "private" },
-        from: { id: 300, is_bot: false, username: "photouser", first_name: "Photo" },
+        from: {
+          id: 300,
+          is_bot: false,
+          username: "photouser",
+          first_name: "Photo",
+        },
         photo: [
           { file_id: "small_id", file_unique_id: "s1", width: 90, height: 90 },
-          { file_id: "medium_id", file_unique_id: "s2", width: 320, height: 320 },
-          { file_id: "large_id", file_unique_id: "s3", width: 800, height: 800 },
+          {
+            file_id: "medium_id",
+            file_unique_id: "s2",
+            width: 320,
+            height: 320,
+          },
+          {
+            file_id: "large_id",
+            file_unique_id: "s3",
+            width: 800,
+            height: 800,
+          },
         ],
         caption: "Check this out",
       },
@@ -253,7 +268,12 @@ describe("normalizeTelegramUpdate", () => {
         chat: { id: 200, type: "private" },
         from: { id: 300, is_bot: false },
         photo: [
-          { file_id: "edited_photo", file_unique_id: "ep1", width: 800, height: 800 },
+          {
+            file_id: "edited_photo",
+            file_unique_id: "ep1",
+            width: 800,
+            height: 800,
+          },
         ],
         caption: "Updated caption",
       },
@@ -330,7 +350,12 @@ describe("normalizeTelegramUpdate: callback_query", () => {
       update_id: 5002,
       callback_query: {
         id: "cbq-456",
-        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+        from: {
+          id: 67890,
+          is_bot: false,
+          username: "testuser",
+          first_name: "Test",
+        },
         data: "some-data",
       },
     };
@@ -344,7 +369,12 @@ describe("normalizeTelegramUpdate: callback_query", () => {
       update_id: 5003,
       callback_query: {
         id: "cbq-789",
-        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+        from: {
+          id: 67890,
+          is_bot: false,
+          username: "testuser",
+          first_name: "Test",
+        },
         message: {
           message_id: 42,
           text: "Original message",
@@ -362,7 +392,12 @@ describe("normalizeTelegramUpdate: callback_query", () => {
       update_id: 5004,
       callback_query: {
         id: "cbq-no-chat",
-        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+        from: {
+          id: 67890,
+          is_bot: false,
+          username: "testuser",
+          first_name: "Test",
+        },
         message: {
           message_id: 42,
           text: "Original message",
@@ -400,7 +435,12 @@ describe("normalizeTelegramUpdate: callback_query", () => {
       update_id: 5006,
       callback_query: {
         id: "cbq-clean",
-        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+        from: {
+          id: 67890,
+          is_bot: false,
+          username: "testuser",
+          first_name: "Test",
+        },
         message: {
           message_id: 42,
           text: "Original message",
@@ -423,7 +463,12 @@ describe("normalizeTelegramUpdate: callback_query", () => {
         message_id: 100,
         text: "Hello world",
         chat: { id: 12345, type: "private" },
-        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+        from: {
+          id: 67890,
+          is_bot: false,
+          username: "testuser",
+          first_name: "Test",
+        },
       },
     };
 
@@ -437,7 +482,9 @@ describe("normalizeTelegramUpdate: callback_query", () => {
 
 describe("verifyWebhookSecret", () => {
   test("returns true for matching secret", () => {
-    const headers = new Headers({ "x-telegram-bot-api-secret-token": "my-secret" });
+    const headers = new Headers({
+      "x-telegram-bot-api-secret-token": "my-secret",
+    });
     expect(verifyWebhookSecret(headers, "my-secret")).toBe(true);
   });
 
@@ -452,7 +499,9 @@ describe("verifyWebhookSecret", () => {
   });
 
   test("returns false when expected secret is empty", () => {
-    const headers = new Headers({ "x-telegram-bot-api-secret-token": "something" });
+    const headers = new Headers({
+      "x-telegram-bot-api-secret-token": "something",
+    });
     expect(verifyWebhookSecret(headers, "")).toBe(false);
   });
 });

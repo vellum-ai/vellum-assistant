@@ -96,9 +96,12 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
-import { createBinding } from "../memory/channel-guardian-store.js";
+import { findContactChannel } from "../contacts/contact-store.js";
+import {
+  createGuardianBindingContactsFirst,
+  upsertMemberContactsFirst,
+} from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { findMember, upsertMember } from "../memory/ingress-member-store.js";
 import {
   createOutboundSession,
   validateAndConsumeChallenge,
@@ -125,13 +128,13 @@ const TEST_BEARER_TOKEN = "test-token";
 function resetState(): void {
   const db = getDb();
   db.run("DELETE FROM channel_guardian_approval_requests");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM channel_guardian_verification_challenges");
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
-  db.run("DELETE FROM assistant_ingress_members");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
   notifyGuardianCalls.length = 0;
   deliverReplyCalls.length = 0;
@@ -227,12 +230,13 @@ for (const config of CHANNEL_CONFIGS) {
     });
 
     test("guardian is notified when a non-member messages", async () => {
-      createBinding({
+      createGuardianBindingContactsFirst({
         assistantId: "self",
         channel: config.channel,
         guardianExternalUserId: config.guardianExternalUserId,
         guardianDeliveryChatId: config.guardianChatId,
         guardianPrincipalId: config.guardianExternalUserId,
+        verifiedVia: "test",
       });
 
       const req = buildInboundRequest(config);
@@ -264,7 +268,7 @@ for (const config of CHANNEL_CONFIGS) {
         verificationPurpose: "trusted_contact",
       });
 
-      const result = validateAndConsumeChallenge(
+      const challengeResult = validateAndConsumeChallenge(
         "self",
         config.channel,
         session.secret,
@@ -274,12 +278,12 @@ for (const config of CHANNEL_CONFIGS) {
         "Test Requester",
       );
 
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.verificationType).toBe("trusted_contact");
+      expect(challengeResult.success).toBe(true);
+      if (challengeResult.success) {
+        expect(challengeResult.verificationType).toBe("trusted_contact");
       }
 
-      upsertMember({
+      upsertMemberContactsFirst({
         assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
@@ -290,21 +294,20 @@ for (const config of CHANNEL_CONFIGS) {
         username: "test_requester",
       });
 
-      const member = findMember({
-        assistantId: "self",
-        sourceChannel: config.channel,
+      const contactResult = findContactChannel({
+        channelType: config.channel,
         externalUserId: config.senderExternalUserId,
       });
 
-      expect(member).not.toBeNull();
-      expect(member!.status).toBe("active");
-      expect(member!.policy).toBe("allow");
-      expect(member!.sourceChannel).toBe(config.channel);
+      expect(contactResult).not.toBeNull();
+      expect(contactResult!.channel.status).toBe("active");
+      expect(contactResult!.channel.policy).toBe("allow");
+      expect(contactResult!.channel.type).toBe(config.channel);
     });
 
     test("no cross-channel leakage between member records", () => {
       // Create a member for this channel
-      upsertMember({
+      upsertMemberContactsFirst({
         assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
@@ -314,21 +317,19 @@ for (const config of CHANNEL_CONFIGS) {
       });
 
       // Should be found on this channel
-      const sameChanMember = findMember({
-        assistantId: "self",
-        sourceChannel: config.channel,
+      const sameChanResult = findContactChannel({
+        channelType: config.channel,
         externalUserId: config.senderExternalUserId,
       });
-      expect(sameChanMember).not.toBeNull();
+      expect(sameChanResult).not.toBeNull();
 
       // Should NOT be found on a different channel
       const otherChannel = config.channel === "telegram" ? "sms" : "telegram";
-      const crossChanMember = findMember({
-        assistantId: "self",
-        sourceChannel: otherChannel,
+      const crossChanResult = findContactChannel({
+        channelType: otherChannel,
         externalUserId: config.senderExternalUserId,
       });
-      expect(crossChanMember).toBeNull();
+      expect(crossChanResult).toBeNull();
     });
   });
 }

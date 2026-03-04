@@ -8,17 +8,17 @@
 // consumed only by `resolveRecordingIntent`.
 
 export type RecordingIntentResult =
-  | { kind: 'none' }
-  | { kind: 'start_only' }
-  | { kind: 'stop_only' }
-  | { kind: 'start_with_remainder'; remainder: string }
-  | { kind: 'stop_with_remainder'; remainder: string }
-  | { kind: 'start_and_stop_only' }
-  | { kind: 'start_and_stop_with_remainder'; remainder: string }
-  | { kind: 'restart_only' }
-  | { kind: 'restart_with_remainder'; remainder: string }
-  | { kind: 'pause_only' }
-  | { kind: 'resume_only' };
+  | { kind: "none" }
+  | { kind: "start_only" }
+  | { kind: "stop_only" }
+  | { kind: "start_with_remainder"; remainder: string }
+  | { kind: "stop_with_remainder"; remainder: string }
+  | { kind: "start_and_stop_only" }
+  | { kind: "start_and_stop_with_remainder"; remainder: string }
+  | { kind: "restart_only" }
+  | { kind: "restart_with_remainder"; remainder: string }
+  | { kind: "pause_only" }
+  | { kind: "resume_only" };
 
 // ─── Start recording patterns ────────────────────────────────────────────────
 
@@ -55,9 +55,7 @@ const RESTART_RECORDING_PATTERNS: RegExp[] = [
 
 // ─── Pause/resume recording patterns ────────────────────────────────────────
 
-const PAUSE_RECORDING_PATTERNS: RegExp[] = [
-  /\bpause\s+(the\s+)?recording\b/i,
-];
+const PAUSE_RECORDING_PATTERNS: RegExp[] = [/\bpause\s+(the\s+)?recording\b/i];
 
 const RESUME_RECORDING_PATTERNS: RegExp[] = [
   /\bresume\s+(the\s+)?recording\b/i,
@@ -136,10 +134,10 @@ function isRecordingOnly(taskText: string): boolean {
   // Strip the recording clause and check if anything substantive remains
   const stripped = stripRecordingIntent(taskText);
   // Also remove common polite/filler words that don't change the intent
-  const withoutFillers = stripped.replace(FILLER_PATTERN, '');
+  const withoutFillers = stripped.replace(FILLER_PATTERN, "");
   // If after removing the recording clause and fillers, only whitespace/punctuation
   // remains, this is a recording-only prompt.
-  return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
+  return withoutFillers.replace(/[.,;!?\s]+/g, "").length === 0;
 }
 
 /**
@@ -174,10 +172,10 @@ function detectResumeRecordingIntent(taskText: string): boolean {
 function stripRecordingIntent(taskText: string): string {
   let result = taskText;
   for (const pattern of RECORDING_CLAUSE_PATTERNS) {
-    result = result.replace(pattern, '');
+    result = result.replace(pattern, "");
   }
   // Clean up any leftover double spaces or leading/trailing whitespace
-  return result.replace(/\s{2,}/g, ' ').trim();
+  return result.replace(/\s{2,}/g, " ").trim();
 }
 
 /**
@@ -187,36 +185,36 @@ function stripRecordingIntent(taskText: string): string {
 function stripStopRecordingIntent(taskText: string): string {
   let result = taskText;
   for (const pattern of STOP_RECORDING_CLAUSE_PATTERNS) {
-    result = result.replace(pattern, '');
+    result = result.replace(pattern, "");
   }
-  return result.replace(/\s{2,}/g, ' ').trim();
+  return result.replace(/\s{2,}/g, " ").trim();
 }
 
 /** Removes restart-recording clauses from text. */
 function stripRestartRecordingIntent(taskText: string): string {
   let result = taskText;
   for (const pattern of RESTART_RECORDING_CLAUSE_PATTERNS) {
-    result = result.replace(pattern, '');
+    result = result.replace(pattern, "");
   }
-  return result.replace(/\s{2,}/g, ' ').trim();
+  return result.replace(/\s{2,}/g, " ").trim();
 }
 
 /** Removes pause-recording clauses from text. */
 function stripPauseRecordingIntent(taskText: string): string {
   let result = taskText;
   for (const pattern of PAUSE_RECORDING_CLAUSE_PATTERNS) {
-    result = result.replace(pattern, '');
+    result = result.replace(pattern, "");
   }
-  return result.replace(/\s{2,}/g, ' ').trim();
+  return result.replace(/\s{2,}/g, " ").trim();
 }
 
 /** Removes resume-recording clauses from text. */
 function stripResumeRecordingIntent(taskText: string): string {
   let result = taskText;
   for (const pattern of RESUME_RECORDING_CLAUSE_PATTERNS) {
-    result = result.replace(pattern, '');
+    result = result.replace(pattern, "");
   }
-  return result.replace(/\s{2,}/g, ' ').trim();
+  return result.replace(/\s{2,}/g, " ").trim();
 }
 
 /**
@@ -231,32 +229,32 @@ function isStopRecordingOnly(taskText: string): boolean {
 
   const stripped = stripStopRecordingIntent(taskText);
   // Also remove common polite/filler words that don't change the intent
-  const withoutFillers = stripped.replace(FILLER_PATTERN, '');
-  return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
+  const withoutFillers = stripped.replace(FILLER_PATTERN, "");
+  return withoutFillers.replace(/[.,;!?\s]+/g, "").length === 0;
 }
 
 /** Returns true if the text is purely a restart command (no additional task). */
 function isRestartRecordingOnly(taskText: string): boolean {
   if (!detectRestartRecordingIntent(taskText)) return false;
   const stripped = stripRestartRecordingIntent(taskText);
-  const withoutFillers = stripped.replace(FILLER_PATTERN, '');
-  return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
+  const withoutFillers = stripped.replace(FILLER_PATTERN, "");
+  return withoutFillers.replace(/[.,;!?\s]+/g, "").length === 0;
 }
 
 /** Returns true if the text is purely a pause command (no additional task). */
 function isPauseRecordingOnly(taskText: string): boolean {
   if (!detectPauseRecordingIntent(taskText)) return false;
   const stripped = stripPauseRecordingIntent(taskText);
-  const withoutFillers = stripped.replace(FILLER_PATTERN, '');
-  return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
+  const withoutFillers = stripped.replace(FILLER_PATTERN, "");
+  return withoutFillers.replace(/[.,;!?\s]+/g, "").length === 0;
 }
 
 /** Returns true if the text is purely a resume command (no additional task). */
 function isResumeRecordingOnly(taskText: string): boolean {
   if (!detectResumeRecordingIntent(taskText)) return false;
   const stripped = stripResumeRecordingIntent(taskText);
-  const withoutFillers = stripped.replace(FILLER_PATTERN, '');
-  return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
+  const withoutFillers = stripped.replace(FILLER_PATTERN, "");
+  return withoutFillers.replace(/[.,;!?\s]+/g, "").length === 0;
 }
 
 // ─── Dynamic name normalization ─────────────────────────────────────────────
@@ -266,19 +264,28 @@ function isResumeRecordingOnly(taskText: string): boolean {
  * Handles patterns like "Nova, ...", "Nova ...", "hey Nova, ...", "hey, Nova, ..." (case-insensitive).
  * Periods in names are optional to handle natural omission (e.g., "Jr" vs "Jr.").
  */
-export function stripDynamicNames(text: string, dynamicNames: string[]): string {
+export function stripDynamicNames(
+  text: string,
+  dynamicNames: string[],
+): string {
   let result = text;
   for (const name of dynamicNames) {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     // Make escaped periods optional — users often omit dots (e.g., "Jr" vs "Jr.")
-    const withOptionalDots = escaped.replace(/\\\./g, '\\.?');
+    const withOptionalDots = escaped.replace(/\\\./g, "\\.?");
     // "hey <name>, ..." / "hey <name> ..." / "hey, <name>, ..."
     // Lookahead ensures the name is a whole token (not a prefix of a longer word).
-    const heyPattern = new RegExp(`^hey[,\\s]+${withOptionalDots}(?=[,:\\s]|$)[,:]?\\s*`, 'i');
+    const heyPattern = new RegExp(
+      `^hey[,\\s]+${withOptionalDots}(?=[,:\\s]|$)[,:]?\\s*`,
+      "i",
+    );
     // "<name>, ..." or "<name> ..."
-    const namePattern = new RegExp(`^${withOptionalDots}(?=[,:\\s]|$)[,:]?\\s*`, 'i');
-    result = result.replace(heyPattern, '');
-    result = result.replace(namePattern, '');
+    const namePattern = new RegExp(
+      `^${withOptionalDots}(?=[,:\\s]|$)[,:]?\\s*`,
+      "i",
+    );
+    result = result.replace(heyPattern, "");
+    result = result.replace(namePattern, "");
   }
   return result.trim();
 }
@@ -293,8 +300,8 @@ function hasSubstantiveContent(text: string, dynamicNames?: string[]): boolean {
   if (dynamicNames && dynamicNames.length > 0) {
     cleaned = stripDynamicNames(cleaned, dynamicNames);
   }
-  cleaned = cleaned.replace(FILLER_PATTERN, '');
-  return cleaned.replace(/[.,;!?\s]+/g, '').length > 0;
+  cleaned = cleaned.replace(FILLER_PATTERN, "");
+  return cleaned.replace(/[.,;!?\s]+/g, "").length > 0;
 }
 
 // ─── Interrogative detection ────────────────────────────────────────────────
@@ -352,7 +359,7 @@ function isInterrogative(text: string, dynamicNames?: string[]): boolean {
     cleaned = stripDynamicNames(cleaned, dynamicNames);
   }
   // Strip polite prefixes that don't change interrogative status
-  cleaned = cleaned.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, '');
+  cleaned = cleaned.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, "");
 
   // Direct WH-questions (how/what/why/when/where/who/which)
   if (WH_INTERROGATIVE.test(cleaned)) {
@@ -395,12 +402,15 @@ export function resolveRecordingIntent(
       : text;
 
   // Step 2: Strip leading polite wrappers for normalization
-  normalized = normalized.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, '');
+  normalized = normalized.replace(
+    /^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i,
+    "",
+  );
 
   // Step 3: Interrogative gate — questions (WH-words and indirect
   // informational patterns) are not commands
   if (isInterrogative(normalized, dynamicNames)) {
-    return { kind: 'none' };
+    return { kind: "none" };
   }
 
   // Step 3.5: Restart compound detection — check BEFORE independent start/stop
@@ -408,27 +418,27 @@ export function resolveRecordingIntent(
   // as separate stop + start patterns.
   if (detectRestartRecordingIntent(normalized)) {
     if (isRestartRecordingOnly(normalized)) {
-      return { kind: 'restart_only' };
+      return { kind: "restart_only" };
     }
     // Strip from the ORIGINAL text to preserve user's exact phrasing
     const remainder = stripRestartRecordingIntent(text);
     if (hasSubstantiveContent(remainder, dynamicNames)) {
-      return { kind: 'restart_with_remainder', remainder };
+      return { kind: "restart_with_remainder", remainder };
     }
-    return { kind: 'restart_only' };
+    return { kind: "restart_only" };
   }
 
   // Step 3.6: Pause/resume detection — check before start/stop
   if (detectPauseRecordingIntent(normalized)) {
     if (isPauseRecordingOnly(normalized)) {
-      return { kind: 'pause_only' };
+      return { kind: "pause_only" };
     }
     // Pause with additional text falls through to normal processing
   }
 
   if (detectResumeRecordingIntent(normalized)) {
     if (isResumeRecordingOnly(normalized)) {
-      return { kind: 'resume_only' };
+      return { kind: "resume_only" };
     }
     // Resume with additional text falls through to normal processing
   }
@@ -445,39 +455,39 @@ export function resolveRecordingIntent(
         // Check if stop-only after stripping start patterns
         const withoutStart = stripRecordingIntent(normalized);
         if (isStopRecordingOnly(withoutStart)) {
-          return { kind: 'start_and_stop_only' };
+          return { kind: "start_and_stop_only" };
         }
       }
       let remainder = stripRecordingIntent(text);
       remainder = stripStopRecordingIntent(remainder);
       if (hasSubstantiveContent(remainder, dynamicNames)) {
-        return { kind: 'start_and_stop_with_remainder', remainder };
+        return { kind: "start_and_stop_with_remainder", remainder };
       }
-      return { kind: 'start_and_stop_only' };
+      return { kind: "start_and_stop_only" };
     }
     // Only start detected
     if (isRecordingOnly(normalized)) {
-      return { kind: 'start_only' };
+      return { kind: "start_only" };
     }
     // Strip from the ORIGINAL text to preserve user's exact phrasing
     const remainder = stripRecordingIntent(text);
     if (hasSubstantiveContent(remainder, dynamicNames)) {
-      return { kind: 'start_with_remainder', remainder };
+      return { kind: "start_with_remainder", remainder };
     }
-    return { kind: 'start_only' };
+    return { kind: "start_only" };
   }
 
   if (hasStop) {
     if (isStopRecordingOnly(normalized)) {
-      return { kind: 'stop_only' };
+      return { kind: "stop_only" };
     }
     // Strip from the ORIGINAL text to preserve user's exact phrasing
     const remainder = stripStopRecordingIntent(text);
     if (hasSubstantiveContent(remainder, dynamicNames)) {
-      return { kind: 'stop_with_remainder', remainder };
+      return { kind: "stop_with_remainder", remainder };
     }
-    return { kind: 'stop_only' };
+    return { kind: "stop_only" };
   }
 
-  return { kind: 'none' };
+  return { kind: "none" };
 }

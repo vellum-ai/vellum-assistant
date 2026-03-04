@@ -6,19 +6,19 @@
  * token is returned exactly once at creation time and never stored.
  */
 
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from "drizzle-orm";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { getDb } from './db.js';
-import { assistantIngressInvites, assistantIngressMembers } from './schema.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getDb } from "./db.js";
+import { assistantIngressInvites } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type InviteStatus = 'active' | 'redeemed' | 'revoked' | 'expired';
+export type InviteStatus = "active" | "redeemed" | "revoked" | "expired";
 
 export interface IngressInvite {
   id: string;
@@ -45,25 +45,6 @@ export interface IngressInvite {
   updatedAt: number;
 }
 
-export interface IngressMember {
-  id: string;
-  assistantId: string;
-  sourceChannel: string;
-  externalUserId: string | null;
-  externalChatId: string | null;
-  displayName: string | null;
-  username: string | null;
-  status: string;
-  policy: string;
-  inviteId: string | null;
-  createdBySessionId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-  lastSeenAt: number | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -75,15 +56,17 @@ const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // ---------------------------------------------------------------------------
 
 export function hashToken(rawToken: string): string {
-  return createHash('sha256').update(rawToken).digest('hex');
+  return createHash("sha256").update(rawToken).digest("hex");
 }
 
 function generateToken(): string {
   // 32 bytes = 256 bits of entropy, base64url-encoded to a 43-character URL-safe string.
-  return randomBytes(32).toString('base64url');
+  return randomBytes(32).toString("base64url");
 }
 
-function rowToInvite(row: typeof assistantIngressInvites.$inferSelect): IngressInvite {
+function rowToInvite(
+  row: typeof assistantIngressInvites.$inferSelect,
+): IngressInvite {
   return {
     id: row.id,
     assistantId: row.assistantId,
@@ -103,27 +86,6 @@ function rowToInvite(row: typeof assistantIngressInvites.$inferSelect): IngressI
     voiceCodeDigits: row.voiceCodeDigits,
     friendName: row.friendName,
     guardianName: row.guardianName,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function rowToMember(row: typeof assistantIngressMembers.$inferSelect): IngressMember {
-  return {
-    id: row.id,
-    assistantId: row.assistantId,
-    sourceChannel: row.sourceChannel,
-    externalUserId: row.externalUserId,
-    externalChatId: row.externalChatId,
-    displayName: row.displayName,
-    username: row.username,
-    status: row.status,
-    policy: row.policy,
-    inviteId: row.inviteId,
-    createdBySessionId: row.createdBySessionId,
-    revokedReason: row.revokedReason,
-    blockedReason: row.blockedReason,
-    lastSeenAt: row.lastSeenAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -163,7 +125,7 @@ export function createInvite(params: {
     maxUses: params.maxUses ?? 1,
     useCount: 0,
     expiresAt: now + (params.expiresInMs ?? DEFAULT_EXPIRY_MS),
-    status: 'active' as const,
+    status: "active" as const,
     redeemedByExternalUserId: null,
     redeemedByExternalChatId: null,
     redeemedAt: null,
@@ -198,7 +160,9 @@ export function listInvites(params: {
   const conditions = [eq(assistantIngressInvites.assistantId, assistantId)];
 
   if (params.sourceChannel) {
-    conditions.push(eq(assistantIngressInvites.sourceChannel, params.sourceChannel));
+    conditions.push(
+      eq(assistantIngressInvites.sourceChannel, params.sourceChannel),
+    );
   }
   if (params.status) {
     conditions.push(eq(assistantIngressInvites.status, params.status));
@@ -230,7 +194,7 @@ export function revokeInvite(inviteId: string): IngressInvite | null {
     .where(
       and(
         eq(assistantIngressInvites.id, inviteId),
-        eq(assistantIngressInvites.status, 'active'),
+        eq(assistantIngressInvites.status, "active"),
       ),
     )
     .get();
@@ -238,119 +202,11 @@ export function revokeInvite(inviteId: string): IngressInvite | null {
   if (!existing) return null;
 
   db.update(assistantIngressInvites)
-    .set({ status: 'revoked', updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(eq(assistantIngressInvites.id, inviteId))
     .run();
 
-  return rowToInvite({ ...existing, status: 'revoked', updatedAt: now });
-}
-
-// ---------------------------------------------------------------------------
-// redeemInvite
-// ---------------------------------------------------------------------------
-
-export interface RedeemError {
-  error: string;
-}
-
-export function redeemInvite(params: {
-  rawToken: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  displayName?: string;
-  username?: string;
-  sourceChannel?: string;
-}): { invite: IngressInvite; member: IngressMember } | RedeemError {
-  const db = getDb();
-  const now = Date.now();
-  const tokenH = hashToken(params.rawToken);
-
-  const invite = db
-    .select()
-    .from(assistantIngressInvites)
-    .where(eq(assistantIngressInvites.tokenHash, tokenH))
-    .get();
-
-  if (!invite) {
-    return { error: 'invite_not_found' };
-  }
-
-  if (invite.status !== 'active') {
-    return { error: `invite_${invite.status}` };
-  }
-
-  if (invite.expiresAt <= now) {
-    // Mark as expired for future lookups
-    db.update(assistantIngressInvites)
-      .set({ status: 'expired', updatedAt: now })
-      .where(eq(assistantIngressInvites.id, invite.id))
-      .run();
-    return { error: 'invite_expired' };
-  }
-
-  if (invite.useCount >= invite.maxUses) {
-    return { error: 'invite_max_uses_reached' };
-  }
-
-  // Enforce channel-scoped redemption: when the caller specifies a channel, it
-  // must match the channel the invite was created for.
-  if (params.sourceChannel && params.sourceChannel !== invite.sourceChannel) {
-    return { error: 'invite_channel_mismatch' };
-  }
-
-  const newUseCount = invite.useCount + 1;
-  const newStatus = newUseCount >= invite.maxUses ? 'redeemed' : 'active';
-
-  // Update invite in a transaction with member creation
-  const memberId = randomUUID();
-  const sourceChannel = params.sourceChannel ?? invite.sourceChannel;
-
-  const memberRow = {
-    id: memberId,
-    assistantId: invite.assistantId,
-    sourceChannel,
-    externalUserId: params.externalUserId ?? null,
-    externalChatId: params.externalChatId ?? null,
-    displayName: params.displayName ?? null,
-    username: params.username ?? null,
-    status: 'active' as const,
-    policy: 'allow' as const,
-    inviteId: invite.id,
-    createdBySessionId: null,
-    revokedReason: null,
-    blockedReason: null,
-    lastSeenAt: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  db.transaction((tx) => {
-    tx.update(assistantIngressInvites)
-      .set({
-        useCount: newUseCount,
-        status: newStatus,
-        redeemedByExternalUserId: params.externalUserId ?? null,
-        redeemedByExternalChatId: params.externalChatId ?? null,
-        redeemedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(assistantIngressInvites.id, invite.id))
-      .run();
-
-    tx.insert(assistantIngressMembers).values(memberRow).run();
-  });
-
-  const updatedInvite: IngressInvite = {
-    ...rowToInvite(invite),
-    useCount: newUseCount,
-    status: newStatus as InviteStatus,
-    redeemedByExternalUserId: params.externalUserId ?? null,
-    redeemedByExternalChatId: params.externalChatId ?? null,
-    redeemedAt: now,
-    updatedAt: now,
-  };
-
-  return { invite: updatedInvite, member: rowToMember(memberRow) };
+  return rowToInvite({ ...existing, status: "revoked", updatedAt: now });
 }
 
 // ---------------------------------------------------------------------------
@@ -385,7 +241,7 @@ export function recordInviteUse(params: {
   if (!invite) return false;
 
   const newUseCount = invite.useCount + 1;
-  const newStatus = newUseCount >= invite.maxUses ? 'redeemed' : 'active';
+  const newStatus = newUseCount >= invite.maxUses ? "redeemed" : "active";
 
   // Constrain the update to active invites so a concurrent revoke/expire
   // prevents this write rather than silently overwriting the new status.
@@ -401,7 +257,7 @@ export function recordInviteUse(params: {
     .where(
       and(
         eq(assistantIngressInvites.id, invite.id),
-        eq(assistantIngressInvites.status, 'active'),
+        eq(assistantIngressInvites.status, "active"),
       ),
     )
     .run();
@@ -431,11 +287,11 @@ export function markInviteExpired(inviteId: string): void {
   const now = Date.now();
 
   db.update(assistantIngressInvites)
-    .set({ status: 'expired', updatedAt: now })
+    .set({ status: "expired", updatedAt: now })
     .where(
       and(
         eq(assistantIngressInvites.id, inviteId),
-        eq(assistantIngressInvites.status, 'active'),
+        eq(assistantIngressInvites.status, "active"),
       ),
     )
     .run();
@@ -478,9 +334,12 @@ export function findActiveVoiceInvites(params: {
     .where(
       and(
         eq(assistantIngressInvites.assistantId, params.assistantId),
-        eq(assistantIngressInvites.sourceChannel, 'voice'),
-        eq(assistantIngressInvites.status, 'active'),
-        eq(assistantIngressInvites.expectedExternalUserId, params.expectedExternalUserId),
+        eq(assistantIngressInvites.sourceChannel, "voice"),
+        eq(assistantIngressInvites.status, "active"),
+        eq(
+          assistantIngressInvites.expectedExternalUserId,
+          params.expectedExternalUserId,
+        ),
       ),
     )
     .all();

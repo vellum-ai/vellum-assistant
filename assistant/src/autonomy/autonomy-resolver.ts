@@ -10,10 +10,10 @@
  *   5. Global default tier (falls back to 'notify')
  */
 
-import type { TriageResult } from '../messaging/types.js';
-import { getAutonomyConfig } from './autonomy-store.js';
-import type { AutonomyTier } from './types.js';
-import { AUTONOMY_TIERS } from './types.js';
+import type { TriageResult } from "../messaging/types.js";
+import { getAutonomyConfig } from "./autonomy-store.js";
+import type { AutonomyTier } from "./types.js";
+import { AUTONOMY_TIERS } from "./types.js";
 
 /**
  * Resolve the autonomy tier for a triaged message.
@@ -56,5 +56,7 @@ export function resolveAutonomyTier(
 }
 
 function isValidTier(value: unknown): value is AutonomyTier {
-  return typeof value === 'string' && AUTONOMY_TIERS.includes(value as AutonomyTier);
+  return (
+    typeof value === "string" && AUTONOMY_TIERS.includes(value as AutonomyTier)
+  );
 }

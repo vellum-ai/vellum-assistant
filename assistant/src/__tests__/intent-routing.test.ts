@@ -279,7 +279,7 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("verify guardian");
   });
 
-  test('routing section does not include SMS trigger phrase', () => {
+  test("routing section does not include SMS trigger phrase", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).not.toContain("set guardian for SMS");
   });

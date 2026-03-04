@@ -1,11 +1,18 @@
-import { desc } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { desc } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import type { PricingResult,UsageEvent, UsageEventInput } from '../usage/types.js';
-import { getDb } from './db.js';
-import { llmUsageEvents } from './schema.js';
+import type {
+  PricingResult,
+  UsageEvent,
+  UsageEventInput,
+} from "../usage/types.js";
+import { getDb } from "./db.js";
+import { llmUsageEvents } from "./schema.js";
 
-export function recordUsageEvent(input: UsageEventInput, pricing: PricingResult): UsageEvent {
+export function recordUsageEvent(
+  input: UsageEventInput,
+  pricing: PricingResult,
+): UsageEvent {
   const db = getDb();
   const event: UsageEvent = {
     id: uuid(),
@@ -14,23 +21,25 @@ export function recordUsageEvent(input: UsageEventInput, pricing: PricingResult)
     estimatedCostUsd: pricing.estimatedCostUsd,
     pricingStatus: pricing.pricingStatus,
   };
-  db.insert(llmUsageEvents).values({
-    id: event.id,
-    createdAt: event.createdAt,
-    conversationId: event.conversationId,
-    runId: event.runId,
-    requestId: event.requestId,
-    actor: event.actor,
-    provider: event.provider,
-    model: event.model,
-    inputTokens: event.inputTokens,
-    outputTokens: event.outputTokens,
-    cacheCreationInputTokens: event.cacheCreationInputTokens,
-    cacheReadInputTokens: event.cacheReadInputTokens,
-    estimatedCostUsd: event.estimatedCostUsd,
-    pricingStatus: event.pricingStatus,
-    metadataJson: null,
-  }).run();
+  db.insert(llmUsageEvents)
+    .values({
+      id: event.id,
+      createdAt: event.createdAt,
+      conversationId: event.conversationId,
+      runId: event.runId,
+      requestId: event.requestId,
+      actor: event.actor,
+      provider: event.provider,
+      model: event.model,
+      inputTokens: event.inputTokens,
+      outputTokens: event.outputTokens,
+      cacheCreationInputTokens: event.cacheCreationInputTokens,
+      cacheReadInputTokens: event.cacheReadInputTokens,
+      estimatedCostUsd: event.estimatedCostUsd,
+      pricingStatus: event.pricingStatus,
+      metadataJson: null,
+    })
+    .run();
   return event;
 }
 
@@ -42,13 +51,13 @@ export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
     .orderBy(desc(llmUsageEvents.createdAt))
     .limit(options?.limit ?? 100)
     .all();
-  return rows.map(row => ({
+  return rows.map((row) => ({
     id: row.id,
     createdAt: row.createdAt,
     conversationId: row.conversationId,
     runId: row.runId,
     requestId: row.requestId,
-    actor: row.actor as UsageEvent['actor'],
+    actor: row.actor as UsageEvent["actor"],
     provider: row.provider,
     model: row.model,
     inputTokens: row.inputTokens,
@@ -56,6 +65,6 @@ export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
     cacheCreationInputTokens: row.cacheCreationInputTokens,
     cacheReadInputTokens: row.cacheReadInputTokens,
     estimatedCostUsd: row.estimatedCostUsd,
-    pricingStatus: row.pricingStatus as 'priced' | 'unpriced',
+    pricingStatus: row.pricingStatus as "priced" | "unpriced",
   }));
 }

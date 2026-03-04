@@ -1,20 +1,23 @@
 /**
  * Approval prompt delivery: rich UI (buttons) with plain-text fallback.
  */
-import type { ChannelId } from '../../channels/types.js';
-import { getLogger } from '../../util/logger.js';
-import type { ApprovalMessageContext } from '../approval-message-composer.js';
-import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
+import type { ChannelId } from "../../channels/types.js";
+import { getLogger } from "../../util/logger.js";
+import type { ApprovalMessageContext } from "../approval-message-composer.js";
+import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
 import type {
   ApprovalUIMetadata,
   ChannelApprovalPrompt,
-} from '../channel-approval-types.js';
-import { channelSupportsRichApprovalUI } from '../channel-approvals.js';
-import { deliverApprovalPrompt,deliverChannelReply } from '../gateway-client.js';
-import type { ApprovalCopyGenerator } from '../http-types.js';
-import { requiredDecisionKeywords } from './channel-route-shared.js';
+} from "../channel-approval-types.js";
+import { channelSupportsRichApprovalUI } from "../channel-approvals.js";
+import {
+  deliverApprovalPrompt,
+  deliverChannelReply,
+} from "../gateway-client.js";
+import type { ApprovalCopyGenerator } from "../http-types.js";
+import { requiredDecisionKeywords } from "./channel-route-shared.js";
 
-const log = getLogger('runtime-http');
+const log = getLogger("runtime-http");
 
 export interface DeliverGeneratedApprovalPromptParams {
   replyCallbackUrl: string;
@@ -34,7 +37,9 @@ export interface DeliverGeneratedApprovalPromptParams {
  * 2) Plain-text fallback if rich delivery fails
  * 3) Plain-text path for channels without rich UI
  */
-export async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApprovalPromptParams): Promise<boolean> {
+export async function deliverGeneratedApprovalPrompt(
+  params: DeliverGeneratedApprovalPromptParams,
+): Promise<boolean> {
   const {
     replyCallbackUrl,
     chatId,
@@ -68,7 +73,7 @@ export async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApp
     } catch (err) {
       log.error(
         { err, chatId, sourceChannel },
-        'Failed to deliver rich approval prompt, attempting plain-text fallback',
+        "Failed to deliver rich approval prompt, attempting plain-text fallback",
       );
     }
 
@@ -83,16 +88,20 @@ export async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApp
     const taggedFallback = `${plainTextFallback}\n[ref:${uiMetadata.requestId}]`;
 
     try {
-      await deliverChannelReply(replyCallbackUrl, {
-        chatId,
-        text: taggedFallback,
-        assistantId,
-      }, bearerToken);
+      await deliverChannelReply(
+        replyCallbackUrl,
+        {
+          chatId,
+          text: taggedFallback,
+          assistantId,
+        },
+        bearerToken,
+      );
       return true;
     } catch (err) {
       log.error(
         { err, chatId, sourceChannel },
-        'Failed to deliver plain-text fallback approval prompt',
+        "Failed to deliver plain-text fallback approval prompt",
       );
       return false;
     }
@@ -108,14 +117,21 @@ export async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApp
   const taggedPlainText = `${plainText}\n[ref:${uiMetadata.requestId}]`;
 
   try {
-    await deliverChannelReply(replyCallbackUrl, {
-      chatId,
-      text: taggedPlainText,
-      assistantId,
-    }, bearerToken);
+    await deliverChannelReply(
+      replyCallbackUrl,
+      {
+        chatId,
+        text: taggedPlainText,
+        assistantId,
+      },
+      bearerToken,
+    );
     return true;
   } catch (err) {
-    log.error({ err, chatId, sourceChannel }, 'Failed to deliver plain-text approval prompt');
+    log.error(
+      { err, chatId, sourceChannel },
+      "Failed to deliver plain-text approval prompt",
+    );
     return false;
   }
 }

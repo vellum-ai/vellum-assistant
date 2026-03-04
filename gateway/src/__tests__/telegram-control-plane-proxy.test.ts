@@ -2,19 +2,23 @@ import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createTelegramControlPlaneProxyHandler } = await import(
-  "../http/routes/telegram-control-plane-proxy.js"
-);
+const { createTelegramControlPlaneProxyHandler } =
+  await import("../http/routes/telegram-control-plane-proxy.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -84,16 +88,24 @@ describe("telegram control-plane proxy", () => {
       new Request("http://localhost:7830/v1/integrations/telegram/config"),
     );
     await handler.handleSetTelegramConfig(
-      new Request("http://localhost:7830/v1/integrations/telegram/config", { method: "POST" }),
+      new Request("http://localhost:7830/v1/integrations/telegram/config", {
+        method: "POST",
+      }),
     );
     await handler.handleClearTelegramConfig(
-      new Request("http://localhost:7830/v1/integrations/telegram/config", { method: "DELETE" }),
+      new Request("http://localhost:7830/v1/integrations/telegram/config", {
+        method: "DELETE",
+      }),
     );
     await handler.handleSetTelegramCommands(
-      new Request("http://localhost:7830/v1/integrations/telegram/commands", { method: "POST" }),
+      new Request("http://localhost:7830/v1/integrations/telegram/commands", {
+        method: "POST",
+      }),
     );
     await handler.handleSetupTelegram(
-      new Request("http://localhost:7830/v1/integrations/telegram/setup", { method: "POST" }),
+      new Request("http://localhost:7830/v1/integrations/telegram/setup", {
+        method: "POST",
+      }),
     );
 
     expect(captured).toEqual([
@@ -107,10 +119,12 @@ describe("telegram control-plane proxy", () => {
 
   test("replaces caller auth with runtime auth", async () => {
     let capturedHeaders: Headers | undefined;
-    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = init?.headers as unknown as Headers;
-      return new Response("ok", { status: 200 });
-    });
+    fetchMock = mock(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
+        return new Response("ok", { status: 200 });
+      },
+    );
 
     const handler = createTelegramControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleSetupTelegram(
@@ -132,19 +146,27 @@ describe("telegram control-plane proxy", () => {
 
   test("passes through upstream client errors", async () => {
     fetchMock = mock(async () => {
-      return new Response(JSON.stringify({ success: false, error: "invalid_bot_token" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: false, error: "invalid_bot_token" }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        },
+      );
     });
 
     const handler = createTelegramControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleSetupTelegram(
-      new Request("http://localhost:7830/v1/integrations/telegram/setup", { method: "POST" }),
+      new Request("http://localhost:7830/v1/integrations/telegram/setup", {
+        method: "POST",
+      }),
     );
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ success: false, error: "invalid_bot_token" });
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "invalid_bot_token",
+    });
   });
 
   test("returns 502 when runtime is unreachable", async () => {

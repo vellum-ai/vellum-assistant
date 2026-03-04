@@ -1,8 +1,8 @@
-import { and, eq,gte, lte } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, eq, gte, lte } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb } from './db.js';
-import { llmRequestLogs } from './schema.js';
+import { getDb } from "./db.js";
+import { llmRequestLogs } from "./schema.js";
 
 export function recordRequestLog(
   conversationId: string,
@@ -10,13 +10,15 @@ export function recordRequestLog(
   responsePayload: string,
 ): void {
   const db = getDb();
-  db.insert(llmRequestLogs).values({
-    id: uuid(),
-    conversationId,
-    requestPayload,
-    responsePayload,
-    createdAt: Date.now(),
-  }).run();
+  db.insert(llmRequestLogs)
+    .values({
+      id: uuid(),
+      conversationId,
+      requestPayload,
+      responsePayload,
+      createdAt: Date.now(),
+    })
+    .run();
 }
 
 export function queryRequestLogs(

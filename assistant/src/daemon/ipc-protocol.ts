@@ -1,10 +1,10 @@
 // Re-export all contract types for backward compatibility
-export * from './ipc-contract.js';
+export * from "./ipc-contract.js";
 
-import { getLogger } from '../util/logger.js';
-import type { ClientMessage, ServerMessage } from './ipc-contract.js';
+import { getLogger } from "../util/logger.js";
+import type { ClientMessage, ServerMessage } from "./ipc-contract.js";
 
-const log = getLogger('ipc-protocol');
+const log = getLogger("ipc-protocol");
 
 // === Serialization ===
 
@@ -18,7 +18,7 @@ const log = getLogger('ipc-protocol');
 export const MAX_LINE_SIZE = 96 * 1024 * 1024;
 
 export function serialize(msg: ClientMessage | ServerMessage): string {
-  return JSON.stringify(msg) + '\n';
+  return JSON.stringify(msg) + "\n";
 }
 
 export interface ParsedMessage<T = ClientMessage | ServerMessage> {
@@ -28,13 +28,13 @@ export interface ParsedMessage<T = ClientMessage | ServerMessage> {
 }
 
 export function createMessageParser(options?: { maxLineSize?: number }) {
-  let buffer = '';
+  let buffer = "";
   const maxLineSize = options?.maxLineSize;
 
   function parseLines(): Array<ParsedMessage> {
-    const lines = buffer.split('\n');
+    const lines = buffer.split("\n");
     // Keep the last partial line in the buffer
-    buffer = lines.pop() ?? '';
+    buffer = lines.pop() ?? "";
     const results: Array<ParsedMessage> = [];
     for (const line of lines) {
       const trimmed = line.trim();
@@ -42,19 +42,29 @@ export function createMessageParser(options?: { maxLineSize?: number }) {
         try {
           const msg = JSON.parse(trimmed);
           const entry: ParsedMessage = { msg };
-          if (typeof msg === 'object' && msg != null && msg.type === 'cu_observation') {
-            entry.rawByteLength = Buffer.byteLength(trimmed, 'utf8');
+          if (
+            typeof msg === "object" &&
+            msg != null &&
+            msg.type === "cu_observation"
+          ) {
+            entry.rawByteLength = Buffer.byteLength(trimmed, "utf8");
           }
           results.push(entry);
         } catch (err) {
           // Log only the error name, not the message — JSON.parse errors embed
           // fragments of the input which could contain sensitive data.
-          log.warn({ lineLength: trimmed.length, errorType: err instanceof Error ? err.name : 'unknown' }, 'Skipping malformed IPC message');
+          log.warn(
+            {
+              lineLength: trimmed.length,
+              errorType: err instanceof Error ? err.name : "unknown",
+            },
+            "Skipping malformed IPC message",
+          );
         }
       }
     }
     if (maxLineSize != null && buffer.length > maxLineSize) {
-      buffer = '';
+      buffer = "";
       throw new Error(
         `IPC message exceeds maximum line size of ${maxLineSize} bytes. Message discarded.`,
       );

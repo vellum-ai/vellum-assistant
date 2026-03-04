@@ -30,9 +30,9 @@
  * filtering, ordering, pagination — use Drizzle.
  */
 
-import type { Database, SQLQueryBindings } from 'bun:sqlite';
+import type { Database, SQLQueryBindings } from "bun:sqlite";
 
-import { type DrizzleDb, getSqlite, getSqliteFrom } from './db-connection.js';
+import { type DrizzleDb, getSqlite, getSqliteFrom } from "./db-connection.js";
 
 type SqlParam = SQLQueryBindings;
 
@@ -42,12 +42,18 @@ type SqlParam = SQLQueryBindings;
 
 /** Execute a raw SQL query and return a single typed row, or null if no match. */
 export function rawGet<T>(sql: string, ...params: SqlParam[]): T | null {
-  return (getSqlite().query(sql).get(...params) as T) ?? null;
+  return (
+    (getSqlite()
+      .query(sql)
+      .get(...params) as T) ?? null
+  );
 }
 
 /** Execute a raw SQL query and return all matching rows with type safety. */
 export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
-  return getSqlite().query(sql).all(...params) as T[];
+  return getSqlite()
+    .query(sql)
+    .all(...params) as T[];
 }
 
 /**
@@ -55,7 +61,9 @@ export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
  * of affected rows.
  */
 export function rawRun(sql: string, ...params: SqlParam[]): number {
-  getSqlite().query(sql).run(...params);
+  getSqlite()
+    .query(sql)
+    .run(...params);
   return rawChanges();
 }
 
@@ -71,7 +79,7 @@ export function rawExec(sql: string): void {
  * returns void and discards the changes count.
  */
 export function rawChanges(): number {
-  return (getSqlite().query('SELECT changes() AS c').get() as { c: number }).c;
+  return (getSqlite().query("SELECT changes() AS c").get() as { c: number }).c;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,23 +90,41 @@ export function rawChanges(): number {
 // ---------------------------------------------------------------------------
 
 /** Execute a raw SQL query against a specific Drizzle instance and return a single typed row. */
-export function rawGetFrom<T>(db: DrizzleDb, sql: string, ...params: SqlParam[]): T | null {
-  return (getSqliteFrom(db).query(sql).get(...params) as T) ?? null;
+export function rawGetFrom<T>(
+  db: DrizzleDb,
+  sql: string,
+  ...params: SqlParam[]
+): T | null {
+  return (
+    (getSqliteFrom(db)
+      .query(sql)
+      .get(...params) as T) ?? null
+  );
 }
 
 /** Execute a raw SQL query against a specific Drizzle instance and return all matching rows. */
-export function rawAllFrom<T>(db: DrizzleDb, sql: string, ...params: SqlParam[]): T[] {
-  return getSqliteFrom(db).query(sql).all(...params) as T[];
+export function rawAllFrom<T>(
+  db: DrizzleDb,
+  sql: string,
+  ...params: SqlParam[]
+): T[] {
+  return getSqliteFrom(db)
+    .query(sql)
+    .all(...params) as T[];
 }
 
 /**
  * Execute a raw SQL statement against a specific Drizzle instance and return
  * affected row count.
  */
-export function rawRunFrom(db: DrizzleDb, sql: string, ...params: SqlParam[]): number {
+export function rawRunFrom(
+  db: DrizzleDb,
+  sql: string,
+  ...params: SqlParam[]
+): number {
   const sqlite = getSqliteFrom(db);
   sqlite.query(sql).run(...params);
-  return (sqlite.query('SELECT changes() AS c').get() as { c: number }).c;
+  return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
 
 /** Execute batch SQL against a specific Drizzle instance. */
@@ -110,11 +136,34 @@ export function rawExecFrom(db: DrizzleDb, sql: string): void {
  * Create a prepared statement from the raw SQLite client.
  * Useful when you need to execute the same parameterized query in a loop.
  */
-export function rawPrepare(sql: string): ReturnType<Database['prepare']> {
+export function rawPrepare(sql: string): ReturnType<Database["prepare"]> {
   return getSqlite().prepare(sql);
 }
 
 /** Create a prepared statement from a specific Drizzle instance. */
-export function rawPrepareFrom(db: DrizzleDb, sql: string): ReturnType<Database['prepare']> {
+export function rawPrepareFrom(
+  db: DrizzleDb,
+  sql: string,
+): ReturnType<Database["prepare"]> {
   return getSqliteFrom(db).prepare(sql);
+}
+
+/**
+ * Delete all rows from the given tables in a single transaction.
+ *
+ * Without an explicit transaction, each DELETE is auto-committed with its own
+ * fsync. Batching them saves ~10-20ms per DELETE statement — significant in
+ * test files that clear 10-15 tables in every `beforeEach`.
+ */
+export function resetTestTables(...tables: string[]): void {
+  const sqlite = getSqlite();
+  const deletes = tables.map((t) => `DELETE FROM "${t}"`).join(";\n");
+  sqlite.exec("BEGIN");
+  try {
+    sqlite.exec(deletes);
+    sqlite.exec("COMMIT");
+  } catch (e) {
+    sqlite.exec("ROLLBACK");
+    throw e;
+  }
 }

@@ -5,7 +5,7 @@
  * and implements the MessagingProvider interface.
  */
 
-import type { MessagingProvider } from '../../provider.js';
+import type { MessagingProvider } from "../../provider.js";
 import type {
   ArchiveResult,
   ConnectionInfo,
@@ -19,23 +19,24 @@ import type {
   SenderDigestResult,
   SendOptions,
   SendResult,
-} from '../../provider-types.js';
-import * as gmail from './client.js';
-import type { GmailMessage, GmailMessagePart } from './types.js';
+} from "../../provider-types.js";
+import * as gmail from "./client.js";
+import type { GmailMessage, GmailMessagePart } from "./types.js";
 
 function extractHeader(msg: GmailMessage, name: string): string {
   const lower = name.toLowerCase();
-  return msg.payload?.headers?.find(
-    (h) => h.name.toLowerCase() === lower,
-  )?.value ?? '';
+  return (
+    msg.payload?.headers?.find((h) => h.name.toLowerCase() === lower)?.value ??
+    ""
+  );
 }
 
 function extractPlainTextBody(msg: GmailMessage): string {
-  if (!msg.payload) return '';
+  if (!msg.payload) return "";
 
   function walkParts(part: GmailMessagePart): string | null {
-    if (part.mimeType === 'text/plain' && part.body?.data) {
-      return Buffer.from(part.body.data, 'base64url').toString('utf-8');
+    if (part.mimeType === "text/plain" && part.body?.data) {
+      return Buffer.from(part.body.data, "base64url").toString("utf-8");
     }
     if (part.parts) {
       for (const child of part.parts) {
@@ -46,27 +47,33 @@ function extractPlainTextBody(msg: GmailMessage): string {
     return null;
   }
 
-  return walkParts(msg.payload) ?? msg.snippet ?? '';
+  return walkParts(msg.payload) ?? msg.snippet ?? "";
 }
 
 function mapGmailMessage(msg: GmailMessage): Message {
-  const from = extractHeader(msg, 'From');
-  const subject = extractHeader(msg, 'Subject');
+  const from = extractHeader(msg, "From");
+  const subject = extractHeader(msg, "Subject");
 
   // Parse sender name/email from "Name <email>" format
   const emailMatch = from.match(/<([^>]+)>/);
   const senderEmail = emailMatch?.[1] ?? from;
-  const senderName = emailMatch ? from.replace(/<[^>]+>/, '').trim() : from;
+  const senderName = emailMatch ? from.replace(/<[^>]+>/, "").trim() : from;
 
   return {
     id: msg.id,
     conversationId: msg.threadId,
-    sender: { id: senderEmail, name: senderName || senderEmail, email: senderEmail },
+    sender: {
+      id: senderEmail,
+      name: senderName || senderEmail,
+      email: senderEmail,
+    },
     text: extractPlainTextBody(msg),
     timestamp: msg.internalDate ? parseInt(msg.internalDate, 10) : Date.now(),
     threadId: msg.threadId,
-    platform: 'gmail',
-    hasAttachments: msg.payload?.parts?.some((p) => p.filename && p.filename.length > 0) ?? false,
+    platform: "gmail",
+    hasAttachments:
+      msg.payload?.parts?.some((p) => p.filename && p.filename.length > 0) ??
+      false,
     metadata: {
       subject,
       labelIds: msg.labelIds,
@@ -76,17 +83,23 @@ function mapGmailMessage(msg: GmailMessage): Message {
 }
 
 export const gmailMessagingProvider: MessagingProvider = {
-  id: 'gmail',
-  displayName: 'Gmail',
-  credentialService: 'integration:gmail',
-  capabilities: new Set(['threads', 'labels', 'drafts_native', 'archive', 'unsubscribe']),
+  id: "gmail",
+  displayName: "Gmail",
+  credentialService: "integration:gmail",
+  capabilities: new Set([
+    "threads",
+    "labels",
+    "drafts_native",
+    "archive",
+    "unsubscribe",
+  ]),
 
   async testConnection(token: string): Promise<ConnectionInfo> {
     const profile = await gmail.getProfile(token);
     return {
       connected: true,
       user: profile.emailAddress,
-      platform: 'gmail',
+      platform: "gmail",
       metadata: {
         messagesTotal: profile.messagesTotal,
         threadsTotal: profile.threadsTotal,
@@ -94,22 +107,36 @@ export const gmailMessagingProvider: MessagingProvider = {
     };
   },
 
-  async listConversations(token: string, _options?: ListOptions): Promise<Conversation[]> {
+  async listConversations(
+    token: string,
+    _options?: ListOptions,
+  ): Promise<Conversation[]> {
     // Gmail "conversations" are modeled as labels with unread counts
     const labels = await gmail.listLabels(token);
     const conversations: Conversation[] = [];
 
     for (const label of labels) {
       // Only include meaningful labels
-      if (label.type === 'system' && !['INBOX', 'STARRED', 'IMPORTANT', 'SENT', 'DRAFT', 'SPAM', 'TRASH'].includes(label.id)) {
+      if (
+        label.type === "system" &&
+        ![
+          "INBOX",
+          "STARRED",
+          "IMPORTANT",
+          "SENT",
+          "DRAFT",
+          "SPAM",
+          "TRASH",
+        ].includes(label.id)
+      ) {
         continue;
       }
 
       conversations.push({
         id: label.id,
         name: label.name,
-        type: 'inbox',
-        platform: 'gmail',
+        type: "inbox",
+        platform: "gmail",
         unreadCount: label.messagesUnread ?? 0,
         lastActivityAt: Date.now(), // Gmail labels don't track last activity
         metadata: {
@@ -123,23 +150,37 @@ export const gmailMessagingProvider: MessagingProvider = {
     return conversations;
   },
 
-  async getHistory(token: string, conversationId: string, options?: HistoryOptions): Promise<Message[]> {
+  async getHistory(
+    token: string,
+    conversationId: string,
+    options?: HistoryOptions,
+  ): Promise<Message[]> {
     // conversationId is a label ID — list messages in that label
     const limit = options?.limit ?? 50;
-    const listResult = await gmail.listMessages(token, undefined, limit, undefined, [conversationId]);
+    const listResult = await gmail.listMessages(
+      token,
+      undefined,
+      limit,
+      undefined,
+      [conversationId],
+    );
 
     if (!listResult.messages?.length) return [];
 
     const messages = await gmail.batchGetMessages(
       token,
       listResult.messages.map((m) => m.id),
-      'full',
+      "full",
     );
 
     return messages.map(mapGmailMessage);
   },
 
-  async search(token: string, query: string, options?: SearchOptions): Promise<SearchResult> {
+  async search(
+    token: string,
+    query: string,
+    options?: SearchOptions,
+  ): Promise<SearchResult> {
     const count = options?.count ?? 20;
     const listResult = await gmail.listMessages(token, query, count);
 
@@ -150,7 +191,7 @@ export const gmailMessagingProvider: MessagingProvider = {
     const messages = await gmail.batchGetMessages(
       token,
       listResult.messages.map((m) => m.id),
-      'full',
+      "full",
     );
 
     return {
@@ -161,11 +202,23 @@ export const gmailMessagingProvider: MessagingProvider = {
     };
   },
 
-  async sendMessage(token: string, conversationId: string, text: string, options?: SendOptions): Promise<SendResult> {
+  async sendMessage(
+    token: string,
+    conversationId: string,
+    text: string,
+    options?: SendOptions,
+  ): Promise<SendResult> {
     // conversationId is the recipient email for Gmail
     const to = conversationId;
-    const subject = options?.subject ?? '';
-    const msg = await gmail.sendMessage(token, to, subject, text, options?.inReplyTo, options?.threadId);
+    const subject = options?.subject ?? "";
+    const msg = await gmail.sendMessage(
+      token,
+      to,
+      subject,
+      text,
+      options?.inReplyTo,
+      options?.threadId,
+    );
     return {
       id: msg.id,
       timestamp: msg.internalDate ? parseInt(msg.internalDate, 10) : Date.now(),
@@ -174,28 +227,45 @@ export const gmailMessagingProvider: MessagingProvider = {
     };
   },
 
-  async getThreadReplies(token: string, _conversationId: string, threadId: string, options?: HistoryOptions): Promise<Message[]> {
+  async getThreadReplies(
+    token: string,
+    _conversationId: string,
+    threadId: string,
+    options?: HistoryOptions,
+  ): Promise<Message[]> {
     // Get all messages in a Gmail thread
     const limit = options?.limit ?? 50;
-    const listResult = await gmail.listMessages(token, `thread:${threadId}`, limit);
+    const listResult = await gmail.listMessages(
+      token,
+      `thread:${threadId}`,
+      limit,
+    );
 
     if (!listResult.messages?.length) return [];
 
     const messages = await gmail.batchGetMessages(
       token,
       listResult.messages.map((m) => m.id),
-      'full',
+      "full",
     );
 
     return messages.map(mapGmailMessage);
   },
 
-  async markRead(token: string, _conversationId: string, messageId?: string): Promise<void> {
+  async markRead(
+    token: string,
+    _conversationId: string,
+    messageId?: string,
+  ): Promise<void> {
     if (!messageId) return;
-    await gmail.modifyMessage(token, messageId, { removeLabelIds: ['UNREAD'] });
+    await gmail.modifyMessage(token, messageId, { removeLabelIds: ["UNREAD"] });
   },
 
-  async senderDigest(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number; pageToken?: string }): Promise<SenderDigestResult> {
+  async senderDigest(
+    token: string,
+    query: string,
+    options?: { maxMessages?: number; maxSenders?: number; pageToken?: string },
+  ): Promise<SenderDigestResult> {
     const maxMessages = Math.min(options?.maxMessages ?? 5000, 5000);
     const maxSenders = options?.maxSenders ?? 30;
     const maxIdsPerSender = 5000;
@@ -204,7 +274,7 @@ export const gmailMessagingProvider: MessagingProvider = {
     const fetchPromises: Promise<GmailMessage[]>[] = [];
     let pageToken: string | undefined = options?.pageToken;
     let truncated = false;
-    const metadataHeaders = ['From', 'List-Unsubscribe'];
+    const metadataHeaders = ["From", "List-Unsubscribe"];
     const startTime = Date.now();
     const TIME_BUDGET_MS = 90_000;
 
@@ -214,11 +284,24 @@ export const gmailMessagingProvider: MessagingProvider = {
         break;
       }
       const pageSize = Math.min(100, maxMessages - allMessageIds.length);
-      const listResp = await gmail.listMessages(token, query, pageSize, pageToken);
+      const listResp = await gmail.listMessages(
+        token,
+        query,
+        pageSize,
+        pageToken,
+      );
       const ids = (listResp.messages ?? []).map((m) => m.id);
       if (ids.length === 0) break;
       allMessageIds.push(...ids);
-      fetchPromises.push(gmail.batchGetMessages(token, ids, 'metadata', metadataHeaders, 'id,internalDate,payload/headers'));
+      fetchPromises.push(
+        gmail.batchGetMessages(
+          token,
+          ids,
+          "metadata",
+          metadataHeaders,
+          "id,internalDate,payload/headers",
+        ),
+      );
       pageToken = listResp.nextPageToken ?? undefined;
       if (!pageToken) break;
     }
@@ -234,29 +317,50 @@ export const gmailMessagingProvider: MessagingProvider = {
 
     const messages = (await Promise.all(fetchPromises)).flat();
 
-    const senderMap = new Map<string, {
-      displayName: string; email: string; messageCount: number;
-      hasUnsubscribe: boolean; newestMessageId: string;
-      newestUnsubscribableMessageId: string | null; newestUnsubscribableEpoch: number;
-      messageIds: string[]; hasMore: boolean;
-    }>();
+    const senderMap = new Map<
+      string,
+      {
+        displayName: string;
+        email: string;
+        messageCount: number;
+        hasUnsubscribe: boolean;
+        newestMessageId: string;
+        newestUnsubscribableMessageId: string | null;
+        newestUnsubscribableEpoch: number;
+        messageIds: string[];
+        hasMore: boolean;
+      }
+    >();
 
     for (const msg of messages) {
       const headers = msg.payload?.headers ?? [];
-      const fromHeader = headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
-      const listUnsub = headers.find((h) => h.name.toLowerCase() === 'list-unsubscribe')?.value;
+      const fromHeader =
+        headers.find((h) => h.name.toLowerCase() === "from")?.value ?? "";
+      const listUnsub = headers.find(
+        (h) => h.name.toLowerCase() === "list-unsubscribe",
+      )?.value;
 
       const match = fromHeader.match(/^(.+?)\s*<([^>]+)>$/);
-      const email = match ? match[2].toLowerCase() : fromHeader.trim().toLowerCase();
-      const displayName = match ? match[1].replace(/^["']|["']$/g, '').trim() : '';
+      const email = match
+        ? match[2].toLowerCase()
+        : fromHeader.trim().toLowerCase();
+      const displayName = match
+        ? match[1].replace(/^["']|["']$/g, "").trim()
+        : "";
       if (!email) continue;
 
       let agg = senderMap.get(email);
       if (!agg) {
         agg = {
-          displayName, email, messageCount: 0, hasUnsubscribe: false,
-          newestMessageId: msg.id, newestUnsubscribableMessageId: null,
-          newestUnsubscribableEpoch: 0, messageIds: [], hasMore: false,
+          displayName,
+          email,
+          messageCount: 0,
+          hasUnsubscribe: false,
+          newestMessageId: msg.id,
+          newestUnsubscribableMessageId: null,
+          newestUnsubscribableEpoch: 0,
+          messageIds: [],
+          hasMore: false,
         };
         senderMap.set(email, agg);
       }
@@ -283,20 +387,26 @@ export const gmailMessagingProvider: MessagingProvider = {
       .slice(0, maxSenders);
 
     const senders: SenderDigestEntry[] = sorted.map((s) => ({
-      id: Buffer.from(s.email).toString('base64url'),
-      displayName: s.displayName || s.email.split('@')[0],
+      id: Buffer.from(s.email).toString("base64url"),
+      displayName: s.displayName || s.email.split("@")[0],
       email: s.email,
       messageCount: s.messageCount,
       hasUnsubscribe: s.hasUnsubscribe,
-      newestMessageId: (s.hasUnsubscribe && s.newestUnsubscribableMessageId)
-        ? s.newestUnsubscribableMessageId
-        : s.newestMessageId,
+      newestMessageId:
+        s.hasUnsubscribe && s.newestUnsubscribableMessageId
+          ? s.newestUnsubscribableMessageId
+          : s.newestMessageId,
       searchQuery: `from:${s.email} ${query}`,
       messageIds: s.messageIds,
       hasMore: s.hasMore,
     }));
 
-    return { senders, totalScanned: allMessageIds.length, queryUsed: query, ...(truncated ? { truncated } : {}) };
+    return {
+      senders,
+      totalScanned: allMessageIds.length,
+      queryUsed: query,
+      ...(truncated ? { truncated } : {}),
+    };
   },
 
   async archiveByQuery(token: string, query: string): Promise<ArchiveResult> {
@@ -308,7 +418,12 @@ export const gmailMessagingProvider: MessagingProvider = {
     let truncated = false;
 
     while (allMessageIds.length < maxMessages) {
-      const listResp = await gmail.listMessages(token, query, Math.min(500, maxMessages - allMessageIds.length), pageToken);
+      const listResp = await gmail.listMessages(
+        token,
+        query,
+        Math.min(500, maxMessages - allMessageIds.length),
+        pageToken,
+      );
       const ids = (listResp.messages ?? []).map((m) => m.id);
       if (ids.length === 0) break;
       allMessageIds.push(...ids);
@@ -326,7 +441,9 @@ export const gmailMessagingProvider: MessagingProvider = {
 
     for (let i = 0; i < allMessageIds.length; i += batchModifyLimit) {
       const chunk = allMessageIds.slice(i, i + batchModifyLimit);
-      await gmail.batchModifyMessages(token, chunk, { removeLabelIds: ['INBOX'] });
+      await gmail.batchModifyMessages(token, chunk, {
+        removeLabelIds: ["INBOX"],
+      });
     }
 
     return { archived: allMessageIds.length, truncated };

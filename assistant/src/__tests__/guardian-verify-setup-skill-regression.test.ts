@@ -49,13 +49,13 @@ describe("guardian-verify-setup skill — voice auto-followup", () => {
     expect(skillContent).toContain("## Voice Auto-Check Polling");
   });
 
-  test("polling section specifies the correct status endpoint for voice", () => {
+  test("polling section specifies the correct status command for voice", () => {
     const pollingSection =
       skillContent
         .split("## Voice Auto-Check Polling")[1]
         ?.split("## Step 6")[0] ?? "";
     expect(pollingSection).toContain(
-      "/v1/integrations/guardian/status?channel=voice",
+      "vellum integrations guardian status --channel voice --json",
     );
   });
 

@@ -11,23 +11,26 @@
  * touching the core decision primitive.
  */
 
-import { answerCall } from '../calls/call-domain.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { type CanonicalGuardianRequest,getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
-import { upsertMemberContactsFirst } from '../contacts/contacts-write.js';
-import { emitNotificationSignal } from '../notifications/emit-signal.js';
-import { addRule } from '../permissions/trust-store.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { mintDaemonDeliveryToken } from '../runtime/auth/token-service.js';
-import type { ApprovalAction } from '../runtime/channel-approval-types.js';
-import { createOutboundSession } from '../runtime/channel-guardian-service.js';
-import { deliverChannelReply } from '../runtime/gateway-client.js';
-import * as pendingInteractions from '../runtime/pending-interactions.js';
-import { getTool } from '../tools/registry.js';
-import { TC_GRANT_WAIT_MAX_MS } from '../tools/tool-approval-handler.js';
-import { getLogger } from '../util/logger.js';
+import { answerCall } from "../calls/call-domain.js";
+import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
+import {
+  type CanonicalGuardianRequest,
+  getCanonicalGuardianRequest,
+} from "../memory/canonical-guardian-store.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { addRule } from "../permissions/trust-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
+import type { ApprovalAction } from "../runtime/channel-approval-types.js";
+import { createOutboundSession } from "../runtime/channel-guardian-service.js";
+import { deliverChannelReply } from "../runtime/gateway-client.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { getTool } from "../tools/registry.js";
+import { TC_GRANT_WAIT_MAX_MS } from "../tools/tool-approval-handler.js";
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('guardian-request-resolvers');
+const log = getLogger("guardian-request-resolvers");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,7 +72,7 @@ export interface ChannelDeliveryContext {
 
 /** Emission context threaded from callers to handleConfirmationResponse. */
 export interface ResolverEmissionContext {
-  source?: 'button' | 'inline_nl' | 'auto_deny' | 'timeout' | 'system';
+  source?: "button" | "inline_nl" | "auto_deny" | "timeout" | "system";
   causedByRequestId?: string;
   decisionText?: string;
 }
@@ -90,15 +93,20 @@ export interface ResolverContext {
 
 /** Discriminated result from a resolver. */
 export type ResolverResult =
-  | { ok: true; applied: true; grantMinted?: boolean; guardianReplyText?: string }
+  | {
+      ok: true;
+      applied: true;
+      grantMinted?: boolean;
+      guardianReplyText?: string;
+    }
   | { ok: false; reason: string };
 
 function resolveDeliverCallbackUrlForChannel(channel: string): string | null {
   switch (channel) {
-    case 'telegram':
-    case 'sms':
-    case 'whatsapp':
-    case 'slack':
+    case "telegram":
+    case "sms":
+    case "whatsapp":
+    case "slack":
       return `${getGatewayInternalBaseUrl()}/deliver/${channel}`;
     default:
       return null;
@@ -129,13 +137,16 @@ export interface GuardianRequestResolver {
  * request shape is appropriate for tool_approval handling.
  */
 const pendingInteractionResolver: GuardianRequestResolver = {
-  kind: 'tool_approval',
+  kind: "tool_approval",
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision } = ctx;
 
     if (!request.conversationId) {
-      return { ok: false, reason: 'tool_approval request missing conversationId' };
+      return {
+        ok: false,
+        reason: "tool_approval request missing conversationId",
+      };
     }
 
     // Look up the pending interaction directly by requestId.
@@ -146,21 +157,24 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       // means the interaction was resolved by another path (e.g. timeout).
       log.warn(
         {
-          event: 'resolver_tool_approval_stale',
+          event: "resolver_tool_approval_stale",
           requestId: request.id,
           conversationId: request.conversationId,
         },
-        'Tool approval resolver: pending interaction not found (already consumed or timed out)',
+        "Tool approval resolver: pending interaction not found (already consumed or timed out)",
       );
-      return { ok: false, reason: 'pending_interaction_not_found' };
+      return { ok: false, reason: "pending_interaction_not_found" };
     }
 
     // Handle approve_always: persist a trust rule when the confirmation
     // explicitly allows persistence and provides explicit options.
-    if (decision.action === 'approve_always' || decision.action === 'approve_once') {
+    if (
+      decision.action === "approve_always" ||
+      decision.action === "approve_once"
+    ) {
       const details = interaction.confirmationDetails;
       if (
-        decision.action === 'approve_always' &&
+        decision.action === "approve_always" &&
         details &&
         details.persistentDecisionsAllowed !== false &&
         details.allowlistOptions?.length
@@ -169,10 +183,15 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         // Non-scoped tools (web_fetch, network_request, etc.) have empty
         // scopeOptions — default to 'everywhere' so approve_always still
         // persists a trust rule instead of silently degrading to one-time.
-        const scope = details.scopeOptions?.length ? details.scopeOptions[0].scope : 'everywhere';
+        const scope = details.scopeOptions?.length
+          ? details.scopeOptions[0].scope
+          : "everywhere";
         const tool = getTool(details.toolName);
-        const executionTarget = tool?.origin === 'skill' ? details.executionTarget : undefined;
-        addRule(details.toolName, pattern, scope, 'allow', 100, { executionTarget });
+        const executionTarget =
+          tool?.origin === "skill" ? details.executionTarget : undefined;
+        addRule(details.toolName, pattern, scope, "allow", 100, {
+          executionTarget,
+        });
       }
     }
 
@@ -182,27 +201,35 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       // Race condition: interaction was consumed between get() and resolve().
       log.warn(
         {
-          event: 'resolver_tool_approval_resolve_race',
+          event: "resolver_tool_approval_resolve_race",
           requestId: request.id,
         },
-        'Tool approval resolver: pending interaction consumed between lookup and resolve',
+        "Tool approval resolver: pending interaction consumed between lookup and resolve",
       );
-      return { ok: false, reason: 'pending_interaction_race' };
+      return { ok: false, reason: "pending_interaction_race" };
     }
 
     // Map action to the permission system's UserDecision type and notify session.
-    const userDecision = decision.action === 'reject' ? 'deny' as const : 'allow' as const;
-    resolved.session.handleConfirmationResponse(request.id, userDecision, undefined, undefined, undefined, ctx.emissionContext);
+    const userDecision =
+      decision.action === "reject" ? ("deny" as const) : ("allow" as const);
+    resolved.session.handleConfirmationResponse(
+      request.id,
+      userDecision,
+      undefined,
+      undefined,
+      undefined,
+      ctx.emissionContext,
+    );
 
     log.info(
       {
-        event: 'resolver_tool_approval_applied',
+        event: "resolver_tool_approval_applied",
         requestId: request.id,
         action: decision.action,
         conversationId: request.conversationId,
         toolName: request.toolName,
       },
-      'Tool approval resolver: pending interaction resolved',
+      "Tool approval resolver: pending interaction resolved",
     );
 
     return { ok: true, applied: true };
@@ -221,24 +248,30 @@ const pendingInteractionResolver: GuardianRequestResolver = {
  * records the resolution.
  */
 const pendingQuestionResolver: GuardianRequestResolver = {
-  kind: 'pending_question',
+  kind: "pending_question",
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, actor: _actor } = ctx;
 
     if (!request.callSessionId) {
-      return { ok: false, reason: 'pending_question request missing callSessionId' };
+      return {
+        ok: false,
+        reason: "pending_question request missing callSessionId",
+      };
     }
 
     if (!request.pendingQuestionId) {
-      return { ok: false, reason: 'pending_question request missing pendingQuestionId' };
+      return {
+        ok: false,
+        reason: "pending_question request missing pendingQuestionId",
+      };
     }
 
     // Derive the answer text from the decision. For approve actions, use the
     // guardian's text if present; otherwise use a default affirmative answer.
     // For reject, use the text or a default denial.
-    const answerText = decision.userText
-      ?? (decision.action === 'reject' ? 'No' : 'Yes');
+    const answerText =
+      decision.userText ?? (decision.action === "reject" ? "No" : "Yes");
 
     // 1. Deliver the answer to the voice call session.
     const answerResult = await answerCall({
@@ -247,34 +280,38 @@ const pendingQuestionResolver: GuardianRequestResolver = {
       pendingQuestionId: request.pendingQuestionId,
     });
 
-    if (!('ok' in answerResult) || !answerResult.ok) {
-      const errorMsg = 'error' in answerResult ? answerResult.error : 'Unknown error';
+    if (!("ok" in answerResult) || !answerResult.ok) {
+      const errorMsg =
+        "error" in answerResult ? answerResult.error : "Unknown error";
       log.warn(
         {
-          event: 'resolver_pending_question_answer_failed',
+          event: "resolver_pending_question_answer_failed",
           requestId: request.id,
           callSessionId: request.callSessionId,
           error: errorMsg,
         },
-        'Pending question resolver: answerCall failed',
+        "Pending question resolver: answerCall failed",
       );
       // The canonical CAS has already committed so we don't roll back the
       // resolution, but we signal failure so the decision primitive skips
       // grant minting and callers see the side-effect failure.
-      return { ok: false, reason: 'answer_call_failed' };
+      return { ok: false, reason: "answer_call_failed" };
     }
 
     log.info(
       {
-        event: 'resolver_pending_question_applied',
+        event: "resolver_pending_question_applied",
         requestId: request.id,
         action: decision.action,
         callSessionId: request.callSessionId,
         pendingQuestionId: request.pendingQuestionId,
         answerText,
-        answerCallOk: 'ok' in (answerResult as Record<string, unknown>) ? (answerResult as Record<string, unknown>).ok : false,
+        answerCallOk:
+          "ok" in (answerResult as Record<string, unknown>)
+            ? (answerResult as Record<string, unknown>).ok
+            : false,
       },
-      'Pending question resolver: canonical decision applied',
+      "Pending question resolver: canonical decision applied",
     );
 
     return { ok: true, applied: true };
@@ -302,35 +339,44 @@ const pendingQuestionResolver: GuardianRequestResolver = {
  * channelDeliveryContext is available.
  */
 const accessRequestResolver: GuardianRequestResolver = {
-  kind: 'access_request',
+  kind: "access_request",
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
-    const channel = request.sourceChannel ?? 'unknown';
-    const requesterExternalUserId = request.requesterExternalUserId ?? '';
-    const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
-    const requesterLabel = requesterExternalUserId || requesterChatId || 'the requester';
-    const decidedByExternalUserId = ctx.actor.externalUserId ?? '';
+    const channel = request.sourceChannel ?? "unknown";
+    const requesterExternalUserId = request.requesterExternalUserId ?? "";
+    const requesterChatId =
+      request.requesterChatId ?? request.requesterExternalUserId ?? "";
+    const requesterLabel =
+      requesterExternalUserId || requesterChatId || "the requester";
+    const decidedByExternalUserId = ctx.actor.externalUserId ?? "";
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
     const desktopBearerToken = mintDaemonDeliveryToken();
 
-    if (decision.action === 'reject') {
+    if (decision.action === "reject") {
       log.info(
-        { event: 'resolver_access_request_denied', requestId: request.id },
-        'Access request resolver: deny',
+        { event: "resolver_access_request_denied", requestId: request.id },
+        "Access request resolver: deny",
       );
 
       // Deliver denial notification and lifecycle signals when channel context is available
       if (channelDeliveryContext) {
         try {
-          await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
-            chatId: requesterChatId,
-            text: 'Your access request has been denied by the guardian.',
-            assistantId,
-          }, channelDeliveryContext.bearerToken);
+          await deliverChannelReply(
+            channelDeliveryContext.replyCallbackUrl,
+            {
+              chatId: requesterChatId,
+              text: "Your access request has been denied by the guardian.",
+              assistantId,
+            },
+            channelDeliveryContext.bearerToken,
+          );
         } catch (err) {
-          log.error({ err, requesterChatId }, 'Failed to notify requester of access request denial');
+          log.error(
+            { err, requesterChatId },
+            "Failed to notify requester of access request denial",
+          );
         }
 
         const deniedPayload = {
@@ -338,17 +384,17 @@ const accessRequestResolver: GuardianRequestResolver = {
           requesterExternalUserId,
           requesterChatId,
           decidedByExternalUserId,
-          decision: 'denied' as const,
+          decision: "denied" as const,
         };
 
         void emitNotificationSignal({
-          sourceEventName: 'ingress.trusted_contact.guardian_decision',
+          sourceEventName: "ingress.trusted_contact.guardian_decision",
           sourceChannel: channel,
-          sourceSessionId: request.conversationId ?? '',
+          sourceSessionId: request.conversationId ?? "",
           assistantId,
           attentionHints: {
             requiresAction: false,
-            urgency: 'medium',
+            urgency: "medium",
             isAsyncBackground: false,
             visibleInSourceNow: false,
           },
@@ -357,13 +403,13 @@ const accessRequestResolver: GuardianRequestResolver = {
         });
 
         void emitNotificationSignal({
-          sourceEventName: 'ingress.trusted_contact.denied',
+          sourceEventName: "ingress.trusted_contact.denied",
           sourceChannel: channel,
-          sourceSessionId: request.conversationId ?? '',
+          sourceSessionId: request.conversationId ?? "",
           assistantId,
           attentionHints: {
             requiresAction: false,
-            urgency: 'low',
+            urgency: "low",
             isAsyncBackground: false,
             visibleInSourceNow: false,
           },
@@ -372,13 +418,20 @@ const accessRequestResolver: GuardianRequestResolver = {
         });
       } else if (desktopDeliverUrl && requesterChatId) {
         try {
-          await deliverChannelReply(desktopDeliverUrl, {
-            chatId: requesterChatId,
-            text: 'Your access request has been denied by the guardian.',
-            assistantId,
-          }, desktopBearerToken);
+          await deliverChannelReply(
+            desktopDeliverUrl,
+            {
+              chatId: requesterChatId,
+              text: "Your access request has been denied by the guardian.",
+              assistantId,
+            },
+            desktopBearerToken,
+          );
         } catch (err) {
-          log.error({ err, requesterChatId }, 'Failed to notify requester of access request denial (desktop decision path)');
+          log.error(
+            { err, requesterChatId },
+            "Failed to notify requester of access request denial (desktop decision path)",
+          );
         }
       }
 
@@ -387,38 +440,40 @@ const accessRequestResolver: GuardianRequestResolver = {
         applied: true,
         // Desktop actors (vellum channel) receive inline reply text; channel
         // actors get replies delivered via the channel delivery context.
-        ...(ctx.actor.channel === 'vellum' ? { guardianReplyText: `Access denied for ${requesterLabel}.` } : {}),
+        ...(ctx.actor.channel === "vellum"
+          ? { guardianReplyText: `Access denied for ${requesterLabel}.` }
+          : {}),
       };
     }
 
     // Voice approvals: directly activate the trusted contact without minting
     // a verification session. The caller is already on the line and the
     // relay server's in-call wait loop will detect the approved status.
-    if (channel === 'voice') {
+    if (channel === "voice") {
       try {
         upsertMemberContactsFirst({
           assistantId,
-          sourceChannel: 'voice',
+          sourceChannel: "voice",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,
-          status: 'active',
-          policy: 'allow',
+          status: "active",
+          policy: "allow",
         });
       } catch (err) {
         log.error(
           { err, requesterExternalUserId },
-          'Access request resolver: failed to activate voice caller as trusted contact',
+          "Access request resolver: failed to activate voice caller as trusted contact",
         );
       }
 
       log.info(
         {
-          event: 'resolver_access_request_voice_approved',
+          event: "resolver_access_request_voice_approved",
           requestId: request.id,
           channel,
           requesterExternalUserId,
         },
-        'Access request resolver: voice approval — direct trusted-contact activation (no verification session)',
+        "Access request resolver: voice approval — direct trusted-contact activation (no verification session)",
       );
 
       return { ok: true, applied: true };
@@ -431,20 +486,20 @@ const accessRequestResolver: GuardianRequestResolver = {
       channel,
       expectedExternalUserId: requesterExternalUserId,
       expectedChatId: requesterChatId,
-      identityBindingStatus: 'bound',
+      identityBindingStatus: "bound",
       destinationAddress: requesterChatId,
-      verificationPurpose: 'trusted_contact',
+      verificationPurpose: "trusted_contact",
     });
 
     log.info(
       {
-        event: 'resolver_access_request_approved',
+        event: "resolver_access_request_approved",
         requestId: request.id,
         verificationSessionId: session.sessionId,
         channel,
         requesterExternalUserId,
       },
-      'Access request resolver: minted verification session',
+      "Access request resolver: minted verification session",
     );
 
     // Deliver the verification code to the guardian and notify the requester
@@ -455,18 +510,23 @@ const accessRequestResolver: GuardianRequestResolver = {
 
       // Deliver verification code to guardian
       try {
-        const codeText = `You approved access for ${requesterExternalUserId}. `
-          + `Give them this verification code: ${session.secret}. `
-          + `The code expires in 10 minutes.`;
-        await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
-          chatId: channelDeliveryContext.guardianChatId,
-          text: codeText,
-          assistantId,
-        }, channelDeliveryContext.bearerToken);
+        const codeText =
+          `You approved access for ${requesterExternalUserId}. ` +
+          `Give them this verification code: ${session.secret}. ` +
+          `The code expires in 10 minutes.`;
+        await deliverChannelReply(
+          channelDeliveryContext.replyCallbackUrl,
+          {
+            chatId: channelDeliveryContext.guardianChatId,
+            text: codeText,
+            assistantId,
+          },
+          channelDeliveryContext.bearerToken,
+        );
       } catch (err) {
         log.error(
           { err, guardianChatId: channelDeliveryContext.guardianChatId },
-          'Failed to deliver verification code to guardian',
+          "Failed to deliver verification code to guardian",
         );
         codeDelivered = false;
       }
@@ -474,26 +534,42 @@ const accessRequestResolver: GuardianRequestResolver = {
       // Notify the requester
       if (codeDelivered) {
         try {
-          await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
-            chatId: requesterChatId,
-            text: 'Your access request has been approved! '
-              + 'Please enter the 6-digit verification code you receive from the guardian.',
-            assistantId,
-          }, channelDeliveryContext.bearerToken);
+          await deliverChannelReply(
+            channelDeliveryContext.replyCallbackUrl,
+            {
+              chatId: requesterChatId,
+              text:
+                "Your access request has been approved! " +
+                "Please enter the 6-digit verification code you receive from the guardian.",
+              assistantId,
+            },
+            channelDeliveryContext.bearerToken,
+          );
           requesterNotified = true;
         } catch (err) {
-          log.error({ err, requesterChatId }, 'Failed to notify requester of access request approval');
+          log.error(
+            { err, requesterChatId },
+            "Failed to notify requester of access request approval",
+          );
         }
       } else {
         try {
-          await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
-            chatId: requesterChatId,
-            text: 'Your access request was approved, but we were unable to '
-              + 'deliver the verification code. Please try again later.',
-            assistantId,
-          }, channelDeliveryContext.bearerToken);
+          await deliverChannelReply(
+            channelDeliveryContext.replyCallbackUrl,
+            {
+              chatId: requesterChatId,
+              text:
+                "Your access request was approved, but we were unable to " +
+                "deliver the verification code. Please try again later.",
+              assistantId,
+            },
+            channelDeliveryContext.bearerToken,
+          );
         } catch (err) {
-          log.error({ err, requesterChatId }, 'Failed to notify requester of delivery failure');
+          log.error(
+            { err, requesterChatId },
+            "Failed to notify requester of delivery failure",
+          );
         }
       }
 
@@ -501,13 +577,13 @@ const accessRequestResolver: GuardianRequestResolver = {
       // pipeline suppresses delivery — the guardian already received the code.
       if (codeDelivered) {
         void emitNotificationSignal({
-          sourceEventName: 'ingress.trusted_contact.verification_sent',
+          sourceEventName: "ingress.trusted_contact.verification_sent",
           sourceChannel: channel,
-          sourceSessionId: request.conversationId ?? '',
+          sourceSessionId: request.conversationId ?? "",
           assistantId,
           attentionHints: {
             requiresAction: false,
-            urgency: 'low',
+            urgency: "low",
             isAsyncBackground: true,
             visibleInSourceNow: true,
           },
@@ -522,15 +598,23 @@ const accessRequestResolver: GuardianRequestResolver = {
       }
     } else if (desktopDeliverUrl && requesterChatId) {
       try {
-        await deliverChannelReply(desktopDeliverUrl, {
-          chatId: requesterChatId,
-          text: 'Your access request has been approved! '
-            + 'Please enter the 6-digit verification code you receive from the guardian.',
-          assistantId,
-        }, desktopBearerToken);
+        await deliverChannelReply(
+          desktopDeliverUrl,
+          {
+            chatId: requesterChatId,
+            text:
+              "Your access request has been approved! " +
+              "Please enter the 6-digit verification code you receive from the guardian.",
+            assistantId,
+          },
+          desktopBearerToken,
+        );
         requesterNotified = true;
       } catch (err) {
-        log.error({ err, requesterChatId }, 'Failed to notify requester of access request approval (desktop decision path)');
+        log.error(
+          { err, requesterChatId },
+          "Failed to notify requester of access request approval (desktop decision path)",
+        );
       }
     }
 
@@ -543,7 +627,9 @@ const accessRequestResolver: GuardianRequestResolver = {
       applied: true,
       // Desktop actors (vellum channel) receive inline reply text; channel
       // actors get replies delivered via the channel delivery context.
-      ...(ctx.actor.channel === 'vellum' ? { guardianReplyText: verificationReplyText } : {}),
+      ...(ctx.actor.channel === "vellum"
+        ? { guardianReplyText: verificationReplyText }
+        : {}),
     };
   },
 };
@@ -564,28 +650,40 @@ const accessRequestResolver: GuardianRequestResolver = {
  * On reject: optionally notifies the requester that their request was denied.
  */
 const toolGrantRequestResolver: GuardianRequestResolver = {
-  kind: 'tool_grant_request',
+  kind: "tool_grant_request",
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
-    const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
+    const requesterChatId =
+      request.requesterChatId ?? request.requesterExternalUserId ?? "";
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
-    if (decision.action === 'reject') {
+    if (decision.action === "reject") {
       log.info(
-        { event: 'resolver_tool_grant_request_denied', requestId: request.id, toolName: request.toolName },
-        'Tool grant request resolver: deny',
+        {
+          event: "resolver_tool_grant_request_denied",
+          requestId: request.id,
+          toolName: request.toolName,
+        },
+        "Tool grant request resolver: deny",
       );
 
       if (channelDeliveryContext && requesterChatId) {
         try {
-          await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
-            chatId: requesterChatId,
-            text: `Your request to use "${request.toolName}" has been denied by the guardian.`,
-            assistantId,
-          }, channelDeliveryContext.bearerToken);
+          await deliverChannelReply(
+            channelDeliveryContext.replyCallbackUrl,
+            {
+              chatId: requesterChatId,
+              text: `Your request to use "${request.toolName}" has been denied by the guardian.`,
+              assistantId,
+            },
+            channelDeliveryContext.bearerToken,
+          );
         } catch (err) {
-          log.error({ err, requesterChatId }, 'Failed to notify requester of tool grant request denial');
+          log.error(
+            { err, requesterChatId },
+            "Failed to notify requester of tool grant request denial",
+          );
         }
       }
 
@@ -596,11 +694,11 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
     // (step 6). This resolver only handles requester notification.
     log.info(
       {
-        event: 'resolver_tool_grant_request_approved',
+        event: "resolver_tool_grant_request_approved",
         requestId: request.id,
         toolName: request.toolName,
       },
-      'Tool grant request resolver: approved (grant minting deferred to canonical primitive)',
+      "Tool grant request resolver: approved (grant minting deferred to canonical primitive)",
     );
 
     // Re-read the canonical request to check whether an inline grant waiter
@@ -617,31 +715,33 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
     // the maximum wait budget plus a 30s buffer.
     const INLINE_WAIT_STALENESS_BUFFER_MS = 30_000;
     const freshRequest = getCanonicalGuardianRequest(request.id);
-    const followupState = freshRequest?.followupState ?? '';
-    let inlineWaitActive = followupState.startsWith('inline_wait_active');
+    const followupState = freshRequest?.followupState ?? "";
+    let inlineWaitActive = followupState.startsWith("inline_wait_active");
     if (inlineWaitActive && freshRequest) {
       // The followupState encodes the wall-clock epoch when the inline wait
       // started (e.g. 'inline_wait_active:1700000000000'). We use this
       // instead of updatedAt because resolveCanonicalGuardianRequest sets
       // updatedAt = now during CAS resolution, making updatedAt always fresh
       // by the time this resolver runs.
-      const colonIdx = followupState.indexOf(':');
-      const waitStartMs = colonIdx !== -1 ? Number(followupState.slice(colonIdx + 1)) : NaN;
+      const colonIdx = followupState.indexOf(":");
+      const waitStartMs =
+        colonIdx !== -1 ? Number(followupState.slice(colonIdx + 1)) : NaN;
       const markerAgeMs = Number.isFinite(waitStartMs)
         ? Date.now() - waitStartMs
         : Infinity; // Treat unparseable timestamps as stale for safety.
-      const stalenessThresholdMs = TC_GRANT_WAIT_MAX_MS + INLINE_WAIT_STALENESS_BUFFER_MS;
+      const stalenessThresholdMs =
+        TC_GRANT_WAIT_MAX_MS + INLINE_WAIT_STALENESS_BUFFER_MS;
       if (markerAgeMs > stalenessThresholdMs) {
         log.warn(
           {
-            event: 'resolver_tool_grant_request_stale_inline_wait',
+            event: "resolver_tool_grant_request_stale_inline_wait",
             requestId: request.id,
             toolName: request.toolName,
             markerAgeMs,
             stalenessThresholdMs,
             waitStartMs,
           },
-          'inline_wait_active marker is stale (daemon likely crashed during wait) — sending retry notification',
+          "inline_wait_active marker is stale (daemon likely crashed during wait) — sending retry notification",
         );
         inlineWaitActive = false;
       }
@@ -650,22 +750,29 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
     if (inlineWaitActive) {
       log.info(
         {
-          event: 'resolver_tool_grant_request_skip_retry_notification',
+          event: "resolver_tool_grant_request_skip_retry_notification",
           requestId: request.id,
           toolName: request.toolName,
           followupState: freshRequest?.followupState,
         },
-        'Skipping requester retry notification — inline grant wait is active and will resume the original invocation',
+        "Skipping requester retry notification — inline grant wait is active and will resume the original invocation",
       );
     } else if (channelDeliveryContext && requesterChatId) {
       try {
-        await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
-          chatId: requesterChatId,
-          text: `Your request to use "${request.toolName}" has been approved. Please retry your request.`,
-          assistantId,
-        }, channelDeliveryContext.bearerToken);
+        await deliverChannelReply(
+          channelDeliveryContext.replyCallbackUrl,
+          {
+            chatId: requesterChatId,
+            text: `Your request to use "${request.toolName}" has been approved. Please retry your request.`,
+            assistantId,
+          },
+          channelDeliveryContext.bearerToken,
+        );
       } catch (err) {
-        log.error({ err, requesterChatId }, 'Failed to notify requester of tool grant request approval');
+        log.error(
+          { err, requesterChatId },
+          "Failed to notify requester of tool grant request approval",
+        );
       }
     }
 

@@ -8,28 +8,28 @@
  * tool definitions so the agent loop can include them in the next request.
  */
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
-import { getConfig } from '../config/loader.js';
-import { skillFlagKey } from '../config/skill-state.js';
-import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
-import { loadSkillCatalog } from '../config/skills.js';
-import type { Message, ToolDefinition } from '../providers/types.js';
-import type { ActiveSkillEntry } from '../skills/active-skill-tools.js';
-import { deriveActiveSkills } from '../skills/active-skill-tools.js';
-import { parseToolManifestFile } from '../skills/tool-manifest.js';
-import { computeSkillVersionHash } from '../skills/version-hash.js';
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
+import { skillFlagKey } from "../config/skill-state.js";
+import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
+import { loadSkillCatalog } from "../config/skills.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
+import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
+import { deriveActiveSkills } from "../skills/active-skill-tools.js";
+import { parseToolManifestFile } from "../skills/tool-manifest.js";
+import { computeSkillVersionHash } from "../skills/version-hash.js";
 import {
   getTool,
   registerSkillTools,
   unregisterSkillTools,
-} from '../tools/registry.js';
-import { createSkillToolsFromManifest } from '../tools/skills/skill-tool-factory.js';
-import { getLogger } from '../util/logger.js';
+} from "../tools/registry.js";
+import { createSkillToolsFromManifest } from "../tools/skills/skill-tool-factory.js";
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('session-skill-tools');
+const log = getLogger("session-skill-tools");
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -95,16 +95,22 @@ export interface ProjectSkillToolsOptions {
  * Load and parse a skill's TOOLS.json manifest, returning null on any failure.
  */
 function loadManifestForSkill(skill: SkillSummary): SkillToolManifest | null {
-  const manifestPath = join(skill.directoryPath, 'TOOLS.json');
+  const manifestPath = join(skill.directoryPath, "TOOLS.json");
   if (!existsSync(manifestPath)) {
-    log.debug({ skillId: skill.id, manifestPath }, 'No TOOLS.json found for skill');
+    log.debug(
+      { skillId: skill.id, manifestPath },
+      "No TOOLS.json found for skill",
+    );
     return null;
   }
 
   try {
     return parseToolManifestFile(manifestPath);
   } catch (err) {
-    log.warn({ err, skillId: skill.id, manifestPath }, 'Failed to parse TOOLS.json for skill');
+    log.warn(
+      { err, skillId: skill.id, manifestPath },
+      "Failed to parse TOOLS.json for skill",
+    );
     return null;
   }
 }
@@ -134,12 +140,20 @@ function getCachedActiveSkills(
   // Fast path: history unchanged since last scan. Both the count and the
   // first message reference must match — compaction can rewrite history
   // without changing the total count.
-  if (cached && cached.messageCount === history.length && cached.firstMessage === history[0]) {
+  if (
+    cached &&
+    cached.messageCount === history.length &&
+    cached.firstMessage === history[0]
+  ) {
     return cached.entries;
   }
 
   // History grew (and first message is unchanged) — scan only the new messages.
-  if (cached && cached.messageCount < history.length && cached.firstMessage === history[0]) {
+  if (
+    cached &&
+    cached.messageCount < history.length &&
+    cached.firstMessage === history[0]
+  ) {
     const delta = history.slice(cached.messageCount);
     const newEntries = deriveActiveSkills(delta);
 
@@ -157,7 +171,7 @@ function getCachedActiveSkills(
     if (changed) {
       log.debug(
         { newEntries: newEntries.length, total: cached.entries.length },
-        'Incremental skill derivation found new entries',
+        "Incremental skill derivation found new entries",
       );
     }
     return cached.entries;
@@ -166,7 +180,12 @@ function getCachedActiveSkills(
   // History shrank, compaction rewrote it, or no cache yet — full rescan.
   const entries = deriveActiveSkills(history);
   const seenIds = new Set(entries.map((e) => e.id));
-  cache.derived = { messageCount: history.length, firstMessage: history[0], seenIds, entries };
+  cache.derived = {
+    messageCount: history.length,
+    firstMessage: history[0],
+    seenIds,
+    entries,
+  };
   return entries;
 }
 
@@ -204,7 +223,8 @@ export function projectSkillTools(
 ): SkillToolProjection {
   const contextEntries = getCachedActiveSkills(history, options?.cache);
   const preactivated = options?.preactivatedSkillIds ?? [];
-  const prevActive = options?.previouslyActiveSkillIds ?? new Map<string, string>();
+  const prevActive =
+    options?.previouslyActiveSkillIds ?? new Map<string, string>();
 
   // Index marker versions by skill ID so we can use them during registration.
   // When a marker carries a version, it records the hash that was active at
@@ -240,7 +260,7 @@ export function projectSkillTools(
 
   // Unregister tools for skills that are no longer active
   for (const id of removedIds) {
-    log.info({ skillId: id }, 'Unregistering tools for deactivated skill');
+    log.info({ skillId: id }, "Unregistering tools for deactivated skill");
     unregisterSkillTools(id);
   }
 
@@ -267,7 +287,7 @@ export function projectSkillTools(
   for (const skillId of activeIds) {
     const skill = catalogById.get(skillId);
     if (!skill) {
-      log.warn({ skillId }, 'Active skill ID not found in catalog');
+      log.warn({ skillId }, "Active skill ID not found in catalog");
       continue;
     }
 
@@ -281,7 +301,10 @@ export function projectSkillTools(
     try {
       currentHash = computeSkillVersionHash(skill.directoryPath);
     } catch (err) {
-      log.warn({ err, skillId }, 'Failed to compute skill version hash, treating as changed');
+      log.warn(
+        { err, skillId },
+        "Failed to compute skill version hash, treating as changed",
+      );
       currentHash = `unknown-${Date.now()}`;
     }
 
@@ -302,13 +325,19 @@ export function projectSkillTools(
         accepted = registerSkillTools(tools);
       } else if (prevHash !== currentHash) {
         // Hash changed — unregister stale tools, then re-register with new definitions
-        log.info({ skillId, prevHash, currentHash }, 'Skill version changed, re-registering tools');
+        log.info(
+          { skillId, prevHash, currentHash },
+          "Skill version changed, re-registering tools",
+        );
         unregisterSkillTools(skillId);
         alreadyUnregistered.add(skillId);
         try {
           accepted = registerSkillTools(tools);
         } catch (err) {
-          log.error({ err, skillId }, 'Failed to re-register skill tools after version change');
+          log.error(
+            { err, skillId },
+            "Failed to re-register skill tools after version change",
+          );
           // Don't add to successfulEntries — will be cleaned up as transiently-failed
           continue;
         }
@@ -317,8 +346,14 @@ export function projectSkillTools(
         // managed skill override was added/removed with identical content).
         // Re-register so the ownerSkillBundled flag stays accurate.
         const existing = getTool(tools[0].name);
-        if (existing && existing.ownerSkillBundled !== (skill.bundled ?? undefined)) {
-          log.info({ skillId, bundled: skill.bundled }, 'Skill bundled status changed, re-registering tools');
+        if (
+          existing &&
+          existing.ownerSkillBundled !== (skill.bundled ?? undefined)
+        ) {
+          log.info(
+            { skillId, bundled: skill.bundled },
+            "Skill bundled status changed, re-registering tools",
+          );
           unregisterSkillTools(skillId);
           accepted = registerSkillTools(tools);
         } else {
@@ -327,7 +362,11 @@ export function projectSkillTools(
           // to core-name collisions — don't let them leak back in.
           accepted = tools.filter((t) => {
             const reg = getTool(t.name);
-            return reg !== undefined && reg.origin === 'skill' && reg.ownerSkillId === skillId;
+            return (
+              reg !== undefined &&
+              reg.origin === "skill" &&
+              reg.ownerSkillId === skillId
+            );
           });
         }
       }
@@ -345,8 +384,15 @@ export function projectSkillTools(
   // skill would be re-registered when it recovers next turn, inflating the
   // refcount since the prior registration was never decremented.
   for (const id of prevActive.keys()) {
-    if (activeIds.has(id) && !successfulEntries.has(id) && !alreadyUnregistered.has(id)) {
-      log.info({ skillId: id }, 'Unregistering tools for transiently-failed skill');
+    if (
+      activeIds.has(id) &&
+      !successfulEntries.has(id) &&
+      !alreadyUnregistered.has(id)
+    ) {
+      log.info(
+        { skillId: id },
+        "Unregistering tools for transiently-failed skill",
+      );
       unregisterSkillTools(id);
     }
   }
@@ -368,7 +414,9 @@ export function projectSkillTools(
  * Reset the projection state and unregister all skill tools tracked in the
  * given map. Used for session teardown and tests.
  */
-export function resetSkillToolProjection(trackedIds?: Map<string, string>): void {
+export function resetSkillToolProjection(
+  trackedIds?: Map<string, string>,
+): void {
   if (trackedIds) {
     for (const id of trackedIds.keys()) {
       unregisterSkillTools(id);

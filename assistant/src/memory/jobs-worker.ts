@@ -1,23 +1,46 @@
-import { getConfig } from '../config/loader.js';
-import type { AssistantConfig } from '../config/types.js';
-import { getLogger } from '../util/logger.js';
-import { rawRun } from './db.js';
-import { reconcileFtsIndexes } from './fts-reconciler.js';
-import { backfillEntityRelationsJob,backfillJob } from './job-handlers/backfill.js';
-import { checkContradictionsJob, cleanupStaleSupersededItemsJob, pruneOldConversationsJob } from './job-handlers/cleanup.js';
-import { cleanupResolvedConflictsJob,resolvePendingConflictsForMessageJob } from './job-handlers/conflict.js';
+import { getConfig } from "../config/loader.js";
+import type { AssistantConfig } from "../config/types.js";
+import { getLogger } from "../util/logger.js";
+import { rawRun } from "./db.js";
+import { reconcileFtsIndexes } from "./fts-reconciler.js";
+import {
+  backfillEntityRelationsJob,
+  backfillJob,
+} from "./job-handlers/backfill.js";
+import {
+  checkContradictionsJob,
+  cleanupStaleSupersededItemsJob,
+  pruneOldConversationsJob,
+} from "./job-handlers/cleanup.js";
+import {
+  cleanupResolvedConflictsJob,
+  resolvePendingConflictsForMessageJob,
+} from "./job-handlers/conflict.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
-import { embedItemJob, embedSegmentJob, embedSummaryJob } from './job-handlers/embedding.js';
-import { extractEntitiesJob,extractItemsJob } from './job-handlers/extraction.js';
-import { deleteQdrantVectorsJob,rebuildIndexJob } from './job-handlers/index-maintenance.js';
-import { mediaProcessingJob } from './job-handlers/media-processing.js';
-import { buildConversationSummaryJob, buildGlobalSummaryJob } from './job-handlers/summarization.js';
+import {
+  embedItemJob,
+  embedSegmentJob,
+  embedSummaryJob,
+} from "./job-handlers/embedding.js";
+import {
+  extractEntitiesJob,
+  extractItemsJob,
+} from "./job-handlers/extraction.js";
+import {
+  deleteQdrantVectorsJob,
+  rebuildIndexJob,
+} from "./job-handlers/index-maintenance.js";
+import { mediaProcessingJob } from "./job-handlers/media-processing.js";
+import {
+  buildConversationSummaryJob,
+  buildGlobalSummaryJob,
+} from "./job-handlers/summarization.js";
 import {
   BackendUnavailableError,
   classifyError,
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
-} from './job-utils.js';
+} from "./job-utils.js";
 import {
   claimMemoryJobs,
   completeMemoryJob,
@@ -30,14 +53,14 @@ import {
   failStalledJobs,
   type MemoryJob,
   resetRunningJobsToPending,
-} from './jobs-store.js';
-import { QdrantCircuitOpenError } from './qdrant-circuit-breaker.js';
-import { bumpMemoryVersion } from './recall-cache.js';
+} from "./jobs-store.js";
+import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
+import { bumpMemoryVersion } from "./recall-cache.js";
 
 // Re-export public utilities consumed by tests and other modules
-export { currentWeekWindow } from './job-utils.js';
+export { currentWeekWindow } from "./job-utils.js";
 
-const log = getLogger('memory-jobs-worker');
+const log = getLogger("memory-jobs-worker");
 
 export interface MemoryJobsWorker {
   runOnce(): Promise<number>;
@@ -47,7 +70,7 @@ export interface MemoryJobsWorker {
 export function startMemoryJobsWorker(): MemoryJobsWorker {
   const recovered = resetRunningJobsToPending();
   if (recovered > 0) {
-    log.info({ recovered }, 'Recovered stale running memory jobs');
+    log.info({ recovered }, "Recovered stale running memory jobs");
   }
 
   let stopped = false;
@@ -59,13 +82,15 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
     try {
       await runMemoryJobsOnce({ enableScheduledCleanup: true });
     } catch (err) {
-      log.error({ err }, 'Memory worker tick failed');
+      log.error({ err }, "Memory worker tick failed");
     } finally {
       tickRunning = false;
     }
   };
 
-  const timer = setInterval(() => { void tick(); }, 1500);
+  const timer = setInterval(() => {
+    void tick();
+  }, 1500);
   timer.unref();
   void tick();
 
@@ -93,7 +118,7 @@ export async function runMemoryJobsOnce(
   // Fail jobs that have been running longer than the configured timeout
   const timedOut = failStalledJobs(config.memory.jobs.stalledJobTimeoutMs);
   if (timedOut > 0) {
-    log.warn({ timedOut }, 'Timed out stalled memory jobs');
+    log.warn({ timedOut }, "Timed out stalled memory jobs");
   }
 
   const batchSize = Math.max(1, config.memory.jobs.batchSize);
@@ -136,7 +161,10 @@ export async function runMemoryJobsOnce(
         try {
           handleJobError(job, err);
         } catch (handlerErr) {
-          log.error({ err: handlerErr, jobId: job.id, type: job.type }, 'handleJobError itself threw, job left in running status');
+          log.error(
+            { err: handlerErr, jobId: job.id, type: job.type },
+            "handleJobError itself threw, job left in running status",
+          );
         }
       }
     }
@@ -147,10 +175,13 @@ export async function runMemoryJobsOnce(
     // Fast path: all groups fit within the concurrency limit
     const results = await Promise.allSettled(typeGroups.map(processGroup));
     for (const result of results) {
-      if (result.status === 'fulfilled') {
+      if (result.status === "fulfilled") {
         processed += result.value;
       } else {
-        log.error({ err: result.reason }, 'Memory job group rejected unexpectedly — jobs in this batch may have been dropped');
+        log.error(
+          { err: result.reason },
+          "Memory job group rejected unexpectedly — jobs in this batch may have been dropped",
+        );
       }
     }
   } else {
@@ -160,10 +191,19 @@ export async function runMemoryJobsOnce(
     const startNext = (): Promise<void> | undefined => {
       if (nextIdx >= typeGroups.length) return undefined;
       const group = typeGroups[nextIdx++]!;
-      return processGroup(group).then(
-        (count) => { processed += count; },
-        (err) => { log.error({ err }, 'Memory job group rejected unexpectedly — jobs in this batch may have been dropped'); },
-      ).then(() => startNext());
+      return processGroup(group)
+        .then(
+          (count) => {
+            processed += count;
+          },
+          (err) => {
+            log.error(
+              { err },
+              "Memory job group rejected unexpectedly — jobs in this batch may have been dropped",
+            );
+          },
+        )
+        .then(() => startNext());
     };
 
     const workers = Array.from(
@@ -183,98 +223,121 @@ export async function runMemoryJobsOnce(
 function handleJobError(job: MemoryJob, err: unknown): void {
   if (err instanceof BackendUnavailableError) {
     const result = deferMemoryJob(job.id);
-    if (result === 'failed') {
-      log.error({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
+    if (result === "failed") {
+      log.error(
+        { jobId: job.id, type: job.type },
+        "Embedding backend unavailable, job exceeded max deferrals",
+      );
     } else {
-      log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
+      log.debug(
+        { jobId: job.id, type: job.type },
+        "Embedding backend unavailable, deferring job",
+      );
     }
   } else if (err instanceof QdrantCircuitOpenError) {
     const result = deferMemoryJob(job.id);
-    if (result === 'failed') {
-      log.error({ jobId: job.id, type: job.type }, 'Qdrant circuit breaker open, job exceeded max deferrals');
+    if (result === "failed") {
+      log.error(
+        { jobId: job.id, type: job.type },
+        "Qdrant circuit breaker open, job exceeded max deferrals",
+      );
     } else {
-      log.debug({ jobId: job.id, type: job.type }, 'Qdrant circuit breaker open, deferring job');
+      log.debug(
+        { jobId: job.id, type: job.type },
+        "Qdrant circuit breaker open, deferring job",
+      );
     }
   } else {
     const message = err instanceof Error ? err.message : String(err);
     const category = classifyError(err);
-    if (category === 'retryable') {
+    if (category === "retryable") {
       const delay = retryDelayForAttempt(job.attempts + 1);
       failMemoryJob(job.id, message, {
         retryDelayMs: delay,
         maxAttempts: RETRY_MAX_ATTEMPTS,
       });
-      log.warn({ err, jobId: job.id, type: job.type, delay, category }, 'Memory job failed (retryable)');
+      log.warn(
+        { err, jobId: job.id, type: job.type, delay, category },
+        "Memory job failed (retryable)",
+      );
     } else {
       failMemoryJob(job.id, message, { maxAttempts: 1 });
-      log.warn({ err, jobId: job.id, type: job.type, category }, 'Memory job failed (fatal)');
+      log.warn(
+        { err, jobId: job.id, type: job.type, category },
+        "Memory job failed (fatal)",
+      );
     }
   }
 }
 
 // ── Job dispatch ───────────────────────────────────────────────────
 
-async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
+async function processJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
   switch (job.type) {
-    case 'embed_segment':
+    case "embed_segment":
       await embedSegmentJob(job, config);
       return;
-    case 'embed_item':
+    case "embed_item":
       await embedItemJob(job, config);
       return;
-    case 'embed_summary':
+    case "embed_summary":
       await embedSummaryJob(job, config);
       return;
-    case 'extract_items':
+    case "extract_items":
       await extractItemsJob(job);
       return;
-    case 'extract_entities':
+    case "extract_entities":
       await extractEntitiesJob(job, config);
       return;
-    case 'resolve_pending_conflicts_for_message':
+    case "resolve_pending_conflicts_for_message":
       await resolvePendingConflictsForMessageJob(job, config);
       return;
-    case 'cleanup_resolved_conflicts':
+    case "cleanup_resolved_conflicts":
       cleanupResolvedConflictsJob(job, config);
       return;
-    case 'cleanup_stale_superseded_items':
+    case "cleanup_stale_superseded_items":
       cleanupStaleSupersededItemsJob(job, config);
       return;
-    case 'prune_old_conversations':
+    case "prune_old_conversations":
       pruneOldConversationsJob(job, config);
       return;
-    case 'check_contradictions':
+    case "check_contradictions":
       await checkContradictionsJob(job);
       return;
-    case 'build_conversation_summary':
+    case "build_conversation_summary":
       await buildConversationSummaryJob(job, config);
       return;
-    case 'refresh_weekly_summary':
-      await buildGlobalSummaryJob('weekly_global', config);
+    case "refresh_weekly_summary":
+      await buildGlobalSummaryJob("weekly_global", config);
       return;
-    case 'refresh_monthly_summary':
-      await buildGlobalSummaryJob('monthly_global', config);
+    case "refresh_monthly_summary":
+      await buildGlobalSummaryJob("monthly_global", config);
       return;
-    case 'backfill':
+    case "backfill":
       backfillJob(job, config);
       return;
-    case 'backfill_entity_relations':
+    case "backfill_entity_relations":
       backfillEntityRelationsJob(job, config);
       return;
-    case 'rebuild_index':
+    case "rebuild_index":
       rebuildIndexJob();
       return;
-    case 'reconcile_fts':
+    case "reconcile_fts":
       reconcileFtsIndexes();
       return;
-    case 'delete_qdrant_vectors':
+    case "delete_qdrant_vectors":
       await deleteQdrantVectorsJob(job);
       return;
-    case 'media_processing':
+    case "media_processing":
       await mediaProcessingJob(job);
       return;
     default:
-      throw new Error(`Unknown memory job type: ${(job as { type: string }).type}`);
+      throw new Error(
+        `Unknown memory job type: ${(job as { type: string }).type}`,
+      );
   }
 }
 
@@ -291,28 +354,40 @@ export function resetCleanupScheduleThrottle(): void {
  * Enqueue periodic cleanup jobs using config-driven retention windows.
  * Enqueue is deduped in jobs-store, so repeated calls remain safe.
  */
-export function maybeEnqueueScheduledCleanupJobs(config: AssistantConfig, nowMs = Date.now()): boolean {
+export function maybeEnqueueScheduledCleanupJobs(
+  config: AssistantConfig,
+  nowMs = Date.now(),
+): boolean {
   const cleanup = config.memory.cleanup;
   if (!cleanup.enabled) return false;
-  if (nowMs - lastScheduledCleanupEnqueueMs < cleanup.enqueueIntervalMs) return false;
+  if (nowMs - lastScheduledCleanupEnqueueMs < cleanup.enqueueIntervalMs)
+    return false;
 
-  const resolvedConflictsJobId = enqueueCleanupResolvedConflictsJob(cleanup.resolvedConflictRetentionMs);
-  const staleSupersededItemsJobId = enqueueCleanupStaleSupersededItemsJob(cleanup.supersededItemRetentionMs);
-  const pruneConversationsJobId = cleanup.conversationRetentionDays > 0
-    ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
-    : null;
+  const resolvedConflictsJobId = enqueueCleanupResolvedConflictsJob(
+    cleanup.resolvedConflictRetentionMs,
+  );
+  const staleSupersededItemsJobId = enqueueCleanupStaleSupersededItemsJob(
+    cleanup.supersededItemRetentionMs,
+  );
+  const pruneConversationsJobId =
+    cleanup.conversationRetentionDays > 0
+      ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
+      : null;
   const reconcileFtsJobId = enqueueReconcileFtsJob();
   lastScheduledCleanupEnqueueMs = nowMs;
-  log.debug({
-    resolvedConflictsJobId,
-    staleSupersededItemsJobId,
-    pruneConversationsJobId,
-    reconcileFtsJobId,
-    enqueueIntervalMs: cleanup.enqueueIntervalMs,
-    resolvedConflictRetentionMs: cleanup.resolvedConflictRetentionMs,
-    supersededItemRetentionMs: cleanup.supersededItemRetentionMs,
-    conversationRetentionDays: cleanup.conversationRetentionDays,
-  }, 'Enqueued scheduled memory cleanup jobs');
+  log.debug(
+    {
+      resolvedConflictsJobId,
+      staleSupersededItemsJobId,
+      pruneConversationsJobId,
+      reconcileFtsJobId,
+      enqueueIntervalMs: cleanup.enqueueIntervalMs,
+      resolvedConflictRetentionMs: cleanup.resolvedConflictRetentionMs,
+      supersededItemRetentionMs: cleanup.supersededItemRetentionMs,
+      conversationRetentionDays: cleanup.conversationRetentionDays,
+    },
+    "Enqueued scheduled memory cleanup jobs",
+  );
   return true;
 }
 
@@ -349,7 +424,8 @@ export function sweepStaleItems(config: AssistantConfig): number {
     // Mark invalid if: past 2x window, no access in the shield period, and not already invalid
     const cutoffMs = now - maxAgeDays * 2 * 86_400_000;
     const shieldCutoffMs = now - freshness.reinforcementShieldDays * 86_400_000;
-    const changes = rawRun(`
+    const changes = rawRun(
+      `
       UPDATE memory_items
       SET invalid_at = ?
       WHERE kind = ?
@@ -357,9 +433,17 @@ export function sweepStaleItems(config: AssistantConfig): number {
         AND invalid_at IS NULL
         AND last_seen_at < ?
         AND (access_count = 0 OR COALESCE(last_used_at, 0) < ?)
-    `, now, kind, cutoffMs, shieldCutoffMs);
+    `,
+      now,
+      kind,
+      cutoffMs,
+      shieldCutoffMs,
+    );
     if (changes > 0) {
-      log.info({ kind, marked: changes, cutoffMs }, 'Marked stale memory items as invalid');
+      log.info(
+        { kind, marked: changes, cutoffMs },
+        "Marked stale memory items as invalid",
+      );
       totalMarked += changes;
     }
   }

@@ -1,11 +1,21 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { getContact, listContacts, updateChannelStatus } from '../../contacts/contact-store.js';
-import type { ContactWithChannels } from '../../contacts/types.js';
-import type { ContactChannelPayload, ContactPayload, ContactsRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext, log } from './shared.js';
+import {
+  getContact,
+  listContacts,
+  updateChannelStatus,
+} from "../../contacts/contact-store.js";
+import type { ContactWithChannels } from "../../contacts/types.js";
+import type {
+  ContactChannelPayload,
+  ContactPayload,
+  ContactsRequest,
+} from "../ipc-protocol.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
-function toChannelPayload(ch: ContactWithChannels['channels'][number]): ContactChannelPayload {
+function toChannelPayload(
+  ch: ContactWithChannels["channels"][number],
+): ContactChannelPayload {
   return {
     id: ch.id,
     type: ch.type,
@@ -42,53 +52,79 @@ export function handleContacts(
 ): void {
   try {
     switch (msg.action) {
-      case 'list': {
+      case "list": {
         const results = listContacts(msg.limit ?? 50, msg.role);
         ctx.send(socket, {
-          type: 'contacts_response',
+          type: "contacts_response",
           success: true,
           contacts: results.map(toContactPayload),
         });
         return;
       }
 
-      case 'get': {
+      case "get": {
         if (!msg.contactId) {
-          ctx.send(socket, { type: 'contacts_response', success: false, error: 'contactId is required for get' });
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: "contactId is required for get",
+          });
           return;
         }
         const contact = getContact(msg.contactId);
         if (!contact) {
-          ctx.send(socket, { type: 'contacts_response', success: false, error: `Contact "${msg.contactId}" not found` });
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: `Contact "${msg.contactId}" not found`,
+          });
           return;
         }
         ctx.send(socket, {
-          type: 'contacts_response',
+          type: "contacts_response",
           success: true,
           contact: toContactPayload(contact),
         });
         return;
       }
 
-      case 'update_channel': {
+      case "update_channel": {
         if (!msg.channelId) {
-          ctx.send(socket, { type: 'contacts_response', success: false, error: 'channelId is required for update_channel' });
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: "channelId is required for update_channel",
+          });
           return;
         }
         const updated = updateChannelStatus(msg.channelId, {
           status: msg.status,
           policy: msg.policy,
-          revokedReason: msg.status !== undefined ? (msg.status === 'revoked' ? msg.reason : null) : undefined,
-          blockedReason: msg.status !== undefined ? (msg.status === 'blocked' ? msg.reason : null) : undefined,
+          revokedReason:
+            msg.status !== undefined
+              ? msg.status === "revoked"
+                ? msg.reason
+                : null
+              : undefined,
+          blockedReason:
+            msg.status !== undefined
+              ? msg.status === "blocked"
+                ? msg.reason
+                : null
+              : undefined,
         });
         if (!updated) {
-          ctx.send(socket, { type: 'contacts_response', success: false, error: `Channel "${msg.channelId}" not found` });
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: `Channel "${msg.channelId}" not found`,
+          });
           return;
         }
         // Return the parent contact with all channels so the client has the full picture
         const parentContact = getContact(updated.contactId);
         ctx.send(socket, {
-          type: 'contacts_response',
+          type: "contacts_response",
           success: true,
           contact: parentContact ? toContactPayload(parentContact) : undefined,
         });
@@ -96,13 +132,21 @@ export function handleContacts(
       }
 
       default: {
-        ctx.send(socket, { type: 'contacts_response', success: false, error: `Unknown action: ${String(msg.action)}` });
+        ctx.send(socket, {
+          type: "contacts_response",
+          success: false,
+          error: `Unknown action: ${String(msg.action)}`,
+        });
       }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'contacts handler error');
-    ctx.send(socket, { type: 'contacts_response', success: false, error: message });
+    log.error({ err }, "contacts handler error");
+    ctx.send(socket, {
+      type: "contacts_response",
+      success: false,
+      error: message,
+    });
   }
 }
 

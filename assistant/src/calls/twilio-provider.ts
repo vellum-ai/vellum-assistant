@@ -1,12 +1,16 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { getSecureKey } from '../security/secure-keys.js';
-import { ProviderError } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
-import { getTwilioCredentials, twilioAuthHeader, twilioBaseUrl } from './twilio-rest.js';
-import type { InitiateCallOptions,VoiceProvider } from './voice-provider.js';
+import { getSecureKey } from "../security/secure-keys.js";
+import { ProviderError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
+import {
+  getTwilioCredentials,
+  twilioAuthHeader,
+  twilioBaseUrl,
+} from "./twilio-rest.js";
+import type { InitiateCallOptions, VoiceProvider } from "./voice-provider.js";
 
-const log = getLogger('twilio-provider');
+const log = getLogger("twilio-provider");
 
 /**
  * Twilio ConversationRelay voice provider.
@@ -15,7 +19,7 @@ const log = getLogger('twilio-provider');
  * Credentials are resolved lazily from the secure key store on each call.
  */
 export class TwilioConversationRelayProvider implements VoiceProvider {
-  readonly name = 'twilio';
+  readonly name = "twilio";
 
   // ── Credential helpers ──────────────────────────────────────────────
 
@@ -44,83 +48,119 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     });
     // Twilio expects repeated StatusCallbackEvent params, not a single
     // space-delimited string.
-    body.append('StatusCallbackEvent', 'initiated');
-    body.append('StatusCallbackEvent', 'ringing');
-    body.append('StatusCallbackEvent', 'answered');
-    body.append('StatusCallbackEvent', 'completed');
+    body.append("StatusCallbackEvent", "initiated");
+    body.append("StatusCallbackEvent", "ringing");
+    body.append("StatusCallbackEvent", "answered");
+    body.append("StatusCallbackEvent", "completed");
 
-    const reservedKeys = new Set(['From', 'To', 'Url', 'StatusCallback', 'StatusCallbackEvent']);
+    const reservedKeys = new Set([
+      "From",
+      "To",
+      "Url",
+      "StatusCallback",
+      "StatusCallbackEvent",
+    ]);
     if (opts.customParams) {
       for (const [key, value] of Object.entries(opts.customParams)) {
         if (reservedKeys.has(key)) {
-          log.warn({ key }, 'Ignoring reserved Twilio parameter in customParams');
+          log.warn(
+            { key },
+            "Ignoring reserved Twilio parameter in customParams",
+          );
           continue;
         }
         body.set(key, value);
       }
     }
 
-    log.info({ from: opts.from, to: opts.to }, 'Initiating Twilio call');
+    log.info({ from: opts.from, to: opts.to }, "Initiating Twilio call");
 
     const res = await fetch(`${this.baseUrl(accountSid)}/Calls.json`, {
-      method: 'POST',
+      method: "POST",
       headers: {
         Authorization: this.authHeader(accountSid, authToken),
-        'Content-Type': 'application/x-www-form-urlencoded',
+        "Content-Type": "application/x-www-form-urlencoded",
       },
       body: body.toString(),
     });
 
     if (!res.ok) {
       const text = await res.text();
-      log.error({ status: res.status, body: text }, 'Twilio initiateCall failed');
-      throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
+      log.error(
+        { status: res.status, body: text },
+        "Twilio initiateCall failed",
+      );
+      throw new ProviderError(
+        `Twilio API error ${res.status}: ${text}`,
+        "twilio",
+        res.status,
+      );
     }
 
     const data = (await res.json()) as { sid: string };
-    log.info({ callSid: data.sid }, 'Twilio call initiated');
+    log.info({ callSid: data.sid }, "Twilio call initiated");
     return { callSid: data.sid };
   }
 
   async endCall(callSid: string): Promise<void> {
     const { accountSid, authToken } = this.getCredentials();
 
-    log.info({ callSid }, 'Ending Twilio call');
+    log.info({ callSid }, "Ending Twilio call");
 
-    const body = new URLSearchParams({ Status: 'completed' });
+    const body = new URLSearchParams({ Status: "completed" });
 
-    const res = await fetch(`${this.baseUrl(accountSid)}/Calls/${callSid}.json`, {
-      method: 'POST',
-      headers: {
-        Authorization: this.authHeader(accountSid, authToken),
-        'Content-Type': 'application/x-www-form-urlencoded',
+    const res = await fetch(
+      `${this.baseUrl(accountSid)}/Calls/${callSid}.json`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: this.authHeader(accountSid, authToken),
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: body.toString(),
       },
-      body: body.toString(),
-    });
+    );
 
     if (!res.ok) {
       const text = await res.text();
-      log.error({ status: res.status, body: text, callSid }, 'Twilio endCall failed');
-      throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
+      log.error(
+        { status: res.status, body: text, callSid },
+        "Twilio endCall failed",
+      );
+      throw new ProviderError(
+        `Twilio API error ${res.status}: ${text}`,
+        "twilio",
+        res.status,
+      );
     }
 
-    log.info({ callSid }, 'Twilio call ended');
+    log.info({ callSid }, "Twilio call ended");
   }
 
   async getCallStatus(callSid: string): Promise<string> {
     const { accountSid, authToken } = this.getCredentials();
 
-    const res = await fetch(`${this.baseUrl(accountSid)}/Calls/${callSid}.json`, {
-      method: 'GET',
-      headers: {
-        Authorization: this.authHeader(accountSid, authToken),
+    const res = await fetch(
+      `${this.baseUrl(accountSid)}/Calls/${callSid}.json`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: this.authHeader(accountSid, authToken),
+        },
       },
-    });
+    );
 
     if (!res.ok) {
       const text = await res.text();
-      log.error({ status: res.status, body: text, callSid }, 'Twilio getCallStatus failed');
-      throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
+      log.error(
+        { status: res.status, body: text, callSid },
+        "Twilio getCallStatus failed",
+      );
+      throw new ProviderError(
+        `Twilio API error ${res.status}: ${text}`,
+        "twilio",
+        res.status,
+      );
     }
 
     const data = (await res.json()) as { status: string };
@@ -146,9 +186,11 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
 
     // Check incoming phone numbers (owned by this account)
     const incomingRes = await fetch(
-      `${this.baseUrl(accountSid)}/IncomingPhoneNumbers.json?PhoneNumber=${encodedNumber}`,
+      `${this.baseUrl(
+        accountSid,
+      )}/IncomingPhoneNumbers.json?PhoneNumber=${encodedNumber}`,
       {
-        method: 'GET',
+        method: "GET",
         headers: {
           Authorization: this.authHeader(accountSid, authToken),
         },
@@ -161,21 +203,26 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
         incoming_phone_numbers: unknown[];
       };
       if (incomingData.incoming_phone_numbers.length > 0) {
-        log.info({ phoneNumber }, 'Number found in IncomingPhoneNumbers — eligible as caller ID');
+        log.info(
+          { phoneNumber },
+          "Number found in IncomingPhoneNumbers — eligible as caller ID",
+        );
         return { eligible: true };
       }
     } else {
       log.warn(
         { status: incomingRes.status, phoneNumber },
-        'Failed to query IncomingPhoneNumbers — falling through to OutgoingCallerIds',
+        "Failed to query IncomingPhoneNumbers — falling through to OutgoingCallerIds",
       );
     }
 
     // Check outgoing caller IDs (verified with this account)
     const outgoingRes = await fetch(
-      `${this.baseUrl(accountSid)}/OutgoingCallerIds.json?PhoneNumber=${encodedNumber}`,
+      `${this.baseUrl(
+        accountSid,
+      )}/OutgoingCallerIds.json?PhoneNumber=${encodedNumber}`,
       {
-        method: 'GET',
+        method: "GET",
         headers: {
           Authorization: this.authHeader(accountSid, authToken),
         },
@@ -188,13 +235,16 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
         outgoing_caller_ids: unknown[];
       };
       if (outgoingData.outgoing_caller_ids.length > 0) {
-        log.info({ phoneNumber }, 'Number found in OutgoingCallerIds — eligible as caller ID');
+        log.info(
+          { phoneNumber },
+          "Number found in OutgoingCallerIds — eligible as caller ID",
+        );
         return { eligible: true };
       }
     } else {
       log.warn(
         { status: outgoingRes.status, phoneNumber },
-        'Failed to query OutgoingCallerIds',
+        "Failed to query OutgoingCallerIds",
       );
     }
 
@@ -204,18 +254,21 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
       const failedEndpoints = [
         ...(!incomingOk ? [`IncomingPhoneNumbers: ${incomingRes.status}`] : []),
         ...(!outgoingOk ? [`OutgoingCallerIds: ${outgoingRes.status}`] : []),
-      ].join(', ');
+      ].join(", ");
       throw new ProviderError(
         `Unable to verify caller ID eligibility for ${phoneNumber}: Twilio API error (${failedEndpoints}). The number may be eligible but could not be confirmed. Please check your Twilio credentials and try again.`,
-        'twilio',
+        "twilio",
       );
     }
 
-    log.info({ phoneNumber }, 'Number not found in either IncomingPhoneNumbers or OutgoingCallerIds');
+    log.info(
+      { phoneNumber },
+      "Number not found in either IncomingPhoneNumbers or OutgoingCallerIds",
+    );
     return {
       eligible: false,
       reason:
-        'Number is not owned by or verified with your Twilio account. To use this number as caller ID, either: (1) add it as an Incoming Phone Number, or (2) verify it as an Outgoing Caller ID in the Twilio Console.',
+        "Number is not owned by or verified with your Twilio account. To use this number as caller ID, either: (1) add it as an Incoming Phone Number, or (2) verify it as an Outgoing Caller ID in the Twilio Console.",
     };
   }
 
@@ -227,7 +280,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
    * HTTP server webhook middleware) can check availability independently.
    */
   static getAuthToken(): string | null {
-    return getSecureKey('credential:twilio:auth_token') ?? null;
+    return getSecureKey("credential:twilio:auth_token") ?? null;
   }
 
   /**
@@ -253,9 +306,9 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
       data += key + params[key];
     }
 
-    const computed = createHmac('sha1', authToken)
+    const computed = createHmac("sha1", authToken)
       .update(data)
-      .digest('base64');
+      .digest("base64");
 
     // Constant-time comparison to prevent timing attacks
     const a = Buffer.from(computed);

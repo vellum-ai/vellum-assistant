@@ -4,7 +4,7 @@ import { initSigningKey, mintToken } from "../../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { createTelegramDeliverHandler } from "./telegram-deliver.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
 // ---- Mocks ----
@@ -76,9 +76,9 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 /** Mint a valid daemon JWT for deliver auth. */
 function mintDeliverToken(): string {
   return mintToken({
-    aud: 'vellum-daemon',
-    sub: 'svc:gateway:self',
-    scope_profile: 'gateway_service_v1',
+    aud: "vellum-daemon",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -128,9 +128,12 @@ describe("telegram-deliver endpoint basics", () => {
     const handler = createTelegramDeliverHandler(
       makeConfig({ telegramDeliverAuthBypass: false }),
     );
-    const req = makeRequest({ chatId: "123", text: "hello" }, {
-      authorization: "Bearer wrong-token",
-    });
+    const req = makeRequest(
+      { chatId: "123", text: "hello" },
+      {
+        authorization: "Bearer wrong-token",
+      },
+    );
     const res = await handler(req);
     expect(res.status).toBe(401);
     const body = await res.json();
@@ -141,9 +144,12 @@ describe("telegram-deliver endpoint basics", () => {
     const handler = createTelegramDeliverHandler(
       makeConfig({ telegramDeliverAuthBypass: false }),
     );
-    const req = makeRequest({ chatId: "123", text: "hello" }, {
-      authorization: `Bearer ${TOKEN}`,
-    });
+    const req = makeRequest(
+      { chatId: "123", text: "hello" },
+      {
+        authorization: `Bearer ${TOKEN}`,
+      },
+    );
     const res = await handler(req);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -185,7 +191,7 @@ describe("telegram-deliver endpoint basics", () => {
     const res = await handler(req);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("chatAction must be \"typing\"");
+    expect(body.error).toBe('chatAction must be "typing"');
   });
 
   it("accepts typing action-only payloads", async () => {
@@ -232,9 +238,8 @@ describe("telegram-deliver endpoint basics", () => {
       sendTypingIndicator: async () => true,
     }));
 
-    const { createTelegramDeliverHandler: createHandler } = await import(
-      "./telegram-deliver.js"
-    );
+    const { createTelegramDeliverHandler: createHandler } =
+      await import("./telegram-deliver.js");
     const handler = createHandler(makeConfig());
     const req = makeRequest({ chatId: "123", text: "hello" });
     const res = await handler(req);
@@ -262,7 +267,11 @@ describe("telegram-deliver endpoint basics", () => {
     expect(res.status).toBe(200);
 
     expect(sendTelegramReplyCalls).toHaveLength(1);
-    const [, chatId, text] = sendTelegramReplyCalls[0] as [unknown, string, string];
+    const [, chatId, text] = sendTelegramReplyCalls[0] as [
+      unknown,
+      string,
+      string,
+    ];
     expect(chatId).toBe("42");
     expect(text).toBe("Test message");
   });
