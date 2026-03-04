@@ -1756,6 +1756,20 @@ public struct RegisterDeviceTokenMessage: Encodable, Sendable {
 
 
 
+// MARK: - Cloud Sharing Messages (Manual)
+
+/// Sent to request sharing an app via a cloud link.
+/// Backed by generated `IPCShareAppCloudRequest`.
+public typealias ShareAppCloudRequestMessage = IPCShareAppCloudRequest
+
+extension IPCShareAppCloudRequest {
+    public init(appId: String) {
+        self.init(type: "share_app_cloud", appId: appId)
+    }
+}
+
+public typealias ShareAppCloudResponseMessage = IPCShareAppCloudResponse
+
 // MARK: - Slack Webhook Messages (Manual)
 
 public struct ShareToSlackRequestMessage: Encodable, Sendable {
@@ -2212,6 +2226,7 @@ public enum ServerMessage: Decodable, Sendable {
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
+    case shareAppCloudResponse(ShareAppCloudResponseMessage)
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ingressConfigResponse(IngressConfigResponseMessage)
@@ -2527,6 +2542,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "trace_event":
             let message = try TraceEventMessage(from: decoder)
             self = .traceEvent(message)
+        case "share_app_cloud_response":
+            let message = try ShareAppCloudResponseMessage(from: decoder)
+            self = .shareAppCloudResponse(message)
         case "share_to_slack_response":
             let message = try ShareToSlackResponseMessage(from: decoder)
             self = .shareToSlackResponse(message)

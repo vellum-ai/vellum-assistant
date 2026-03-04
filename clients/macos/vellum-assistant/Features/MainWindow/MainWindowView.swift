@@ -700,6 +700,10 @@ struct MainWindowView: View {
             appListManager.recordAppOpen(id: appId, name: name, icon: icon, appType: appType, description: description)
             appListManager.pinApp(id: appId)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            bundleAndShare(appId: appId)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
             guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }
             if documentManager.hasActiveDocument && documentManager.surfaceId == surfaceId {

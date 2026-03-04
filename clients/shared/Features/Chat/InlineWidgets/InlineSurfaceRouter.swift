@@ -232,6 +232,14 @@ public struct InlineSurfaceRouter: View {
                                     "description": preview.description as Any,
                                 ]
                             )
+                        },
+                        onShareApp: {
+                            guard let appId = data.appId else { return }
+                            NotificationCenter.default.post(
+                                name: Notification.Name("MainWindow.shareAppCloud"),
+                                object: nil,
+                                userInfo: ["appId": appId]
+                            )
                         }
                     )
                 } else {

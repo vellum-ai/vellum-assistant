@@ -9,6 +9,8 @@ struct InlineAppCreatedCard: View {
     let appId: String?
     let onOpenApp: () -> Void
     let onPinToHomebase: () -> Void
+    var onShareApp: (() -> Void)?
+
     @Environment(\.colorScheme) private var colorScheme
     @State private var previewImage: String?
     @State private var isPinned: Bool = false
@@ -75,6 +77,18 @@ struct InlineAppCreatedCard: View {
                         isPinned = true
                         onPinToHomebase()
                     }
+                }
+
+                Spacer()
+
+                if let onShareApp = onShareApp {
+                    Button(action: onShareApp) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(cardTextSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Share app")
                 }
             }
         }

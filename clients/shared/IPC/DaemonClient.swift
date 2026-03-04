@@ -419,6 +419,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `message_content_response` with full (untruncated) content.
     public var onMessageContentResponse: ((IPCMessageContentResponse) -> Void)?
 
+    /// Called when the daemon sends a `share_app_cloud_response` message.
+    public var onShareAppCloudResponse: ((ShareAppCloudResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `share_to_slack_response` message.
     public var onShareToSlackResponse: ((ShareToSlackResponseMessage) -> Void)?
 
@@ -1316,6 +1319,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Fork a shared app into a local editable copy.
     public func sendForkSharedApp(uuid: String) throws {
         try send(ForkSharedAppRequestMessage(uuid: uuid))
+    }
+
+    /// Share a local app via a cloud link.
+    public func sendShareAppCloud(appId: String) throws {
+        try send(ShareAppCloudRequestMessage(appId: appId))
     }
 
     /// Share a local app to Slack via configured webhook.

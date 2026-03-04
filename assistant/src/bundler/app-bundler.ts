@@ -5,7 +5,7 @@
  * zip archive written to a temp file.
  */
 
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,7 +27,6 @@ const bundlerLog = getLogger("app-bundler");
 import { APP_VERSION } from "../version.js";
 const PACKAGE_VERSION = APP_VERSION;
 
-const SHORT_HASH_LENGTH = 8;
 const HASH_DISPLAY_LENGTH = 12;
 const MAX_BUNDLE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 const ASSET_FETCH_TIMEOUT_MS = 10_000;
@@ -236,10 +235,8 @@ export async function packageApp(
   const allAssets = [...allAssetsMap.values()];
 
   // Create the zip archive
-  const bundleFilename = `${app.name.replace(
-    /[^a-zA-Z0-9_-]/g,
-    "_",
-  )}-${randomUUID().slice(0, SHORT_HASH_LENGTH)}.vellum`;
+  const safeName = app.name.replace(/[/\\:*?"<>|]/g, "_").trim() || "App";
+  const bundleFilename = `${safeName}.vellum`;
   const bundlePath = join(tmpdir(), bundleFilename);
 
   await new Promise<void>((resolve, reject) => {

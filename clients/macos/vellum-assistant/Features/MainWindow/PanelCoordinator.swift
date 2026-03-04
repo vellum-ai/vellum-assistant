@@ -873,6 +873,30 @@ struct DynamicWorkspaceWrapper: View {
                         }
                     }
 
+                    if let appId = data.appId {
+                        ZStack {
+                            ShareSheetButton(
+                                items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
+                                isPresented: Binding(
+                                    get: { sharing.showSharePicker },
+                                    set: { sharing.showSharePicker = $0 }
+                                )
+                            )
+                            .frame(width: 0, height: 0)
+                            .opacity(0)
+
+                            if sharing.isBundling {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .frame(height: 28)
+                            } else {
+                                VIconButton(label: "Share", icon: "square.and.arrow.up", iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
+                                    onBundleAndShare(appId)
+                                }
+                            }
+                        }
+                    }
+
                     if sharing.isPublishing {
                         ProgressView()
                             .controlSize(.small)
