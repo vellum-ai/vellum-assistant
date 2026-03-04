@@ -153,8 +153,9 @@ export function createVerificationChallenge(
  * validates the secret against pending challenges, verifies identity
  * binding, and consumes the challenge. It returns the verification type
  * (guardian or trusted_contact) but does NOT create bindings or apply
- * role-specific side effects — those are handled by the caller
- * (verification-intercept.ts) in a symmetric dispatch pattern.
+ * role-specific side effects — those are handled by callers:
+ * verification-intercept.ts (channel verification) and
+ * relay-server.ts (voice verification).
  *
  * On failure the invalid-attempt counter is incremented; after
  * exceeding the threshold the actor is locked out for a cooldown
@@ -320,8 +321,9 @@ export function validateAndConsumeChallenge(
   // Reset the rate-limit counter on success
   resetRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
 
-  // Return the verification type — all role-specific side effects are
-  // handled by the caller (verification-intercept) symmetrically.
+  // Return the verification type — role-specific side effects are
+  // handled by callers: verification-intercept (channel) and
+  // relay-server (voice).
   return {
     success: true,
     verificationType:

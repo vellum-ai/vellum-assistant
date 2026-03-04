@@ -4,7 +4,8 @@
  * trusted-contact activation signals), upserts member records, and delivers
  * deterministic template-driven replies.
  *
- * This is the single dispatch point for all post-verification side effects.
+ * This is the dispatch point for channel-based post-verification side
+ * effects. Voice verification has its own dispatch in relay-server.ts.
  * Both guardian and trusted-contact flows converge here after
  * validateAndConsumeChallenge() returns success.
  *
