@@ -1,0 +1,283 @@
+/**
+ * Guardian verification code intercept stage: validates and consumes
+ * verification codes, upserts member records, and delivers deterministic
+ * template-driven replies.
+ *
+ * Verification code messages are short-circuited here and NEVER enter the
+ * agent pipeline. This prevents verification codes from producing
+ * agent-generated copy.
+ *
+ * Extracted from inbound-message-handler.ts to keep the top-level handler
+ * focused on orchestration.
+ */
+import type { ChannelId } from "../../../channels/types.js";
+import { findContactChannel } from "../../../contacts/contact-store.js";
+import { upsertMemberContactsFirst } from "../../../contacts/contacts-write.js";
+import { contactChannelToMemberRecord } from "../../../contacts/member-record-shim.js";
+import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
+import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
+import { getLogger } from "../../../util/logger.js";
+import {
+  findActiveSession,
+  getPendingChallenge,
+  validateAndConsumeChallenge,
+} from "../../channel-guardian-service.js";
+import { deliverChannelReply } from "../../gateway-client.js";
+import {
+  composeChannelVerifyReply,
+  GUARDIAN_VERIFY_TEMPLATE_KEYS,
+} from "../../guardian-verification-templates.js";
+import { stripVerificationFailurePrefix } from "../channel-route-shared.js";
+
+const log = getLogger("runtime-http");
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export interface VerificationInterceptParams {
+  isDuplicate: boolean;
+  guardianVerifyCode: string | undefined;
+  rawSenderId: string | undefined;
+  canonicalSenderId: string | null;
+  canonicalAssistantId: string;
+  sourceChannel: ChannelId;
+  conversationExternalId: string;
+  conversationId: string;
+  eventId: string;
+  replyCallbackUrl: string | undefined;
+  mintBearerToken: () => string;
+  assistantId: string;
+  actorDisplayName: string | undefined;
+  actorUsername: string | undefined;
+}
+
+/**
+ * Intercept guardian verification codes and handle them deterministically.
+ *
+ * Bare 6-digit codes are only intercepted when there is actually a
+ * pending challenge or active outbound session for this channel.
+ * Without this guard, normal 6-digit messages (zip codes, PINs, etc.)
+ * would be swallowed by the verification handler and never reach the
+ * agent pipeline.
+ *
+ * Returns a Response if the verification was handled, or null to continue
+ * the pipeline.
+ */
+export async function handleVerificationIntercept(
+  params: VerificationInterceptParams,
+): Promise<Response | null> {
+  const {
+    isDuplicate,
+    guardianVerifyCode,
+    rawSenderId,
+    canonicalSenderId,
+    canonicalAssistantId,
+    sourceChannel,
+    conversationExternalId,
+    conversationId,
+    eventId,
+    replyCallbackUrl,
+    mintBearerToken,
+    assistantId,
+    actorDisplayName,
+    actorUsername,
+  } = params;
+
+  // Only intercept when there is a pending challenge or active outbound session
+  const shouldIntercept =
+    guardianVerifyCode !== undefined &&
+    (!!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
+      !!findActiveSession(canonicalAssistantId, sourceChannel));
+
+  if (
+    isDuplicate ||
+    !shouldIntercept ||
+    guardianVerifyCode === undefined ||
+    !rawSenderId
+  ) {
+    return null;
+  }
+
+  const verifyResult = validateAndConsumeChallenge(
+    canonicalAssistantId,
+    sourceChannel,
+    guardianVerifyCode,
+    canonicalSenderId ?? rawSenderId,
+    conversationExternalId,
+    actorUsername,
+    actorDisplayName,
+  );
+
+  const guardianVerifyOutcome: "verified" | "failed" = verifyResult.success
+    ? "verified"
+    : "failed";
+
+  if (verifyResult.success) {
+    const existingContactResult =
+      (canonicalSenderId ?? rawSenderId)
+        ? findContactChannel({
+            channelType: sourceChannel,
+            externalUserId: canonicalSenderId ?? rawSenderId,
+            externalChatId: conversationExternalId,
+          })
+        : null;
+    const existingMember = existingContactResult
+      ? contactChannelToMemberRecord(
+          existingContactResult.contact,
+          existingContactResult.channel,
+        )
+      : null;
+    const memberMatchesSender = existingMember?.externalUserId
+      ? canonicalizeInboundIdentity(
+          sourceChannel,
+          existingMember.externalUserId,
+        ) === (canonicalSenderId ?? rawSenderId)
+      : false;
+    const preservedDisplayName =
+      memberMatchesSender && existingMember?.displayName?.trim().length
+        ? existingMember.displayName
+        : actorDisplayName;
+
+    upsertMemberContactsFirst({
+      assistantId: canonicalAssistantId,
+      sourceChannel,
+      externalUserId: canonicalSenderId ?? rawSenderId,
+      externalChatId: conversationExternalId,
+      status: "active",
+      policy: "allow",
+      // Keep guardian-curated member name stable across re-verification.
+      displayName: preservedDisplayName,
+      username: actorUsername,
+    });
+
+    const verifyLogLabel =
+      verifyResult.verificationType === "trusted_contact"
+        ? "Trusted contact verified"
+        : "Guardian verified";
+    log.info(
+      {
+        sourceChannel,
+        externalUserId: canonicalSenderId,
+        verificationType: verifyResult.verificationType,
+      },
+      `${verifyLogLabel}: auto-upserted ingress member`,
+    );
+
+    // Emit activated signal when a trusted contact completes verification.
+    // Member record is persisted above before this event fires, satisfying
+    // the persistence-before-event ordering invariant.
+    if (verifyResult.verificationType === "trusted_contact") {
+      void emitNotificationSignal({
+        sourceEventName: "ingress.trusted_contact.activated",
+        sourceChannel,
+        sourceSessionId: conversationId,
+        assistantId: canonicalAssistantId,
+        attentionHints: {
+          requiresAction: false,
+          urgency: "low",
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+        contextPayload: {
+          sourceChannel,
+          actorExternalId: canonicalSenderId ?? rawSenderId,
+          conversationExternalId,
+          actorDisplayName: actorDisplayName ?? null,
+          actorUsername: actorUsername ?? null,
+        },
+        dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${
+          canonicalSenderId ?? rawSenderId
+        }`,
+      });
+    }
+  }
+
+  // Deliver a deterministic template-driven reply and short-circuit.
+  // Verification code messages must never produce agent-generated copy.
+  if (replyCallbackUrl) {
+    let replyText: string;
+    if (!verifyResult.success) {
+      replyText = composeChannelVerifyReply(
+        GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED,
+        {
+          failureReason: stripVerificationFailurePrefix(verifyResult.reason),
+        },
+      );
+    } else if (verifyResult.verificationType === "trusted_contact") {
+      replyText = composeChannelVerifyReply(
+        GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS,
+      );
+    } else {
+      replyText = composeChannelVerifyReply(
+        GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS,
+      );
+    }
+    try {
+      await deliverChannelReply(
+        replyCallbackUrl,
+        {
+          chatId: conversationExternalId,
+          text: replyText,
+          assistantId,
+        },
+        mintBearerToken(),
+      );
+    } catch (err) {
+      // The challenge is already consumed and side effects applied, so
+      // we cannot simply re-throw and let the gateway retry the full
+      // flow. Instead, persist the reply so that gateway retries
+      // (which arrive as duplicates) can re-attempt delivery.
+      log.error(
+        { err, conversationExternalId },
+        "Failed to deliver deterministic verification reply; persisting for retry",
+      );
+      channelDeliveryStore.storePendingVerificationReply(eventId, {
+        chatId: conversationExternalId,
+        text: replyText,
+        assistantId,
+      });
+
+      // Self-retry after a short delay. The gateway deduplicates
+      // inbound webhooks after a successful forward, so duplicate
+      // retries may never arrive. This fire-and-forget retry ensures
+      // delivery is re-attempted even without a gateway duplicate.
+      setTimeout(async () => {
+        try {
+          await deliverChannelReply(
+            replyCallbackUrl,
+            {
+              chatId: conversationExternalId,
+              text: replyText,
+              assistantId,
+            },
+            mintBearerToken(),
+          );
+          log.info({ eventId }, "Verification reply delivered on self-retry");
+          channelDeliveryStore.clearPendingVerificationReply(eventId);
+        } catch (retryErr) {
+          log.error(
+            { err: retryErr, eventId },
+            "Verification reply self-retry also failed; pending reply remains as fallback",
+          );
+        }
+      }, 3000);
+
+      return Response.json({
+        accepted: true,
+        duplicate: false,
+        eventId,
+        guardianVerification: guardianVerifyOutcome,
+        deliveryPending: true,
+      });
+    }
+  }
+
+  return Response.json({
+    accepted: true,
+    duplicate: false,
+    eventId,
+    guardianVerification: guardianVerifyOutcome,
+  });
+}

@@ -13,12 +13,7 @@ import {
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
-import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { resolveUserReference } from "../../config/user-reference.js";
-import { findContactChannel } from "../../contacts/contact-store.js";
-import { upsertMemberContactsFirst } from "../../contacts/contacts-write.js";
-import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
-import { RESEND_COOLDOWN_MS } from "../../daemon/handlers/config-channels.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
@@ -42,24 +37,9 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../channel-approvals.js";
-import {
-  bindSessionIdentity,
-  createOutboundSession,
-  findActiveSession,
-  getGuardianBinding,
-  getPendingChallenge,
-  resolveBootstrapToken,
-  updateSessionDelivery,
-  updateSessionStatus,
-  validateAndConsumeChallenge,
-} from "../channel-guardian-service.js";
+import { getGuardianBinding } from "../channel-guardian-service.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
-import {
-  composeChannelVerifyReply,
-  composeVerificationTelegram,
-  GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../guardian-verification-templates.js";
 import { httpError } from "../http-errors.js";
 import type {
   ApprovalConversationGenerator,
@@ -76,11 +56,12 @@ import { deliverReplyViaCallback } from "./channel-delivery-routes.js";
 import {
   canonicalChannelAssistantId,
   GUARDIAN_APPROVAL_TTL_MS,
-  stripVerificationFailurePrefix,
 } from "./channel-route-shared.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
 import { deliverGeneratedApprovalPrompt } from "./guardian-approval-prompt.js";
 import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
+import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
+import { handleVerificationIntercept } from "./inbound-stages/verification-intercept.js";
 
 import "../channel-invite-transports/telegram.js";
 import "../channel-invite-transports/voice.js";
@@ -539,291 +520,35 @@ export async function handleChannelInbound(
       : undefined;
 
   // ── Telegram bootstrap deep-link handling ──
-  // Intercept /start gv_<token> commands BEFORE the verification-code intercept.
-  // When a user clicks the deep link, Telegram sends /start gv_<token> which
-  // the gateway forwards with commandIntent: { type: 'start', payload: 'gv_<token>' }.
-  // We resolve the bootstrap token, bind the session identity, create a new
-  // identity-bound session with a fresh verification code, send it, and return.
-  if (
-    !result.duplicate &&
-    commandIntent?.type === "start" &&
-    typeof commandIntent.payload === "string" &&
-    (commandIntent.payload as string).startsWith("gv_") &&
-    rawSenderId
-  ) {
-    const bootstrapToken = (commandIntent.payload as string).slice(3);
-    const bootstrapSession = resolveBootstrapToken(
-      canonicalAssistantId,
-      sourceChannel,
-      bootstrapToken,
-    );
-
-    if (bootstrapSession && bootstrapSession.status === "pending_bootstrap") {
-      // Bind the pending_bootstrap session to the sender's identity
-      bindSessionIdentity(
-        bootstrapSession.id,
-        rawSenderId!,
-        conversationExternalId,
-      );
-
-      // Transition bootstrap session to awaiting_response
-      updateSessionStatus(bootstrapSession.id, "awaiting_response");
-
-      // Create a new identity-bound outbound session with a fresh secret.
-      // The old bootstrap session is auto-revoked by createOutboundSession.
-      const newSession = createOutboundSession({
-        assistantId: canonicalAssistantId,
-        channel: sourceChannel,
-        expectedExternalUserId: rawSenderId!,
-        expectedChatId: conversationExternalId,
-        identityBindingStatus: "bound",
-        destinationAddress: conversationExternalId,
-      });
-
-      // Compose and send the verification prompt via Telegram
-      const telegramBody = composeVerificationTelegram(
-        GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
-        {
-          code: newSession.secret,
-          expiresInMinutes: Math.floor(
-            (newSession.expiresAt - Date.now()) / 60_000,
-          ),
-        },
-      );
-
-      // Deliver verification Telegram message via the gateway (fire-and-forget)
-      deliverBootstrapVerificationTelegram(
-        conversationExternalId,
-        telegramBody,
-        canonicalAssistantId,
-      );
-
-      // Update delivery tracking
-      const now = Date.now();
-      updateSessionDelivery(
-        newSession.sessionId,
-        now,
-        1,
-        now + RESEND_COOLDOWN_MS,
-      );
-
-      return Response.json({
-        accepted: true,
-        duplicate: false,
-        eventId: result.eventId,
-        guardianVerification: "bootstrap_bound",
-      });
-    }
-    // If not found or expired, fall through to normal /start handling
-  }
+  const bootstrapResponse = await handleBootstrapIntercept({
+    isDuplicate: result.duplicate,
+    commandIntent,
+    rawSenderId,
+    canonicalAssistantId,
+    sourceChannel,
+    conversationExternalId,
+    eventId: result.eventId,
+  });
+  if (bootstrapResponse) return bootstrapResponse;
 
   // ── Guardian verification code intercept (deterministic) ──
-  // Validate/consume the challenge synchronously so side effects (member
-  // upsert, binding creation) complete before any reply. The reply is
-  // delivered via template-driven deterministic messages and the code
-  // is short-circuited — it NEVER enters the agent pipeline. This
-  // prevents verification code messages from producing agent-generated copy.
-  //
-  // Bare 6-digit codes are only intercepted when there is actually a
-  // pending challenge or active outbound session for this channel.
-  // Without this guard, normal 6-digit messages (zip codes, PINs, etc.)
-  // would be swallowed by the verification handler and never reach the
-  // agent pipeline.
-  const shouldInterceptVerification =
-    guardianVerifyCode !== undefined &&
-    (!!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
-      !!findActiveSession(canonicalAssistantId, sourceChannel));
-
-  if (
-    !result.duplicate &&
-    shouldInterceptVerification &&
-    guardianVerifyCode !== undefined &&
-    rawSenderId
-  ) {
-    const verifyResult = validateAndConsumeChallenge(
-      canonicalAssistantId,
-      sourceChannel,
-      guardianVerifyCode,
-      canonicalSenderId ?? rawSenderId!,
-      conversationExternalId,
-      body.actorUsername,
-      body.actorDisplayName,
-    );
-
-    const guardianVerifyOutcome: "verified" | "failed" = verifyResult.success
-      ? "verified"
-      : "failed";
-
-    if (verifyResult.success) {
-      const existingContactResult =
-        (canonicalSenderId ?? rawSenderId)
-          ? findContactChannel({
-              channelType: sourceChannel,
-              externalUserId: canonicalSenderId ?? rawSenderId!,
-              externalChatId: conversationExternalId,
-            })
-          : null;
-      const existingMember = existingContactResult
-        ? contactChannelToMemberRecord(
-            existingContactResult.contact,
-            existingContactResult.channel,
-          )
-        : null;
-      const memberMatchesSender = existingMember?.externalUserId
-        ? canonicalizeInboundIdentity(
-            sourceChannel,
-            existingMember.externalUserId,
-          ) === (canonicalSenderId ?? rawSenderId)
-        : false;
-      const preservedDisplayName =
-        memberMatchesSender && existingMember?.displayName?.trim().length
-          ? existingMember.displayName
-          : body.actorDisplayName;
-
-      upsertMemberContactsFirst({
-        assistantId: canonicalAssistantId,
-        sourceChannel,
-        externalUserId: canonicalSenderId ?? rawSenderId!,
-        externalChatId: conversationExternalId,
-        status: "active",
-        policy: "allow",
-        // Keep guardian-curated member name stable across re-verification.
-        displayName: preservedDisplayName,
-        username: body.actorUsername,
-      });
-
-      const verifyLogLabel =
-        verifyResult.verificationType === "trusted_contact"
-          ? "Trusted contact verified"
-          : "Guardian verified";
-      log.info(
-        {
-          sourceChannel,
-          externalUserId: canonicalSenderId,
-          verificationType: verifyResult.verificationType,
-        },
-        `${verifyLogLabel}: auto-upserted ingress member`,
-      );
-
-      // Emit activated signal when a trusted contact completes verification.
-      // Member record is persisted above before this event fires, satisfying
-      // the persistence-before-event ordering invariant.
-      if (verifyResult.verificationType === "trusted_contact") {
-        void emitNotificationSignal({
-          sourceEventName: "ingress.trusted_contact.activated",
-          sourceChannel,
-          sourceSessionId: result.conversationId,
-          assistantId: canonicalAssistantId,
-          attentionHints: {
-            requiresAction: false,
-            urgency: "low",
-            isAsyncBackground: false,
-            visibleInSourceNow: false,
-          },
-          contextPayload: {
-            sourceChannel,
-            actorExternalId: canonicalSenderId ?? rawSenderId!,
-            conversationExternalId,
-            actorDisplayName: body.actorDisplayName ?? null,
-            actorUsername: body.actorUsername ?? null,
-          },
-          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${
-            canonicalSenderId ?? rawSenderId!
-          }`,
-        });
-      }
-    }
-
-    // Deliver a deterministic template-driven reply and short-circuit.
-    // Verification code messages must never produce agent-generated copy.
-    if (replyCallbackUrl) {
-      let replyText: string;
-      if (!verifyResult.success) {
-        replyText = composeChannelVerifyReply(
-          GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED,
-          {
-            failureReason: stripVerificationFailurePrefix(verifyResult.reason),
-          },
-        );
-      } else if (verifyResult.verificationType === "trusted_contact") {
-        replyText = composeChannelVerifyReply(
-          GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS,
-        );
-      } else {
-        replyText = composeChannelVerifyReply(
-          GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS,
-        );
-      }
-      try {
-        await deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: conversationExternalId,
-            text: replyText,
-            assistantId,
-          },
-          mintBearerToken(),
-        );
-      } catch (err) {
-        // The challenge is already consumed and side effects applied, so
-        // we cannot simply re-throw and let the gateway retry the full
-        // flow. Instead, persist the reply so that gateway retries
-        // (which arrive as duplicates) can re-attempt delivery.
-        log.error(
-          { err, conversationExternalId },
-          "Failed to deliver deterministic verification reply; persisting for retry",
-        );
-        channelDeliveryStore.storePendingVerificationReply(result.eventId, {
-          chatId: conversationExternalId,
-          text: replyText,
-          assistantId,
-        });
-
-        // Self-retry after a short delay. The gateway deduplicates
-        // inbound webhooks after a successful forward, so duplicate
-        // retries may never arrive. This fire-and-forget retry ensures
-        // delivery is re-attempted even without a gateway duplicate.
-        setTimeout(async () => {
-          try {
-            await deliverChannelReply(
-              replyCallbackUrl,
-              {
-                chatId: conversationExternalId,
-                text: replyText,
-                assistantId,
-              },
-              mintBearerToken(),
-            );
-            log.info(
-              { eventId: result.eventId },
-              "Verification reply delivered on self-retry",
-            );
-            channelDeliveryStore.clearPendingVerificationReply(result.eventId);
-          } catch (retryErr) {
-            log.error(
-              { err: retryErr, eventId: result.eventId },
-              "Verification reply self-retry also failed; pending reply remains as fallback",
-            );
-          }
-        }, 3000);
-
-        return Response.json({
-          accepted: true,
-          duplicate: false,
-          eventId: result.eventId,
-          guardianVerification: guardianVerifyOutcome,
-          deliveryPending: true,
-        });
-      }
-    }
-
-    return Response.json({
-      accepted: true,
-      duplicate: false,
-      eventId: result.eventId,
-      guardianVerification: guardianVerifyOutcome,
-    });
-  }
+  const verificationResponse = await handleVerificationIntercept({
+    isDuplicate: result.duplicate,
+    guardianVerifyCode,
+    rawSenderId,
+    canonicalSenderId,
+    canonicalAssistantId,
+    sourceChannel,
+    conversationExternalId,
+    conversationId: result.conversationId,
+    eventId: result.eventId,
+    replyCallbackUrl,
+    mintBearerToken,
+    assistantId,
+    actorDisplayName: body.actorDisplayName,
+    actorUsername: body.actorUsername,
+  });
+  if (verificationResponse) return verificationResponse;
 
   // Legacy voice guardian action interception removed — all guardian reply
   // routing now flows through the canonical router below (routeGuardianReply),
@@ -1585,86 +1310,5 @@ function processChannelMessageInBackground(
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
-  })();
-}
-
-// ---------------------------------------------------------------------------
-// Bootstrap verification Telegram delivery helper
-// ---------------------------------------------------------------------------
-
-/**
- * Deliver a verification Telegram message during bootstrap.
- * Fire-and-forget with error logging and a single self-retry on failure.
- */
-function deliverBootstrapVerificationTelegram(
-  chatId: string,
-  text: string,
-  assistantId: string,
-): void {
-  const attemptDelivery = async (): Promise<boolean> => {
-    const gatewayUrl = getGatewayInternalBaseUrl();
-    const bearerToken = mintDaemonDeliveryToken();
-    const url = `${gatewayUrl}/deliver/telegram`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${bearerToken}`,
-      },
-      body: JSON.stringify({ chatId, text, assistantId }),
-    });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "<unreadable>");
-      log.error(
-        { chatId, assistantId, status: resp.status, body },
-        "Gateway /deliver/telegram failed for bootstrap verification",
-      );
-      return false;
-    }
-    return true;
-  };
-
-  (async () => {
-    try {
-      const delivered = await attemptDelivery();
-      if (delivered) {
-        log.info(
-          { chatId, assistantId },
-          "Bootstrap verification Telegram message delivered",
-        );
-        return;
-      }
-    } catch (err) {
-      log.error(
-        { err, chatId, assistantId },
-        "Failed to deliver bootstrap verification Telegram message",
-      );
-    }
-
-    // Self-retry after a short delay. The gateway deduplicates inbound
-    // webhooks after a successful forward, so duplicate retries from the
-    // user re-clicking the deep link may never arrive. This ensures
-    // delivery is re-attempted even without a gateway duplicate.
-    setTimeout(async () => {
-      try {
-        const delivered = await attemptDelivery();
-        if (delivered) {
-          log.info(
-            { chatId, assistantId },
-            "Bootstrap verification Telegram message delivered on self-retry",
-          );
-        } else {
-          log.error(
-            { chatId, assistantId },
-            "Bootstrap verification Telegram self-retry also failed",
-          );
-        }
-      } catch (retryErr) {
-        log.error(
-          { err: retryErr, chatId, assistantId },
-          "Bootstrap verification Telegram self-retry threw; giving up",
-        );
-      }
-    }, 3000);
   })();
 }
