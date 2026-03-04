@@ -886,6 +886,15 @@ public struct IPCContactPayload: Codable, Sendable {
     }
 }
 
+/// Server push — lightweight invalidation signal: the contacts table has been mutated, refetch your list.
+public struct IPCContactsChanged: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
 public struct IPCContactsRequest: Codable, Sendable {
     public let type: String
     public let action: String
