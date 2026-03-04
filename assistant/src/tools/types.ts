@@ -165,6 +165,8 @@ export interface ToolContext {
   requesterExternalUserId?: string;
   /** Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications. */
   requesterChatId?: string;
+  /** Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile. */
+  channelPermissionChannelId?: string;
 }
 
 export interface DiffInfo {

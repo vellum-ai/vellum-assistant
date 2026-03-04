@@ -12,6 +12,7 @@ import type {
 } from "@vellumai/outbound-proxy";
 
 import { isHttpAuthDisabled } from "../config/env.js";
+import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import {
   generateAllowlistOptions,
   generateScopeOptions,
@@ -164,6 +165,10 @@ export function createToolExecutor(
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
       requesterExternalUserId: ctx.trustContext?.requesterExternalUserId,
       requesterChatId: ctx.trustContext?.requesterChatId,
+      channelPermissionChannelId:
+        ctx.trustContext?.sourceChannel === "slack"
+          ? getBindingByConversation(ctx.conversationId)?.externalChatId
+          : undefined,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,
