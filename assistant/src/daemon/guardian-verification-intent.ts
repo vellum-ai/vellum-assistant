@@ -10,7 +10,7 @@ export type GuardianVerificationIntentResult =
   | {
       kind: "direct_setup";
       rewrittenContent: string;
-      channelHint?: "voice" | "telegram";
+      channelHint?: "voice" | "telegram" | "slack";
     };
 
 // ── Direct setup patterns ────────────────────────────────────────────────
@@ -24,7 +24,7 @@ const DIRECT_SETUP_PATTERNS: RegExp[] = [
   /\bguardian\s+verif(?:y|ication)\s*(?:setup|set\s*up)?\b/i,
   /\bset\s*up\s+guardian\s+verif(?:y|ication)\b/i,
   /\b(?:help\s+me\s+)?set\s+(?:myself\s+)?(?:up\s+)?as\s+(?:your\s+)?guardian\s+(?:for|via|by|over|on|through)\s+/i,
-  /\bguardian\s+(?:for|via|by|over|on|through)\s+(?:sms|text|phone|voice|telegram|call)\b/i,
+  /\bguardian\s+(?:for|via|by|over|on|through)\s+(?:sms|text|phone|voice|telegram|slack|call)\b/i,
   /\bbecome\s+(?:your\s+|the\s+)?guardian\b/i,
   /\bregister\s+(?:me\s+)?as\s+(?:your\s+|the\s+)?guardian\b/i,
 ];
@@ -48,10 +48,11 @@ const CONCEPTUAL_PATTERNS: RegExp[] = [
 
 const CHANNEL_HINT_PATTERNS: Array<{
   pattern: RegExp;
-  channel: "voice" | "telegram";
+  channel: "voice" | "telegram" | "slack";
 }> = [
   { pattern: /\b(?:voice|call|phone\s*call|by\s+phone)\b/i, channel: "voice" },
   { pattern: /\btelegram\b/i, channel: "telegram" },
+  { pattern: /\bslack\b/i, channel: "slack" },
 ];
 
 /** Common polite/filler words stripped before checking intent-only status. */
@@ -69,7 +70,9 @@ function isDirectSetupIntent(text: string): boolean {
   return DIRECT_SETUP_PATTERNS.some((p) => p.test(text));
 }
 
-function extractChannelHint(text: string): "voice" | "telegram" | undefined {
+function extractChannelHint(
+  text: string,
+): "voice" | "telegram" | "slack" | undefined {
   for (const { pattern, channel } of CHANNEL_HINT_PATTERNS) {
     if (pattern.test(text)) return channel;
   }
