@@ -429,12 +429,21 @@ export async function executePreflightStep(
         preflightResult: result,
         currentStep: "transfer",
       };
-    } else {
+    } else if ("validation" in result) {
       current = setStepStatus(current, "preflight-review", "error", {
         message:
           result.validation.errors.map((e) => e.message).join("; ") ||
           "Import preflight validation failed",
         code: result.validation.errors[0]?.code,
+        retryable: true,
+      });
+      current = { ...current, preflightResult: result };
+    } else {
+      current = setStepStatus(current, "preflight-review", "error", {
+        message:
+          result.conflicts.map((c) => c.message).join("; ") ||
+          "Import blocked by conflicts",
+        code: result.conflicts[0]?.code,
         retryable: true,
       });
       current = { ...current, preflightResult: result };
