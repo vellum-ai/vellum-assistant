@@ -1354,9 +1354,7 @@ struct MainWindowView: View {
                                 .padding(.bottom, VSpacing.xs)
                         }
                         .buttonStyle(.plain)
-                        .onHover { hovering in
-                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                        }
+                        .pointerCursor()
                     }
 
                     if !scheduleThreads.isEmpty {
@@ -1466,9 +1464,7 @@ struct MainWindowView: View {
                                             }
                                         }
                                     }
-                                    .onHover { hovering in
-                                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                    }
+                                    .pointerCursor()
                                 }
                                 .padding(.horizontal, VSpacing.sm)
                                 .padding(.bottom, VSpacing.xxs)
@@ -1495,9 +1491,7 @@ struct MainWindowView: View {
                                     .padding(.bottom, VSpacing.xs)
                             }
                             .buttonStyle(.plain)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
+                            .pointerCursor()
                         }
                     }
                 }
@@ -1584,8 +1578,8 @@ struct MainWindowView: View {
                     threadSwitcherHoverTimer = nil
                     showThreadSwitcher.toggle()
                 }
+                .pointerCursor()
                 .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     guard regularThreads.count > 1 else { return }
                     if hovering {
                         // Cancel any pending dismiss

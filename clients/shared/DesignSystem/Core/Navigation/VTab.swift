@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 public enum VTabStyle {
     case pill        // Shows background fill on selected/hover, fully rounded
@@ -83,12 +80,8 @@ public struct VTab: View {
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
                 .opacity(isSelected ? 1 : 0)
         )
-        .onHover { hovering in
-            isHovered = hovering
-            #if os(macOS)
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            #endif
-        }
+        .onHover { hovering in isHovered = hovering }
+        .pointerCursor()
     }
 }
 
