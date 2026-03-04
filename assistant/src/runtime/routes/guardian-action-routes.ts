@@ -11,16 +11,15 @@
  * Guardian decisions additionally verify the actor is the bound guardian
  * via the AuthContext's actorPrincipalId.
  */
-import { isHttpAuthDisabled } from "../../config/env.js";
-import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import {
   type CanonicalGuardianRequest,
   listPendingRequestsByConversationScope,
 } from "../../memory/canonical-guardian-store.js";
+import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
+import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
 import { buildDecisionActions } from "../guardian-decision-types.js";
-import { processGuardianDecision } from "../guardian-action-service.js";
 import { httpError } from "../http-errors.js";
 
 // ---------------------------------------------------------------------------
@@ -59,44 +58,6 @@ export function handleGuardianActionsPending(
 // ---------------------------------------------------------------------------
 // POST /v1/guardian-actions/decision
 // ---------------------------------------------------------------------------
-
-/**
- * Verify that the actor from AuthContext is the bound guardian for the
- * vellum channel. Returns an error Response if not, or null if allowed.
- */
-function requireBoundGuardian(authContext: AuthContext): Response | null {
-  // Dev bypass: when auth is disabled, skip guardian binding check
-  // (mirrors enforcePolicy dev bypass in route-policy.ts)
-  if (isHttpAuthDisabled()) {
-    return null;
-  }
-  if (!authContext.actorPrincipalId) {
-    return httpError(
-      "FORBIDDEN",
-      "Actor is not the bound guardian for this channel",
-      403,
-    );
-  }
-  const guardianResult = findGuardianForChannel(
-    "vellum",
-    authContext.assistantId,
-  );
-  if (!guardianResult) {
-    // No guardian yet — in pre-bootstrap state, allow through
-    return null;
-  }
-  if (
-    (guardianResult.channel.externalUserId ??
-      guardianResult.contact.principalId) !== authContext.actorPrincipalId
-  ) {
-    return httpError(
-      "FORBIDDEN",
-      "Actor is not the bound guardian for this channel",
-      403,
-    );
-  }
-  return null;
-}
 
 /**
  * Submit a guardian action decision.
