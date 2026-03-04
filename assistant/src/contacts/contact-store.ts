@@ -309,7 +309,8 @@ export function searchContacts(params: {
     if (contactIds.length === 0) return [];
 
     const results: ContactWithChannels[] = [];
-    for (const id of contactIds.slice(0, limit)) {
+    for (const id of contactIds) {
+      if (results.length >= limit) break;
       const contact = getContact(id);
       if (contact && (!params.role || contact.role === params.role)) {
         results.push(contact);
