@@ -300,7 +300,7 @@ private struct StepDetailRow: View {
                             .truncationMode(.tail)
                         }
 
-                        if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                        if let reason = toolCall.reasonDescription, !reason.isEmpty, toolCall.isComplete {
                             Text(reason)
                                 .font(VFont.small)
                                 .foregroundColor(VColor.textMuted)
