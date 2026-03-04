@@ -1,5 +1,5 @@
 /**
- * Shared business logic for ingress member and invite management.
+ * Shared business logic for ingress contact and invite management.
  *
  * Extracted from the IPC handlers in daemon/handlers/config-inbox.ts so that
  * both the HTTP routes and the IPC handlers call the same logic.
@@ -348,10 +348,10 @@ export function redeemVoiceInviteCode(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Member operations
+// Contact operations
 // ---------------------------------------------------------------------------
 
-export function listIngressMembers(params: {
+export function listIngressContacts(params: {
   assistantId?: string;
   sourceChannel?: string;
   status?: string;
@@ -374,7 +374,7 @@ export function listIngressMembers(params: {
   return { ok: true, data: filtered };
 }
 
-export function upsertIngressMember(params: {
+export function upsertIngressContact(params: {
   sourceChannel?: string;
   externalUserId?: string;
   externalChatId?: string;
@@ -410,7 +410,7 @@ export function upsertIngressMember(params: {
   return { ok: true, data: writeResultToResponse(result) };
 }
 
-export function revokeIngressMember(
+export function revokeIngressContact(
   memberId?: string,
   reason?: string,
 ): IngressResult<MemberResponseData> {
@@ -424,7 +424,7 @@ export function revokeIngressMember(
   return { ok: true, data: writeResultToResponse(result) };
 }
 
-export function blockIngressMember(
+export function blockIngressContact(
   memberId?: string,
   reason?: string,
 ): IngressResult<MemberResponseData> {

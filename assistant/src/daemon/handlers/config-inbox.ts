@@ -15,19 +15,19 @@ import { getBindingByConversation } from "../../memory/external-conversation-sto
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
 import { deliverChannelReply } from "../../runtime/gateway-client.js";
 import {
-  blockIngressMember,
+  blockIngressContact,
   createIngressInvite,
+  listIngressContacts,
   listIngressInvites,
-  listIngressMembers,
   redeemIngressInvite,
+  revokeIngressContact,
   revokeIngressInvite,
-  revokeIngressMember,
-  upsertIngressMember,
+  upsertIngressContact,
 } from "../../runtime/ingress-service.js";
 import type {
   AssistantInboxEscalationRequest,
+  IngressContactRequest,
   IngressInviteRequest,
-  IngressMemberRequest,
 } from "../ipc-protocol.js";
 import {
   defineHandlers,
@@ -149,15 +149,15 @@ export function handleIngressInvite(
   }
 }
 
-export function handleIngressMember(
-  msg: IngressMemberRequest,
+export function handleIngressContact(
+  msg: IngressContactRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   try {
     switch (msg.action) {
       case "list": {
-        const result = listIngressMembers({
+        const result = listIngressContacts({
           assistantId: msg.assistantId,
           sourceChannel: msg.sourceChannel,
           status: msg.status,
@@ -180,7 +180,7 @@ export function handleIngressMember(
       }
 
       case "upsert": {
-        const result = upsertIngressMember({
+        const result = upsertIngressContact({
           assistantId: msg.assistantId,
           sourceChannel: msg.sourceChannel,
           externalUserId: msg.externalUserId,
@@ -207,7 +207,7 @@ export function handleIngressMember(
       }
 
       case "revoke": {
-        const result = revokeIngressMember(msg.memberId, msg.reason);
+        const result = revokeIngressContact(msg.memberId, msg.reason);
         if (!result.ok) {
           ctx.send(socket, {
             type: "ingress_member_response",
@@ -225,7 +225,7 @@ export function handleIngressMember(
       }
 
       case "block": {
-        const result = blockIngressMember(msg.memberId, msg.reason);
+        const result = blockIngressContact(msg.memberId, msg.reason);
         if (!result.ok) {
           ctx.send(socket, {
             type: "ingress_member_response",
@@ -569,6 +569,6 @@ async function executeDeny(
 
 export const inboxInviteHandlers = defineHandlers({
   ingress_invite: handleIngressInvite,
-  ingress_member: handleIngressMember,
+  ingress_member: handleIngressContact,
   assistant_inbox_escalation: handleInboxEscalation,
 });

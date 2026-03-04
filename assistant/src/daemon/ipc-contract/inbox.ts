@@ -29,7 +29,7 @@ export interface IngressInviteRequest {
   guardianName?: string;
 }
 
-export interface IngressMemberRequest {
+export interface IngressContactRequest {
   type: "ingress_member";
   action: "list" | "upsert" | "revoke" | "block";
   /** Assistant ID for scoping member operations (defaults to 'self'). */
@@ -102,7 +102,7 @@ export interface IngressInviteResponse {
   }>;
 }
 
-export interface IngressMemberResponse {
+export interface IngressContactResponse {
   type: "ingress_member_response";
   success: boolean;
   error?: string;
@@ -162,10 +162,10 @@ export interface AssistantInboxEscalationResponse {
 
 export type _InboxClientMessages =
   | IngressInviteRequest
-  | IngressMemberRequest
+  | IngressContactRequest
   | AssistantInboxEscalationRequest;
 
 export type _InboxServerMessages =
   | IngressInviteResponse
-  | IngressMemberResponse
+  | IngressContactResponse
   | AssistantInboxEscalationResponse;

@@ -15,15 +15,15 @@
  */
 
 import {
-  blockIngressMember,
+  blockIngressContact,
   createIngressInvite,
+  listIngressContacts,
   listIngressInvites,
-  listIngressMembers,
   redeemIngressInvite,
   redeemVoiceInviteCode,
+  revokeIngressContact,
   revokeIngressInvite,
-  revokeIngressMember,
-  upsertIngressMember,
+  upsertIngressContact,
 } from "../ingress-service.js";
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ import {
  * GET /v1/ingress/members?assistantId=&sourceChannel=&status=&policy=
  */
 export function handleListMembers(url: URL): Response {
-  const result = listIngressMembers({
+  const result = listIngressContacts({
     assistantId: url.searchParams.get("assistantId") ?? undefined,
     sourceChannel: url.searchParams.get("sourceChannel") ?? undefined,
     status: url.searchParams.get("status") ?? undefined,
@@ -53,7 +53,7 @@ export function handleListMembers(url: URL): Response {
 export async function handleUpsertMember(req: Request): Promise<Response> {
   const body = (await req.json()) as Record<string, unknown>;
 
-  const result = upsertIngressMember({
+  const result = upsertIngressContact({
     sourceChannel: body.sourceChannel as string | undefined,
     externalUserId: body.externalUserId as string | undefined,
     externalChatId: body.externalChatId as string | undefined,
@@ -85,7 +85,7 @@ export async function handleRevokeMember(
     // DELETE may have no body
   }
 
-  const result = revokeIngressMember(memberId, reason);
+  const result = revokeIngressContact(memberId, reason);
 
   if (!result.ok) {
     return Response.json({ ok: false, error: result.error }, { status: 404 });
@@ -108,7 +108,7 @@ export async function handleBlockMember(
     // Body is optional — callers may omit it entirely
   }
 
-  const result = blockIngressMember(memberId, reason);
+  const result = blockIngressContact(memberId, reason);
 
   if (!result.ok) {
     return Response.json({ ok: false, error: result.error }, { status: 404 });
