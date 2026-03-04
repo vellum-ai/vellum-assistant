@@ -399,7 +399,10 @@ export class ContextWindowManager {
       targetInputTokensOverride?: number;
     },
   ): { keepFromIndex: number; keepTurns: number } {
-    const minFloor = opts?.minKeepRecentUserTurns ?? 1;
+    const minFloor = Math.min(
+      Math.max(0, Math.floor(opts?.minKeepRecentUserTurns ?? 1)),
+      userTurnStarts.length,
+    );
     const targetTokens =
       opts?.targetInputTokensOverride ?? this.config.targetInputTokens;
 
