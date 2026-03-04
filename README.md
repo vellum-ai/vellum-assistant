@@ -40,14 +40,12 @@ AI-powered assistant platform by Vellum.
 <details>
 <summary><b>Architecture</b></summary>
 
-The platform has four main domains:
+The platform has three main domains:
 
 - **Assistant runtime** (`assistant/`): Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
 - **Native clients** (`clients/`): Swift Package with macOS and iOS apps sharing ~45-50% of code via `VellumAssistantShared`. The macOS app is a menu bar assistant with computer-use (accessibility + CGEvent). The iOS app is a chat client supporting standalone mode (direct Anthropic API) and connected-to-Mac mode (TCP proxy through the daemon).
 - **Gateway** (`gateway/`): Standalone Bun + TypeScript service that serves as the public ingress boundary for all external webhooks and callbacks. Owns Telegram integration end-to-end (receives webhooks, routes to assistants, delivers replies). Routes Twilio voice and SMS webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime API (client → gateway → runtime).
-- **Managed gateway contracts** (`gateway-managed/`): Public compatibility contracts and fixtures for the Vellum-managed shared-identity gateway lane. The deployable managed-gateway runtime is platform-owned and lives in `vellum-assistant-platform`.
-
-Architecture docs are split by ownership domain: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md), [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md), [`gateway-managed/ARCHITECTURE.md`](gateway-managed/ARCHITECTURE.md), and [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md).
+Architecture docs are split by ownership domain: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md), [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md), and [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md).
 
 </details>
 
@@ -59,7 +57,6 @@ Architecture docs are split by ownership domain: [`ARCHITECTURE.md`](ARCHITECTUR
 ├── assistant/         # Bun-based assistant runtime (daemon, CLI, HTTP API)
 ├── clients/           # Native clients (macOS menu bar app + iOS chat app)
 ├── gateway/           # Telegram gateway service
-├── gateway-managed/   # Managed-gateway public contracts + fixtures (runtime is platform-owned)
 ├── benchmarking/      # Load testing scripts (gateway webhook/proxy benchmarks)
 ├── scripts/           # Utility scripts (publishing, tunneling)
 ├── .claude/           # Claude Code slash commands and workflow tools
