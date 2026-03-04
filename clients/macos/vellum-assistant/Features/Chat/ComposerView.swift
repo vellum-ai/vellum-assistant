@@ -264,60 +264,66 @@ struct ComposerView: View {
         }
     }
 
+    /// The native TextField with keyboard handlers. Extracted so the compiler
+    /// can type-check each builder method independently.
+    @ViewBuilder
+    private func composerInputField(font: Font, hasSlashHighlight: Bool) -> some View {
+        TextField(
+            ghostSuffix == nil ? placeholderText : "",
+            text: $inputText,
+            axis: .vertical
+        )
+        .lineLimit(1...6)
+        .textFieldStyle(.plain)
+        .font(font)
+        .foregroundColor(hasSlashHighlight ? .clear : VColor.textPrimary)
+        .tint(VColor.accent)
+        .focused($composerFocus)
+        .disabled(!hasAPIKey)
+        .onKeyPress(.return) { press in
+            handleReturnKeyPress(modifiers: press.modifiers)
+        }
+        .onKeyPress(.tab) { press in
+            if !press.modifiers.contains(.shift), showSlashMenu {
+                handleSlashNavigation(.tab)
+                return .handled
+            }
+            if !press.modifiers.contains(.shift), ghostSuffix != nil {
+                onAcceptSuggestion()
+                return .handled
+            }
+            return .ignored
+        }
+        .onKeyPress(.upArrow) { _ in
+            if showSlashMenu {
+                handleSlashNavigation(.up)
+                return .handled
+            }
+            return .ignored
+        }
+        .onKeyPress(.downArrow) { _ in
+            if showSlashMenu {
+                handleSlashNavigation(.down)
+                return .handled
+            }
+            return .ignored
+        }
+        .onKeyPress(.escape) { _ in
+            if showSlashMenu {
+                handleSlashNavigation(.dismiss)
+                return .handled
+            }
+            return .ignored
+        }
+    }
+
     private var composerTextField: some View {
         let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
         let hasSlashHighlight = slashCommandRange != nil
 
         return ZStack(alignment: .leading) {
             composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-
-            TextField(
-                ghostSuffix == nil ? placeholderText : "",
-                text: $inputText,
-                axis: .vertical
-            )
-            .lineLimit(1...6)
-            .textFieldStyle(.plain)
-            .font(scaledBody)
-            .foregroundColor(hasSlashHighlight ? .clear : VColor.textPrimary)
-            .tint(VColor.accent)
-            .focused($composerFocus)
-            .disabled(!hasAPIKey)
-            .onKeyPress(.return) { press in
-                handleReturnKeyPress(modifiers: press.modifiers)
-            }
-            .onKeyPress(.tab) { press in
-                if !press.modifiers.contains(.shift), showSlashMenu {
-                    handleSlashNavigation(.tab)
-                    return .handled
-                }
-                if !press.modifiers.contains(.shift), ghostSuffix != nil {
-                    onAcceptSuggestion()
-                    return .handled
-                }
-                return .ignored
-            }
-            .onKeyPress(.upArrow) { _ in
-                if showSlashMenu {
-                    handleSlashNavigation(.up)
-                    return .handled
-                }
-                return .ignored
-            }
-            .onKeyPress(.downArrow) { _ in
-                if showSlashMenu {
-                    handleSlashNavigation(.down)
-                    return .handled
-                }
-                return .ignored
-            }
-            .onKeyPress(.escape) { _ in
-                if showSlashMenu {
-                    handleSlashNavigation(.dismiss)
-                    return .handled
-                }
-                return .ignored
-            }
+            composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
         }
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity, alignment: .leading)
