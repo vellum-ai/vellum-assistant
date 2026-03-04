@@ -1162,6 +1162,31 @@ export class RuntimeHttpServer {
       },
 
       // ------------------------------------------------------------------
+      // Contacts invites (alias for ingress/invites during migration)
+      // ------------------------------------------------------------------
+      {
+        endpoint: "contacts/invites",
+        method: "GET",
+        handler: ({ url }) => handleListInvites(url),
+      },
+      {
+        endpoint: "contacts/invites",
+        method: "POST",
+        handler: async ({ req }) => handleCreateInvite(req),
+      },
+      {
+        endpoint: "contacts/invites/redeem",
+        method: "POST",
+        handler: async ({ req }) => handleRedeemInvite(req),
+      },
+      {
+        endpoint: "contacts/invites/:id",
+        method: "DELETE",
+        policyKey: "contacts/invites",
+        handler: ({ params }) => handleRevokeInvite(params.id),
+      },
+
+      // ------------------------------------------------------------------
       // Integrations — Telegram
       // ------------------------------------------------------------------
       {
