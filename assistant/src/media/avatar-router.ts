@@ -1,0 +1,108 @@
+/**
+ * Strategy router for avatar generation.
+ * Selects managed platform or local Gemini path based on config.
+ */
+
+import { getConfig, loadRawConfig } from "../config/loader.js";
+import { getLogger } from "../util/logger.js";
+import type {
+  AvatarGenerationResult,
+  AvatarGenerationStrategy,
+} from "./avatar-types.js";
+import { generateImage } from "./gemini-image-service.js";
+import {
+  generateManagedAvatar,
+  isManagedAvailable,
+} from "./managed-avatar-client.js";
+
+const log = getLogger("avatar-router");
+
+const VALID_STRATEGIES: ReadonlySet<string> = new Set([
+  "managed_required",
+  "managed_prefer",
+  "local_only",
+]);
+
+export function getAvatarStrategy(): AvatarGenerationStrategy {
+  try {
+    const raw = loadRawConfig();
+    const strategy = raw.avatarGenerationStrategy as string | undefined;
+    if (strategy && VALID_STRATEGIES.has(strategy)) {
+      return strategy as AvatarGenerationStrategy;
+    }
+  } catch {
+    /* fall through */
+  }
+  return "local_only";
+}
+
+async function generateLocal(
+  prompt: string,
+  correlationId?: string,
+): Promise<AvatarGenerationResult> {
+  const geminiKey = getConfig().apiKeys.gemini ?? process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    throw new Error(
+      "Gemini API key is not configured. Set it via `config set apiKeys.gemini <key>` or the GEMINI_API_KEY environment variable.",
+    );
+  }
+
+  const result = await generateImage(geminiKey, {
+    prompt,
+    mode: "generate",
+  });
+
+  const image = result.images[0];
+  if (!image) {
+    throw new Error("Local Gemini image generation returned no images.");
+  }
+
+  return {
+    imageBase64: image.dataBase64,
+    mimeType: image.mimeType,
+    pathUsed: "local",
+    correlationId,
+  };
+}
+
+export async function routedGenerateAvatar(
+  prompt: string,
+  options?: { correlationId?: string },
+): Promise<AvatarGenerationResult> {
+  const strategy = getAvatarStrategy();
+  const correlationId = options?.correlationId;
+
+  if (strategy === "managed_required") {
+    const managed = await generateManagedAvatar(prompt, { correlationId });
+    return {
+      imageBase64: managed.image.data_base64,
+      mimeType: managed.image.mime_type,
+      pathUsed: "managed",
+      correlationId: managed.correlation_id,
+    };
+  }
+
+  if (strategy === "local_only") {
+    return generateLocal(prompt, correlationId);
+  }
+
+  // managed_prefer: try managed first if available, fall back to local
+  if (isManagedAvailable()) {
+    try {
+      const managed = await generateManagedAvatar(prompt, { correlationId });
+      return {
+        imageBase64: managed.image.data_base64,
+        mimeType: managed.image.mime_type,
+        pathUsed: "managed",
+        correlationId: managed.correlation_id,
+      };
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Managed avatar generation failed, falling back to local Gemini",
+      );
+    }
+  }
+
+  return generateLocal(prompt, correlationId);
+}
