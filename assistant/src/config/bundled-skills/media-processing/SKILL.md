@@ -41,6 +41,8 @@ Parameters:
 - `section_config` — Path to a JSON file with manual section boundaries.
 - `detect_dead_time` — Whether to detect and skip dead time (default: false). Dead-time detection can be too aggressive for continuous action video like sports — it may incorrectly skip live play. Enable only for content with clear idle periods (e.g., lectures, surveillance footage).
 - `short_edge` — Short edge resolution for downscaled frames in pixels (default: 480).
+- `include_audio` — Whether to extract and transcribe audio for each segment (default: false). When enabled, each segment's audio is transcribed and stored alongside visual frames.
+- `transcription_mode` — Transcription backend: `'api'` (OpenAI Whisper cloud) or `'local'` (whisper.cpp on-device). Default: `'local'`. The `'api'` mode requires an OpenAI API key configured in settings.
 
 ### analyze_keyframes
 
@@ -121,6 +123,24 @@ Limits concurrent API calls during the Map phase to avoid rate limiting.
 ### Cost Tracker (services/cost-tracker.ts)
 
 Tracks estimated API costs during pipeline execution.
+
+## Audio + Vision Multimodal Analysis
+
+When `include_audio` is enabled on `extract_keyframes`, the pipeline transcribes each segment's audio track and attaches the transcript to the segment data. During the Map phase (`analyze_keyframes`), Gemini receives both the visual frames and the audio transcript for each segment, enabling multimodal analysis that combines what is seen with what is said.
+
+This is useful for:
+
+- **Lectures and presentations**: Correlate slide content (visual) with speaker narration (audio).
+- **Sports broadcasts**: Combine on-screen action with commentary for richer event detection.
+- **Meetings and interviews**: Pair facial expressions and gestures with spoken dialogue.
+- **Tutorials and demos**: Link on-screen actions with verbal instructions.
+
+Transcription modes:
+
+- **`local`** (default): Uses whisper.cpp for on-device transcription. Requires `whisper-cpp` to be installed (`brew install whisper-cpp`). No API costs, but slower.
+- **`api`**: Uses the OpenAI Whisper API for cloud-based transcription. Faster and more accurate, but requires an OpenAI API key and incurs per-minute costs.
+
+The audio transcription degrades gracefully — if transcription fails for a segment (missing tools, no audio track, API errors), the segment proceeds with visual-only analysis.
 
 ## Best Practices
 

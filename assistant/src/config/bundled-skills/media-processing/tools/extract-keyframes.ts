@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 
+import { getConfig } from "../../../../config/loader.js";
 import {
   getKeyframesForAsset,
   getMediaAssetById,
@@ -24,6 +25,16 @@ export async function run(
     return { content: "asset_id is required.", isError: true };
   }
 
+  const includeAudio = Boolean(input.include_audio);
+  const transcriptionMode =
+    (input.transcription_mode as "api" | "local") || undefined;
+
+  let openaiApiKey: string | undefined;
+  if (includeAudio && (!transcriptionMode || transcriptionMode === "api")) {
+    const config = getConfig();
+    openaiApiKey = config.apiKeys.openai;
+  }
+
   const options: PreprocessOptions = {
     intervalSeconds: (input.interval_seconds as number) || undefined,
     segmentDuration: (input.segment_duration as number) || undefined,
@@ -34,6 +45,9 @@ export async function run(
         ? Boolean(input.detect_dead_time)
         : undefined,
     shortEdge: (input.short_edge as number) || undefined,
+    includeAudio,
+    transcriptionMode,
+    openaiApiKey,
   };
 
   try {

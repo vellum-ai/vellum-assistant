@@ -23,6 +23,7 @@ import {
   FFPROBE_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../../../util/spawn.js";
+import { transcribeSegmentAudio } from "./audio-transcribe.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -52,6 +53,7 @@ export interface Segment {
   endSeconds: number;
   framePaths: string[];
   frameTimestamps: number[];
+  transcript?: string;
 }
 
 export interface SubjectGroup {
@@ -88,6 +90,9 @@ export interface PreprocessOptions {
   sectionConfigPath?: string;
   detectDeadTime?: boolean;
   shortEdge?: number;
+  includeAudio?: boolean;
+  transcriptionMode?: "api" | "local";
+  openaiApiKey?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -508,13 +513,28 @@ export async function preprocessForAsset(
         parseFloat((seg.startSeconds + i * effectiveInterval).toFixed(3)),
       );
 
-      segments.push({
+      const segment: Segment = {
         id: seg.id,
         startSeconds: seg.startSeconds,
         endSeconds: seg.endSeconds,
         framePaths,
         frameTimestamps: actualTimestamps,
-      });
+      };
+
+      if (options.includeAudio) {
+        const transcript = await transcribeSegmentAudio(
+          asset.filePath,
+          seg.startSeconds,
+          seg.endSeconds - seg.startSeconds,
+          options.transcriptionMode ?? "local",
+          { apiKey: options.openaiApiKey },
+        );
+        if (transcript) {
+          segment.transcript = transcript;
+        }
+      }
+
+      segments.push(segment);
 
       const segProgress = Math.round(((i + 1) / rawSegments.length) * 80);
       updateProcessingStage(stage.id, { progress: segProgress });

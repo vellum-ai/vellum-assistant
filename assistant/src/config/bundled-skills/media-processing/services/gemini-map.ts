@@ -6,16 +6,16 @@
  * responseMimeType, responseSchema, and usageMetadata for cost tracking.
  */
 
-import { createHash } from 'node:crypto';
-import { access,mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { createHash } from "node:crypto";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
-import { ApiError,GoogleGenAI } from '@google/genai';
+import { ApiError, GoogleGenAI } from "@google/genai";
 
-import { computeRetryDelay, sleep } from '../../../../util/retry.js';
-import { ConcurrencyPool } from './concurrency-pool.js';
-import { type CostSummary,CostTracker } from './cost-tracker.js';
-import type { Segment } from './preprocess.js';
+import { computeRetryDelay, sleep } from "../../../../util/retry.js";
+import { ConcurrencyPool } from "./concurrency-pool.js";
+import { type CostSummary, CostTracker } from "./cost-tracker.js";
+import type { Segment } from "./preprocess.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,7 +52,7 @@ export interface MapOutput {
   segments: SegmentMapResult[];
 }
 
-type SegmentStatus = 'success' | 'failed' | 'skipped';
+type SegmentStatus = "success" | "failed" | "skipped";
 
 interface SegmentProcessingResult {
   segmentId: string;
@@ -66,16 +66,16 @@ interface SegmentProcessingResult {
 // ---------------------------------------------------------------------------
 
 const MEDIA_TYPE_MAP: Record<string, string> = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  gif: 'image/gif',
-  webp: 'image/webp',
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
 };
 
 function inferMediaType(filePath: string): string {
-  const ext = filePath.split('.').pop()?.toLowerCase() ?? 'jpg';
-  return MEDIA_TYPE_MAP[ext] ?? 'image/jpeg';
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "jpg";
+  return MEDIA_TYPE_MAP[ext] ?? "image/jpeg";
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -92,10 +92,10 @@ function computeConfigHash(options: GeminiMapOptions): string {
   const payload = JSON.stringify({
     systemPrompt: options.systemPrompt,
     outputSchema: options.outputSchema,
-    model: options.model ?? 'gemini-2.5-flash',
+    model: options.model ?? "gemini-2.5-flash",
     context: options.context,
   });
-  return createHash('sha256').update(payload).digest('hex').slice(0, 8);
+  return createHash("sha256").update(payload).digest("hex").slice(0, 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -106,13 +106,18 @@ async function processSegment(
   client: GoogleGenAI,
   segment: Segment,
   options: GeminiMapOptions,
-): Promise<{ result: unknown; model: string; inputTokens: number; outputTokens: number }> {
+): Promise<{
+  result: unknown;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}> {
   // Read and encode frame images as base64 inline data parts
   const parts: Array<Record<string, unknown>> = [];
 
   for (const framePath of segment.framePaths) {
     const imageData = await readFile(framePath);
-    const base64 = imageData.toString('base64');
+    const base64 = imageData.toString("base64");
     const mimeType = inferMediaType(framePath);
     parts.push({
       inlineData: { mimeType, data: base64 },
@@ -122,26 +127,30 @@ async function processSegment(
   // Add the text prompt part
   let promptText = `Analyzing ${segment.framePaths.length} frames from video segment ${segment.id} (${segment.startSeconds.toFixed(1)}s - ${segment.endSeconds.toFixed(1)}s).`;
 
+  if (segment.transcript) {
+    promptText += `\n\nAudio transcript for this segment:\n"""\n${segment.transcript}\n"""`;
+  }
+
   if (options.context) {
     promptText += `\n\nAdditional context:\n${JSON.stringify(options.context, null, 2)}`;
   }
 
   parts.push({ text: promptText });
 
-  const model = options.model ?? 'gemini-2.5-flash';
+  const model = options.model ?? "gemini-2.5-flash";
 
   const response = await client.models.generateContent({
     model,
-    contents: [{ role: 'user' as const, parts: parts as never }],
+    contents: [{ role: "user" as const, parts: parts as never }],
     config: {
       systemInstruction: options.systemPrompt,
-      responseMimeType: 'application/json',
+      responseMimeType: "application/json",
       responseSchema: options.outputSchema as never,
     },
   });
 
   // Extract response text (guaranteed JSON from responseMimeType)
-  const responseText = response.text ?? '{}';
+  const responseText = response.text ?? "{}";
   const parsed = JSON.parse(responseText);
 
   // Extract token usage from usageMetadata
@@ -165,11 +174,15 @@ async function processSegmentWithRetry(
 ): Promise<SegmentProcessingResult> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const { result, model, inputTokens, outputTokens } = await processSegment(client, segment, options);
+      const { result, model, inputTokens, outputTokens } = await processSegment(
+        client,
+        segment,
+        options,
+      );
 
       return {
         segmentId: segment.id,
-        status: 'success',
+        status: "success",
         result: {
           segmentId: segment.id,
           startSeconds: segment.startSeconds,
@@ -183,31 +196,55 @@ async function processSegmentWithRetry(
     } catch (err) {
       // Handle Gemini safety blocks — not retryable
       if (err instanceof ApiError) {
-        const message = err.message ?? '';
-        if (message.includes('SAFETY') || message.includes('safety')) {
-          onProgress?.(`  Segment ${segment.id}: blocked by safety filter, skipping.\n`);
-          return { segmentId: segment.id, status: 'skipped', error: 'Safety filter block' };
+        const message = err.message ?? "";
+        if (message.includes("SAFETY") || message.includes("safety")) {
+          onProgress?.(
+            `  Segment ${segment.id}: blocked by safety filter, skipping.\n`,
+          );
+          return {
+            segmentId: segment.id,
+            status: "skipped",
+            error: "Safety filter block",
+          };
         }
 
         // Non-retryable client errors (400, 401, 403, etc.) — fail immediately
-        if (err.status !== undefined && err.status < 500 && err.status !== 429) {
+        if (
+          err.status !== undefined &&
+          err.status < 500 &&
+          err.status !== 429
+        ) {
           const errMsg = err.message ?? String(err);
-          onProgress?.(`  Segment ${segment.id}: non-retryable error (${err.status}), skipping retries: ${errMsg}\n`);
-          return { segmentId: segment.id, status: 'failed' as const, error: errMsg };
+          onProgress?.(
+            `  Segment ${segment.id}: non-retryable error (${err.status}), skipping retries: ${errMsg}\n`,
+          );
+          return {
+            segmentId: segment.id,
+            status: "failed" as const,
+            error: errMsg,
+          };
         }
 
         // 429 rate limits — retryable with backoff
         if (err.status === 429 && attempt < maxRetries) {
           const delay = computeRetryDelay(attempt);
-          onProgress?.(`  Segment ${segment.id}: rate limited, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})...\n`);
+          onProgress?.(
+            `  Segment ${segment.id}: rate limited, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})...\n`,
+          );
           await sleep(delay);
           continue;
         }
 
         // Other retryable errors (5xx)
-        if (err.status !== undefined && err.status >= 500 && attempt < maxRetries) {
+        if (
+          err.status !== undefined &&
+          err.status >= 500 &&
+          attempt < maxRetries
+        ) {
           const delay = computeRetryDelay(attempt);
-          onProgress?.(`  Segment ${segment.id}: server error (${err.status}), retrying in ${Math.round(delay)}ms...\n`);
+          onProgress?.(
+            `  Segment ${segment.id}: server error (${err.status}), retrying in ${Math.round(delay)}ms...\n`,
+          );
           await sleep(delay);
           continue;
         }
@@ -216,8 +253,10 @@ async function processSegmentWithRetry(
       // Non-retryable or exhausted retries
       if (attempt === maxRetries) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        onProgress?.(`  Segment ${segment.id}: failed after ${maxRetries + 1} attempts: ${errMsg}\n`);
-        return { segmentId: segment.id, status: 'failed', error: errMsg };
+        onProgress?.(
+          `  Segment ${segment.id}: failed after ${maxRetries + 1} attempts: ${errMsg}\n`,
+        );
+        return { segmentId: segment.id, status: "failed", error: errMsg };
       }
 
       // Generic retry for unknown errors
@@ -227,7 +266,11 @@ async function processSegmentWithRetry(
   }
 
   // Should not reach here, but TypeScript needs a return
-  return { segmentId: segment.id, status: 'failed', error: 'Exhausted retries' };
+  return {
+    segmentId: segment.id,
+    status: "failed",
+    error: "Exhausted retries",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +284,7 @@ export async function mapSegments(
   options: GeminiMapOptions,
   onProgress?: (msg: string) => void,
 ): Promise<MapOutput> {
-  const model = options.model ?? 'gemini-2.5-flash';
+  const model = options.model ?? "gemini-2.5-flash";
   const concurrency = options.concurrency ?? 10;
   const maxRetries = options.maxRetries ?? 3;
 
@@ -249,7 +292,7 @@ export async function mapSegments(
   const pool = new ConcurrencyPool(concurrency);
   const costTracker = new CostTracker();
 
-  const mapResultsDir = join(pipelineDir, 'map-results');
+  const mapResultsDir = join(pipelineDir, "map-results");
   await mkdir(mapResultsDir, { recursive: true });
 
   const configHash = computeConfigHash(options);
@@ -259,7 +302,9 @@ export async function mapSegments(
   let failedCount = 0;
   let skippedCount = 0;
 
-  onProgress?.(`Mapping ${segments.length} segments with ${model} (concurrency: ${concurrency})...\n`);
+  onProgress?.(
+    `Mapping ${segments.length} segments with ${model} (concurrency: ${concurrency})...\n`,
+  );
 
   // Process all segments with concurrency limiting
   const promises = segments.map(async (segment) => {
@@ -267,7 +312,7 @@ export async function mapSegments(
     const resultPath = join(mapResultsDir, `${segment.id}-${configHash}.json`);
     if (await fileExists(resultPath)) {
       try {
-        const existingData = await readFile(resultPath, 'utf-8');
+        const existingData = await readFile(resultPath, "utf-8");
         const existing = JSON.parse(existingData) as SegmentMapResult;
         results.push(existing);
         successCount++;
@@ -286,9 +331,15 @@ export async function mapSegments(
 
     await pool.acquire();
     try {
-      const processingResult = await processSegmentWithRetry(client, segment, options, maxRetries, onProgress);
+      const processingResult = await processSegmentWithRetry(
+        client,
+        segment,
+        options,
+        maxRetries,
+        onProgress,
+      );
 
-      if (processingResult.status === 'success' && processingResult.result) {
+      if (processingResult.status === "success" && processingResult.result) {
         const segResult = processingResult.result as SegmentMapResult;
         results.push(segResult);
         successCount++;
@@ -303,8 +354,10 @@ export async function mapSegments(
         // Write per-segment result to disk
         await writeFile(resultPath, JSON.stringify(segResult, null, 2));
 
-        onProgress?.(`  Segment ${segment.id}: done (${segResult.inputTokens + segResult.outputTokens} tokens).\n`);
-      } else if (processingResult.status === 'skipped') {
+        onProgress?.(
+          `  Segment ${segment.id}: done (${segResult.inputTokens + segResult.outputTokens} tokens).\n`,
+        );
+      } else if (processingResult.status === "skipped") {
         skippedCount++;
       } else {
         failedCount++;
@@ -331,11 +384,15 @@ export async function mapSegments(
     segments: results,
   };
 
-  const outputPath = join(pipelineDir, 'map-output.json');
+  const outputPath = join(pipelineDir, "map-output.json");
   await writeFile(outputPath, JSON.stringify(output, null, 2));
 
-  onProgress?.(`Map complete: ${successCount} succeeded, ${failedCount} failed, ${skippedCount} skipped.\n`);
-  onProgress?.(`Cost: $${output.costSummary.totalEstimatedUSD.toFixed(4)} (${output.costSummary.totalInputTokens} input + ${output.costSummary.totalOutputTokens} output tokens).\n`);
+  onProgress?.(
+    `Map complete: ${successCount} succeeded, ${failedCount} failed, ${skippedCount} skipped.\n`,
+  );
+  onProgress?.(
+    `Cost: $${output.costSummary.totalEstimatedUSD.toFixed(4)} (${output.costSummary.totalInputTokens} input + ${output.costSummary.totalOutputTokens} output tokens).\n`,
+  );
 
   return output;
 }
