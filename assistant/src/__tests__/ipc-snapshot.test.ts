@@ -804,6 +804,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     contacts: [],
   },
+  contacts_changed: {
+    type: "contacts_changed",
+  },
   assistant_activity_state: {
     type: "assistant_activity_state",
     sessionId: "sess-001",

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ProxyApprovalRequest } from "../tools/network/script-proxy/types.js";
+import type { ProxyApprovalRequest } from "../tools/network/script-proxy/index.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the import of `createProxyApprovalCallback`.

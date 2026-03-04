@@ -12,14 +12,17 @@ import type { ServerWebSocket } from "bun";
 
 import { getConfig } from "../config/loader.js";
 import { resolveUserReference } from "../config/user-reference.js";
-import { findGuardianForChannel, listGuardianChannels } from "../contacts/contact-store.js";
+import {
+  findGuardianForChannel,
+  listGuardianChannels,
+} from "../contacts/contact-store.js";
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { listActiveBindingsByAssistant } from "../memory/channel-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
 import { findActiveVoiceInvites } from "../memory/ingress-invite-store.js";
 import { findMember } from "../memory/ingress-member-store.js";
-import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
@@ -2009,8 +2012,9 @@ export class RelayConnection {
       // Preserve the username fallback: use the voice channel's externalUserId
       // so downstream parsing can fall back to @username when displayName is a
       // raw external ID (e.g., phone number from contact-sync).
-      const voiceChannel = voiceGuardian?.channel
-        ?? guardianChannels?.channels.find((ch) => ch.type === "voice");
+      const voiceChannel =
+        voiceGuardian?.channel ??
+        guardianChannels?.channels.find((ch) => ch.type === "voice");
       if (voiceChannel?.externalUserId) {
         meta.username = voiceChannel.externalUserId;
       }

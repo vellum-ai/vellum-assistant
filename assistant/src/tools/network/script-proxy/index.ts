@@ -4,7 +4,7 @@ export {
   getCAPath,
   getCombinedCAPath,
   issueLeafCert,
-} from './certs.js';
+} from "./certs.js";
 export {
   createSession,
   getActiveSession,
@@ -14,8 +14,9 @@ export {
   startSession,
   stopAllSessions,
   stopSession,
-} from './session-manager.js';
+} from "./session-manager.js";
 export type {
+  PolicyDecision,
   ProxyApprovalCallback,
   ProxyApprovalRequest,
   ProxyEnvVars,
@@ -23,4 +24,4 @@ export type {
   ProxySessionConfig,
   ProxySessionId,
   ProxySessionStatus,
-} from '@vellumai/outbound-proxy';
+} from "@vellumai/outbound-proxy";
