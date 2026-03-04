@@ -1,7 +1,146 @@
 import type { GatewayConfig } from "../config.js";
+import { fetchImpl } from "../fetch.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 import type { GatewayInboundEvent } from "../types.js";
+
+/**
+ * Resolved Slack user info for populating actor fields.
+ */
+interface SlackUserInfo {
+  displayName: string;
+  username: string;
+}
+
+interface CacheEntry {
+  value: SlackUserInfo;
+  expiresAt: number;
+}
+
+const USER_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const USER_CACHE_MAX_SIZE = 500;
+
+/**
+ * In-memory LRU cache for Slack user info lookups.
+ * Entries expire after TTL and the cache evicts least-recently-used
+ * entries when it exceeds MAX_SIZE.
+ */
+const userInfoCache = new Map<string, CacheEntry>();
+
+function evictExpired(): void {
+  const now = Date.now();
+  for (const [key, entry] of userInfoCache) {
+    if (entry.expiresAt <= now) {
+      userInfoCache.delete(key);
+    }
+  }
+}
+
+function cacheGet(userId: string): SlackUserInfo | undefined {
+  const entry = userInfoCache.get(userId);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    userInfoCache.delete(userId);
+    return undefined;
+  }
+  // Move to end for LRU ordering (Map preserves insertion order)
+  userInfoCache.delete(userId);
+  userInfoCache.set(userId, entry);
+  return entry.value;
+}
+
+function cacheSet(userId: string, value: SlackUserInfo): void {
+  // Evict if over capacity
+  if (userInfoCache.size >= USER_CACHE_MAX_SIZE) {
+    evictExpired();
+    // If still over capacity, evict oldest entry
+    if (userInfoCache.size >= USER_CACHE_MAX_SIZE) {
+      const oldest = userInfoCache.keys().next().value;
+      if (oldest) userInfoCache.delete(oldest);
+    }
+  }
+  userInfoCache.set(userId, {
+    value,
+    expiresAt: Date.now() + USER_CACHE_TTL_MS,
+  });
+}
+
+/**
+ * Resolve a Slack user's display name and username via `users.info`.
+ * Results are cached to avoid repeated API calls.
+ *
+ * Returns undefined on failure — callers should treat display name as
+ * best-effort and proceed without it.
+ */
+export async function resolveSlackUser(
+  userId: string,
+  botToken: string,
+): Promise<SlackUserInfo | undefined> {
+  const cached = cacheGet(userId);
+  if (cached) return cached;
+
+  try {
+    const resp = await fetchImpl(
+      `https://slack.com/api/users.info?user=${encodeURIComponent(userId)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${botToken}` },
+      },
+    );
+    if (!resp.ok) return undefined;
+
+    const data = (await resp.json()) as {
+      ok?: boolean;
+      user?: {
+        name?: string;
+        real_name?: string;
+        profile?: { display_name?: string; real_name?: string };
+      };
+    };
+    if (!data.ok || !data.user) return undefined;
+
+    const displayName =
+      data.user.profile?.display_name ||
+      data.user.real_name ||
+      data.user.profile?.real_name ||
+      data.user.name ||
+      userId;
+    const username = data.user.name || userId;
+
+    const info: SlackUserInfo = { displayName, username };
+    cacheSet(userId, info);
+    return info;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Cache-only user lookup for the hot normalization path.
+ * Returns cached info immediately without making network calls.
+ * Fires off a background fetch to warm the cache for next time.
+ */
+export function resolveSlackUserSync(
+  userId: string,
+  botToken: string,
+): SlackUserInfo | undefined {
+  const cached = cacheGet(userId);
+  if (!cached) {
+    // Fire-and-forget: warm the cache for next time
+    resolveSlackUser(userId, botToken).catch(() => {});
+  }
+  return cached;
+}
+
+/** Exported for testing — clears the user info cache. */
+export function clearUserInfoCache(): void {
+  userInfoCache.clear();
+}
+
+/** Exported for testing — returns current cache size. */
+export function getUserInfoCacheSize(): number {
+  return userInfoCache.size;
+}
 
 /**
  * Slack `app_mention` event shape (subset relevant to normalization).
@@ -108,6 +247,13 @@ export function normalizeSlackDirectMessage(
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
+  // Use cache-only lookup to avoid blocking normalization on network calls.
+  // A background fetch warms the cache for subsequent messages from this user.
+  const userInfo =
+    config.slackChannelBotToken && event.user
+      ? resolveSlackUserSync(event.user, config.slackChannelBotToken)
+      : undefined;
+
   return {
     event: {
       version: "v1",
@@ -120,6 +266,10 @@ export function normalizeSlackDirectMessage(
       },
       actor: {
         actorExternalId: event.user,
+        ...(userInfo && {
+          displayName: userInfo.displayName,
+          username: userInfo.username,
+        }),
       },
       source: {
         updateId: eventId,
@@ -156,6 +306,11 @@ export function normalizeSlackChannelMessage(
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
+  const userInfo =
+    config.slackChannelBotToken && event.user
+      ? resolveSlackUserSync(event.user, config.slackChannelBotToken)
+      : undefined;
+
   return {
     event: {
       version: "v1",
@@ -168,6 +323,10 @@ export function normalizeSlackChannelMessage(
       },
       actor: {
         actorExternalId: event.user,
+        ...(userInfo && {
+          displayName: userInfo.displayName,
+          username: userInfo.username,
+        }),
       },
       source: {
         updateId: eventId,
@@ -202,6 +361,11 @@ export function normalizeSlackAppMention(
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
+  const userInfo =
+    config.slackChannelBotToken && event.user
+      ? resolveSlackUserSync(event.user, config.slackChannelBotToken)
+      : undefined;
+
   return {
     event: {
       version: "v1",
@@ -214,6 +378,10 @@ export function normalizeSlackAppMention(
       },
       actor: {
         actorExternalId: event.user,
+        ...(userInfo && {
+          displayName: userInfo.displayName,
+          username: userInfo.username,
+        }),
       },
       source: {
         updateId: eventId,

@@ -2,8 +2,11 @@ import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
+import { classifySlackError } from "../../slack/errors.js";
 
 const log = getLogger("slack-deliver");
+const MAX_RATE_LIMIT_RETRIES = 3;
+const DEFAULT_RETRY_AFTER_S = 1;
 
 export function createSlackDeliverHandler(
   config: GatewayConfig,
@@ -85,24 +88,94 @@ export function createSlackDeliverHandler(
         slackBody.thread_ts = threadTs;
       }
 
-      const response = await fetchImpl(
-        "https://slack.com/api/chat.postMessage",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.slackChannelBotToken}`,
-            "Content-Type": "application/json",
+      let lastError: string | undefined;
+      let delivered = false;
+
+      for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+        const response = await fetchImpl(
+          "https://slack.com/api/chat.postMessage",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${config.slackChannelBotToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(slackBody),
           },
-          body: JSON.stringify(slackBody),
-        },
-      );
+        );
 
-      const data = (await response.json()) as { ok?: boolean; error?: string };
+        // Handle HTTP-level 429 rate limits
+        if (response.status === 429) {
+          if (attempt >= MAX_RATE_LIMIT_RETRIES) {
+            tlog.error({ chatId }, "Slack rate limit exceeded after retries");
+            return Response.json({ error: "Rate limited" }, { status: 429 });
+          }
+          const retryAfter =
+            parseInt(response.headers.get("Retry-After") ?? "", 10) ||
+            DEFAULT_RETRY_AFTER_S;
+          tlog.warn(
+            { chatId, retryAfter, attempt },
+            "Slack rate limited, retrying",
+          );
+          await new Promise((r) => setTimeout(r, retryAfter * 1000));
+          continue;
+        }
 
-      if (!data.ok) {
+        const data = (await response.json()) as {
+          ok?: boolean;
+          error?: string;
+        };
+
+        if (!data.ok) {
+          lastError = data.error;
+          const category = classifySlackError(data.error);
+
+          // Retry rate-limited responses from the body
+          if (category === "rate_limit" && attempt < MAX_RATE_LIMIT_RETRIES) {
+            tlog.warn(
+              { chatId, slackError: data.error, attempt },
+              "Slack rate limited (body), retrying",
+            );
+            await new Promise((r) =>
+              setTimeout(r, DEFAULT_RETRY_AFTER_S * 1000),
+            );
+            continue;
+          }
+
+          tlog.error(
+            { chatId, slackError: data.error, category },
+            "Slack API returned error",
+          );
+
+          if (category === "rate_limit") {
+            return Response.json({ error: "Rate limited" }, { status: 429 });
+          }
+          if (category === "channel_not_found" || category === "not_found") {
+            return Response.json(
+              { error: "Channel not found" },
+              { status: 404 },
+            );
+          }
+          if (category === "permission") {
+            return Response.json(
+              { error: "Permission denied" },
+              { status: 403 },
+            );
+          }
+          // Auth errors use 502 so downstream retry logic treats them as
+          // transient (token rotation, brief credential desync). Permanent
+          // auth failures will exhaust retries and be dead-lettered normally.
+          return Response.json({ error: "Delivery failed" }, { status: 502 });
+        }
+
+        delivered = true;
+        break;
+      }
+
+      if (!delivered) {
         tlog.error(
-          { chatId, slackError: data.error },
-          "Slack API returned error",
+          { chatId, slackError: lastError },
+          "Slack delivery failed after retries",
         );
         return Response.json({ error: "Delivery failed" }, { status: 502 });
       }
