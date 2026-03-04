@@ -225,3 +225,146 @@ export function normalizeSlackAppMention(
     channel: event.channel,
   };
 }
+
+/**
+ * Slack `block_actions` interactive payload shape (subset relevant to normalization).
+ * Sent when a user clicks a Block Kit interactive element (button, menu, etc.).
+ */
+export interface SlackBlockActionsPayload {
+  type: "block_actions";
+  trigger_id: string;
+  user: { id: string; username?: string; name?: string };
+  channel?: { id: string; name?: string };
+  message?: { ts: string; text?: string };
+  actions: Array<{
+    action_id: string;
+    value?: string;
+    type: string;
+    block_id?: string;
+    action_ts?: string;
+  }>;
+}
+
+/**
+ * Slack `reaction_added` event shape.
+ */
+export interface SlackReactionAddedEvent {
+  type: "reaction_added";
+  user: string;
+  reaction: string;
+  item: {
+    type: string;
+    channel: string;
+    ts: string;
+  };
+  item_user?: string;
+  event_ts?: string;
+}
+
+/**
+ * Normalize a Slack `block_actions` interactive payload into the gateway's
+ * canonical inbound event shape, matching Telegram's `callback_query` pattern.
+ *
+ * Uses the first action in the `actions` array. The `callbackData` field is
+ * set to match the Telegram `apr:{requestId}:{actionId}` convention when the
+ * action value follows that pattern, or falls back to the raw action value.
+ *
+ * Returns null if the payload is missing required fields or cannot be routed.
+ */
+export function normalizeSlackBlockActions(
+  payload: SlackBlockActionsPayload,
+  envelopeId: string,
+  config: GatewayConfig,
+): NormalizedSlackEvent | null {
+  const action = payload.actions?.[0];
+  if (!action) return null;
+
+  const userId = payload.user?.id;
+  if (!userId) return null;
+
+  const channelId = payload.channel?.id;
+  if (!channelId) return null;
+
+  const routing = resolveAssistant(config, channelId, userId);
+  if (isRejection(routing)) return null;
+
+  const callbackData = action.value ?? action.action_id;
+  const messageTs = payload.message?.ts;
+  // Use action_ts (unique per click) to prevent dedup collisions when
+  // multiple buttons on the same message are clicked or the same button
+  // is clicked again after a transient failure.
+  const actionTs = action.action_ts ?? envelopeId;
+
+  return {
+    event: {
+      version: "v1",
+      sourceChannel: "slack",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content: callbackData,
+        conversationExternalId: channelId,
+        externalMessageId: `${channelId}:${messageTs ?? envelopeId}:${actionTs}`,
+        callbackQueryId: payload.trigger_id,
+        callbackData,
+      },
+      actor: {
+        actorExternalId: userId,
+        username: payload.user.username,
+        displayName: payload.user.name,
+      },
+      source: {
+        updateId: envelopeId,
+        messageId: messageTs,
+      },
+      raw: payload as unknown as Record<string, unknown>,
+    },
+    routing,
+    threadTs: messageTs ?? envelopeId,
+    channel: channelId,
+  };
+}
+
+/**
+ * Normalize a Slack `reaction_added` event into the gateway's canonical
+ * inbound event shape. The reaction emoji name is placed in `callbackData`
+ * so downstream handlers can process it like a callback action.
+ *
+ * Returns null if the event is missing required fields or cannot be routed.
+ */
+export function normalizeSlackReactionAdded(
+  event: SlackReactionAddedEvent,
+  eventId: string,
+  config: GatewayConfig,
+): NormalizedSlackEvent | null {
+  if (!event.user || !event.item?.channel || !event.item?.ts) return null;
+
+  const routing = resolveAssistant(config, event.item.channel, event.user);
+  if (isRejection(routing)) return null;
+
+  const callbackData = `reaction:${event.reaction}`;
+
+  return {
+    event: {
+      version: "v1",
+      sourceChannel: "slack",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content: callbackData,
+        conversationExternalId: event.item.channel,
+        externalMessageId: `${event.item.channel}:${event.item.ts}:${event.reaction}`,
+        callbackData,
+      },
+      actor: {
+        actorExternalId: event.user,
+      },
+      source: {
+        updateId: eventId,
+        messageId: event.item.ts,
+      },
+      raw: event as unknown as Record<string, unknown>,
+    },
+    routing,
+    threadTs: event.item.ts,
+    channel: event.item.channel,
+  };
+}

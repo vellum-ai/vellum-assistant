@@ -1,7 +1,7 @@
 ---
 name: update
 description: >
-  Pull latest from main (or a specified branch), use vellum ps/sleep/wake to manage daemon and gateway lifecycle, rebuild/launch the macOS app, and print a startup summary.
+  Pull latest from main (or a specified branch), use vellum ps/sleep/wake to manage assistant and gateway lifecycle, rebuild/launch the macOS app, and print a startup summary.
 ---
 
 # Update — Pull Latest and Restart Vellum
@@ -28,7 +28,7 @@ The user may pass `$ARGUMENTS` as the branch name (e.g., `/update feature/phone-
    pkill -f "build\.sh run" || true
    ```
 
-3. Quiesce with `vellum sleep` — stop daemon and gateway processes. This is directory-agnostic and stops processes globally regardless of CWD:
+3. Quiesce with `vellum sleep` — stop assistant and gateway processes. This is directory-agnostic and stops processes globally regardless of CWD:
    ```bash
    vellum sleep || true
    ```
@@ -62,7 +62,7 @@ The user may pass `$ARGUMENTS` as the branch name (e.g., `/update feature/phone-
    cd gateway && bun install && cd ..
    ```
 
-7. Restart with `vellum wake` — start daemon and gateway from the current checkout. `vellum wake` must be run from the checkout directory that should supply the new daemon code:
+7. Restart with `vellum wake` — start assistant and gateway from the current checkout. `vellum wake` must be run from the checkout directory that should supply the new assistant code:
    ```bash
    vellum wake
    ```
@@ -85,5 +85,5 @@ The user may pass `$ARGUMENTS` as the branch name (e.g., `/update feature/phone-
 Report:
 
 1. What was pulled (new commits).
-2. The startup summary block output (daemon health, gateway health).
-3. Note: the macOS app manages its own daemon and gateway. On first launch, the app will hatch and start them automatically.
+2. The startup summary block output (assistant health, gateway health).
+3. Note: the macOS app manages its own assistant and gateway. On first launch, the app will hatch and start them automatically.

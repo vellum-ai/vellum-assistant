@@ -52,7 +52,7 @@ mock.module("../daemon/handlers.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { Session } from "../daemon/session.js";
 import {
   createCanonicalGuardianDelivery,
@@ -208,6 +208,7 @@ const noopProcessMessage = mock(async () => ({ messageId: "msg-1" }));
 function ensureTestContact(): void {
   upsertContact({
     displayName: "Test User",
+    assistantId: "self",
     channels: [
       {
         type: "telegram",
@@ -266,7 +267,7 @@ describe("stale callback handling without matching pending approval", () => {
 
 describe("inbound callback metadata triggers decision handling", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -360,7 +361,7 @@ describe("inbound callback metadata triggers decision handling", () => {
 
 describe("inbound text matching approval phrases triggers decision handling", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -442,7 +443,7 @@ describe("inbound text matching approval phrases triggers decision handling", ()
 
 describe("non-decision messages during pending approval (legacy fallback)", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -524,7 +525,7 @@ describe("messages without pending approval proceed normally", () => {
 
 describe("empty content with callbackData bypasses validation", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -637,7 +638,7 @@ describe("empty content with callbackData bypasses validation", () => {
 
 describe("callback requestId validation", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -765,7 +766,7 @@ describe("callback requestId validation", () => {
 
 describe("no immediate reply after approval decision", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -898,7 +899,7 @@ describe("stale callback handling", () => {
 
 describe("SMS channel approval decisions", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "sms-user-default",
@@ -1190,7 +1191,7 @@ describe("SMS guardian verify intercept", () => {
 
 describe("guardian decision scoping — multiple pending approvals", () => {
   test("callback for older request resolves to the correct approval request", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-scope-user",
@@ -1275,7 +1276,7 @@ describe("guardian decision scoping — multiple pending approvals", () => {
 
 describe("ambiguous plain-text decision with multiple pending requests", () => {
   test("does not apply plain-text decision to wrong request when multiple pending", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-ambig-user",
@@ -1599,6 +1600,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
   test("inbound with explicit assistantId does not mutate existing external bindings", async () => {
     upsertContact({
       displayName: "Incoming User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -1662,7 +1664,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
 
 describe("conversational approval engine — standard path", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -1883,7 +1885,7 @@ describe("conversational approval engine — standard path", () => {
 
 describe("guardian conversational approval via conversation engine", () => {
   test("guardian follow-up clarification: engine returns keep_pending", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-conv-user",
@@ -1965,7 +1967,7 @@ describe("guardian conversational approval via conversation engine", () => {
   });
 
   test("guardian natural-language approval: engine returns approve_once", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-nlp-user",
@@ -2045,7 +2047,7 @@ describe("guardian conversational approval via conversation engine", () => {
   });
 
   test("guardian callback button approve_always is downgraded to approve_once", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-dg-user",
@@ -2100,7 +2102,7 @@ describe("guardian conversational approval via conversation engine", () => {
   });
 
   test("multi-pending guardian disambiguation: engine requests clarification", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-multi-user",
@@ -2203,7 +2205,7 @@ describe("guardian conversational approval via conversation engine", () => {
 
 describe("keep_pending remains conversational — standard path", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -2264,7 +2266,7 @@ describe("keep_pending remains conversational — standard path", () => {
 
 describe("keep_pending remains conversational — guardian path", () => {
   test('guardian explicit "yes" with keep_pending returns assistant_turn without applying a decision', async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-fb",
@@ -2339,7 +2341,7 @@ describe("keep_pending remains conversational — guardian path", () => {
 
 describe("requester cancel of guardian-gated pending request", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-cancel",
@@ -2348,6 +2350,7 @@ describe("requester cancel of guardian-gated pending request", () => {
     });
     upsertContact({
       displayName: "Requester Cancel User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -2653,7 +2656,7 @@ describe("requester cancel of guardian-gated pending request", () => {
 
 describe("engine decision race condition — standard path", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -2723,7 +2726,7 @@ describe("engine decision race condition — standard path", () => {
 
 describe("engine decision race condition — guardian path", () => {
   test("returns stale_ignored when guardian engine approves but interaction was already resolved", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-race-user",
@@ -2805,14 +2808,14 @@ describe("engine decision race condition — guardian path", () => {
 
 describe("non-decision status reply for different channels", () => {
   beforeEach(() => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
       guardianPrincipalId: "telegram-user-default",
     });
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "telegram-user-default",
@@ -2923,7 +2926,7 @@ describe("non-decision status reply for different channels", () => {
 describe("background channel processing approval prompts", () => {
   test("marks guardian channel turns interactive and delivers approval prompt when confirmation is pending", async () => {
     // Set up a guardian binding so the sender is recognized as a guardian
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -2987,7 +2990,7 @@ describe("background channel processing approval prompts", () => {
   test("guardian prompt delivery still works when binding ID formatting differs from sender ID", async () => {
     // Guardian binding includes extra whitespace; trust resolution canonicalizes
     // identity and prompt delivery should still treat this sender as the guardian.
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "  telegram-user-default  ",
@@ -3052,7 +3055,7 @@ describe("background channel processing approval prompts", () => {
     // Set up a guardian binding for a DIFFERENT user so the sender is a
     // trusted contact (not the guardian). The guardian route is resolvable
     // because the binding exists — approval notifications can be delivered.
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-other",
@@ -3174,7 +3177,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     ensureConversation("conv-voice-nl-1");
 
     // Create guardian binding for Telegram
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: guardianUserId,
@@ -3232,7 +3235,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     const differentChatId = "different-chat-999";
 
     // Create guardian binding for the guardian user on the different chat
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: guardianUserId,
@@ -3289,7 +3292,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
 describe("trusted-contact self-approval blocked before guardian approval row exists", () => {
   beforeEach(() => {
     // Create a guardian binding so the requester resolves as trusted_contact
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-tc-selfapproval",
@@ -3298,6 +3301,7 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
     });
     upsertContact({
       displayName: "TC Self-Approval User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",

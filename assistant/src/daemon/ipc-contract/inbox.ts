@@ -29,31 +29,6 @@ export interface IngressInviteRequest {
   guardianName?: string;
 }
 
-export interface IngressMemberRequest {
-  type: "ingress_member";
-  action: "list" | "upsert" | "revoke" | "block";
-  /** Assistant ID for scoping member operations (defaults to 'self'). */
-  assistantId?: string;
-  /** Source channel (required for upsert, optional filter for list). */
-  sourceChannel?: string;
-  /** External user ID (upsert only). */
-  externalUserId?: string;
-  /** External chat ID (upsert only). */
-  externalChatId?: string;
-  /** Display name (upsert only). */
-  displayName?: string;
-  /** Username (upsert only). */
-  username?: string;
-  /** Access policy (upsert only). */
-  policy?: "allow" | "deny" | "escalate";
-  /** Member status (upsert only for setting, list only for filtering). */
-  status?: "pending" | "active";
-  /** Member ID (revoke and block only). */
-  memberId?: string;
-  /** Reason for revoke or block (revoke and block only). */
-  reason?: string;
-}
-
 export interface AssistantInboxEscalationRequest {
   type: "assistant_inbox_escalation";
   action: "list" | "decide";
@@ -102,38 +77,6 @@ export interface IngressInviteResponse {
   }>;
 }
 
-export interface IngressMemberResponse {
-  type: "ingress_member_response";
-  success: boolean;
-  error?: string;
-  /** Single member (returned on upsert/revoke/block). */
-  member?: {
-    id: string;
-    sourceChannel: string;
-    externalUserId?: string;
-    externalChatId?: string;
-    displayName?: string;
-    username?: string;
-    status: string;
-    policy: string;
-    lastSeenAt?: number;
-    createdAt: number;
-  };
-  /** List of members (returned on list). */
-  members?: Array<{
-    id: string;
-    sourceChannel: string;
-    externalUserId?: string;
-    externalChatId?: string;
-    displayName?: string;
-    username?: string;
-    status: string;
-    policy: string;
-    lastSeenAt?: number;
-    createdAt: number;
-  }>;
-}
-
 export interface AssistantInboxEscalationResponse {
   type: "assistant_inbox_escalation_response";
   success: boolean;
@@ -162,10 +105,8 @@ export interface AssistantInboxEscalationResponse {
 
 export type _InboxClientMessages =
   | IngressInviteRequest
-  | IngressMemberRequest
   | AssistantInboxEscalationRequest;
 
 export type _InboxServerMessages =
   | IngressInviteResponse
-  | IngressMemberResponse
   | AssistantInboxEscalationResponse;

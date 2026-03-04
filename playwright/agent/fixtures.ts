@@ -7,7 +7,8 @@
  */
 
 import { execSync } from "child_process";
-import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import os from "os";
 import path from "path";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -88,7 +89,9 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
 
   verifyAppExists(appDisplayName);
   ensureVellumInPath(appDisplayName);
-  ensureAssistantHatched();
+  await ensureAssistantHatched();
+  skipAssistantOnboarding();
+  ensureApiKeyInDefaults();
 
   return {
     teardown: async () => {
@@ -96,6 +99,13 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
       quitApp(appDisplayName);
     },
   };
+}
+
+// ── Path Helpers ────────────────────────────────────────────────────
+
+/** Resolves the base data directory, respecting the BASE_DATA_DIR env var. */
+function getBaseDir(): string {
+  return process.env.BASE_DATA_DIR?.trim() || os.homedir();
 }
 
 // ── Shared Helpers ──────────────────────────────────────────────────
@@ -135,39 +145,51 @@ function logVellumPs(): void {
 }
 
 /**
- * Resolves the path to the bundled `vellum-cli` binary inside the
- * desktop app and creates a `vellum` symlink in a temporary bin
- * directory that is prepended to PATH. This ensures all subsequent
- * `vellum` commands use the CLI that ships with the app under test.
+ * Resolves the bundled binaries inside the desktop app and symlinks them
+ * into a temporary bin directory prepended to PATH. Symlinks vellum-cli
+ * as `vellum`, plus vellum-daemon and vellum-gateway so the CLI can find
+ * sibling binaries when hatching. Sets VELLUM_DESKTOP_APP so the CLI
+ * uses the bundled-binary code path instead of looking for source files.
  */
 function ensureVellumInPath(appDisplayName: string): void {
   const appDir = path.resolve(__dirname, "../../clients/macos/dist");
-  const cliBinary = path.join(appDir, `${appDisplayName}.app`, "Contents", "MacOS", "vellum-cli");
+  const macosDir = path.join(appDir, `${appDisplayName}.app`, "Contents", "MacOS");
+  const cliBinary = path.join(macosDir, "vellum-cli");
 
   if (!existsSync(cliBinary)) {
     throw new Error(`Bundled CLI not found at: ${cliBinary}`);
   }
 
-  // Create a temp bin dir with a `vellum` symlink pointing to the bundled CLI
+  // Create a temp bin dir with symlinks for all bundled binaries
   const tmpBin = path.join(__dirname, "../.vellum-bin");
   mkdirSync(tmpBin, { recursive: true });
-  const symlinkPath = path.join(tmpBin, "vellum");
 
-  try {
-    // Remove stale symlink if it exists
-    if (existsSync(symlinkPath)) {
-      execSync(`rm -f ${JSON.stringify(symlinkPath)}`);
+  const symlinks: Array<[string, string]> = [
+    [cliBinary, path.join(tmpBin, "vellum")],
+    [path.join(macosDir, "vellum-daemon"), path.join(tmpBin, "vellum-daemon")],
+    [path.join(macosDir, "vellum-gateway"), path.join(tmpBin, "vellum-gateway")],
+  ];
+
+  for (const [target, link] of symlinks) {
+    if (!existsSync(target)) continue;
+    try {
+      if (existsSync(link)) {
+        execSync(`rm -f ${JSON.stringify(link)}`);
+      }
+      execSync(`ln -s ${JSON.stringify(target)} ${JSON.stringify(link)}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to create symlink ${link}: ${message}`);
     }
-    execSync(`ln -s ${JSON.stringify(cliBinary)} ${JSON.stringify(symlinkPath)}`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to create vellum symlink: ${message}`);
   }
 
   // Prepend the temp bin dir to PATH
   if (!process.env.PATH?.includes(tmpBin)) {
     process.env.PATH = `${tmpBin}:${process.env.PATH ?? ""}`;
   }
+
+  // Tell the CLI to use the bundled-binary code path
+  process.env.VELLUM_DESKTOP_APP = "1";
 
   // Verify it works
   try {
@@ -186,46 +208,228 @@ function ensureVellumInPath(appDisplayName: string): void {
 }
 
 /**
- * Ensures an assistant is hatched.
+ * Ensures an assistant is hatched, the lockfile is populated, and the
+ * assistant is healthy before returning.
  *
- * Checks `vellum ps` for an existing assistant. If none is found,
- * runs `vellum hatch` to create one.
+ * Checks the lockfile for an existing assistant. If none is found,
+ * runs `vellum hatch` to create one. Then polls `/healthz` until
+ * the assistant reports healthy.
  */
-function ensureAssistantHatched(): void {
-  let psOutput: string;
+async function ensureAssistantHatched(): Promise<void> {
+  let hatchOutput = "";
+  if (!hasAssistantInLockfile()) {
+    try {
+      hatchOutput = execSync("vellum hatch 2>&1", {
+        encoding: "utf-8",
+        timeout: 300_000,
+        shell: "/bin/bash",
+      });
+    } catch (err: unknown) {
+      const output =
+        (err as { stdout?: string }).stdout ||
+        (err as { stderr?: string }).stderr ||
+        "";
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to hatch assistant: ${message}${output ? `\n--- vellum hatch output ---\n${output}` : ""}`,
+      );
+    }
+  }
+
+  logVellumPs();
+
+  // Verify the lockfile was updated with an assistant entry
+  const { runtimeUrl, assistantId } = readAssistantFromLockfile(hatchOutput);
+
+  // Poll the daemon directly (port 7821) rather than through the gateway,
+  // since the gateway may require auth for proxied health checks.
+  const daemonUrl = "http://localhost:7821";
+
+  const maxWaitMs = 60_000;
+  const pollIntervalMs = 1_000;
+  const startTime = Date.now();
+  let lastHealthError = "";
+
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1_500);
+      const response = await fetch(`${daemonUrl}/healthz`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const body = (await response.json()) as { status?: string };
+        if (body.status === "healthy") {
+          return;
+        }
+        lastHealthError = `status=${response.status} body=${JSON.stringify(body)}`;
+      } else {
+        lastHealthError = `status=${response.status}`;
+      }
+    } catch (err) {
+      lastHealthError =
+        err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  // Collect diagnostics
+  const diagParts: string[] = [];
+
+  diagParts.push(`Last health check error: ${lastHealthError}`);
+
+  // vellum ps (overview)
   try {
-    psOutput = execSync("vellum ps", {
+    const ps = execSync("vellum ps 2>&1", {
       encoding: "utf-8",
       timeout: 30_000,
       shell: "/bin/bash",
     });
-  } catch {
-    // vellum ps failed — try hatching
-    psOutput = "";
+    diagParts.push(`--- vellum ps ---\n${ps.trim()}`);
+  } catch (err: unknown) {
+    diagParts.push(
+      `--- vellum ps ---\n${(err as { stdout?: string }).stdout || "failed"}`,
+    );
   }
 
-  const lines = psOutput
-    .split("\n")
-    .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
-
-  if (lines.length > 0) {
-    logVellumPs();
-    return;
+  // vellum ps <name> (subprocess details)
+  if (assistantId) {
+    try {
+      const psDetail = execSync(
+        `vellum ps ${JSON.stringify(assistantId)} 2>&1`,
+        { encoding: "utf-8", timeout: 30_000, shell: "/bin/bash" },
+      );
+      diagParts.push(
+        `--- vellum ps ${assistantId} ---\n${psDetail.trim()}`,
+      );
+    } catch (err: unknown) {
+      diagParts.push(
+        `--- vellum ps ${assistantId} ---\n${(err as { stdout?: string }).stdout || "failed"}`,
+      );
+    }
   }
 
-  // No assistant found — hatch one
+  diagParts.push(buildDiagnostics(hatchOutput));
+
+  throw new Error(
+    `Assistant daemon at ${daemonUrl} did not become healthy within ${maxWaitMs / 1_000}s ` +
+      `(gateway: ${runtimeUrl})\n\n${diagParts.join("\n\n")}`,
+  );
+}
+
+/** Returns true if the lockfile exists and contains at least one assistant. */
+function hasAssistantInLockfile(): boolean {
+  const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
+  if (!existsSync(lockfilePath)) return false;
   try {
-    execSync("vellum hatch", {
-      stdio: "inherit",
-      timeout: 300_000,
-      shell: "/bin/bash",
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to hatch assistant: ${message}`);
+    const raw = readFileSync(lockfilePath, "utf-8");
+    const data = JSON.parse(raw) as { assistants?: unknown[] };
+    return Array.isArray(data.assistants) && data.assistants.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reads the latest assistant's runtimeUrl and assistantId from ~/.vellum.lock.json.
+ * Throws if the lockfile is missing or has no assistant entries.
+ */
+function readAssistantFromLockfile(hatchOutput: string): {
+  runtimeUrl: string;
+  assistantId: string;
+} {
+  const diagnostics = buildDiagnostics(hatchOutput);
+  const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
+
+  if (!existsSync(lockfilePath)) {
+    throw new Error(
+      `Lockfile not found at ${lockfilePath} after hatching.\n${diagnostics}`,
+    );
   }
 
-  logVellumPs();
+  const raw = readFileSync(lockfilePath, "utf-8");
+  const data = JSON.parse(raw) as {
+    assistants?: { runtimeUrl?: string; assistantId?: string }[];
+  };
+  const assistants = data.assistants;
+
+  if (!Array.isArray(assistants) || assistants.length === 0) {
+    throw new Error(
+      `No assistant entries in lockfile after hatching.\n${diagnostics}`,
+    );
+  }
+
+  const entry = assistants[0];
+  if (!entry.runtimeUrl) {
+    throw new Error(
+      `Assistant entry missing runtimeUrl in lockfile.\n${diagnostics}`,
+    );
+  }
+
+  return {
+    runtimeUrl: entry.runtimeUrl,
+    assistantId: entry.assistantId || "",
+  };
+}
+
+/** Collects hatch CLI output and hatch.log into a single diagnostic string. */
+function buildDiagnostics(hatchOutput: string): string {
+  const parts: string[] = [];
+
+  if (hatchOutput.trim()) {
+    parts.push(`--- vellum hatch output ---\n${hatchOutput.trim()}`);
+  }
+
+  const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  const logPath = path.join(configHome, "vellum", "logs", "hatch.log");
+  if (existsSync(logPath)) {
+    try {
+      const contents = readFileSync(logPath, "utf-8");
+      const lines = contents.split("\n");
+      const tail = lines.slice(-200).join("\n");
+      parts.push(`--- hatch.log (last 200 lines) ---\n${tail}`);
+    } catch {
+      parts.push(`Failed to read hatch.log at ${logPath}`);
+    }
+  } else {
+    parts.push(`hatch.log not found at ${logPath}`);
+  }
+
+  return parts.join("\n\n");
+}
+
+/**
+ * Deletes BOOTSTRAP.md from the assistant workspace so the assistant
+ * skips its first-run acclimation flow (name, personality, etc.).
+ */
+function skipAssistantOnboarding(): void {
+  const bootstrapPath = path.join(getBaseDir(), ".vellum", "workspace", "BOOTSTRAP.md");
+  if (existsSync(bootstrapPath)) {
+    unlinkSync(bootstrapPath);
+  }
+}
+
+/**
+ * Writes the ANTHROPIC_API_KEY from the environment into the app's
+ * UserDefaults so the macOS app sees a valid key and skips the auth
+ * setup screen.
+ */
+function ensureApiKeyInDefaults(): void {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return;
+
+  const domain = "com.vellum.vellum-assistant";
+  try {
+    execSync(
+      `defaults write ${domain} vellum_provider_anthropic ${JSON.stringify(apiKey)}`,
+      { timeout: 5_000 },
+    );
+  } catch {
+    // Best-effort — tests may still work if auth is handled differently
+  }
 }
 
 function retireAssistant(): void {

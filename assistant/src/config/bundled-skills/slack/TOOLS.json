@@ -25,6 +25,11 @@
           "max_channels": {
             "type": "number",
             "description": "Maximum number of channels to scan (default 20)"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["text", "blocks"],
+            "description": "Output format: 'text' returns JSON (default), 'blocks' returns Slack Block Kit structured output"
           }
         }
       },

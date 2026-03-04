@@ -171,26 +171,3 @@ export function buildDecisionTrace(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Credential ref resolution trace
-// ---------------------------------------------------------------------------
-
-export interface CredentialRefTrace {
-  /** The raw refs provided by the caller. */
-  rawRefs: string[];
-  /** The resolved canonical UUIDs. */
-  resolvedIds: string[];
-  /** Any refs that could not be resolved. */
-  unresolvedRefs: string[];
-}
-
-/**
- * Build a credential ref resolution trace for diagnostic logging.
- */
-export function buildCredentialRefTrace(
-  rawRefs: string[],
-  resolvedIds: string[],
-  unresolvedRefs: string[],
-): CredentialRefTrace {
-  return { rawRefs, resolvedIds, unresolvedRefs };
-}

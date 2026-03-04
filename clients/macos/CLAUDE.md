@@ -135,7 +135,7 @@ DesignSystem/
 ├── Core/                (atomic building blocks — single-responsibility controls)
 │   ├── Buttons/         (VButton, VIconButton)
 │   ├── Inputs/          (VSlider, VTextEditor, VTextField, VToggle)
-│   ├── Feedback/        (VBadge, VLoadingIndicator, VToast)
+│   ├── Feedback/        (VBadge, VLoadingIndicator, VShortcutTag, VToast)
 │   ├── Display/         (VListRow)
 │   └── Navigation/      (VTab)
 ├── Components/          (composed patterns — combine multiple Core elements)

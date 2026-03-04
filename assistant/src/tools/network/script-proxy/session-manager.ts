@@ -18,8 +18,7 @@ import {
   type ProxySessionId,
   routeConnection,
   stripQueryString,
-} from "@vellumai/outbound-proxy";
-
+} from "../../../outbound-proxy/index.js";
 import { getSecureKey } from "../../../security/secure-keys.js";
 import { getLogger } from "../../../util/logger.js";
 import { silentlyWithLog } from "../../../util/silently.js";

@@ -15,19 +15,14 @@ import { getBindingByConversation } from "../../memory/external-conversation-sto
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
 import { deliverChannelReply } from "../../runtime/gateway-client.js";
 import {
-  blockIngressMember,
   createIngressInvite,
   listIngressInvites,
-  listIngressMembers,
   redeemIngressInvite,
   revokeIngressInvite,
-  revokeIngressMember,
-  upsertIngressMember,
 } from "../../runtime/ingress-service.js";
 import type {
   AssistantInboxEscalationRequest,
   IngressInviteRequest,
-  IngressMemberRequest,
 } from "../ipc-protocol.js";
 import {
   defineHandlers,
@@ -143,118 +138,6 @@ export function handleIngressInvite(
     log.error({ err }, "ingress_invite handler error");
     ctx.send(socket, {
       type: "ingress_invite_response",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export function handleIngressMember(
-  msg: IngressMemberRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  try {
-    switch (msg.action) {
-      case "list": {
-        const result = listIngressMembers({
-          assistantId: msg.assistantId,
-          sourceChannel: msg.sourceChannel,
-          status: msg.status,
-          policy: msg.policy,
-        });
-        if (!result.ok) {
-          ctx.send(socket, {
-            type: "ingress_member_response",
-            success: false,
-            error: result.error,
-          });
-          return;
-        }
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: true,
-          members: result.data,
-        });
-        return;
-      }
-
-      case "upsert": {
-        const result = upsertIngressMember({
-          assistantId: msg.assistantId,
-          sourceChannel: msg.sourceChannel,
-          externalUserId: msg.externalUserId,
-          externalChatId: msg.externalChatId,
-          displayName: msg.displayName,
-          username: msg.username,
-          policy: msg.policy,
-          status: msg.status,
-        });
-        if (!result.ok) {
-          ctx.send(socket, {
-            type: "ingress_member_response",
-            success: false,
-            error: result.error,
-          });
-          return;
-        }
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: true,
-          member: result.data,
-        });
-        return;
-      }
-
-      case "revoke": {
-        const result = revokeIngressMember(msg.memberId, msg.reason);
-        if (!result.ok) {
-          ctx.send(socket, {
-            type: "ingress_member_response",
-            success: false,
-            error: result.error,
-          });
-          return;
-        }
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: true,
-          member: result.data,
-        });
-        return;
-      }
-
-      case "block": {
-        const result = blockIngressMember(msg.memberId, msg.reason);
-        if (!result.ok) {
-          ctx.send(socket, {
-            type: "ingress_member_response",
-            success: false,
-            error: result.error,
-          });
-          return;
-        }
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: true,
-          member: result.data,
-        });
-        return;
-      }
-
-      default: {
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: false,
-          error: `Unknown action: ${String(msg.action)}`,
-        });
-      }
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "ingress_member handler error");
-    ctx.send(socket, {
-      type: "ingress_member_response",
       success: false,
       error: message,
     });
@@ -569,6 +452,5 @@ async function executeDeny(
 
 export const inboxInviteHandlers = defineHandlers({
   ingress_invite: handleIngressInvite,
-  ingress_member: handleIngressMember,
   assistant_inbox_escalation: handleInboxEscalation,
 });

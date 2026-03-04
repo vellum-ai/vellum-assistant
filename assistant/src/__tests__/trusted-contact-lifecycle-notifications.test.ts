@@ -91,8 +91,8 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import {
-  createGuardianBindingContactsFirst,
-  upsertMemberContactsFirst,
+  createGuardianBinding,
+  upsertMember,
 } from "../contacts/contacts-write.js";
 import { createApprovalRequest } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
@@ -168,7 +168,7 @@ describe("trusted contact lifecycle notification signals", () => {
 
   test("guardian deny emits guardian_decision and denied signals", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -176,7 +176,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertMemberContactsFirst({
+    upsertMember({
       assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
@@ -250,7 +250,7 @@ describe("trusted contact lifecycle notification signals", () => {
 
   test("guardian approve emits guardian_decision and verification_sent signals", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -258,7 +258,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertMemberContactsFirst({
+    upsertMember({
       assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
@@ -328,7 +328,7 @@ describe("trusted contact lifecycle notification signals", () => {
 
   test("deduplication keys prevent duplicate signals", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -336,7 +336,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertMemberContactsFirst({
+    upsertMember({
       assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
@@ -395,7 +395,7 @@ describe("trusted contact activated notification signal", () => {
 
   test("successful trusted contact verification emits activated signal", async () => {
     // Set up a guardian binding so the verification path allows bypass
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -452,7 +452,7 @@ describe("trusted contact activated notification signal", () => {
   });
 
   test("re-verification preserves an existing guardian-managed member display name", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -461,7 +461,7 @@ describe("trusted contact activated notification signal", () => {
       verifiedVia: "test",
     });
 
-    upsertMemberContactsFirst({
+    upsertMember({
       assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
@@ -533,7 +533,7 @@ describe("trusted contact activated notification signal", () => {
 
   test("member is persisted BEFORE activated signal is emitted", async () => {
     // Set up a guardian binding
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -566,7 +566,7 @@ describe("trusted contact activated notification signal", () => {
     );
     expect(activatedSignals.length).toBe(1);
 
-    // Verify the member was already persisted (the signal fires after upsertMemberContactsFirst)
+    // Verify the member was already persisted (the signal fires after upsertMember)
     const result = findContactChannel({
       channelType: "telegram",
       externalUserId: "requester-user-456",

@@ -139,6 +139,7 @@ import {
   handleListContacts,
   handleMergeContacts,
   handleUpdateContactChannel,
+  handleUpsertContact,
 } from "./routes/contact-routes.js";
 import { handleListConversationAttention } from "./routes/conversation-attention-routes.js";
 // Route handlers — grouped by domain
@@ -159,14 +160,10 @@ import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { handleGetIdentity, handleHealth } from "./routes/identity-routes.js";
 import {
-  handleBlockMember,
   handleCreateInvite,
   handleListInvites,
-  handleListMembers,
   handleRedeemInvite,
   handleRevokeInvite,
-  handleRevokeMember,
-  handleUpsertMember,
 } from "./routes/ingress-routes.js";
 import {
   handleCancelOutbound,
@@ -1109,51 +1106,34 @@ export class RuntimeHttpServer {
       {
         endpoint: "contacts",
         method: "GET",
-        handler: ({ url }) => handleListContacts(url),
+        handler: ({ url, authContext }) =>
+          handleListContacts(url, authContext.assistantId),
+      },
+      {
+        endpoint: "contacts",
+        method: "POST",
+        handler: async ({ req, authContext }) =>
+          handleUpsertContact(req, authContext.assistantId),
       },
       {
         endpoint: "contacts/merge",
         method: "POST",
-        handler: async ({ req }) => handleMergeContacts(req),
+        handler: async ({ req, authContext }) =>
+          handleMergeContacts(req, authContext.assistantId),
       },
       {
         endpoint: "contacts/channels/:id",
         method: "PATCH",
         policyKey: "contacts/channels",
-        handler: async ({ req, params }) =>
-          handleUpdateContactChannel(req, params.id),
+        handler: async ({ req, params, authContext }) =>
+          handleUpdateContactChannel(req, params.id, authContext.assistantId),
       },
       {
         endpoint: "contacts/:id",
         method: "GET",
         policyKey: "contacts",
-        handler: ({ params }) => handleGetContact(params.id),
-      },
-
-      // ------------------------------------------------------------------
-      // Ingress members
-      // ------------------------------------------------------------------
-      {
-        endpoint: "ingress/members",
-        method: "GET",
-        handler: ({ url }) => handleListMembers(url),
-      },
-      {
-        endpoint: "ingress/members",
-        method: "POST",
-        handler: async ({ req }) => handleUpsertMember(req),
-      },
-      {
-        endpoint: "ingress/members/:id/block",
-        method: "POST",
-        policyKey: "ingress/members/block",
-        handler: async ({ req, params }) => handleBlockMember(req, params.id),
-      },
-      {
-        endpoint: "ingress/members/:id",
-        method: "DELETE",
-        policyKey: "ingress/members",
-        handler: async ({ req, params }) => handleRevokeMember(req, params.id),
+        handler: ({ params, authContext }) =>
+          handleGetContact(params.id, authContext.assistantId),
       },
 
       // ------------------------------------------------------------------

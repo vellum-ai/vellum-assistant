@@ -23,6 +23,14 @@ export interface ChannelReplyPayload {
   attachments?: RuntimeAttachmentMetadata[];
   approval?: ApprovalUIMetadata;
   chatAction?: "typing";
+  /**
+   * When true, deliver via `chat.postEphemeral` so only the target `user`
+   * sees the message. Ephemeral messages are fire-and-forget: they cannot
+   * be edited or deleted after posting.
+   */
+  ephemeral?: boolean;
+  /** Slack user ID — required when `ephemeral` is true. */
+  user?: string;
 }
 
 interface ManagedOutboundCallbackContext {

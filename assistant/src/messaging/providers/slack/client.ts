@@ -17,6 +17,7 @@ import type {
   SlackConversationRepliesResponse,
   SlackConversationsListResponse,
   SlackConversationsOpenResponse,
+  SlackPostEphemeralResponse,
   SlackPostMessageResponse,
   SlackReactionAddResponse,
   SlackSearchMessagesResponse,
@@ -207,6 +208,29 @@ export async function postMessage(
   return request<SlackPostMessageResponse>(
     token,
     "chat.postMessage",
+    undefined,
+    body,
+  );
+}
+
+/**
+ * Post an ephemeral message visible only to the specified user.
+ *
+ * Ephemeral messages are fire-and-forget: they cannot be edited or deleted
+ * after posting, and they disappear when the user reloads the Slack client.
+ */
+export async function postEphemeral(
+  token: string,
+  channel: string,
+  user: string,
+  text: string,
+  threadTs?: string,
+): Promise<SlackPostEphemeralResponse> {
+  const body: Record<string, unknown> = { channel, user, text };
+  if (threadTs) body.thread_ts = threadTs;
+  return request<SlackPostEphemeralResponse>(
+    token,
+    "chat.postEphemeral",
     undefined,
     body,
   );
