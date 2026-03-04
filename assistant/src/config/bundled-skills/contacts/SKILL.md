@@ -10,7 +10,7 @@ Manage the user's contacts, relationship graph, access control (trusted contacts
 ## Prerequisites
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
-- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/contacts/channels`, `/v1/ingress/invites`, and `/v1/integrations/telegram/config` on the gateway, never the assistant runtime port directly.
+- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/contacts/channels`, `/v1/contacts/invites`, and `/v1/integrations/telegram/config` on the gateway, never the assistant runtime port directly.
 - The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable for control-plane `curl` requests.
 
 ## Contact Management
@@ -216,7 +216,7 @@ Use this when the guardian wants to invite someone to message the assistant on T
 **Important**: The shell snippet below emits a `<vellum-sensitive-output>` directive containing the raw invite token. The tool executor automatically strips this directive and replaces the raw token with a placeholder so the LLM never sees it. The placeholder is resolved back to the real token in the final assistant reply.
 
 ```bash
-INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
+INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
@@ -291,7 +291,7 @@ Use this when the guardian wants to authorize a specific phone number to call th
 **Important**: The response includes a `voiceCode` field that is only returned at creation time and cannot be retrieved later. Extract and present it clearly.
 
 ```bash
-INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
+INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
@@ -393,7 +393,7 @@ Ask the user: _"I'll revoke the invite [note or ID]. It will no longer be usable
 First, list invites to find the invite's `id`, then revoke:
 
 ```bash
-curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites/<invite_id>" \
+curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites/<invite_id>" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
