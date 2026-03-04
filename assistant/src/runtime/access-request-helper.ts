@@ -158,8 +158,8 @@ export function notifyGuardianOfAccessRequest(
     const healedPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
     const vellumGuardian = findGuardianForChannel('vellum');
     if (vellumGuardian) {
-      guardianExternalUserId = vellumGuardian.channel.externalUserId;
-      guardianPrincipalId = vellumGuardian.contact.principalId;
+      guardianExternalUserId = vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
+      guardianPrincipalId = vellumGuardian.contact.principalId ?? healedPrincipalId;
       guardianBindingChannel = guardianBindingChannel ?? 'vellum';
     } else {
       const vellumBinding = getGuardianBinding(canonicalAssistantId, 'vellum');
