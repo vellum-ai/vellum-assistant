@@ -88,6 +88,6 @@ struct SettingsChangeDetector {
     static func buildNudgeMessage(changes: [SettingsChange]) -> String {
         guard !changes.isEmpty else { return "" }
         let combined = changes.map(\.prompt).joined(separator: ", ")
-        return "**I noticed you made some changes to settings**\nYou could just ask: \"\(combined)\" — no need to open Settings!"
+        return "**I noticed you made some changes to settings**\nInstead you can ask: \"\(combined)\""
     }
 }
