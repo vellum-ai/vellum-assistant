@@ -10,52 +10,6 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
-enum AssistantStatus {
-    case idle
-    case thinking
-    case error(String)
-    case disconnected
-
-    var menuTitle: String {
-        switch self {
-        case .idle: return "Assistant is idle"
-        case .thinking: return "Assistant is thinking..."
-        case .error(let msg): return "Error: \(msg)"
-        case .disconnected: return "Disconnected from daemon"
-        }
-    }
-
-    var statusColor: NSColor {
-        switch self {
-        case .idle: return .systemGray
-        case .thinking: return .systemGreen
-        case .error: return .systemRed
-        case .disconnected: return .systemOrange
-        }
-    }
-
-    var statusIcon: NSImage? {
-        let size: CGFloat = 8
-        let image = NSImage(size: NSSize(width: size, height: size))
-        image.lockFocus()
-        statusColor.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size)).fill()
-        image.unlockFocus()
-        return image
-    }
-
-    /// Whether the dot should pulse (animate opacity)
-    var shouldPulse: Bool {
-        if case .thinking = self { return true }
-        return false
-    }
-}
-
-enum InteractionType {
-    case computerUse
-    case textQA
-}
-
 /// Tracks the first-launch bootstrap sequence so the app can resume
 /// from the correct phase after a restart mid-bootstrap.
 /// Raw values are persisted in UserDefaults under `"bootstrapState"`.
