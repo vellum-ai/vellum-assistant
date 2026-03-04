@@ -267,8 +267,23 @@ async function ensureAssistantHatched(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
+  // Collect diagnostics: vellum ps, hatch.log, and last health response
+  let psInfo = "";
+  try {
+    psInfo = execSync("vellum ps 2>&1", {
+      encoding: "utf-8",
+      timeout: 30_000,
+      shell: "/bin/bash",
+    });
+  } catch (err: unknown) {
+    psInfo = (err as { stdout?: string }).stdout || "vellum ps failed";
+  }
+
+  const diagnostics = buildDiagnostics(hatchOutput);
+
   throw new Error(
-    `Assistant at ${runtimeUrl} did not become healthy within ${maxWaitMs / 1_000}s`,
+    `Assistant at ${runtimeUrl} did not become healthy within ${maxWaitMs / 1_000}s\n` +
+      `--- vellum ps ---\n${psInfo}\n\n${diagnostics}`,
   );
 }
 
