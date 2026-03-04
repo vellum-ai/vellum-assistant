@@ -143,6 +143,11 @@ struct SettingsPanel: View {
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
+            // Prefetch Slack config here so slackChannelConnected is populated before the
+            // 700ms baseline snapshot. Without this, the snapshot captures false and a later
+            // visit to the Channels tab (which calls fetchSlackChannelConfig) would flip it to
+            // true, producing a spurious "Slack connected" nudge on close.
+            store.fetchSlackChannelConfig()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
             if let pending = store.pendingSettingsTab {
