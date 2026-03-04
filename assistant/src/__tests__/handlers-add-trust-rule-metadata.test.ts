@@ -2,8 +2,7 @@ import { mkdtempSync } from "node:fs";
 import * as net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, test } from "bun:test";
-import { mock } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "trust-rule-metadata-test-"));
 
@@ -58,8 +57,7 @@ mock.module("../config/loader.js", () => ({
 
 import type { HandlerContext } from '../daemon/handlers/index.js';
 import { handleAddTrustRule } from "../daemon/handlers/config.js";
-import type { AddTrustRule } from "../daemon/ipc-contract.js";
-import type { ServerMessage } from "../daemon/ipc-contract.js";
+import type { AddTrustRule, ServerMessage } from "../daemon/ipc-contract.js";
 import {
   clearAllRules,
   clearCache,

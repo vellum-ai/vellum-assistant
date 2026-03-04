@@ -1,6 +1,5 @@
 import { type Server } from "node:http";
-import { createServer as createTcpServer } from "node:net";
-import { connect } from "node:net";
+import { connect, createServer as createTcpServer } from "node:net";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { createProxyServer } from '@vellumai/outbound-proxy';

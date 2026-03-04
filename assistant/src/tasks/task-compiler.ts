@@ -4,8 +4,7 @@ import { getDb } from '../memory/db-connection.js';
 import { messages as messagesTable } from '../memory/schema.js';
 import { parseJsonSafe } from '../util/json.js';
 import { truncate } from '../util/truncate.js';
-import type { Task } from './task-store.js';
-import { createTask } from './task-store.js';
+import { createTask, type Task } from './task-store.js';
 import { sanitizeToolList } from './tool-sanitizer.js';
 
 /** Output schema for the task compiler. */

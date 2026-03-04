@@ -1,5 +1,4 @@
-import { spawn } from 'node:child_process';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync,statSync } from 'node:fs';
 import * as net from 'node:net';
 import { join } from 'node:path';
@@ -8,8 +7,7 @@ import type { Command } from 'commander';
 
 import { startCli } from '../cli.js';
 import { getQdrantUrlEnv } from '../config/env.js';
-import { loadRawConfig } from '../config/loader.js';
-import { getConfig } from '../config/loader.js';
+import { getConfig, loadRawConfig } from '../config/loader.js';
 import { hasSocketOverride,shouldAutoStartDaemon } from '../daemon/connection-policy.js';
 import {
   ensureDaemonRunning,

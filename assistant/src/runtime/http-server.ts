@@ -11,8 +11,7 @@ import { join, resolve } from "node:path";
 
 import type { ServerWebSocket } from "bun";
 
-import type { BrowserRelayWebSocketData } from "../browser-extension-relay/server.js";
-import { extensionRelayServer } from "../browser-extension-relay/server.js";
+import { extensionRelayServer, type BrowserRelayWebSocketData } from "../browser-extension-relay/server.js";
 import {
   startGuardianActionSweep,
   stopGuardianActionSweep,

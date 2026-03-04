@@ -61,8 +61,7 @@ import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { getDb, resetDb } from '../memory/db-connection.js';
 import { initializeDb } from '../memory/db-init.js';
-import type { AssistantEvent } from "../runtime/assistant-event.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { buildAssistantEvent, type AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 
 initializeDb();

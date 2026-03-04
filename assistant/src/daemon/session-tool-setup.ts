@@ -44,8 +44,7 @@ import {
   projectSkillTools,
   type SkillProjectionCache,
 } from "./session-skill-tools.js";
-import type { SurfaceSessionContext } from "./session-surfaces.js";
-import { surfaceProxyResolver } from "./session-surfaces.js";
+import { surfaceProxyResolver, type SurfaceSessionContext } from "./session-surfaces.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 
 const log = getLogger("session-tool-setup");

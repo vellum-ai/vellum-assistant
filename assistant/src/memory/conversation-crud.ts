@@ -2,9 +2,7 @@ import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
-import type { ChannelId, InterfaceId } from "../channels/types.js";
-import { parseChannelId, parseInterfaceId } from "../channels/types.js";
-import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
+import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseChannelId, parseInterfaceId, type ChannelId, type InterfaceId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";

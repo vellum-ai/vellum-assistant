@@ -14,7 +14,7 @@
  * Also verifies that private-thread isolation blocks cross-thread media access.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import * as http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -99,7 +99,6 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
 // Source imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { mkdirSync } from "node:fs";
 
 import {
   type AttachmentContext,

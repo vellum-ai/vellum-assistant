@@ -14,8 +14,7 @@
  * canonical primitive) and unit tests of the router and primitive functions.
  */
 
-import { readFileSync } from "node:fs";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";

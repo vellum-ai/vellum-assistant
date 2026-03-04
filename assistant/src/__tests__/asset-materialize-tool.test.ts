@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -56,7 +56,6 @@ import type { ToolContext } from "../tools/types.js";
 initializeDb();
 
 // Ensure the sandbox directory exists
-import { mkdirSync } from "node:fs";
 mkdirSync(sandboxDir, { recursive: true });
 
 afterAll(() => {

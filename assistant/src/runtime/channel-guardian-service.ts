@@ -9,11 +9,9 @@
 import { createHash,randomBytes } from 'crypto';
 import { v4 as uuid } from 'uuid';
 
-import type { GuardianBinding } from '../memory/guardian-bindings.js';
-import type { IdentityBindingStatus, SessionStatus, VerificationChallenge, VerificationPurpose } from '../memory/guardian-verification.js';
-import { getActiveBinding } from '../memory/guardian-bindings.js';
+import { getActiveBinding, type GuardianBinding } from '../memory/guardian-bindings.js';
+import { bindSessionIdentity as storeBindSessionIdentity, consumeChallenge, countRecentSendsToDestination as storeCountRecentSendsToDestination, createChallenge, createVerificationSession, findActiveSession as storeFindActiveSession, findPendingChallengeByHash, findPendingChallengeForChannel, findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash, findSessionByIdentity as storeFindSessionByIdentity, revokePendingChallenges as storeRevokePendingChallenges, updateSessionDelivery as storeUpdateSessionDelivery, updateSessionStatus as storeUpdateSessionStatus, type IdentityBindingStatus, type SessionStatus, type VerificationChallenge, type VerificationPurpose } from '../memory/guardian-verification.js';
 import { getRateLimit, recordInvalidAttempt, resetRateLimit } from '../memory/guardian-rate-limits.js';
-import { bindSessionIdentity as storeBindSessionIdentity, consumeChallenge, countRecentSendsToDestination as storeCountRecentSendsToDestination, createChallenge, createVerificationSession, findActiveSession as storeFindActiveSession, findPendingChallengeByHash, findPendingChallengeForChannel, findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash, findSessionByIdentity as storeFindSessionByIdentity, revokePendingChallenges as storeRevokePendingChallenges, updateSessionDelivery as storeUpdateSessionDelivery, updateSessionStatus as storeUpdateSessionStatus } from '../memory/guardian-verification.js';
 import { createGuardianBindingContactsFirst, revokeGuardianBindingContactsFirst } from '../contacts/contacts-write.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
 
