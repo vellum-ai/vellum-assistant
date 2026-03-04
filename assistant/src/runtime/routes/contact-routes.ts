@@ -2,6 +2,7 @@
  * Route handlers for contact management endpoints.
  *
  * GET   /v1/contacts              — list contacts
+ * POST  /v1/contacts              — create or update a contact
  * GET   /v1/contacts/:id          — get a contact by ID
  * POST  /v1/contacts/merge        — merge two contacts
  * PATCH /v1/contacts/channels/:id — update a contact channel's status/policy
@@ -13,6 +14,7 @@ import {
   mergeContacts,
   searchContacts,
   updateChannelStatus,
+  upsertContact,
 } from "../../contacts/contact-store.js";
 import type {
   ChannelPolicy,
@@ -83,6 +85,71 @@ export async function handleMergeContacts(
   try {
     const contact = mergeContacts(body.keepId, body.mergeId, assistantId);
     return Response.json({ ok: true, contact });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return httpError("BAD_REQUEST", message, 400);
+  }
+}
+
+/**
+ * POST /v1/contacts { displayName, id?, relationship?, importance?, ... }
+ */
+export async function handleUpsertContact(
+  req: Request,
+  assistantId: string,
+): Promise<Response> {
+  const body = (await req.json()) as {
+    id?: string;
+    displayName?: string;
+    relationship?: string;
+    importance?: number;
+    responseExpectation?: string;
+    preferredTone?: string;
+    role?: string;
+    channels?: Array<{ type: string; address: string; isPrimary?: boolean }>;
+  };
+
+  if (
+    !body.displayName ||
+    typeof body.displayName !== "string" ||
+    body.displayName.trim().length === 0
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      "displayName is required and must be a non-empty string",
+      400,
+    );
+  }
+
+  if (
+    body.importance !== undefined &&
+    (typeof body.importance !== "number" ||
+      body.importance < 0 ||
+      body.importance > 1)
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      "importance must be a number between 0 and 1",
+      400,
+    );
+  }
+
+  try {
+    const contact = upsertContact({
+      id: body.id,
+      displayName: body.displayName.trim(),
+      relationship: body.relationship,
+      importance: body.importance,
+      responseExpectation: body.responseExpectation,
+      preferredTone: body.preferredTone,
+      role: body.role as ContactRole | undefined,
+      assistantId,
+      channels: body.channels,
+    });
+    return Response.json(
+      { ok: true, contact },
+      { status: contact.created ? 201 : 200 },
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return httpError("BAD_REQUEST", message, 400);
