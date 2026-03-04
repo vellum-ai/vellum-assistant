@@ -89,7 +89,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/integrations/guardian/vellum/refresh` (token rotation)                              |
 | `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
 | `src/runtime/local-actor-identity.ts`             | `resolveLocalIpcGuardianContext` — deterministic IPC identity                                 |
-| `src/memory/channel-guardian-store.ts`            | Guardian binding types and re-exports (types moved here from deleted guardian-bindings.ts)    |
+| `src/memory/channel-guardian-store.ts`            | Guardian binding types and re-exports                                                         |
 
 ### Channel-Agnostic Scoped Approval Grants
 

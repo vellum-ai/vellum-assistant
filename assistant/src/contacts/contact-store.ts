@@ -727,9 +727,8 @@ export function findGuardianForChannel(
 
 /**
  * Revoke the guardian's active channel of the given type by setting its
- * status to 'revoked'. This is the contacts-side counterpart to
- * revokeBinding() in guardian-bindings.ts — it ensures findGuardianForChannel()
- * no longer returns stale data after a binding is revoked.
+ * status to 'revoked'. This ensures findGuardianForChannel() no longer
+ * returns stale data after a binding is revoked.
  *
  * Returns true if a channel was found and revoked, false otherwise.
  */
