@@ -13,9 +13,9 @@
 import { v4 as uuid } from 'uuid';
 
 import {
-  createBinding,
   getActiveBinding,
 } from '../memory/guardian-bindings.js';
+import { createGuardianBindingContactsFirst } from '../contacts/contacts-write.js';
 import { getLogger } from '../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 
@@ -40,7 +40,7 @@ export function ensureVellumGuardianBinding(assistantId: string = DAEMON_INTERNA
 
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
 
-  createBinding({
+  createGuardianBindingContactsFirst({
     assistantId,
     channel: 'vellum',
     guardianExternalUserId: guardianPrincipalId,

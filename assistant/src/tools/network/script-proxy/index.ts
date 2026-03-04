@@ -23,4 +23,4 @@ export type {
   ProxySessionConfig,
   ProxySessionId,
   ProxySessionStatus,
-} from './types.js';
+} from '@vellumai/outbound-proxy';

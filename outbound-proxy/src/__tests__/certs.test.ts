@@ -14,7 +14,7 @@ import {
 let dataDir: string;
 
 beforeAll(async () => {
-  dataDir = await mkdtemp(join(tmpdir(), 'proxy-sidecar-certs-test-'));
+  dataDir = await mkdtemp(join(tmpdir(), 'outbound-proxy-certs-test-'));
   await ensureLocalCA(dataDir);
 });
 

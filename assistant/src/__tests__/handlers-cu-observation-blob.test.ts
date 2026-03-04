@@ -57,6 +57,17 @@ import type {
 } from "../daemon/ipc-contract.js";
 import { DebouncerMap } from "../util/debounce.js";
 
+/** Poll until a predicate is true or timeout (default 2s). */
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 /** Write a blob file to the test blob directory and return the IpcBlobRef. */
 function writeBlobFile(
   content: Buffer,
@@ -143,8 +154,8 @@ describe("handleCuObservation blob hydration", () => {
 
     handleMessage(msg, fakeSocket, ctx);
 
-    // handleCuObservation is async; wait for it to settle
-    await new Promise((r) => setTimeout(r, 50));
+    // handleCuObservation is async (fire-and-forget); poll until it completes
+    await waitFor(() => observations.length > 0);
 
     expect(observations).toHaveLength(1);
     expect(observations[0].axTree).toBe(axTreeContent);
@@ -171,7 +182,7 @@ describe("handleCuObservation blob hydration", () => {
     const fakeSocket = {} as net.Socket;
 
     handleMessage(msg, fakeSocket, ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => observations.length > 0);
 
     expect(observations).toHaveLength(1);
     // Screenshot should be base64-encoded for the provider path
@@ -202,7 +213,7 @@ describe("handleCuObservation blob hydration", () => {
     const fakeSocket = {} as net.Socket;
 
     handleMessage(msg, fakeSocket, ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => observations.length > 0);
 
     expect(observations).toHaveLength(1);
     // Blob takes precedence when both are present and blob succeeds
@@ -231,7 +242,7 @@ describe("handleCuObservation blob hydration", () => {
     const fakeSocket = {} as net.Socket;
 
     handleMessage(msg, fakeSocket, ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => observations.length > 0);
 
     expect(observations).toHaveLength(1);
     // Inline value should be preserved as fallback when blob fails
@@ -258,7 +269,7 @@ describe("handleCuObservation blob hydration", () => {
     const fakeSocket = {} as net.Socket;
 
     handleMessage(msg, fakeSocket, ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => observations.length > 0);
 
     // Should still forward to session with partial data (no axTree)
     expect(observations).toHaveLength(1);
@@ -284,7 +295,7 @@ describe("handleCuObservation blob hydration", () => {
     const fakeSocket = {} as net.Socket;
 
     handleMessage(msg, fakeSocket, ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => observations.length > 0);
 
     expect(observations).toHaveLength(1);
     // Should fall back to inline because kind validation failed
@@ -309,7 +320,7 @@ describe("handleCuObservation blob hydration", () => {
     const fakeSocket = {} as net.Socket;
 
     handleMessage(msg, fakeSocket, ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => observations.length > 0);
 
     // Should still forward to session with partial data (no screenshot)
     expect(observations).toHaveLength(1);
@@ -337,7 +348,7 @@ describe("handleCuObservation blob hydration", () => {
     const fakeSocket = {} as net.Socket;
 
     handleMessage(msg, fakeSocket, ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => observations.length > 0);
 
     expect(observations).toHaveLength(1);
     expect(observations[0].axTree).toBe(inlineAxTree);
@@ -371,7 +382,7 @@ describe("handleCuObservation blob hydration", () => {
     const fakeSocket = {} as net.Socket;
 
     handleMessage(msg, fakeSocket, ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => observations.length > 0);
 
     expect(observations).toHaveLength(1);
     expect(observations[0].axTree).toBe(axTreeContent);

@@ -14,7 +14,6 @@ import { hasSocketOverride,shouldAutoStartDaemon } from '../daemon/connection-po
 import {
   ensureDaemonRunning,
   getDaemonStatus,
-  startDaemon,
   stopDaemon,
 } from '../daemon/lifecycle.js';
 import { formatJson,formatMarkdown } from '../export/formatter.js';
@@ -42,66 +41,6 @@ export function registerDefaultAction(program: Command): void {
     }
     await startCli();
   });
-}
-
-export function registerDaemonCommand(program: Command): void {
-  const daemon = program.command('daemon').description('Manage the daemon process');
-
-  daemon
-    .command('start')
-    .description('Start the daemon')
-    .action(async () => {
-      const result = await startDaemon();
-      if (result.alreadyRunning) {
-        log.info(`Daemon already running (pid ${result.pid})`);
-      } else {
-        log.info(`Daemon started (pid ${result.pid})`);
-      }
-    });
-
-  daemon
-    .command('stop')
-    .description('Stop the daemon')
-    .action(async () => {
-      const result = await stopDaemon();
-      if (result.stopped) {
-        log.info('Daemon stopped');
-      } else if (result.reason === 'stop_failed') {
-        log.error('Failed to stop daemon — process survived SIGKILL');
-        process.exit(1);
-      } else {
-        log.info('Daemon is not running');
-      }
-    });
-
-  daemon
-    .command('restart')
-    .description('Restart the daemon')
-    .action(async () => {
-      const stopResult = await stopDaemon();
-      if (stopResult.stopped) {
-        log.info('Daemon stopped');
-      } else if (stopResult.reason === 'stop_failed') {
-        log.error('Failed to stop daemon — process survived SIGKILL, cannot restart');
-        process.exit(1);
-      }
-      const startResult = await startDaemon();
-      log.info(`Daemon started (pid ${startResult.pid})`);
-    });
-
-  daemon
-    .command('status')
-    .description('Show daemon status')
-    .action(async () => {
-      const status = await getDaemonStatus();
-      if (status.running) {
-        log.info(`Daemon is running (pid ${status.pid})`);
-      } else {
-        log.info('Daemon is not running');
-      }
-      log.info(`Socket path: ${getSocketPath()}${hasSocketOverride() ? ' (override)' : ''}`);
-      log.info(`Autostart: ${shouldAutoStartDaemon() ? 'enabled' : 'disabled'}`);
-    });
 }
 
 export function registerDevCommand(program: Command): void {
@@ -671,7 +610,6 @@ export function registerCompletionsCommand(program: Command): void {
     .description('Generate shell completion script (e.g. vellum completions bash >> ~/.bashrc)')
     .action((shell: string) => {
       const subcommands: Record<string, string[]> = {
-        daemon: ['start', 'stop', 'restart', 'status'],
         sessions: ['list', 'new', 'export', 'clear'],
         config: ['set', 'get', 'list', 'validate-allowlist'],
         keys: ['list', 'set', 'delete'],
@@ -682,7 +620,7 @@ export function registerCompletionsCommand(program: Command): void {
         autonomy: ['get', 'set'],
       };
       const topLevel = [
-        'daemon', 'dev', 'sessions', 'config', 'keys', 'trust', 'memory',
+        'dev', 'sessions', 'config', 'keys', 'trust', 'memory',
         'hooks', 'contacts', 'autonomy', 'audit', 'doctor', 'completions', 'help',
       ];
 
@@ -746,7 +684,6 @@ function generateZshCompletion(
 _vellum() {
     local -a commands
     commands=(
-        'daemon:Manage the daemon process'
         'dev:Run daemon in dev mode with auto-restart'
         'sessions:Manage sessions'
         'config:Manage configuration'
@@ -789,7 +726,6 @@ function generateFishCompletion(
   script += `complete -c vellum -f\n`;
 
   const descriptions: Record<string, string> = {
-    daemon: 'Manage the daemon process',
     dev: 'Run daemon in dev mode with auto-restart',
     sessions: 'Manage sessions',
     config: 'Manage configuration',

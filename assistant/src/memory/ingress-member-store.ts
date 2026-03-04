@@ -8,10 +8,16 @@
 import { and, desc, eq, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import type { ChannelId } from '../channels/types.js';
+import { updateChannelLastSeenByExternalChatId, updateChannelLastSeenByExternalId } from '../contacts/contact-store.js';
 import { syncSingleMember } from '../contacts/contact-sync.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
+import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
 import { assistantIngressMembers } from './schema.js';
+
+const log = getLogger('ingress-member-store');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -142,7 +148,11 @@ export function upsertMember(params: {
       .get();
 
     const member = rowToMember(updated!);
-    syncSingleMember(member);
+    try {
+      syncSingleMember(member);
+    } catch (err) {
+      log.warn({ err }, 'Contact sync failed for ingress member update');
+    }
     return member;
   }
 
@@ -170,7 +180,11 @@ export function upsertMember(params: {
   db.insert(assistantIngressMembers).values(row).run();
 
   const member = rowToMember(row);
-  syncSingleMember(member);
+  try {
+    syncSingleMember(member);
+  } catch (err) {
+    log.warn({ err }, 'Contact sync failed for ingress member insert');
+  }
   return member;
 }
 
@@ -255,7 +269,11 @@ export function revokeMember(memberId: string, reason?: string): IngressMember |
 
   if (!updated) return null;
   const member = rowToMember(updated);
-  syncSingleMember(member);
+  try {
+    syncSingleMember(member);
+  } catch (err) {
+    log.warn({ err }, 'Contact sync failed for ingress member revoke');
+  }
   return member;
 }
 
@@ -297,7 +315,11 @@ export function blockMember(memberId: string, reason?: string): IngressMember | 
 
   if (!updated) return null;
   const member = rowToMember(updated);
-  syncSingleMember(member);
+  try {
+    syncSingleMember(member);
+  } catch (err) {
+    log.warn({ err }, 'Contact sync failed for ingress member block');
+  }
   return member;
 }
 
@@ -360,4 +382,29 @@ export function updateLastSeen(memberId: string): void {
     .set({ lastSeenAt: now, updatedAt: now })
     .where(eq(assistantIngressMembers.id, memberId))
     .run();
+
+  // Forward-sync lastSeenAt to contacts
+  try {
+    const member = db
+      .select({
+        sourceChannel: assistantIngressMembers.sourceChannel,
+        externalUserId: assistantIngressMembers.externalUserId,
+        externalChatId: assistantIngressMembers.externalChatId,
+      })
+      .from(assistantIngressMembers)
+      .where(eq(assistantIngressMembers.id, memberId))
+      .get();
+    if (member?.externalUserId) {
+      // Canonicalize to match the form stored in contactChannels (e.g. E.164 for phone channels)
+      const canonicalId =
+        canonicalizeInboundIdentity(member.sourceChannel as ChannelId, member.externalUserId)
+        ?? member.externalUserId;
+      updateChannelLastSeenByExternalId(member.sourceChannel, canonicalId);
+    } else if (member?.externalChatId) {
+      // Fallback for members created with only a chat ID (no externalUserId)
+      updateChannelLastSeenByExternalChatId(member.sourceChannel, member.externalChatId);
+    }
+  } catch (err) {
+    log.warn({ err }, 'Contact sync failed for last seen update');
+  }
 }

@@ -151,9 +151,24 @@ export interface ImportPreflightValidationFailedResponse {
   };
 }
 
+export interface ImportPreflightConflictResponse {
+  can_import: false;
+  summary: {
+    total_files: number;
+    files_to_create: number;
+    files_to_overwrite: number;
+    files_unchanged: number;
+    files_to_skip: number;
+  };
+  files: ImportPreflightFileReport[];
+  conflicts: ImportPreflightConflict[];
+  manifest: Manifest;
+}
+
 export type ImportPreflightResponse =
   | ImportPreflightSuccessResponse
-  | ImportPreflightValidationFailedResponse;
+  | ImportPreflightValidationFailedResponse
+  | ImportPreflightConflictResponse;
 
 // ---------------------------------------------------------------------------
 // Import commit

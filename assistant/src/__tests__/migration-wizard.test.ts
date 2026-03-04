@@ -555,8 +555,7 @@ describe("executePreflightStep", () => {
 // ---------------------------------------------------------------------------
 
 describe("executeTransferStep", () => {
-  test("runtime export + import — success", async () => {
-    const archiveBytes = new ArrayBuffer(64);
+  test("import-only — success", async () => {
     const importResponse: ImportCommitResponse = {
       success: true,
       summary: {
@@ -585,21 +584,7 @@ describe("executeTransferStep", () => {
       warnings: [],
     };
 
-    let exportCalled = false;
     let importCalled = false;
-
-    const sourceFetch = (async (_url: string | URL | Request) => {
-      exportCalled = true;
-      const responseHeaders = new Headers({
-        "Content-Disposition": 'attachment; filename="export.vbundle"',
-        "X-Vbundle-Schema-Version": "1.0",
-        "X-Vbundle-Manifest-Sha256": "abc123",
-      });
-      return new Response(archiveBytes, {
-        status: 200,
-        headers: responseHeaders,
-      });
-    }) as unknown as typeof fetch;
 
     const destFetch = (async () => {
       importCalled = true;
@@ -611,12 +596,10 @@ describe("executeTransferStep", () => {
 
     const state = advanceTo("transfer");
     const options = makeExecutorOptions({
-      sourceConfig: runtimeConfig({ fetchFn: sourceFetch }),
       destConfig: runtimeConfig({ fetchFn: destFetch }),
     });
 
     const result = await executeTransferStep(state, options);
-    expect(exportCalled).toBe(true);
     expect(importCalled).toBe(true);
     expect(result.steps.transfer.status).toBe("success");
     expect(result.currentStep).toBe("rebind-secrets");
@@ -754,42 +737,28 @@ describe("executeTransferStep", () => {
     expect(result.steps.transfer.error?.retryable).toBe(true);
   });
 
-  test("managed export job failure — sets error", async () => {
-    const sourceFetch = (async (url: string | URL | Request) => {
-      const urlStr = String(url);
-      if (urlStr.endsWith("/export/")) {
-        return new Response(
-          JSON.stringify({ job_id: "exp-fail", status: "pending" }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      if (urlStr.includes("/status/")) {
-        return new Response(
-          JSON.stringify({
-            status: "failed",
-            job_id: "exp-fail",
-            error: "Timeout",
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      return new Response("Not found", { status: 404 });
+  test("import failure — sets error with validation_failed reason", async () => {
+    const failResponse: ImportCommitResponse = {
+      success: false,
+      reason: "validation_failed",
+      message: "Manifest SHA mismatch",
+    };
+
+    const destFetch = (async () => {
+      return new Response(JSON.stringify(failResponse), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }) as unknown as typeof fetch;
 
     const state = advanceTo("transfer");
     const options = makeExecutorOptions({
-      sourceConfig: managedConfig({ fetchFn: sourceFetch }),
+      destConfig: runtimeConfig({ fetchFn: destFetch }),
     });
 
     const result = await executeTransferStep(state, options);
     expect(result.steps.transfer.status).toBe("error");
-    expect(result.steps.transfer.error?.code).toBe("EXPORT_JOB_FAILED");
+    expect(result.steps.transfer.error?.code).toBe("validation_failed");
     expect(result.steps.transfer.error?.retryable).toBe(true);
   });
 

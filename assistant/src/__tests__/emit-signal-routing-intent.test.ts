@@ -20,6 +20,10 @@ mock.module("../channels/config.js", () => ({
   getDeliverableChannels: () => ["vellum", "telegram"],
 }));
 
+mock.module("../contacts/contact-store.js", () => ({
+  findGuardianForChannel: () => null,
+}));
+
 mock.module("../memory/channel-guardian-store.js", () => ({
   getActiveBinding: (_assistantId: string, channel: string) =>
     activeBindingChannels.has(channel)

@@ -4,7 +4,7 @@ import { join } from "path";
 
 import { loadAllAssistants } from "../lib/assistant-config";
 import { isProcessAlive } from "../lib/process";
-import { startLocalDaemon, startGateway } from "../lib/local";
+import { startLocalDaemon, startGateway, startOutboundProxy } from "../lib/local";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -55,6 +55,9 @@ export async function wake(): Promise<void> {
       await startGateway();
     }
   }
+
+  // Start outbound proxy
+  await startOutboundProxy();
 
   console.log("✅ Wake complete.");
 }

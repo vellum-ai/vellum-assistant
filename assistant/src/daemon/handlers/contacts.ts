@@ -43,10 +43,7 @@ export function handleContacts(
   try {
     switch (msg.action) {
       case 'list': {
-        let results = listContacts(msg.limit ?? 50);
-        if (msg.role) {
-          results = results.filter((c) => c.role === msg.role);
-        }
+        const results = listContacts(msg.limit ?? 50, msg.role);
         ctx.send(socket, {
           type: 'contacts_response',
           success: true,
@@ -81,8 +78,8 @@ export function handleContacts(
         const updated = updateChannelStatus(msg.channelId, {
           status: msg.status,
           policy: msg.policy,
-          revokedReason: msg.status === 'revoked' ? msg.reason : undefined,
-          blockedReason: msg.status === 'blocked' ? msg.reason : undefined,
+          revokedReason: msg.status !== undefined ? (msg.status === 'revoked' ? msg.reason : null) : undefined,
+          blockedReason: msg.status !== undefined ? (msg.status === 'blocked' ? msg.reason : null) : undefined,
         });
         if (!updated) {
           ctx.send(socket, { type: 'contacts_response', success: false, error: `Channel "${msg.channelId}" not found` });

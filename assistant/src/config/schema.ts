@@ -32,6 +32,7 @@ export {
 } from "./calls-schema.js";
 export type {
   AuditLogConfig,
+  ContextOverflowRecoveryConfig,
   ContextWindowConfig,
   DaemonConfig,
   Effort,
@@ -51,6 +52,7 @@ export type {
 } from "./core-schema.js";
 export {
   AuditLogConfigSchema,
+  ContextOverflowRecoveryConfigSchema,
   ContextWindowConfigSchema,
   DaemonConfigSchema,
   EffortSchema,

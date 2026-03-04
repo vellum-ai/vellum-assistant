@@ -169,13 +169,10 @@ Replace `<channel>` with the channel to unbind from (e.g. `voice`, `telegram`).
 
 ### On success (`success: true`)
 
-Confirm to the user: "Guardian binding revoked for [channel]. The previous guardian no longer has access to this channel."
+The response includes `bound: false` after the operation completes. Check the previous binding state to tailor the message:
 
-### On error (`success: false`)
-
-| Error code | Action |
-|---|---|
-| `not_bound` | Tell the user there is no active guardian binding for this channel — nothing to revoke. |
+- If a binding was previously active (i.e., the user explicitly asked to revoke their guardian): "Guardian binding revoked for [channel]. The previous guardian no longer has access to this channel."
+- If no binding existed (`bound: false` and there was nothing to revoke): "There is no active guardian binding for [channel] — nothing to revoke. Any pending verification challenges have been cleared."
 
 ## Important Notes
 

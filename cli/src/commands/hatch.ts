@@ -22,7 +22,7 @@ import {
 import type { RemoteHost, Species } from "../lib/constants";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
-import { startLocalDaemon, startGateway, stopLocalProcesses } from "../lib/local";
+import { startLocalDaemon, startGateway, startOutboundProxy, stopLocalProcesses } from "../lib/local";
 import { probePort } from "../lib/port-probe";
 import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
@@ -666,6 +666,8 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
     await stopLocalProcesses();
     throw error;
   }
+
+  await startOutboundProxy(watch);
 
   // Read the bearer token written by the daemon so the client can authenticate
   // with the gateway (which requires auth by default).

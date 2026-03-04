@@ -50,10 +50,19 @@ export interface ValidationError {
   path?: string;
 }
 
+export interface VBundleTarEntry {
+  name: string;
+  data: Uint8Array;
+  size: number;
+}
+
 export interface VBundleValidationResult {
   is_valid: boolean;
   errors: ValidationError[];
   manifest?: ManifestType;
+  /** Parsed tar entries — only present when validation succeeds, so callers
+   *  can reuse them without decompressing the archive a second time. */
+  entries?: Map<string, VBundleTarEntry>;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +138,7 @@ function parseTar(buffer: Uint8Array): TarEntry[] {
 function decodeNullTerminated(
   buf: Uint8Array,
   start: number,
-  maxLen: number,
+  maxLen: number
 ): string {
   let end = start;
   while (end < start + maxLen && buf[end] !== 0) {
@@ -342,5 +351,6 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
     is_valid: errors.length === 0,
     errors,
     manifest: errors.length === 0 ? manifest : undefined,
+    entries: errors.length === 0 ? entryMap : undefined,
   };
 }

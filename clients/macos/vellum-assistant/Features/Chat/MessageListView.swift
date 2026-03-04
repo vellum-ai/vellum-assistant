@@ -89,6 +89,13 @@ struct MessageListView: View {
     /// The scroll view's viewport height, captured via preference key. Used by
     /// the anchor GeometryReader to determine if the anchor is within bounds.
     @State private var scrollViewportHeight: CGFloat = .infinity
+    /// Timestamp when anchorMessageId was set. Used together with pagination
+    /// exhaustion to decide when a stale anchor should be cleared.
+    @State private var anchorSetTime: Date?
+    /// Independent timer task that clears a stale anchor after 10 seconds,
+    /// regardless of whether messages.count changes. This covers the edge
+    /// case where pagination stalls without adding/removing messages.
+    @State private var anchorTimeoutTask: Task<Void, Never>?
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -525,7 +532,35 @@ struct MessageListView: View {
                     // scroll to it immediately instead of falling through to bottom.
                     proxy.scrollTo(id, anchor: .center)
                     anchorMessageId = nil
-                } else if anchorMessageId == nil {
+                    anchorSetTime = nil
+                } else if anchorMessageId != nil {
+                    // Anchor is set but the target message isn't loaded yet.
+                    // Record the timestamp so the elapsed-time guard starts
+                    // counting from view appearance (onChange may not fire for
+                    // the initial value).
+                    if anchorSetTime == nil { anchorSetTime = Date() }
+                    // Start the independent timeout if not already running
+                    // (onChange(of: anchorMessageId) may not fire for the
+                    // initial value when the view first appears).
+                    if anchorTimeoutTask == nil {
+                        anchorTimeoutTask = Task { @MainActor in
+                            do {
+                                try await Task.sleep(nanoseconds: 10_000_000_000)
+                            } catch {
+                                return
+                            }
+                            guard !Task.isCancelled, anchorMessageId != nil else { return }
+                            log.debug("Anchor message not found (timed out) — clearing stale anchor")
+                            anchorMessageId = nil
+                            anchorSetTime = nil
+                            anchorTimeoutTask = nil
+                            isNearBottom = true
+                            withAnimation(VAnimation.fast) {
+                                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                            }
+                        }
+                    }
+                } else {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
                 // When anchorMessageId is set but the target message isn't loaded
@@ -537,6 +572,8 @@ struct MessageListView: View {
                 hoverExitDebounceTask = nil
                 threadSwitchSuppressionTask?.cancel()
                 threadSwitchSuppressionTask = nil
+                anchorTimeoutTask?.cancel()
+                anchorTimeoutTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -587,7 +624,33 @@ struct MessageListView: View {
                         proxy.scrollTo(id, anchor: .center)
                     }
                     anchorMessageId = nil
+                    anchorSetTime = nil
+                    anchorTimeoutTask?.cancel()
+                    anchorTimeoutTask = nil
                     return
+                }
+                // If anchor is set but the target message still hasn't appeared,
+                // check pagination exhaustion with a minimum elapsed time guard.
+                // The guard prevents premature clearing when hasMoreMessages is
+                // still at its default `false` before the daemon history response
+                // arrives (e.g., a streaming message changes messages.count before
+                // history loads). The independent anchorTimeoutTask handles the
+                // time-based fallback separately.
+                if anchorMessageId != nil {
+                    let paginationExhausted = !hasMoreMessages
+                    let minWaitElapsed = anchorSetTime.map { Date().timeIntervalSince($0) > 2 } ?? false
+                    if paginationExhausted && minWaitElapsed {
+                        log.debug("Anchor message not found (pagination exhausted) — clearing stale anchor")
+                        anchorMessageId = nil
+                        anchorSetTime = nil
+                        anchorTimeoutTask?.cancel()
+                        anchorTimeoutTask = nil
+                        isNearBottom = true
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                        return
+                    }
                 }
                 if isNearBottom && !isSuppressingBottomScroll && anchorMessageId == nil {
                     withAnimation(VAnimation.fast) {
@@ -615,6 +678,8 @@ struct MessageListView: View {
                 anchorIsVisible = true
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
+                anchorTimeoutTask?.cancel()
+                anchorTimeoutTask = nil
                 threadSwitchSuppressionTask?.cancel()
                 suppressScrollbarDuringThreadSwitch = true
                 threadSwitchSuppressionTask = Task { @MainActor in
@@ -642,6 +707,12 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: anchorMessageId) {
+                // Record the timestamp when a new anchor is set so the
+                // pagination-exhaustion guard can measure elapsed time.
+                anchorSetTime = anchorMessageId != nil ? Date() : nil
+                // Cancel any previous timeout task.
+                anchorTimeoutTask?.cancel()
+                anchorTimeoutTask = nil
                 guard let id = anchorMessageId else { return }
                 // Only scroll and clear if the target message is already loaded;
                 // otherwise leave the anchor set so the messages-change handler
@@ -651,6 +722,27 @@ struct MessageListView: View {
                         proxy.scrollTo(id, anchor: .center)
                     }
                     anchorMessageId = nil
+                    anchorSetTime = nil
+                } else {
+                    // Start an independent 10-second timeout that clears the
+                    // anchor even if messages.count never changes (e.g., pagination
+                    // stalls or the daemon never responds with more history).
+                    anchorTimeoutTask = Task { @MainActor in
+                        do {
+                            try await Task.sleep(nanoseconds: 10_000_000_000)
+                        } catch {
+                            return
+                        }
+                        guard !Task.isCancelled, anchorMessageId != nil else { return }
+                        log.debug("Anchor message not found (timed out) — clearing stale anchor")
+                        anchorMessageId = nil
+                        anchorSetTime = nil
+                        anchorTimeoutTask = nil
+                        isNearBottom = true
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                    }
                 }
             }
             .onChange(of: currentPendingRequestId) {

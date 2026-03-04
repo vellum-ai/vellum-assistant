@@ -12,12 +12,14 @@ import type { ServerWebSocket } from "bun";
 
 import { getConfig } from "../config/loader.js";
 import { resolveUserReference } from "../config/user-reference.js";
+import { findGuardianForChannel, listGuardianChannels } from "../contacts/contact-store.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { listActiveBindingsByAssistant } from "../memory/channel-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
 import { findActiveVoiceInvites } from "../memory/ingress-invite-store.js";
-import { findMember, upsertMember } from "../memory/ingress-member-store.js";
+import { findMember } from "../memory/ingress-member-store.js";
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
@@ -979,7 +981,7 @@ export class RelayConnection {
 
     if (!params.skipMemberActivation) {
       try {
-        upsertMember({
+        upsertMemberContactsFirst({
           assistantId,
           sourceChannel: "voice",
           externalUserId: fromNumber,
@@ -1994,13 +1996,38 @@ export class RelayConnection {
     // binding for the assistant (mirrors the cross-channel fallback pattern
     // in access-request-helper.ts).
     let metadataJson: string | null = null;
-    const voiceBinding = getGuardianBinding(assistantId, "voice");
-    if (voiceBinding?.metadataJson) {
-      metadataJson = voiceBinding.metadataJson;
-    } else {
-      const allBindings = listActiveBindingsByAssistant(assistantId);
-      if (allBindings.length > 0 && allBindings[0].metadataJson) {
-        metadataJson = allBindings[0].metadataJson;
+    // Contacts-first: prefer the voice-bound guardian, then fall back to
+    // any guardian channel (mirrors the voice-first pattern in the legacy path).
+    const voiceGuardian = findGuardianForChannel("voice");
+    const guardianChannels = voiceGuardian ? null : listGuardianChannels();
+    const guardianContact = voiceGuardian?.contact ?? guardianChannels?.contact;
+    if (guardianContact) {
+      const meta: Record<string, string> = {};
+      if (guardianContact.displayName) {
+        meta.displayName = guardianContact.displayName;
+      }
+      // Preserve the username fallback: use the voice channel's externalUserId
+      // so downstream parsing can fall back to @username when displayName is a
+      // raw external ID (e.g., phone number from contact-sync).
+      const voiceChannel = voiceGuardian?.channel
+        ?? guardianChannels?.channels.find((ch) => ch.type === "voice");
+      if (voiceChannel?.externalUserId) {
+        meta.username = voiceChannel.externalUserId;
+      }
+      if (Object.keys(meta).length > 0) {
+        metadataJson = JSON.stringify(meta);
+      }
+    }
+    if (!metadataJson) {
+      // Legacy fallback
+      const voiceBinding = getGuardianBinding(assistantId, "voice");
+      if (voiceBinding?.metadataJson) {
+        metadataJson = voiceBinding.metadataJson;
+      } else {
+        const allBindings = listActiveBindingsByAssistant(assistantId);
+        if (allBindings.length > 0 && allBindings[0].metadataJson) {
+          metadataJson = allBindings[0].metadataJson;
+        }
       }
     }
 

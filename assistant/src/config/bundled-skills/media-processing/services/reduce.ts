@@ -11,17 +11,17 @@
  * it works with whatever LLM provider is configured.
  */
 
-import { readFile } from 'node:fs/promises';
-import { dirname,join } from 'node:path';
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
-import { getMediaAssetById } from '../../../../memory/media-store.js';
+import { getMediaAssetById } from "../../../../memory/media-store.js";
 import {
   createTimeout,
   extractAllText,
   getConfiguredProvider,
   userMessage,
-} from '../../../../providers/provider-send-message.js';
-import type { MapOutput } from './gemini-map.js';
+} from "../../../../providers/provider-send-message.js";
+import type { MapOutput } from "./gemini-map.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,15 +58,15 @@ async function loadMapOutput(assetId: string): Promise<MapOutput> {
     throw new Error(`Media asset not found: ${assetId}`);
   }
 
-  const pipelineDir = join(dirname(asset.filePath), 'pipeline', assetId);
-  const mapOutputPath = join(pipelineDir, 'map-output.json');
+  const pipelineDir = join(dirname(asset.filePath), "pipeline", assetId);
+  const mapOutputPath = join(pipelineDir, "map-output.json");
 
   let raw: string;
   try {
-    raw = await readFile(mapOutputPath, 'utf-8');
+    raw = await readFile(mapOutputPath, "utf-8");
   } catch {
     throw new Error(
-      'No map output found. Run analyze_keyframes first to generate map-output.json.',
+      "No map output found. Run analyze_keyframes first to generate map-output.json.",
     );
   }
 
@@ -82,30 +82,87 @@ function formatMapOutputAsText(mapOutput: MapOutput): string {
 
   lines.push(`Video Analysis Data (asset: ${mapOutput.assetId})`);
   lines.push(`Model: ${mapOutput.model}`);
-  lines.push(`Segments analyzed: ${mapOutput.successCount}/${mapOutput.segmentCount}`);
+  lines.push(
+    `Segments analyzed: ${mapOutput.successCount}/${mapOutput.segmentCount}`,
+  );
   if (mapOutput.failedCount > 0) {
     lines.push(`Failed segments: ${mapOutput.failedCount}`);
   }
   if (mapOutput.skippedCount > 0) {
     lines.push(`Skipped segments: ${mapOutput.skippedCount}`);
   }
-  lines.push('');
-  lines.push('--- Segment Results ---');
-  lines.push('');
+  lines.push("");
+  lines.push("--- Segment Results ---");
+  lines.push("");
 
   for (const segment of mapOutput.segments) {
     const startMin = Math.floor(segment.startSeconds / 60);
     const startSec = Math.floor(segment.startSeconds % 60);
     const endMin = Math.floor(segment.endSeconds / 60);
     const endSec = Math.floor(segment.endSeconds % 60);
-    const timeRange = `${startMin}:${String(startSec).padStart(2, '0')} - ${endMin}:${String(endSec).padStart(2, '0')}`;
+    const timeRange = `${startMin}:${String(startSec).padStart(2, "0")} - ${endMin}:${String(endSec).padStart(2, "0")}`;
 
     lines.push(`[Segment ${segment.segmentId}] ${timeRange}`);
     lines.push(JSON.stringify(segment.result, null, 2));
-    lines.push('');
+    lines.push("");
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Reduce cost tracking
+// ---------------------------------------------------------------------------
+
+export interface ReduceCostEntry {
+  query: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  timestamp: string;
+}
+
+export interface ReduceCostData {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  entries: ReduceCostEntry[];
+}
+
+async function persistReduceCost(
+  assetId: string,
+  query: string,
+  result: ReduceResult,
+): Promise<void> {
+  const asset = getMediaAssetById(assetId);
+  if (!asset) return;
+
+  const pipelineDir = join(dirname(asset.filePath), "pipeline", assetId);
+  const costPath = join(pipelineDir, "reduce-cost.json");
+
+  let existing: ReduceCostData = {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    entries: [],
+  };
+  try {
+    const raw = await readFile(costPath, "utf-8");
+    existing = JSON.parse(raw) as ReduceCostData;
+  } catch {
+    // First query — start fresh
+  }
+
+  existing.entries.push({
+    query,
+    model: result.model,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    timestamp: new Date().toISOString(),
+  });
+  existing.totalInputTokens += result.inputTokens;
+  existing.totalOutputTokens += result.outputTokens;
+
+  await mkdir(pipelineDir, { recursive: true });
+  await writeFile(costPath, JSON.stringify(existing, null, 2));
 }
 
 // ---------------------------------------------------------------------------
@@ -121,15 +178,16 @@ async function sendToClaude(
 ): Promise<ReduceResult> {
   const provider = getConfiguredProvider();
   if (!provider) {
-    throw new Error('No LLM provider available. Please configure an API key.');
+    throw new Error("No LLM provider available. Please configure an API key.");
   }
 
-  const effectiveSystemPrompt = systemPrompt
-    ?? 'You are an expert video analyst. You have been given structured analysis data extracted from a video. Answer the user\'s question based on this data. Be specific, reference timestamps when relevant, and provide clear, actionable insights.';
+  const effectiveSystemPrompt =
+    systemPrompt ??
+    "You are an expert video analyst. You have been given structured analysis data extracted from a video. Answer the user's question based on this data. Be specific, reference timestamps when relevant, and provide clear, actionable insights.";
 
   const userContent = `Here is the video analysis data:\n\n${mapText}\n\n---\n\nUser query: ${query}`;
 
-  onProgress?.('Sending map output to Claude for analysis...\n');
+  onProgress?.("Sending map output to Claude for analysis...\n");
 
   const { signal, cleanup } = createTimeout(REDUCE_TIMEOUT_MS);
 
@@ -147,7 +205,9 @@ async function sendToClaude(
 
     const answer = extractAllText(response);
 
-    onProgress?.(`Reduce complete (${response.usage.inputTokens} input + ${response.usage.outputTokens} output tokens).\n`);
+    onProgress?.(
+      `Reduce complete (${response.usage.inputTokens} input + ${response.usage.outputTokens} output tokens).\n`,
+    );
 
     return {
       answer,
@@ -176,12 +236,26 @@ export async function reduceForAsset(
   const mapOutput = await loadMapOutput(assetId);
 
   if (mapOutput.segments.length === 0) {
-    throw new Error('Map output contains no segments. Run analyze_keyframes first.');
+    throw new Error(
+      "Map output contains no segments. Run analyze_keyframes first.",
+    );
   }
 
   const mapText = formatMapOutputAsText(mapOutput);
-  const effectiveQuery = options.query ?? 'Summarize the video content.';
-  return sendToClaude(mapText, effectiveQuery, options.systemPrompt, options.model, onProgress);
+  const effectiveQuery = options.query ?? "Summarize the video content.";
+  const result = await sendToClaude(
+    mapText,
+    effectiveQuery,
+    options.systemPrompt,
+    options.model,
+    onProgress,
+  );
+  try {
+    await persistReduceCost(assetId, effectiveQuery, result);
+  } catch {
+    // Cost tracking is best-effort; don't discard the LLM result
+  }
+  return result;
 }
 
 /**

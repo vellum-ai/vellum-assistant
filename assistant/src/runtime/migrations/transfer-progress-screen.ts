@@ -135,10 +135,10 @@ function inferFailedPhase(
       if (managed.status === "complete") {
         // Export completed but no importResult -- check whether the failure was
         // during archive download (between export and import) or during import.
-        // Download failures surface as HTTP/transport errors with "download" in
-        // the message; actual import failures would have set importResult.
+        // Download failures surface with "download" in the message; actual
+        // import failures would have set importResult.
         const msg = stepError.message?.toLowerCase() ?? "";
-        if (msg.includes("download") || msg.includes("http")) {
+        if (msg.includes("download")) {
           return "poll";
         }
         return "import";
@@ -289,6 +289,7 @@ export async function retryTransferFlow(
   const reset = resetStepForRetry(state);
   const cleaned = {
     ...reset,
+    exportResult: undefined,
     importResult: undefined,
   };
   options.onStateChange?.(cleaned);

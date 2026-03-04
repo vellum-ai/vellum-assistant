@@ -46,10 +46,26 @@ mock.module("../config/loader.js", () => ({
       preserveRecentMessages: 6,
       summaryModel: "mock-model",
       maxSummaryTokens: 512,
+      overflowRecovery: {
+        enabled: true,
+        safetyMarginRatio: 0.05,
+        maxAttempts: 3,
+        interactiveLatestTurnCompression: "summarize",
+        nonInteractiveLatestTurnCompression: "truncate",
+      },
     },
+    daemon: { titleGenerationMaxTokens: 30 },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    daemon: { titleGenerationMaxTokens: 30 },
     apiKeys: {},
     memory: { retrieval: { injectionStrategy: "inline" } },
+    daemon: {
+      startupSocketWaitMs: 5000,
+      stopTimeoutMs: 5000,
+      sigkillGracePeriodMs: 2000,
+      titleGenerationMaxTokens: 30,
+      standaloneRecording: true,
+    },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -376,7 +392,10 @@ describe("Session slash command — known", () => {
     const textDeltas = events.filter((e) => e.type === "assistant_text_delta");
     expect(textDeltas.length).toBeGreaterThan(0);
     const errorText = (
-      textDeltas[0] as { type: "assistant_text_delta"; text: string }
+      textDeltas[0] as {
+        type: "assistant_text_delta";
+        text: string;
+      }
     ).text;
     expect(errorText).toContain("Unknown command `/nonexistent-skill`");
     expect(errorText).toContain("/start-the-day");

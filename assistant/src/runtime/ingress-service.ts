@@ -6,6 +6,8 @@
  */
 
 import { isChannelId } from '../channels/types.js';
+import { listContacts } from '../contacts/contact-store.js';
+import type { ContactWithChannels } from '../contacts/types.js';
 import {
   createInvite,
   type IngressInvite,
@@ -15,14 +17,11 @@ import {
   revokeInvite,
 } from '../memory/ingress-invite-store.js';
 import {
-  blockMember,
   type IngressMember,
-  listMembers,
   type MemberPolicy,
   type MemberStatus,
-  revokeMember,
-  upsertMember,
 } from '../memory/ingress-member-store.js';
+import { upsertMemberContactsFirst, revokeMemberContactsFirst, blockMemberContactsFirst } from '../contacts/contacts-write.js';
 import { isValidE164 } from '../util/phone.js';
 import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
 import { getTransport } from './channel-invite-transport.js';
@@ -131,6 +130,21 @@ export function memberToResponse(m: IngressMember): MemberResponseData {
     lastSeenAt: m.lastSeenAt ?? undefined,
     createdAt: m.createdAt,
   };
+}
+
+function contactToMemberResponse(contact: ContactWithChannels): MemberResponseData[] {
+  return contact.channels.map((ch) => ({
+    id: `${contact.id}:${ch.id}`,
+    sourceChannel: ch.type,
+    externalUserId: ch.externalUserId ?? undefined,
+    externalChatId: ch.externalChatId ?? undefined,
+    displayName: contact.displayName,
+    username: undefined,
+    status: ch.status,
+    policy: ch.policy,
+    lastSeenAt: ch.lastSeenAt ?? undefined,
+    createdAt: ch.createdAt,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -286,16 +300,17 @@ export function listIngressMembers(params: {
   status?: string;
   policy?: string;
 }): IngressResult<MemberResponseData[]> {
-  const members = listMembers({
-    assistantId: params.assistantId,
-    sourceChannel: params.sourceChannel,
-    status: params.status as MemberStatus | undefined,
-    policy: params.policy as MemberPolicy | undefined,
+  const allContacts = listContacts(200, 'contact');
+  const members = allContacts.flatMap(contactToMemberResponse);
+
+  const filtered = members.filter((m) => {
+    if (params.sourceChannel && m.sourceChannel !== params.sourceChannel) return false;
+    if (params.status && m.status !== params.status) return false;
+    if (params.policy && m.policy !== params.policy) return false;
+    return true;
   });
-  return {
-    ok: true,
-    data: members.map(memberToResponse),
-  };
+
+  return { ok: true, data: filtered };
 }
 
 export function upsertIngressMember(params: {
@@ -314,7 +329,7 @@ export function upsertIngressMember(params: {
   if (!params.externalUserId && !params.externalChatId) {
     return { ok: false, error: 'At least one of externalUserId or externalChatId is required for upsert' };
   }
-  const member = upsertMember({
+  const member = upsertMemberContactsFirst({
     assistantId: params.assistantId,
     sourceChannel: params.sourceChannel,
     externalUserId: params.externalUserId,
@@ -331,7 +346,7 @@ export function revokeIngressMember(memberId?: string, reason?: string): Ingress
   if (!memberId) {
     return { ok: false, error: 'memberId is required for revoke' };
   }
-  const revoked = revokeMember(memberId, reason);
+  const revoked = revokeMemberContactsFirst(memberId, reason);
   if (!revoked) {
     return { ok: false, error: 'Member not found or cannot be revoked' };
   }
@@ -342,7 +357,7 @@ export function blockIngressMember(memberId?: string, reason?: string): IngressR
   if (!memberId) {
     return { ok: false, error: 'memberId is required for block' };
   }
-  const blocked = blockMember(memberId, reason);
+  const blocked = blockMemberContactsFirst(memberId, reason);
   if (!blocked) {
     return { ok: false, error: 'Member not found or already blocked' };
   }

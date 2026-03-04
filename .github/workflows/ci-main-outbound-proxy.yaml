@@ -1,12 +1,12 @@
-name: CI Main Proxy Sidecar Checks
+name: CI Main Outbound Proxy Checks
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - 'proxy-sidecar/**'
-      - '.github/workflows/ci-main-proxy-sidecar.yaml'
+      - 'outbound-proxy/**'
+      - '.github/workflows/ci-main-outbound-proxy.yaml'
 
 jobs:
   checks:
@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: proxy-sidecar
+        working-directory: outbound-proxy
 
     steps:
       - name: Checkout

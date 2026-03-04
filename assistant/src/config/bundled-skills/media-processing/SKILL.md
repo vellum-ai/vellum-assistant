@@ -1,7 +1,7 @@
 ---
 name: "Media Processing"
 description: "Ingest and process media files (video, audio, image) through a 3-phase pipeline: preprocess, map (Gemini), and reduce (Claude)"
-metadata: {"vellum": {"emoji": "🎬"}}
+metadata: { "vellum": { "emoji": "🎬" } }
 ---
 
 Ingest and track processing of media files (video, audio, images) through a configurable 3-phase pipeline.
@@ -33,25 +33,35 @@ Query the processing status of a media asset. Returns the asset metadata along w
 Preprocess a video asset: detect dead time via mpdecimate, segment the video into windows, extract downscaled keyframes at regular intervals, build a subject registry, and write a pipeline manifest.
 
 Parameters:
+
 - `asset_id` (required) — ID of the media asset.
 - `interval_seconds` — Interval between keyframes (default: 1s). Use 0.5s for sports/action content where frame density matters.
 - `segment_duration` — Duration of each segment window (default: 15s).
 - `dead_time_threshold` — Sensitivity for dead-time detection (default: 0.02).
 - `section_config` — Path to a JSON file with manual section boundaries.
-- `skip_dead_time` — Whether to detect and skip dead time (default: false). Dead-time detection can be too aggressive for continuous action video like sports — it may incorrectly skip live play. Enable only for content with clear idle periods (e.g., lectures, surveillance footage).
+- `detect_dead_time` — Whether to detect and skip dead time (default: false). Dead-time detection can be too aggressive for continuous action video like sports — it may incorrectly skip live play. Enable only for content with clear idle periods (e.g., lectures, surveillance footage).
 - `short_edge` — Short edge resolution for downscaled frames in pixels (default: 480).
+- `include_audio` — Whether to extract and transcribe audio for each segment (default: false). When enabled, each segment's audio is transcribed and stored alongside visual frames.
+- `transcription_mode` — Transcription backend: `'api'` (OpenAI Whisper cloud) or `'local'` (whisper.cpp on-device). Default: `'local'`. The `'api'` mode requires an OpenAI API key configured in settings.
 
 ### analyze_keyframes
 
-Map video segments through Gemini's structured output API. Reads frames from the preprocess manifest, sends each segment to Gemini with assistant-provided extraction instructions and a JSON Schema for guaranteed structured output. Supports concurrency pooling, cost tracking, resumability (skips segments with existing results), and automatic retries with exponential backoff.
+Map video segments through Gemini's structured output API. Supports two modes:
+
+- **`keyframes`** (default) — Reads frames from the preprocess manifest, sends each segment's images to Gemini. Requires `extract_keyframes` to be run first. Best for longer videos (> 1 hour) or when you need fine-grained control over frame selection (interval, segment duration, dead-time skipping).
+- **`direct_video`** — Uploads the video file directly to Gemini's Files API. Gemini sees actual motion and temporal context instead of static frames. Best for shorter videos (< 1 hour) where temporal context matters (detecting actions, transitions, motion patterns). Has a 2 GB file size limit. Does not require `extract_keyframes` preprocessing.
+
+Both modes produce the same `MapOutput` format, so `query_media` works identically regardless of which mode was used.
 
 Parameters:
+
 - `asset_id` (required) — ID of the media asset.
 - `system_prompt` (required) — Extraction instructions for Gemini.
 - `output_schema` (required) — JSON Schema for structured output.
+- `mode` — Analysis mode: `'keyframes'` (default) or `'direct_video'`.
 - `context` — Additional context to include in the prompt.
 - `model` — Gemini model to use (default: `gemini-2.5-flash`).
-- `concurrency` — Maximum concurrent API requests (default: 10).
+- `concurrency` — Maximum concurrent API requests (default: 10, keyframes mode only).
 - `max_retries` — Retry attempts per segment on failure (default: 3).
 
 ### query_media
@@ -59,6 +69,7 @@ Parameters:
 Query video analysis data using natural language. Sends map output (from analyze_keyframes) to Claude for intelligent analysis and Q&A. Supports arbitrary questions about video content.
 
 Parameters:
+
 - `asset_id` (required) — ID of the media asset.
 - `query` (required) — Natural language query about the video data.
 - `system_prompt` — Optional system prompt for Claude.
@@ -71,6 +82,7 @@ Extract a video clip from a media asset using ffmpeg. Applies configurable pre/p
 ### media_diagnostics
 
 Get a diagnostic report for a media asset. Returns:
+
 - **Processing stats**: total keyframes extracted.
 - **Per-stage status and timing**: which stages (preprocess, map, reduce) have run, how long each took, current progress.
 - **Failure reasons**: last error from any failed stage.
@@ -81,6 +93,7 @@ Get a diagnostic report for a media asset. Returns:
 ### Processing Pipeline (services/processing-pipeline.ts)
 
 Orchestrates the full processing pipeline with reliability features:
+
 - **Sequential execution**: preprocess, map, reduce.
 - **Retries**: Each stage is retried with exponential backoff and jitter (configurable max retries and base delay).
 - **Resumability**: Checks processing_stages to find the last completed stage and resumes from there. Safe to restart after crashes.
@@ -99,6 +112,7 @@ Sends video segments to Gemini 2.5 Flash with structured output schemas. Handles
 ### Reduce (services/reduce.ts)
 
 Sends Map output to Claude as text for analysis. Two modes:
+
 - **One-shot merge**: assembles all Map results and sends to Claude with a system prompt.
 - **Interactive Q&A**: loads existing map output + user query, sends to Claude.
 
@@ -109,6 +123,24 @@ Limits concurrent API calls during the Map phase to avoid rate limiting.
 ### Cost Tracker (services/cost-tracker.ts)
 
 Tracks estimated API costs during pipeline execution.
+
+## Audio + Vision Multimodal Analysis
+
+When `include_audio` is enabled on `extract_keyframes`, the pipeline transcribes each segment's audio track and attaches the transcript to the segment data. During the Map phase (`analyze_keyframes`), Gemini receives both the visual frames and the audio transcript for each segment, enabling multimodal analysis that combines what is seen with what is said.
+
+This is useful for:
+
+- **Lectures and presentations**: Correlate slide content (visual) with speaker narration (audio).
+- **Sports broadcasts**: Combine on-screen action with commentary for richer event detection.
+- **Meetings and interviews**: Pair facial expressions and gestures with spoken dialogue.
+- **Tutorials and demos**: Link on-screen actions with verbal instructions.
+
+Transcription modes:
+
+- **`local`** (default): Uses whisper.cpp for on-device transcription. Requires `whisper-cpp` to be installed (`brew install whisper-cpp`). No API costs, but slower.
+- **`api`**: Uses the OpenAI Whisper API for cloud-based transcription. Faster and more accurate, but requires an OpenAI API key and incurs per-minute costs.
+
+The audio transcription degrades gracefully — if transcription fails for a segment (missing tools, no audio track, API errors), the segment proceeds with visual-only analysis.
 
 ## Best Practices
 
@@ -173,24 +205,27 @@ The `generate_clip` tool outputs clips as temporary files. These may not deliver
 ## Known Limitations — Vision Analysis
 
 Gemini performs well at **spatial/descriptive analysis** from static keyframes:
+
 - Player positions, formations, and spacing
 - Jersey numbers and identifying features
 - Ball location and which team has possession
 - Score and on-screen text
 - Camera angles and scene composition
 
-Gemini **hallucinates when asked to detect fast temporal events** from static frames, regardless of frame density:
+Gemini **hallucinates when asked to detect fast temporal events** from static frames (keyframes mode), regardless of frame density:
+
 - Turnovers, steals, fouls, and specific plays
 - Fast transitions and split-second actions
 - Causality between frames (what "happened" vs. what's visible)
 
-The model is good at describing **what is there** but bad at detecting **what happened**. Structure your map prompts and queries accordingly — ask the model to describe scenes, then use `query_media` (Claude) to reason about patterns and events across the descriptive data.
+The model is good at describing **what is there** but bad at detecting **what happened** from static frames. For content where temporal context matters, consider using `mode: 'direct_video'` which lets Gemini see actual motion. For keyframes mode, structure your map prompts and queries accordingly — ask the model to describe scenes, then use `query_media` (Claude) to reason about patterns and events across the descriptive data.
 
 ## Operator Runbook
 
 ### Monitoring Progress
 
 Use `media_status` to check the current state of any asset:
+
 - **registered** — Ingested but not yet processed.
 - **processing** — Pipeline is running.
 - **indexed** — All stages completed successfully.
@@ -201,6 +236,7 @@ The response includes per-stage progress (0-100%) so you can see exactly where p
 ### Diagnosing Failures
 
 Use `media_diagnostics` to get a full diagnostic report:
+
 1. Check the `stages` array for any stage with `status: "failed"`.
 2. Read the `lastError` field for that stage to understand what went wrong.
 3. Check `durationMs` to see if a stage timed out or ran unusually long.
@@ -224,14 +260,14 @@ Use `media_diagnostics` to get per-asset cost estimates. The Map phase (Gemini) 
 
 ### Troubleshooting
 
-| Symptom | Likely Cause | Fix |
-|---------|-------------|-----|
-| "No keyframes found" | extract_keyframes not run or failed | Check preprocess stage status; re-run if needed |
-| "No map output found" | analyze_keyframes not run | Run analyze_keyframes with appropriate system_prompt and output_schema |
-| "No LLM provider available" | API key not configured | Add one in Settings |
-| Map phase slow | Large video, small interval | Increase interval_seconds or reduce concurrency |
-| Gemini returns errors | Rate limits or schema issues | Check max_retries setting; simplify output_schema if needed |
-| Pipeline stuck at "processing" | Stage crashed without updating status | Use `media_diagnostics` to find the stuck stage; re-run manually |
+| Symptom                        | Likely Cause                          | Fix                                                                    |
+| ------------------------------ | ------------------------------------- | ---------------------------------------------------------------------- |
+| "No keyframes found"           | extract_keyframes not run or failed   | Check preprocess stage status; re-run if needed                        |
+| "No map output found"          | analyze_keyframes not run             | Run analyze_keyframes with appropriate system_prompt and output_schema |
+| "No LLM provider available"    | API key not configured                | Add one in Settings                                                    |
+| Map phase slow                 | Large video, small interval           | Increase interval_seconds or reduce concurrency                        |
+| Gemini returns errors          | Rate limits or schema issues          | Check max_retries setting; simplify output_schema if needed            |
+| Pipeline stuck at "processing" | Stage crashed without updating status | Use `media_diagnostics` to find the stuck stage; re-run manually       |
 
 ## Usage Notes
 

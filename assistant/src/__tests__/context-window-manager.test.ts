@@ -25,6 +25,13 @@ function makeConfig(
     preserveRecentUserTurns: 2,
     summaryMaxTokens: 128,
     chunkTokens: 80,
+    overflowRecovery: {
+      enabled: true,
+      safetyMarginRatio: 0.05,
+      maxAttempts: 3,
+      interactiveLatestTurnCompression: "summarize",
+      nonInteractiveLatestTurnCompression: "truncate",
+    },
     ...overrides,
   };
 }
@@ -503,5 +510,95 @@ describe("ContextWindowManager", () => {
       "A".repeat(rawBase64Chars),
     );
     expect(rawBase64TokenEquivalent).toBeGreaterThan(result.thresholdTokens);
+  });
+
+  test("minKeepRecentUserTurns: 0 compacts all messages into summary only", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- emergency summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager(
+      provider,
+      "system prompt",
+      makeConfig({
+        maxInputTokens: 260,
+        targetInputTokens: 60,
+        preserveRecentUserTurns: 2,
+      }),
+    );
+    const long = "e".repeat(220);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+      minKeepRecentUserTurns: 0,
+    });
+    expect(result.compacted).toBe(true);
+    // With minKeepRecentUserTurns=0 and a tight targetInputTokens budget,
+    // pickKeepBoundary drops keepTurns all the way to 0.
+    // All three messages are compacted into a single summary message.
+    expect(result.compactedMessages).toBe(3);
+    expect(result.messages).toHaveLength(1);
+    expect(getSummaryFromContextMessage(result.messages[0])).toContain(
+      "emergency summary",
+    );
+  });
+
+  test("targetInputTokensOverride reduces retained turns beyond normal compaction", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- tight fit summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+
+    // Use generous default target so normal compaction would keep all 3 user turns.
+    const config = makeConfig({
+      maxInputTokens: 1200,
+      targetInputTokens: 1000,
+      preserveRecentUserTurns: 3,
+    });
+    const long = "t".repeat(220);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    // Without override: normal compaction keeps more turns.
+    const normalManager = new ContextWindowManager(
+      provider,
+      "system prompt",
+      config,
+    );
+    const normalResult = await normalManager.maybeCompact(history, undefined, {
+      force: true,
+    });
+
+    // With a very tight override target: should keep fewer turns.
+    const tightManager = new ContextWindowManager(
+      provider,
+      "system prompt",
+      config,
+    );
+    const tightResult = await tightManager.maybeCompact(history, undefined, {
+      force: true,
+      targetInputTokensOverride: 80,
+    });
+
+    expect(tightResult.compacted).toBe(true);
+    // The tight override should compact more messages than normal.
+    expect(tightResult.compactedMessages).toBeGreaterThan(
+      normalResult.compactedMessages,
+    );
   });
 });

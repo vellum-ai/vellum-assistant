@@ -34,6 +34,23 @@ export interface SlackDirectMessageEvent {
 }
 
 /**
+ * Slack `message` event shape for channel/group messages (non-DM).
+ * Used to pick up thread replies in threads the bot is already participating in.
+ */
+export interface SlackChannelMessageEvent {
+  type: "message";
+  subtype?: string;
+  user?: string;
+  text: string;
+  ts: string;
+  channel: string;
+  channel_type: "channel" | "group" | "mpim";
+  thread_ts?: string;
+  client_msg_id?: string;
+  event_ts?: string;
+}
+
+/**
  * Strip leading bot-mention tokens (`<@U...>`) from the message text.
  * Slack wraps mentions as `<@UXXXXXX>`, often at the start of an
  * app_mention event's text field. We remove all leading occurrences
@@ -106,6 +123,55 @@ export function normalizeSlackDirectMessage(
       },
       source: {
         updateId: eventId,
+      },
+      raw: event as unknown as Record<string, unknown>,
+    },
+    routing,
+    threadTs: event.thread_ts ?? event.ts,
+    channel: event.channel,
+  };
+}
+
+/**
+ * Normalize a Slack channel `message` event (thread reply in an active bot
+ * thread) into the gateway's canonical inbound event shape.
+ *
+ * Returns null if the event should be ignored (bot's own messages, subtypes,
+ * missing user, or unroutable channels).
+ */
+export function normalizeSlackChannelMessage(
+  event: SlackChannelMessageEvent,
+  eventId: string,
+  config: GatewayConfig,
+  botUserId?: string,
+): NormalizedSlackEvent | null {
+  if (botUserId && event.user === botUserId) return null;
+  if (event.subtype) return null;
+  if (!event.user) return null;
+
+  const routing = resolveAssistant(config, event.channel, event.user);
+  if (isRejection(routing)) return null;
+
+  const content = stripBotMention(event.text);
+  const externalMessageId =
+    event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
+
+  return {
+    event: {
+      version: "v1",
+      sourceChannel: "slack",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content,
+        conversationExternalId: event.channel,
+        externalMessageId,
+      },
+      actor: {
+        actorExternalId: event.user,
+      },
+      source: {
+        updateId: eventId,
+        chatType: "channel",
       },
       raw: event as unknown as Record<string, unknown>,
     },

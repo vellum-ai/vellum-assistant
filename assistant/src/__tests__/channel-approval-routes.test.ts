@@ -145,6 +145,8 @@ function resetTables(): void {
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
   channelDeliveryStore.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }

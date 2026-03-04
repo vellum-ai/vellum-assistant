@@ -1,7 +1,0 @@
-{
-  "route_id": "9c13036a-11f9-4c70-8f48-39ca6e2b35b2",
-  "assistant_id": "0f33135d-2457-4ffe-a284-dc484f47a6f7",
-  "provider": "twilio",
-  "route_type": "sms",
-  "identity_key": "+15551230000"
-}

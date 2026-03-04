@@ -506,6 +506,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `contacts_response` message.
     public var onContactsResponse: ((ContactsResponseMessage) -> Void)?
 
+    /// Called when the daemon broadcasts a `contacts_changed` event (contact table mutated).
+    public var onContactsChanged: ((IPCContactsChanged) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
