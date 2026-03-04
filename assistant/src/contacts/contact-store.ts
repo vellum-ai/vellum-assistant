@@ -504,6 +504,39 @@ export function findContactByChannelExternalId(
 }
 
 /**
+ * Find the guardian contact and their specific channel entry for a given channel type.
+ * This is the contacts-based equivalent of getGuardianBinding(assistantId, channel).
+ * Returns null if no guardian contact has a channel of the specified type.
+ */
+export function findGuardianForChannel(
+  channelType: string,
+): { contact: Contact; channel: ContactChannel } | null {
+  const db = getDb();
+  const rows = db
+    .select({
+      contact: contacts,
+      channel: contactChannels,
+    })
+    .from(contacts)
+    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
+    .where(
+      and(
+        eq(contacts.role, 'guardian'),
+        eq(contactChannels.type, channelType),
+      ),
+    )
+    .limit(1)
+    .all();
+
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  return {
+    contact: parseContact(row.contact),
+    channel: parseChannel(row.channel),
+  };
+}
+
+/**
  * Update a channel's access-control fields (status, policy, reasons).
  * Returns the updated channel, or null if the channel does not exist.
  */
