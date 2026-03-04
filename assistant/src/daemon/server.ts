@@ -13,6 +13,7 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
+import { onContactChange } from "../contacts/contact-events.js";
 import { getConfig } from "../config/loader.js";
 import { buildSystemPrompt } from "../config/system-prompt.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -417,6 +418,12 @@ export class DaemonServer {
       () => this.evictSessionsForReload(),
       () => this.broadcastIdentityChanged(),
     );
+
+    // Broadcast contacts_changed to all clients when any contact mutation occurs.
+    onContactChange(() => {
+      this.broadcast({ type: "contacts_changed" });
+    });
+
     this.auth.initToken();
 
     let tlsCreds: { cert: string; key: string; fingerprint: string } | null =
