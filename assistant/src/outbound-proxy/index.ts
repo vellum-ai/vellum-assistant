@@ -86,6 +86,41 @@ export {
 // Credential modules
 // ---------------------------------------------------------------------------
 
+// Auto-configure credential deps with assistant's real implementations.
+// The outbound-proxy credential modules use injectable deps (deps.ts) so they
+// can run in different host processes. When loaded from the assistant barrel,
+// we wire in the assistant's concrete secure-key and logger backends so that
+// CredentialBroker, metadata-store, etc. work identically to when the code
+// lived under tools/credentials/.
+import { getSecureKey } from "../security/secure-keys.js";
+import { getLogger as _assistantGetLogger } from "../util/logger.js";
+import { getDataDir as _assistantGetDataDir } from "../util/platform.js";
+import {
+  configureGetDataDir as _configureGetDataDir,
+  configureGetLogger as _configureGetLogger,
+  configureGetSecureKey as _configureGetSecureKey,
+} from "./credentials/deps.js";
+
+_configureGetSecureKey(getSecureKey);
+_configureGetDataDir(_assistantGetDataDir);
+_configureGetLogger((name) => {
+  const pino = _assistantGetLogger(name);
+  return {
+    info(obj, msg) {
+      pino.info(obj, msg);
+    },
+    warn(obj, msg) {
+      pino.warn(obj, msg);
+    },
+    error(obj, msg) {
+      pino.error(obj, msg);
+    },
+    debug(obj, msg) {
+      pino.debug(obj, msg);
+    },
+  };
+});
+
 // Credential broker
 export type {
   AuthorizeDenied,

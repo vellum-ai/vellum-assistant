@@ -215,6 +215,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "config/loader.ts", // config management (API keys)
       "tools/credentials/vault.ts", // credential store tool
       "outbound-proxy/credentials/broker.ts", // brokered credential access
+      "outbound-proxy/index.ts", // barrel auto-configures credential deps with assistant backends
       "tools/network/web-search.ts", // web search API key lookup
       "daemon/handlers.ts", // Vercel API token + integration OAuth
       "daemon/handlers/config-integrations.ts", // Vercel API token + Twitter integration OAuth
