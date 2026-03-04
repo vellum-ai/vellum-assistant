@@ -3,8 +3,8 @@ import { join } from "path";
 
 import {
   findAssistantByName,
+  getActiveAssistant,
   loadLatestAssistant,
-  resolveTargetAssistant,
 } from "../lib/assistant-config";
 import { GATEWAY_PORT, type Species } from "../lib/constants";
 
@@ -62,8 +62,10 @@ function parseArgs(): ParsedArgs {
     // Explicit env var — skip assistant resolution, will use env values below
     entry = loadLatestAssistant();
   } else {
-    // Use active-assistant resolution (active > sole local > error)
-    entry = resolveTargetAssistant();
+    // Respect active assistant when set, otherwise fall back to latest
+    // for backward compatibility with remote-only setups.
+    const active = getActiveAssistant();
+    entry = active ? findAssistantByName(active) : loadLatestAssistant();
   }
 
   let runtimeUrl =

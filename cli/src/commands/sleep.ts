@@ -22,6 +22,14 @@ export async function sleep(): Promise<void> {
 
   const nameArg = args.find((a) => !a.startsWith("-"));
   const entry = resolveTargetAssistant(nameArg);
+
+  if (entry.cloud && entry.cloud !== "local") {
+    console.error(
+      `Error: 'vellum sleep' only works with local assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
+    );
+    process.exit(1);
+  }
+
   const resources = entry.resources ?? defaultLocalResources();
 
   const daemonPidFile = resources.pidFile;

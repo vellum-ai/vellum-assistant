@@ -28,6 +28,14 @@ export async function wake(): Promise<void> {
 
   const nameArg = args.find((a) => !a.startsWith("-"));
   const entry = resolveTargetAssistant(nameArg);
+
+  if (entry.cloud && entry.cloud !== "local") {
+    console.error(
+      `Error: 'vellum wake' only works with local assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
+    );
+    process.exit(1);
+  }
+
   const resources = entry.resources ?? defaultLocalResources();
 
   const pidFile = resources.pidFile;
