@@ -615,6 +615,7 @@ export async function handleChannelInbound(
       mintBearerToken,
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
+      externalMessageId: sourceMessageId ?? externalMessageId,
     });
   }
 

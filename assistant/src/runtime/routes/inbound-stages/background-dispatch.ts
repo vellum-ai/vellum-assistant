@@ -58,6 +58,8 @@ export interface BackgroundProcessingParams {
   approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
   sourceLanguageCode?: string;
+  /** External message ID (e.g. Slack message ts) used for reaction indicators. */
+  externalMessageId?: string;
 }
 
 /**
@@ -85,6 +87,7 @@ export function processChannelMessageInBackground(
     approvalCopyGenerator,
     commandIntent,
     sourceLanguageCode,
+    externalMessageId,
   } = params;
 
   (async () => {
@@ -102,6 +105,19 @@ export function processChannelMessageInBackground(
           assistantId,
         )
       : undefined;
+
+    // Add 👀 reaction to the inbound Slack message as a processing indicator
+    const removeSlackReaction =
+      shouldEmitSlackReaction(sourceChannel, replyCallbackUrl) &&
+      externalMessageId
+        ? addSlackEyesReaction(
+            replyCallbackUrl!,
+            externalChatId,
+            externalMessageId,
+            mintBearerToken,
+            assistantId,
+          )
+        : undefined;
     const stopApprovalWatcher = replyCallbackUrl
       ? startPendingApprovalPromptWatcher({
           conversationId,
@@ -193,6 +209,7 @@ export function processChannelMessageInBackground(
       channelDeliveryStore.recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
+      removeSlackReaction?.();
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
@@ -253,6 +270,63 @@ export function startTelegramTypingHeartbeat(
   return () => {
     active = false;
     clearInterval(interval);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Slack eyes reaction indicator
+// ---------------------------------------------------------------------------
+
+export function shouldEmitSlackReaction(
+  sourceChannel: ChannelId,
+  replyCallbackUrl?: string,
+): boolean {
+  if (sourceChannel !== "slack" || !replyCallbackUrl) return false;
+  try {
+    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/slack");
+  } catch {
+    return replyCallbackUrl.endsWith("/deliver/slack");
+  }
+}
+
+/**
+ * Add a 👀 reaction to the inbound Slack message and return a cleanup
+ * function that removes it. Both operations are fire-and-forget.
+ */
+export function addSlackEyesReaction(
+  callbackUrl: string,
+  chatId: string,
+  messageTs: string,
+  mintBearerToken: () => string,
+  assistantId?: string,
+): () => void {
+  void deliverChannelReply(
+    callbackUrl,
+    {
+      chatId,
+      assistantId,
+      reaction: { action: "add", name: "eyes", messageTs },
+    },
+    mintBearerToken(),
+  ).catch((err) => {
+    log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
+  });
+
+  return () => {
+    void deliverChannelReply(
+      callbackUrl,
+      {
+        chatId,
+        assistantId,
+        reaction: { action: "remove", name: "eyes", messageTs },
+      },
+      mintBearerToken(),
+    ).catch((err) => {
+      log.debug(
+        { err, chatId, messageTs },
+        "Failed to remove Slack eyes reaction",
+      );
+    });
   };
 }
 
