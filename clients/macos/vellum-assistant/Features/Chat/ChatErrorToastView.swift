@@ -162,6 +162,8 @@ struct ChatSessionErrorToast: View {
             return "clock.badge.exclamationmark"
         case .providerApi:
             return "exclamationmark.icloud.fill"
+        case .providerBilling:
+            return "creditcard.trianglebadge.exclamationmark"
         case .contextTooLarge:
             return "text.badge.xmark"
         case .queueFull:

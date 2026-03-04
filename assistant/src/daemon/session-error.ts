@@ -188,6 +188,26 @@ function classifyCore(
           retryable: false,
         };
       }
+      if (
+        /credit balance is too low|insufficient.*credits?|billing/i.test(
+          message,
+        )
+      ) {
+        return {
+          code: "PROVIDER_BILLING",
+          userMessage: "Your API key has insufficient credits.",
+          retryable: false,
+        };
+      }
+      if (
+        /invalid.*api.?key|invalid.*x-api-key|authentication/i.test(message)
+      ) {
+        return {
+          code: "PROVIDER_BILLING",
+          userMessage: "Your API key is invalid.",
+          retryable: false,
+        };
+      }
       return {
         code: "PROVIDER_API",
         userMessage: "The AI provider rejected the request.",
