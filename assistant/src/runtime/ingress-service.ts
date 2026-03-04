@@ -12,6 +12,11 @@ import {
   revokeMemberContactsFirst,
   upsertMemberContactsFirst,
 } from "../contacts/contacts-write.js";
+import type {
+  IngressMember,
+  MemberPolicy,
+  MemberStatus,
+} from "../contacts/member-record-shim.js";
 import type { ContactWithChannels } from "../contacts/types.js";
 import {
   createInvite,
@@ -22,11 +27,6 @@ import {
   listInvites,
   revokeInvite,
 } from "../memory/ingress-invite-store.js";
-import type {
-  IngressMember,
-  MemberPolicy,
-  MemberStatus,
-} from "../contacts/member-record-shim.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { getTransport } from "./channel-invite-transport.js";

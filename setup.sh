@@ -24,6 +24,12 @@ if ! command -v bun &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
+# Configure git to use .githooks/ for pre-commit hooks (works in worktrees)
+# ---------------------------------------------------------------------------
+info "Configuring git hooks"
+git config core.hooksPath .githooks
+
+# ---------------------------------------------------------------------------
 # Install dependencies and register local packages as linkable
 # ---------------------------------------------------------------------------
 for dir in cli gateway assistant; do

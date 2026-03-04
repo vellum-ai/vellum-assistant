@@ -16,9 +16,9 @@ import {
   findContactByChannelExternalId,
   findGuardianForChannel,
 } from "../contacts/contact-store.js";
+import type { IngressMember } from "../contacts/member-record-shim.js";
 import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import type { IngressMember } from "../contacts/member-record-shim.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 

@@ -18,13 +18,13 @@ import {
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
+import type { MemberStatus } from "../contacts/member-record-shim.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
-import type { MemberStatus } from "../contacts/member-record-shim.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { getLogger } from "../util/logger.js";
@@ -104,10 +104,8 @@ export function notifyGuardianOfAccessRequest(
   let guardianExternalUserId: string | null = null;
   let guardianPrincipalId: string | null = null;
   let guardianBindingChannel: string | null = null;
-  let guardianResolutionSource:
-    | "contacts"
-    | "contacts-fallback"
-    | "none" = "none";
+  let guardianResolutionSource: "contacts" | "contacts-fallback" | "none" =
+    "none";
 
   // Try contacts-first: source channel
   const sourceGuardian = findGuardianForChannel(sourceChannel);

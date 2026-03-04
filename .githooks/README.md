@@ -4,17 +4,16 @@ This directory contains shared git hooks for the vellum-assistant repository.
 
 ## Installation
 
-To install the hooks, run:
+Hooks are installed automatically when you run `bun install` in any package
+(via a `postinstall` script that sets `core.hooksPath`).
 
-```bash
-./.githooks/install.sh
-```
-
-Or, you can configure git to use this directory directly:
+To install manually:
 
 ```bash
 git config core.hooksPath .githooks
 ```
+
+This works in both regular checkouts and git worktrees.
 
 ## Available Hooks
 
@@ -30,14 +29,14 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 4. **IPC contract verification** — When IPC contract files are staged, verifies generated Swift models, inventory snapshot, and decoder sync are up to date
 
 **Behavior:**
-- ✅ Blocks commits containing potential secrets
-- ✅ Provides detailed feedback on what was detected and where
-- ✅ Allows clean commits to proceed without interruption
-- ✅ Avoids known false positives for architecture/db identifier strings like `assistant_auth_tokens` and migration checkpoint keys
-- ✅ Ignores checksum/hash fixture fields (for example `nonceSha256`) while still scanning adjacent lines
-- ✅ Runs prettier and eslint on staged files in assistant, cli, and gateway directories
-- ✅ When IPC contract files are staged, verifies the generated Swift models and inventory snapshot are up to date
-- ✅ Catches unstaged generated output files (e.g., regenerated but not `git add`-ed)
+- Blocks commits containing potential secrets
+- Provides detailed feedback on what was detected and where
+- Allows clean commits to proceed without interruption
+- Avoids known false positives for architecture/db identifier strings like `assistant_auth_tokens` and migration checkpoint keys
+- Ignores checksum/hash fixture fields (for example `nonceSha256`) while still scanning adjacent lines
+- Runs prettier and eslint on staged files in assistant, cli, and gateway directories
+- When IPC contract files are staged, verifies the generated Swift models and inventory snapshot are up to date
+- Catches unstaged generated output files (e.g., regenerated but not `git add`-ed)
 
 **Verification:**
 - Run `.githooks/pre-commit --self-test` to verify safe architecture/db/checksum fixture strings are allowed while seeded real secrets are still detected.
@@ -47,14 +46,3 @@ If you need to bypass this check in exceptional cases:
 ```bash
 git commit --no-verify
 ```
-
-## Why Use Git Hooks?
-
-Git hooks help maintain code quality and security by automatically running checks before certain git operations. The pre-commit hook specifically helps prevent accidentally committing sensitive information like API keys, passwords, and tokens to the repository.
-
-## Maintenance
-
-When updating hooks, make sure to:
-1. Update the hook file in `.githooks/`
-2. Run `./.githooks/install.sh` to update your local `.git/hooks/`
-3. Commit and push the changes so other developers can update their hooks
