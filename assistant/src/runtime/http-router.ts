@@ -12,6 +12,7 @@
 
 import { enforcePolicy, getPolicy } from "./auth/route-policy.js";
 import type { AuthContext } from "./auth/types.js";
+import { httpError } from "./http-errors.js";
 import { withErrorHandling } from "./middleware/error-handler.js";
 
 // ---------------------------------------------------------------------------
@@ -97,12 +98,10 @@ export class HttpRouter {
         try {
           params[compiled.paramNames[i]] = decodeURIComponent(match[i + 1]);
         } catch {
-          return new Response(
-            JSON.stringify({
-              error: "BAD_REQUEST",
-              message: "Malformed percent-encoding in URL path parameter",
-            }),
-            { status: 400, headers: { "Content-Type": "application/json" } },
+          return httpError(
+            "BAD_REQUEST",
+            "Malformed percent-encoding in URL path parameter",
+            400,
           );
         }
       }

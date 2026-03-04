@@ -483,7 +483,7 @@ jobs:
 
       - name: Compute image name
         id: image
-        run: echo "name=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+        run: echo "name=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/vellum-outbound-proxy" >> "$GITHUB_OUTPUT"
 
       - name: Build and push by digest
         id: build
@@ -558,7 +558,7 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}"
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/vellum-outbound-proxy"
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
           TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
           TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
@@ -570,7 +570,7 @@ jobs:
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}"
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/vellum-outbound-proxy"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
@@ -581,7 +581,7 @@ jobs:
       - name: Export image metadata
         id: meta
         run: |
-          echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+          echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/vellum-outbound-proxy" >> "$GITHUB_OUTPUT"
           echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
 
@@ -1761,21 +1761,14 @@ jobs:
 
       - name: Remove all source files except playwright
         run: |
-          # Move playwright directory and install.sh to safe locations
+          # Move playwright directory to safe location
           mv playwright /tmp/playwright-tests
-          if [ -f cli/src/adapters/install.sh ]; then
-            cp cli/src/adapters/install.sh /tmp/install.sh
-          fi
 
           # Remove everything in the repo except .git
           find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
 
-          # Restore playwright directory and install.sh
+          # Restore playwright directory
           mv /tmp/playwright-tests playwright
-          if [ -f /tmp/install.sh ]; then
-            mkdir -p cli/src/adapters
-            mv /tmp/install.sh cli/src/adapters/install.sh
-          fi
 
       - name: Install app from DMG
         run: |
@@ -1798,8 +1791,8 @@ jobs:
           echo "=== Repository contents ==="
           ls -la
           echo ""
-          echo "Only playwright/, clients/macos/dist/, and cli/src/adapters/install.sh should exist:"
-          find . -mindepth 1 -maxdepth 2 ! -path './.git*' ! -path './playwright*' ! -path './clients*' ! -path './cli*' | head -20 || true
+          echo "Only playwright/ and clients/macos/dist/ should exist:"
+          find . -mindepth 1 -maxdepth 2 ! -path './.git*' ! -path './playwright*' ! -path './clients*' | head -20 || true
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -1832,6 +1825,8 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: playwright
+        env:
+          PW_WORKERS: '4'
         run: bun run test
 
       - name: Upload Playwright report

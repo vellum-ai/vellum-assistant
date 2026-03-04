@@ -23,7 +23,9 @@ export type SignalType =
   | "macos_notification_view"
   | "macos_conversation_opened"
   | "telegram_inbound_message"
-  | "telegram_callback";
+  | "telegram_callback"
+  | "slack_inbound_message"
+  | "slack_callback";
 
 export type Confidence = "explicit" | "inferred";
 

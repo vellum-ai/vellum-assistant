@@ -150,8 +150,7 @@ graph TB
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
             DB_WORK_ITEMS["work_items"]
-            DB_INGRESS_INVITES["assistant_ingress_invites"]
-            DB_INGRESS_MEMBERS["assistant_ingress_members"]
+            DB_CONTACTS["contacts"]
         end
 
         subgraph "Tracing"

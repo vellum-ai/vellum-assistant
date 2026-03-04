@@ -17,8 +17,8 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createIngressControlPlaneProxyHandler } =
-  await import("../http/routes/ingress-control-plane-proxy.js");
+const { createContactsControlPlaneProxyHandler } =
+  await import("../http/routes/contacts-control-plane-proxy.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -71,8 +71,8 @@ afterEach(() => {
   fetchMock = mock(async () => new Response());
 });
 
-describe("ingress control-plane proxy", () => {
-  test("forwards ingress endpoints to the runtime", async () => {
+describe("contacts control-plane proxy", () => {
+  test("forwards contact endpoints to the runtime", async () => {
     const captured: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
       captured.push(String(input));
@@ -82,59 +82,76 @@ describe("ingress control-plane proxy", () => {
       });
     });
 
-    const handler = createIngressControlPlaneProxyHandler(makeConfig());
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
 
-    await handler.handleListMembers(
-      new Request(
-        "http://localhost:7830/v1/ingress/members?sourceChannel=telegram",
-      ),
+    await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?limit=10"),
     );
-    await handler.handleUpsertMember(
-      new Request("http://localhost:7830/v1/ingress/members", {
+    await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", { method: "POST" }),
+    );
+    await handler.handleGetContact(
+      new Request("http://localhost:7830/v1/contacts/ct_1"),
+      "ct_1",
+    );
+    await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
         method: "POST",
       }),
     );
-    await handler.handleRevokeMember(
-      new Request("http://localhost:7830/v1/ingress/members/mbr_123", {
-        method: "DELETE",
+    await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contacts/channels/ch_1", {
+        method: "PATCH",
       }),
-      "mbr_123",
+      "ch_1",
     );
-    await handler.handleBlockMember(
-      new Request("http://localhost:7830/v1/ingress/members/mbr_123/block", {
-        method: "POST",
-      }),
-      "mbr_123",
-    );
+
+    expect(captured).toEqual([
+      "http://localhost:7821/v1/contacts?limit=10",
+      "http://localhost:7821/v1/contacts",
+      "http://localhost:7821/v1/contacts/ct_1",
+      "http://localhost:7821/v1/contacts/merge",
+      "http://localhost:7821/v1/contacts/channels/ch_1",
+    ]);
+  });
+
+  test("forwards invite endpoints to the runtime", async () => {
+    const captured: string[] = [];
+    fetchMock = mock(async (input: string | URL | Request) => {
+      captured.push(String(input));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+
     await handler.handleListInvites(
-      new Request("http://localhost:7830/v1/ingress/invites?status=active"),
+      new Request("http://localhost:7830/v1/contacts/invites?status=active"),
     );
     await handler.handleCreateInvite(
-      new Request("http://localhost:7830/v1/ingress/invites", {
+      new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
       }),
     );
     await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/ingress/invites/redeem", {
+      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
         method: "POST",
       }),
     );
     await handler.handleRevokeInvite(
-      new Request("http://localhost:7830/v1/ingress/invites/inv_123", {
+      new Request("http://localhost:7830/v1/contacts/invites/inv_123", {
         method: "DELETE",
       }),
       "inv_123",
     );
 
     expect(captured).toEqual([
-      "http://localhost:7821/v1/ingress/members?sourceChannel=telegram",
-      "http://localhost:7821/v1/ingress/members",
-      "http://localhost:7821/v1/ingress/members/mbr_123",
-      "http://localhost:7821/v1/ingress/members/mbr_123/block",
-      "http://localhost:7821/v1/ingress/invites?status=active",
-      "http://localhost:7821/v1/ingress/invites",
-      "http://localhost:7821/v1/ingress/invites/redeem",
-      "http://localhost:7821/v1/ingress/invites/inv_123",
+      "http://localhost:7821/v1/contacts/invites?status=active",
+      "http://localhost:7821/v1/contacts/invites",
+      "http://localhost:7821/v1/contacts/invites/redeem",
+      "http://localhost:7821/v1/contacts/invites/inv_123",
     ]);
   });
 
@@ -147,9 +164,9 @@ describe("ingress control-plane proxy", () => {
       },
     );
 
-    const handler = createIngressControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleUpsertMember(
-      new Request("http://localhost:7830/v1/ingress/members", {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
         headers: {
           authorization: "Bearer caller-token",
@@ -178,9 +195,9 @@ describe("ingress control-plane proxy", () => {
       );
     });
 
-    const handler = createIngressControlPlaneProxyHandler(makeConfig());
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
-      new Request("http://localhost:7830/v1/ingress/invites", {
+      new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
       }),
     );
@@ -200,11 +217,11 @@ describe("ingress control-plane proxy", () => {
       );
     });
 
-    const handler = createIngressControlPlaneProxyHandler(
+    const handler = createContactsControlPlaneProxyHandler(
       makeConfig({ runtimeTimeoutMs: 100 }),
     );
-    const res = await handler.handleListMembers(
-      new Request("http://localhost:7830/v1/ingress/members"),
+    const res = await handler.handleListInvites(
+      new Request("http://localhost:7830/v1/contacts/invites"),
     );
 
     expect(res.status).toBe(504);

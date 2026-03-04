@@ -18,6 +18,7 @@ import {
 import { getAppsDir, listAppFiles } from "../memory/app-store.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
+import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -74,7 +75,7 @@ export interface TrustContext {
   requesterDisplayName?: string;
   /** Raw sender display name as provided by the channel transport. */
   requesterSenderDisplayName?: string;
-  /** Guardian-managed member display name from ingress membership. */
+  /** Guardian-managed display name from the contact record. */
   requesterMemberDisplayName?: string;
   /** Canonical external user ID of the requester (the current actor). */
   requesterExternalUserId?: string;
@@ -102,15 +103,15 @@ export interface InboundActorContext {
   actorDisplayName?: string;
   /** Raw sender display name as provided by the channel transport. */
   actorSenderDisplayName?: string;
-  /** Guardian-managed member display name from ingress membership. */
+  /** Guardian-managed display name from the contact record. */
   actorMemberDisplayName?: string;
   /** Trust classification: guardian, trusted_contact, or unknown. */
   trustClass: "guardian" | "trusted_contact" | "unknown";
   /** Guardian identity for this (assistant, channel) binding. */
   guardianIdentity?: string;
-  /** Member status when the actor has an ingress member record. */
+  /** Member status when the actor has a contact record. */
   memberStatus?: string;
-  /** Member policy when the actor has an ingress member record. */
+  /** Member policy when the actor has a contact record. */
   memberPolicy?: string;
   /** Denial reason when access is blocked. */
   denialReason?: string;
@@ -153,8 +154,10 @@ export function inboundActorContextFromTrust(
     actorMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianBindingMatch?.guardianExternalUserId,
-    memberStatus: ctx.memberRecord?.status ?? undefined,
-    memberPolicy: ctx.memberRecord?.policy ?? undefined,
+    memberStatus: ctx.memberRecord
+      ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
+      : undefined,
+    memberPolicy: ctx.memberRecord?.channel.policy ?? undefined,
     denialReason: ctx.denialReason,
   };
 }

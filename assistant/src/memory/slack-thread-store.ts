@@ -164,6 +164,17 @@ function evictExpiredIfNeeded(): void {
       threadMappings.delete(convId);
     }
   }
+
+  // If still at capacity after TTL sweep, evict oldest entries (LRU)
+  if (threadMappings.size >= MAX_MAPPINGS) {
+    const entries = [...threadMappings.entries()].sort(
+      (a, b) => a[1].lastUsedAt - b[1].lastUsedAt,
+    );
+    const toRemove = entries.slice(0, entries.length - MAX_MAPPINGS + 1);
+    for (const [convId] of toRemove) {
+      threadMappings.delete(convId);
+    }
+  }
 }
 
 // ── Test helpers ────────────────────────────────────────────────────
