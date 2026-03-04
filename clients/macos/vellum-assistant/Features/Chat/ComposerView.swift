@@ -308,6 +308,14 @@ struct ComposerView: View {
             // Skip when a tool-confirmation chip owns keyboard focus to avoid
             // stealing Tab/Enter/Escape handling from the confirmation bubble.
             guard !hasPendingConfirmation else { return }
+            // Don't steal focus from other text fields (e.g. settings panel,
+            // document editor, or debug panel in split-panel mode). If an
+            // NSTextView already has first-responder status the user was
+            // typing there before switching apps — preserve that context.
+            if let window = NSApp.keyWindow,
+               window.firstResponder is NSTextView {
+                return
+            }
             composerFocus = true
         }
         .onChange(of: inputText) {
