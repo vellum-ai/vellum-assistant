@@ -185,6 +185,48 @@
       },
       "executor": "tools/slack-leave-channel.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "slack_channel_permissions",
+      "description": "Manage per-channel permission profiles for Slack channels. Configure which tools are available, set trust levels, and manage permission overrides on a per-channel basis.",
+      "category": "slack",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["list", "get", "set", "remove", "clear"],
+            "description": "Action to perform: list all profiles, get a specific channel's profile, set a channel's profile, remove a channel's profile, or clear all profiles"
+          },
+          "channel_id": {
+            "type": "string",
+            "description": "Slack channel ID (required for get, set, remove)"
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable label for this channel's permission set (for 'set' action)"
+          },
+          "allowed_tool_categories": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Tool categories allowed in this channel. When set, only tools in these categories can be invoked (for 'set' action)"
+          },
+          "blocked_tools": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Specific tool names blocked in this channel (for 'set' action)"
+          },
+          "trust_level": {
+            "type": "string",
+            "enum": ["restricted", "standard"],
+            "description": "Trust level override: 'restricted' limits tool access, 'standard' uses defaults (for 'set' action)"
+          }
+        },
+        "required": ["action"]
+      },
+      "executor": "tools/slack-channel-permissions.ts",
+      "execution_target": "host"
     }
   ]
 }

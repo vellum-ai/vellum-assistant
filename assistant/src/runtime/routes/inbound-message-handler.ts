@@ -10,6 +10,7 @@ import {
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
+import { getChannelPermissionProfile } from "../../config/channel-permission-profiles.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
@@ -341,6 +342,29 @@ export async function handleChannelInbound(
           typeof hint === "string" && hint.trim().length > 0,
       )
     : [];
+
+  // Inject channel-scoped permission hints for Slack channel messages
+  if (sourceChannel === "slack") {
+    const channelProfile = getChannelPermissionProfile(conversationExternalId);
+    if (channelProfile) {
+      if (channelProfile.blockedTools?.length) {
+        metadataHints.push(
+          `Channel policy: the following tools are blocked in this channel: ${channelProfile.blockedTools.join(", ")}`,
+        );
+      }
+      if (channelProfile.allowedToolCategories?.length) {
+        metadataHints.push(
+          `Channel policy: only these tool categories are allowed in this channel: ${channelProfile.allowedToolCategories.join(", ")}`,
+        );
+      }
+      if (channelProfile.trustLevel === "restricted") {
+        metadataHints.push(
+          "Channel policy: this channel has restricted trust level. Exercise caution with tool usage.",
+        );
+      }
+    }
+  }
+
   const metadataUxBrief =
     typeof sourceMetadata?.uxBrief === "string" &&
     sourceMetadata.uxBrief.trim().length > 0
