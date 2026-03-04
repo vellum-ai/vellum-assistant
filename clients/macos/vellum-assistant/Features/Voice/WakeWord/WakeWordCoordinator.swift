@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 import VellumAssistantShared
 import os
@@ -25,6 +26,7 @@ final class WakeWordCoordinator: ObservableObject {
     private var activatedViaWakeWord = false
 
     private let activationWindow = WakeWordActivationWindow()
+    private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     private var stateCancellable: AnyCancellable?
     /// Stored so it can be cancelled on rapid voice mode toggles, preventing
     /// stacked restart callbacks from queuing up via the old asyncAfter pattern.
@@ -114,7 +116,7 @@ final class WakeWordCoordinator: ObservableObject {
         lastActivationTime = Date()
 
         // 1. Play activation chime and show visual indicator
-        WakeWordFeedback.playActivationChime()
+        VoiceFeedback.playActivationChime()
         activationWindow.show(state: .activated)
 
         // 2. Capture the ChatViewModel NOW (before any async delay) so it matches
@@ -149,6 +151,12 @@ final class WakeWordCoordinator: ObservableObject {
                 // Verify recording actually started
                 if self.voiceModeManager.state == .listening {
                     log.info("Voice mode activated via wake word (attempt \(attempt + 1))")
+                    // Show floating transcription overlay when Vellum is not in the foreground
+                    if !NSApp.isActive {
+                        let window = VoiceTranscriptionWindow(voiceModeManager: self.voiceModeManager)
+                        window.show()
+                        self.voiceTranscriptionWindow = window
+                    }
                     return
                 }
 
@@ -215,6 +223,9 @@ final class WakeWordCoordinator: ObservableObject {
             .sink { [weak self] newState in
                 guard let self else { return }
                 if newState == .off {
+                    // Close the floating transcription overlay
+                    self.voiceTranscriptionWindow?.close()
+                    self.voiceTranscriptionWindow = nil
                     // Cancel in-flight activation — but not when the retry loop
                     // itself called deactivate() between attempts.
                     if !self.isRetryingActivation {
@@ -225,7 +236,7 @@ final class WakeWordCoordinator: ObservableObject {
                     if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
                         log.info("Voice mode deactivated — resuming wake word listening after delay")
                         if self.activatedViaWakeWord {
-                            WakeWordFeedback.playDeactivationChime()
+                            VoiceFeedback.playDeactivationChime()
                             self.activationWindow.show(state: .listening)
                         }
                         // Cancel any pending restart before scheduling a new one — rapid

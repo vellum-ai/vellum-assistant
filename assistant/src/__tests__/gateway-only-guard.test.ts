@@ -27,8 +27,12 @@ const ALLOWLIST = new Set([
   "clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift",
   ".claude/skills/update/SKILL.md", // daemon health check script
 
+  // --- Test fixtures that poll the daemon directly (gateway may require auth) ---
+  "playwright/agent/fixtures.ts", // daemon health-check during test setup
+
   // --- Documentation and comments that mention the port for explanatory purposes ---
   "AGENTS.md", // documents the gateway-only rule itself
+  "assistant/docs/runbook-trusted-contacts.md", // operator runbook targeting runtime-only /v1/contacts endpoints
   "assistant/src/runtime/middleware/twilio-validation.ts", // comment explaining proxy URL rewriting
 ]);
 

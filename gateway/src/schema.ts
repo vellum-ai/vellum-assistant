@@ -907,15 +907,15 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/ingress/members": {
+      "/v1/contacts": {
         get: {
-          summary: "List ingress members",
+          summary: "List or search contacts",
           description:
-            "Authenticated gateway endpoint that lists ingress members via the assistant runtime.",
-          operationId: "ingressMembersGet",
+            "Authenticated gateway endpoint that lists or searches contacts via the assistant runtime.",
+          operationId: "contactsGet",
           security: [{ BearerAuth: [] }],
           responses: {
-            "200": { description: "Ingress members returned" },
+            "200": { description: "Contacts returned" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
@@ -925,10 +925,10 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
         post: {
-          summary: "Upsert ingress member",
+          summary: "Create or update a contact",
           description:
-            "Authenticated gateway endpoint that creates or updates an ingress member via the assistant runtime.",
-          operationId: "ingressMembersPost",
+            "Authenticated gateway endpoint that creates or updates a contact via the assistant runtime.",
+          operationId: "contactsPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -939,7 +939,8 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Ingress member upserted" },
+            "200": { description: "Contact updated" },
+            "201": { description: "Contact created" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
@@ -950,90 +951,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/ingress/members/{memberId}": {
-        delete: {
-          summary: "Revoke ingress member",
-          description:
-            "Authenticated gateway endpoint that revokes an ingress member via the assistant runtime.",
-          operationId: "ingressMemberDelete",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "memberId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          responses: {
-            "200": { description: "Ingress member revoked" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Member not found" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/ingress/members/{memberId}/block": {
+      "/v1/contacts/merge": {
         post: {
-          summary: "Block ingress member",
+          summary: "Merge two contacts",
           description:
-            "Authenticated gateway endpoint that blocks an ingress member via the assistant runtime.",
-          operationId: "ingressMemberBlockPost",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "memberId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          requestBody: {
-            required: false,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Ingress member blocked" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Member not found or already blocked" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/ingress/invites": {
-        get: {
-          summary: "List ingress invites",
-          description:
-            "Authenticated gateway endpoint that lists ingress invites via the assistant runtime.",
-          operationId: "ingressInvitesGet",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": { description: "Ingress invites returned" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-        post: {
-          summary: "Create ingress invite",
-          description:
-            "Authenticated gateway endpoint that creates an ingress invite via the assistant runtime.",
-          operationId: "ingressInvitesPost",
+            "Authenticated gateway endpoint that merges two contacts via the assistant runtime.",
+          operationId: "contactsMergePost",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1044,7 +967,7 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Ingress invite created" },
+            "200": { description: "Contacts merged" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
@@ -1055,12 +978,95 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/ingress/invites/redeem": {
-        post: {
-          summary: "Redeem ingress invite",
+      "/v1/contacts/channels/{channelId}": {
+        patch: {
+          summary: "Update a contact channel",
           description:
-            "Authenticated gateway endpoint that redeems an ingress invite via the assistant runtime.",
-          operationId: "ingressInvitesRedeemPost",
+            "Authenticated gateway endpoint that updates a contact channel's status or policy via the assistant runtime.",
+          operationId: "contactsChannelPatch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Contact channel updated" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Channel not found" },
+            "409": {
+              description:
+                "Invalid state transition (e.g. revoking a blocked channel)",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/{contactId}": {
+        get: {
+          summary: "Get a contact by ID",
+          description:
+            "Authenticated gateway endpoint that retrieves a contact by ID via the assistant runtime.",
+          operationId: "contactsGetById",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "contactId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Contact returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Contact not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/invites": {
+        get: {
+          summary: "List contacts invites",
+          description:
+            "Authenticated gateway endpoint that lists contacts invites via the assistant runtime.",
+          operationId: "contactsInvitesGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Contacts invites returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Create contacts invite",
+          description:
+            "Authenticated gateway endpoint that creates a contacts invite via the assistant runtime.",
+          operationId: "contactsInvitesPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1071,7 +1077,34 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Ingress invite redeemed" },
+            "200": { description: "Contacts invite created" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/invites/redeem": {
+        post: {
+          summary: "Redeem contacts invite",
+          description:
+            "Authenticated gateway endpoint that redeems a contacts invite via the assistant runtime.",
+          operationId: "contactsInvitesRedeemPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Contacts invite redeemed" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
@@ -1083,12 +1116,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/ingress/invites/{inviteId}": {
+      "/v1/contacts/invites/{inviteId}": {
         delete: {
-          summary: "Revoke ingress invite",
+          summary: "Revoke contacts invite",
           description:
-            "Authenticated gateway endpoint that revokes an ingress invite via the assistant runtime.",
-          operationId: "ingressInvitesDelete",
+            "Authenticated gateway endpoint that revokes a contacts invite via the assistant runtime.",
+          operationId: "contactsInvitesDelete",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
@@ -1099,7 +1132,7 @@ export function buildSchema(): Record<string, unknown> {
             },
           ],
           responses: {
-            "200": { description: "Ingress invite revoked" },
+            "200": { description: "Contacts invite revoked" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },

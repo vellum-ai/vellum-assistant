@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "ingress-routes-http-test-"));
+const testDir = mkdtempSync(join(tmpdir(), "invite-routes-http-test-"));
 
 mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
@@ -26,15 +26,11 @@ mock.module("../util/logger.js", () => ({
 
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
-  handleBlockMember,
   handleCreateInvite,
   handleListInvites,
-  handleListMembers,
   handleRedeemInvite,
   handleRevokeInvite,
-  handleRevokeMember,
-  handleUpsertMember,
-} from "../runtime/routes/ingress-routes.js";
+} from "../runtime/routes/invite-routes.js";
 
 initializeDb();
 
@@ -54,261 +50,14 @@ function resetTables() {
 }
 
 // ---------------------------------------------------------------------------
-// Member routes
-// ---------------------------------------------------------------------------
-
-describe("ingress member HTTP routes", () => {
-  beforeEach(resetTables);
-
-  test("POST /v1/ingress/members — upsert creates a member", async () => {
-    const req = new Request("http://localhost/v1/ingress/members", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sourceChannel: "telegram",
-        externalUserId: "user-1",
-        displayName: "Test User",
-        policy: "allow",
-        status: "active",
-      }),
-    });
-
-    const res = await handleUpsertMember(req);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.member).toBeDefined();
-    const member = body.member as Record<string, unknown>;
-    expect(member.sourceChannel).toBe("telegram");
-    expect(member.externalUserId).toBe("user-1");
-    expect(member.displayName).toBe("Test User");
-    expect(member.policy).toBe("allow");
-    expect(member.status).toBe("active");
-  });
-
-  test("POST /v1/ingress/members — missing sourceChannel returns 400", async () => {
-    const req = new Request("http://localhost/v1/ingress/members", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        externalUserId: "user-1",
-      }),
-    });
-
-    const res = await handleUpsertMember(req);
-    const body = (await res.json()) as { ok: boolean; error: string };
-
-    expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error).toContain("sourceChannel");
-  });
-
-  test("POST /v1/ingress/members — missing identity returns 400", async () => {
-    const req = new Request("http://localhost/v1/ingress/members", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sourceChannel: "telegram",
-      }),
-    });
-
-    const res = await handleUpsertMember(req);
-    const body = (await res.json()) as { ok: boolean; error: string };
-
-    expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error).toContain("externalUserId");
-  });
-
-  test("GET /v1/ingress/members — lists members", async () => {
-    // Create two members
-    await handleUpsertMember(
-      new Request("http://localhost/v1/ingress/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          externalUserId: "user-1",
-          status: "active",
-        }),
-      }),
-    );
-    await handleUpsertMember(
-      new Request("http://localhost/v1/ingress/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          externalUserId: "user-2",
-          status: "active",
-        }),
-      }),
-    );
-
-    const url = new URL("http://localhost/v1/ingress/members");
-    const res = handleListMembers(url);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(Array.isArray(body.members)).toBe(true);
-    expect((body.members as unknown[]).length).toBe(2);
-  });
-
-  test("GET /v1/ingress/members — filters by sourceChannel", async () => {
-    await handleUpsertMember(
-      new Request("http://localhost/v1/ingress/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          externalUserId: "user-1",
-          status: "active",
-        }),
-      }),
-    );
-    await handleUpsertMember(
-      new Request("http://localhost/v1/ingress/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "sms",
-          externalUserId: "user-2",
-          status: "active",
-        }),
-      }),
-    );
-
-    const url = new URL(
-      "http://localhost/v1/ingress/members?sourceChannel=telegram",
-    );
-    const res = handleListMembers(url);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect((body.members as unknown[]).length).toBe(1);
-  });
-
-  test("DELETE /v1/ingress/members/:id — revokes a member", async () => {
-    const createRes = await handleUpsertMember(
-      new Request("http://localhost/v1/ingress/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          externalUserId: "user-1",
-          status: "active",
-        }),
-      }),
-    );
-    const created = (await createRes.json()) as { member: { id: string } };
-
-    const req = new Request(
-      "http://localhost/v1/ingress/members/" + created.member.id,
-      {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "test revoke" }),
-      },
-    );
-    const res = await handleRevokeMember(req, created.member.id);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    const member = body.member as Record<string, unknown>;
-    expect(member.status).toBe("revoked");
-  });
-
-  test("DELETE /v1/ingress/members/:id — not found returns 404", async () => {
-    const req = new Request("http://localhost/v1/ingress/members/nonexistent", {
-      method: "DELETE",
-    });
-    const res = await handleRevokeMember(req, "nonexistent");
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(404);
-    expect(body.ok).toBe(false);
-  });
-
-  test("POST /v1/ingress/members/:id/block — blocks a member", async () => {
-    const createRes = await handleUpsertMember(
-      new Request("http://localhost/v1/ingress/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          externalUserId: "user-1",
-          status: "active",
-        }),
-      }),
-    );
-    const created = (await createRes.json()) as { member: { id: string } };
-
-    const req = new Request(
-      "http://localhost/v1/ingress/members/" + created.member.id + "/block",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "spam" }),
-      },
-    );
-    const res = await handleBlockMember(req, created.member.id);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    const member = body.member as Record<string, unknown>;
-    expect(member.status).toBe("blocked");
-  });
-
-  test("POST /v1/ingress/members/:id/block — already blocked returns 404", async () => {
-    const createRes = await handleUpsertMember(
-      new Request("http://localhost/v1/ingress/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          externalUserId: "user-1",
-          status: "active",
-        }),
-      }),
-    );
-    const created = (await createRes.json()) as { member: { id: string } };
-
-    // Block first time
-    await handleBlockMember(
-      new Request("http://localhost/block", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      }),
-      created.member.id,
-    );
-
-    // Block second time
-    const req = new Request("http://localhost/block", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    const res = await handleBlockMember(req, created.member.id);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(404);
-    expect(body.ok).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Invite routes
 // ---------------------------------------------------------------------------
 
 describe("ingress invite HTTP routes", () => {
   beforeEach(resetTables);
 
-  test("POST /v1/ingress/invites — creates an invite", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites", {
+  test("POST /v1/contacts/invites — creates an invite", async () => {
+    const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -333,12 +82,12 @@ describe("ingress invite HTTP routes", () => {
     expect((invite.token as string).length).toBeGreaterThan(0);
   });
 
-  test("POST /v1/ingress/invites — includes canonical share URL when bot username is configured", async () => {
+  test("POST /v1/contacts/invites — includes canonical share URL when bot username is configured", async () => {
     const prevBotUsername = process.env.TELEGRAM_BOT_USERNAME;
     process.env.TELEGRAM_BOT_USERNAME = "test_invite_bot";
 
     try {
-      const req = new Request("http://localhost/v1/ingress/invites", {
+      const req = new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -369,8 +118,8 @@ describe("ingress invite HTTP routes", () => {
     }
   });
 
-  test("POST /v1/ingress/invites — missing sourceChannel returns 400", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites", {
+  test("POST /v1/contacts/invites — missing sourceChannel returns 400", async () => {
+    const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ note: "No channel" }),
@@ -384,24 +133,24 @@ describe("ingress invite HTTP routes", () => {
     expect(body.error).toContain("sourceChannel");
   });
 
-  test("GET /v1/ingress/invites — lists invites", async () => {
+  test("GET /v1/contacts/invites — lists invites", async () => {
     // Create two invites
     await handleCreateInvite(
-      new Request("http://localhost/v1/ingress/invites", {
+      new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceChannel: "telegram" }),
       }),
     );
     await handleCreateInvite(
-      new Request("http://localhost/v1/ingress/invites", {
+      new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceChannel: "telegram" }),
       }),
     );
 
-    const url = new URL("http://localhost/v1/ingress/invites");
+    const url = new URL("http://localhost/v1/contacts/invites");
     const res = handleListInvites(url);
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -411,9 +160,9 @@ describe("ingress invite HTTP routes", () => {
     expect((body.invites as unknown[]).length).toBe(2);
   });
 
-  test("DELETE /v1/ingress/invites/:id — revokes an invite", async () => {
+  test("DELETE /v1/contacts/invites/:id — revokes an invite", async () => {
     const createRes = await handleCreateInvite(
-      new Request("http://localhost/v1/ingress/invites", {
+      new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceChannel: "telegram" }),
@@ -430,15 +179,15 @@ describe("ingress invite HTTP routes", () => {
     expect(invite.status).toBe("revoked");
   });
 
-  test("DELETE /v1/ingress/invites/:id — not found returns 404", () => {
+  test("DELETE /v1/contacts/invites/:id — not found returns 404", () => {
     const res = handleRevokeInvite("nonexistent-id");
     expect(res.status).toBe(404);
   });
 
-  test("POST /v1/ingress/invites/redeem — redeems an invite", async () => {
+  test("POST /v1/contacts/invites/redeem — redeems an invite", async () => {
     // Create an invite first
     const createRes = await handleCreateInvite(
-      new Request("http://localhost/v1/ingress/invites", {
+      new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceChannel: "telegram", maxUses: 1 }),
@@ -446,7 +195,7 @@ describe("ingress invite HTTP routes", () => {
     );
     const created = (await createRes.json()) as { invite: { token: string } };
 
-    const req = new Request("http://localhost/v1/ingress/invites/redeem", {
+    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -467,8 +216,8 @@ describe("ingress invite HTTP routes", () => {
     expect(invite.status).toBe("redeemed");
   });
 
-  test("POST /v1/ingress/invites/redeem — missing token returns 400", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites/redeem", {
+  test("POST /v1/contacts/invites/redeem — missing token returns 400", async () => {
+    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ externalUserId: "redeemer-1" }),
@@ -482,8 +231,8 @@ describe("ingress invite HTTP routes", () => {
     expect(body.error).toContain("token");
   });
 
-  test("POST /v1/ingress/invites/redeem — invalid token returns 400", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites/redeem", {
+  test("POST /v1/contacts/invites/redeem — invalid token returns 400", async () => {
+    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: "invalid-token" }),
@@ -498,44 +247,15 @@ describe("ingress invite HTTP routes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// IPC backward compatibility — shared logic produces same results
+// Shared logic round-trip
 // ---------------------------------------------------------------------------
 
 describe("ingress service shared logic", () => {
   beforeEach(resetTables);
 
-  test("member upsert + list round-trip through shared service", async () => {
-    const createRes = await handleUpsertMember(
-      new Request("http://localhost/v1/ingress/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          externalUserId: "user-rt",
-          displayName: "Round Trip",
-          policy: "allow",
-          status: "active",
-        }),
-      }),
-    );
-    const created = (await createRes.json()) as {
-      member: { id: string; displayName: string };
-    };
-    expect(created.member.displayName).toBe("Round Trip");
-
-    const listRes = handleListMembers(
-      new URL("http://localhost/v1/ingress/members"),
-    );
-    const listed = (await listRes.json()) as {
-      members: Array<{ id: string; displayName: string }>;
-    };
-    expect(listed.members.length).toBe(1);
-    expect(listed.members[0].id).toBe(created.member.id);
-  });
-
   test("invite create + revoke round-trip through shared service", async () => {
     const createRes = await handleCreateInvite(
-      new Request("http://localhost/v1/ingress/invites", {
+      new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceChannel: "telegram" }),
@@ -562,8 +282,8 @@ describe("ingress service shared logic", () => {
 describe("voice invite HTTP routes", () => {
   beforeEach(resetTables);
 
-  test("POST /v1/ingress/invites with sourceChannel voice — creates invite with voiceCode, stores hash only", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites", {
+  test("POST /v1/contacts/invites with sourceChannel voice — creates invite with voiceCode, stores hash only", async () => {
+    const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -599,7 +319,7 @@ describe("voice invite HTTP routes", () => {
   });
 
   test("voice invite creation requires expectedExternalUserId", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites", {
+    const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -618,7 +338,7 @@ describe("voice invite HTTP routes", () => {
   });
 
   test("voice invite creation validates E.164 format", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites", {
+    const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -638,7 +358,7 @@ describe("voice invite HTTP routes", () => {
   });
 
   test("voice invite creation requires friendName", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites", {
+    const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -657,7 +377,7 @@ describe("voice invite HTTP routes", () => {
   });
 
   test("voice invite creation requires guardianName", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites", {
+    const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -676,7 +396,7 @@ describe("voice invite HTTP routes", () => {
   });
 
   test("voiceCodeDigits is always 6 — custom values are ignored", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites", {
+    const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -699,7 +419,7 @@ describe("voice invite HTTP routes", () => {
   });
 
   test("voice invites do NOT return token in response", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites", {
+    const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -720,10 +440,10 @@ describe("voice invite HTTP routes", () => {
     expect(invite.token).toBeUndefined();
   });
 
-  test("POST /v1/ingress/invites/redeem — redeems a voice invite code via unified endpoint", async () => {
+  test("POST /v1/contacts/invites/redeem — redeems a voice invite code via unified endpoint", async () => {
     // Create a voice invite
     const createRes = await handleCreateInvite(
-      new Request("http://localhost/v1/ingress/invites", {
+      new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -741,7 +461,7 @@ describe("voice invite HTTP routes", () => {
 
     // Redeem the voice code via the unified /redeem endpoint
     const redeemReq = new Request(
-      "http://localhost/v1/ingress/invites/redeem",
+      "http://localhost/v1/contacts/invites/redeem",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -762,8 +482,8 @@ describe("voice invite HTTP routes", () => {
     expect(typeof body.inviteId).toBe("string");
   });
 
-  test("POST /v1/ingress/invites/redeem — voice code missing fields returns 400", async () => {
-    const req = new Request("http://localhost/v1/ingress/invites/redeem", {
+  test("POST /v1/contacts/invites/redeem — voice code missing fields returns 400", async () => {
+    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ callerExternalUserId: "+15551234567" }),
@@ -777,10 +497,10 @@ describe("voice invite HTTP routes", () => {
     expect(body.ok).toBe(false);
   });
 
-  test("POST /v1/ingress/invites/redeem — wrong voice code returns 400", async () => {
+  test("POST /v1/contacts/invites/redeem — wrong voice code returns 400", async () => {
     // Create a voice invite
     await handleCreateInvite(
-      new Request("http://localhost/v1/ingress/invites", {
+      new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -793,7 +513,7 @@ describe("voice invite HTTP routes", () => {
       }),
     );
 
-    const req = new Request("http://localhost/v1/ingress/invites/redeem", {
+    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -24,6 +24,14 @@ export type ChannelStatus =
   | "unverified";
 export type ChannelPolicy = "allow" | "deny" | "escalate";
 
+/**
+ * Legacy aliases — semantic names used by API consumers and the ingress
+ * pipeline. MemberStatus omits `"unverified"` because the external API maps
+ * that value to `"pending"`.
+ */
+export type MemberStatus = "pending" | "active" | "revoked" | "blocked";
+export type MemberPolicy = "allow" | "deny" | "escalate";
+
 export interface ContactChannel {
   id: string;
   contactId: string;
@@ -46,6 +54,11 @@ export interface ContactChannel {
 
 export interface ContactWithChannels extends Contact {
   channels: ContactChannel[];
+}
+
+export interface ContactWriteResult {
+  contact: ContactWithChannels;
+  channel: ContactChannel;
 }
 
 export const CHANNEL_TYPES = [

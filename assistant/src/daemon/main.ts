@@ -17,9 +17,9 @@ runDaemon().catch(async (err) => {
   } catch {
     // Logger may not be initialized yet
   }
-  console.error("Failed to start daemon:", err);
+  console.error("Failed to start assistant:", err);
   console.error(
-    "Troubleshooting: check if another daemon is already running, verify ~/.vellum/ permissions, and review logs at ~/.vellum/workspace/data/logs/",
+    "Troubleshooting: check if another assistant is already running, verify ~/.vellum/ permissions, and review logs at ~/.vellum/workspace/data/logs/",
   );
   process.exit(1);
 });

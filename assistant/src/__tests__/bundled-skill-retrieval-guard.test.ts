@@ -58,10 +58,11 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
     ],
   },
   {
-    skillPath: "trusted-contacts/SKILL.md",
+    skillPath: "contacts/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members',
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites',
+      'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites',
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config',
     ],
   },

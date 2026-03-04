@@ -166,7 +166,7 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
     if grep -q "^(fail)" "${out_file}" 2>/dev/null; then
       echo "${test_file}" >> "${results_dir}/failures"
       echo "  ✗ ${base} (killed after ${per_test_timeout}s — tests failed and process hung)"
-    elif grep -qE "^Ran [0-9]+ tests across" "${out_file}" 2>/dev/null; then
+    elif grep -qE "^Ran [0-9]+ tests? across" "${out_file}" 2>/dev/null; then
       echo "  ⚠ ${base} (tests passed but process hung after ${per_test_timeout}s — likely open handles)"
     else
       echo "${test_file}" >> "${results_dir}/failures"

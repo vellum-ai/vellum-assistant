@@ -173,8 +173,8 @@ import {
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import {
-  createGuardianBindingContactsFirst,
-  upsertMemberContactsFirst,
+  createGuardianBinding,
+  upsertMember,
 } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianRequests,
@@ -276,7 +276,7 @@ function addTrustedVoiceContact(
   phoneNumber: string,
   assistantId: string = "self",
 ): void {
-  upsertMemberContactsFirst({
+  upsertMember({
     assistantId,
     sourceChannel: "voice",
     externalUserId: phoneNumber,
@@ -1466,7 +1466,7 @@ describe("relay-server", () => {
       assistantId: "self",
     });
 
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550001111",
@@ -1516,7 +1516,7 @@ describe("relay-server", () => {
       assistantId: "self",
     });
 
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550009999",
@@ -1571,7 +1571,7 @@ describe("relay-server", () => {
       initiatedFromConversationId: "conv-guardian-outbound-voice-origin",
     });
 
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550001111",
@@ -1623,7 +1623,7 @@ describe("relay-server", () => {
       initiatedFromConversationId: "conv-guardian-outbound-strict-origin",
     });
 
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-guardian-user",
@@ -2473,7 +2473,7 @@ describe("relay-server", () => {
     });
 
     // Create a blocked member
-    upsertMemberContactsFirst({
+    upsertMember({
       assistantId: "self",
       sourceChannel: "voice",
       externalUserId: "+15558881111",

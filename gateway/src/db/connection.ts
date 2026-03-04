@@ -1,12 +1,12 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { getRootDir } from "../credential-reader.js";
 
 let db: Database | null = null;
 
 function getDbPath(): string {
-  const dataDir = join(homedir(), ".vellum", "data");
+  const dataDir = join(getRootDir(), "data");
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true });
   }

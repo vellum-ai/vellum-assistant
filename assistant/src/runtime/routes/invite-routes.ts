@@ -1,127 +1,27 @@
 /**
- * Route handlers for ingress member and invite management.
- *
- * Members:
- *   GET    /v1/ingress/members           — list members
- *   POST   /v1/ingress/members           — upsert a member
- *   DELETE /v1/ingress/members/:id       — revoke a member
- *   POST   /v1/ingress/members/:id/block — block a member
+ * Route handlers for invite management.
  *
  * Invites:
- *   GET    /v1/ingress/invites        — list invites
- *   POST   /v1/ingress/invites        — create an invite (supports voice)
- *   DELETE /v1/ingress/invites/:id    — revoke an invite
- *   POST   /v1/ingress/invites/redeem — redeem an invite (token or voice code)
+ *   GET    /v1/contacts/invites        — list invites
+ *   POST   /v1/contacts/invites        — create an invite (supports voice)
+ *   DELETE /v1/contacts/invites/:id    — revoke an invite
+ *   POST   /v1/contacts/invites/redeem — redeem an invite (token or voice code)
  */
 
 import {
-  blockIngressMember,
   createIngressInvite,
   listIngressInvites,
-  listIngressMembers,
   redeemIngressInvite,
   redeemVoiceInviteCode,
   revokeIngressInvite,
-  revokeIngressMember,
-  upsertIngressMember,
 } from "../ingress-service.js";
-
-// ---------------------------------------------------------------------------
-// Members
-// ---------------------------------------------------------------------------
-
-/**
- * GET /v1/ingress/members?assistantId=&sourceChannel=&status=&policy=
- */
-export function handleListMembers(url: URL): Response {
-  const result = listIngressMembers({
-    assistantId: url.searchParams.get("assistantId") ?? undefined,
-    sourceChannel: url.searchParams.get("sourceChannel") ?? undefined,
-    status: url.searchParams.get("status") ?? undefined,
-    policy: url.searchParams.get("policy") ?? undefined,
-  });
-
-  if (!result.ok) {
-    return Response.json({ ok: false, error: result.error }, { status: 400 });
-  }
-  return Response.json({ ok: true, members: result.data });
-}
-
-/**
- * POST /v1/ingress/members
- */
-export async function handleUpsertMember(req: Request): Promise<Response> {
-  const body = (await req.json()) as Record<string, unknown>;
-
-  const result = upsertIngressMember({
-    sourceChannel: body.sourceChannel as string | undefined,
-    externalUserId: body.externalUserId as string | undefined,
-    externalChatId: body.externalChatId as string | undefined,
-    displayName: body.displayName as string | undefined,
-    username: body.username as string | undefined,
-    policy: body.policy as string | undefined,
-    status: body.status as string | undefined,
-    assistantId: body.assistantId as string | undefined,
-  });
-
-  if (!result.ok) {
-    return Response.json({ ok: false, error: result.error }, { status: 400 });
-  }
-  return Response.json({ ok: true, member: result.data });
-}
-
-/**
- * DELETE /v1/ingress/members/:id
- */
-export async function handleRevokeMember(
-  req: Request,
-  memberId: string,
-): Promise<Response> {
-  let reason: string | undefined;
-  try {
-    const body = (await req.json()) as Record<string, unknown>;
-    reason = body.reason as string | undefined;
-  } catch {
-    // DELETE may have no body
-  }
-
-  const result = revokeIngressMember(memberId, reason);
-
-  if (!result.ok) {
-    return Response.json({ ok: false, error: result.error }, { status: 404 });
-  }
-  return Response.json({ ok: true, member: result.data });
-}
-
-/**
- * POST /v1/ingress/members/:id/block
- */
-export async function handleBlockMember(
-  req: Request,
-  memberId: string,
-): Promise<Response> {
-  let reason: string | undefined;
-  try {
-    const body = (await req.json()) as Record<string, unknown>;
-    reason = body.reason as string | undefined;
-  } catch {
-    // Body is optional — callers may omit it entirely
-  }
-
-  const result = blockIngressMember(memberId, reason);
-
-  if (!result.ok) {
-    return Response.json({ ok: false, error: result.error }, { status: 404 });
-  }
-  return Response.json({ ok: true, member: result.data });
-}
 
 // ---------------------------------------------------------------------------
 // Invites
 // ---------------------------------------------------------------------------
 
 /**
- * GET /v1/ingress/invites?sourceChannel=&status=
+ * GET /v1/contacts/invites?sourceChannel=&status=
  */
 export function handleListInvites(url: URL): Response {
   const result = listIngressInvites({
@@ -136,7 +36,7 @@ export function handleListInvites(url: URL): Response {
 }
 
 /**
- * POST /v1/ingress/invites
+ * POST /v1/contacts/invites
  *
  * For voice invites, pass `sourceChannel: "voice"` with required
  * `expectedExternalUserId` (E.164 phone). Voice codes are always 6 digits.
@@ -164,7 +64,7 @@ export async function handleCreateInvite(req: Request): Promise<Response> {
 }
 
 /**
- * DELETE /v1/ingress/invites/:id
+ * DELETE /v1/contacts/invites/:id
  */
 export function handleRevokeInvite(inviteId: string): Response {
   const result = revokeIngressInvite(inviteId);
@@ -176,7 +76,7 @@ export function handleRevokeInvite(inviteId: string): Response {
 }
 
 /**
- * POST /v1/ingress/invites/redeem
+ * POST /v1/contacts/invites/redeem
  *
  * Unified invite redemption endpoint. Supports two modes:
  *

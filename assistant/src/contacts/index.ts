@@ -3,7 +3,6 @@ export {
   getContact,
   listContacts,
   mergeContacts,
-  recordInteraction,
   searchContacts,
   upsertContact,
 } from "./contact-store.js";
@@ -15,5 +14,7 @@ export type {
   ContactChannel,
   ContactRole,
   ContactWithChannels,
+  MemberPolicy,
+  MemberStatus,
 } from "./types.js";
 export { CHANNEL_TYPES } from "./types.js";
