@@ -164,7 +164,7 @@ import {
   handleListInvites,
   handleRedeemInvite,
   handleRevokeInvite,
-} from "./routes/ingress-routes.js";
+} from "./routes/invite-routes.js";
 import {
   handleCancelOutbound,
   handleClearSlackChannelConfig,
@@ -1137,32 +1137,7 @@ export class RuntimeHttpServer {
       },
 
       // ------------------------------------------------------------------
-      // Ingress invites
-      // ------------------------------------------------------------------
-      {
-        endpoint: "ingress/invites",
-        method: "GET",
-        handler: ({ url }) => handleListInvites(url),
-      },
-      {
-        endpoint: "ingress/invites",
-        method: "POST",
-        handler: async ({ req }) => handleCreateInvite(req),
-      },
-      {
-        endpoint: "ingress/invites/redeem",
-        method: "POST",
-        handler: async ({ req }) => handleRedeemInvite(req),
-      },
-      {
-        endpoint: "ingress/invites/:id",
-        method: "DELETE",
-        policyKey: "ingress/invites",
-        handler: ({ params }) => handleRevokeInvite(params.id),
-      },
-
-      // ------------------------------------------------------------------
-      // Contacts invites (alias for ingress/invites during migration)
+      // Contacts invites
       // ------------------------------------------------------------------
       {
         endpoint: "contacts/invites",

@@ -1,14 +1,11 @@
 /**
- * Route handlers for ingress invite management.
+ * Route handlers for invite management.
  *
  * Invites:
- *   GET    /v1/ingress/invites        — list invites
- *   POST   /v1/ingress/invites        — create an invite (supports voice)
- *   DELETE /v1/ingress/invites/:id    — revoke an invite
- *   POST   /v1/ingress/invites/redeem — redeem an invite (token or voice code)
- *
- * Member/contact operations have been migrated to the /v1/contacts and
- * /v1/contacts/channels endpoints.
+ *   GET    /v1/contacts/invites        — list invites
+ *   POST   /v1/contacts/invites        — create an invite (supports voice)
+ *   DELETE /v1/contacts/invites/:id    — revoke an invite
+ *   POST   /v1/contacts/invites/redeem — redeem an invite (token or voice code)
  */
 
 import {
@@ -24,7 +21,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * GET /v1/ingress/invites?sourceChannel=&status=
+ * GET /v1/contacts/invites?sourceChannel=&status=
  */
 export function handleListInvites(url: URL): Response {
   const result = listIngressInvites({
@@ -39,7 +36,7 @@ export function handleListInvites(url: URL): Response {
 }
 
 /**
- * POST /v1/ingress/invites
+ * POST /v1/contacts/invites
  *
  * For voice invites, pass `sourceChannel: "voice"` with required
  * `expectedExternalUserId` (E.164 phone). Voice codes are always 6 digits.
@@ -67,7 +64,7 @@ export async function handleCreateInvite(req: Request): Promise<Response> {
 }
 
 /**
- * DELETE /v1/ingress/invites/:id
+ * DELETE /v1/contacts/invites/:id
  */
 export function handleRevokeInvite(inviteId: string): Response {
   const result = revokeIngressInvite(inviteId);
@@ -79,7 +76,7 @@ export function handleRevokeInvite(inviteId: string): Response {
 }
 
 /**
- * POST /v1/ingress/invites/redeem
+ * POST /v1/contacts/invites/redeem
  *
  * Unified invite redemption endpoint. Supports two modes:
  *
