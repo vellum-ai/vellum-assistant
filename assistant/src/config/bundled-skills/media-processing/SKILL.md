@@ -200,7 +200,7 @@ Be specific and factual. Describe what you see, not what you infer happened betw
 
 ### Clip Delivery
 
-The `generate_clip` tool outputs clips as temporary files. These may not deliver reliably via sandbox attachments. For reliable delivery, use `host_bash` + ffmpeg to save clips to a user-specified location as a fallback.
+The `generate_clip` tool saves clips to the asset's pipeline directory (`pipeline/<assetId>/clips/`) so they persist for attachment delivery. The clip file path is included in the tool response for direct file access if needed.
 
 ## Known Limitations — Vision Analysis
 
