@@ -94,7 +94,7 @@ describe("route policy coverage", () => {
     // Match: `{ endpoint: 'foo' }` entries, `registerPolicy('foo', ...)`
     // calls, and bare string literals in arrays like INTERNAL_ENDPOINTS.
     const policyEndpointMatches = routePolicySrc.matchAll(
-      /endpoint:\s*'([^']+)'|registerPolicy\(\s*'([^']+)'/g,
+      /endpoint:\s*"([^"]+)"|registerPolicy\(\s*"([^"]+)"/g,
     );
     const registeredPolicies = new Set<string>();
     for (const m of policyEndpointMatches) {
@@ -107,7 +107,7 @@ describe("route policy coverage", () => {
       /INTERNAL_ENDPOINTS\s*=\s*\[([\s\S]*?)\]/,
     );
     if (internalArrayMatch) {
-      const arrayLiterals = internalArrayMatch[1].matchAll(/'([^']+)'/g);
+      const arrayLiterals = internalArrayMatch[1].matchAll(/"([^"]+)"/g);
       for (const m of arrayLiterals) {
         registeredPolicies.add(m[1]);
       }
