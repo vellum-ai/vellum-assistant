@@ -802,8 +802,9 @@ interface SlackVerificationResult {
 }
 
 /**
- * Create an outbound verification session for a Slack user and send the
- * verification code to their DM. The session is identity-bound with
+ * Create an outbound verification session for a Slack user. The guardian
+ * receives the verification code via the notification pipeline (not a
+ * direct DM to the requester). The session is identity-bound with
  * `verificationPurpose: "trusted_contact"` so consuming the code
  * creates a trusted contact record (not a guardian binding).
  */

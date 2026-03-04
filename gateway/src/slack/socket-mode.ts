@@ -352,7 +352,9 @@ export class SlackSocketModeClient {
       isMessageChangedRaw &&
       (messageChangedEvent.channel_type === "im" ||
         (!!messageChangedEvent.message?.thread_ts &&
-          this.store.hasThread(messageChangedEvent.message.thread_ts)));
+          this.store.hasThread(messageChangedEvent.message.thread_ts)) ||
+        (!!messageChangedEvent.message?.ts &&
+          this.store.hasThread(messageChangedEvent.message.ts)));
     const isDm =
       event.type === "message" &&
       !isMessageChanged &&
