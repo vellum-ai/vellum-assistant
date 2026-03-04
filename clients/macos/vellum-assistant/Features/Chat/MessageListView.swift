@@ -607,17 +607,14 @@ struct MessageListView: View {
                 }
                 isThreadContentHovered = false
                 DispatchQueue.main.async {
+                    // Skip scroll-to-bottom when an anchor message is pending —
+                    // the anchorMessageId onChange handler will scroll to the
+                    // specific message instead. Stale anchors from other threads
+                    // are cleared by ThreadManager.activeThreadId.didSet, so
+                    // anchorMessageId here always belongs to the current thread.
                     if anchorMessageId == nil {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                    } else if !messages.contains(where: { $0.id == anchorMessageId }) {
-                        // Anchor is stale (belongs to a different thread) — clear
-                        // it and scroll to bottom normally.
-                        anchorMessageId = nil
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
-                    // When anchorMessageId is set and belongs to this thread's
-                    // messages, skip scroll-to-bottom — the anchorMessageId
-                    // onChange handler will scroll to the specific message.
                 }
             }
             .onChange(of: anchorMessageId) {
