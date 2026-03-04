@@ -91,6 +91,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   ensureVellumInPath(appDisplayName);
   await ensureAssistantHatched();
   skipAssistantOnboarding();
+  ensureApiKeyInDefaults();
 
   return {
     teardown: async () => {
@@ -408,6 +409,26 @@ function skipAssistantOnboarding(): void {
   const bootstrapPath = path.join(getBaseDir(), ".vellum", "workspace", "BOOTSTRAP.md");
   if (existsSync(bootstrapPath)) {
     unlinkSync(bootstrapPath);
+  }
+}
+
+/**
+ * Writes the ANTHROPIC_API_KEY from the environment into the app's
+ * UserDefaults so the macOS app sees a valid key and skips the auth
+ * setup screen.
+ */
+function ensureApiKeyInDefaults(): void {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return;
+
+  const domain = "com.vellum.vellum-assistant";
+  try {
+    execSync(
+      `defaults write ${domain} vellum_provider_anthropic ${JSON.stringify(apiKey)}`,
+      { timeout: 5_000 },
+    );
+  } catch {
+    // Best-effort — tests may still work if auth is handled differently
   }
 }
 
