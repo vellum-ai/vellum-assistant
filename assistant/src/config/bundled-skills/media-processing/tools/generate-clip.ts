@@ -136,9 +136,10 @@ export async function run(
   const clipDir = join(dirname(asset.filePath), "pipeline", assetId, "clips");
   await mkdir(clipDir, { recursive: true });
 
+  const timestampSuffix = `${formatTimestamp(startTime).replace(/:/g, "")}-${formatTimestamp(endTime).replace(/:/g, "")}`;
   const clipFilename = title
-    ? `${sanitizeFilename(title)}.${outputFormat}`
-    : `clip-${formatTimestamp(startTime).replace(/:/g, "")}-${formatTimestamp(endTime).replace(/:/g, "")}.${outputFormat}`;
+    ? `${sanitizeFilename(title)}-${timestampSuffix}.${outputFormat}`
+    : `clip-${timestampSuffix}.${outputFormat}`;
   const clipPath = join(clipDir, clipFilename);
 
   try {
