@@ -111,6 +111,8 @@ struct MainWindowView: View {
     @State private var threadSwitcherDismissTimer: DispatchWorkItem?
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
+    /// Whether the daemon-loading skeleton overlay is currently showing.
+    @State private var showDaemonLoading: Bool
 
     init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
@@ -129,6 +131,9 @@ struct MainWindowView: View {
         self.voiceModeManager = voiceModeManager
         self.onSendWakeUp = onSendWakeUp
         self._showComingAlive = State(initialValue: onSendWakeUp != nil)
+        // Show skeleton loading only for normal launches (not post-onboarding where
+        // ComingAliveOverlay handles the transition).
+        self._showDaemonLoading = State(initialValue: onSendWakeUp == nil)
     }
 
     // MARK: - Layout Constants
@@ -593,6 +598,12 @@ struct MainWindowView: View {
 
                         chatContentView(geometry: geometry)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                            .overlay {
+                                if showDaemonLoading {
+                                    DaemonLoadingChatSkeleton()
+                                        .transition(.opacity)
+                                }
+                            }
                     }
                     .padding(16)
                     .animation(VAnimation.panel, value: sidebarExpanded)
@@ -695,8 +706,26 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
         }
-        .onReceive(daemonClient.$isConnected) { _ in
-            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
+        .onReceive(daemonClient.$isConnected) { connected in
+            windowState.refreshAPIKeyStatus(isConnected: connected)
+
+            // Fallback for fresh users with 0 threads: dismiss skeleton after a
+            // short delay once the daemon is connected. Only applies during initial load.
+            guard connected, showDaemonLoading else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard showDaemonLoading else { return }
+                withAnimation(VAnimation.standard) {
+                    showDaemonLoading = false
+                }
+            }
+        }
+        .onChange(of: threadManager.threads.isEmpty) { _, isEmpty in
+            // Dismiss skeleton when threads arrive from daemon
+            if !isEmpty && showDaemonLoading {
+                withAnimation(VAnimation.standard) {
+                    showDaemonLoading = false
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             threadManager.markActiveThreadSeenIfNeeded()
@@ -1242,6 +1271,7 @@ struct MainWindowView: View {
             // MARK: Threads (scrollable)
             SidebarThreadsHeader(
                 hasUnseenThreads: threadManager.unseenVisibleConversationCount > 0,
+                isLoading: showDaemonLoading,
                 onMarkAllSeen: {
                     let markedIds = threadManager.markAllThreadsSeen()
                     guard !markedIds.isEmpty else { return }
@@ -1269,6 +1299,10 @@ struct MainWindowView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
+                    if showDaemonLoading && displayedThreads.isEmpty {
+                        DaemonLoadingThreadsSkeleton()
+                    }
+
                     ForEach(displayedThreads) { thread in
                         threadItem(thread)
                             .padding(.bottom, VSpacing.xxs)
@@ -1762,6 +1796,7 @@ private typealias SidebarNavRow = SidebarPrimaryRow
 
 private struct SidebarThreadsHeader: View {
     let hasUnseenThreads: Bool
+    var isLoading: Bool = false
     let onMarkAllSeen: () -> Void
     let onNewThread: () -> Void
 
@@ -1779,8 +1814,11 @@ private struct SidebarThreadsHeader: View {
                     tooltip: "Mark all as seen",
                     action: onMarkAllSeen
                 )
+                .disabled(isLoading)
             }
             VIconButton(label: "New thread", icon: "plus", iconOnly: true, action: onNewThread)
+                .disabled(isLoading)
+                .opacity(isLoading ? 0.4 : 1)
         }
         .padding(.leading, 20)
         .padding(.trailing, VSpacing.md)
