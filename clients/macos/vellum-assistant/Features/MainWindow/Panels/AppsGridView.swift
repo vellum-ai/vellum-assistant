@@ -78,13 +78,11 @@ struct AppsGridView: View {
             previewTasks.removeAll()
         }
         .sheet(item: $editingApp) { app in
-            let iconInfo = resolvedIcon(for: app)
             AppIconPickerSheet(
                 appName: app.name,
-                currentSymbol: iconInfo.sfSymbol,
-                currentColors: iconInfo.colors,
-                onSave: { symbol, colors in
-                    appListManager.updateAppIcon(id: app.id, sfSymbol: symbol, iconBackground: colors)
+                currentSymbol: resolvedIcon(for: app),
+                onSave: { symbol in
+                    appListManager.updateAppIcon(id: app.id, sfSymbol: symbol)
                 }
             )
         }
@@ -121,7 +119,7 @@ struct AppsGridView: View {
 
     private func appCard(_ app: AppListManager.AppItem) -> some View {
         let isHovered = hoveredAppId == app.id
-        let iconInfo = resolvedIcon(for: app)
+        let iconSymbol = resolvedIcon(for: app)
         let rawPreview = app.previewBase64 ?? previewCache[app.id]
         let preview = rawPreview?.isEmpty == true ? nil : rawPreview
 
@@ -149,13 +147,11 @@ struct AppsGridView: View {
                             .clipped()
                     } else {
                         ZStack {
-                            VColor.surface
+                            Moss._100
 
-                            VAppIcon(
-                                sfSymbol: iconInfo.sfSymbol,
-                                gradientColors: iconInfo.colors,
-                                size: .large
-                            )
+                            Image(systemName: iconSymbol)
+                                .font(.system(size: 32, weight: .medium))
+                                .foregroundColor(VColor.textMuted)
                         }
                         .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     }
@@ -179,6 +175,11 @@ struct AppsGridView: View {
                             } label: {
                                 Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
                             }
+                            Button {
+                                editingApp = app
+                            } label: {
+                                Label("Change Icon", systemImage: "paintbrush")
+                            }
                             Button(role: .destructive) {
                                 if hoveredAppId != nil {
                                     hoveredAppId = nil
@@ -190,12 +191,15 @@ struct AppsGridView: View {
                                 Label("Delete", systemImage: "trash")
                             }
                         } label: {
-                            Color.clear.contentShape(Rectangle())
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .frame(width: 32, height: 32)
                         }
                         .menuStyle(.borderlessButton)
                         .menuIndicator(.hidden)
-                        .fixedSize()
                     }
+                    .fixedSize()
+                    .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
                     .accessibilityLabel("App actions")
                     .padding(VSpacing.sm)
                     .opacity(isHovered ? 1 : 0)
@@ -305,9 +309,9 @@ struct AppsGridView: View {
 
     // MARK: - Helpers
 
-    private func resolvedIcon(for app: AppListManager.AppItem) -> (sfSymbol: String, colors: [String]) {
-        if let symbol = app.sfSymbol, let colors = app.iconBackground, !colors.isEmpty {
-            return (sfSymbol: symbol, colors: colors)
+    private func resolvedIcon(for app: AppListManager.AppItem) -> String {
+        if let symbol = app.sfSymbol {
+            return symbol
         }
         return VAppIconGenerator.generate(from: app.name, type: app.appType)
     }
