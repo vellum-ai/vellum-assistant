@@ -11,19 +11,16 @@
  * Guardian decisions additionally verify the actor is the bound guardian
  * via the AuthContext's actorPrincipalId.
  */
-import { applyCanonicalGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import {
   type CanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-  isRequestInConversationScope,
   listPendingRequestsByConversationScope,
 } from "../../memory/canonical-guardian-store.js";
 import type { AuthContext } from "../auth/types.js";
-import type { ApprovalAction } from "../channel-approval-types.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
 import { buildDecisionActions } from "../guardian-decision-types.js";
+import { processGuardianDecision } from "../guardian-action-service.js";
 import { httpError } from "../http-errors.js";
 
 // ---------------------------------------------------------------------------
@@ -132,77 +129,24 @@ export async function handleGuardianActionDecision(
     return httpError("BAD_REQUEST", "action is required", 400);
   }
 
-  const VALID_ACTIONS = new Set<string>([
-    "approve_once",
-    "approve_10m",
-    "approve_thread",
-    "approve_always",
-    "reject",
-  ]);
-  if (!VALID_ACTIONS.has(action)) {
-    return httpError(
-      "BAD_REQUEST",
-      `Invalid action: ${action}. Must be one of: approve_once, approve_10m, approve_thread, approve_always, reject`,
-      400,
-    );
-  }
-
-  // Verify conversationId scoping before applying the canonical decision.
-  // The decision is allowed when the conversationId matches the request's
-  // source conversation OR a recorded delivery destination conversation.
-  // Channel is scoped to 'vellum' to prevent cross-channel approval when
-  // conversation ID namespaces overlap.
-  if (conversationId) {
-    const canonicalRequest = getCanonicalGuardianRequest(requestId);
-    if (
-      canonicalRequest &&
-      canonicalRequest.conversationId &&
-      !isRequestInConversationScope(requestId, conversationId, "vellum")
-    ) {
-      return httpError(
-        "NOT_FOUND",
-        "No pending guardian action found for this requestId",
-        404,
-      );
-    }
-  }
-
-  // Resolve actor identity from the AuthContext (set by JWT middleware).
-  const actorExternalUserId = authContext.actorPrincipalId ?? undefined;
-  const actorPrincipalId = authContext.actorPrincipalId ?? undefined;
-
-  const canonicalResult = await applyCanonicalGuardianDecision({
+  const result = await processGuardianDecision({
     requestId,
-    action: action as ApprovalAction,
+    action,
+    conversationId,
+    channel: "vellum",
     actorContext: {
-      externalUserId: actorExternalUserId,
-      channel: "vellum",
-      guardianPrincipalId: actorPrincipalId,
+      externalUserId: authContext.actorPrincipalId ?? undefined,
+      guardianPrincipalId: authContext.actorPrincipalId ?? undefined,
     },
-    userText: undefined,
   });
 
-  if (canonicalResult.applied) {
-    // When the CAS committed but the resolver failed, the side effect
-    // (e.g. minting a verification session) did not happen. From the
-    // caller's perspective the decision was not truly applied.
-    if (canonicalResult.resolverFailed) {
-      return Response.json({
-        applied: false,
-        reason: "resolver_failed",
-        resolverFailureReason: canonicalResult.resolverFailureReason,
-        requestId: canonicalResult.requestId,
-      });
-    }
-
-    return Response.json({
-      applied: true,
-      requestId: canonicalResult.requestId,
-    });
+  if (!result.ok) {
+    return httpError("BAD_REQUEST", result.message, 400);
   }
-
-  // Return the reason for failure (stale, expired, not_found, etc.)
-  return canonicalResult.reason === "not_found"
+  if (result.applied) {
+    return Response.json({ applied: true, requestId: result.requestId });
+  }
+  return result.reason === "not_found"
     ? httpError(
         "NOT_FOUND",
         "No pending guardian action found for this requestId",
@@ -210,8 +154,11 @@ export async function handleGuardianActionDecision(
       )
     : Response.json({
         applied: false,
-        reason: canonicalResult.reason,
-        requestId,
+        reason: result.reason,
+        ...(result.resolverFailureReason
+          ? { resolverFailureReason: result.resolverFailureReason }
+          : {}),
+        requestId: result.requestId ?? requestId,
       });
 }
 
