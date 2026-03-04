@@ -409,7 +409,15 @@ extension ChatViewModel {
             } else {
                 messages[index].textSegments[messages[index].textSegments.count - 1] += buffered
             }
+        } else if currentAssistantMessageId != nil {
+            // Message ID is set but message not found — stale reference after
+            // history replacement or reconnect. Discard the buffer to avoid
+            // creating an orphan message.
+            log.warning("Stale currentAssistantMessageId \(currentAssistantMessageId!.uuidString) — discarding \(buffered.count) buffered chars")
+            currentAssistantMessageId = nil
+            return
         } else {
+            // No existing assistant message — create a new one (first text delta)
             var msg = ChatMessage(role: .assistant, text: buffered, isStreaming: true)
             if currentTurnUserText == "/model" {
                 msg.modelPicker = ModelPickerData()
