@@ -1604,9 +1604,8 @@ struct MainWindowView: View {
                 .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         // Header
-                        Text("\(regularThreads.count) THREADS")
-                            .font(VFont.caption)
-                            .fontWeight(.medium)
+                        Text("\(regularThreads.count) threads")
+                            .font(VFont.body)
                             .foregroundColor(VColor.textMuted)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.top, VSpacing.sm)
@@ -1653,7 +1652,7 @@ struct MainWindowView: View {
                         }
                         .frame(maxHeight: 300)
                     }
-                    .frame(width: 260)
+                    .frame(width: 220)
                     .padding(.bottom, VSpacing.sm)
                     .onChange(of: threadManager.activeThreadId) { _, _ in
                         showThreadSwitcher = false
