@@ -1,5 +1,8 @@
-import { getGatewayInternalBaseUrl } from "../../../../config/env.js";
-import { mintEdgeRelayToken } from "../../../../runtime/auth/token-service.js";
+import {
+  gatewayGet,
+  gatewayPost,
+  GatewayRequestError,
+} from "../../../../runtime/gateway-internal-client.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -35,72 +38,46 @@ export async function executeContactMerge(
   }
 
   try {
-    const gatewayBase = getGatewayInternalBaseUrl();
-    const token = mintEdgeRelayToken();
-    const headers = {
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-    };
-
     // Validate both contacts exist before merging
-    const [keepResp, mergeResp] = await Promise.all([
-      fetch(`${gatewayBase}/v1/contacts/${keepId}`, {
-        method: "GET",
-        headers,
-      }),
-      fetch(`${gatewayBase}/v1/contacts/${mergeId}`, {
-        method: "GET",
-        headers,
-      }),
-    ]);
+    let keepData: { ok: boolean; contact: ContactResponse };
+    let mergeData: { ok: boolean; contact: ContactResponse };
 
-    if (!keepResp.ok) {
-      return { content: `Error: Contact "${keepId}" not found`, isError: true };
-    }
-    if (!mergeResp.ok) {
-      return {
-        content: `Error: Contact "${mergeId}" not found`,
-        isError: true,
-      };
+    try {
+      [keepData, mergeData] = await Promise.all([
+        gatewayGet<{ ok: boolean; contact: ContactResponse }>(
+          `/v1/contacts/${keepId}`,
+        ),
+        gatewayGet<{ ok: boolean; contact: ContactResponse }>(
+          `/v1/contacts/${mergeId}`,
+        ),
+      ]);
+    } catch (err) {
+      if (err instanceof GatewayRequestError) {
+        // Determine which contact failed by retrying individually
+        try {
+          await gatewayGet(`/v1/contacts/${keepId}`);
+        } catch {
+          return {
+            content: `Error: Contact "${keepId}" not found`,
+            isError: true,
+          };
+        }
+        return {
+          content: `Error: Contact "${mergeId}" not found`,
+          isError: true,
+        };
+      }
+      throw err;
     }
 
-    const keepData = (await keepResp.json()) as {
-      ok: boolean;
-      contact: ContactResponse;
-    };
-    const mergeData = (await mergeResp.json()) as {
-      ok: boolean;
-      contact: ContactResponse;
-    };
     const keepContact = keepData.contact;
     const mergeContact = mergeData.contact;
 
     // Execute the merge
-    const mergeResult = await fetch(`${gatewayBase}/v1/contacts/merge`, {
-      method: "POST",
-      headers: {
-        ...headers,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ keepId, mergeId }),
-    });
-
-    if (!mergeResult.ok) {
-      const body = await mergeResult.text();
-      let message = `Gateway request failed (${mergeResult.status})`;
-      try {
-        const parsed = JSON.parse(body) as { error?: string };
-        if (parsed.error) message = parsed.error;
-      } catch {
-        if (body) message = body;
-      }
-      return { content: `Error: ${message}`, isError: true };
-    }
-
-    const resultData = (await mergeResult.json()) as {
+    const { data: resultData } = await gatewayPost<{
       ok: boolean;
       contact: ContactResponse;
-    };
+    }>("/v1/contacts/merge", { keepId, mergeId });
     const merged = resultData.contact;
 
     const channelList = merged.channels
