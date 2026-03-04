@@ -429,7 +429,9 @@ describe("trust-gating via channel capabilities", () => {
     expect(injected).toContain("CHANNEL CONSTRAINTS");
     expect(injected).toContain("Do NOT reference the dashboard UI");
     expect(injected).not.toContain("Do NOT use ui_show");
-    expect(injected).not.toContain("Present information as well-formatted text");
+    expect(injected).not.toContain(
+      "Present information as well-formatted text",
+    );
     expect(injected).toContain("supports_dynamic_ui: true");
     expect(injected).toContain("dashboard_capable: false");
   });
@@ -1054,5 +1056,149 @@ describe("resolveChannelCapabilities with PTT metadata", () => {
       microphonePermissionGranted: true,
     });
     expect(caps.microphonePermissionGranted).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections — injection mode
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections — injection mode", () => {
+  const baseMessages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Hello" }],
+    },
+  ];
+
+  const fullOptions = {
+    workspaceTopLevelContext:
+      "<workspace_top_level>\nRoot: /sandbox\n</workspace_top_level>",
+    temporalContext:
+      "<temporal_context>\nToday: 2026-03-04 (Tuesday)\n</temporal_context>",
+    channelCommandContext: { type: "start" } as const,
+    activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
+    channelCapabilities: {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    } as ChannelCapabilities,
+    channelTurnContext: {
+      turnContext: {
+        userMessageChannel: "telegram",
+        assistantMessageChannel: "telegram",
+      },
+      conversationOriginChannel: "telegram",
+    } as ChannelTurnContextParams,
+    interfaceTurnContext: {
+      turnContext: {
+        userMessageInterface: "telegram",
+        assistantMessageInterface: "telegram",
+      },
+      conversationOriginInterface: null,
+    },
+    inboundActorContext: {
+      sourceChannel: "telegram",
+      canonicalActorIdentity: "user-1",
+      trustClass: "guardian",
+    } as InboundActorContext,
+    isNonInteractive: true,
+  };
+
+  test("full mode (default) includes all injections", () => {
+    const result = applyRuntimeInjections(baseMessages, fullOptions);
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    expect(allText).toContain("<workspace_top_level>");
+    expect(allText).toContain("<temporal_context>");
+    expect(allText).toContain("<channel_command_context>");
+    expect(allText).toContain("<active_workspace>");
+    expect(allText).toContain("<channel_capabilities>");
+    expect(allText).toContain("<channel_turn_context>");
+    expect(allText).toContain("<interface_turn_context>");
+    expect(allText).toContain("<inbound_actor_context>");
+    expect(allText).toContain("<non_interactive_context>");
+  });
+
+  test("explicit mode: 'full' behaves the same as default", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      ...fullOptions,
+      mode: "full",
+    });
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    expect(allText).toContain("<workspace_top_level>");
+    expect(allText).toContain("<temporal_context>");
+    expect(allText).toContain("<channel_command_context>");
+    expect(allText).toContain("<active_workspace>");
+  });
+
+  test("minimal mode skips high-token optional blocks", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      ...fullOptions,
+      mode: "minimal",
+    });
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    // Skipped in minimal mode
+    expect(allText).not.toContain("<workspace_top_level>");
+    expect(allText).not.toContain("<temporal_context>");
+    expect(allText).not.toContain("<channel_command_context>");
+    expect(allText).not.toContain("<active_workspace>");
+  });
+
+  test("minimal mode preserves safety-critical blocks", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      ...fullOptions,
+      mode: "minimal",
+    });
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    // Kept in minimal mode
+    expect(allText).toContain("<channel_turn_context>");
+    expect(allText).toContain("<interface_turn_context>");
+    expect(allText).toContain("<inbound_actor_context>");
+    expect(allText).toContain("<non_interactive_context>");
+    expect(allText).toContain("<channel_capabilities>");
+  });
+
+  test("minimal mode produces strictly fewer content blocks than full mode", () => {
+    const fullResult = applyRuntimeInjections(baseMessages, {
+      ...fullOptions,
+      mode: "full",
+    });
+    const minimalResult = applyRuntimeInjections(baseMessages, {
+      ...fullOptions,
+      mode: "minimal",
+    });
+
+    expect(minimalResult[0].content.length).toBeLessThan(
+      fullResult[0].content.length,
+    );
+  });
+
+  test("minimal mode still preserves the original user message text", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      ...fullOptions,
+      mode: "minimal",
+    });
+    const texts = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+
+    expect(texts).toContain("Hello");
   });
 });

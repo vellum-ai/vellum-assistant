@@ -1042,6 +1042,18 @@ export function stripInjectedContext(
 }
 
 /**
+ * Controls which runtime injections are applied.
+ *
+ * - `'full'` (default): all injections are applied.
+ * - `'minimal'`: only safety-critical context is injected (channel turn,
+ *   interface turn, inbound actor, non-interactive marker, voice call
+ *   control, channel capabilities, soft conflict). High-token optional
+ *   blocks (workspace top-level, temporal, channel command, active surface)
+ *   are skipped to reduce context pressure.
+ */
+export type InjectionMode = "full" | "minimal";
+
+/**
  * Apply a chain of user-message injections to `runMessages`.
  *
  * Each injection is optional — pass `null`/`undefined` to skip it.
@@ -1061,8 +1073,10 @@ export function applyRuntimeInjections(
     temporalContext?: string | null;
     voiceCallControlPrompt?: string | null;
     isNonInteractive?: boolean;
+    mode?: InjectionMode;
   },
 ): Message[] {
+  const mode = options.mode ?? "full";
   let result = runMessages;
 
   // For non-interactive sessions (scheduled jobs, work items), instruct the
@@ -1109,7 +1123,7 @@ export function applyRuntimeInjections(
     }
   }
 
-  if (options.activeSurface) {
+  if (mode === "full" && options.activeSurface) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
@@ -1129,7 +1143,7 @@ export function applyRuntimeInjections(
     }
   }
 
-  if (options.channelCommandContext) {
+  if (mode === "full" && options.channelCommandContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
@@ -1172,7 +1186,7 @@ export function applyRuntimeInjections(
   // Temporal context is injected before workspace top-level so it
   // appears after workspace context in the final message content
   // (both are prepended, so later injections appear first).
-  if (options.temporalContext) {
+  if (mode === "full" && options.temporalContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
@@ -1185,7 +1199,7 @@ export function applyRuntimeInjections(
   // Workspace top-level context is injected last so it appears first
   // (prepended) in the user message content, keeping cache breakpoints
   // anchored to the trailing blocks.
-  if (options.workspaceTopLevelContext) {
+  if (mode === "full" && options.workspaceTopLevelContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
