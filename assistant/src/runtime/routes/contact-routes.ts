@@ -23,18 +23,21 @@ import { httpError } from "../http-errors.js";
 /**
  * GET /v1/contacts?limit=50&role=guardian
  */
-export function handleListContacts(url: URL): Response {
+export function handleListContacts(url: URL, assistantId: string): Response {
   const limit = Number(url.searchParams.get("limit") ?? 50);
   const role = url.searchParams.get("role") as ContactRole | null;
-  const contacts = listContacts(limit, role ?? undefined);
+  const contacts = listContacts(assistantId, limit, role ?? undefined);
   return Response.json({ ok: true, contacts });
 }
 
 /**
  * GET /v1/contacts/:id
  */
-export function handleGetContact(contactId: string): Response {
-  const contact = getContact(contactId);
+export function handleGetContact(
+  contactId: string,
+  assistantId: string,
+): Response {
+  const contact = getContact(contactId, assistantId);
   if (!contact) {
     return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
   }
@@ -44,7 +47,10 @@ export function handleGetContact(contactId: string): Response {
 /**
  * POST /v1/contacts/merge { keepId, mergeId }
  */
-export async function handleMergeContacts(req: Request): Promise<Response> {
+export async function handleMergeContacts(
+  req: Request,
+  assistantId: string,
+): Promise<Response> {
   const body = (await req.json()) as { keepId?: string; mergeId?: string };
 
   if (!body.keepId || !body.mergeId) {
@@ -52,7 +58,7 @@ export async function handleMergeContacts(req: Request): Promise<Response> {
   }
 
   try {
-    const contact = mergeContacts(body.keepId, body.mergeId);
+    const contact = mergeContacts(body.keepId, body.mergeId, assistantId);
     return Response.json({ ok: true, contact });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -87,6 +93,7 @@ function isChannelPolicy(value: string): value is ChannelPolicy {
 export async function handleUpdateContactChannel(
   req: Request,
   channelId: string,
+  assistantId: string,
 ): Promise<Response> {
   const body = (await req.json()) as {
     status?: string;
@@ -135,6 +142,6 @@ export async function handleUpdateContactChannel(
     return httpError("NOT_FOUND", `Channel "${channelId}" not found`, 404);
   }
 
-  const parentContact = getContact(updated.contactId);
+  const parentContact = getContact(updated.contactId, assistantId);
   return Response.json({ ok: true, contact: parentContact ?? undefined });
 }

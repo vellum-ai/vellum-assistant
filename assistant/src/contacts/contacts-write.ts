@@ -8,6 +8,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import type { GuardianBinding } from "../memory/channel-guardian-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";
@@ -177,6 +178,7 @@ export function upsertMember(params: {
 
   upsertContact({
     displayName,
+    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     channels: [
       {
         type: params.sourceChannel,
@@ -232,7 +234,10 @@ export function revokeMember(
     revokedReason: reason ?? null,
   });
 
-  const contact = getContact(channelRow.contactId);
+  const contact = getContact(
+    channelRow.contactId,
+    DAEMON_INTERNAL_ASSISTANT_ID,
+  );
   if (!contact) return null;
   const updatedChannel = contact.channels.find((ch) => ch.id === channelId);
   if (!updatedChannel) return null;
@@ -261,7 +266,10 @@ export function blockMember(
     blockedReason: reason ?? null,
   });
 
-  const contact = getContact(channelRow.contactId);
+  const contact = getContact(
+    channelRow.contactId,
+    DAEMON_INTERNAL_ASSISTANT_ID,
+  );
   if (!contact) return null;
   const updatedChannel = contact.channels.find((ch) => ch.id === channelId);
   if (!updatedChannel) return null;

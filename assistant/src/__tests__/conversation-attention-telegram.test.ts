@@ -92,6 +92,7 @@ function resetTables(): void {
 function ensureTestContact(): void {
   upsertContact({
     displayName: "Test User",
+    assistantId: "self",
     channels: [
       {
         type: "telegram",

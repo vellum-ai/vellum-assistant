@@ -1109,25 +1109,28 @@ export class RuntimeHttpServer {
       {
         endpoint: "contacts",
         method: "GET",
-        handler: ({ url }) => handleListContacts(url),
+        handler: ({ url, authContext }) =>
+          handleListContacts(url, authContext.assistantId),
       },
       {
         endpoint: "contacts/merge",
         method: "POST",
-        handler: async ({ req }) => handleMergeContacts(req),
+        handler: async ({ req, authContext }) =>
+          handleMergeContacts(req, authContext.assistantId),
       },
       {
         endpoint: "contacts/channels/:id",
         method: "PATCH",
         policyKey: "contacts/channels",
-        handler: async ({ req, params }) =>
-          handleUpdateContactChannel(req, params.id),
+        handler: async ({ req, params, authContext }) =>
+          handleUpdateContactChannel(req, params.id, authContext.assistantId),
       },
       {
         endpoint: "contacts/:id",
         method: "GET",
         policyKey: "contacts",
-        handler: ({ params }) => handleGetContact(params.id),
+        handler: ({ params, authContext }) =>
+          handleGetContact(params.id, authContext.assistantId),
       },
 
       // ------------------------------------------------------------------

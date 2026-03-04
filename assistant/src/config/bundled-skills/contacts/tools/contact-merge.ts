@@ -2,6 +2,7 @@ import {
   getContact,
   mergeContacts,
 } from "../../../../contacts/contact-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../runtime/assistant-scope.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -22,8 +23,8 @@ export async function executeContactMerge(
   }
 
   // Show what will be merged for clarity
-  const keepContact = getContact(keepId);
-  const mergeContact = getContact(mergeId);
+  const keepContact = getContact(keepId, DAEMON_INTERNAL_ASSISTANT_ID);
+  const mergeContact = getContact(mergeId, DAEMON_INTERNAL_ASSISTANT_ID);
 
   if (!keepContact) {
     return { content: `Error: Contact "${keepId}" not found`, isError: true };
@@ -33,7 +34,7 @@ export async function executeContactMerge(
   }
 
   try {
-    const merged = mergeContacts(keepId, mergeId);
+    const merged = mergeContacts(keepId, mergeId, DAEMON_INTERNAL_ASSISTANT_ID);
 
     const channelList = merged.channels
       .map(

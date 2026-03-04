@@ -29,6 +29,7 @@ import {
 } from "../memory/ingress-invite-store.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { getTransport } from "./channel-invite-transport.js";
 import {
   type InviteRedemptionOutcome,
@@ -358,9 +359,12 @@ export function listIngressContacts(params: {
   policy?: string;
 }): IngressResult<MemberResponseData[]> {
   // Use uncapped: true since this internal path needs the full dataset
-  const allContacts = listContacts(Number.MAX_SAFE_INTEGER, "contact", {
-    uncapped: true,
-  });
+  const allContacts = listContacts(
+    params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    Number.MAX_SAFE_INTEGER,
+    "contact",
+    { uncapped: true },
+  );
   const members = allContacts.flatMap((c) => contactToMemberResponse(c));
 
   const filtered = members.filter((m) => {
