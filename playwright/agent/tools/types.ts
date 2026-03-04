@@ -21,8 +21,6 @@ export interface ToolContext {
   screenshotCounter: { value: number };
   /** Playwright parallel worker index (0-based). Used to isolate temp files, app instances, etc. */
   workerIndex: number;
-  /** When true, the screenshot tool is unavailable because screencapture would trigger a macOS permission modal. */
-  disableScreenCapture: boolean;
 }
 
 export interface ToolHandlerResult {

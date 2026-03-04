@@ -11,7 +11,7 @@ import path from "path";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Page } from "playwright";
 
-import { TOOL_DEFINITIONS, TOOL_DEFINITIONS_NO_SCREEN_CAPTURE, createToolExecutor, type TestResult } from "./tools";
+import { TOOL_DEFINITIONS, createToolExecutor, type TestResult } from "./tools";
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -70,8 +70,6 @@ export interface AgentOptions {
   verbose?: boolean;
   /** Playwright parallel worker index (0-based). Used to isolate temp files across workers. */
   workerIndex?: number;
-  /** When true, disables screencapture-based tools to avoid the macOS permission modal. */
-  disableScreenCapture?: boolean;
 }
 
 export async function runAgent(options: AgentOptions): Promise<TestResult> {
@@ -94,10 +92,7 @@ function traceLog(logPath: string | undefined, entry: string): void {
 }
 
 async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise<TestResult> {
-  const {
-    testContent, page, screenshotDir, traceLogPath,
-    verbose = false, workerIndex = 0, disableScreenCapture = false,
-  } = options;
+  const { testContent, page, screenshotDir, traceLogPath, verbose = false, workerIndex = 0 } = options;
 
   // Initialize trace log
   if (traceLogPath) {
@@ -106,8 +101,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
     traceLog(traceLogPath, "Agent started");
   }
 
-  const executeTool = createToolExecutor(screenshotDir, workerIndex, disableScreenCapture);
-  const toolDefinitions = disableScreenCapture ? TOOL_DEFINITIONS_NO_SCREEN_CAPTURE : TOOL_DEFINITIONS;
+  const executeTool = createToolExecutor(screenshotDir, workerIndex);
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [
     {
@@ -146,7 +140,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
           model: MODEL,
           max_tokens: 16000,
           system: SYSTEM_PROMPT,
-          tools: toolDefinitions,
+          tools: TOOL_DEFINITIONS,
           messages,
         });
         response = await stream.finalMessage();

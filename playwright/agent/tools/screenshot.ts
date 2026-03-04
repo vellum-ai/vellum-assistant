@@ -36,15 +36,6 @@ export async function execute(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolHandlerResult> {
-  if (context.disableScreenCapture) {
-    return {
-      result: {
-        success: false,
-        data: "Screenshot tool is disabled for this test (screen capture would trigger a macOS permission modal). Use the accessibility tree instead.",
-      },
-    };
-  }
-
   mkdirSync(context.screenshotDir, { recursive: true });
   const index = String(context.screenshotCounter.value++).padStart(3, "0");
   const filePath = `${context.screenshotDir}/${index}-${input.name as string}.png`;
