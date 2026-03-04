@@ -55,6 +55,7 @@ mock.module("../config/loader.js", () => ({
       },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    daemon: { titleGenerationMaxTokens: 30 },
     apiKeys: {},
     memory: { retrieval: { injectionStrategy: "inline" } },
     daemon: {
