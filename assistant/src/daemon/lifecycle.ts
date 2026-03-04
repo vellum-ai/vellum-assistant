@@ -10,6 +10,7 @@ import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { migrateContactsFromLegacyTables } from "../contacts/startup-migration.js";
 import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
@@ -200,6 +201,18 @@ export async function runDaemon(): Promise<void> {
       log.warn(
         { err },
         "Vellum guardian binding backfill failed — continuing startup",
+      );
+    }
+
+    // Catch-up migration: populate contacts table from legacy guardian
+    // bindings and ingress member rows. Ensures upgrades from pre-contacts
+    // versions have a populated contacts table on first boot.
+    try {
+      migrateContactsFromLegacyTables("self");
+    } catch (err) {
+      log.warn(
+        { err },
+        "Contacts startup migration failed — continuing startup",
       );
     }
 
