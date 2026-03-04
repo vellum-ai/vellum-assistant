@@ -13,7 +13,10 @@ import {
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
-import { recordConversationSeenSignal } from "../../memory/conversation-attention-store.js";
+import {
+  recordConversationSeenSignal,
+  type SignalType,
+} from "../../memory/conversation-attention-store.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
@@ -458,8 +461,8 @@ export async function handleChannelInbound(
     });
 
     if (approvalResult.handled) {
-      // Record inferred seen signal for all handled Telegram approval interactions
-      if (sourceChannel === "telegram") {
+      // Record inferred seen signal for handled approval interactions
+      if (sourceChannel === "telegram" || sourceChannel === "slack") {
         try {
           if (hasCallbackData) {
             const cbPreview =
@@ -469,9 +472,9 @@ export async function handleChannelInbound(
             recordConversationSeenSignal({
               conversationId: result.conversationId,
               assistantId: canonicalAssistantId,
-              signalType: "telegram_callback",
+              signalType: `${sourceChannel}_callback` as SignalType,
               confidence: "inferred",
-              sourceChannel: "telegram",
+              sourceChannel,
               source: "inbound-message-handler",
               evidenceText: `User tapped callback: '${cbPreview}'`,
             });
@@ -483,9 +486,9 @@ export async function handleChannelInbound(
             recordConversationSeenSignal({
               conversationId: result.conversationId,
               assistantId: canonicalAssistantId,
-              signalType: "telegram_inbound_message",
+              signalType: `${sourceChannel}_inbound_message` as SignalType,
               confidence: "inferred",
-              sourceChannel: "telegram",
+              sourceChannel,
               source: "inbound-message-handler",
               evidenceText: `User sent plain-text approval reply: '${msgPreview}'`,
             });
@@ -493,7 +496,7 @@ export async function handleChannelInbound(
         } catch (err) {
           log.warn(
             { err, conversationId: result.conversationId },
-            "Failed to record seen signal for Telegram approval interaction",
+            "Failed to record seen signal for approval interaction",
           );
         }
       }
@@ -513,7 +516,7 @@ export async function handleChannelInbound(
     // so checking for empty content alone would miss stale callbacks.
     if (hasCallbackData) {
       // Record seen signal even for stale callbacks — the user still interacted
-      if (sourceChannel === "telegram") {
+      if (sourceChannel === "telegram" || sourceChannel === "slack") {
         try {
           const cbPreview =
             body.callbackData!.length > 80
@@ -522,16 +525,16 @@ export async function handleChannelInbound(
           recordConversationSeenSignal({
             conversationId: result.conversationId,
             assistantId: canonicalAssistantId,
-            signalType: "telegram_callback",
+            signalType: `${sourceChannel}_callback`,
             confidence: "inferred",
-            sourceChannel: "telegram",
+            sourceChannel,
             source: "inbound-message-handler",
             evidenceText: `User tapped stale callback: '${cbPreview}'`,
           });
         } catch (err) {
           log.warn(
             { err, conversationId: result.conversationId },
-            "Failed to record seen signal for stale Telegram callback",
+            "Failed to record seen signal for stale callback",
           );
         }
       }
