@@ -192,13 +192,6 @@ export async function run(
 
     context.onOutput?.(`Clip registered as attachment ${attachment.id}.\n`);
 
-    // Auto-open in the user's default video player (fire and forget).
-    // Use absolute path — the bundled daemon may not have `open` on its PATH.
-    Bun.spawn(["/usr/bin/open", clipPath], {
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-
     return {
       content: JSON.stringify(
         {

@@ -1277,6 +1277,15 @@ extension ChatViewModel {
                     }
                 }
             }
+            // Auto-open clip files in the default video player
+            if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
+                autoOpenClipIfNeeded(
+                    toolName: messages[msgIndex].toolCalls[tcIndex].toolName,
+                    result: msg.result,
+                    isError: msg.isError ?? false
+                )
+            }
+
             // Tool completed — don't re-show "Thinking..." here. The tool
             // call chip already indicates activity, and the LLM isn't actually
             // thinking yet. isThinking will be set when the user sends a new
@@ -1625,5 +1634,22 @@ extension ChatViewModel {
         default:
             break
         }
+    }
+
+    /// Auto-open generated video clips in the user's default video player.
+    private func autoOpenClipIfNeeded(toolName: String, result: String, isError: Bool) {
+        guard !isError, toolName == "generate_clip" else { return }
+        guard let jsonData = result.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let clipPath = json["clipPath"] as? String else {
+            return
+        }
+        guard FileManager.default.fileExists(atPath: clipPath) else {
+            log.warning("Clip file not found at path, skipping auto-open")
+            return
+        }
+        #if os(macOS)
+        NSWorkspace.shared.open(URL(fileURLWithPath: clipPath))
+        #endif
     }
 }
