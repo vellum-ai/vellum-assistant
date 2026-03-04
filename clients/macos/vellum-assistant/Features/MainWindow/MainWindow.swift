@@ -33,10 +33,9 @@ class TitleBarZoomableWindow: NSWindow {
     /// the app is reactivated (cmd+tab / Dock click).
     private(set) var composerDismissed = false
 
-    /// Tracks whether the app was deactivated so `becomeKey` can distinguish
-    /// app reactivation (cmd+tab) from secondary-window dismiss within an
-    /// already-active app. Set on `didResignActiveNotification`, consumed
-    /// in `becomeKey`.
+    /// Set on `didResignActiveNotification` so `becomeKey` can distinguish
+    /// app reactivation (cmd+tab / Dock click) from an in-app window change
+    /// (e.g. command palette or sheet dismiss).
     private var appWasDeactivated = false
     private var activationObservers: [Any] = []
 
@@ -46,19 +45,16 @@ class TitleBarZoomableWindow: NSWindow {
 
     override func becomeKey() {
         super.becomeKey()
-        // Only clear composerDismissed when the window becomes key due to
-        // app reactivation (cmd+tab, Dock click). When a secondary window
-        // within the already-active app is dismissed, appWasDeactivated is
-        // false and the user's explicit click-away-to-blur is preserved.
+        // Re-enable keystroke redirect only on app reactivation, not when
+        // a secondary window closes within the already-active app.
         if appWasDeactivated {
             appWasDeactivated = false
             composerDismissed = false
         }
     }
 
-    /// Subscribe to app activation lifecycle once the window is set up.
-    /// Called automatically by `makeKeyAndOrderFront` via the notification
-    /// center; safe to call multiple times (guards against duplicate observers).
+    /// Subscribe to app activation lifecycle. Idempotent — safe to call
+    /// more than once.
     func observeAppActivation() {
         guard activationObservers.isEmpty else { return }
         activationObservers.append(
