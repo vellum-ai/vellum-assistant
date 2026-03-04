@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Standalone entrypoint for the proxy-sidecar service.
+ * Standalone entrypoint for the outbound-proxy service.
  *
  * Starts an HTTP forward-proxy server that handles:
  *   - Plain HTTP proxy requests (absolute-URL form)
@@ -11,8 +11,8 @@
  * for the full list and defaults.
  *
  * Usage:
- *   bun run proxy-sidecar/src/main.ts
- *   PROXY_PORT=9090 bun run proxy-sidecar/src/main.ts
+ *   bun run outbound-proxy/src/main.ts
+ *   PROXY_PORT=9090 bun run outbound-proxy/src/main.ts
  */
 
 import type { Server } from 'node:http';
@@ -53,7 +53,7 @@ function main(): void {
     throw err;
   }
 
-  log('info', 'proxy-sidecar starting', {
+  log('info', 'outbound-proxy starting', {
     port: config.port,
     host: config.host,
     healthPort: config.healthPort,
@@ -76,7 +76,7 @@ function main(): void {
     proxyListening = true;
     const addr = server!.address();
     const boundPort = typeof addr === 'object' && addr ? addr.port : config.port;
-    log('info', 'proxy-sidecar listening', {
+    log('info', 'outbound-proxy listening', {
       port: boundPort,
       host: config.host,
     });
@@ -128,7 +128,7 @@ function shutdown(signal: string): void {
     }
     pending--;
     if (pending === 0) {
-      log('info', 'proxy-sidecar stopped');
+      log('info', 'outbound-proxy stopped');
       process.exit(hasError ? 1 : 0);
     }
   };

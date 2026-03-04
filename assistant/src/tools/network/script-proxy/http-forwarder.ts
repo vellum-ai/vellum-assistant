@@ -1,2 +1,2 @@
-export type { PolicyCallback } from "@vellumai/proxy-sidecar";
-export { forwardHttpRequest } from "@vellumai/proxy-sidecar";
+export type { PolicyCallback } from "@vellumai/outbound-proxy";
+export { forwardHttpRequest } from "@vellumai/outbound-proxy";

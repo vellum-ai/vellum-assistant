@@ -1,1 +1,1 @@
-export { handleConnect } from "@vellumai/proxy-sidecar";
+export { handleConnect } from "@vellumai/outbound-proxy";

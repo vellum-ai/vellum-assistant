@@ -27,12 +27,12 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
-    "@vellumai/proxy-sidecar": "file:../proxy-sidecar",
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.40.0",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
+    "@vellumai/outbound-proxy": "file:../outbound-proxy",
     "agentmail": "^0.1.0",
     "archiver": "^7.0.1",
     "commander": "^13.1.0",

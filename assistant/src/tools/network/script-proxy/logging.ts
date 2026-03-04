@@ -1,7 +1,7 @@
 export type {
   CredentialRefTrace,
   ProxyDecisionTrace,
-} from "@vellumai/proxy-sidecar";
+} from "@vellumai/outbound-proxy";
 export {
   buildCredentialRefTrace,
   buildDecisionTrace,
@@ -9,4 +9,4 @@ export {
   sanitizeHeaders,
   sanitizeUrl,
   stripQueryString,
-} from "@vellumai/proxy-sidecar";
+} from "@vellumai/outbound-proxy";
