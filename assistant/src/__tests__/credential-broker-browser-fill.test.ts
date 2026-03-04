@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -71,8 +72,15 @@ afterAll(() => {
 describe("CredentialBroker.browserFill", () => {
   let broker: CredentialBroker;
 
-  beforeEach(() => {
+  beforeAll(() => {
     mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  beforeEach(() => {
+    // Clear content files but preserve the directory structure
+    for (const entry of readdirSync(TEST_DIR)) {
+      rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
+    }
     _setStorePath(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
@@ -83,6 +91,9 @@ describe("CredentialBroker.browserFill", () => {
     _setMetadataPath(null);
     _setStorePath(null);
     _resetBackend();
+  });
+
+  afterAll(() => {
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
