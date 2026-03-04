@@ -46,6 +46,7 @@ dist
 temp.sh
 context.md
 CLAUDE.md
+!assistant/CLAUDE.md
 .agents
 .codex
 .vellum
