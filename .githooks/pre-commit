@@ -709,7 +709,7 @@ while IFS= read -r -d '' FILE; do
         ASSISTANT_TS_STAGED=1
         break
     fi
-done < "$STAGED_ACM_FILE"
+done < "$STAGED_ALL_FILE"
 
 if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
     if [ ! -x "$BUN" ]; then
