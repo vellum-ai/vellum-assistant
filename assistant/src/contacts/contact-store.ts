@@ -764,17 +764,15 @@ export function findGuardianForChannel(
  */
 export function revokeGuardianChannel(
   channelType: string,
-  assistantId?: string,
+  assistantId: string,
 ): boolean {
   const db = getDb();
   const conditions = [
     eq(contacts.role, "guardian"),
     eq(contactChannels.type, channelType),
     eq(contactChannels.status, "active"),
+    eq(contacts.assistantId, assistantId),
   ];
-  if (assistantId) {
-    conditions.push(eq(contacts.assistantId, assistantId));
-  }
   const rows = db
     .select({
       channelId: contactChannels.id,
@@ -808,7 +806,7 @@ export function revokeGuardianChannel(
  * pick a guardian that has no active channels.
  * Returns channels ordered by most-recently-verified first.
  */
-export function listGuardianChannels(): {
+export function listGuardianChannels(assistantId: string): {
   contact: Contact;
   channels: ContactChannel[];
 } | null {
@@ -821,7 +819,11 @@ export function listGuardianChannels(): {
     .from(contacts)
     .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
     .where(
-      and(eq(contacts.role, "guardian"), eq(contactChannels.status, "active")),
+      and(
+        eq(contacts.role, "guardian"),
+        eq(contactChannels.status, "active"),
+        eq(contacts.assistantId, assistantId),
+      ),
     )
     .orderBy(desc(contactChannels.verifiedAt))
     .all();

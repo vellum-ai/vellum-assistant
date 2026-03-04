@@ -116,7 +116,7 @@ export function notifyGuardianOfAccessRequest(
     guardianResolutionSource = "contacts";
   } else {
     // Try contacts-first: any active guardian channel
-    const allGuardianChannels = listGuardianChannels();
+    const allGuardianChannels = listGuardianChannels(canonicalAssistantId);
     if (allGuardianChannels && allGuardianChannels.channels.length > 0) {
       const fallbackChannel = allGuardianChannels.channels[0];
       guardianExternalUserId = fallbackChannel.externalUserId;
