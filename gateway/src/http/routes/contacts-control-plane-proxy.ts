@@ -107,8 +107,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     },
 
     async handleGetContact(req: Request, contactId: string): Promise<Response> {
-      const encoded = encodeURIComponent(contactId);
-      return proxyToRuntime(req, `/v1/contacts/${encoded}`, "");
+      return proxyToRuntime(req, `/v1/contacts/${contactId}`, "");
     },
 
     async handleMergeContacts(req: Request): Promise<Response> {
@@ -119,8 +118,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       req: Request,
       channelId: string,
     ): Promise<Response> {
-      const encoded = encodeURIComponent(channelId);
-      return proxyToRuntime(req, `/v1/contacts/channels/${encoded}`, "");
+      return proxyToRuntime(req, `/v1/contacts/channels/${channelId}`, "");
     },
 
     // ── Invite routes ──
@@ -141,8 +139,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       req: Request,
       inviteId: string,
     ): Promise<Response> {
-      const encoded = encodeURIComponent(inviteId);
-      return proxyToRuntime(req, `/v1/contacts/invites/${encoded}`, "");
+      return proxyToRuntime(req, `/v1/contacts/invites/${inviteId}`, "");
     },
   };
 }

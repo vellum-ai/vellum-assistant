@@ -13,6 +13,11 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
+mock.module("../auth/token-exchange.js", () => ({
+  mintIngressToken: () => "mock-ingress-token",
+  mintServiceToken: () => "mock-service-token",
+}));
+
 const { createSlackDeliverHandler } =
   await import("../http/routes/slack-deliver.js");
 
@@ -380,9 +385,13 @@ describe("slack-deliver endpoint", () => {
     expect((slackCall!.body as any).thread_ts).toBeUndefined();
   });
 
-  test("auto-formats text into Block Kit blocks when blocks are not provided", async () => {
+  test("auto-formats text into Block Kit blocks when useBlocks is true", async () => {
     const handler = createSlackDeliverHandler(makeConfig());
-    const req = makeRequest({ chatId: "C123", text: "# Hello\n\nWorld" });
+    const req = makeRequest({
+      chatId: "C123",
+      text: "# Hello\n\nWorld",
+      useBlocks: true,
+    });
     const res = await handler(req);
     expect(res.status).toBe(200);
 
@@ -426,7 +435,11 @@ describe("slack-deliver endpoint", () => {
 
   test("always includes text as fallback alongside blocks", async () => {
     const handler = createSlackDeliverHandler(makeConfig());
-    const req = makeRequest({ chatId: "C123", text: "Simple message" });
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Simple message",
+      useBlocks: true,
+    });
     const res = await handler(req);
     expect(res.status).toBe(200);
 
@@ -880,6 +893,5 @@ describe("slack attachment delivery", () => {
     );
     expect(completeCall).toBeDefined();
     expect((completeCall!.body as any).thread_ts).toBe("1700000000.000050");
->>>>>>> origin/main
   });
 });

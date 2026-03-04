@@ -11,6 +11,7 @@ export type SlackErrorCategory =
   | "not_found"
   | "permission"
   | "channel_not_found"
+  | "transient"
   | "unknown";
 
 const ERROR_CODE_MAP: Record<string, SlackErrorCategory> = {
@@ -58,5 +59,9 @@ export function classifySlackError(
  * Whether the error category indicates the request could succeed on retry.
  */
 export function isRetryable(category: SlackErrorCategory): boolean {
-  return category === "rate_limit" || category === "unknown";
+  return (
+    category === "rate_limit" ||
+    category === "transient" ||
+    category === "unknown"
+  );
 }

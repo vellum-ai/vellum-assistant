@@ -470,7 +470,38 @@ export function searchContacts(params: {
     return results;
   }
 
-  // Search by display name and/or relationship
+  // Search by channel type alone (no address)
+  if (params.channelType && !params.query && !params.relationship) {
+    const channelRows = db
+      .select({ contactId: contactChannels.contactId })
+      .from(contactChannels)
+      .innerJoin(contacts, eq(contactChannels.contactId, contacts.id))
+      .where(
+        and(
+          or(
+            eq(contacts.assistantId, params.assistantId),
+            isNull(contacts.assistantId),
+          ),
+          eq(contactChannels.type, params.channelType),
+        ),
+      )
+      .all();
+
+    const contactIds = [...new Set(channelRows.map((r) => r.contactId))];
+    if (contactIds.length === 0) return [];
+
+    const results: ContactWithChannels[] = [];
+    for (const id of contactIds) {
+      if (results.length >= limit) break;
+      const contact = getContactInternal(id);
+      if (contact && (!params.role || contact.role === params.role)) {
+        results.push(contact);
+      }
+    }
+    return results;
+  }
+
+  // Search by display name and/or relationship, optionally filtered by channelType
   const conditions = [
     or(
       eq(contacts.assistantId, params.assistantId),
@@ -490,9 +521,30 @@ export function searchContacts(params: {
   if (params.role) {
     conditions.push(eq(contacts.role, params.role));
   }
+  if (params.channelType) {
+    conditions.push(eq(contactChannels.type, params.channelType));
+  }
 
   const whereClause =
     conditions.length > 1 ? and(...conditions) : conditions[0];
+
+  // Join with contactChannels when channelType is specified so the filter
+  // can reference the channel table; otherwise query contacts alone.
+  if (params.channelType) {
+    const rows = db
+      .select({ contactId: contacts.id })
+      .from(contacts)
+      .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
+      .where(whereClause)
+      .orderBy(desc(contacts.importance), desc(contacts.lastInteraction))
+      .limit(limit)
+      .all();
+
+    const contactIds = [...new Set(rows.map((r) => r.contactId))];
+    return contactIds
+      .map((id) => getContactInternal(id))
+      .filter((c): c is ContactWithChannels => c != null);
+  }
 
   const rows = db
     .select()

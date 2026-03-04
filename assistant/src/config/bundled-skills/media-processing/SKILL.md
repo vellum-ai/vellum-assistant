@@ -200,7 +200,7 @@ Be specific and factual. Describe what you see, not what you infer happened betw
 
 ### Clip Delivery
 
-The `generate_clip` tool automatically opens clips in the user's default video player after extraction. Clips are saved persistently in the asset's pipeline directory (`pipeline/<assetId>/clips/`). The `clipPath` field in the tool response contains the absolute file path.
+The `generate_clip` tool automatically opens clips in the user's default video player after extraction (handled internally — do **not** run `open` via `host_bash`). Clips are saved persistently in the asset's pipeline directory (`pipeline/<assetId>/clips/`), falling back to a temp directory when the source location is read-only. Each clip gets a unique filename so concurrent or repeated extractions at the same range never collide. The `clipPath` field in the tool response contains the absolute file path.
 
 The tool handles high-bitrate and incompatible codec sources automatically — it tries stream copy first for speed, then falls back to H.264 re-encoding if needed. **Always use `generate_clip` rather than manual ffmpeg commands.**
 

@@ -152,7 +152,7 @@ struct SettingsAdvancedDevTab: View {
                 }
             }
             Spacer()
-            VToggle(isOn: flagBinding, size: .medium)
+            VToggle(isOn: flagBinding)
                 .accessibilityLabel(flag.displayName)
         }
         .contentShape(Rectangle())
@@ -179,7 +179,7 @@ struct SettingsAdvancedDevTab: View {
                 }
             }
             Spacer()
-            VToggle(isOn: flagBinding, size: .medium)
+            VToggle(isOn: flagBinding)
                 .accessibilityLabel(entry.label)
         }
         .contentShape(Rectangle())

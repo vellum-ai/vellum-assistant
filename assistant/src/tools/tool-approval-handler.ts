@@ -4,6 +4,7 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
+import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -128,10 +129,6 @@ export async function waitForInlineGrant(
     "Inline grant wait timed out — no guardian decision within budget",
   );
   return { outcome: "timeout", requestId: escalationRequestId };
-}
-
-function isUntrustedTrustClass(role: ToolContext["trustClass"]): boolean {
-  return role === "trusted_contact" || role === "unknown";
 }
 
 function requiresGuardianApprovalForActor(

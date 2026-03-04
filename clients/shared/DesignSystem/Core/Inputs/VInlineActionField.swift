@@ -59,7 +59,7 @@ public struct VInlineActionField: View {
             inputField
                 .focused($fieldFocused)
                 .padding(.leading, VSpacing.md)
-                .padding(.vertical, VSpacing.md)
+                .padding(.vertical, VSpacing.xs)
                 .onSubmit {
                     if !isActionDisabled { action() }
                 }

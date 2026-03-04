@@ -1602,20 +1602,27 @@ struct MainWindowView: View {
                     }
                 }
                 .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VStack(alignment: .leading, spacing: 0) {
                         // Header
-                        Text("\(regularThreads.count) THREADS")
-                            .font(VFont.caption)
-                            .fontWeight(.medium)
+                        Text("\(regularThreads.count) threads")
+                            .font(VFont.body)
                             .foregroundColor(VColor.textMuted)
                             .padding(.horizontal, VSpacing.sm)
-                            .padding(.top, VSpacing.sm)
+                            .padding(.top, VSpacing.md)
+                            .padding(.bottom, VSpacing.sm)
+
+                        VColor.divider
+                            .frame(height: 1)
+                            .padding(.horizontal, VSpacing.xs)
 
                         // Thread list
                         ScrollView {
                             VStack(spacing: 0) {
                                 ForEach(regularThreads) { thread in
                                     threadItem(thread)
+                                        .simultaneousGesture(TapGesture().onEnded {
+                                            showThreadSwitcher = false
+                                        })
                                         .padding(.bottom, VSpacing.xxs)
                                         .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                             if sidebar.dropTargetThreadId == thread.id {
@@ -1650,10 +1657,22 @@ struct MainWindowView: View {
                         }
                         .frame(maxHeight: 300)
                     }
-                    .frame(width: 260)
+                    .frame(width: 220)
                     .padding(.bottom, VSpacing.sm)
+                    .background(VColor.background)
                     .onChange(of: threadManager.activeThreadId) { _, _ in
                         showThreadSwitcher = false
+                    }
+                    .onChange(of: showThreadSwitcher) { _, isShowing in
+                        if !isShowing {
+                            // Clean up hover/cursor state when popover dismisses —
+                            // onHover(false) may not fire if the view is removed.
+                            if sidebar.isHoveredThread != nil {
+                                sidebar.isHoveredThread = nil
+                                NSCursor.pop()
+                            }
+                            sidebar.threadPendingDeletion = nil
+                        }
                     }
                     .onChange(of: sidebar.isHoveredThread) { _, newValue in
                         if let pending = sidebar.threadPendingDeletion, newValue != pending {

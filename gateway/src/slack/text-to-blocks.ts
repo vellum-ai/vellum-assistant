@@ -11,6 +11,9 @@ import { type Block, BlockKitBuilder } from "./block-kit-builder.js";
 /** Slack mrkdwn text sections have a 3000-character limit. */
 const SLACK_MRKDWN_MAX_LENGTH = 3000;
 
+/** Slack rejects messages with more than 50 blocks. */
+const SLACK_BLOCK_LIMIT = 50;
+
 /**
  * Convert a markdown/plain-text string into an array of Block Kit blocks.
  *
@@ -48,7 +51,23 @@ export function textToBlocks(text: string): Block[] {
     }
   }
 
-  return builder.toBlocks();
+  const blocks = builder.toBlocks();
+
+  if (blocks.length > SLACK_BLOCK_LIMIT) {
+    const totalBlocks = blocks.length;
+    const truncationNote: Block = {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `_Content truncated — ${totalBlocks - (SLACK_BLOCK_LIMIT - 1)} blocks omitted due to Slack's ${SLACK_BLOCK_LIMIT}-block limit_`,
+        },
+      ],
+    };
+    return [...blocks.slice(0, SLACK_BLOCK_LIMIT - 1), truncationNote];
+  }
+
+  return blocks;
 }
 
 // ---------------------------------------------------------------------------

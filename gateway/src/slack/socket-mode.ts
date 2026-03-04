@@ -89,26 +89,41 @@ export class SlackSocketModeClient {
           user?: string;
           team?: string;
         };
-        if (data.ok) {
-          if (data.user_id) {
-            this.config.botUserId = data.user_id;
-          }
-          if (data.user) {
-            this.config.botUsername = data.user;
-          }
-          if (data.team) {
-            this.config.teamName = data.team;
-          }
-          log.info(
-            {
-              botUserId: data.user_id,
-              botUsername: data.user,
-              teamName: data.team,
-            },
-            "Resolved Slack bot identity",
+        if (!data.ok) {
+          throw new Error(
+            "Slack auth.test failed: bot token is invalid or expired",
           );
         }
+        if (data.user_id) {
+          this.config.botUserId = data.user_id;
+        }
+        if (data.user) {
+          this.config.botUsername = data.user;
+        }
+        if (data.team) {
+          this.config.teamName = data.team;
+        }
+        log.info(
+          {
+            botUserId: data.user_id,
+            botUsername: data.user,
+            teamName: data.team,
+          },
+          "Resolved Slack bot identity",
+        );
       } catch (err) {
+        // Explicit auth rejection (data.ok === false) is fatal — the bot
+        // token is invalid and retrying won't help.
+        const isAuthRejection =
+          err instanceof Error &&
+          err.message.includes("bot token is invalid or expired");
+        if (isAuthRejection) {
+          this.running = false;
+          this.stopDedupCleanup();
+          throw err;
+        }
+        // Transient fetch/network errors — warn and proceed to connect(),
+        // which has its own reconnect logic with backoff.
         log.warn({ err }, "Failed to resolve bot identity via auth.test");
       }
     }
@@ -300,8 +315,8 @@ export class SlackSocketModeClient {
 
     // Handle app_home_opened: publish the App Home view for the user
     const event = eventPayload.event;
-    if (event.type === "app_home_opened") {
-      const homeEvent = event as {
+    if ((event as { type: string }).type === "app_home_opened") {
+      const homeEvent = event as unknown as {
         type: "app_home_opened";
         user: string;
         tab?: string;

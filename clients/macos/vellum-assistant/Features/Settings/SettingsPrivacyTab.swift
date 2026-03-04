@@ -66,7 +66,7 @@ struct SettingsPrivacyTab: View {
                         collectUsageData = newValue
                         Task { await setCollectUsageData(newValue) }
                     }
-                ), size: .medium)
+                ))
                 .disabled(isLoading || isUpdating || daemonClient == nil)
             }
         }

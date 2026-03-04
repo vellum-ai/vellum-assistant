@@ -27,6 +27,12 @@ const USER_CACHE_MAX_SIZE = 500;
  */
 const userInfoCache = new Map<string, CacheEntry>();
 
+/**
+ * Deduplicates concurrent fetches for the same userId so only one
+ * API call is made even when multiple messages arrive simultaneously.
+ */
+const inFlightFetches = new Map<string, Promise<SlackUserInfo | undefined>>();
+
 function evictExpired(): void {
   const now = Date.now();
   for (const [key, entry] of userInfoCache) {
@@ -79,39 +85,52 @@ export async function resolveSlackUser(
   const cached = cacheGet(userId);
   if (cached) return cached;
 
-  try {
-    const resp = await fetchImpl(
-      `https://slack.com/api/users.info?user=${encodeURIComponent(userId)}`,
-      {
-        method: "GET",
-        headers: { Authorization: `Bearer ${botToken}` },
-      },
-    );
-    if (!resp.ok) return undefined;
+  // If another caller is already fetching this user, reuse that promise
+  const existing = inFlightFetches.get(userId);
+  if (existing) return existing;
 
-    const data = (await resp.json()) as {
-      ok?: boolean;
-      user?: {
-        name?: string;
-        real_name?: string;
-        profile?: { display_name?: string; real_name?: string };
+  const fetchPromise = (async (): Promise<SlackUserInfo | undefined> => {
+    try {
+      const resp = await fetchImpl(
+        `https://slack.com/api/users.info?user=${encodeURIComponent(userId)}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${botToken}` },
+        },
+      );
+      if (!resp.ok) return undefined;
+
+      const data = (await resp.json()) as {
+        ok?: boolean;
+        user?: {
+          name?: string;
+          real_name?: string;
+          profile?: { display_name?: string; real_name?: string };
+        };
       };
-    };
-    if (!data.ok || !data.user) return undefined;
+      if (!data.ok || !data.user) return undefined;
 
-    const displayName =
-      data.user.profile?.display_name ||
-      data.user.real_name ||
-      data.user.profile?.real_name ||
-      data.user.name ||
-      userId;
-    const username = data.user.name || userId;
+      const displayName =
+        data.user.profile?.display_name ||
+        data.user.real_name ||
+        data.user.profile?.real_name ||
+        data.user.name ||
+        userId;
+      const username = data.user.name || userId;
 
-    const info: SlackUserInfo = { displayName, username };
-    cacheSet(userId, info);
-    return info;
-  } catch {
-    return undefined;
+      const info: SlackUserInfo = { displayName, username };
+      cacheSet(userId, info);
+      return info;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  inFlightFetches.set(userId, fetchPromise);
+  try {
+    return await fetchPromise;
+  } finally {
+    inFlightFetches.delete(userId);
   }
 }
 
@@ -125,7 +144,7 @@ export function resolveSlackUserSync(
   botToken: string,
 ): SlackUserInfo | undefined {
   const cached = cacheGet(userId);
-  if (!cached) {
+  if (!cached && !inFlightFetches.has(userId)) {
     // Fire-and-forget: warm the cache for next time
     resolveSlackUser(userId, botToken).catch(() => {});
   }
@@ -135,6 +154,11 @@ export function resolveSlackUserSync(
 /** Exported for testing — clears the user info cache. */
 export function clearUserInfoCache(): void {
   userInfoCache.clear();
+}
+
+/** Exported for testing — clears the in-flight fetch map. */
+export function clearInFlightFetches(): void {
+  inFlightFetches.clear();
 }
 
 /** Exported for testing — returns current cache size. */

@@ -81,7 +81,7 @@ struct VoiceSettingsView: View {
                             selectActivator(.off)
                         }
                     }
-                ), size: .medium)
+                ))
                 .accessibilityLabel("Enable Push to Talk")
             }
 
@@ -298,7 +298,7 @@ struct VoiceSettingsView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 Spacer()
-                VToggle(isOn: $wakeWordEnabled, size: .medium)
+                VToggle(isOn: $wakeWordEnabled)
                     .accessibilityLabel("Enable wake word listening")
             }
 
@@ -419,8 +419,8 @@ struct VoiceSettingsView: View {
 
             if store.hasElevenLabsKey {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                    VButton(label: "Disconnect", style: .danger) {
                         store.clearElevenLabsKey()
                         elevenLabsKeyText = ""
                         ttsSetupExpanded = false
@@ -452,14 +452,14 @@ struct VoiceSettingsView: View {
                             elevenLabsKeyText = ""
                             ttsSetupExpanded = false
                         }
-                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                        VButton(label: "Cancel", style: .tertiary) {
                             ttsSetupExpanded = false
                             elevenLabsKeyText = ""
                         }
                     }
                 }
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .secondary) {
                     ttsSetupExpanded = true
                 }
             }

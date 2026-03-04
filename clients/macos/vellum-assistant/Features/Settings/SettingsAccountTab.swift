@@ -137,7 +137,7 @@ struct SettingsAccountTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else if authManager.currentUser != nil {
-                VButton(label: "Log Out", style: .danger, size: .medium) {
+                VButton(label: "Log Out", style: .danger) {
                     Task { await authManager.logout() }
                 }
             } else {
@@ -282,7 +282,7 @@ struct SettingsAccountTab: View {
                             set: { isOn in
                                 if isOn { switchToAssistant(assistant) }
                             }
-                        ), size: .medium)
+                        ))
                     }
                     .padding(.vertical, VSpacing.xs)
                     .contentShape(Rectangle())
@@ -328,7 +328,7 @@ struct SettingsAccountTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                 }
-                VButton(label: "Retire...", style: .danger, size: .medium) {
+                VButton(label: "Retire...", style: .danger) {
                     showingRetireConfirmation = true
                 }
             }
@@ -411,7 +411,7 @@ struct SettingsAccountTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    VButton(label: "Hatch...", style: .primary, size: .medium) {
+                    VButton(label: "Hatch...", style: .primary) {
                         AppDelegate.shared?.replayOnboarding()
                         onClose()
                     }

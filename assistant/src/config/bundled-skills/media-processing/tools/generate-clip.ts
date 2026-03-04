@@ -6,7 +6,9 @@
  * This is a generic media-processing primitive with no domain-specific logic.
  */
 
-import { mkdir, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { access, constants, mkdir, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { uploadFileBackedAttachment } from "../../../../memory/attachments-store.js";
@@ -132,13 +134,31 @@ export async function run(
 
   // Save clips to the asset's pipeline directory so they persist for
   // attachment delivery (tmpdir files get cleaned up before the sandbox
-  // attachment system can serve them).
-  const clipDir = join(dirname(asset.filePath), "pipeline", assetId, "clips");
-  await mkdir(clipDir, { recursive: true });
+  // attachment system can serve them). Fall back to a temp directory when the
+  // source directory is read-only (external mounts, protected folders, etc.).
+  const preferredDir = join(
+    dirname(asset.filePath),
+    "pipeline",
+    assetId,
+    "clips",
+  );
+  let clipDir: string;
+  try {
+    await mkdir(preferredDir, { recursive: true });
+    await access(preferredDir, constants.W_OK);
+    clipDir = preferredDir;
+  } catch {
+    clipDir = join(tmpdir(), "vellum-clips", assetId);
+    await mkdir(clipDir, { recursive: true });
+  }
 
+  // Include a short unique suffix to prevent filename collisions when
+  // concurrent or repeated calls target the same time range.
+  const timestampSuffix = `${formatTimestamp(startTime).replace(/:/g, "")}-${formatTimestamp(endTime).replace(/:/g, "")}`;
+  const uniqueSuffix = randomUUID().slice(0, 8);
   const clipFilename = title
-    ? `${sanitizeFilename(title)}.${outputFormat}`
-    : `clip-${formatTimestamp(startTime).replace(/:/g, "")}-${formatTimestamp(endTime).replace(/:/g, "")}.${outputFormat}`;
+    ? `${sanitizeFilename(title)}-${timestampSuffix}-${uniqueSuffix}.${outputFormat}`
+    : `clip-${timestampSuffix}-${uniqueSuffix}.${outputFormat}`;
   const clipPath = join(clipDir, clipFilename);
 
   try {

@@ -579,6 +579,7 @@ struct MessageListView: View {
                 hoverExitDebounceTask = nil
                 threadSwitchSuppressionTask?.cancel()
                 threadSwitchSuppressionTask = nil
+                suppressScrollbarDuringThreadSwitch = false
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
             }
