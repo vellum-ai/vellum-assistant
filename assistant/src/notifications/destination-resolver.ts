@@ -73,7 +73,10 @@ export function resolveDestinations(
       case "sms": {
         const guardianResult = findGuardianForChannel(channel);
         let binding: ReturnType<typeof getActiveBinding> = null;
-        if (guardianResult) {
+        // Only use the contacts path when the channel has a valid delivery
+        // endpoint. A partial contact record (active status but no
+        // externalChatId) should not block the legacy fallback.
+        if (guardianResult && guardianResult.channel.externalChatId) {
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
             endpoint: guardianResult.channel.externalChatId,
@@ -82,7 +85,7 @@ export function resolveDestinations(
             },
           });
         } else {
-          // Legacy fallback: contacts not yet synced
+          // Legacy fallback: contacts not yet synced or missing endpoint
           binding = getActiveBinding(assistantId, channel);
           if (binding) {
             result.set(channel as NotificationChannel, {
@@ -96,7 +99,7 @@ export function resolveDestinations(
         }
         log.debug('destination resolved', {
           channel,
-          source: guardianResult ? 'contacts' : 'legacy',
+          source: guardianResult?.channel.externalChatId ? 'contacts' : 'legacy',
           hasEndpoint: !!guardianResult?.channel.externalChatId || !!binding?.guardianDeliveryChatId,
         });
         break;

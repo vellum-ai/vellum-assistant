@@ -110,17 +110,22 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         channels.push(channel);
         break;
       case "telegram":
-      case "sms":
+      case "sms": {
         // A binding-based channel is connected when the guardian has an
-        // active channel entry of this type. Fall back to legacy binding
-        // check if contacts are not yet synced.
+        // active channel entry with a valid delivery endpoint. The
+        // externalChatId check ensures we don't report a channel as
+        // connected when the contacts record exists but lacks the
+        // delivery address the destination-resolver needs.
+        // Falls back to legacy binding check if contacts are not yet synced.
+        const guardian = findGuardianForChannel(channel);
         if (
-          findGuardianForChannel(channel) ||
+          (guardian && guardian.channel.externalChatId) ||
           getActiveBinding(assistantId, channel)
         ) {
           channels.push(channel);
         }
         break;
+      }
       default:
         // Future deliverable channels — skip until a connectivity check
         // is implemented for them.
