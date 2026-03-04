@@ -41,16 +41,16 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import {
+  findContactChannel,
+  findGuardianForChannel,
+} from "../contacts/contact-store.js";
+import {
+  createGuardianBindingContactsFirst,
+  revokeMemberContactsFirst,
+  upsertMemberContactsFirst,
+} from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import {
-  createBinding,
-  getActiveBinding,
-} from "../memory/guardian-bindings.js";
-import {
-  findMember,
-  revokeMember,
-  upsertMember,
-} from "../memory/ingress-member-store.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import {
   createOutboundSession,
@@ -120,8 +120,7 @@ describe("trusted contact verification → member activation", () => {
     }
 
     // Simulate the member upsert that inbound-message-handler performs on success
-    upsertMember({
-      assistantId: "self",
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "requester-user-123",
       externalChatId: "requester-chat-123",
@@ -132,26 +131,22 @@ describe("trusted contact verification → member activation", () => {
     });
 
     // Verify: active member record exists
-    const member = findMember({
-      assistantId: "self",
-      sourceChannel: "telegram",
+    const contactResult = findContactChannel({
+      channelType: "telegram",
       externalUserId: "requester-user-123",
     });
 
-    expect(member).not.toBeNull();
-    expect(member!.status).toBe("active");
-    expect(member!.policy).toBe("allow");
-    expect(member!.externalUserId).toBe("requester-user-123");
-    expect(member!.externalChatId).toBe("requester-chat-123");
-    expect(member!.displayName).toBe("Requester Name");
-    expect(member!.username).toBe("requester_username");
-    expect(member!.assistantId).toBe("self");
-    expect(member!.sourceChannel).toBe("telegram");
+    expect(contactResult).not.toBeNull();
+    expect(contactResult!.channel.status).toBe("active");
+    expect(contactResult!.channel.policy).toBe("allow");
+    expect(contactResult!.channel.externalUserId).toBe("requester-user-123");
+    expect(contactResult!.channel.externalChatId).toBe("requester-chat-123");
+    expect(contactResult!.contact.displayName).toBe("Requester Name");
+    expect(contactResult!.channel.type).toBe("telegram");
   });
 
   test("resolveActorTrust surfaces member displayName when sender displayName is missing", () => {
-    upsertMember({
-      assistantId: "self",
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "requester-user-jeff",
       externalChatId: "requester-chat-jeff",
@@ -179,8 +174,7 @@ describe("trusted contact verification → member activation", () => {
   });
 
   test("resolveActorTrust prioritizes member displayName over sender displayName", () => {
-    upsertMember({
-      assistantId: "self",
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "requester-user-jeff-priority",
       externalChatId: "requester-chat-jeff-priority",
@@ -213,8 +207,7 @@ describe("trusted contact verification → member activation", () => {
   test("resolveActorTrust falls back to sender metadata when member record matches chat but not sender (group chat)", () => {
     // Simulate a group chat: member record exists for a different user who
     // shares the same externalChatId (e.g., Telegram group).
-    upsertMember({
-      assistantId: "self",
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "other-user-in-group",
       externalChatId: "shared-group-chat",
@@ -266,8 +259,7 @@ describe("trusted contact verification → member activation", () => {
     );
 
     // Simulate member upsert on verification success
-    upsertMember({
-      assistantId: "self",
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "requester-chat-456",
@@ -276,16 +268,14 @@ describe("trusted contact verification → member activation", () => {
     });
 
     // Simulate the ACL check that inbound-message-handler performs
-    const member = findMember({
-      assistantId: "self",
-      sourceChannel: "telegram",
+    const contactResult = findContactChannel({
+      channelType: "telegram",
       externalUserId: "requester-user-456",
-      externalChatId: "requester-chat-456",
     });
 
-    expect(member).not.toBeNull();
-    expect(member!.status).toBe("active");
-    expect(member!.policy).toBe("allow");
+    expect(contactResult).not.toBeNull();
+    expect(contactResult!.channel.status).toBe("active");
+    expect(contactResult!.channel.policy).toBe("allow");
     // ACL check passes: member exists, is active, and has allow policy
   });
 
@@ -309,8 +299,7 @@ describe("trusted contact verification → member activation", () => {
       "chat-cross-test",
     );
 
-    upsertMember({
-      assistantId: "self",
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "user-cross-test",
       externalChatId: "chat-cross-test",
@@ -318,28 +307,25 @@ describe("trusted contact verification → member activation", () => {
       policy: "allow",
     });
 
-    // Member should be found for 'self'
-    const selfMember = findMember({
-      assistantId: "self",
-      sourceChannel: "telegram",
+    // Member should be found via contacts
+    const contactResult = findContactChannel({
+      channelType: "telegram",
       externalUserId: "user-cross-test",
     });
-    expect(selfMember).not.toBeNull();
-    expect(selfMember!.status).toBe("active");
+    expect(contactResult).not.toBeNull();
+    expect(contactResult!.channel.status).toBe("active");
 
-    // Member should NOT be found for a different assistant
-    const otherMember = findMember({
-      assistantId: "other-assistant",
-      sourceChannel: "telegram",
+    // Member should NOT be found for a different channel type
+    const otherChannel = findContactChannel({
+      channelType: "slack",
       externalUserId: "user-cross-test",
     });
-    expect(otherMember).toBeNull();
+    expect(otherChannel).toBeNull();
   });
 
   test("re-verification of previously revoked member reactivates them", () => {
     // Create and activate a member
-    const member = upsertMember({
-      assistantId: "self",
+    const member = upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "user-revoked",
       externalChatId: "chat-revoked",
@@ -349,18 +335,17 @@ describe("trusted contact verification → member activation", () => {
     });
 
     // Revoke the member
-    const revoked = revokeMember(member.id, "testing revocation");
+    const revoked = revokeMemberContactsFirst(member.id, "testing revocation");
     expect(revoked).not.toBeNull();
     expect(revoked!.status).toBe("revoked");
 
     // Verify the member is indeed revoked (ACL would reject)
-    const revokedMember = findMember({
-      assistantId: "self",
-      sourceChannel: "telegram",
+    const revokedResult = findContactChannel({
+      channelType: "telegram",
       externalUserId: "user-revoked",
     });
-    expect(revokedMember).not.toBeNull();
-    expect(revokedMember!.status).toBe("revoked");
+    expect(revokedResult).not.toBeNull();
+    expect(revokedResult!.channel.status).toBe("revoked");
 
     // Guardian re-approves, new outbound session created
     const session = createOutboundSession({
@@ -386,9 +371,8 @@ describe("trusted contact verification → member activation", () => {
       expect(result.verificationType).toBe("trusted_contact");
     }
 
-    // upsertMember reactivates the existing record
-    upsertMember({
-      assistantId: "self",
+    // upsertMemberContactsFirst reactivates the existing record
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "user-revoked",
       externalChatId: "chat-revoked",
@@ -397,19 +381,18 @@ describe("trusted contact verification → member activation", () => {
     });
 
     // Verify: member is now active again
-    const reactivated = findMember({
-      assistantId: "self",
-      sourceChannel: "telegram",
+    const reactivatedResult = findContactChannel({
+      channelType: "telegram",
       externalUserId: "user-revoked",
     });
-    expect(reactivated).not.toBeNull();
-    expect(reactivated!.status).toBe("active");
-    expect(reactivated!.policy).toBe("allow");
+    expect(reactivatedResult).not.toBeNull();
+    expect(reactivatedResult!.channel.status).toBe("active");
+    expect(reactivatedResult!.channel.policy).toBe("allow");
   });
 
   test("trusted contact verification does NOT create a guardian binding", () => {
     // Ensure there's an existing guardian binding we want to preserve
-    createBinding({
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-original",
@@ -446,9 +429,11 @@ describe("trusted contact verification → member activation", () => {
     }
 
     // The original guardian binding should remain intact
-    const binding = getActiveBinding("self", "telegram");
-    expect(binding).not.toBeNull();
-    expect(binding!.guardianExternalUserId).toBe("guardian-user-original");
+    const guardianResult = findGuardianForChannel("telegram");
+    expect(guardianResult).not.toBeNull();
+    expect(guardianResult!.channel.externalUserId).toBe(
+      "guardian-user-original",
+    );
   });
 
   test("guardian inbound verification still creates binding (backward compat)", async () => {
@@ -471,9 +456,9 @@ describe("trusted contact verification → member activation", () => {
       expect(result.bindingId).toBeDefined();
     }
 
-    // Guardian binding should be created
-    const binding = getActiveBinding("self", "telegram");
-    expect(binding).not.toBeNull();
-    expect(binding!.guardianExternalUserId).toBe("guardian-user");
+    // Guardian binding should be created (in contacts table)
+    const guardianResult = findGuardianForChannel("telegram");
+    expect(guardianResult).not.toBeNull();
+    expect(guardianResult!.channel.externalUserId).toBe("guardian-user");
   });
 });

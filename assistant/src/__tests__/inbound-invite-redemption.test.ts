@@ -87,9 +87,12 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
+import { findContactChannel } from "../contacts/contact-store.js";
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
+import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/ingress-invite-store.js";
-import { findMember, upsertMember } from "../memory/ingress-member-store.js";
+import { findMember } from "../memory/ingress-member-store.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
@@ -119,6 +122,8 @@ function resetState(): void {
   db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM notification_events");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
   msgCounter = 0;
@@ -191,7 +196,8 @@ describe("inbound invite redemption intercept", () => {
     expect(json.memberId).toEqual(expect.any(String));
     expect(json.denied).toBeUndefined();
 
-    // Verify the user is now an active member
+    // Verify the user is now an active member (invite redemption for new
+    // members writes to the legacy table via storeRedeemInvite)
     const member = findMember({
       assistantId: "self",
       sourceChannel: "telegram",
@@ -332,7 +338,7 @@ describe("inbound invite redemption intercept", () => {
 
   test("existing active member sending normal message is unaffected", async () => {
     // Pre-create an active member
-    upsertMember({
+    upsertMemberContactsFirst({
       assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "user-active-member",
@@ -382,7 +388,7 @@ describe("inbound invite redemption intercept", () => {
     });
 
     // Pre-create an active member that will click the invite link
-    upsertMember({
+    upsertMemberContactsFirst({
       assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "user-already-active",
@@ -409,7 +415,7 @@ describe("inbound invite redemption intercept", () => {
       maxUses: 5,
     });
 
-    upsertMember({
+    upsertMemberContactsFirst({
       assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "user-invite-123",
@@ -428,14 +434,17 @@ describe("inbound invite redemption intercept", () => {
     expect(json.accepted).toBe(true);
     expect(json.inviteRedemption).toBe("redeemed");
 
-    const member = findMember({
-      assistantId: "self",
-      sourceChannel: "telegram",
+    const contactResult = findContactChannel({
+      channelType: "telegram",
       externalUserId: "user-invite-123",
       externalChatId: "chat-invite-test",
     });
-    expect(member).not.toBeNull();
-    expect(member!.status).toBe("active");
-    expect(member!.displayName).toBe("Jeff");
+    expect(contactResult).not.toBeNull();
+    const member = contactChannelToMemberRecord(
+      contactResult!.contact,
+      contactResult!.channel,
+    );
+    expect(member.status).toBe("active");
+    expect(contactResult!.contact.displayName).toBe("Jeff");
   });
 });
