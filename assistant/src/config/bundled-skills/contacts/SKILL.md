@@ -105,18 +105,19 @@ Trusted contacts control who is allowed to send messages to the assistant throug
 Use this to show the user who currently has access, or to look up a specific contact.
 
 ```bash
-vellum integrations ingress members --json
+vellum contacts list --json
 ```
 
 Optional query parameters for filtering:
 
 - `--role <role>` -- filter by role (default: `contact`; use `guardian` to list guardians)
 - `--limit <limit>` -- maximum number of contacts to return
+- `--query <query>` -- search query to filter contacts
 
 Example:
 
 ```bash
-vellum integrations ingress members --role contact --json
+vellum contacts list --role contact --json
 ```
 
 The response contains `{ ok: true, contacts: [...] }` where each contact has:
@@ -343,13 +344,13 @@ If the user provides a phone number without the `+` country code prefix, ask the
 Use this to show the guardian their active (and optionally all) invite links.
 
 ```bash
-vellum integrations ingress invites --source-channel telegram --json
+vellum contacts invites --source-channel telegram --json
 ```
 
 For voice invites:
 
 ```bash
-vellum integrations ingress invites --source-channel voice --json
+vellum contacts invites --source-channel voice --json
 ```
 
 Optional query parameters:
