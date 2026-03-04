@@ -1,4 +1,4 @@
-export type IngressControlPlaneRoute =
+export type ContactsControlPlaneRoute =
   | { kind: "listContacts" }
   | { kind: "upsertContact" }
   | { kind: "getContact"; contactId: string }
@@ -9,10 +9,10 @@ export type IngressControlPlaneRoute =
   | { kind: "redeemInvite" }
   | { kind: "revokeInvite"; inviteId: string };
 
-export function matchIngressControlPlaneRoute(
+export function matchContactsControlPlaneRoute(
   pathname: string,
   method: string,
-): IngressControlPlaneRoute | null {
+): ContactsControlPlaneRoute | null {
   // ── Contact CRUD ──
   if (pathname === "/v1/contacts") {
     if (method === "GET") return { kind: "listContacts" };
