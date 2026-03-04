@@ -129,28 +129,6 @@ export function createApprovalRequest(params: {
   return rowToApprovalRequest(row);
 }
 
-/** @deprecated Prefer `getPendingApprovalForRequest()` — runId-based lookup will be removed once all rows have requestId populated. */
-export function getPendingApprovalForRun(
-  runId: string,
-): GuardianApprovalRequest | null {
-  const db = getDb();
-  const now = Date.now();
-
-  const row = db
-    .select()
-    .from(channelGuardianApprovalRequests)
-    .where(
-      and(
-        eq(channelGuardianApprovalRequests.runId, runId),
-        eq(channelGuardianApprovalRequests.status, "pending"),
-        gt(channelGuardianApprovalRequests.expiresAt, now),
-      ),
-    )
-    .get();
-
-  return row ? rowToApprovalRequest(row) : null;
-}
-
 export function getPendingApprovalForRequest(
   requestId: string,
 ): GuardianApprovalRequest | null {
@@ -165,33 +143,6 @@ export function getPendingApprovalForRequest(
         eq(channelGuardianApprovalRequests.requestId, requestId),
         eq(channelGuardianApprovalRequests.status, "pending"),
         gt(channelGuardianApprovalRequests.expiresAt, now),
-      ),
-    )
-    .get();
-
-  return row ? rowToApprovalRequest(row) : null;
-}
-
-/**
- * Find a pending (status = 'pending') guardian approval request for a run
- * regardless of whether it has expired. Used by the non-guardian gate to
- * detect expired-but-unresolved approvals that should still block the
- * requester from self-approving.
- *
- * @deprecated Prefer `getUnresolvedApprovalForRequest()` — runId-based lookup will be removed once all rows have requestId populated.
- */
-export function getUnresolvedApprovalForRun(
-  runId: string,
-): GuardianApprovalRequest | null {
-  const db = getDb();
-
-  const row = db
-    .select()
-    .from(channelGuardianApprovalRequests)
-    .where(
-      and(
-        eq(channelGuardianApprovalRequests.runId, runId),
-        eq(channelGuardianApprovalRequests.status, "pending"),
       ),
     )
     .get();
@@ -250,46 +201,6 @@ export function getPendingApprovalByGuardianChat(
     .from(channelGuardianApprovalRequests)
     .where(and(...conditions))
     .orderBy(desc(channelGuardianApprovalRequests.createdAt))
-    .get();
-
-  return row ? rowToApprovalRequest(row) : null;
-}
-
-/**
- * Find a pending guardian approval request scoped to a specific run,
- * guardian chat, and channel. Used when a callback button provides a run ID,
- * so the decision is applied to exactly the right approval even when
- * multiple approvals target the same guardian chat.
- *
- * When `assistantId` is provided, the lookup is further scoped to that
- * assistant to prevent cross-assistant approval consumption.
- */
-export function getPendingApprovalByRunAndGuardianChat(
-  runId: string,
-  channel: string,
-  guardianChatId: string,
-  assistantId?: string,
-): GuardianApprovalRequest | null {
-  const db = getDb();
-  const now = Date.now();
-
-  const conditions = [
-    eq(channelGuardianApprovalRequests.runId, runId),
-    eq(channelGuardianApprovalRequests.channel, channel),
-    eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-    eq(channelGuardianApprovalRequests.status, "pending"),
-    gt(channelGuardianApprovalRequests.expiresAt, now),
-  ];
-  if (assistantId) {
-    conditions.push(
-      eq(channelGuardianApprovalRequests.assistantId, assistantId),
-    );
-  }
-
-  const row = db
-    .select()
-    .from(channelGuardianApprovalRequests)
-    .where(and(...conditions))
     .get();
 
   return row ? rowToApprovalRequest(row) : null;
@@ -476,25 +387,6 @@ export function getApprovalRequestById(
     .select()
     .from(channelGuardianApprovalRequests)
     .where(eq(channelGuardianApprovalRequests.id, id))
-    .get();
-
-  return row ? rowToApprovalRequest(row) : null;
-}
-
-/**
- * Fetch a single approval request by run ID (any status).
- * Useful for checking whether a run has an associated approval request.
- */
-export function getApprovalRequestByRunId(
-  runId: string,
-): GuardianApprovalRequest | null {
-  const db = getDb();
-
-  const row = db
-    .select()
-    .from(channelGuardianApprovalRequests)
-    .where(eq(channelGuardianApprovalRequests.runId, runId))
-    .orderBy(desc(channelGuardianApprovalRequests.createdAt))
     .get();
 
   return row ? rowToApprovalRequest(row) : null;
