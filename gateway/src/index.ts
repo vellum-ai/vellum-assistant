@@ -374,6 +374,33 @@ function main() {
         ingressControlPlaneProxy.handleRevokeInvite(req, params[0]),
     },
 
+    // ── Contacts/invites aliases (canonical paths) ──
+    {
+      path: "/v1/contacts/invites",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleListInvites(req),
+    },
+    {
+      path: "/v1/contacts/invites",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleCreateInvite(req),
+    },
+    {
+      path: "/v1/contacts/invites/redeem",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleRedeemInvite(req),
+    },
+    {
+      path: /^\/v1\/contacts\/invites\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) =>
+        ingressControlPlaneProxy.handleRevokeInvite(req, params[0]),
+    },
+
     // ── Guardian control plane ──
     {
       path: "/v1/integrations/guardian/vellum/bootstrap",

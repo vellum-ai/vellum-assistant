@@ -98,15 +98,15 @@ export function createIngressControlPlaneProxyHandler(config: GatewayConfig) {
   return {
     async handleListInvites(req: Request): Promise<Response> {
       const url = new URL(req.url);
-      return proxyToRuntime(req, "/v1/ingress/invites", url.search);
+      return proxyToRuntime(req, "/v1/contacts/invites", url.search);
     },
 
     async handleCreateInvite(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/ingress/invites", "");
+      return proxyToRuntime(req, "/v1/contacts/invites", "");
     },
 
     async handleRedeemInvite(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/ingress/invites/redeem", "");
+      return proxyToRuntime(req, "/v1/contacts/invites/redeem", "");
     },
 
     async handleRevokeInvite(
@@ -114,7 +114,7 @@ export function createIngressControlPlaneProxyHandler(config: GatewayConfig) {
       inviteId: string,
     ): Promise<Response> {
       const encoded = encodeURIComponent(inviteId);
-      return proxyToRuntime(req, `/v1/ingress/invites/${encoded}`, "");
+      return proxyToRuntime(req, `/v1/contacts/invites/${encoded}`, "");
     },
   };
 }
