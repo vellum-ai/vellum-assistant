@@ -10,7 +10,11 @@ struct SettingsSnapshot {
     let hasBraveKey: Bool
     let hasPerplexityKey: Bool
     let hasElevenLabsKey: Bool
+    let hasImageGenKey: Bool
+    let hasVercelKey: Bool
     let userTimezone: String?
+    let maxSteps: Double
+    let mediaEmbedsEnabled: Bool
 
     init(store: SettingsStore) {
         model = store.selectedModel
@@ -21,13 +25,17 @@ struct SettingsSnapshot {
         hasBraveKey = store.hasBraveKey
         hasPerplexityKey = store.hasPerplexityKey
         hasElevenLabsKey = store.hasElevenLabsKey
+        hasImageGenKey = store.hasImageGenKey
+        hasVercelKey = store.hasVercelKey
         userTimezone = store.userTimezone
+        maxSteps = store.maxSteps
+        mediaEmbedsEnabled = store.mediaEmbedsEnabled
     }
 }
 
 struct SettingsChange {
     let description: String
-    let suggestedPrompt: String
+    let chatInstruction: String
 }
 
 struct SettingsChangeDetector {
@@ -37,56 +45,80 @@ struct SettingsChangeDetector {
         if before.model != after.model {
             let displayName = SettingsStore.modelDisplayNames[after.model] ?? after.model
             changes.append(SettingsChange(
-                description: "AI model changed to \(displayName)",
-                suggestedPrompt: "What can you help me with using \(displayName)?"
-            ))
-        }
-        if !before.hasTelegram && after.hasTelegram {
-            changes.append(SettingsChange(
-                description: "Telegram connected",
-                suggestedPrompt: "Send me a message on Telegram"
-            ))
-        }
-        if !before.hasTwitter && after.hasTwitter {
-            changes.append(SettingsChange(
-                description: "Twitter/X connected",
-                suggestedPrompt: "Post a tweet saying..."
-            ))
-        }
-        if !before.hasTwilio && after.hasTwilio {
-            changes.append(SettingsChange(
-                description: "SMS set up",
-                suggestedPrompt: "Text me when this task is done"
-            ))
-        }
-        if !before.hasSlack && after.hasSlack {
-            changes.append(SettingsChange(
-                description: "Slack connected",
-                suggestedPrompt: "Send a Slack message to #general"
-            ))
-        }
-        if !before.hasBraveKey && after.hasBraveKey {
-            changes.append(SettingsChange(
-                description: "Brave Search API key added",
-                suggestedPrompt: "Search the web for..."
-            ))
-        }
-        if !before.hasPerplexityKey && after.hasPerplexityKey {
-            changes.append(SettingsChange(
-                description: "Perplexity API key added",
-                suggestedPrompt: "Use Perplexity to research..."
-            ))
-        }
-        if !before.hasElevenLabsKey && after.hasElevenLabsKey {
-            changes.append(SettingsChange(
-                description: "ElevenLabs API key added",
-                suggestedPrompt: "Generate speech saying..."
+                description: "switched AI model to \(displayName)",
+                chatInstruction: "switch to \(displayName)"
             ))
         }
         if before.userTimezone != after.userTimezone, let tz = after.userTimezone {
             changes.append(SettingsChange(
-                description: "Timezone set to \(tz)",
-                suggestedPrompt: "Schedule a reminder for 3pm"
+                description: "set timezone to \(tz)",
+                chatInstruction: "set my timezone to \(tz)"
+            ))
+        }
+        if before.maxSteps != after.maxSteps {
+            changes.append(SettingsChange(
+                description: "changed max steps to \(Int(after.maxSteps))",
+                chatInstruction: "set max steps to \(Int(after.maxSteps))"
+            ))
+        }
+        if !before.mediaEmbedsEnabled && after.mediaEmbedsEnabled {
+            changes.append(SettingsChange(
+                description: "enabled media embeds",
+                chatInstruction: "enable media embeds"
+            ))
+        }
+        if !before.hasTelegram && after.hasTelegram {
+            changes.append(SettingsChange(
+                description: "connected Telegram",
+                chatInstruction: "send me a message on Telegram"
+            ))
+        }
+        if !before.hasTwitter && after.hasTwitter {
+            changes.append(SettingsChange(
+                description: "connected Twitter/X",
+                chatInstruction: "post a tweet for me"
+            ))
+        }
+        if !before.hasTwilio && after.hasTwilio {
+            changes.append(SettingsChange(
+                description: "set up SMS",
+                chatInstruction: "text me when this task is done"
+            ))
+        }
+        if !before.hasSlack && after.hasSlack {
+            changes.append(SettingsChange(
+                description: "connected Slack",
+                chatInstruction: "send a Slack message to #general"
+            ))
+        }
+        if !before.hasBraveKey && after.hasBraveKey {
+            changes.append(SettingsChange(
+                description: "added Brave Search API key",
+                chatInstruction: "search the web for..."
+            ))
+        }
+        if !before.hasPerplexityKey && after.hasPerplexityKey {
+            changes.append(SettingsChange(
+                description: "added Perplexity API key",
+                chatInstruction: "use Perplexity to research..."
+            ))
+        }
+        if !before.hasElevenLabsKey && after.hasElevenLabsKey {
+            changes.append(SettingsChange(
+                description: "added ElevenLabs API key",
+                chatInstruction: "generate speech saying..."
+            ))
+        }
+        if !before.hasImageGenKey && after.hasImageGenKey {
+            changes.append(SettingsChange(
+                description: "added image generation key",
+                chatInstruction: "generate an image of..."
+            ))
+        }
+        if !before.hasVercelKey && after.hasVercelKey {
+            changes.append(SettingsChange(
+                description: "added Vercel API key",
+                chatInstruction: "deploy my project to Vercel"
             ))
         }
 
@@ -95,11 +127,11 @@ struct SettingsChangeDetector {
 
     static func buildNudgeMessage(changes: [SettingsChange]) -> String {
         guard !changes.isEmpty else { return "" }
-        var lines = ["I see you made some changes \u{2728}"]
+        var lines = ["I noticed you updated some settings — you can ask me to make changes like these directly next time:"]
         for change in changes {
-            lines.append("\u{2022} \(change.description) \u{2014} try: \"\(change.suggestedPrompt)\"")
+            lines.append("\u{2022} You \(change.description) — just ask: \"\(change.chatInstruction)\"")
         }
-        lines.append("\nFeel free to just ask me!")
+        lines.append("\nNo need to open settings!")
         return lines.joined(separator: "\n")
     }
 }
