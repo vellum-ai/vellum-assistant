@@ -72,14 +72,10 @@ struct AssistantProgressView: View {
             return .toolRunning
         }
 
-        // All tools done and streaming with text already visible — user sees the response,
-        // so treat this as settled rather than showing a spinner.
-        if allComplete && isStreaming && hasText {
-            return .complete
-        }
-
-        // All tools done but still streaming with no text yet
-        if allComplete && isStreaming && !hasText {
+        // All tools done but message still streaming — more tools may come.
+        // Show active state (pulsing dot) rather than "Completed N steps" which
+        // is premature. The green checkmark only shows when the message is truly done.
+        if allComplete && isStreaming {
             return .toolsCompleteThinking
         }
 
