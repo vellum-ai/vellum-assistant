@@ -639,9 +639,11 @@ export function contentBlocksToDrafts(
       const data = src.data;
       const mimeType = src.media_type;
       const ext = mimeType.split("/")[1] ?? "png";
+      const title = typeof b._title === "string" ? b._title : undefined;
+      const prefix = title || toolNameToFilePrefix(toolName);
       drafts.push({
         sourceType: "tool_block",
-        filename: `${toolNameToFilePrefix(toolName)}.${ext}`,
+        filename: `${prefix}.${ext}`,
         mimeType,
         dataBase64: data,
         sizeBytes: estimateBase64Bytes(data),
