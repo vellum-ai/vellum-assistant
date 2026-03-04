@@ -820,7 +820,7 @@ public final class ChatViewModel: ObservableObject {
                 // so the UI catches up on anything that happened during the gap.
                 // Debounce: cancel any pending reconnect task and wait 500ms
                 // to coalesce rapid-fire reconnect notifications into one load.
-                if self?.isThinking == true || self?.isSending == true {
+                if self?.isThinking == true || self?.isSending == true || self?.currentAssistantMessageId != nil {
                     self?.isThinking = false
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
