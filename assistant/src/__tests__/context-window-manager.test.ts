@@ -517,7 +517,7 @@ describe("ContextWindowManager", () => {
       "system prompt",
       makeConfig({
         maxInputTokens: 260,
-        targetInputTokens: 180,
+        targetInputTokens: 60,
         preserveRecentUserTurns: 2,
       }),
     );
