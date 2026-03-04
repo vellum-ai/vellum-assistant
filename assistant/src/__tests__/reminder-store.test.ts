@@ -1,3 +1,10 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const testDir = mkdtempSync(join(tmpdir(), "reminder-store-test-"));
+process.env.BASE_DATA_DIR = testDir;
+
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
@@ -21,6 +28,7 @@ function clearReminders() {
 
 afterAll(() => {
   resetDb();
+  rmSync(testDir, { recursive: true, force: true });
 });
 
 describe("reminder-store", () => {
