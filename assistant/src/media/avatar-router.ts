@@ -41,7 +41,8 @@ async function generateLocal(
   prompt: string,
   correlationId?: string,
 ): Promise<AvatarGenerationResult> {
-  const geminiKey = getConfig().apiKeys.gemini ?? process.env.GEMINI_API_KEY;
+  const config = getConfig();
+  const geminiKey = config.apiKeys.gemini ?? process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     throw new ConfigError(
       "Gemini API key is not configured. Set it via `config set apiKeys.gemini <key>` or the GEMINI_API_KEY environment variable.",
@@ -51,6 +52,7 @@ async function generateLocal(
   const result = await generateImage(geminiKey, {
     prompt,
     mode: "generate",
+    model: config.imageGenModel,
   });
 
   const image = result.images[0];
