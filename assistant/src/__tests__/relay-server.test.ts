@@ -59,6 +59,13 @@ mock.module("../daemon/identity-helpers.js", () => ({
   getAssistantName: () => mockAssistantName,
 }));
 
+// ── User-reference mock (isolate from real USER.md) ──────────────────
+
+mock.module("../config/user-reference.js", () => ({
+  resolveUserReference: () => "my human",
+  resolveUserPronouns: () => null,
+}));
+
 // ── Config mock ─────────────────────────────────────────────────────
 
 const mockConfig = {
@@ -259,6 +266,8 @@ function resetTables() {
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM canonical_guardian_deliveries");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
   ensuredConvIds = new Set();
 }
 
@@ -2328,15 +2337,16 @@ describe("relay-server", () => {
     // Should have transitioned to awaiting guardian decision
     expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Should have sent the hold message (guardian label defaults to "my human")
+    // Should have sent the hold message with guardian label and hold instruction.
+    // After the access request self-heals a vellum binding, the guardian label
+    // resolves to the vellum principal's display name rather than the static
+    // "my human" fallback, so we check structural copy without a specific label.
     const textMessages = ws.sentMessages
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) =>
-        (m.token ?? "").includes("I've let my human know"),
-      ),
-    ).toBe(true);
+    expect(textMessages.some((m) => (m.token ?? "").includes("I've let"))).toBe(
+      true,
+    );
     expect(
       textMessages.some((m) => (m.token ?? "").includes("Please hold")),
     ).toBe(true);

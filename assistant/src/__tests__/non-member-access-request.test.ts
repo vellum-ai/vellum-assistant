@@ -128,6 +128,8 @@ function resetState(): void {
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM canonical_guardian_deliveries");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
   mockEmitResult = {

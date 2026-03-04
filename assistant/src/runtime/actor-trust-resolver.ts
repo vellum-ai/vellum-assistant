@@ -269,11 +269,14 @@ export function resolveActorTrust(
     }
   }
 
-  log.debug("trust-resolver guardian lookup", {
-    channel: input.sourceChannel,
-    source: guardianResult ? "contacts" : "legacy",
-    found: !!guardianBindingMatch,
-  });
+  log.debug(
+    {
+      channel: input.sourceChannel,
+      source: guardianResult ? "contacts" : "legacy",
+      found: !!guardianBindingMatch,
+    },
+    "trust-resolver guardian lookup",
+  );
 
   // --- Member lookup: contacts-first, legacy fallback ---
   let memberRecord: IngressMember | null = null;
@@ -308,12 +311,15 @@ export function resolveActorTrust(
     });
   }
 
-  log.debug("trust-resolver member lookup", {
-    channel: input.sourceChannel,
-    canonicalSenderId,
-    source: contactMatch ? "contacts" : "legacy",
-    found: !!memberRecord,
-  });
+  log.debug(
+    {
+      channel: input.sourceChannel,
+      canonicalSenderId,
+      source: contactMatch ? "contacts" : "legacy",
+      found: !!memberRecord,
+    },
+    "trust-resolver member lookup",
+  );
 
   // In group chats, findMember may match on externalChatId and return a
   // record for a different user. Only use member metadata when the record's

@@ -100,6 +100,8 @@ function resetTables(): void {
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM assistant_ingress_members");
   db.run("DELETE FROM external_conversation_bindings");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

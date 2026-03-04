@@ -14,31 +14,37 @@
  *   4. No guardian identity (trusted/vellum-only resolution path).
  */
 
-import type { ChannelId } from '../channels/types.js';
-import { findGuardianForChannel, listGuardianChannels } from '../contacts/contact-store.js';
+import type { ChannelId } from "../channels/types.js";
+import {
+  findGuardianForChannel,
+  listGuardianChannels,
+} from "../contacts/contact-store.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   updateCanonicalGuardianDelivery,
-} from '../memory/canonical-guardian-store.js';
-import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
-import type { MemberStatus } from '../memory/ingress-member-store.js';
-import { emitNotificationSignal } from '../notifications/emit-signal.js';
-import type { NotificationDeliveryResult } from '../notifications/types.js';
-import { getLogger } from '../util/logger.js';
-import { getGuardianBinding } from './channel-guardian-service.js';
-import { ensureVellumGuardianBinding } from './guardian-vellum-migration.js';
-import { GUARDIAN_APPROVAL_TTL_MS } from './routes/channel-route-shared.js';
+} from "../memory/canonical-guardian-store.js";
+import { listActiveBindingsByAssistant } from "../memory/channel-guardian-store.js";
+import type { MemberStatus } from "../memory/ingress-member-store.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { NotificationDeliveryResult } from "../notifications/types.js";
+import { getLogger } from "../util/logger.js";
+import { getGuardianBinding } from "./channel-guardian-service.js";
+import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
+import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
-const log = getLogger('access-request-helper');
+const log = getLogger("access-request-helper");
 
-function applyDeliveryStatus(deliveryId: string, result: NotificationDeliveryResult): void {
-  if (result.status === 'sent') {
-    updateCanonicalGuardianDelivery(deliveryId, { status: 'sent' });
+function applyDeliveryStatus(
+  deliveryId: string,
+  result: NotificationDeliveryResult,
+): void {
+  if (result.status === "sent") {
+    updateCanonicalGuardianDelivery(deliveryId, { status: "sent" });
     return;
   }
-  updateCanonicalGuardianDelivery(deliveryId, { status: 'failed' });
+  updateCanonicalGuardianDelivery(deliveryId, { status: "failed" });
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +63,7 @@ export interface AccessRequestParams {
 
 export type AccessRequestResult =
   | { notified: true; created: boolean; requestId: string }
-  | { notified: false; reason: 'no_sender_id' };
+  | { notified: false; reason: "no_sender_id" };
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -91,7 +97,7 @@ export function notifyGuardianOfAccessRequest(
   } = params;
 
   if (!actorExternalId) {
-    return { notified: false, reason: 'no_sender_id' };
+    return { notified: false, reason: "no_sender_id" };
   }
 
   // Resolve guardian identity with contacts-first strategy:
@@ -102,7 +108,11 @@ export function notifyGuardianOfAccessRequest(
   let guardianExternalUserId: string | null = null;
   let guardianPrincipalId: string | null = null;
   let guardianBindingChannel: string | null = null;
-  let guardianResolutionSource: 'contacts' | 'contacts-fallback' | 'legacy' | 'none' = 'none';
+  let guardianResolutionSource:
+    | "contacts"
+    | "contacts-fallback"
+    | "legacy"
+    | "none" = "none";
 
   // Try contacts-first: source channel
   const sourceGuardian = findGuardianForChannel(sourceChannel);
@@ -110,7 +120,7 @@ export function notifyGuardianOfAccessRequest(
     guardianExternalUserId = sourceGuardian.channel.externalUserId;
     guardianPrincipalId = sourceGuardian.contact.principalId;
     guardianBindingChannel = sourceGuardian.channel.type;
-    guardianResolutionSource = 'contacts';
+    guardianResolutionSource = "contacts";
   } else {
     // Try contacts-first: any active guardian channel
     const allGuardianChannels = listGuardianChannels();
@@ -119,29 +129,40 @@ export function notifyGuardianOfAccessRequest(
       guardianExternalUserId = fallbackChannel.externalUserId;
       guardianPrincipalId = allGuardianChannels.contact.principalId;
       guardianBindingChannel = fallbackChannel.type;
-      guardianResolutionSource = 'contacts-fallback';
+      guardianResolutionSource = "contacts-fallback";
       log.debug(
-        { sourceChannel, fallbackChannel: guardianBindingChannel, canonicalAssistantId },
-        'Using cross-channel guardian contact fallback for access request',
+        {
+          sourceChannel,
+          fallbackChannel: guardianBindingChannel,
+          canonicalAssistantId,
+        },
+        "Using cross-channel guardian contact fallback for access request",
       );
     } else {
       // Legacy fallback: contacts not yet synced
-      const sourceBinding = getGuardianBinding(canonicalAssistantId, sourceChannel);
+      const sourceBinding = getGuardianBinding(
+        canonicalAssistantId,
+        sourceChannel,
+      );
       if (sourceBinding) {
         guardianExternalUserId = sourceBinding.guardianExternalUserId;
         guardianPrincipalId = sourceBinding.guardianPrincipalId;
         guardianBindingChannel = sourceBinding.channel;
-        guardianResolutionSource = 'legacy';
+        guardianResolutionSource = "legacy";
       } else {
         const allBindings = listActiveBindingsByAssistant(canonicalAssistantId);
         if (allBindings.length > 0) {
           guardianExternalUserId = allBindings[0].guardianExternalUserId;
           guardianPrincipalId = allBindings[0].guardianPrincipalId;
           guardianBindingChannel = allBindings[0].channel;
-          guardianResolutionSource = 'legacy';
+          guardianResolutionSource = "legacy";
           log.debug(
-            { sourceChannel, fallbackChannel: guardianBindingChannel, canonicalAssistantId },
-            'Using cross-channel guardian binding fallback for access request',
+            {
+              sourceChannel,
+              fallbackChannel: guardianBindingChannel,
+              canonicalAssistantId,
+            },
+            "Using cross-channel guardian binding fallback for access request",
           );
         }
       }
@@ -153,28 +174,35 @@ export function notifyGuardianOfAccessRequest(
   if (!guardianPrincipalId) {
     log.info(
       { sourceChannel, canonicalAssistantId },
-      'No guardian principal for access request — self-healing vellum binding',
+      "No guardian principal for access request — self-healing vellum binding",
     );
     const healedPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
-    const vellumGuardian = findGuardianForChannel('vellum');
+    const vellumGuardian = findGuardianForChannel("vellum");
     if (vellumGuardian) {
-      guardianExternalUserId = vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
-      guardianPrincipalId = vellumGuardian.contact.principalId ?? healedPrincipalId;
-      guardianBindingChannel = guardianBindingChannel ?? 'vellum';
+      guardianExternalUserId =
+        vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
+      guardianPrincipalId =
+        vellumGuardian.contact.principalId ?? healedPrincipalId;
+      guardianBindingChannel = guardianBindingChannel ?? "vellum";
     } else {
-      const vellumBinding = getGuardianBinding(canonicalAssistantId, 'vellum');
-      guardianExternalUserId = vellumBinding?.guardianExternalUserId ?? guardianExternalUserId;
-      guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? healedPrincipalId;
-      guardianBindingChannel = guardianBindingChannel ?? 'vellum';
+      const vellumBinding = getGuardianBinding(canonicalAssistantId, "vellum");
+      guardianExternalUserId =
+        vellumBinding?.guardianExternalUserId ?? guardianExternalUserId;
+      guardianPrincipalId =
+        vellumBinding?.guardianPrincipalId ?? healedPrincipalId;
+      guardianBindingChannel = guardianBindingChannel ?? "vellum";
     }
   }
 
-  log.debug({
-    sourceChannel,
-    source: guardianResolutionSource,
-    hasGuardianPrincipal: !!guardianPrincipalId,
-    guardianBindingChannel,
-  }, 'access request guardian resolved');
+  log.debug(
+    {
+      sourceChannel,
+      source: guardianResolutionSource,
+      hasGuardianPrincipal: !!guardianPrincipalId,
+      guardianBindingChannel,
+    },
+    "access request guardian resolved",
+  );
 
   // The conversationId is assistant-scoped so the dedupe query below only
   // matches requests for the same assistant. Without this, a pending request
@@ -187,18 +215,22 @@ export function notifyGuardianOfAccessRequest(
   // notified: true with the existing request ID so callers know the guardian
   // was already notified.
   const existingCanonical = listCanonicalGuardianRequests({
-    status: 'pending',
+    status: "pending",
     requesterExternalUserId: actorExternalId,
     sourceChannel,
-    kind: 'access_request',
+    kind: "access_request",
     conversationId,
   });
   if (existingCanonical.length > 0) {
     log.debug(
       { sourceChannel, actorExternalId, existingId: existingCanonical[0].id },
-      'Skipping duplicate access request notification',
+      "Skipping duplicate access request notification",
     );
-    return { notified: true, created: false, requestId: existingCanonical[0].id };
+    return {
+      notified: true,
+      created: false,
+      requestId: existingCanonical[0].id,
+    };
   }
 
   const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;
@@ -206,28 +238,28 @@ export function notifyGuardianOfAccessRequest(
 
   const canonicalRequest = createCanonicalGuardianRequest({
     id: requestId,
-    kind: 'access_request',
-    sourceType: 'channel',
+    kind: "access_request",
+    sourceType: "channel",
     sourceChannel,
     conversationId,
     requesterExternalUserId: actorExternalId,
     requesterChatId: conversationExternalId,
     guardianExternalUserId: guardianExternalUserId ?? undefined,
     guardianPrincipalId: guardianPrincipalId ?? undefined,
-    toolName: 'ingress_access_request',
+    toolName: "ingress_access_request",
     questionText: `${senderIdentifier} is requesting access to the assistant`,
     expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
   });
 
   let vellumDeliveryId: string | null = null;
   void emitNotificationSignal({
-    sourceEventName: 'ingress.access_request',
+    sourceEventName: "ingress.access_request",
     sourceChannel,
     sourceSessionId: `access-req-${sourceChannel}-${actorExternalId}`,
     assistantId: canonicalAssistantId,
     attentionHints: {
       requiresAction: true,
-      urgency: 'high',
+      urgency: "high",
       isAsyncBackground: false,
       visibleInSourceNow: false,
     },
@@ -245,10 +277,11 @@ export function notifyGuardianOfAccessRequest(
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
     onThreadCreated: (info) => {
-      if (info.sourceEventName !== 'ingress.access_request' || vellumDeliveryId) return;
+      if (info.sourceEventName !== "ingress.access_request" || vellumDeliveryId)
+        return;
       const delivery = createCanonicalGuardianDelivery({
         requestId: canonicalRequest.id,
-        destinationChannel: 'vellum',
+        destinationChannel: "vellum",
         destinationConversationId: info.conversationId,
       });
       vellumDeliveryId = delivery.id;
@@ -256,11 +289,11 @@ export function notifyGuardianOfAccessRequest(
   })
     .then((signalResult) => {
       for (const result of signalResult.deliveryResults) {
-        if (result.channel === 'vellum') {
+        if (result.channel === "vellum") {
           if (!vellumDeliveryId) {
             const delivery = createCanonicalGuardianDelivery({
               requestId: canonicalRequest.id,
-              destinationChannel: 'vellum',
+              destinationChannel: "vellum",
               destinationConversationId: result.conversationId,
             });
             vellumDeliveryId = delivery.id;
@@ -269,14 +302,15 @@ export function notifyGuardianOfAccessRequest(
           continue;
         }
 
-        if (result.channel !== 'telegram' && result.channel !== 'sms') {
+        if (result.channel !== "telegram" && result.channel !== "sms") {
           continue;
         }
 
         const delivery = createCanonicalGuardianDelivery({
           requestId: canonicalRequest.id,
           destinationChannel: result.channel,
-          destinationChatId: result.destination.length > 0 ? result.destination : undefined,
+          destinationChatId:
+            result.destination.length > 0 ? result.destination : undefined,
         });
         applyDeliveryStatus(delivery.id, result);
       }
@@ -284,25 +318,30 @@ export function notifyGuardianOfAccessRequest(
       if (!vellumDeliveryId) {
         const fallback = createCanonicalGuardianDelivery({
           requestId: canonicalRequest.id,
-          destinationChannel: 'vellum',
+          destinationChannel: "vellum",
         });
-        updateCanonicalGuardianDelivery(fallback.id, { status: 'failed' });
+        updateCanonicalGuardianDelivery(fallback.id, { status: "failed" });
         log.warn(
           { requestId: canonicalRequest.id, reason: signalResult.reason },
-          'Notification pipeline did not produce a vellum delivery result for access request',
+          "Notification pipeline did not produce a vellum delivery result for access request",
         );
       }
     })
     .catch((err) => {
       log.error(
         { err, requestId: canonicalRequest.id, sourceChannel, actorExternalId },
-        'Failed to persist access request delivery rows from notification pipeline',
+        "Failed to persist access request delivery rows from notification pipeline",
       );
     });
 
   log.info(
-    { sourceChannel, actorExternalId, senderIdentifier, guardianBindingChannel },
-    'Guardian notified of access request',
+    {
+      sourceChannel,
+      actorExternalId,
+      senderIdentifier,
+      guardianBindingChannel,
+    },
+    "Guardian notified of access request",
   );
 
   return { notified: true, created: true, requestId: canonicalRequest.id };
