@@ -13,11 +13,7 @@ import { v4 as uuid } from "uuid";
 import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/ipc-contract.js";
 import { Session, type SessionMemoryPolicy } from "../daemon/session.js";
-import { createConversation } from "../memory/conversation-store.js";
-import {
-  GENERATING_TITLE,
-  queueGenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getFailoverProvider } from "../providers/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -115,13 +111,10 @@ export class SubagentManager {
 
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
-    const conversation = createConversation({
-      title: GENERATING_TITLE,
+    const conversation = bootstrapConversation({
       threadType: "background",
-    });
-    queueGenerateConversationTitle({
-      conversationId: conversation.id,
-      context: { origin: "subagent", systemHint: `Subagent: ${config.label}` },
+      origin: "subagent",
+      systemHint: `Subagent: ${config.label}`,
     });
 
     // ── Build session dependencies ──────────────────────────────────

@@ -1,10 +1,6 @@
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatAlert } from "../daemon/ipc-contract.js";
-import { createConversation } from "../memory/conversation-store.js";
-import {
-  GENERATING_TITLE,
-  queueGenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
@@ -126,14 +122,11 @@ export class HeartbeatService {
       const checklist = this.readChecklist();
       const prompt = this.buildPrompt(checklist);
 
-      const conversation = createConversation({
-        title: GENERATING_TITLE,
+      const conversation = bootstrapConversation({
         threadType: "background",
         source: "heartbeat",
-      });
-      queueGenerateConversationTitle({
-        conversationId: conversation.id,
-        context: { origin: "heartbeat", systemHint: "Heartbeat" },
+        origin: "heartbeat",
+        systemHint: "Heartbeat",
       });
 
       await this.deps.processMessage(conversation.id, prompt);

@@ -5,11 +5,7 @@
  * and processes pending events through a background LLM conversation.
  */
 
-import { createConversation } from "../memory/conversation-store.js";
-import {
-  GENERATING_TITLE,
-  queueGenerateConversationTitle,
-} from "../memory/conversation-title-service.js";
+import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { checkForSequenceReplies } from "../sequence/reply-matcher.js";
 import { getLogger } from "../util/logger.js";
 import { MAX_CONSECUTIVE_ERRORS } from "./constants.js";
@@ -185,16 +181,10 @@ export async function runWatchersOnce(
       // Get or create a background conversation for this watcher
       let conversationId = watcher.conversationId;
       if (!conversationId) {
-        const conv = createConversation({
-          title: GENERATING_TITLE,
-          threadType: "background" as "standard" | "private",
-        });
-        queueGenerateConversationTitle({
-          conversationId: conv.id,
-          context: {
-            origin: "watcher",
-            systemHint: `Watcher: ${watcher.name}`,
-          },
+        const conv = bootstrapConversation({
+          threadType: "background",
+          origin: "watcher",
+          systemHint: `Watcher: ${watcher.name}`,
         });
         conversationId = conv.id;
         setWatcherConversationId(watcher.id, conversationId);
