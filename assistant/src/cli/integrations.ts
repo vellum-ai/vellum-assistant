@@ -1,6 +1,8 @@
 import type { Command } from 'commander';
 
+import { DEFAULT_ELEVENLABS_VOICE_ID } from '../config/elevenlabs-schema.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
+import { loadRawConfig } from '../config/loader.js';
 import {
   initAuthSigningKey,
   isSigningKeyInitialized,
@@ -10,6 +12,13 @@ import {
 
 type IngressChannel = 'telegram' | 'voice' | 'sms';
 type GuardianChannel = 'telegram' | 'voice' | 'sms';
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+}
 
 function shouldOutputJson(cmd: Command): boolean {
   let current: Command | null = cmd;
@@ -47,11 +56,63 @@ function toQueryString(params: Record<string, string | undefined>): string {
   return encoded ? `?${encoded}` : '';
 }
 
-async function gatewayGet(path: string): Promise<unknown> {
+function resolveGatewayBaseUrl(): string {
   const injectedGatewayBase = process.env.INTERNAL_GATEWAY_BASE_URL?.trim();
-  const gatewayBase = injectedGatewayBase && injectedGatewayBase.length > 0
-    ? injectedGatewayBase.replace(/\/+$/, '')
-    : getGatewayInternalBaseUrl();
+  if (injectedGatewayBase && injectedGatewayBase.length > 0) {
+    return injectedGatewayBase.replace(/\/+$/, '');
+  }
+  return getGatewayInternalBaseUrl();
+}
+
+function readIngressConfig(): {
+  success: true;
+  enabled: boolean;
+  publicBaseUrl?: string;
+  localGatewayTarget: string;
+} {
+  const raw = loadRawConfig();
+  const ingress = asRecord(raw.ingress);
+  const configuredUrl = typeof ingress.publicBaseUrl === 'string'
+    ? ingress.publicBaseUrl.trim()
+    : '';
+  const explicitEnabled = typeof ingress.enabled === 'boolean'
+    ? ingress.enabled
+    : undefined;
+  const enabled = explicitEnabled ?? (configuredUrl.length > 0);
+
+  return {
+    success: true,
+    enabled,
+    publicBaseUrl: configuredUrl || undefined,
+    localGatewayTarget: resolveGatewayBaseUrl(),
+  };
+}
+
+function readVoiceConfig(): {
+  success: true;
+  callsEnabled: boolean;
+  voiceId: string;
+  configuredVoiceId?: string;
+  usesDefaultVoice: boolean;
+} {
+  const raw = loadRawConfig();
+  const calls = asRecord(raw.calls);
+  const elevenlabs = asRecord(raw.elevenlabs);
+  const configuredVoiceId = typeof elevenlabs.voiceId === 'string'
+    ? elevenlabs.voiceId.trim()
+    : '';
+
+  return {
+    success: true,
+    callsEnabled: calls.enabled === true,
+    voiceId: configuredVoiceId || DEFAULT_ELEVENLABS_VOICE_ID,
+    configuredVoiceId: configuredVoiceId || undefined,
+    usesDefaultVoice: configuredVoiceId.length === 0,
+  };
+}
+
+async function gatewayGet(path: string): Promise<unknown> {
+  const gatewayBase = resolveGatewayBaseUrl();
   const token = getGatewayToken();
 
   const response = await fetch(`${gatewayBase}${path}`, {
@@ -169,6 +230,13 @@ export function registerIntegrationsCommand(program: Command): void {
     .description('Trusted contact membership and invite status');
 
   ingress
+    .command('config')
+    .description('Get public ingress URL and local gateway target')
+    .action(async (_opts: unknown, cmd: Command) => {
+      await runRead(cmd, async () => readIngressConfig());
+    });
+
+  ingress
     .command('members')
     .description('List trusted ingress members')
     .option('--assistant-id <assistantId>', 'Filter by assistant ID')
@@ -201,5 +269,16 @@ export function registerIntegrationsCommand(program: Command): void {
         status: opts.status,
       });
       await runRead(cmd, async () => gatewayGet(`/v1/ingress/invites${query}`));
+    });
+
+  const voice = integrations
+    .command('voice')
+    .description('Voice setup status');
+
+  voice
+    .command('config')
+    .description('Get voice and call readiness config')
+    .action(async (_opts: unknown, cmd: Command) => {
+      await runRead(cmd, async () => readVoiceConfig());
     });
 }
