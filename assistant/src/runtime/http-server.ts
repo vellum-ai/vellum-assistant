@@ -53,15 +53,15 @@ import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
 import { authenticateRequest } from "./auth/middleware.js";
-import { enforcePolicy, getPolicy } from "./auth/route-policy.js";
 import {
   mintDaemonDeliveryToken,
   mintUiPageToken,
   verifyToken,
 } from "./auth/token-service.js";
-import type { AuthContext } from "./auth/types.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { httpError } from "./http-errors.js";
+import type { RouteDefinition } from "./http-router.js";
+import { HttpRouter } from "./http-router.js";
 // Middleware
 import {
   extractBearerToken,
@@ -257,83 +257,6 @@ const DEFAULT_HOSTNAME = "127.0.0.1";
 /** Global hard cap on request body size (50 MB). */
 const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
 
-// ---------------------------------------------------------------------------
-// Parameterized endpoint normalization for policy lookup
-// ---------------------------------------------------------------------------
-
-/**
- * Patterns that map parameterized URLs back to their policy registry keys.
- * Order matters: more specific patterns must come before general ones so
- * that e.g. `attachments/{id}/content` matches before `attachments/{id}`.
- */
-const PARAMETERIZED_ROUTE_PATTERNS: Array<{ re: RegExp; policyBase: string }> =
-  [
-    // calls/{id}/cancel, calls/{id}/answer, calls/{id}/instruction
-    {
-      re: /^calls\/[^/]+\/(cancel|answer|instruction)$/,
-      policyBase: "calls/$1",
-    },
-    // calls/{id} (GET status)
-    { re: /^calls\/[^/]+$/, policyBase: "calls" },
-    // contacts/{id}
-    { re: /^contacts\/[^/]+$/, policyBase: "contacts" },
-    // contacts/channels/{id}
-    { re: /^contacts\/channels\/[^/]+$/, policyBase: "contacts/channels" },
-    // ingress/members/{id}/block
-    {
-      re: /^ingress\/members\/[^/]+\/block$/,
-      policyBase: "ingress/members/block",
-    },
-    // ingress/members/{id}
-    { re: /^ingress\/members\/[^/]+$/, policyBase: "ingress/members" },
-    // ingress/invites/{id}
-    { re: /^ingress\/invites\/[^/]+$/, policyBase: "ingress/invites" },
-    // integrations/twilio/sms/compliance/tollfree/{sid}
-    {
-      re: /^integrations\/twilio\/sms\/compliance\/tollfree\/[^/]+$/,
-      policyBase: "integrations/twilio/sms/compliance/tollfree",
-    },
-    // attachments/{id}/content
-    { re: /^attachments\/[^/]+\/content$/, policyBase: "attachments/content" },
-    // attachments/{id}
-    { re: /^attachments\/[^/]+$/, policyBase: "attachments" },
-    // trust-rules/manage/{id}
-    { re: /^trust-rules\/manage\/[^/]+$/, policyBase: "trust-rules/manage" },
-    // interfaces/{path}
-    { re: /^interfaces\/.+$/, policyBase: "interfaces" },
-  ];
-
-/**
- * Strip parameterized segments from an endpoint string so it matches
- * the base route name used in the policy registry.
- *
- * For example, `calls/abc123` becomes `calls`, and
- * `attachments/abc123/content` becomes `attachments/content`.
- *
- * If the raw endpoint already has a direct policy registered (either
- * bare or with a method qualifier), normalization is skipped. This
- * prevents literal sub-routes like `calls/start` from being
- * incorrectly collapsed to `calls`.
- */
-function normalizeEndpointForPolicy(endpoint: string, method: string): string {
-  // If the exact endpoint (with or without method) has a direct policy, don't normalize
-  if (getPolicy(`${endpoint}:${method}`) || getPolicy(endpoint)) {
-    return endpoint;
-  }
-
-  for (const { re, policyBase } of PARAMETERIZED_ROUTE_PATTERNS) {
-    const match = endpoint.match(re);
-    if (match) {
-      // Support capture-group substitution (e.g. calls/$1 -> calls/cancel)
-      return policyBase.replace(
-        /\$(\d+)/g,
-        (_, idx) => match[Number(idx)] ?? "",
-      );
-    }
-  }
-  return endpoint;
-}
-
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -363,6 +286,7 @@ export class RuntimeHttpServer {
         ): void;
       }
     | undefined;
+  private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -378,6 +302,7 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
     this.findSession = options.findSession;
+    this.router = new HttpRouter(this.buildRouteTable());
   }
 
   /** The port the server is actually listening on (resolved after start). */
@@ -654,13 +579,27 @@ export class RuntimeHttpServer {
     }
     const authContext = authResult.context;
 
+    // Serve shareable app pages (outside /v1/ namespace, no rate limiting)
+    const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
+    if (pagesMatch && req.method === "GET") {
+      return withErrorHandling("pages", async () =>
+        handleServePage(pagesMatch[1]),
+      );
+    }
+
     // Per-client-IP rate limiting for /v1/* endpoints. Authenticated requests
     // get a higher limit; unauthenticated requests get a lower limit to reduce
     // abuse surface. We key on IP rather than bearer token because the gateway
     // uses a single shared token for all proxied requests, which would collapse
     // all users into one bucket.
     // Skip rate limiting entirely when HTTP auth is disabled (local Docker dev).
-    if (path.startsWith("/v1/") && !isHttpAuthDisabled()) {
+    if (!path.startsWith("/v1/")) {
+      return httpError("NOT_FOUND", "Not found", 404);
+    }
+
+    const endpoint = path.slice("/v1/".length);
+
+    if (!isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
       const result = token
@@ -669,154 +608,34 @@ export class RuntimeHttpServer {
       if (!result.allowed) {
         return rateLimitResponse(result);
       }
-      // Attach rate limit headers to the eventual response
-      const originalResponse = await this.handleAuthenticatedRequest(
+      const routerResponse = await this.router.dispatch(
+        endpoint,
         req,
         url,
-        path,
         server,
         authContext,
       );
-      const headers = new Headers(originalResponse.headers);
+      const response =
+        routerResponse ?? httpError("NOT_FOUND", "Not found", 404);
+      const headers = new Headers(response.headers);
       for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
         headers.set(k, v);
       }
-      return new Response(originalResponse.body, {
-        status: originalResponse.status,
-        statusText: originalResponse.statusText,
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
         headers,
       });
     }
 
-    return this.handleAuthenticatedRequest(req, url, path, server, authContext);
-  }
-
-  /**
-   * Handle requests that have already passed auth and rate limiting.
-   */
-  private async handleAuthenticatedRequest(
-    req: Request,
-    url: URL,
-    path: string,
-    server: ReturnType<typeof Bun.serve>,
-    authContext: AuthContext,
-  ): Promise<Response> {
-    // Pairing registration (bearer-authenticated)
-    if (path === "/v1/pairing/register" && req.method === "POST") {
-      const policyDenied = enforcePolicy("pairing/register", authContext);
-      if (policyDenied) return policyDenied;
-      return await handlePairingRegister(req, this.pairingContext);
-    }
-
-    // Serve shareable app pages
-    const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
-    if (pagesMatch && req.method === "GET") {
-      try {
-        return handleServePage(pagesMatch[1]);
-      } catch (err) {
-        log.error(
-          { err, appId: pagesMatch[1] },
-          "Runtime HTTP handler error serving page",
-        );
-        return httpError("INTERNAL_ERROR", "Internal server error", 500);
-      }
-    }
-
-    // Cloud sharing endpoints
-    if (path === "/v1/apps/share" && req.method === "POST") {
-      const policyDenied = enforcePolicy("apps/share", authContext);
-      if (policyDenied) return policyDenied;
-      try {
-        return await handleShareApp(req);
-      } catch (err) {
-        log.error({ err }, "Runtime HTTP handler error sharing app");
-        return httpError("INTERNAL_ERROR", "Internal server error", 500);
-      }
-    }
-
-    const sharedTokenMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)$/);
-    if (sharedTokenMatch) {
-      const shareToken = sharedTokenMatch[1];
-      if (req.method === "GET") {
-        const policyDenied = enforcePolicy("apps/shared:GET", authContext);
-        if (policyDenied) return policyDenied;
-        try {
-          return handleDownloadSharedApp(shareToken);
-        } catch (err) {
-          log.error(
-            { err, shareToken },
-            "Runtime HTTP handler error downloading shared app",
-          );
-          return httpError("INTERNAL_ERROR", "Internal server error", 500);
-        }
-      }
-      if (req.method === "DELETE") {
-        const policyDenied = enforcePolicy("apps/shared:DELETE", authContext);
-        if (policyDenied) return policyDenied;
-        try {
-          return handleDeleteSharedApp(shareToken);
-        } catch (err) {
-          log.error(
-            { err, shareToken },
-            "Runtime HTTP handler error deleting shared app",
-          );
-          return httpError("INTERNAL_ERROR", "Internal server error", 500);
-        }
-      }
-    }
-
-    const sharedMetadataMatch = path.match(
-      /^\/v1\/apps\/shared\/([^/]+)\/metadata$/,
+    const routerResponse = await this.router.dispatch(
+      endpoint,
+      req,
+      url,
+      server,
+      authContext,
     );
-    if (sharedMetadataMatch && req.method === "GET") {
-      const policyDenied = enforcePolicy("apps/shared/metadata", authContext);
-      if (policyDenied) return policyDenied;
-      try {
-        return handleGetSharedAppMetadata(sharedMetadataMatch[1]);
-      } catch (err) {
-        log.error(
-          { err, shareToken: sharedMetadataMatch[1] },
-          "Runtime HTTP handler error getting shared app metadata",
-        );
-        return httpError("INTERNAL_ERROR", "Internal server error", 500);
-      }
-    }
-
-    // Secret management endpoint
-    if (path === "/v1/secrets" && req.method === "POST") {
-      const policyDenied = enforcePolicy("secrets", authContext);
-      if (policyDenied) return policyDenied;
-      try {
-        return await handleAddSecret(req);
-      } catch (err) {
-        log.error({ err }, "Runtime HTTP handler error adding secret");
-        return httpError("INTERNAL_ERROR", "Internal server error", 500);
-      }
-    }
-    if (path === "/v1/secrets" && req.method === "DELETE") {
-      const policyDenied = enforcePolicy("secrets", authContext);
-      if (policyDenied) return policyDenied;
-      try {
-        return await handleDeleteSecret(req);
-      } catch (err) {
-        log.error({ err }, "Runtime HTTP handler error deleting secret");
-        return httpError("INTERNAL_ERROR", "Internal server error", 500);
-      }
-    }
-
-    // Runtime routes: /v1/<endpoint>
-    const routeMatch = path.match(/^\/v1\/(.+)$/);
-    if (routeMatch) {
-      return this.dispatchEndpoint(
-        routeMatch[1],
-        req,
-        url,
-        server,
-        authContext,
-      );
-    }
-
-    return httpError("NOT_FOUND", "Not found", 404);
+    return routerResponse ?? httpError("NOT_FOUND", "Not found", 404);
   }
 
   private handleBrowserRelayUpgrade(
@@ -925,566 +744,6 @@ export class RuntimeHttpServer {
     return null;
   }
 
-  /**
-   * Dispatch a request to the appropriate endpoint handler.
-   */
-  private async dispatchEndpoint(
-    endpoint: string,
-    req: Request,
-    url: URL,
-    server: ReturnType<typeof Bun.serve>,
-    authContext: AuthContext,
-  ): Promise<Response> {
-    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-
-    // Normalize parameterized endpoints to their base policy key so that
-    // routes like `calls/abc123` match the registered key `calls` and
-    // `attachments/abc123/content` matches `attachments/content`.
-    const normalizedEndpoint = normalizeEndpointForPolicy(endpoint, req.method);
-
-    // Enforce route-level scope/principal policy before invoking any handler.
-    // Try method-specific key first (e.g. "messages:POST"); fall back to the
-    // plain endpoint key only when no method-specific policy is registered.
-    const methodKey = `${normalizedEndpoint}:${req.method}`;
-    const policyKey = getPolicy(methodKey) ? methodKey : normalizedEndpoint;
-    const policyDenied = enforcePolicy(policyKey, authContext);
-    if (policyDenied) return policyDenied;
-
-    return withErrorHandling(endpoint, async () => {
-      if (endpoint === "health" && req.method === "GET") return handleHealth();
-      if (endpoint === "debug" && req.method === "GET") return handleDebug();
-
-      if (endpoint === "browser-relay/status" && req.method === "GET") {
-        return Response.json(extensionRelayServer.getStatus());
-      }
-
-      if (endpoint === "browser-relay/command" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as Record<string, unknown>;
-          const resp = await extensionRelayServer.sendCommand(
-            body as Omit<
-              import("../browser-extension-relay/protocol.js").ExtensionCommand,
-              "id"
-            >,
-          );
-          return Response.json(resp);
-        } catch (err) {
-          return httpError(
-            "INTERNAL_ERROR",
-            err instanceof Error ? err.message : String(err),
-            500,
-          );
-        }
-      }
-
-      if (endpoint === "conversations" && req.method === "GET") {
-        const limit = Number(url.searchParams.get("limit") ?? 50);
-        const offset = Number(url.searchParams.get("offset") ?? 0);
-        const conversations = conversationStore.listConversations(
-          limit,
-          false,
-          offset,
-        );
-        const totalCount = conversationStore.countConversations();
-        const conversationIds = conversations.map((c) => c.id);
-        const bindings =
-          externalConversationStore.getBindingsForConversations(
-            conversationIds,
-          );
-        const attentionStates =
-          getAttentionStateByConversationIds(conversationIds);
-        return Response.json({
-          sessions: conversations.map((c) => {
-            const binding = bindings.get(c.id);
-            const originChannel = parseChannelId(c.originChannel);
-            const attn = attentionStates.get(c.id);
-            const assistantAttention = attn
-              ? {
-                  hasUnseenLatestAssistantMessage:
-                    attn.latestAssistantMessageAt != null &&
-                    (attn.lastSeenAssistantMessageAt == null ||
-                      attn.lastSeenAssistantMessageAt <
-                        attn.latestAssistantMessageAt),
-                  ...(attn.latestAssistantMessageAt != null
-                    ? {
-                        latestAssistantMessageAt: attn.latestAssistantMessageAt,
-                      }
-                    : {}),
-                  ...(attn.lastSeenAssistantMessageAt != null
-                    ? {
-                        lastSeenAssistantMessageAt:
-                          attn.lastSeenAssistantMessageAt,
-                      }
-                    : {}),
-                  ...(attn.lastSeenConfidence != null
-                    ? { lastSeenConfidence: attn.lastSeenConfidence }
-                    : {}),
-                  ...(attn.lastSeenSignalType != null
-                    ? { lastSeenSignalType: attn.lastSeenSignalType }
-                    : {}),
-                }
-              : undefined;
-            return {
-              id: c.id,
-              title: c.title ?? "Untitled",
-              createdAt: c.createdAt,
-              updatedAt: c.updatedAt,
-              threadType: c.threadType === "private" ? "private" : "standard",
-              source: c.source ?? "user",
-              ...(binding
-                ? {
-                    channelBinding: {
-                      sourceChannel: binding.sourceChannel,
-                      externalChatId: binding.externalChatId,
-                      externalUserId: binding.externalUserId,
-                      displayName: binding.displayName,
-                      username: binding.username,
-                    },
-                  }
-                : {}),
-              ...(originChannel
-                ? { conversationOriginChannel: originChannel }
-                : {}),
-              ...(assistantAttention ? { assistantAttention } : {}),
-            };
-          }),
-          hasMore: offset + conversations.length < totalCount,
-        });
-      }
-
-      if (endpoint === "conversations/attention" && req.method === "GET")
-        return handleListConversationAttention(url);
-
-      if (endpoint === "conversations/seen" && req.method === "POST") {
-        const body = (await req.json()) as Record<string, unknown>;
-        const conversationId = body.conversationId as string | undefined;
-        if (!conversationId)
-          return httpError("BAD_REQUEST", "Missing conversationId", 400);
-        try {
-          recordConversationSeenSignal({
-            conversationId,
-            assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-            sourceChannel: (body.sourceChannel as string) ?? "vellum",
-            signalType: ((body.signalType as string) ??
-              "macos_conversation_opened") as SignalType,
-            confidence: ((body.confidence as string) ??
-              "explicit") as Confidence,
-            source: (body.source as string) ?? "http-api",
-            evidenceText: body.evidenceText as string | undefined,
-            metadata: body.metadata as Record<string, unknown> | undefined,
-            observedAt: body.observedAt as number | undefined,
-          });
-          return Response.json({ ok: true });
-        } catch (err) {
-          log.error(
-            { err, conversationId },
-            "POST /v1/conversations/seen: failed",
-          );
-          return httpError(
-            "INTERNAL_ERROR",
-            "Failed to record seen signal",
-            500,
-          );
-        }
-      }
-
-      if (endpoint === "messages" && req.method === "GET")
-        return handleListMessages(url, this.interfacesDir);
-      if (endpoint === "search" && req.method === "GET")
-        return handleSearchConversations(url);
-      if (endpoint === "search/global" && req.method === "GET")
-        return await handleGlobalSearch(url);
-
-      if (endpoint === "messages" && req.method === "POST") {
-        return await handleSendMessage(
-          req,
-          {
-            processMessage: this.processMessage,
-            persistAndProcessMessage: this.persistAndProcessMessage,
-            sendMessageDeps: this.sendMessageDeps,
-            approvalConversationGenerator: this.approvalConversationGenerator,
-          },
-          authContext,
-        );
-      }
-
-      // Standalone approval endpoints — keyed by requestId, orthogonal to message sending
-      if (endpoint === "confirm" && req.method === "POST")
-        return await handleConfirm(req, authContext);
-      if (endpoint === "secret" && req.method === "POST")
-        return await handleSecret(req, authContext);
-      if (endpoint === "trust-rules" && req.method === "POST")
-        return await handleTrustRule(req, authContext);
-      if (endpoint === "pending-interactions" && req.method === "GET")
-        return handleListPendingInteractions(url, authContext);
-
-      // Trust rule CRUD — standalone management (not approval-flow)
-      if (endpoint === "trust-rules/manage" && req.method === "GET")
-        return handleListTrustRules();
-      if (endpoint === "trust-rules/manage" && req.method === "POST")
-        return await handleAddTrustRuleManage(req);
-      const trustRuleManageMatch = endpoint.match(
-        /^trust-rules\/manage\/([^/]+)$/,
-      );
-      if (trustRuleManageMatch && req.method === "DELETE")
-        return handleRemoveTrustRuleManage(trustRuleManageMatch[1]);
-      if (trustRuleManageMatch && req.method === "PATCH")
-        return await handleUpdateTrustRuleManage(req, trustRuleManageMatch[1]);
-
-      // Surface action dispatch
-      if (endpoint === "surface-actions" && req.method === "POST") {
-        if (!this.findSession) {
-          return httpError(
-            "NOT_IMPLEMENTED",
-            "Surface actions not available",
-            501,
-          );
-        }
-        return await handleSurfaceAction(req, this.findSession);
-      }
-
-      // Guardian action endpoints — deterministic button-based decisions
-      if (endpoint === "guardian-actions/pending" && req.method === "GET")
-        return handleGuardianActionsPending(url, authContext);
-      if (endpoint === "guardian-actions/decision" && req.method === "POST")
-        return await handleGuardianActionDecision(req, authContext);
-
-      // Contacts
-      if (endpoint === "contacts" && req.method === "GET")
-        return handleListContacts(url);
-      if (endpoint === "contacts/merge" && req.method === "POST")
-        return await handleMergeContacts(req);
-      const contactChannelMatch = endpoint.match(
-        /^contacts\/channels\/([^/]+)$/,
-      );
-      if (contactChannelMatch && req.method === "PATCH")
-        return await handleUpdateContactChannel(req, contactChannelMatch[1]);
-      const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
-      if (contactMatch && req.method === "GET")
-        return handleGetContact(contactMatch[1]);
-
-      // Ingress members
-      if (endpoint === "ingress/members" && req.method === "GET")
-        return handleListMembers(url);
-      if (endpoint === "ingress/members" && req.method === "POST")
-        return await handleUpsertMember(req);
-      const memberBlockMatch = endpoint.match(
-        /^ingress\/members\/([^/]+)\/block$/,
-      );
-      if (memberBlockMatch && req.method === "POST")
-        return await handleBlockMember(req, memberBlockMatch[1]);
-      const memberMatch = endpoint.match(/^ingress\/members\/([^/]+)$/);
-      if (memberMatch && req.method === "DELETE")
-        return await handleRevokeMember(req, memberMatch[1]);
-
-      // Ingress invites
-      if (endpoint === "ingress/invites" && req.method === "GET")
-        return handleListInvites(url);
-      if (endpoint === "ingress/invites" && req.method === "POST")
-        return await handleCreateInvite(req);
-      if (endpoint === "ingress/invites/redeem" && req.method === "POST")
-        return await handleRedeemInvite(req);
-      const inviteMatch = endpoint.match(/^ingress\/invites\/([^/]+)$/);
-      if (inviteMatch && req.method === "DELETE")
-        return handleRevokeInvite(inviteMatch[1]);
-
-      // Integrations — Telegram config
-      if (endpoint === "integrations/telegram/config" && req.method === "GET")
-        return handleGetTelegramConfig();
-      if (endpoint === "integrations/telegram/config" && req.method === "POST")
-        return await handleSetTelegramConfig(req);
-      if (
-        endpoint === "integrations/telegram/config" &&
-        req.method === "DELETE"
-      )
-        return await handleClearTelegramConfig();
-      if (
-        endpoint === "integrations/telegram/commands" &&
-        req.method === "POST"
-      )
-        return await handleSetTelegramCommands(req);
-      if (endpoint === "integrations/telegram/setup" && req.method === "POST")
-        return await handleSetupTelegram(req);
-
-      // Integrations — Slack channel config
-      if (
-        endpoint === "integrations/slack/channel/config" &&
-        req.method === "GET"
-      )
-        return handleGetSlackChannelConfig();
-      if (
-        endpoint === "integrations/slack/channel/config" &&
-        req.method === "POST"
-      )
-        return await handleSetSlackChannelConfig(req);
-      if (
-        endpoint === "integrations/slack/channel/config" &&
-        req.method === "DELETE"
-      )
-        return handleClearSlackChannelConfig();
-
-      // Integrations — Guardian verification
-      if (
-        endpoint === "integrations/guardian/challenge" &&
-        req.method === "POST"
-      )
-        return await handleCreateGuardianChallenge(req);
-      if (endpoint === "integrations/guardian/status" && req.method === "GET")
-        return handleGetGuardianStatus(url);
-      if (endpoint === "integrations/guardian/revoke" && req.method === "POST")
-        return await handleRevokeGuardian(req);
-      if (
-        endpoint === "integrations/guardian/outbound/start" &&
-        req.method === "POST"
-      )
-        return await handleStartOutbound(req);
-      if (
-        endpoint === "integrations/guardian/outbound/resend" &&
-        req.method === "POST"
-      )
-        return await handleResendOutbound(req);
-      if (
-        endpoint === "integrations/guardian/outbound/cancel" &&
-        req.method === "POST"
-      )
-        return await handleCancelOutbound(req);
-
-      // Guardian vellum channel bootstrap and refresh are handled before
-      // JWT auth in routeRequest() — they are not dispatched here.
-
-      // Integrations — Twilio config
-      if (endpoint === "integrations/twilio/config" && req.method === "GET")
-        return handleGetTwilioConfig();
-      if (
-        endpoint === "integrations/twilio/credentials" &&
-        req.method === "POST"
-      )
-        return await handleSetTwilioCredentials(req);
-      if (
-        endpoint === "integrations/twilio/credentials" &&
-        req.method === "DELETE"
-      )
-        return handleClearTwilioCredentials();
-      if (endpoint === "integrations/twilio/numbers" && req.method === "GET")
-        return await handleListTwilioNumbers();
-      if (
-        endpoint === "integrations/twilio/numbers/provision" &&
-        req.method === "POST"
-      )
-        return await handleProvisionTwilioNumber(req);
-      if (
-        endpoint === "integrations/twilio/numbers/assign" &&
-        req.method === "POST"
-      )
-        return await handleAssignTwilioNumber(req);
-      if (
-        endpoint === "integrations/twilio/numbers/release" &&
-        req.method === "POST"
-      )
-        return await handleReleaseTwilioNumber(req);
-      if (
-        endpoint === "integrations/twilio/sms/compliance" &&
-        req.method === "GET"
-      )
-        return await handleGetSmsCompliance();
-      if (
-        endpoint === "integrations/twilio/sms/compliance/tollfree" &&
-        req.method === "POST"
-      )
-        return await handleSubmitTollfreeVerification(req);
-      if (endpoint === "integrations/twilio/sms/test" && req.method === "POST")
-        return await handleSmsSendTest(req);
-      if (
-        endpoint === "integrations/twilio/sms/doctor" &&
-        req.method === "POST"
-      )
-        return await handleSmsDoctor();
-
-      // Twilio toll-free verification PATCH/DELETE with :verificationSid
-      const tollfreeVerificationMatch = endpoint.match(
-        /^integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
-      );
-      if (tollfreeVerificationMatch) {
-        const verificationSid = tollfreeVerificationMatch[1];
-        if (req.method === "PATCH")
-          return await handleUpdateTollfreeVerification(req, verificationSid);
-        if (req.method === "DELETE")
-          return await handleDeleteTollfreeVerification(verificationSid);
-      }
-
-      // Channel readiness
-      if (endpoint === "channels/readiness" && req.method === "GET")
-        return await handleGetChannelReadiness(url);
-      if (endpoint === "channels/readiness/refresh" && req.method === "POST")
-        return await handleRefreshChannelReadiness(req);
-
-      if (endpoint === "attachments" && req.method === "POST")
-        return await handleUploadAttachment(req);
-      if (endpoint === "attachments" && req.method === "DELETE")
-        return await handleDeleteAttachment(req);
-
-      const attachmentContentMatch = endpoint.match(
-        /^attachments\/([^/]+)\/content$/,
-      );
-      if (attachmentContentMatch && req.method === "GET")
-        return handleGetAttachmentContent(attachmentContentMatch[1], req);
-
-      const attachmentMatch = endpoint.match(/^attachments\/([^/]+)$/);
-      if (attachmentMatch && req.method === "GET")
-        return handleGetAttachment(attachmentMatch[1]);
-
-      if (endpoint === "suggestion" && req.method === "GET") {
-        return await handleGetSuggestion(url, {
-          suggestionCache: this.suggestionCache,
-          suggestionInFlight: this.suggestionInFlight,
-        });
-      }
-
-      const interfacesMatch = endpoint.match(/^interfaces\/(.+)$/);
-      if (interfacesMatch && req.method === "GET")
-        return this.handleGetInterface(interfacesMatch[1]);
-
-      if (endpoint === "channels/conversation" && req.method === "DELETE")
-        return await handleDeleteConversation(req, assistantId);
-
-      if (endpoint === "channels/inbound" && req.method === "POST") {
-        // Route policy enforces svc_gateway principal type.
-        return await handleChannelInbound(
-          req,
-          this.processMessage,
-          assistantId,
-          this.approvalCopyGenerator,
-          this.approvalConversationGenerator,
-          this.guardianActionCopyGenerator,
-          this.guardianFollowUpConversationGenerator,
-        );
-      }
-
-      if (endpoint === "channels/delivery-ack" && req.method === "POST")
-        return await handleChannelDeliveryAck(req);
-      if (endpoint === "channels/dead-letters" && req.method === "GET")
-        return handleListDeadLetters();
-      if (endpoint === "channels/replay" && req.method === "POST")
-        return await handleReplayDeadLetters(req);
-
-      if (endpoint === "calls/start" && req.method === "POST")
-        return await handleStartCall(req, assistantId);
-
-      const callsMatch = endpoint.match(
-        /^calls\/([^/]+?)(\/cancel|\/answer|\/instruction)?$/,
-      );
-      if (callsMatch) {
-        const callSessionId = callsMatch[1];
-        if (
-          callSessionId !== "twilio" &&
-          callSessionId !== "relay" &&
-          callSessionId !== "start"
-        ) {
-          if (callsMatch[2] === "/cancel" && req.method === "POST")
-            return await handleCancelCall(req, callSessionId);
-          if (callsMatch[2] === "/answer" && req.method === "POST")
-            return await handleAnswerCall(req, callSessionId);
-          if (callsMatch[2] === "/instruction" && req.method === "POST")
-            return await handleInstructionCall(req, callSessionId);
-          if (!callsMatch[2] && req.method === "GET")
-            return handleGetCallStatus(callSessionId);
-        }
-      }
-
-      // Internal Twilio forwarding endpoints (gateway -> runtime).
-      // Route policy enforces svc_gateway principal type.
-      if (
-        endpoint === "internal/twilio/voice-webhook" &&
-        req.method === "POST"
-      ) {
-        const json = (await req.json()) as {
-          params: Record<string, string>;
-          originalUrl?: string;
-        };
-        const formBody = new URLSearchParams(json.params).toString();
-        const reconstructedUrl = json.originalUrl ?? req.url;
-        const fakeReq = new Request(reconstructedUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: formBody,
-        });
-        return await handleVoiceWebhook(fakeReq);
-      }
-
-      if (endpoint === "internal/twilio/status" && req.method === "POST") {
-        const json = (await req.json()) as { params: Record<string, string> };
-        const formBody = new URLSearchParams(json.params).toString();
-        const fakeReq = new Request(req.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: formBody,
-        });
-        return await handleStatusCallback(fakeReq);
-      }
-
-      if (
-        endpoint === "internal/twilio/connect-action" &&
-        req.method === "POST"
-      ) {
-        const json = (await req.json()) as { params: Record<string, string> };
-        const formBody = new URLSearchParams(json.params).toString();
-        const fakeReq = new Request(req.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: formBody,
-        });
-        return await handleConnectAction(fakeReq);
-      }
-
-      if (endpoint === "identity" && req.method === "GET")
-        return handleGetIdentity();
-      if (endpoint === "brain-graph" && req.method === "GET")
-        return handleGetBrainGraph();
-      if (endpoint === "brain-graph-ui" && req.method === "GET")
-        return handleServeBrainGraphUI(mintUiPageToken());
-      if (endpoint === "home-base-ui" && req.method === "GET")
-        return handleServeHomeBaseUI(mintUiPageToken());
-      if (endpoint === "events" && req.method === "GET")
-        return handleSubscribeAssistantEvents(req, url, { authContext });
-
-      // Migration endpoints
-      if (endpoint === "migrations/validate" && req.method === "POST")
-        return await handleMigrationValidate(req);
-      if (endpoint === "migrations/export" && req.method === "POST")
-        return await handleMigrationExport(req);
-      if (endpoint === "migrations/import-preflight" && req.method === "POST")
-        return await handleMigrationImportPreflight(req);
-      if (endpoint === "migrations/import" && req.method === "POST")
-        return await handleMigrationImport(req);
-
-      // Internal OAuth callback endpoint (gateway -> runtime)
-      if (endpoint === "internal/oauth/callback" && req.method === "POST") {
-        const json = (await req.json()) as {
-          state: string;
-          code?: string;
-          error?: string;
-        };
-        if (!json.state)
-          return httpError("BAD_REQUEST", "Missing state parameter", 400);
-        if (json.error) {
-          const consumed = consumeCallbackError(json.state, json.error);
-          return consumed
-            ? Response.json({ ok: true })
-            : httpError("NOT_FOUND", "Unknown state", 404);
-        }
-        if (json.code) {
-          const consumed = consumeCallback(json.state, json.code);
-          return consumed
-            ? Response.json({ ok: true })
-            : httpError("NOT_FOUND", "Unknown state", 404);
-        }
-        return httpError("BAD_REQUEST", "Missing code or error parameter", 400);
-      }
-
-      return httpError("NOT_FOUND", "Not found", 404);
-    });
-  }
-
   private handleGetInterface(interfacePath: string): Response {
     if (!this.interfacesDir) {
       return httpError("NOT_FOUND", "Interface not found", 404);
@@ -1501,5 +760,859 @@ export class RuntimeHttpServer {
     return new Response(source, {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Declarative route table
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build the full set of route definitions. Routes are matched in order,
+   * so more specific patterns (e.g. `calls/:id/cancel`) must precede
+   * more general ones (e.g. `calls/:id`).
+   */
+  private buildRouteTable(): RouteDefinition[] {
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+
+    return [
+      // ------------------------------------------------------------------
+      // Pairing (authenticated)
+      // ------------------------------------------------------------------
+      {
+        endpoint: "pairing/register",
+        method: "POST",
+        handler: async ({ req }) =>
+          handlePairingRegister(req, this.pairingContext),
+      },
+
+      // ------------------------------------------------------------------
+      // Apps — cloud sharing
+      // ------------------------------------------------------------------
+      {
+        endpoint: "apps/share",
+        method: "POST",
+        handler: async ({ req }) => handleShareApp(req),
+      },
+      {
+        endpoint: "apps/shared/:token/metadata",
+        method: "GET",
+        policyKey: "apps/shared/metadata",
+        handler: ({ params }) => handleGetSharedAppMetadata(params.token),
+      },
+      {
+        endpoint: "apps/shared/:token",
+        method: "GET",
+        policyKey: "apps/shared",
+        handler: ({ params }) => handleDownloadSharedApp(params.token),
+      },
+      {
+        endpoint: "apps/shared/:token",
+        method: "DELETE",
+        policyKey: "apps/shared",
+        handler: ({ params }) => handleDeleteSharedApp(params.token),
+      },
+
+      // ------------------------------------------------------------------
+      // Secrets
+      // ------------------------------------------------------------------
+      {
+        endpoint: "secrets",
+        method: "POST",
+        handler: async ({ req }) => handleAddSecret(req),
+      },
+      {
+        endpoint: "secrets",
+        method: "DELETE",
+        handler: async ({ req }) => handleDeleteSecret(req),
+      },
+
+      // ------------------------------------------------------------------
+      // Health / debug / browser relay
+      // ------------------------------------------------------------------
+      {
+        endpoint: "health",
+        method: "GET",
+        handler: () => handleHealth(),
+      },
+      {
+        endpoint: "debug",
+        method: "GET",
+        handler: () => handleDebug(),
+      },
+      {
+        endpoint: "browser-relay/status",
+        method: "GET",
+        handler: () => Response.json(extensionRelayServer.getStatus()),
+      },
+      {
+        endpoint: "browser-relay/command",
+        method: "POST",
+        handler: async ({ req }) => {
+          const body = (await req.json()) as Record<string, unknown>;
+          const resp = await extensionRelayServer.sendCommand(
+            body as Omit<
+              import("../browser-extension-relay/protocol.js").ExtensionCommand,
+              "id"
+            >,
+          );
+          return Response.json(resp);
+        },
+      },
+
+      // ------------------------------------------------------------------
+      // Conversations
+      // ------------------------------------------------------------------
+      {
+        endpoint: "conversations",
+        method: "GET",
+        handler: ({ url }) => {
+          const limit = Number(url.searchParams.get("limit") ?? 50);
+          const offset = Number(url.searchParams.get("offset") ?? 0);
+          const conversations = conversationStore.listConversations(
+            limit,
+            false,
+            offset,
+          );
+          const totalCount = conversationStore.countConversations();
+          const conversationIds = conversations.map((c) => c.id);
+          const bindings =
+            externalConversationStore.getBindingsForConversations(
+              conversationIds,
+            );
+          const attentionStates =
+            getAttentionStateByConversationIds(conversationIds);
+          return Response.json({
+            sessions: conversations.map((c) => {
+              const binding = bindings.get(c.id);
+              const originChannel = parseChannelId(c.originChannel);
+              const attn = attentionStates.get(c.id);
+              const assistantAttention = attn
+                ? {
+                    hasUnseenLatestAssistantMessage:
+                      attn.latestAssistantMessageAt != null &&
+                      (attn.lastSeenAssistantMessageAt == null ||
+                        attn.lastSeenAssistantMessageAt <
+                          attn.latestAssistantMessageAt),
+                    ...(attn.latestAssistantMessageAt != null
+                      ? {
+                          latestAssistantMessageAt:
+                            attn.latestAssistantMessageAt,
+                        }
+                      : {}),
+                    ...(attn.lastSeenAssistantMessageAt != null
+                      ? {
+                          lastSeenAssistantMessageAt:
+                            attn.lastSeenAssistantMessageAt,
+                        }
+                      : {}),
+                    ...(attn.lastSeenConfidence != null
+                      ? { lastSeenConfidence: attn.lastSeenConfidence }
+                      : {}),
+                    ...(attn.lastSeenSignalType != null
+                      ? { lastSeenSignalType: attn.lastSeenSignalType }
+                      : {}),
+                  }
+                : undefined;
+              return {
+                id: c.id,
+                title: c.title ?? "Untitled",
+                createdAt: c.createdAt,
+                updatedAt: c.updatedAt,
+                threadType: c.threadType === "private" ? "private" : "standard",
+                source: c.source ?? "user",
+                ...(binding
+                  ? {
+                      channelBinding: {
+                        sourceChannel: binding.sourceChannel,
+                        externalChatId: binding.externalChatId,
+                        externalUserId: binding.externalUserId,
+                        displayName: binding.displayName,
+                        username: binding.username,
+                      },
+                    }
+                  : {}),
+                ...(originChannel
+                  ? { conversationOriginChannel: originChannel }
+                  : {}),
+                ...(assistantAttention ? { assistantAttention } : {}),
+              };
+            }),
+            hasMore: offset + conversations.length < totalCount,
+          });
+        },
+      },
+      {
+        endpoint: "conversations/attention",
+        method: "GET",
+        handler: ({ url }) => handleListConversationAttention(url),
+      },
+      {
+        endpoint: "conversations/seen",
+        method: "POST",
+        handler: async ({ req }) => {
+          const body = (await req.json()) as Record<string, unknown>;
+          const conversationId = body.conversationId as string | undefined;
+          if (!conversationId)
+            return httpError("BAD_REQUEST", "Missing conversationId", 400);
+          try {
+            recordConversationSeenSignal({
+              conversationId,
+              assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+              sourceChannel: (body.sourceChannel as string) ?? "vellum",
+              signalType: ((body.signalType as string) ??
+                "macos_conversation_opened") as SignalType,
+              confidence: ((body.confidence as string) ??
+                "explicit") as Confidence,
+              source: (body.source as string) ?? "http-api",
+              evidenceText: body.evidenceText as string | undefined,
+              metadata: body.metadata as Record<string, unknown> | undefined,
+              observedAt: body.observedAt as number | undefined,
+            });
+            return Response.json({ ok: true });
+          } catch (err) {
+            log.error(
+              { err, conversationId },
+              "POST /v1/conversations/seen: failed",
+            );
+            return httpError(
+              "INTERNAL_ERROR",
+              "Failed to record seen signal",
+              500,
+            );
+          }
+        },
+      },
+
+      // ------------------------------------------------------------------
+      // Messages / search
+      // ------------------------------------------------------------------
+      {
+        endpoint: "messages",
+        method: "GET",
+        handler: ({ url }) => handleListMessages(url, this.interfacesDir),
+      },
+      {
+        endpoint: "messages",
+        method: "POST",
+        handler: async ({ req, authContext }) =>
+          handleSendMessage(
+            req,
+            {
+              processMessage: this.processMessage,
+              persistAndProcessMessage: this.persistAndProcessMessage,
+              sendMessageDeps: this.sendMessageDeps,
+              approvalConversationGenerator: this.approvalConversationGenerator,
+            },
+            authContext,
+          ),
+      },
+      {
+        endpoint: "search",
+        method: "GET",
+        handler: ({ url }) => handleSearchConversations(url),
+      },
+      {
+        endpoint: "search/global",
+        method: "GET",
+        handler: async ({ url }) => handleGlobalSearch(url),
+      },
+
+      // ------------------------------------------------------------------
+      // Approvals
+      // ------------------------------------------------------------------
+      {
+        endpoint: "confirm",
+        method: "POST",
+        handler: async ({ req, authContext }) =>
+          handleConfirm(req, authContext),
+      },
+      {
+        endpoint: "secret",
+        method: "POST",
+        handler: async ({ req, authContext }) => handleSecret(req, authContext),
+      },
+      {
+        endpoint: "trust-rules",
+        method: "POST",
+        handler: async ({ req, authContext }) =>
+          handleTrustRule(req, authContext),
+      },
+      {
+        endpoint: "pending-interactions",
+        method: "GET",
+        handler: ({ url, authContext }) =>
+          handleListPendingInteractions(url, authContext),
+      },
+
+      // ------------------------------------------------------------------
+      // Trust rule CRUD management
+      // ------------------------------------------------------------------
+      {
+        endpoint: "trust-rules/manage",
+        method: "GET",
+        handler: () => handleListTrustRules(),
+      },
+      {
+        endpoint: "trust-rules/manage",
+        method: "POST",
+        handler: async ({ req }) => handleAddTrustRuleManage(req),
+      },
+      {
+        endpoint: "trust-rules/manage/:id",
+        method: "DELETE",
+        handler: ({ params }) => handleRemoveTrustRuleManage(params.id),
+      },
+      {
+        endpoint: "trust-rules/manage/:id",
+        method: "PATCH",
+        handler: async ({ req, params }) =>
+          handleUpdateTrustRuleManage(req, params.id),
+      },
+
+      // ------------------------------------------------------------------
+      // Surface actions
+      // ------------------------------------------------------------------
+      {
+        endpoint: "surface-actions",
+        method: "POST",
+        handler: async ({ req }) => {
+          if (!this.findSession) {
+            return httpError(
+              "NOT_IMPLEMENTED",
+              "Surface actions not available",
+              501,
+            );
+          }
+          return handleSurfaceAction(req, this.findSession);
+        },
+      },
+
+      // ------------------------------------------------------------------
+      // Guardian actions
+      // ------------------------------------------------------------------
+      {
+        endpoint: "guardian-actions/pending",
+        method: "GET",
+        handler: ({ url, authContext }) =>
+          handleGuardianActionsPending(url, authContext),
+      },
+      {
+        endpoint: "guardian-actions/decision",
+        method: "POST",
+        handler: async ({ req, authContext }) =>
+          handleGuardianActionDecision(req, authContext),
+      },
+
+      // ------------------------------------------------------------------
+      // Contacts
+      // ------------------------------------------------------------------
+      {
+        endpoint: "contacts",
+        method: "GET",
+        handler: ({ url }) => handleListContacts(url),
+      },
+      {
+        endpoint: "contacts/merge",
+        method: "POST",
+        handler: async ({ req }) => handleMergeContacts(req),
+      },
+      {
+        endpoint: "contacts/channels/:id",
+        method: "PATCH",
+        policyKey: "contacts/channels",
+        handler: async ({ req, params }) =>
+          handleUpdateContactChannel(req, params.id),
+      },
+      {
+        endpoint: "contacts/:id",
+        method: "GET",
+        policyKey: "contacts",
+        handler: ({ params }) => handleGetContact(params.id),
+      },
+
+      // ------------------------------------------------------------------
+      // Ingress members
+      // ------------------------------------------------------------------
+      {
+        endpoint: "ingress/members",
+        method: "GET",
+        handler: ({ url }) => handleListMembers(url),
+      },
+      {
+        endpoint: "ingress/members",
+        method: "POST",
+        handler: async ({ req }) => handleUpsertMember(req),
+      },
+      {
+        endpoint: "ingress/members/:id/block",
+        method: "POST",
+        policyKey: "ingress/members/block",
+        handler: async ({ req, params }) => handleBlockMember(req, params.id),
+      },
+      {
+        endpoint: "ingress/members/:id",
+        method: "DELETE",
+        policyKey: "ingress/members",
+        handler: async ({ req, params }) => handleRevokeMember(req, params.id),
+      },
+
+      // ------------------------------------------------------------------
+      // Ingress invites
+      // ------------------------------------------------------------------
+      {
+        endpoint: "ingress/invites",
+        method: "GET",
+        handler: ({ url }) => handleListInvites(url),
+      },
+      {
+        endpoint: "ingress/invites",
+        method: "POST",
+        handler: async ({ req }) => handleCreateInvite(req),
+      },
+      {
+        endpoint: "ingress/invites/redeem",
+        method: "POST",
+        handler: async ({ req }) => handleRedeemInvite(req),
+      },
+      {
+        endpoint: "ingress/invites/:id",
+        method: "DELETE",
+        policyKey: "ingress/invites",
+        handler: ({ params }) => handleRevokeInvite(params.id),
+      },
+
+      // ------------------------------------------------------------------
+      // Integrations — Telegram
+      // ------------------------------------------------------------------
+      {
+        endpoint: "integrations/telegram/config",
+        method: "GET",
+        handler: () => handleGetTelegramConfig(),
+      },
+      {
+        endpoint: "integrations/telegram/config",
+        method: "POST",
+        handler: async ({ req }) => handleSetTelegramConfig(req),
+      },
+      {
+        endpoint: "integrations/telegram/config",
+        method: "DELETE",
+        handler: async () => handleClearTelegramConfig(),
+      },
+      {
+        endpoint: "integrations/telegram/commands",
+        method: "POST",
+        handler: async ({ req }) => handleSetTelegramCommands(req),
+      },
+      {
+        endpoint: "integrations/telegram/setup",
+        method: "POST",
+        handler: async ({ req }) => handleSetupTelegram(req),
+      },
+
+      // ------------------------------------------------------------------
+      // Integrations — Slack
+      // ------------------------------------------------------------------
+      {
+        endpoint: "integrations/slack/channel/config",
+        method: "GET",
+        handler: () => handleGetSlackChannelConfig(),
+      },
+      {
+        endpoint: "integrations/slack/channel/config",
+        method: "POST",
+        handler: async ({ req }) => handleSetSlackChannelConfig(req),
+      },
+      {
+        endpoint: "integrations/slack/channel/config",
+        method: "DELETE",
+        handler: () => handleClearSlackChannelConfig(),
+      },
+
+      // ------------------------------------------------------------------
+      // Integrations — Guardian
+      // ------------------------------------------------------------------
+      {
+        endpoint: "integrations/guardian/challenge",
+        method: "POST",
+        handler: async ({ req }) => handleCreateGuardianChallenge(req),
+      },
+      {
+        endpoint: "integrations/guardian/status",
+        method: "GET",
+        handler: ({ url }) => handleGetGuardianStatus(url),
+      },
+      {
+        endpoint: "integrations/guardian/revoke",
+        method: "POST",
+        handler: async ({ req }) => handleRevokeGuardian(req),
+      },
+      {
+        endpoint: "integrations/guardian/outbound/start",
+        method: "POST",
+        handler: async ({ req }) => handleStartOutbound(req),
+      },
+      {
+        endpoint: "integrations/guardian/outbound/resend",
+        method: "POST",
+        handler: async ({ req }) => handleResendOutbound(req),
+      },
+      {
+        endpoint: "integrations/guardian/outbound/cancel",
+        method: "POST",
+        handler: async ({ req }) => handleCancelOutbound(req),
+      },
+
+      // ------------------------------------------------------------------
+      // Integrations — Twilio
+      // ------------------------------------------------------------------
+      {
+        endpoint: "integrations/twilio/config",
+        method: "GET",
+        handler: () => handleGetTwilioConfig(),
+      },
+      {
+        endpoint: "integrations/twilio/credentials",
+        method: "POST",
+        handler: async ({ req }) => handleSetTwilioCredentials(req),
+      },
+      {
+        endpoint: "integrations/twilio/credentials",
+        method: "DELETE",
+        handler: () => handleClearTwilioCredentials(),
+      },
+      {
+        endpoint: "integrations/twilio/numbers",
+        method: "GET",
+        handler: async () => handleListTwilioNumbers(),
+      },
+      {
+        endpoint: "integrations/twilio/numbers/provision",
+        method: "POST",
+        handler: async ({ req }) => handleProvisionTwilioNumber(req),
+      },
+      {
+        endpoint: "integrations/twilio/numbers/assign",
+        method: "POST",
+        handler: async ({ req }) => handleAssignTwilioNumber(req),
+      },
+      {
+        endpoint: "integrations/twilio/numbers/release",
+        method: "POST",
+        handler: async ({ req }) => handleReleaseTwilioNumber(req),
+      },
+      {
+        endpoint: "integrations/twilio/sms/compliance",
+        method: "GET",
+        handler: async () => handleGetSmsCompliance(),
+      },
+      {
+        endpoint: "integrations/twilio/sms/compliance/tollfree",
+        method: "POST",
+        handler: async ({ req }) => handleSubmitTollfreeVerification(req),
+      },
+      {
+        endpoint: "integrations/twilio/sms/compliance/tollfree/:sid",
+        method: "PATCH",
+        policyKey: "integrations/twilio/sms/compliance/tollfree",
+        handler: async ({ req, params }) =>
+          handleUpdateTollfreeVerification(req, params.sid),
+      },
+      {
+        endpoint: "integrations/twilio/sms/compliance/tollfree/:sid",
+        method: "DELETE",
+        policyKey: "integrations/twilio/sms/compliance/tollfree",
+        handler: async ({ params }) =>
+          handleDeleteTollfreeVerification(params.sid),
+      },
+      {
+        endpoint: "integrations/twilio/sms/test",
+        method: "POST",
+        handler: async ({ req }) => handleSmsSendTest(req),
+      },
+      {
+        endpoint: "integrations/twilio/sms/doctor",
+        method: "POST",
+        handler: async () => handleSmsDoctor(),
+      },
+
+      // ------------------------------------------------------------------
+      // Channel readiness
+      // ------------------------------------------------------------------
+      {
+        endpoint: "channels/readiness",
+        method: "GET",
+        handler: async ({ url }) => handleGetChannelReadiness(url),
+      },
+      {
+        endpoint: "channels/readiness/refresh",
+        method: "POST",
+        handler: async ({ req }) => handleRefreshChannelReadiness(req),
+      },
+
+      // ------------------------------------------------------------------
+      // Attachments — specific sub-resource routes before generic ones
+      // ------------------------------------------------------------------
+      {
+        endpoint: "attachments",
+        method: "POST",
+        handler: async ({ req }) => handleUploadAttachment(req),
+      },
+      {
+        endpoint: "attachments",
+        method: "DELETE",
+        handler: async ({ req }) => handleDeleteAttachment(req),
+      },
+      {
+        endpoint: "attachments/:id/content",
+        method: "GET",
+        policyKey: "attachments/content",
+        handler: ({ req, params }) =>
+          handleGetAttachmentContent(params.id, req),
+      },
+      {
+        endpoint: "attachments/:id",
+        method: "GET",
+        policyKey: "attachments",
+        handler: ({ params }) => handleGetAttachment(params.id),
+      },
+
+      // ------------------------------------------------------------------
+      // Suggestion
+      // ------------------------------------------------------------------
+      {
+        endpoint: "suggestion",
+        method: "GET",
+        handler: async ({ url }) =>
+          handleGetSuggestion(url, {
+            suggestionCache: this.suggestionCache,
+            suggestionInFlight: this.suggestionInFlight,
+          }),
+      },
+
+      // ------------------------------------------------------------------
+      // Interfaces
+      // ------------------------------------------------------------------
+      {
+        endpoint: "interfaces/:path*",
+        method: "GET",
+        policyKey: "interfaces",
+        handler: ({ params }) => this.handleGetInterface(params.path),
+      },
+
+      // ------------------------------------------------------------------
+      // Channel operations
+      // ------------------------------------------------------------------
+      {
+        endpoint: "channels/conversation",
+        method: "DELETE",
+        handler: async ({ req }) => handleDeleteConversation(req, assistantId),
+      },
+      {
+        endpoint: "channels/inbound",
+        method: "POST",
+        handler: async ({ req }) =>
+          handleChannelInbound(
+            req,
+            this.processMessage,
+            assistantId,
+            this.approvalCopyGenerator,
+            this.approvalConversationGenerator,
+            this.guardianActionCopyGenerator,
+            this.guardianFollowUpConversationGenerator,
+          ),
+      },
+      {
+        endpoint: "channels/delivery-ack",
+        method: "POST",
+        handler: async ({ req }) => handleChannelDeliveryAck(req),
+      },
+      {
+        endpoint: "channels/dead-letters",
+        method: "GET",
+        handler: () => handleListDeadLetters(),
+      },
+      {
+        endpoint: "channels/replay",
+        method: "POST",
+        handler: async ({ req }) => handleReplayDeadLetters(req),
+      },
+
+      // ------------------------------------------------------------------
+      // Calls — specific sub-actions before the generic calls/:id route
+      // ------------------------------------------------------------------
+      {
+        endpoint: "calls/start",
+        method: "POST",
+        handler: async ({ req }) => handleStartCall(req, assistantId),
+      },
+      {
+        endpoint: "calls/:id/cancel",
+        method: "POST",
+        policyKey: "calls/cancel",
+        handler: async ({ req, params }) => handleCancelCall(req, params.id),
+      },
+      {
+        endpoint: "calls/:id/answer",
+        method: "POST",
+        policyKey: "calls/answer",
+        handler: async ({ req, params }) => handleAnswerCall(req, params.id),
+      },
+      {
+        endpoint: "calls/:id/instruction",
+        method: "POST",
+        policyKey: "calls/instruction",
+        handler: async ({ req, params }) =>
+          handleInstructionCall(req, params.id),
+      },
+      {
+        endpoint: "calls/:id",
+        method: "GET",
+        policyKey: "calls",
+        handler: ({ params }) => handleGetCallStatus(params.id),
+      },
+
+      // ------------------------------------------------------------------
+      // Internal Twilio forwarding (gateway -> runtime)
+      // ------------------------------------------------------------------
+      {
+        endpoint: "internal/twilio/voice-webhook",
+        method: "POST",
+        handler: async ({ req }) => {
+          const json = (await req.json()) as {
+            params: Record<string, string>;
+            originalUrl?: string;
+          };
+          const formBody = new URLSearchParams(json.params).toString();
+          const reconstructedUrl = json.originalUrl ?? req.url;
+          const fakeReq = new Request(reconstructedUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody,
+          });
+          return handleVoiceWebhook(fakeReq);
+        },
+      },
+      {
+        endpoint: "internal/twilio/status",
+        method: "POST",
+        handler: async ({ req }) => {
+          const json = (await req.json()) as {
+            params: Record<string, string>;
+          };
+          const formBody = new URLSearchParams(json.params).toString();
+          const fakeReq = new Request(req.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody,
+          });
+          return handleStatusCallback(fakeReq);
+        },
+      },
+      {
+        endpoint: "internal/twilio/connect-action",
+        method: "POST",
+        handler: async ({ req }) => {
+          const json = (await req.json()) as {
+            params: Record<string, string>;
+          };
+          const formBody = new URLSearchParams(json.params).toString();
+          const fakeReq = new Request(req.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody,
+          });
+          return handleConnectAction(fakeReq);
+        },
+      },
+
+      // ------------------------------------------------------------------
+      // Identity / brain graph / UIs / events
+      // ------------------------------------------------------------------
+      {
+        endpoint: "identity",
+        method: "GET",
+        handler: () => handleGetIdentity(),
+      },
+      {
+        endpoint: "brain-graph",
+        method: "GET",
+        handler: () => handleGetBrainGraph(),
+      },
+      {
+        endpoint: "brain-graph-ui",
+        method: "GET",
+        handler: () => handleServeBrainGraphUI(mintUiPageToken()),
+      },
+      {
+        endpoint: "home-base-ui",
+        method: "GET",
+        handler: () => handleServeHomeBaseUI(mintUiPageToken()),
+      },
+      {
+        endpoint: "events",
+        method: "GET",
+        handler: ({ req, url, authContext }) =>
+          handleSubscribeAssistantEvents(req, url, { authContext }),
+      },
+
+      // ------------------------------------------------------------------
+      // Migrations
+      // ------------------------------------------------------------------
+      {
+        endpoint: "migrations/validate",
+        method: "POST",
+        handler: async ({ req }) => handleMigrationValidate(req),
+      },
+      {
+        endpoint: "migrations/export",
+        method: "POST",
+        handler: async ({ req }) => handleMigrationExport(req),
+      },
+      {
+        endpoint: "migrations/import-preflight",
+        method: "POST",
+        handler: async ({ req }) => handleMigrationImportPreflight(req),
+      },
+      {
+        endpoint: "migrations/import",
+        method: "POST",
+        handler: async ({ req }) => handleMigrationImport(req),
+      },
+
+      // ------------------------------------------------------------------
+      // Internal OAuth callback (gateway -> runtime)
+      // ------------------------------------------------------------------
+      {
+        endpoint: "internal/oauth/callback",
+        method: "POST",
+        handler: async ({ req }) => {
+          const json = (await req.json()) as {
+            state: string;
+            code?: string;
+            error?: string;
+          };
+          if (!json.state)
+            return httpError("BAD_REQUEST", "Missing state parameter", 400);
+          if (json.error) {
+            const consumed = consumeCallbackError(json.state, json.error);
+            return consumed
+              ? Response.json({ ok: true })
+              : httpError("NOT_FOUND", "Unknown state", 404);
+          }
+          if (json.code) {
+            const consumed = consumeCallback(json.state, json.code);
+            return consumed
+              ? Response.json({ ok: true })
+              : httpError("NOT_FOUND", "Unknown state", 404);
+          }
+          return httpError(
+            "BAD_REQUEST",
+            "Missing code or error parameter",
+            400,
+          );
+        },
+      },
+    ];
   }
 }
