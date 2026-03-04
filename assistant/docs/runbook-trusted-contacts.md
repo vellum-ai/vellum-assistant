@@ -1,12 +1,17 @@
 # Trusted Contacts — Operator Runbook
 
-Operational procedures for inspecting, managing, and debugging the trusted contact access flow. All HTTP commands use the gateway API (default `http://localhost:7830`) with bearer authentication.
+Operational procedures for inspecting, managing, and debugging the trusted contact access flow. HTTP commands use the assistant runtime API (default `http://localhost:7821`) with bearer authentication.
+
+> **Note:** The `/v1/contacts` endpoints are served by the assistant runtime, not
+> the gateway. If you prefer to route through the gateway (`localhost:7830`), set
+> `GATEWAY_RUNTIME_PROXY_ENABLED=true` in the gateway environment — the proxy is
+> disabled by default and these routes will 404 without it.
 
 ## Prerequisites
 
 ```bash
-# Base URL (adjust if using a non-default port)
-BASE=http://localhost:7830
+# Base URL — assistant runtime (adjust if using a non-default port)
+BASE=http://localhost:7821
 
 # Bearer token: if running via the assistant's shell tools, $GATEWAY_AUTH_TOKEN
 # is injected automatically. For manual operator use, mint a token via the CLI
@@ -14,50 +19,74 @@ BASE=http://localhost:7830
 TOKEN=$GATEWAY_AUTH_TOKEN
 ```
 
-## 1. Inspect Trusted Contacts (Members)
+## 1. Inspect Trusted Contacts
 
 ### List all active trusted contacts
 
 ```bash
-curl -s "$BASE/v1/ingress/members?status=active" \
+curl -s "$BASE/v1/contacts?role=contact" \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 
-### Filter by channel
+### Filter by channel type
 
 ```bash
 # Telegram contacts only
-curl -s "$BASE/v1/ingress/members?sourceChannel=telegram&status=active" \
+curl -s "$BASE/v1/contacts?channelType=telegram" \
   -H "Authorization: Bearer $TOKEN" | jq
 
 # SMS contacts only
-curl -s "$BASE/v1/ingress/members?sourceChannel=sms&status=active" \
+curl -s "$BASE/v1/contacts?channelType=sms" \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 
-### List all members (including revoked and blocked)
+### List all contacts (including revoked and blocked)
 
 ```bash
-curl -s "$BASE/v1/ingress/members" \
+curl -s "$BASE/v1/contacts" \
   -H "Authorization: Bearer $TOKEN" | jq
+```
+
+### Via CLI
+
+```bash
+vellum contacts list --role contact
 ```
 
 Response shape:
+
 ```json
 {
   "ok": true,
-  "members": [
+  "contacts": [
     {
       "id": "uuid",
-      "sourceChannel": "telegram",
-      "externalUserId": "123456789",
-      "externalChatId": "123456789",
       "displayName": "Alice",
-      "username": "alice_handle",
-      "status": "active",
-      "policy": "allow",
-      "lastSeenAt": 1700000000000,
-      "createdAt": 1699000000000
+      "relationship": "friend",
+      "importance": 0.5,
+      "responseExpectation": null,
+      "preferredTone": null,
+      "lastInteraction": 1700000000000,
+      "interactionCount": 12,
+      "createdAt": 1699000000000,
+      "updatedAt": 1700000000000,
+      "role": "contact",
+      "channels": [
+        {
+          "id": "channel-uuid",
+          "contactId": "uuid",
+          "type": "telegram",
+          "address": "alice_handle",
+          "isPrimary": true,
+          "externalUserId": "123456789",
+          "externalChatId": "123456789",
+          "status": "active",
+          "policy": "allow",
+          "verifiedAt": 1699500000000,
+          "lastSeenAt": 1700000000000,
+          "createdAt": 1699000000000
+        }
+      ]
     }
   ]
 }
@@ -108,29 +137,29 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 ### Via HTTP API
 
-First, find the member's `id` from the list endpoint, then revoke:
+First, find the contact and its channel ID from the list endpoint, then revoke the channel:
 
 ```bash
-# Find the member
-MEMBER_ID=$(curl -s "$BASE/v1/ingress/members?sourceChannel=telegram&status=active" \
-  -H "Authorization: Bearer $TOKEN" | jq -r '.members[] | select(.externalUserId == "TARGET_USER_ID") | .id')
+# Find the contact's channel ID
+CHANNEL_ID=$(curl -s "$BASE/v1/contacts?channelType=telegram" \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.contacts[] | select(.channels[] | select(.externalUserId == "TARGET_USER_ID")) | .channels[] | select(.externalUserId == "TARGET_USER_ID") | .id')
 
 # Revoke with reason
-curl -s -X DELETE "$BASE/v1/ingress/members/$MEMBER_ID" \
+curl -s -X PATCH "$BASE/v1/contacts/channels/$CHANNEL_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"reason": "Revoked by operator"}' | jq
+  -d '{"status": "revoked", "reason": "Revoked by operator"}' | jq
 ```
 
-### Block a member (stronger than revoke)
+### Block a contact channel (stronger than revoke)
 
-Blocking prevents the member from re-entering the flow without explicit unblocking.
+Blocking prevents the contact from re-entering the flow without explicit unblocking.
 
 ```bash
-curl -s -X POST "$BASE/v1/ingress/members/$MEMBER_ID/block" \
+curl -s -X PATCH "$BASE/v1/contacts/channels/$CHANNEL_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"reason": "Blocked by operator"}' | jq
+  -d '{"status": "blocked", "reason": "Blocked by operator"}' | jq
 ```
 
 ### Via SQLite (emergency)
@@ -139,10 +168,10 @@ If the HTTP API is unavailable:
 
 ```bash
 sqlite3 ~/.vellum/workspace/data/db/assistant.db \
-  "UPDATE assistant_ingress_members \
+  "UPDATE contact_channels \
    SET status = 'revoked', revoked_reason = 'Emergency operator revocation', \
    updated_at = $(date +%s)000 \
-   WHERE external_user_id = 'TARGET_USER_ID' AND source_channel = 'telegram';"
+   WHERE external_user_id = 'TARGET_USER_ID' AND type = 'telegram';"
 ```
 
 ## 5. Debug Verification Failures
@@ -182,13 +211,13 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 ### Common verification failure causes
 
-| Symptom | Likely cause | Resolution |
-|---------|-------------|------------|
-| "Invalid or expired code" (correct code) | Identity mismatch: the code was entered from a different user/chat than expected | Verify the requester is using the same account that originally requested access |
-| "Invalid or expired code" (correct code, correct user) | Rate-limited (5+ failures in 15 min window) | Wait 30 minutes or reset rate limits via SQLite |
-| "Invalid or expired code" (old code) | Code TTL expired (10 min) | Guardian must re-approve to generate a new code |
-| Code never delivered to guardian | `deliverChannelReply` failed | Check daemon logs for "Failed to deliver verification code to guardian" |
-| No notification to guardian | No guardian binding for channel | Verify guardian is bound: check `channel_guardian_bindings` table |
+| Symptom                                                | Likely cause                                                                     | Resolution                                                                                                                                 |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| "Invalid or expired code" (correct code)               | Identity mismatch: the code was entered from a different user/chat than expected | Verify the requester is using the same account that originally requested access                                                            |
+| "Invalid or expired code" (correct code, correct user) | Rate-limited (5+ failures in 15 min window)                                      | Wait 30 minutes or reset rate limits via SQLite                                                                                            |
+| "Invalid or expired code" (old code)                   | Code TTL expired (10 min)                                                        | Guardian must re-approve to generate a new code                                                                                            |
+| Code never delivered to guardian                       | `deliverChannelReply` failed                                                     | Check daemon logs for "Failed to deliver verification code to guardian"                                                                    |
+| No notification to guardian                            | No guardian binding for channel                                                  | Verify guardian is bound: check `contacts` table for `role = 'guardian'` with an active `contact_channels` entry matching the channel type |
 
 ## 6. Check Notification Delivery Status
 
@@ -228,35 +257,43 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 ## 7. Manually Add a Trusted Contact (Bypass Verification)
 
-If the verification flow cannot be completed, an operator can directly create an active member:
+If the verification flow cannot be completed, an operator can directly create an active contact:
 
 ```bash
-curl -s -X POST "$BASE/v1/ingress/members" \
+curl -s -X POST "$BASE/v1/contacts" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "sourceChannel": "telegram",
-    "externalUserId": "123456789",
-    "externalChatId": "123456789",
     "displayName": "Alice",
-    "policy": "allow",
-    "status": "active"
+    "role": "contact",
+    "channels": [{
+      "type": "telegram",
+      "address": "alice_handle",
+      "externalUserId": "123456789",
+      "externalChatId": "123456789",
+      "status": "active",
+      "policy": "allow"
+    }]
   }' | jq
 ```
 
-For SMS contacts, use the E.164 phone number as the external user/chat ID:
+For SMS contacts, use the E.164 phone number as the address and external user/chat ID:
 
 ```bash
-curl -s -X POST "$BASE/v1/ingress/members" \
+curl -s -X POST "$BASE/v1/contacts" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "sourceChannel": "sms",
-    "externalUserId": "+15551234567",
-    "externalChatId": "+15551234567",
     "displayName": "Bob",
-    "policy": "allow",
-    "status": "active"
+    "role": "contact",
+    "channels": [{
+      "type": "sms",
+      "address": "+15551234567",
+      "externalUserId": "+15551234567",
+      "externalChatId": "+15551234567",
+      "status": "active",
+      "policy": "allow"
+    }]
   }' | jq
 ```
 

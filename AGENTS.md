@@ -51,7 +51,7 @@ When your PR establishes a new mandatory pattern, convention, or architectural c
 
 ## Slash Commands
 
-Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/`. See `.claude/README.md` for the full list. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage daemon and gateway lifecycle.
+Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/`. See `.claude/README.md` for the full list. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage assistant and gateway lifecycle.
 
 ## Linear Ticket Hygiene
 
@@ -142,6 +142,10 @@ Skills must be self-contained and portable — no coupling to daemon tools, inte
 ## Assistant-Driven Judgement
 
 Judgement calls affecting user experience should be made by the assistant through the daemon — not hardcoded heuristics. Reserve deterministic logic for mechanical operations (parsing, validation, access control). If you're writing string matches or scoring functions to approximate what the model would decide, route it through the daemon instead.
+
+## User-Facing Terminology: "daemon" vs "assistant"
+
+"Daemon" is an internal implementation detail. In all user-facing text — CLI output, error messages, help strings, SKILL.md instructions that would be relayed to users, README documentation, and UI strings — use **"assistant"** instead of "daemon". Internal code (variable names, class names, file paths, log messages, comments explaining architecture) may continue using "daemon" since users don't see those. When in doubt, ask: "Would a user ever read this?" If yes, say "assistant".
 
 ## Release Update Hygiene
 

@@ -163,12 +163,35 @@ beforeEach(() => {
         return new Response('{"error":"not found"}', { status: 404 });
       }
 
+      // Slack API responses
+      if (
+        url.includes("slack.com/api/chat.postMessage") ||
+        url.includes("slack.com/api/chat.postEphemeral")
+      ) {
+        return new Response(
+          JSON.stringify({ ok: true, ts: "1700000000.000100" }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      if (url.includes("slack.com/api/chat.update")) {
+        return new Response(
+          JSON.stringify({ ok: true, ts: "1700000000.000050" }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
       // Slack file upload URL (step 2 of files.uploadV2 flow)
       if (url.includes("files.slack.com/upload/")) {
         return new Response("OK", { status: 200 });
       }
 
-      // Slack API responses
+      // Slack API responses (generic fallback for file upload APIs)
       if (url.includes("slack.com/api/")) {
         return new Response(
           JSON.stringify({
@@ -311,7 +334,24 @@ describe("slack-deliver endpoint", () => {
     );
   });
 
-  test("returns 502 when Slack API returns ok: false", async () => {
+  test("returns 502 when Slack API returns ok: false with auth error", async () => {
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({ ok: false, error: "invalid_auth" }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    });
+
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "C123", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(502);
+  });
+
+  test("returns 404 when Slack API returns channel_not_found", async () => {
     fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({ ok: false, error: "channel_not_found" }),
@@ -325,7 +365,7 @@ describe("slack-deliver endpoint", () => {
     const handler = createSlackDeliverHandler(makeConfig());
     const req = makeRequest({ chatId: "C123", text: "hello" });
     const res = await handler(req);
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(404);
   });
 
   test("does not include thread_ts when threadTs query param is absent", async () => {
@@ -373,6 +413,216 @@ describe("slack-deliver endpoint", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe("attachments must be an array");
+  });
+
+  test("uses chat.postEphemeral when ephemeral flag is set", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "secret info",
+      ephemeral: true,
+      user: "U456",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postEphemeral"),
+    );
+    expect(slackCall).toBeDefined();
+    expect((slackCall!.body as any).channel).toBe("C123");
+    expect((slackCall!.body as any).text).toBe("secret info");
+    expect((slackCall!.body as any).user).toBe("U456");
+
+    // Should NOT call chat.postMessage
+    const postMessageCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(postMessageCall).toBeUndefined();
+  });
+
+  test("returns 400 when ephemeral is set but user is missing", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "secret info",
+      ephemeral: true,
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("user is required");
+  });
+
+  test("ephemeral message includes thread_ts when threadTs query param is set", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest(
+      {
+        chatId: "C123",
+        text: "ephemeral in thread",
+        ephemeral: true,
+        user: "U789",
+      },
+      undefined,
+      "?threadTs=1700000000.000100",
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postEphemeral"),
+    );
+    expect(slackCall).toBeDefined();
+    expect((slackCall!.body as any).thread_ts).toBe("1700000000.000100");
+    expect((slackCall!.body as any).user).toBe("U789");
+  });
+
+  test("does not call onThreadReply for ephemeral messages in a thread", async () => {
+    const onThreadReply = mock(() => {});
+    const handler = createSlackDeliverHandler(makeConfig(), onThreadReply);
+    const req = makeRequest(
+      {
+        chatId: "C123",
+        text: "ephemeral thread msg",
+        ephemeral: true,
+        user: "U456",
+      },
+      undefined,
+      "?threadTs=1700000000.000200",
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(onThreadReply).not.toHaveBeenCalled();
+  });
+
+  test("calls onThreadReply for non-ephemeral messages in a thread", async () => {
+    const onThreadReply = mock(() => {});
+    const handler = createSlackDeliverHandler(makeConfig(), onThreadReply);
+    const req = makeRequest(
+      { chatId: "C123", text: "normal thread msg" },
+      undefined,
+      "?threadTs=1700000000.000300",
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(onThreadReply).toHaveBeenCalledWith("1700000000.000300");
+  });
+
+  test("uses chat.update when messageTs is provided", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "updated text",
+      messageTs: "1700000000.000050",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const updateCall = fetchCalls.find((c) => c.url.includes("chat.update"));
+    expect(updateCall).toBeDefined();
+    expect((updateCall!.body as any).channel).toBe("C123");
+    expect((updateCall!.body as any).text).toBe("updated text");
+    expect((updateCall!.body as any).ts).toBe("1700000000.000050");
+
+    // Should not have called chat.postMessage
+    const postCall = fetchCalls.find((c) => c.url.includes("chat.postMessage"));
+    expect(postCall).toBeUndefined();
+  });
+
+  test("chat.update does not include thread_ts", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest(
+      {
+        chatId: "C123",
+        text: "threaded update",
+        messageTs: "1700000000.000050",
+      },
+      undefined,
+      "?threadTs=1700000000.000001",
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const updateCall = fetchCalls.find((c) => c.url.includes("chat.update"));
+    expect(updateCall).toBeDefined();
+    expect((updateCall!.body as any).thread_ts).toBeUndefined();
+    expect((updateCall!.body as any).ts).toBe("1700000000.000050");
+  });
+
+  test("falls back to chat.postMessage when chat.update fails", async () => {
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        let body: unknown;
+        try {
+          if (init?.body) body = JSON.parse(String(init.body));
+        } catch {
+          /* not JSON */
+        }
+        const headers: Record<string, string> = {};
+        if (init?.headers) {
+          const h = init.headers;
+          if (h && typeof h === "object" && !Array.isArray(h)) {
+            for (const [k, v] of Object.entries(h)) {
+              headers[k.toLowerCase()] = v;
+            }
+          }
+        }
+        fetchCalls.push({ url, body, headers });
+
+        if (url.includes("chat.update")) {
+          return new Response(
+            JSON.stringify({ ok: false, error: "message_not_found" }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("chat.postMessage")) {
+          return new Response(
+            JSON.stringify({ ok: true, ts: "1700000000.000200" }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "update attempt",
+      messageTs: "1700000000.000050",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    // Should have called both: first update (failed), then postMessage (fallback)
+    const updateCall = fetchCalls.find((c) => c.url.includes("chat.update"));
+    expect(updateCall).toBeDefined();
+    const postCall = fetchCalls.find((c) => c.url.includes("chat.postMessage"));
+    expect(postCall).toBeDefined();
+    // Fallback should not include the ts field
+    expect((postCall!.body as any).ts).toBeUndefined();
+  });
+
+  test("does not use chat.update when messageTs is empty string", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "normal post",
+      messageTs: "",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const postCall = fetchCalls.find((c) => c.url.includes("chat.postMessage"));
+    expect(postCall).toBeDefined();
+    const updateCall = fetchCalls.find((c) => c.url.includes("chat.update"));
+    expect(updateCall).toBeUndefined();
   });
 });
 

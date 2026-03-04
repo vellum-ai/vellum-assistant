@@ -1,23 +1,14 @@
 /**
- * Shared business logic for ingress member and invite management.
+ * Shared business logic for invite management.
  *
  * Extracted from the IPC handlers in daemon/handlers/config-inbox.ts so that
  * both the HTTP routes and the IPC handlers call the same logic.
+ *
+ * Member/contact operations have been migrated to the /v1/contacts and
+ * /v1/contacts/channels endpoints.
  */
 
 import { isChannelId } from "../channels/types.js";
-import { listContacts } from "../contacts/contact-store.js";
-import {
-  blockMemberContactsFirst,
-  revokeMemberContactsFirst,
-  upsertMemberContactsFirst,
-} from "../contacts/contacts-write.js";
-import type {
-  IngressMember,
-  MemberPolicy,
-  MemberStatus,
-} from "../contacts/member-record-shim.js";
-import type { ContactWithChannels } from "../contacts/types.js";
 import {
   createInvite,
   findByTokenHash,
@@ -63,19 +54,6 @@ export interface InviteResponseData {
   voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
-  createdAt: number;
-}
-
-export interface MemberResponseData {
-  id: string;
-  sourceChannel: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  displayName?: string;
-  username?: string;
-  status: string;
-  policy: string;
-  lastSeenAt?: number;
   createdAt: number;
 }
 
@@ -130,38 +108,6 @@ function inviteToResponse(
     ...(inv.guardianName ? { guardianName: inv.guardianName } : {}),
     createdAt: inv.createdAt,
   };
-}
-
-export function memberToResponse(m: IngressMember): MemberResponseData {
-  return {
-    id: m.contactId ? `${m.contactId}:${m.id}` : m.id,
-    sourceChannel: m.sourceChannel,
-    externalUserId: m.externalUserId ?? undefined,
-    externalChatId: m.externalChatId ?? undefined,
-    displayName: m.displayName ?? undefined,
-    username: m.username ?? undefined,
-    status: m.status,
-    policy: m.policy,
-    lastSeenAt: m.lastSeenAt ?? undefined,
-    createdAt: m.createdAt,
-  };
-}
-
-function contactToMemberResponse(
-  contact: ContactWithChannels,
-): MemberResponseData[] {
-  return contact.channels.map((ch) => ({
-    id: `${contact.id}:${ch.id}`,
-    sourceChannel: ch.type,
-    externalUserId: ch.externalUserId ?? undefined,
-    externalChatId: ch.externalChatId ?? undefined,
-    displayName: contact.displayName,
-    username: undefined,
-    status: ch.status,
-    policy: ch.policy,
-    lastSeenAt: ch.lastSeenAt ?? undefined,
-    createdAt: ch.createdAt,
-  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -342,92 +288,4 @@ export function redeemVoiceInviteCode(params: {
   code: string;
 }): VoiceRedemptionOutcome {
   return redeemVoiceInviteCodeTyped(params);
-}
-
-// ---------------------------------------------------------------------------
-// Member operations
-// ---------------------------------------------------------------------------
-
-export function listIngressMembers(params: {
-  assistantId?: string;
-  sourceChannel?: string;
-  status?: string;
-  policy?: string;
-}): IngressResult<MemberResponseData[]> {
-  // Use uncapped: true since this internal path needs the full dataset
-  const allContacts = listContacts(Number.MAX_SAFE_INTEGER, "contact", {
-    uncapped: true,
-  });
-  const members = allContacts.flatMap((c) => contactToMemberResponse(c));
-
-  const filtered = members.filter((m) => {
-    if (params.sourceChannel && m.sourceChannel !== params.sourceChannel)
-      return false;
-    if (params.status && m.status !== params.status) return false;
-    if (params.policy && m.policy !== params.policy) return false;
-    return true;
-  });
-
-  return { ok: true, data: filtered };
-}
-
-export function upsertIngressMember(params: {
-  sourceChannel?: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  displayName?: string;
-  username?: string;
-  policy?: string;
-  status?: string;
-  assistantId?: string;
-}): IngressResult<MemberResponseData> {
-  if (!params.sourceChannel) {
-    return { ok: false, error: "sourceChannel is required for upsert" };
-  }
-  if (!params.externalUserId && !params.externalChatId) {
-    return {
-      ok: false,
-      error:
-        "At least one of externalUserId or externalChatId is required for upsert",
-    };
-  }
-  const member = upsertMemberContactsFirst({
-    assistantId: params.assistantId,
-    sourceChannel: params.sourceChannel,
-    externalUserId: params.externalUserId,
-    externalChatId: params.externalChatId,
-    displayName: params.displayName,
-    username: params.username,
-    policy: params.policy as MemberPolicy | undefined,
-    status: params.status as MemberStatus | undefined,
-  });
-  return { ok: true, data: memberToResponse(member) };
-}
-
-export function revokeIngressMember(
-  memberId?: string,
-  reason?: string,
-): IngressResult<MemberResponseData> {
-  if (!memberId) {
-    return { ok: false, error: "memberId is required for revoke" };
-  }
-  const revoked = revokeMemberContactsFirst(memberId, reason);
-  if (!revoked) {
-    return { ok: false, error: "Member not found or cannot be revoked" };
-  }
-  return { ok: true, data: memberToResponse(revoked) };
-}
-
-export function blockIngressMember(
-  memberId?: string,
-  reason?: string,
-): IngressResult<MemberResponseData> {
-  if (!memberId) {
-    return { ok: false, error: "memberId is required for block" };
-  }
-  const blocked = blockMemberContactsFirst(memberId, reason);
-  if (!blocked) {
-    return { ok: false, error: "Member not found or already blocked" };
-  }
-  return { ok: true, data: memberToResponse(blocked) };
 }

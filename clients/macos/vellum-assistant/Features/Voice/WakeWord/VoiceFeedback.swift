@@ -1,11 +1,11 @@
 import AppKit
 import os
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "WakeWordFeedback")
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "VoiceFeedback")
 
-/// Provides audio feedback for wake word detection events.
+/// Provides audio feedback for voice activation events (wake word and PTT).
 /// Uses system sounds to keep the feedback subtle and respectful of user preferences.
-enum WakeWordFeedback {
+enum VoiceFeedback {
 
     /// Play a short chime when the wake word is detected and voice mode activates.
     static func playActivationChime() {

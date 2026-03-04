@@ -595,24 +595,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
       cursorInTextField: true,
     },
   },
-  ingress_invite: {
-    type: "ingress_invite",
+  contacts_invite: {
+    type: "contacts_invite",
     action: "create",
     sourceChannel: "telegram",
     note: "Test invite",
     maxUses: 5,
     expiresInMs: 86400000,
-  },
-  ingress_member: {
-    type: "ingress_member",
-    action: "upsert",
-    sourceChannel: "telegram",
-    externalUserId: "user-123",
-    externalChatId: "chat-456",
-    displayName: "Test User",
-    username: "testuser",
-    policy: "allow",
-    status: "active",
   },
   assistant_inbox_escalation: {
     type: "assistant_inbox_escalation",
@@ -1871,8 +1860,8 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     mode: "dictation",
     actionPlan: undefined,
   },
-  ingress_invite_response: {
-    type: "ingress_invite_response",
+  contacts_invite_response: {
+    type: "contacts_invite_response",
     success: true,
     invite: {
       id: "inv-001",
@@ -1884,22 +1873,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       expiresAt: 1700100000000,
       status: "active",
       note: "Test invite",
-      createdAt: 1700000000,
-    },
-  },
-  ingress_member_response: {
-    type: "ingress_member_response",
-    success: true,
-    member: {
-      id: "mem-001",
-      sourceChannel: "telegram",
-      externalUserId: "user-123",
-      externalChatId: "chat-456",
-      displayName: "Test User",
-      username: "testuser",
-      status: "active",
-      policy: "allow",
-      lastSeenAt: 1700000000,
       createdAt: 1700000000,
     },
   },
