@@ -12,7 +12,11 @@ import { createConnection } from "net";
 import { homedir, hostname, networkInterfaces, platform } from "os";
 import { dirname, join } from "path";
 
-import { loadLatestAssistant } from "./assistant-config.js";
+import {
+  defaultLocalResources,
+  loadLatestAssistant,
+  type LocalInstanceResources,
+} from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { stopProcessByPidFile } from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
@@ -210,14 +214,20 @@ function resolveDaemonMainPath(assistantIndex: string): string {
   return join(dirname(assistantIndex), "daemon", "main.ts");
 }
 
-async function startDaemonFromSource(assistantIndex: string): Promise<void> {
+async function startDaemonFromSource(
+  assistantIndex: string,
+  resources?: LocalInstanceResources,
+): Promise<void> {
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
 
-  const vellumDir = join(homedir(), ".vellum");
-  mkdirSync(vellumDir, { recursive: true });
+  const defaults = defaultLocalResources();
+  const res = resources ?? defaults;
+  // Ensure the directory containing PID/socket files exists. For named
+  // instances this is instanceDir/.vellum/ (matching daemon's getRootDir()).
+  mkdirSync(dirname(res.pidFile), { recursive: true });
 
-  const pidFile = join(vellumDir, "vellum.pid");
-  const socketFile = join(vellumDir, "vellum.sock");
+  const pidFile = res.pidFile;
+  const socketFile = res.socketPath;
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   if (existsSync(pidFile)) {
@@ -263,6 +273,11 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
     env.VELLUM_DAEMON_TCP_ENABLED =
       process.env.VELLUM_DAEMON_TCP_ENABLED || "1";
   }
+  if (resources) {
+    env.BASE_DATA_DIR = resources.instanceDir;
+    env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
+    env.VELLUM_DAEMON_SOCKET = resources.socketPath;
+  }
 
   // Use fd inheritance instead of pipes so the daemon's stdout/stderr survive
   // after the parent (hatch) exits. Bun does not ignore SIGPIPE, so piped
@@ -287,17 +302,19 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
 // assistant-side equivalent.
 async function startDaemonWatchFromSource(
   assistantIndex: string,
+  resources?: LocalInstanceResources,
 ): Promise<void> {
   const mainPath = resolveDaemonMainPath(assistantIndex);
   if (!existsSync(mainPath)) {
     throw new Error(`Daemon main.ts not found at ${mainPath}`);
   }
 
-  const vellumDir = join(homedir(), ".vellum");
-  mkdirSync(vellumDir, { recursive: true });
+  const defaults = defaultLocalResources();
+  const res = resources ?? defaults;
+  mkdirSync(dirname(res.pidFile), { recursive: true });
 
-  const pidFile = join(vellumDir, "vellum.pid");
-  const socketFile = join(vellumDir, "vellum.sock");
+  const pidFile = res.pidFile;
+  const socketFile = res.socketPath;
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   // If a daemon is already running, skip spawning a new one.
@@ -344,6 +361,11 @@ async function startDaemonWatchFromSource(
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_DEV: "1",
   };
+  if (resources) {
+    env.BASE_DATA_DIR = resources.instanceDir;
+    env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
+    env.VELLUM_DAEMON_SOCKET = resources.socketPath;
+  }
 
   const daemonLogFd = openLogFile("hatch.log");
   const child = spawn("bun", ["--watch", "run", mainPath], {
@@ -478,7 +500,8 @@ function isSocketResponsive(
   });
 }
 
-async function discoverPublicUrl(): Promise<string | undefined> {
+async function discoverPublicUrl(port?: number): Promise<string | undefined> {
+  const effectivePort = port ?? GATEWAY_PORT;
   const cloud = process.env.VELLUM_CLOUD;
 
   let externalIp: string | undefined;
@@ -516,7 +539,7 @@ async function discoverPublicUrl(): Promise<string | undefined> {
 
     if (externalIp) {
       console.log(`   Discovered external IP: ${externalIp}`);
-      return `http://${externalIp}:${GATEWAY_PORT}`;
+      return `http://${externalIp}:${effectivePort}`;
     }
   }
 
@@ -527,18 +550,18 @@ async function discoverPublicUrl(): Promise<string | undefined> {
     const localHostname = getMacLocalHostname();
     if (localHostname) {
       console.log(`   Discovered macOS local hostname: ${localHostname}`);
-      return `http://${localHostname}:${GATEWAY_PORT}`;
+      return `http://${localHostname}:${effectivePort}`;
     }
   }
 
   const lanIp = getLocalLanIPv4();
   if (lanIp) {
     console.log(`   Discovered LAN IP: ${lanIp}`);
-    return `http://${lanIp}:${GATEWAY_PORT}`;
+    return `http://${lanIp}:${effectivePort}`;
   }
 
   // Final fallback to localhost when no LAN address could be discovered.
-  return `http://localhost:${GATEWAY_PORT}`;
+  return `http://localhost:${effectivePort}`;
 }
 
 /**
@@ -607,7 +630,10 @@ function getLocalLanIPv4(): string | undefined {
 // It should eventually converge with
 // assistant/src/daemon/daemon-control.ts::startDaemon which is the
 // assistant-side equivalent.
-export async function startLocalDaemon(watch: boolean = false): Promise<void> {
+export async function startLocalDaemon(
+  watch: boolean = false,
+  resources?: LocalInstanceResources,
+): Promise<void> {
   if (process.env.VELLUM_DESKTOP_APP && !watch) {
     // When running inside the desktop app, the CLI owns the daemon lifecycle.
     // Find the vellum-daemon binary adjacent to the CLI binary.
@@ -621,9 +647,10 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       );
     }
 
-    const vellumDir = join(homedir(), ".vellum");
-    const pidFile = join(vellumDir, "vellum.pid");
-    const socketFile = join(vellumDir, "vellum.sock");
+    const defaults = defaultLocalResources();
+    const res = resources ?? defaults;
+    const pidFile = res.pidFile;
+    const socketFile = res.socketPath;
 
     // If a daemon is already running, skip spawning a new one.
     // This prevents cascading kill→restart cycles when multiple callers
@@ -679,8 +706,8 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       // Ensure bun is available for runtime features (browser, skills install)
       ensureBunInstalled();
 
-      // Ensure ~/.vellum/ exists for PID/socket files
-      mkdirSync(vellumDir, { recursive: true });
+      // Ensure the directory containing PID/socket files exists
+      mkdirSync(dirname(pidFile), { recursive: true });
 
       // Build a minimal environment for the daemon. When launched from the
       // macOS app the CLI inherits a huge environment (XPC_SERVICE_NAME,
@@ -712,6 +739,13 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         if (process.env[key]) {
           daemonEnv[key] = process.env[key]!;
         }
+      }
+      // When running a named instance, override env so the daemon resolves
+      // all paths under the instance directory and listens on its own port.
+      if (resources) {
+        daemonEnv.BASE_DATA_DIR = resources.instanceDir;
+        daemonEnv.RUNTIME_HTTP_PORT = String(resources.daemonPort);
+        daemonEnv.VELLUM_DAEMON_SOCKET = resources.socketPath;
       }
 
       // Use fd inheritance instead of pipes so the daemon's stdout/stderr
@@ -758,9 +792,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         // Kill the bundled daemon to avoid two processes competing for the same socket/port
         await stopProcessByPidFile(pidFile, "bundled daemon", [socketFile]);
         if (watch) {
-          await startDaemonWatchFromSource(assistantIndex);
+          await startDaemonWatchFromSource(assistantIndex, resources);
         } else {
-          await startDaemonFromSource(assistantIndex);
+          await startDaemonFromSource(assistantIndex, resources);
         }
         socketReady = await waitForSocketFile(socketFile, 60000);
       }
@@ -783,12 +817,13 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
           "  Ensure the daemon binary is bundled alongside the CLI, or run from the source tree.",
       );
     }
-    if (watch) {
-      await startDaemonWatchFromSource(assistantIndex);
+    const defaults = defaultLocalResources();
+    const res = resources ?? defaults;
 
-      const vellumDir = join(homedir(), ".vellum");
-      const socketFile = join(vellumDir, "vellum.sock");
-      const socketReady = await waitForSocketFile(socketFile, 60000);
+    if (watch) {
+      await startDaemonWatchFromSource(assistantIndex, resources);
+
+      const socketReady = await waitForSocketFile(res.socketPath, 60000);
       if (socketReady) {
         console.log("   Assistant socket ready\n");
       } else {
@@ -797,11 +832,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         );
       }
     } else {
-      await startDaemonFromSource(assistantIndex);
+      await startDaemonFromSource(assistantIndex, resources);
 
-      const vellumDir = join(homedir(), ".vellum");
-      const socketFile = join(vellumDir, "vellum.sock");
-      const socketReady = await waitForSocketFile(socketFile, 60000);
+      const socketReady = await waitForSocketFile(res.socketPath, 60000);
       if (socketReady) {
         console.log("   Assistant socket ready\n");
       } else {
@@ -816,8 +849,11 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
 export async function startGateway(
   assistantId?: string,
   watch: boolean = false,
+  resources?: LocalInstanceResources,
 ): Promise<string> {
-  const publicUrl = await discoverPublicUrl();
+  const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
+
+  const publicUrl = await discoverPublicUrl(effectiveGatewayPort);
   if (publicUrl) {
     console.log(`   Public URL: ${publicUrl}`);
   }
@@ -831,11 +867,82 @@ export async function startGateway(
     process.env.GATEWAY_DEFAULT_ASSISTANT_ID ||
     loadLatestAssistant()?.assistantId;
 
+  // Read the bearer token so the gateway can authenticate proxied requests
+  // (e.g. from paired iOS devices). Respect VELLUM_HTTP_TOKEN_PATH and
+  // BASE_DATA_DIR for consistency with gateway/config.ts and the daemon.
+  // When resources are provided, the token lives under the instance directory.
+  const httpTokenPath =
+    process.env.VELLUM_HTTP_TOKEN_PATH ??
+    (resources
+      ? join(resources.instanceDir, ".vellum", "http-token")
+      : join(
+          process.env.BASE_DATA_DIR?.trim() || homedir(),
+          ".vellum",
+          "http-token",
+        ));
+  let runtimeProxyBearerToken: string | undefined;
+  try {
+    const tok = readFileSync(httpTokenPath, "utf-8").trim();
+    if (tok) runtimeProxyBearerToken = tok;
+  } catch {
+    // Token file doesn't exist yet — daemon hasn't written it.
+  }
+
+  // If no token is available (first startup — daemon hasn't written it yet),
+  // poll for the file to appear. On fresh installs the daemon may take 60s+
+  // for Qdrant download, migrations, and first-time init. Starting the
+  // gateway without auth is a security risk since the config is loaded once
+  // at startup and never reloads, so we fail rather than silently disabling auth.
+  if (!runtimeProxyBearerToken) {
+    console.log("   Waiting for bearer token file...");
+    const maxWait = 60000;
+    const pollInterval = 500;
+    const start = Date.now();
+    const pidFile =
+      resources?.pidFile ??
+      join(
+        process.env.BASE_DATA_DIR?.trim() || homedir(),
+        ".vellum",
+        "vellum.pid",
+      );
+    while (Date.now() - start < maxWait) {
+      await new Promise((r) => setTimeout(r, pollInterval));
+      try {
+        const tok = readFileSync(httpTokenPath, "utf-8").trim();
+        if (tok) {
+          runtimeProxyBearerToken = tok;
+          break;
+        }
+      } catch {
+        // File still doesn't exist, keep polling.
+      }
+      // Check if the daemon process is still alive — no point waiting if it crashed
+      try {
+        const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+        if (pid) process.kill(pid, 0); // throws if process doesn't exist
+      } catch {
+        break; // daemon process is gone
+      }
+    }
+  }
+
+  if (!runtimeProxyBearerToken) {
+    throw new Error(
+      `Bearer token file not found at ${httpTokenPath} after 60s.\n` +
+        "  The gateway cannot start without authentication — this would leave the proxy permanently unauthenticated.\n" +
+        "  Ensure the daemon is running and has written the token file, or set VELLUM_HTTP_TOKEN_PATH to the correct path.",
+  );
+  }
+  const effectiveDaemonPort =
+    resources?.daemonPort ?? Number(process.env.RUNTIME_HTTP_PORT || "7821");
+
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
     GATEWAY_RUNTIME_PROXY_ENABLED: "true",
     GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
-    RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+    RUNTIME_PROXY_BEARER_TOKEN: runtimeProxyBearerToken,
+    RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
+    GATEWAY_PORT: String(effectiveGatewayPort),
     // Skip the drain window for locally-launched gateways — there is no load
     // balancer draining connections, so waiting serves no purpose and causes
     // `vellum sleep` to SIGKILL the gateway when the CLI timeout is shorter
@@ -908,11 +1015,13 @@ export async function startGateway(
   gateway.unref();
 
   if (gateway.pid) {
-    const vellumDir = join(homedir(), ".vellum");
-    writeFileSync(join(vellumDir, "gateway.pid"), String(gateway.pid), "utf-8");
+    const gwPidDir = resources
+      ? join(resources.instanceDir, ".vellum")
+      : join(homedir(), ".vellum");
+    writeFileSync(join(gwPidDir, "gateway.pid"), String(gateway.pid), "utf-8");
   }
 
-  const gatewayUrl = publicUrl || `http://localhost:${GATEWAY_PORT}`;
+  const gatewayUrl = publicUrl || `http://localhost:${effectiveGatewayPort}`;
 
   // Wait for the gateway to be responsive before returning. Without this,
   // callers (e.g. displayPairingQRCode) may try to connect before the HTTP
@@ -922,9 +1031,12 @@ export async function startGateway(
   let ready = false;
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`http://localhost:${GATEWAY_PORT}/healthz`, {
-        signal: AbortSignal.timeout(2000),
-      });
+      const res = await fetch(
+        `http://localhost:${effectiveGatewayPort}/healthz`,
+        {
+          signal: AbortSignal.timeout(2000),
+        },
+      );
       if (res.ok) {
         ready = true;
         break;
@@ -945,15 +1057,145 @@ export async function startGateway(
   return gatewayUrl;
 }
 
+export async function startOutboundProxy(
+  watch: boolean = false,
+  resources?: LocalInstanceResources,
+): Promise<void> {
+  const proxyDir = resolveOutboundProxyDir();
+  if (!proxyDir) {
+    console.log("   ⚠️  Outbound proxy not found — skipping");
+    return;
+  }
+
+  console.log("🔒 Starting outbound proxy...");
+
+  const vellumDir = resources
+    ? join(resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
+  mkdirSync(vellumDir, { recursive: true });
+
+  const pidFile = join(vellumDir, "outbound-proxy.pid");
+
+  // Check if already running
+  if (existsSync(pidFile)) {
+    try {
+      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      if (!isNaN(pid)) {
+        try {
+          process.kill(pid, 0);
+          console.log(`   Outbound proxy already running (pid ${pid})\n`);
+          return;
+        } catch {
+          try {
+            unlinkSync(pidFile);
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  const proxyEnv: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    PROXY_PORT: process.env.PROXY_PORT || "7829",
+    PROXY_HEALTH_PORT: process.env.PROXY_HEALTH_PORT || "7828",
+  };
+
+  const proxyLogFd = openLogFile("hatch.log");
+
+  let proxy;
+  if (process.env.VELLUM_DESKTOP_APP && !watch) {
+    const proxyBinary = join(
+      dirname(process.execPath),
+      "vellum-outbound-proxy",
+    );
+    if (!existsSync(proxyBinary)) {
+      console.log(
+        "   ⚠️  Outbound proxy binary not found — falling back to source",
+      );
+      const bunArgs = watch
+        ? ["--watch", "run", "src/main.ts"]
+        : ["run", "src/main.ts"];
+      proxy = spawn("bun", bunArgs, {
+        cwd: proxyDir,
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: proxyEnv,
+      });
+    } else {
+      proxy = spawn(proxyBinary, [], {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: proxyEnv,
+      });
+    }
+  } else {
+    const bunArgs = watch
+      ? ["--watch", "run", "src/main.ts"]
+      : ["run", "src/main.ts"];
+    proxy = spawn("bun", bunArgs, {
+      cwd: proxyDir,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: proxyEnv,
+    });
+  }
+
+  pipeToLogFile(proxy, proxyLogFd, "outbound-proxy");
+  proxy.unref();
+
+  if (proxy.pid) {
+    writeFileSync(pidFile, String(proxy.pid), "utf-8");
+  }
+
+  if (watch) {
+    console.log("   Outbound proxy started in watch mode (bun --watch)");
+  }
+
+  // Wait for the health endpoint to respond
+  const healthPort = Number(process.env.PROXY_HEALTH_PORT) || 7828;
+  const start = Date.now();
+  const timeoutMs = 15000;
+  let ready = false;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`http://localhost:${healthPort}/healthz`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        ready = true;
+        break;
+      }
+    } catch {
+      // Not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  if (!ready) {
+    console.warn(
+      "   ⚠️  Outbound proxy started but health check did not respond within 15s",
+    );
+  }
+
+  console.log("✅ Outbound proxy started\n");
+}
+
 /**
- * Stop any locally-running daemon and gateway processes and clean up
- * PID/socket files. Called when hatch fails partway through so we don't
- * leave orphaned processes with no lock file entry.
+ * Stop any locally-running daemon, gateway, and outbound-proxy processes
+ * and clean up PID/socket files. Called when hatch fails partway through
+ * so we don't leave orphaned processes with no lock file entry.
+ *
+ * When `resources` is provided, uses instance-specific paths instead of
+ * the default ~/.vellum/ paths.
  */
-export async function stopLocalProcesses(): Promise<void> {
-  const vellumDir = join(homedir(), ".vellum");
-  const daemonPidFile = join(vellumDir, "vellum.pid");
-  const socketFile = join(vellumDir, "vellum.sock");
+export async function stopLocalProcesses(
+  resources?: LocalInstanceResources,
+): Promise<void> {
+  const vellumDir = resources
+    ? join(resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
+  const daemonPidFile = resources?.pidFile ?? join(vellumDir, "vellum.pid");
+  const socketFile = resources?.socketPath ?? join(vellumDir, "vellum.sock");
   await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");

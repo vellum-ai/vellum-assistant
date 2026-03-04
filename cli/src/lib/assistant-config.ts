@@ -1,6 +1,33 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+
+import {
+  DEFAULT_DAEMON_PORT,
+  DEFAULT_GATEWAY_PORT,
+  DEFAULT_QDRANT_PORT,
+} from "./constants.js";
+import { probePort } from "./port-probe.js";
+
+/**
+ * Per-instance resource paths and ports. Each local assistant instance gets
+ * its own directory tree, ports, and socket so multiple instances can run
+ * side-by-side without conflicts.
+ */
+export interface LocalInstanceResources {
+  /** Root directory for this instance (e.g. ~/.vellum/instances/<name>/) */
+  instanceDir: string;
+  /** HTTP port for the daemon runtime server */
+  daemonPort: number;
+  /** HTTP port for the gateway */
+  gatewayPort: number;
+  /** HTTP port for the Qdrant vector store */
+  qdrantPort: number;
+  /** Path to the Unix domain socket */
+  socketPath: string;
+  /** Path to the daemon PID file */
+  pidFile: string;
+}
 
 export interface AssistantEntry {
   assistantId: string;
@@ -16,6 +43,8 @@ export interface AssistantEntry {
   sshUser?: string;
   zone?: string;
   hatchedAt?: string;
+  /** Per-instance resource config. Present for local entries in multi-instance setups. */
+  resources?: LocalInstanceResources;
 }
 
 interface LockfileData {
@@ -105,6 +134,90 @@ export function saveAssistantEntry(entry: AssistantEntry): void {
   );
   entries.unshift(entry);
   writeAssistants(entries);
+}
+
+/**
+ * Scan upward from `basePort` to find an available port. A port is considered
+ * available when `probePort()` returns false (nothing listening). Scans up to
+ * 100 ports above the base before giving up.
+ */
+async function findAvailablePort(
+  basePort: number,
+  excludedPorts: number[] = [],
+): Promise<number> {
+  const maxOffset = 100;
+  for (let offset = 0; offset < maxOffset; offset++) {
+    const port = basePort + offset;
+    if (excludedPorts.includes(port)) continue;
+    const inUse = await probePort(port);
+    if (!inUse) return port;
+  }
+  throw new Error(
+    `Could not find an available port scanning from ${basePort} to ${basePort + maxOffset - 1}`,
+  );
+}
+
+/**
+ * Allocate an isolated set of resources for a named local instance.
+ * Creates the instance directory at ~/.vellum/instances/<name>/ and finds
+ * available ports for the daemon, gateway, and Qdrant.
+ */
+export async function allocateLocalResources(
+  instanceName: string,
+): Promise<LocalInstanceResources> {
+  const instanceDir = join(homedir(), ".vellum", "instances", instanceName);
+  mkdirSync(instanceDir, { recursive: true });
+
+  // Allocate ports sequentially to avoid overlapping ranges assigning the
+  // same port to multiple services (e.g. daemon 7821-7920 overlaps gateway 7830-7929).
+  const daemonPort = await findAvailablePort(DEFAULT_DAEMON_PORT);
+  const gatewayPort = await findAvailablePort(DEFAULT_GATEWAY_PORT, [
+    daemonPort,
+  ]);
+  const qdrantPort = await findAvailablePort(DEFAULT_QDRANT_PORT, [
+    daemonPort,
+    gatewayPort,
+  ]);
+
+  return {
+    instanceDir,
+    daemonPort,
+    gatewayPort,
+    qdrantPort,
+    socketPath: join(instanceDir, ".vellum", "vellum.sock"),
+    pidFile: join(instanceDir, ".vellum", "vellum.pid"),
+  };
+}
+
+/**
+ * Return default resources representing the legacy single-instance layout.
+ * Used to normalize existing lockfile entries so callers can treat all local
+ * entries uniformly.
+ */
+export function defaultLocalResources(): LocalInstanceResources {
+  const vellumDir = join(homedir(), ".vellum");
+  return {
+    instanceDir: homedir(),
+    daemonPort: DEFAULT_DAEMON_PORT,
+    gatewayPort: DEFAULT_GATEWAY_PORT,
+    qdrantPort: DEFAULT_QDRANT_PORT,
+    socketPath: join(vellumDir, "vellum.sock"),
+    pidFile: join(vellumDir, "vellum.pid"),
+  };
+}
+
+/**
+ * Normalize existing lockfile entries so local entries include resource fields.
+ * Remote entries are left untouched. Returns a new array (does not mutate input).
+ */
+export function normalizeExistingEntryResources(
+  entries: AssistantEntry[],
+): AssistantEntry[] {
+  return entries.map((entry) => {
+    if (entry.cloud !== "local") return entry;
+    if (entry.resources) return entry;
+    return { ...entry, resources: defaultLocalResources() };
+  });
 }
 
 /**
