@@ -328,6 +328,8 @@ export function createSlackDeliverHandler(
       updateTs?: string;
       /** When provided, use chat.update to edit an existing message instead of posting a new one. */
       messageTs?: string;
+      /** When true, auto-generate Block Kit blocks from text via textToBlocks(). */
+      useBlocks?: boolean;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -407,11 +409,13 @@ export function createSlackDeliverHandler(
     const messageTs = body.messageTs ?? updateTs;
     const isUpdate = typeof messageTs === "string" && messageTs.length > 0;
 
-    // Resolve Block Kit blocks: use provided blocks, or auto-format text
+    // Resolve Block Kit blocks: use provided blocks, or auto-format text when useBlocks is set
     const blocks: Block[] =
       Array.isArray(body.blocks) && body.blocks.length > 0
         ? body.blocks
-        : textToBlocks(text);
+        : body.useBlocks
+          ? textToBlocks(text)
+          : [];
 
     try {
       // Typing indicator: post a placeholder message that the runtime can

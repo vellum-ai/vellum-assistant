@@ -68,7 +68,7 @@ export class SlackAdapter implements ChannelAdapter {
     try {
       await deliverChannelReply(
         deliverUrl,
-        { chatId, text: messageText },
+        { chatId, text: messageText, useBlocks: true },
         mintDaemonDeliveryToken(),
       );
 
