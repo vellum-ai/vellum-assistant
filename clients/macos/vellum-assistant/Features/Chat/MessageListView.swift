@@ -82,6 +82,11 @@ struct MessageListView: View {
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
     /// resign first responder exactly once per new confirmation appearance.
     @State private var lastAutoFocusedRequestId: String?
+    /// Counts consecutive message-count changes where anchorMessageId is set
+    /// but the target message is not found. After a threshold number of retries,
+    /// the anchor is cleared to prevent permanently suppressed auto-scroll from
+    /// invalid or permanently unavailable deep-link message IDs.
+    @State private var anchorRetryCount: Int = 0
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -564,7 +569,26 @@ struct MessageListView: View {
                         proxy.scrollTo(id, anchor: .center)
                     }
                     anchorMessageId = nil
+                    anchorRetryCount = 0
                     return
+                }
+                // If anchor is set but the target message still hasn't appeared,
+                // increment the retry counter. After 3 message-count changes
+                // without finding the anchor, assume it's permanently invalid
+                // (e.g., deleted message, wrong thread) and clear it so
+                // auto-scroll is no longer suppressed.
+                if anchorMessageId != nil {
+                    anchorRetryCount += 1
+                    if anchorRetryCount >= 3 {
+                        log.debug("Anchor message not found after \(anchorRetryCount) retries — clearing stale anchor")
+                        anchorMessageId = nil
+                        anchorRetryCount = 0
+                        isNearBottom = true
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                        return
+                    }
                 }
                 if isNearBottom && !isSuppressingBottomScroll && anchorMessageId == nil {
                     withAnimation(VAnimation.fast) {
@@ -618,6 +642,9 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: anchorMessageId) {
+                // Reset the retry counter whenever the anchor target changes
+                // (new deep-link or external clear).
+                anchorRetryCount = 0
                 guard let id = anchorMessageId else { return }
                 // Only scroll and clear if the target message is already loaded;
                 // otherwise leave the anchor set so the messages-change handler
