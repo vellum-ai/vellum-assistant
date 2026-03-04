@@ -513,7 +513,7 @@ import {
   createSafeLogEntry,
   sanitizeHeaders,
   sanitizeUrl,
-} from "@vellumai/outbound-proxy";
+} from "../outbound-proxy/index.js";
 
 describe("Invariant 5: proxy log entries never contain secrets", () => {
   test("Authorization headers are redacted in log entries", () => {

@@ -1,5 +1,5 @@
 /**
- * Gateway proxy endpoints for ingress members/invites control-plane routes.
+ * Gateway proxy endpoints for ingress contacts/invites control-plane routes.
  *
  * These routes remain available even when the broad runtime proxy is
  * disabled, so skills and clients can use gateway URLs exclusively.
@@ -96,39 +96,45 @@ export function createIngressControlPlaneProxyHandler(config: GatewayConfig) {
   }
 
   return {
-    async handleListMembers(req: Request): Promise<Response> {
+    // ── Contact CRUD ──
+    async handleListContacts(req: Request): Promise<Response> {
       const url = new URL(req.url);
-      return proxyToRuntime(req, "/v1/ingress/members", url.search);
+      return proxyToRuntime(req, "/v1/contacts", url.search);
     },
 
-    async handleUpsertMember(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/ingress/members", "");
+    async handleUpsertContact(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/contacts", "");
     },
 
-    async handleBlockMember(req: Request, memberId: string): Promise<Response> {
-      const encoded = encodeURIComponent(memberId);
-      return proxyToRuntime(req, `/v1/ingress/members/${encoded}/block`, "");
+    async handleGetContact(req: Request, contactId: string): Promise<Response> {
+      const encoded = encodeURIComponent(contactId);
+      return proxyToRuntime(req, `/v1/contacts/${encoded}`, "");
     },
 
-    async handleRevokeMember(
+    async handleMergeContacts(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/contacts/merge", "");
+    },
+
+    async handleUpdateContactChannel(
       req: Request,
-      memberId: string,
+      channelId: string,
     ): Promise<Response> {
-      const encoded = encodeURIComponent(memberId);
-      return proxyToRuntime(req, `/v1/ingress/members/${encoded}`, "");
+      const encoded = encodeURIComponent(channelId);
+      return proxyToRuntime(req, `/v1/contacts/channels/${encoded}`, "");
     },
 
+    // ── Invite routes ──
     async handleListInvites(req: Request): Promise<Response> {
       const url = new URL(req.url);
-      return proxyToRuntime(req, "/v1/ingress/invites", url.search);
+      return proxyToRuntime(req, "/v1/contacts/invites", url.search);
     },
 
     async handleCreateInvite(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/ingress/invites", "");
+      return proxyToRuntime(req, "/v1/contacts/invites", "");
     },
 
     async handleRedeemInvite(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/ingress/invites/redeem", "");
+      return proxyToRuntime(req, "/v1/contacts/invites/redeem", "");
     },
 
     async handleRevokeInvite(
@@ -136,7 +142,7 @@ export function createIngressControlPlaneProxyHandler(config: GatewayConfig) {
       inviteId: string,
     ): Promise<Response> {
       const encoded = encodeURIComponent(inviteId);
-      return proxyToRuntime(req, `/v1/ingress/invites/${encoded}`, "");
+      return proxyToRuntime(req, `/v1/contacts/invites/${encoded}`, "");
     },
   };
 }

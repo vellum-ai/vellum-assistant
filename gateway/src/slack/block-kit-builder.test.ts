@@ -182,7 +182,7 @@ describe("approvalPrompt", () => {
 
     const btn = (blocks[1] as ActionsBlock).elements[0] as ButtonElement;
     expect(btn.action_id).toBe("apr:r42:go");
-    expect(btn.value).toBe("r42:go");
+    expect(btn.value).toBe("apr:r42:go");
   });
 
   it("applies style to buttons", () => {
