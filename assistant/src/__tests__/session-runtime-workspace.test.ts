@@ -190,3 +190,43 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
     expect((result[0].content[2] as { text: string }).text).toBe("Hello");
   });
 });
+
+describe("applyRuntimeInjections — minimal mode skips workspace blocks", () => {
+  test("minimal mode skips workspace top-level context", () => {
+    const messages: Message[] = [userMsg("Hello")];
+    const result = applyRuntimeInjections(messages, {
+      workspaceTopLevelContext: sampleContext,
+      mode: "minimal",
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toHaveLength(1);
+    expect((result[0].content[0] as { text: string }).text).toBe("Hello");
+  });
+
+  test("minimal mode skips active surface context", () => {
+    const messages: Message[] = [userMsg("Hello")];
+    const result = applyRuntimeInjections(messages, {
+      activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
+      mode: "minimal",
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toHaveLength(1);
+    expect((result[0].content[0] as { text: string }).text).toBe("Hello");
+  });
+
+  test("full mode (default) still includes workspace blocks", () => {
+    const messages: Message[] = [userMsg("Hello")];
+    const result = applyRuntimeInjections(messages, {
+      workspaceTopLevelContext: sampleContext,
+      activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
+    });
+
+    expect(result[0].content).toHaveLength(3);
+    expect((result[0].content[0] as { text: string }).text).toBe(sampleContext);
+    expect((result[0].content[1] as { text: string }).text).toContain(
+      "<active_workspace>",
+    );
+  });
+});
