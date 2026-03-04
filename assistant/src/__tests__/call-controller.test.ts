@@ -118,6 +118,19 @@ function createMockVoiceTurn(tokens: string[]) {
 
 let mockStartVoiceTurn: Mock<any>;
 
+// ── Notification pipeline mock (prevent async handle leaks from fire-and-forget dispatches) ──
+
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async () => ({
+    signalId: "mock-signal",
+    deduplicated: false,
+    dispatched: true,
+    reason: "mocked",
+    deliveryResults: [],
+  }),
+  registerBroadcastFn: () => {},
+}));
+
 mock.module("../calls/voice-session-bridge.js", () => {
   mockStartVoiceTurn = mock(createMockVoiceTurn(["Hello", " there"]));
   return {
