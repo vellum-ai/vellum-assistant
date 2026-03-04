@@ -1,4 +1,5 @@
 import { upsertContact } from "../../../../contacts/contact-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../runtime/assistant-scope.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -67,6 +68,7 @@ export async function executeContactUpsert(
       importance,
       responseExpectation: input.response_expectation as string | undefined,
       preferredTone: input.preferred_tone as string | undefined,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       channels,
     });
 

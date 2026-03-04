@@ -99,9 +99,25 @@ interface SyncChannelData {
 
 // ── CRUD ─────────────────────────────────────────────────────────────
 
-export function getContact(id: string): ContactWithChannels | null {
+/** Internal helper: retrieve a contact by ID without assistantId scoping.
+ * Used by functions that have already resolved identity through channel lookups. */
+function getContactInternal(id: string): ContactWithChannels | null {
   const db = getDb();
   const row = db.select().from(contacts).where(eq(contacts.id, id)).get();
+  if (!row) return null;
+  return withChannels(parseContact(row));
+}
+
+export function getContact(
+  id: string,
+  assistantId: string,
+): ContactWithChannels | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(contacts)
+    .where(and(eq(contacts.id, id), eq(contacts.assistantId, assistantId)))
+    .get();
   if (!row) return null;
   return withChannels(parseContact(row));
 }
@@ -129,7 +145,7 @@ export function upsertContact(params: {
   preferredTone?: string | null;
   role?: ContactRole;
   principalId?: string | null;
-  assistantId?: string | null;
+  assistantId: string;
   channels?: SyncChannelData[];
 }): ContactWithChannels & { created: boolean } {
   const db = getDb();
@@ -180,7 +196,7 @@ export function upsertContact(params: {
         syncChannels(contactId, params.channels, now);
       }
 
-      return { ...getContact(contactId)!, created: false };
+      return { ...getContactInternal(contactId)!, created: false };
     }
   }
 
@@ -246,7 +262,7 @@ export function upsertContact(params: {
           .run();
 
         syncChannels(contactId, params.channels, now);
-        return { ...getContact(contactId)!, created: false };
+        return { ...getContactInternal(contactId)!, created: false };
       }
     }
   }
@@ -265,7 +281,7 @@ export function upsertContact(params: {
       interactionCount: 0,
       role: params.role ?? "contact",
       principalId: params.principalId ?? null,
-      assistantId: params.assistantId ?? null,
+      assistantId: params.assistantId,
       createdAt: now,
       updatedAt: now,
     })
@@ -275,7 +291,7 @@ export function upsertContact(params: {
     syncChannels(contactId, params.channels, now);
   }
 
-  return { ...getContact(contactId)!, created: true };
+  return { ...getContactInternal(contactId)!, created: true };
 }
 
 /**
@@ -396,6 +412,7 @@ function syncChannels(
 }
 
 export function searchContacts(params: {
+  assistantId: string;
   query?: string;
   channelAddress?: string;
   channelType?: string;
@@ -411,15 +428,20 @@ export function searchContacts(params: {
     const normalizedAddress = escapeLike(params.channelAddress.toLowerCase());
     if (!normalizedAddress) return [];
     const channelRows = db
-      .select()
+      .select({ contactId: contactChannels.contactId })
       .from(contactChannels)
+      .innerJoin(contacts, eq(contactChannels.contactId, contacts.id))
       .where(
         params.channelType
           ? and(
+              eq(contacts.assistantId, params.assistantId),
               eq(contactChannels.type, params.channelType),
               like(contactChannels.address, `%${normalizedAddress}%`),
             )
-          : like(contactChannels.address, `%${normalizedAddress}%`),
+          : and(
+              eq(contacts.assistantId, params.assistantId),
+              like(contactChannels.address, `%${normalizedAddress}%`),
+            ),
       )
       .all();
 
@@ -429,7 +451,7 @@ export function searchContacts(params: {
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
       if (results.length >= limit) break;
-      const contact = getContact(id);
+      const contact = getContactInternal(id);
       if (contact && (!params.role || contact.role === params.role)) {
         results.push(contact);
       }
@@ -438,7 +460,7 @@ export function searchContacts(params: {
   }
 
   // Search by display name and/or relationship
-  const conditions = [];
+  const conditions = [eq(contacts.assistantId, params.assistantId)];
   if (params.query) {
     const sanitized = escapeLike(params.query);
     if (!sanitized && !params.relationship && !params.role) return [];
@@ -454,11 +476,7 @@ export function searchContacts(params: {
   }
 
   const whereClause =
-    conditions.length > 0
-      ? conditions.length === 1
-        ? conditions[0]
-        : and(...conditions)
-      : undefined;
+    conditions.length > 1 ? and(...conditions) : conditions[0];
 
   const rows = db
     .select()
@@ -472,16 +490,19 @@ export function searchContacts(params: {
 }
 
 export function listContacts(
+  assistantId: string,
   limit = 50,
   role?: ContactRole,
   opts?: { uncapped?: boolean },
 ): ContactWithChannels[] {
   const db = getDb();
   const effectiveLimit = opts?.uncapped ? limit : Math.min(limit, 200);
+  const conditions = [eq(contacts.assistantId, assistantId)];
+  if (role) conditions.push(eq(contacts.role, role));
   const rows = db
     .select()
     .from(contacts)
-    .where(role ? eq(contacts.role, role) : undefined)
+    .where(conditions.length === 1 ? conditions[0] : and(...conditions))
     .orderBy(
       sql`${contacts.role} = 'guardian' DESC`,
       desc(contacts.importance),
@@ -500,6 +521,7 @@ export function listContacts(
 export function mergeContacts(
   keepId: string,
   mergeId: string,
+  assistantId: string,
 ): ContactWithChannels {
   const db = getDb();
 
@@ -511,14 +533,18 @@ export function mergeContacts(
     const keep = tx
       .select()
       .from(contacts)
-      .where(eq(contacts.id, keepId))
+      .where(
+        and(eq(contacts.id, keepId), eq(contacts.assistantId, assistantId)),
+      )
       .get();
     if (!keep) throw new Error(`Contact "${keepId}" not found`);
 
     const merge = tx
       .select()
       .from(contacts)
-      .where(eq(contacts.id, mergeId))
+      .where(
+        and(eq(contacts.id, mergeId), eq(contacts.assistantId, assistantId)),
+      )
       .get();
     if (!merge) throw new Error(`Contact "${mergeId}" not found`);
 
@@ -576,7 +602,7 @@ export function mergeContacts(
     tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
   });
 
-  return getContact(keepId)!;
+  return getContactInternal(keepId)!;
 }
 
 /**
@@ -599,7 +625,7 @@ export function findContactByAddress(
     .get();
 
   if (!channel) return null;
-  return getContact(channel.contactId);
+  return getContactInternal(channel.contactId);
 }
 
 /**
@@ -623,7 +649,7 @@ export function findContactByChannelExternalId(
     .get();
 
   if (!channel) return null;
-  return getContact(channel.contactId);
+  return getContactInternal(channel.contactId);
 }
 
 /**
@@ -646,7 +672,7 @@ export function findContactByChannelExternalChatId(
     )
     .get();
   if (!channel) return null;
-  return getContact(channel.contactId);
+  return getContactInternal(channel.contactId);
 }
 
 /**

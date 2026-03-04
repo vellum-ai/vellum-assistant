@@ -1,5 +1,6 @@
 import { searchContacts } from "../../../../contacts/contact-store.js";
 import type { ContactWithChannels } from "../../../../contacts/types.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../runtime/assistant-scope.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -42,6 +43,7 @@ export async function executeContactSearch(
 
   try {
     const results = searchContacts({
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       query,
       channelAddress,
       channelType,

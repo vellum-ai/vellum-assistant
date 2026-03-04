@@ -208,6 +208,7 @@ const noopProcessMessage = mock(async () => ({ messageId: "msg-1" }));
 function ensureTestContact(): void {
   upsertContact({
     displayName: "Test User",
+    assistantId: "self",
     channels: [
       {
         type: "telegram",
@@ -1599,6 +1600,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
   test("inbound with explicit assistantId does not mutate existing external bindings", async () => {
     upsertContact({
       displayName: "Incoming User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -2348,6 +2350,7 @@ describe("requester cancel of guardian-gated pending request", () => {
     });
     upsertContact({
       displayName: "Requester Cancel User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -3298,6 +3301,7 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
     });
     upsertContact({
       displayName: "TC Self-Approval User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",

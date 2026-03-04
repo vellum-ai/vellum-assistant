@@ -185,6 +185,7 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
     // Insert a test contact so the contacts-based ACL lookup passes
     upsertContact({
       displayName: "Test User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",
