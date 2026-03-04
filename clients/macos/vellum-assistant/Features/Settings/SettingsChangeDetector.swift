@@ -34,7 +34,7 @@ struct SettingsSnapshot {
 }
 
 struct SettingsChange {
-    let description: String
+    let prompt: String
 }
 
 struct SettingsChangeDetector {
@@ -43,43 +43,43 @@ struct SettingsChangeDetector {
 
         if before.model != after.model {
             let displayName = SettingsStore.modelDisplayNames[after.model] ?? after.model
-            changes.append(SettingsChange(description: "Model → \(displayName)"))
+            changes.append(SettingsChange(prompt: "switch to \(displayName)"))
         }
         if before.userTimezone != after.userTimezone, let tz = after.userTimezone {
-            changes.append(SettingsChange(description: "Timezone → \(tz)"))
+            changes.append(SettingsChange(prompt: "set my timezone to \(tz)"))
         }
         if before.maxSteps != after.maxSteps {
-            changes.append(SettingsChange(description: "Max steps → \(Int(after.maxSteps))"))
+            changes.append(SettingsChange(prompt: "set max steps to \(Int(after.maxSteps))"))
         }
         if !before.mediaEmbedsEnabled && after.mediaEmbedsEnabled {
-            changes.append(SettingsChange(description: "Media embeds enabled"))
+            changes.append(SettingsChange(prompt: "enable media embeds"))
         }
         if !before.hasTelegram && after.hasTelegram {
-            changes.append(SettingsChange(description: "Telegram connected"))
+            changes.append(SettingsChange(prompt: "send me a message on Telegram"))
         }
         if !before.hasTwitter && after.hasTwitter {
-            changes.append(SettingsChange(description: "Twitter/X connected"))
+            changes.append(SettingsChange(prompt: "post a tweet for me"))
         }
         if !before.hasTwilio && after.hasTwilio {
-            changes.append(SettingsChange(description: "SMS set up"))
+            changes.append(SettingsChange(prompt: "text me when this is done"))
         }
         if !before.hasSlack && after.hasSlack {
-            changes.append(SettingsChange(description: "Slack connected"))
+            changes.append(SettingsChange(prompt: "send a Slack message"))
         }
         if !before.hasBraveKey && after.hasBraveKey {
-            changes.append(SettingsChange(description: "Brave Search key added"))
+            changes.append(SettingsChange(prompt: "search the web for..."))
         }
         if !before.hasPerplexityKey && after.hasPerplexityKey {
-            changes.append(SettingsChange(description: "Perplexity key added"))
+            changes.append(SettingsChange(prompt: "research ... with Perplexity"))
         }
         if !before.hasElevenLabsKey && after.hasElevenLabsKey {
-            changes.append(SettingsChange(description: "ElevenLabs key added"))
+            changes.append(SettingsChange(prompt: "generate speech saying..."))
         }
         if !before.hasImageGenKey && after.hasImageGenKey {
-            changes.append(SettingsChange(description: "Image generation key added"))
+            changes.append(SettingsChange(prompt: "generate an image of..."))
         }
         if !before.hasVercelKey && after.hasVercelKey {
-            changes.append(SettingsChange(description: "Vercel key added"))
+            changes.append(SettingsChange(prompt: "deploy my project to Vercel"))
         }
 
         return changes
@@ -87,11 +87,7 @@ struct SettingsChangeDetector {
 
     static func buildNudgeMessage(changes: [SettingsChange]) -> String {
         guard !changes.isEmpty else { return "" }
-        var lines = ["**I noticed you made some changes to settings**"]
-        for change in changes {
-            lines.append("\u{2022} \(change.description)")
-        }
-        lines.append("\nYou don't need to open Settings — just ask me directly next time!")
-        return lines.joined(separator: "\n")
+        let combined = changes.map(\.prompt).joined(separator: ", ")
+        return "**I noticed you made some changes to settings**\nYou could just ask: \"\(combined)\" — no need to open Settings!"
     }
 }
