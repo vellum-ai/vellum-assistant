@@ -10,7 +10,7 @@ You are helping your user set up guardian verification for a messaging channel (
 ## Prerequisites
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
-- Never call the daemon runtime port directly; always call the gateway URL.
+- Never call the assistant runtime port directly; always call the gateway URL.
 - The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable for control-plane `curl` requests.
 - Run shell commands for this skill with `bash`.
 - Keep narration minimal: execute required calls first, then provide a concise status update. Do not narrate internal install/check/load chatter unless something fails.

@@ -1,6 +1,6 @@
 # Vellum Assistant Runtime
 
-Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
+Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
 
 ## Architecture
 
@@ -47,11 +47,11 @@ cp .env.example .env
 | `OLLAMA_API_KEY`       | No       | —                           | API key for authenticated Ollama deployments      |
 | `OLLAMA_BASE_URL`      | No       | `http://127.0.0.1:11434/v1` | Ollama base URL                                   |
 | `RUNTIME_HTTP_PORT`    | No       | —                           | Enable the HTTP server (required for gateway/web) |
-| `VELLUM_DAEMON_SOCKET` | No       | `~/.vellum/vellum.sock`     | Override the daemon socket path                   |
+| `VELLUM_DAEMON_SOCKET` | No       | `~/.vellum/vellum.sock`     | Override the assistant socket path                |
 
 ## Update Bulletin
 
-When a release includes relevant updates, the daemon materializes release notes from the bundled `src/config/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
+When a release includes relevant updates, the assistant materializes release notes from the bundled `src/config/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
 
 **For release maintainers:** Update `assistant/src/config/templates/UPDATES.md` with release notes before each relevant release. Leave the template empty (or comment-only) for releases with no user/assistant-facing changes.
 
@@ -59,19 +59,19 @@ When a release includes relevant updates, the daemon materializes release notes 
 
 ### Lifecycle management (recommended)
 
-Use the `vellum` CLI to manage daemon and gateway processes:
+Use the `vellum` CLI to manage assistant and gateway processes:
 
 ```bash
-vellum wake    # start daemon + gateway from current checkout
+vellum wake    # start assistant + gateway from current checkout
 vellum ps      # list assistants and per-assistant process status
-vellum sleep   # stop daemon + gateway (directory-agnostic)
+vellum sleep   # stop assistant + gateway (directory-agnostic)
 ```
 
 > **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically.
 
 ### Development: raw bun commands
 
-For low-level development (e.g., working on the daemon itself):
+For low-level development (e.g., working on the assistant runtime itself):
 
 ```bash
 bun run src/index.ts daemon start   # start daemon only
@@ -83,11 +83,11 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 
 | Command                                    | Description                                      |
 | ------------------------------------------ | ------------------------------------------------ |
-| `vellum wake`                              | Start daemon + gateway from current checkout     |
-| `vellum sleep`                             | Stop daemon + gateway processes                  |
+| `vellum wake`                              | Start assistant + gateway from current checkout  |
+| `vellum sleep`                             | Stop assistant + gateway processes               |
 | `vellum ps`                                | List assistants and per-assistant process status |
 | `vellum`                                   | Launch interactive CLI session                   |
-| `vellum dev`                               | Run daemon with auto-restart on file changes     |
+| `vellum dev`                               | Run assistant with auto-restart on file changes  |
 | `vellum sessions list\|new\|export\|clear` | Manage conversation sessions                     |
 | `vellum config set\|get\|list`             | Manage configuration                             |
 | `vellum keys set\|list\|delete`            | Manage API keys in secure storage                |
@@ -230,7 +230,7 @@ All endpoints are JWT-authenticated (require a valid JWT with appropriate scopes
 
 ### Ingress Webhook Reconciliation
 
-When the public ingress URL is changed via the Settings UI (`ingress_config` set action), the daemon automatically reconciles Twilio webhooks in addition to triggering a Telegram webhook reconcile on the gateway. If all of the following conditions are met, the daemon pushes updated webhook URLs (voice, status callback, SMS) to Twilio:
+When the public ingress URL is changed via the Settings UI (`ingress_config` set action), the assistant automatically reconciles Twilio webhooks in addition to triggering a Telegram webhook reconcile on the gateway. If all of the following conditions are met, the assistant pushes updated webhook URLs (voice, status callback, SMS) to Twilio:
 
 1. Ingress is being **enabled** (not disabled)
 2. Twilio **credentials** are configured (Account SID + Auth Token in secure storage)
@@ -271,7 +271,7 @@ The channel guardian service generates verification challenge instructions with 
 ### Operator Notes
 
 - **Verification input format:** Channel verification accepts a bare code reply only (6-digit numeric for identity-bound sessions; 64-char hex for unbound inbound/bootstrap compatibility).
-- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the daemon returns `already_bound`. This prevents accidental guardian replacement.
+- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the assistant returns `already_bound`. This prevents accidental guardian replacement.
 - **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
 
 ### Vellum Guardian Identity (Actor Tokens)
@@ -282,7 +282,7 @@ The vellum channel (macOS, iOS, CLI) uses JWTs to bind guardian identity to HTTP
 - **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
 - **IPC fallback**: Local IPC (Unix socket) connections resolve identity server-side via `resolveLocalIpcGuardianContext()` without requiring a JWT.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
-- **Startup migration**: On daemon start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
+- **Startup migration**: On assistant start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
 
 ## Guardian Verification and Ingress ACL
 
@@ -292,7 +292,7 @@ This section documents the end-to-end flow from guardian verification through in
 
 Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
 
-1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the daemon. The daemon generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
+1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
 2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram or SMS).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
 4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.

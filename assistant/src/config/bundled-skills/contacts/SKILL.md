@@ -10,7 +10,7 @@ Manage the user's contacts, relationship graph, access control (trusted contacts
 ## Prerequisites
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
-- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/ingress/*`, and `/v1/integrations/telegram/config` on the gateway, never the daemon runtime port directly.
+- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/ingress/*`, and `/v1/integrations/telegram/config` on the gateway, never the assistant runtime port directly.
 - The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable for control-plane `curl` requests.
 
 ## Contact Management
