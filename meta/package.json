@@ -5,6 +5,9 @@
   "bin": {
     "vellum": "./bin/vellum.js"
   },
+  "scripts": {
+    "test": "bun test"
+  },
   "files": [
     "bin"
   ],
@@ -13,5 +16,8 @@
     "@vellumai/cli": "0.4.28",
     "@vellumai/outbound-proxy": "0.4.27",
     "@vellumai/vellum-gateway": "0.4.28"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.4"
   }
 }
