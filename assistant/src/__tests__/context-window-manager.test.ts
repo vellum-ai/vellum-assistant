@@ -540,11 +540,11 @@ describe("ContextWindowManager", () => {
       minKeepRecentUserTurns: 0,
     });
     expect(result.compacted).toBe(true);
-    // With these token budgets the last user turn fits within
-    // targetInputTokens, so pickKeepBoundary stops at keepTurns=1.
-    // Two messages are compacted (u1 + a1) and the last user turn is kept.
-    expect(result.compactedMessages).toBe(2);
-    expect(result.messages).toHaveLength(2);
+    // With minKeepRecentUserTurns=0 and a tight targetInputTokens budget,
+    // pickKeepBoundary drops keepTurns all the way to 0.
+    // All three messages are compacted into a single summary message.
+    expect(result.compactedMessages).toBe(3);
+    expect(result.messages).toHaveLength(1);
     expect(getSummaryFromContextMessage(result.messages[0])).toContain(
       "emergency summary",
     );
