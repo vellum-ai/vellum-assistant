@@ -54,6 +54,7 @@ mock.module("../config/loader.js", () => ({
         nonInteractiveLatestTurnCompression: "truncate",
       },
     },
+    daemon: { titleGenerationMaxTokens: 30 },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     daemon: { titleGenerationMaxTokens: 30 },
     apiKeys: {},

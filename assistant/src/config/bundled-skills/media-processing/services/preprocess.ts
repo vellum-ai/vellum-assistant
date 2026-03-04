@@ -19,8 +19,8 @@ import {
   updateProcessingStage,
 } from "../../../../memory/media-store.js";
 import {
-  FFMPEG_PREPROCESS_TIMEOUT_MS,
   FFMPEG_PALETTE_TIMEOUT_MS,
+  FFMPEG_PREPROCESS_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../../../util/spawn.js";
 import { transcribeSegmentAudio } from "./audio-transcribe.js";

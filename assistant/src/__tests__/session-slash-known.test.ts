@@ -54,6 +54,7 @@ mock.module("../config/loader.js", () => ({
         nonInteractiveLatestTurnCompression: "truncate",
       },
     },
+    daemon: { titleGenerationMaxTokens: 30 },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     daemon: { titleGenerationMaxTokens: 30 },
     apiKeys: {},
@@ -391,7 +392,10 @@ describe("Session slash command — known", () => {
     const textDeltas = events.filter((e) => e.type === "assistant_text_delta");
     expect(textDeltas.length).toBeGreaterThan(0);
     const errorText = (
-      textDeltas[0] as { type: "assistant_text_delta"; text: string }
+      textDeltas[0] as {
+        type: "assistant_text_delta";
+        text: string;
+      }
     ).text;
     expect(errorText).toContain("Unknown command `/nonexistent-skill`");
     expect(errorText).toContain("/start-the-day");
