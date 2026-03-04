@@ -52,7 +52,7 @@ while IFS= read -r test_file; do
   fi
 
   test_files+=("${test_file}")
-done < <(find src/__tests__ -maxdepth 1 -type f -name '*.test.ts' | sort)
+done < <(find src/__tests__ src/outbound-proxy/__tests__ -maxdepth 1 -type f -name '*.test.ts' 2>/dev/null | sort)
 
 if [[ ${#test_files[@]} -eq 0 ]]; then
   echo "No test files found under src/__tests__"

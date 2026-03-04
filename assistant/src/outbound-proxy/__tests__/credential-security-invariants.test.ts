@@ -170,8 +170,10 @@ describe("Invariant 1: secrets never enter LLM context", () => {
     }));
 
     // Re-import to pick up the mock
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { checkIngressForSecrets } = require("../../security/secret-ingress.js");
+    const {
+      checkIngressForSecrets,
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+    } = require("../../security/secret-ingress.js");
 
     // Build a fake AWS key at runtime to avoid pre-commit hook
     const fakeKey = ["AKIA", "IOSFODNN7", "REALKEY"].join("");
@@ -192,7 +194,7 @@ describe("Invariant 1: secrets never enter LLM context", () => {
 describe("Invariant 2: no generic plaintext secret read API", () => {
   for (const tc of directReadCases) {
     test(`${tc.modulePath} does not export ${tc.exportName}`, async () => {
-      const mod = await import(`../${tc.modulePath}.js`);
+      const mod = await import(`../../${tc.modulePath}.js`);
       expect(tc.exportName in mod).toBe(false);
     });
   }
@@ -244,7 +246,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
-    const srcDir = resolve(thisDir, "..");
+    const srcDir = resolve(thisDir, "../..");
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { readdirSync, statSync } = require("node:fs");
 
@@ -509,11 +511,7 @@ describe("One-time send override", () => {
 // Invariant 5 — Proxy Redaction and Sensitive Logging Guards
 // ---------------------------------------------------------------------------
 
-import {
-  createSafeLogEntry,
-  sanitizeHeaders,
-  sanitizeUrl,
-} from "../index.js";
+import { createSafeLogEntry, sanitizeHeaders, sanitizeUrl } from "../index.js";
 
 describe("Invariant 5: proxy log entries never contain secrets", () => {
   test("Authorization headers are redacted in log entries", () => {
