@@ -192,7 +192,7 @@ export function registerContactsCommand(program: Command): void {
 
   contacts
     .command("invites")
-    .description("List ingress invites (calls /v1/ingress/invites)")
+    .description("List contact invites")
     .option("--source-channel <sourceChannel>", "Filter by source channel")
     .option("--status <status>", "Filter by invite status")
     .action(
@@ -205,7 +205,7 @@ export function registerContactsCommand(program: Command): void {
           status: opts.status,
         });
         await runRead(cmd, async () =>
-          gatewayGet(`/v1/ingress/invites${query}`),
+          gatewayGet(`/v1/contacts/invites${query}`),
         );
       },
     );
@@ -299,31 +299,6 @@ export function registerIntegrationsCommand(program: Command): void {
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () => readIngressConfig());
     });
-
-  ingress
-    .command("invites")
-    .description(
-      "[Deprecated: use 'vellum contacts invites'] List trusted ingress invites",
-    )
-    .option("--source-channel <sourceChannel>", "Filter by source channel")
-    .option("--status <status>", "Filter by invite status")
-    .action(
-      async (
-        opts: { sourceChannel?: IngressChannel; status?: string },
-        cmd: Command,
-      ) => {
-        process.stderr.write(
-          "⚠️  'vellum integrations ingress invites' is deprecated. Use 'vellum contacts invites' instead.\n",
-        );
-        const query = toQueryString({
-          sourceChannel: opts.sourceChannel,
-          status: opts.status,
-        });
-        await runRead(cmd, async () =>
-          gatewayGet(`/v1/ingress/invites${query}`),
-        );
-      },
-    );
 
   const voice = integrations.command("voice").description("Voice setup status");
 
