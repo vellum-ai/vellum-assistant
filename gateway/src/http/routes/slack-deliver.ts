@@ -483,6 +483,13 @@ export function createSlackDeliverHandler(
         return Response.json({ ok: true, placeholderTs: data.ts });
       }
 
+      // Track the thread early — before any API call — so replies arriving
+      // while the post is in-flight are still forwarded.  A spurious entry
+      // if the post ultimately fails is harmless (24h TTL expiry).
+      if (threadTs && onThreadReply && !isEphemeral) {
+        onThreadReply(threadTs);
+      }
+
       if (text && typeof text === "string") {
         const slackBody: Record<string, unknown> = {
           channel: chatId,
@@ -572,13 +579,6 @@ export function createSlackDeliverHandler(
         },
         isUpdate ? "Slack message updated" : "Slack message sent",
       );
-
-      // Track the thread so future replies without @mention are forwarded.
-      // Skip for ephemeral sends — they are user-specific and should not
-      // activate global thread tracking for all participants.
-      if (threadTs && onThreadReply && !isEphemeral) {
-        onThreadReply(threadTs);
-      }
 
       return Response.json({ ok: true });
     } catch (err) {
