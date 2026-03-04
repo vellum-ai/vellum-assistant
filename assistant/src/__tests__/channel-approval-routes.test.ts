@@ -84,9 +84,9 @@ import {
 import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import {
   createApprovalRequest,
-  createBinding,
   getAllPendingApprovalsByGuardianChat,
 } from "../memory/channel-guardian-store.js";
+import { createBinding } from "../memory/guardian-bindings.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   conversations,

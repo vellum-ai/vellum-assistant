@@ -1,4 +1,8 @@
 /**
+ * @deprecated Legacy store. All reads and writes now go through the contacts
+ * table. This file is retained only for type exports and test backward
+ * compatibility until tests are migrated.
+ *
  * Guardian binding CRUD operations.
  *
  * A binding records which external user is the designated guardian

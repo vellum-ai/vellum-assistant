@@ -14,7 +14,6 @@
 import { Database } from "bun:sqlite";
 
 import { invalidateConfigCache } from "../../config/loader.js";
-import { invalidateContactsCache } from "../../contacts/contact-store.js";
 import { resetDb } from "../../memory/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { getDbPath, getWorkspaceConfigPath } from "../../util/platform.js";
@@ -378,7 +377,6 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     // Close the live SQLite connection before overwriting assistant.db on disk.
     // The singleton will be lazily reopened on the next getDb() call.
     resetDb();
-    invalidateContactsCache();
 
     const result = commitImport({
       archiveData: fileData,

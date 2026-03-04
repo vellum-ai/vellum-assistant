@@ -1,4 +1,8 @@
 /**
+ * @deprecated Legacy store. All reads and writes now go through the contacts
+ * table. This file is retained only for type exports and test backward
+ * compatibility until tests are migrated.
+ *
  * CRUD store for assistant ingress members — external users who have been
  * granted (or denied) access to interact with the assistant via a specific
  * channel. Members are keyed by raw channel identity fields (sourceChannel +

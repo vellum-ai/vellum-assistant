@@ -89,10 +89,8 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 }));
 
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import {
-  createApprovalRequest,
-  createBinding,
-} from "../memory/channel-guardian-store.js";
+import { createApprovalRequest } from "../memory/channel-guardian-store.js";
+import { createBinding } from "../memory/guardian-bindings.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { findMember, upsertMember } from "../memory/ingress-member-store.js";
 import { createOutboundSession } from "../runtime/channel-guardian-service.js";

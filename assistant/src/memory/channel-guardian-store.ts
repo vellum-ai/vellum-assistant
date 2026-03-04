@@ -34,11 +34,7 @@ export {
 } from "./guardian-approvals.js";
 export {
   type BindingStatus,
-  createBinding,
-  getActiveBinding,
   type GuardianBinding,
-  listActiveBindingsByAssistant,
-  revokeBinding,
 } from "./guardian-bindings.js";
 export {
   getRateLimit,

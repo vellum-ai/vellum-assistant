@@ -25,7 +25,7 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
-import { listActiveBindingsByAssistant } from "../memory/channel-guardian-store.js";
+import { listActiveBindingsByAssistant } from "../memory/guardian-bindings.js";
 import type { MemberStatus } from "../memory/ingress-member-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
