@@ -19,6 +19,7 @@ import {
 } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import { ensurePromptFiles } from "../config/system-prompt.js";
+import { syncAllToContacts } from "../contacts/contact-sync.js";
 import { syncUpdateBulletinOnStartup } from "../config/update-bulletin.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
@@ -198,6 +199,16 @@ export async function runDaemon(): Promise<void> {
         { err },
         "Vellum guardian binding backfill failed — continuing startup",
       );
+    }
+
+    // Populate the contacts table from existing guardian bindings and ingress
+    // members. Runs once on each startup as a catchup pass — individual writes
+    // are forward-synced in guardian-bindings.ts and ingress-member-store.ts.
+    try {
+      syncAllToContacts("self");
+      log.info("Daemon startup: contact sync complete");
+    } catch (err) {
+      log.warn({ err }, "Contact sync failed — continuing startup");
     }
 
     try {
