@@ -49,31 +49,9 @@ Whenever you introduce, remove, or significantly modify a service, module, or da
 
 When your PR establishes a new mandatory pattern, convention, or architectural constraint that other agents must follow, update `AGENTS.md` in the same PR. Examples: introducing a new abstraction layer that all callsites must use, adding a guard test that enforces an import rule, or changing how a subsystem handles failure modes. If the pattern is only relevant within a single file or module, a code comment is sufficient — only add to `AGENTS.md` when the rule applies project-wide.
 
-## Slash Commands — TLDR
+## Slash Commands
 
-Most commands are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories. After cloning, run `path/to/claude-skills/setup` to create the symlinks.
-
-| Command | What it does |
-|---|---|
-| `/work` | Pick one task from `.private/TODO.md` (or a user-provided task), implement it, open a PR, squash-merge it, and update tracking files. |
-| `/do <description>` | Implement a described change in an isolated worktree, ship it to main via a squash-merged PR, and clean up. The PR body includes the original prompt for traceability. |
-| `/safe-do <description>` | Like `/do` but creates a PR without auto-merging — pauses for human review. Keeps the worktree in place for addressing feedback. The PR body includes the original prompt for traceability. |
-| `/swarm [workers] [max-tasks] [--namespace NAME]` | Process `.private/TODO.md` in parallel — one worktree per agent, auto-merge PRs (auto-assigned to the current user), respawn agents until the list is empty. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. |
-| `/blitz <feature>` | End-to-end feature delivery: plan, create GitHub issues on a project board, swarm-execute in parallel, gate each PR on Codex/Devin review approval before merging (per-PR feedback loops with up to 3 fix cycles), then run a recursive sweep loop (check reviews, swarm to address feedback, review and merge feedback PRs, repeat) until all PRs — including transitive feedback PRs — are fully reviewed. Supports `--auto`, `--workers N`, `--skip-plan`, `--skip-reviews`. Pass `--skip-reviews` to merge immediately without waiting for reviews (default is to wait). Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
-| `/safe-blitz <feature>` | Like `/blitz` but merges milestone PRs into a feature branch instead of main, with per-milestone direct-push feedback loops (push fixes to milestone branch, re-request reviews, repeat until clean or 3 cycles) and an automatic final sweep (no approval prompt) before opening a PR for manual review. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--workers N`, `--skip-plan`, `--branch NAME`. |
-| `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merge the feature branch PR into main, set the project issue to Done, close the issue, and clean up locally. Auto-detects from current branch, open `feature/*` PRs, or project board. |
-| `/mainline [title]` | Ship the current uncommitted changes to main via a squash-merged PR. The PR body includes the original prompt (if provided) for traceability. |
-| `/ship-and-merge [title]` | Create a PR, wait for Codex and Devin reviews, fix valid feedback (up to 3 rounds), and squash-merge once approved. The PR body includes the original prompt (if provided) for traceability. |
-| `/brainstorm` | Read through the codebase and `.private/TODO.md`, generate a prioritized list of improvements, and update the TODO after user approval. |
-| `/check-reviews [--namespace NAME]` | Check every PR in `.private/UNREVIEWED_PRS.md` for Codex and Devin reviews; add feedback items to TODO and remove fully-reviewed PRs. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and TODO items are prefixed with `[<namespace>]`. When omitted, all PRs are processed, but TODO items are still namespaced if the PR's branch matches `swarm/<NAME>/...` (inferred from the branch name). |
-| `/execute-plan <plan-file>` | Execute a multi-PR rollout plan from `.private/plans/` sequentially — implement, validate, and mainline each PR in order. The PR body includes the full plan content for traceability. |
-| `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the first PR, creates it (without merging), and stops to wait for human review. The PR body includes the full plan content for traceability. |
-| `/safe-check-review [file]` | Check the active plan PR for review feedback from codex/devin/humans. Addresses requested changes, waits if reviews are pending. |
-| `/resume-plan [file]` | Merge the current plan PR, implement the next one, create it, and stop again. Repeats until the plan is complete. The PR body includes the full plan content for traceability. |
-
-| `/update` | Pull latest from main, use `vellum ps/sleep/wake` to manage daemon and gateway lifecycle, rebuild/launch the macOS app, and print a startup summary. Uses `vellum sleep` (directory-agnostic global stop) to quiesce processes, then `vellum wake` (from current checkout) to restart. |
-
-**Lifecycle docs drift guard:** A guard test (`lifecycle-docs-guard.test.ts`) enforces that repo-local commands live in `.claude/skills/` (not `.claude/commands/`), key docs reference `vellum` CLI lifecycle commands, and stale daemon startup patterns (`bun run src/index.ts daemon start`) are not used as primary instructions outside dev-only contexts.
+Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/`. See `.claude/README.md` for the full list.
 
 ## Linear Ticket Hygiene
 
@@ -268,12 +246,6 @@ Concretely:
 - **Treat the daemon as the judgement layer.** The assistant carries user context, preferences, conversation history, and identity. Decisions routed through it benefit from all of that. Decisions made in application code discard it.
 
 When in doubt, ask: "Am I encoding a judgement that the assistant could make better with context?" If yes, route it through the daemon.
-
-## Migration Guidance
-
-When touching existing tool-based flows, migrate behavior toward skill-driven CLI usage instead of adding new registered tools.
-
-Reasoning: every registered tool increases model context overhead, while the model can usually learn CLI usage from skills on demand and install missing CLI dependencies when needed.
 
 ## Release Update Hygiene
 
