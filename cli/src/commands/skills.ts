@@ -1,3 +1,5 @@
+import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -6,9 +8,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { randomUUID } from "node:crypto";
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -231,6 +232,11 @@ function installSkillLocally(
   }
 
   upsertSkillsIndex(skillId);
+
+  // Install npm dependencies if the skill has a package.json
+  if (existsSync(join(skillDir, "package.json"))) {
+    execSync("bun install", { cwd: skillDir, stdio: "inherit" });
+  }
 }
 
 // ---------------------------------------------------------------------------
