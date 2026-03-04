@@ -978,20 +978,6 @@ exports[`IPC message snapshots ClientMessage types ingress_invite serializes to 
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types ingress_member serializes to expected JSON 1`] = `
-{
-  "action": "upsert",
-  "displayName": "Test User",
-  "externalChatId": "chat-456",
-  "externalUserId": "user-123",
-  "policy": "allow",
-  "sourceChannel": "telegram",
-  "status": "active",
-  "type": "ingress_member",
-  "username": "testuser",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types assistant_inbox_escalation serializes to expected JSON 1`] = `
 {
   "action": "list",
@@ -2860,25 +2846,6 @@ exports[`IPC message snapshots ServerMessage types ingress_invite_response seria
   },
   "success": true,
   "type": "ingress_invite_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types ingress_member_response serializes to expected JSON 1`] = `
-{
-  "member": {
-    "createdAt": 1700000000,
-    "displayName": "Test User",
-    "externalChatId": "chat-456",
-    "externalUserId": "user-123",
-    "id": "mem-001",
-    "lastSeenAt": 1700000000,
-    "policy": "allow",
-    "sourceChannel": "telegram",
-    "status": "active",
-    "username": "testuser",
-  },
-  "success": true,
-  "type": "ingress_member_response",
 }
 `;
 
