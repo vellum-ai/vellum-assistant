@@ -51,8 +51,9 @@ struct SettingsChangeDetector {
         if before.maxSteps != after.maxSteps {
             changes.append(SettingsChange(prompt: "set max steps to \(Int(after.maxSteps))"))
         }
-        if !before.mediaEmbedsEnabled && after.mediaEmbedsEnabled {
-            changes.append(SettingsChange(prompt: "enable media embeds"))
+        if before.mediaEmbedsEnabled != after.mediaEmbedsEnabled {
+            let action = after.mediaEmbedsEnabled ? "enable media embeds" : "disable media embeds"
+            changes.append(SettingsChange(prompt: action))
         }
         if !before.hasTelegram && after.hasTelegram {
             changes.append(SettingsChange(prompt: "send me a message on Telegram"))
