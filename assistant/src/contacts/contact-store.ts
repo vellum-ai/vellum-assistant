@@ -685,8 +685,10 @@ export function findGuardianForChannel(
 }
 
 /**
- * List all active channels for the guardian contact.
+ * List all active channels for guardian contacts.
  * This is the contacts-based equivalent of listActiveBindingsByAssistant(assistantId).
+ * Joins contacts+channels with status='active' in a single query so we never
+ * pick a guardian that has no active channels.
  * Returns channels ordered by most-recently-verified first.
  */
 export function listGuardianChannels(): {
@@ -694,37 +696,32 @@ export function listGuardianChannels(): {
   channels: ContactChannel[];
 } | null {
   const db = getDb();
-  // Find the guardian contact
-  const guardianRow = db
-    .select()
+  const rows = db
+    .select({
+      contact: contacts,
+      channel: contactChannels,
+    })
     .from(contacts)
-    .where(eq(contacts.role, "guardian"))
-    .limit(1)
-    .get();
-
-  if (!guardianRow) return null;
-
-  const guardian = parseContact(guardianRow);
-
-  // Get all active channels for the guardian, ordered by verifiedAt desc
-  const channelRows = db
-    .select()
-    .from(contactChannels)
+    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
     .where(
       and(
-        eq(contactChannels.contactId, guardian.id),
+        eq(contacts.role, "guardian"),
         eq(contactChannels.status, "active"),
       ),
     )
     .orderBy(desc(contactChannels.verifiedAt))
     .all();
 
-  if (channelRows.length === 0) return null;
+  if (rows.length === 0) return null;
 
-  return {
-    contact: guardian,
-    channels: channelRows.map(parseChannel),
-  };
+  // Use the first row's contact (the guardian with the most-recently-verified
+  // active channel) and collect all active channels for that contact.
+  const guardian = parseContact(rows[0].contact);
+  const channels = rows
+    .filter((r) => r.contact.id === guardian.id)
+    .map((r) => parseChannel(r.channel));
+
+  return { contact: guardian, channels };
 }
 
 /**
