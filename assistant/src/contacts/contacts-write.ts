@@ -265,46 +265,52 @@ export function revokeMemberContactsFirst(
 }
 
 /**
- * Block an ingress member, updating the contacts table first,
- * then reverse-syncing to the legacy ingress_members table.
+ * Block an ingress member, performing the legacy block first,
+ * then updating the contacts table only if the legacy call succeeded.
  * Returns the IngressMember | null from the legacy call.
  */
 export function blockMemberContactsFirst(
   memberId: string,
   reason?: string,
 ): IngressMember | null {
-  try {
-    const member = readMemberById(memberId);
-    if (member?.externalUserId) {
-      const canonicalUserId =
-        canonicalizeInboundIdentity(
-          member.sourceChannel as ChannelId,
-          member.externalUserId,
-        ) ?? member.externalUserId;
+  // Perform legacy block first — it only applies to non-blocked members
+  const result = blockMember(memberId, reason);
 
-      const contact = findContactByChannelExternalId(
-        member.sourceChannel,
-        canonicalUserId,
-      );
-      if (contact) {
-        const matchingChannel = contact.channels.find(
-          (ch) =>
-            ch.type === member.sourceChannel &&
-            ch.externalUserId === canonicalUserId,
+  // Only update contacts if the legacy block actually succeeded
+  if (result) {
+    try {
+      const canonicalUserId = result.externalUserId
+        ? (canonicalizeInboundIdentity(
+            result.sourceChannel as ChannelId,
+            result.externalUserId,
+          ) ?? result.externalUserId)
+        : null;
+
+      if (canonicalUserId) {
+        const contact = findContactByChannelExternalId(
+          result.sourceChannel,
+          canonicalUserId,
         );
-        if (matchingChannel) {
-          updateChannelStatus(matchingChannel.id, {
-            status: "blocked",
-            blockedReason: reason ?? null,
-          });
+        if (contact) {
+          const matchingChannel = contact.channels.find(
+            (ch) =>
+              ch.type === result.sourceChannel &&
+              ch.externalUserId === canonicalUserId,
+          );
+          if (matchingChannel) {
+            updateChannelStatus(matchingChannel.id, {
+              status: "blocked",
+              blockedReason: reason ?? null,
+            });
+          }
         }
       }
+    } catch (err) {
+      log.warn({ err }, "Contacts write failed for blockMember");
     }
-  } catch (err) {
-    log.warn({ err }, "Contacts write failed for blockMember");
   }
 
-  return blockMember(memberId, reason);
+  return result;
 }
 
 /**
