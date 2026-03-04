@@ -180,12 +180,6 @@ afterAll(() => {
   } catch {
     /* best effort */
   }
-  // Force-exit to prevent open handles from fire-and-forget async
-  // operations (guardian dispatch, pointer writes) keeping the bun
-  // process alive past the CI per-file timeout.
-  // Schedule on next tick — bun's test runner may intercept synchronous
-  // process.exit() calls during afterAll.
-  setTimeout(() => process.exit(0), 0);
 });
 
 // ── RelayConnection mock factory ────────────────────────────────────

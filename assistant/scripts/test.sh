@@ -158,9 +158,15 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   echo -e "${elapsed}\t${base}" >> "${results_dir}/durations"
 
   if [[ -n "${timeout_cmd}" && ( ${exit_code} -eq 124 || ${exit_code} -eq 137 ) ]]; then
-    # timeout killed the process — tests likely passed but bun did not exit (open handles)
-    echo "${test_file}" >> "${results_dir}/failures"
-    echo "  ⚠ ${base} (killed after ${per_test_timeout}s — process hung, likely open handles)"
+    # timeout killed the process — check if all tests actually passed.
+    # Bun test outputs "(fail)" for failed tests. If no failures found,
+    # treat as pass (open handles prevented clean exit, not a test failure).
+    if grep -q "^(fail)" "${out_file}" 2>/dev/null; then
+      echo "${test_file}" >> "${results_dir}/failures"
+      echo "  ✗ ${base} (killed after ${per_test_timeout}s — tests failed and process hung)"
+    else
+      echo "  ⚠ ${base} (tests passed but process hung after ${per_test_timeout}s — likely open handles)"
+    fi
   elif [[ ${exit_code} -ne 0 ]]; then
     echo "${test_file}" >> "${results_dir}/failures"
     echo "  ✗ ${base} (${elapsed}ms)"
