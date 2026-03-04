@@ -222,7 +222,7 @@ function formatDetectionInfo(proc: DetectedProcess): string {
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
 
-  const PROXY_PORT = Number(process.env.PROXY_PORT) || 8080;
+  const PROXY_PORT = Number(process.env.PROXY_PORT) || 7829;
 
   const specs: ProcessSpec[] = [
     { name: "daemon", pgrepName: "vellum-daemon", port: RUNTIME_HTTP_PORT, pidFile: join(vellumDir, "vellum.pid") },

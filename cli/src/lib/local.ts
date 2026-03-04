@@ -92,23 +92,6 @@ function isOutboundProxySourceDir(dir: string): boolean {
   }
 }
 
-function findOutboundProxySourceFromCwd(): string | undefined {
-  let current = process.cwd();
-  while (true) {
-    if (isOutboundProxySourceDir(current)) {
-      return current;
-    }
-    const nestedCandidate = join(current, "outbound-proxy");
-    if (isOutboundProxySourceDir(nestedCandidate)) {
-      return nestedCandidate;
-    }
-    const parent = dirname(current);
-    if (parent === current) {
-      return undefined;
-    }
-    current = parent;
-  }
-}
 
 function resolveAssistantIndexPath(): string | undefined {
   // Source tree layout: cli/src/lib/ -> ../../.. -> repo root -> assistant/src/index.ts
@@ -364,31 +347,10 @@ function resolveGatewayDir(): string {
 }
 
 function resolveOutboundProxyDir(): string | undefined {
-  const override = process.env.VELLUM_OUTBOUND_PROXY_DIR?.trim();
-  if (override) {
-    if (!isOutboundProxySourceDir(override)) {
-      throw new Error(
-        `VELLUM_OUTBOUND_PROXY_DIR is set to "${override}", but it is not a valid outbound-proxy source directory.`,
-      );
-    }
-    return override;
-  }
-
-  // Source tree: cli/src/lib/ → ../../.. → repo root → outbound-proxy/
-  const sourceDir = join(import.meta.dir, "..", "..", "..", "outbound-proxy");
-  if (isOutboundProxySourceDir(sourceDir)) {
-    return sourceDir;
-  }
-
   // Compiled binary: outbound-proxy/ bundled adjacent to the CLI executable.
   const binProxy = join(dirname(process.execPath), "outbound-proxy");
   if (isOutboundProxySourceDir(binProxy)) {
     return binProxy;
-  }
-
-  const cwdSourceDir = findOutboundProxySourceFromCwd();
-  if (cwdSourceDir) {
-    return cwdSourceDir;
   }
 
   try {
@@ -1006,6 +968,8 @@ export async function startOutboundProxy(watch: boolean = false): Promise<void> 
 
   const proxyEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
+    PROXY_PORT: process.env.PROXY_PORT || "7829",
+    PROXY_HEALTH_PORT: process.env.PROXY_HEALTH_PORT || "7828",
   };
 
   const proxyLogFd = openLogFile("hatch.log");
@@ -1055,7 +1019,7 @@ export async function startOutboundProxy(watch: boolean = false): Promise<void> 
   }
 
   // Wait for the health endpoint to respond
-  const healthPort = Number(process.env.PROXY_HEALTH_PORT) || 8081;
+  const healthPort = Number(process.env.PROXY_HEALTH_PORT) || 7828;
   const start = Date.now();
   const timeoutMs = 15000;
   let ready = false;
