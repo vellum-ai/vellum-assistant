@@ -27,7 +27,7 @@ export function migrateDropLegacyMemberGuardianTables(
     // Insert any active guardian bindings not already present in contacts.
     // We match on (type, external_user_id) to avoid duplicating existing rows.
     raw.exec(/*sql*/ `
-      INSERT INTO contacts (id, display_name, role, principal_id, created_at)
+      INSERT INTO contacts (id, display_name, role, principal_id, created_at, updated_at)
       SELECT
         'legacy-guardian-' || b.id,
         COALESCE(
@@ -36,6 +36,7 @@ export function migrateDropLegacyMemberGuardianTables(
         ),
         'guardian',
         b.guardian_principal_id,
+        b.created_at,
         b.created_at
       FROM channel_guardian_bindings b
       WHERE b.status = 'active'
@@ -79,11 +80,12 @@ export function migrateDropLegacyMemberGuardianTables(
   if (membersTableExists) {
     // Insert non-pending members not already present in contacts.
     raw.exec(/*sql*/ `
-      INSERT INTO contacts (id, display_name, created_at)
+      INSERT INTO contacts (id, display_name, created_at, updated_at)
       SELECT
         'legacy-member-' || m.id,
         COALESCE(m.display_name, m.username, m.external_user_id, 'Unknown'),
-        m.created_at
+        m.created_at,
+        COALESCE(m.updated_at, m.created_at)
       FROM assistant_ingress_members m
       WHERE m.status != 'pending'
         AND NOT EXISTS (
