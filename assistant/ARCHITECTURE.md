@@ -460,7 +460,7 @@ External users who are not the guardian can gain access to the assistant through
 | `src/runtime/ingress-service.ts`                       | Business logic for member CRUD                                                |
 | `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
 | `src/memory/channel-guardian-store.ts`                 | Approval request and verification challenge persistence                       |
-| `src/config/bundled-skills/trusted-contacts/SKILL.md`  | Skill teaching the assistant to manage contacts via HTTP API                  |
+| `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
 
 ### Guardian-Initiated Invite Links
 
@@ -471,7 +471,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Conversational Orchestration (guardian-invite-intent.ts)    │
-│  Pattern-based intent detection → forces trusted-contacts    │
+│  Pattern-based intent detection → forces contacts            │
 │  skill load for create / list / revoke actions               │
 ├─────────────────────────────────────────────────────────────┤
 │  Channel Transport Adapters (channel-invite-transport.ts)    │
@@ -491,7 +491,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 **Invite link flow (Telegram):**
 
 1. Guardian asks the assistant to create an invite via desktop chat.
-2. `guardian-invite-intent.ts` detects the intent and rewrites the message to force-load the `trusted-contacts` skill.
+2. `guardian-invite-intent.ts` detects the intent and rewrites the message to force-load the `contacts` skill.
 3. The skill calls the ingress HTTP API to create an invite token, then calls the Telegram transport adapter to build a deep link: `https://t.me/<bot>?start=iv_<token>`.
 4. Guardian shares the link with the invitee out-of-band.
 5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
@@ -547,7 +547,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                        |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                     |
 | `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                        |
-| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the trusted-contacts skill                           |
+| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                   |
 | `src/runtime/ingress-service.ts`                    | Shared business logic for invite/member operations (used by both HTTP routes and IPC)                           |
 | `src/runtime/routes/ingress-routes.ts`              | HTTP API handlers for member/invite management including voice invite creation and redemption                   |
 | `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (non-member and inactive-member branches)                            |
@@ -2222,7 +2222,7 @@ Some tool outputs contain values that must reach the user's final reply but shou
 
 3. **Post-generation substitution** (`src/agent/loop.ts`): Before emitting streamed `text_delta` events and before building the final `assistantMessage`, all placeholders are deterministically replaced with their real values. The substitution is chunk-safe for streaming (buffering partial placeholder prefixes across deltas).
 
-Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts` (extraction hook), `src/agent/loop.ts` (substitution), `src/config/bundled-skills/trusted-contacts/SKILL.md` (invite flow adoption).
+Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts` (extraction hook), `src/agent/loop.ts` (substitution), `src/config/bundled-skills/contacts/SKILL.md` (invite flow adoption).
 
 ### Notifications
 
