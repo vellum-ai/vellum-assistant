@@ -22,8 +22,6 @@ import type {
   VerificationPurpose,
 } from "../memory/channel-guardian-store.js";
 import {
-  getActiveBinding,
-  revokeBinding as legacyRevokeBinding,
   bindSessionIdentity as storeBindSessionIdentity,
   consumeChallenge,
   countRecentSendsToDestination as storeCountRecentSendsToDestination,
@@ -41,6 +39,10 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
 } from "../memory/channel-guardian-store.js";
+import {
+  getActiveBinding,
+  revokeBinding as legacyRevokeBinding,
+} from "../memory/guardian-bindings.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 
 // ---------------------------------------------------------------------------
