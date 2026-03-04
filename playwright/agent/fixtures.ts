@@ -238,18 +238,22 @@ async function ensureAssistantHatched(): Promise<void> {
   logVellumPs();
 
   // Verify the lockfile was updated with an assistant entry
-  const runtimeUrl = readRuntimeUrlFromLockfile(hatchOutput);
+  const { runtimeUrl, assistantId } = readAssistantFromLockfile(hatchOutput);
 
-  // Poll health endpoint until the assistant is ready
+  // Poll the daemon directly (port 7821) rather than through the gateway,
+  // since the gateway may require auth for proxied health checks.
+  const daemonUrl = "http://localhost:7821";
+
   const maxWaitMs = 60_000;
   const pollIntervalMs = 1_000;
   const startTime = Date.now();
+  let lastHealthError = "";
 
   while (Date.now() - startTime < maxWaitMs) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 1_500);
-      const response = await fetch(`${runtimeUrl}/healthz`, {
+      const response = await fetch(`${daemonUrl}/healthz`, {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -259,31 +263,59 @@ async function ensureAssistantHatched(): Promise<void> {
         if (body.status === "healthy") {
           return;
         }
+        lastHealthError = `status=${response.status} body=${JSON.stringify(body)}`;
+      } else {
+        lastHealthError = `status=${response.status}`;
       }
-    } catch {
-      // Not ready yet — keep polling
+    } catch (err) {
+      lastHealthError =
+        err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
-  // Collect diagnostics: vellum ps, hatch.log, and last health response
-  let psInfo = "";
+  // Collect diagnostics
+  const diagParts: string[] = [];
+
+  diagParts.push(`Last health check error: ${lastHealthError}`);
+
+  // vellum ps (overview)
   try {
-    psInfo = execSync("vellum ps 2>&1", {
+    const ps = execSync("vellum ps 2>&1", {
       encoding: "utf-8",
       timeout: 30_000,
       shell: "/bin/bash",
     });
+    diagParts.push(`--- vellum ps ---\n${ps.trim()}`);
   } catch (err: unknown) {
-    psInfo = (err as { stdout?: string }).stdout || "vellum ps failed";
+    diagParts.push(
+      `--- vellum ps ---\n${(err as { stdout?: string }).stdout || "failed"}`,
+    );
   }
 
-  const diagnostics = buildDiagnostics(hatchOutput);
+  // vellum ps <name> (subprocess details)
+  if (assistantId) {
+    try {
+      const psDetail = execSync(
+        `vellum ps ${JSON.stringify(assistantId)} 2>&1`,
+        { encoding: "utf-8", timeout: 30_000, shell: "/bin/bash" },
+      );
+      diagParts.push(
+        `--- vellum ps ${assistantId} ---\n${psDetail.trim()}`,
+      );
+    } catch (err: unknown) {
+      diagParts.push(
+        `--- vellum ps ${assistantId} ---\n${(err as { stdout?: string }).stdout || "failed"}`,
+      );
+    }
+  }
+
+  diagParts.push(buildDiagnostics(hatchOutput));
 
   throw new Error(
-    `Assistant at ${runtimeUrl} did not become healthy within ${maxWaitMs / 1_000}s\n` +
-      `--- vellum ps ---\n${psInfo}\n\n${diagnostics}`,
+    `Assistant daemon at ${daemonUrl} did not become healthy within ${maxWaitMs / 1_000}s ` +
+      `(gateway: ${runtimeUrl})\n\n${diagParts.join("\n\n")}`,
   );
 }
 
@@ -301,10 +333,13 @@ function hasAssistantInLockfile(): boolean {
 }
 
 /**
- * Reads the latest assistant's runtimeUrl from ~/.vellum.lock.json.
+ * Reads the latest assistant's runtimeUrl and assistantId from ~/.vellum.lock.json.
  * Throws if the lockfile is missing or has no assistant entries.
  */
-function readRuntimeUrlFromLockfile(hatchOutput: string): string {
+function readAssistantFromLockfile(hatchOutput: string): {
+  runtimeUrl: string;
+  assistantId: string;
+} {
   const diagnostics = buildDiagnostics(hatchOutput);
   const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
 
@@ -315,7 +350,9 @@ function readRuntimeUrlFromLockfile(hatchOutput: string): string {
   }
 
   const raw = readFileSync(lockfilePath, "utf-8");
-  const data = JSON.parse(raw) as { assistants?: { runtimeUrl?: string }[] };
+  const data = JSON.parse(raw) as {
+    assistants?: { runtimeUrl?: string; assistantId?: string }[];
+  };
   const assistants = data.assistants;
 
   if (!Array.isArray(assistants) || assistants.length === 0) {
@@ -324,14 +361,17 @@ function readRuntimeUrlFromLockfile(hatchOutput: string): string {
     );
   }
 
-  const runtimeUrl = assistants[0].runtimeUrl;
-  if (!runtimeUrl) {
+  const entry = assistants[0];
+  if (!entry.runtimeUrl) {
     throw new Error(
       `Assistant entry missing runtimeUrl in lockfile.\n${diagnostics}`,
     );
   }
 
-  return runtimeUrl;
+  return {
+    runtimeUrl: entry.runtimeUrl,
+    assistantId: entry.assistantId || "",
+  };
 }
 
 /** Collects hatch CLI output and hatch.log into a single diagnostic string. */
@@ -348,8 +388,8 @@ function buildDiagnostics(hatchOutput: string): string {
     try {
       const contents = readFileSync(logPath, "utf-8");
       const lines = contents.split("\n");
-      const tail = lines.slice(-50).join("\n");
-      parts.push(`--- hatch.log (last 50 lines) ---\n${tail}`);
+      const tail = lines.slice(-200).join("\n");
+      parts.push(`--- hatch.log (last 200 lines) ---\n${tail}`);
     } catch {
       parts.push(`Failed to read hatch.log at ${logPath}`);
     }
