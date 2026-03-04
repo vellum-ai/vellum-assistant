@@ -3,9 +3,8 @@ import type { DrizzleDb } from "../db-connection.js";
 /**
  * Add a composite index on (type, external_chat_id) for contact_channels.
  *
- * updateChannelLastSeenByExternalChatId filters on this column pair on every
- * inbound message for chat-id-only members; without the index each call
- * performs a table scan.
+ * findContactByChannelExternalChatId filters on this column pair; without the
+ * index each call performs a table scan.
  */
 export function migrateContactChannelsTypeChatIdIndex(
   database: DrizzleDb,
