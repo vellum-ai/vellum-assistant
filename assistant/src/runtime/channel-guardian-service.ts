@@ -32,11 +32,9 @@ import {
   findPendingChallengeForChannel,
   findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as storeFindSessionByIdentity,
-  getActiveBinding,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
-  revokeBinding as legacyRevokeBinding,
   revokePendingChallenges as storeRevokePendingChallenges,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
@@ -380,11 +378,9 @@ export function validateAndConsumeChallenge(
 
 /**
  * Look up the active guardian binding for a given assistant and channel.
- * Reads from the contacts table via findGuardianForChannel first and
+ * Reads from the contacts table via findGuardianForChannel and
  * synthesizes a GuardianBinding-shaped object for backward compatibility.
- * Falls back to the legacy channelGuardianBindings table when the contacts
- * lookup returns nothing — this covers bindings where the contacts-write
- * failed but the legacy row was still persisted.
+ * Returns null when no contacts match.
  */
 export function getGuardianBinding(
   assistantId: string,
@@ -410,8 +406,7 @@ export function getGuardianBinding(
     };
   }
 
-  // Legacy fallback: contacts write may have failed but the legacy row exists
-  return getActiveBinding(assistantId, channel);
+  return null;
 }
 
 /**
@@ -419,7 +414,7 @@ export function getGuardianBinding(
  * the specified assistant and channel.
  */
 export function isGuardian(
-  assistantId: string,
+  _assistantId: string,
   channel: string,
   externalUserId: string,
 ): boolean {
@@ -428,26 +423,14 @@ export function isGuardian(
     return result.channel.externalUserId === externalUserId;
   }
 
-  // Legacy fallback for bindings where contacts write failed
-  const legacyBinding = getActiveBinding(assistantId, channel);
-  return (
-    legacyBinding != null &&
-    legacyBinding.guardianExternalUserId === externalUserId
-  );
+  return false;
 }
 
 /**
  * Revoke the active guardian binding for a given assistant and channel.
- * Revokes both the contacts entry and the legacy channelGuardianBindings row
- * so that the legacy fallback in getGuardianBinding does not resurface it.
  */
 export function revokeBinding(assistantId: string, channel: string): boolean {
-  const contactsRevoked = revokeGuardianBindingContactsFirst(
-    assistantId,
-    channel,
-  );
-  const legacyRevoked = legacyRevokeBinding(assistantId, channel);
-  return contactsRevoked || legacyRevoked;
+  return revokeGuardianBindingContactsFirst(assistantId, channel);
 }
 
 /**
