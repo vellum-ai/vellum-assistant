@@ -247,11 +247,6 @@ public final class SettingsStore: ObservableObject {
     /// still running on the old one, leading to transient pairing failures.
     @Published var isRegeneratingToken: Bool = false
 
-    @Published var vellumPlatformReachable: Bool?
-    @Published var vellumPlatformError: String?
-    @Published var isCheckingVellumPlatform: Bool = false
-    @Published var platformLastChecked: Date?
-
     // MARK: - Dev Mode
 
     @Published var isDevMode: Bool
@@ -2024,8 +2019,6 @@ public final class SettingsStore: ObservableObject {
         let previous = platformBaseUrl
         pendingPlatformUrl = previous
         platformBaseUrl = trimmed
-        vellumPlatformReachable = nil
-        vellumPlatformError = nil
         AuthService.shared.configuredBaseURL = trimmed
         do {
             try daemonClient?.send(PlatformConfigRequestMessage(action: "set", baseUrl: trimmed))
@@ -2132,40 +2125,6 @@ public final class SettingsStore: ObservableObject {
             return false
         } catch {
             return false
-        }
-    }
-
-    // MARK: - Platform Health Check
-
-    func checkVellumPlatform() async {
-        isCheckingVellumPlatform = true
-        defer {
-            isCheckingVellumPlatform = false
-            platformLastChecked = Date()
-        }
-
-        let baseUrl = platformBaseUrl.isEmpty ? AuthService.shared.baseURL : platformBaseUrl
-        let normalized = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
-        guard let url = URL(string: "\(normalized)/healthz") else {
-            vellumPlatformReachable = false
-            vellumPlatformError = "Invalid URL"
-            return
-        }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 5
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
-                vellumPlatformReachable = true
-                vellumPlatformError = nil
-            } else {
-                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-                vellumPlatformReachable = false
-                vellumPlatformError = "HTTP \(code)"
-            }
-        } catch {
-            vellumPlatformReachable = false
-            vellumPlatformError = "Could not connect"
         }
     }
 
