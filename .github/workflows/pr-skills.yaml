@@ -98,3 +98,18 @@ jobs:
 
       - name: Validate SKILL.md files
         run: node scripts/skills/lint-skill-spec.mjs
+
+  check-catalog:
+    name: Check catalog.json is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate catalog.json
+        run: node scripts/skills/check-catalog.mjs
