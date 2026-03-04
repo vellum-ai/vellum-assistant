@@ -15,6 +15,9 @@ struct SettingsSnapshot {
     let userTimezone: String?
     let maxSteps: Double
     let mediaEmbedsEnabled: Bool
+    let pttEnabled: Bool
+    let wakeWordEnabled: Bool
+    let cmdEnterToSend: Bool
 
     @MainActor init(store: SettingsStore) {
         model = store.selectedModel
@@ -30,6 +33,9 @@ struct SettingsSnapshot {
         userTimezone = store.userTimezone
         maxSteps = store.maxSteps
         mediaEmbedsEnabled = store.mediaEmbedsEnabled
+        pttEnabled = PTTActivator.fromStored().kind != .none
+        wakeWordEnabled = UserDefaults.standard.bool(forKey: "wakeWordEnabled")
+        cmdEnterToSend = store.cmdEnterToSend
     }
 }
 
@@ -53,6 +59,18 @@ struct SettingsChangeDetector {
         }
         if before.mediaEmbedsEnabled != after.mediaEmbedsEnabled {
             let action = after.mediaEmbedsEnabled ? "enable media embeds" : "disable media embeds"
+            changes.append(SettingsChange(prompt: action))
+        }
+        if before.pttEnabled != after.pttEnabled {
+            let action = after.pttEnabled ? "enable push to talk" : "disable push to talk"
+            changes.append(SettingsChange(prompt: action))
+        }
+        if before.wakeWordEnabled != after.wakeWordEnabled {
+            let action = after.wakeWordEnabled ? "enable wake word listening" : "disable wake word listening"
+            changes.append(SettingsChange(prompt: action))
+        }
+        if before.cmdEnterToSend != after.cmdEnterToSend {
+            let action = after.cmdEnterToSend ? "use Cmd+Enter to send" : "use Enter to send"
             changes.append(SettingsChange(prompt: action))
         }
         if !before.hasTelegram && after.hasTelegram {
