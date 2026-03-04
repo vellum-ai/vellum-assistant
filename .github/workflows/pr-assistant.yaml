@@ -52,6 +52,7 @@ jobs:
         run: bun run test
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
+          TEST_WORKERS: '8'
 
       - name: Zip assistant artifact
         run: zip -r ../assistant-pr-${{ github.event.pull_request.number }}.zip . -x "node_modules/*"

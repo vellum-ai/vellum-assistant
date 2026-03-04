@@ -58,7 +58,7 @@ jobs:
 
           [ $TSC_RC -eq 0 ] && [ $LINT_RC -eq 0 ] && [ $TEST_RC -eq 0 ]
         env:
-          TEST_WORKERS: '4'
+          TEST_WORKERS: '8'
 
       - name: Track consecutive failures
         if: always()
