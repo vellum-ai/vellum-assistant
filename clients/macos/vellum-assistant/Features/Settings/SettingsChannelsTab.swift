@@ -378,7 +378,7 @@ struct SettingsChannelsTab: View {
                 .foregroundColor(VColor.textSecondary)
 
             SecureField("Telegram bot token", text: $telegramBotTokenText)
-                .vInputStyle()
+                .vInputStyle(.medium)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
@@ -469,12 +469,12 @@ struct SettingsChannelsTab: View {
                 .foregroundColor(VColor.textSecondary)
 
             SecureField("Bot Token (xoxb-...)", text: $slackChannelBotTokenInput)
-                .vInputStyle()
+                .vInputStyle(.medium)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
             SecureField("App Token (xapp-...)", text: $slackChannelAppTokenInput)
-                .vInputStyle()
+                .vInputStyle(.medium)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
@@ -675,12 +675,12 @@ struct SettingsChannelsTab: View {
                 .foregroundColor(VColor.textSecondary)
 
             TextField("Account SID", text: $twilioAccountSidText)
-                .vInputStyle()
+                .vInputStyle(.medium)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
             SecureField("Auth Token", text: $twilioAuthTokenText)
-                .vInputStyle()
+                .vInputStyle(.medium)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
@@ -726,12 +726,12 @@ struct SettingsChannelsTab: View {
                 .foregroundColor(VColor.textSecondary)
 
             TextField("Account SID", text: $voiceAccountSidText)
-                .vInputStyle()
+                .vInputStyle(.medium)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
             SecureField("Auth Token", text: $voiceAuthTokenText)
-                .vInputStyle()
+                .vInputStyle(.medium)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
@@ -1092,7 +1092,7 @@ struct SettingsChannelsTab: View {
             guardianLabel
 
             TextField(placeholder, text: destinationBinding)
-                .vInputStyle()
+                .vInputStyle(.medium)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
                 .frame(maxWidth: 360)

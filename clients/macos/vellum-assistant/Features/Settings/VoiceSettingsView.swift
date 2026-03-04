@@ -317,7 +317,7 @@ struct VoiceSettingsView: View {
                         .foregroundColor(VColor.textSecondary)
 
                     TextField("Enter wake word or phrase", text: $wakeWordKeyword)
-                        .vInputStyle()
+                        .vInputStyle(.medium)
                         .accessibilityLabel("Wake word keyword")
 
                     HStack(spacing: VSpacing.sm) {
@@ -433,7 +433,7 @@ struct VoiceSettingsView: View {
                         .foregroundColor(VColor.textSecondary)
 
                     SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
-                        .vInputStyle()
+                        .vInputStyle(.medium)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
 
