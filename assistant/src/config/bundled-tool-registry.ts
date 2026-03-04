@@ -12,17 +12,6 @@
  * Regenerate with:
  *   bun run scripts/generate-bundled-tool-registry.ts
  */
-// ── browser ─────────────────────────────────────────────────────────────────
-import * as browserClick from "../../../skills/browser/tools/browser-click.js";
-import * as browserClose from "../../../skills/browser/tools/browser-close.js";
-import * as browserExtract from "../../../skills/browser/tools/browser-extract.js";
-import * as browserFillCredential from "../../../skills/browser/tools/browser-fill-credential.js";
-import * as browserNavigate from "../../../skills/browser/tools/browser-navigate.js";
-import * as browserPressKey from "../../../skills/browser/tools/browser-press-key.js";
-import * as browserScreenshot from "../../../skills/browser/tools/browser-screenshot.js";
-import * as browserSnapshot from "../../../skills/browser/tools/browser-snapshot.js";
-import * as browserType from "../../../skills/browser/tools/browser-type.js";
-import * as browserWaitFor from "../../../skills/browser/tools/browser-wait-for.js";
 import type { SkillToolScript } from "../tools/skills/script-contract.js";
 // ── app-builder ──────────────────────────────────────────────────────────────
 import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
@@ -191,18 +180,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["app-builder:tools/app-file-read.ts", appFileRead],
   ["app-builder:tools/app-file-edit.ts", appFileEdit],
   ["app-builder:tools/app-file-write.ts", appFileWrite],
-
-  // browser
-  ["browser:tools/browser-navigate.ts", browserNavigate],
-  ["browser:tools/browser-snapshot.ts", browserSnapshot],
-  ["browser:tools/browser-screenshot.ts", browserScreenshot],
-  ["browser:tools/browser-close.ts", browserClose],
-  ["browser:tools/browser-click.ts", browserClick],
-  ["browser:tools/browser-type.ts", browserType],
-  ["browser:tools/browser-press-key.ts", browserPressKey],
-  ["browser:tools/browser-wait-for.ts", browserWaitFor],
-  ["browser:tools/browser-extract.ts", browserExtract],
-  ["browser:tools/browser-fill-credential.ts", browserFillCredential],
 
   // chatgpt-import
   ["chatgpt-import:tools/chatgpt-import.ts", chatgptImport_chatgptImport],

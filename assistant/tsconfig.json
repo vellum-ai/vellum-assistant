@@ -12,10 +12,10 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "..",
+    "rootDir": "./src",
     "jsx": "react-jsx",
     "types": ["bun-types"]
   },
-  "include": ["src/**/*", "src/**/*.tsx", "../skills/**/*"],
+  "include": ["src/**/*", "src/**/*.tsx"],
   "exclude": ["node_modules", "dist", "drizzle"]
 }

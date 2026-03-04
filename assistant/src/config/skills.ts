@@ -273,27 +273,6 @@ export function getBundledSkillsDir(): string {
   return join(dir, "bundled-skills");
 }
 
-export function getRepoSkillsDir(): string {
-  const dir = import.meta.dir;
-
-  // In compiled Bun binaries, import.meta.dir points into the virtual
-  // /$bunfs/ filesystem where non-JS assets don't exist.  Fall back to
-  // the macOS .app bundle Resources dir or next to the binary.
-  if (dir.startsWith("/$bunfs/")) {
-    const execDir = dirname(process.execPath);
-    // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
-    const resourcesPath = join(execDir, "..", "Resources", "skills");
-    if (existsSync(resourcesPath)) return resourcesPath;
-    // Next to the binary itself (non-app-bundle deployments)
-    const execDirPath = join(execDir, "skills");
-    if (existsSync(execDirPath)) return execDirPath;
-  }
-
-  // In development: import.meta.dir is assistant/src/config/,
-  // repo root skills/ is three levels up.
-  return join(dir, "..", "..", "..", "..", "skills");
-}
-
 function getSkillsIndexPath(skillsDir: string): string {
   return join(skillsDir, "SKILLS.md");
 }
@@ -640,29 +619,33 @@ function readBundledSkillFromDirectory(
 
 // ─── Skill discovery ─────────────────────────────────────────────────────────
 
-function discoverBundledSkillDirectories(baseDir: string): string[] {
-  if (!existsSync(baseDir)) return [];
+function discoverBundledSkillDirectories(): string[] {
+  const bundledDir = getBundledSkillsDir();
+  if (!existsSync(bundledDir)) return [];
 
   const dirs: string[] = [];
   try {
-    const entries = readdirSync(baseDir, { withFileTypes: true });
+    const entries = readdirSync(bundledDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const directoryPath = join(baseDir, entry.name);
+      const directoryPath = join(bundledDir, entry.name);
       if (existsSync(join(directoryPath, "SKILL.md"))) {
         dirs.push(directoryPath);
       }
     }
   } catch (err) {
-    log.warn({ err, baseDir }, "Failed to discover bundled skill directories");
+    log.warn(
+      { err, bundledDir },
+      "Failed to discover bundled skill directories",
+    );
     return [];
   }
 
   return dirs.sort((a, b) => a.localeCompare(b));
 }
 
-function loadBundledSkills(baseDir: string): SkillSummary[] {
-  const directories = discoverBundledSkillDirectories(baseDir);
+function loadBundledSkills(): SkillSummary[] {
+  const directories = discoverBundledSkillDirectories();
   const skills: SkillSummary[] = [];
 
   for (const directory of directories) {
@@ -882,36 +865,28 @@ export function loadSkillCatalog(
     }
   }
 
-  // Load bundled skills from both the repo-root skills/ directory and the
-  // compiled bundled-skills/ directory.  Skills from bundled-skills/ take
-  // precedence over repo-root skills/ which take precedence over extraDirs.
-  const bundledDirs = [getRepoSkillsDir(), getBundledSkillsDir()];
-  for (const baseDir of bundledDirs) {
-    const bundledSkills = loadBundledSkills(baseDir);
-    for (const skill of bundledSkills) {
-      if (seenIds.has(skill.id)) {
-        const existingIndex = catalog.findIndex((s) => s.id === skill.id);
-        if (
-          existingIndex !== -1 &&
-          (catalog[existingIndex].source === "extra" ||
-            catalog[existingIndex].bundled)
-        ) {
-          log.info(
-            { id: skill.id, directory: skill.directoryPath },
-            "Bundled skill overrides lower-precedence skill",
-          );
-          catalog[existingIndex] = skill;
-          continue;
-        }
-        log.warn(
+  // Load bundled skills (override extraDirs skills with same ID)
+  const bundledSkills = loadBundledSkills();
+  for (const skill of bundledSkills) {
+    if (seenIds.has(skill.id)) {
+      // Bundled wins over extraDirs
+      const existingIndex = catalog.findIndex((s) => s.id === skill.id);
+      if (existingIndex !== -1 && catalog[existingIndex].source === "extra") {
+        log.info(
           { id: skill.id, directory: skill.directoryPath },
-          "Skipping duplicate bundled skill id",
+          "Bundled skill overrides extraDirs skill",
         );
+        catalog[existingIndex] = skill;
         continue;
       }
-      seenIds.add(skill.id);
-      catalog.push(skill);
+      log.warn(
+        { id: skill.id, directory: skill.directoryPath },
+        "Skipping duplicate bundled skill id",
+      );
+      continue;
     }
+    seenIds.add(skill.id);
+    catalog.push(skill);
   }
 
   // Load managed (user) skills, which take precedence over bundled skills with the same ID
