@@ -85,30 +85,30 @@ describe("ingress control-plane proxy", () => {
     const handler = createIngressControlPlaneProxyHandler(makeConfig());
 
     await handler.handleListInvites(
-      new Request("http://localhost:7830/v1/ingress/invites?status=active"),
+      new Request("http://localhost:7830/v1/contacts/invites?status=active"),
     );
     await handler.handleCreateInvite(
-      new Request("http://localhost:7830/v1/ingress/invites", {
+      new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
       }),
     );
     await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/ingress/invites/redeem", {
+      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
         method: "POST",
       }),
     );
     await handler.handleRevokeInvite(
-      new Request("http://localhost:7830/v1/ingress/invites/inv_123", {
+      new Request("http://localhost:7830/v1/contacts/invites/inv_123", {
         method: "DELETE",
       }),
       "inv_123",
     );
 
     expect(captured).toEqual([
-      "http://localhost:7821/v1/ingress/invites?status=active",
-      "http://localhost:7821/v1/ingress/invites",
-      "http://localhost:7821/v1/ingress/invites/redeem",
-      "http://localhost:7821/v1/ingress/invites/inv_123",
+      "http://localhost:7821/v1/contacts/invites?status=active",
+      "http://localhost:7821/v1/contacts/invites",
+      "http://localhost:7821/v1/contacts/invites/redeem",
+      "http://localhost:7821/v1/contacts/invites/inv_123",
     ]);
   });
 
@@ -123,7 +123,7 @@ describe("ingress control-plane proxy", () => {
 
     const handler = createIngressControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
-      new Request("http://localhost:7830/v1/ingress/invites", {
+      new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
         headers: {
           authorization: "Bearer caller-token",
@@ -154,7 +154,7 @@ describe("ingress control-plane proxy", () => {
 
     const handler = createIngressControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
-      new Request("http://localhost:7830/v1/ingress/invites", {
+      new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
       }),
     );
@@ -178,7 +178,7 @@ describe("ingress control-plane proxy", () => {
       makeConfig({ runtimeTimeoutMs: 100 }),
     );
     const res = await handler.handleListInvites(
-      new Request("http://localhost:7830/v1/ingress/invites"),
+      new Request("http://localhost:7830/v1/contacts/invites"),
     );
 
     expect(res.status).toBe(504);

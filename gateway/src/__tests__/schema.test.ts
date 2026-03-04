@@ -64,9 +64,9 @@ describe("/schema route", () => {
     expect(body.paths["/v1/integrations/telegram/config"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/commands"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/setup"]).toBeDefined();
-    expect(body.paths["/v1/ingress/invites"]).toBeDefined();
-    expect(body.paths["/v1/ingress/invites/redeem"]).toBeDefined();
-    expect(body.paths["/v1/ingress/invites/{inviteId}"]).toBeDefined();
+    expect(body.paths["/v1/contacts/invites"]).toBeDefined();
+    expect(body.paths["/v1/contacts/invites/redeem"]).toBeDefined();
+    expect(body.paths["/v1/contacts/invites/{inviteId}"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/challenge"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/status"]).toBeDefined();
     expect(
