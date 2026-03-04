@@ -36,6 +36,24 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Bypass HTTP auth so requireBoundGuardian does not reject the test principal.
+mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
+
+// Prevent the IPC handler's resolveLocalIpcTrustContext from creating a real
+// guardian binding via ensureVellumGuardianBinding. Return a stable trust
+// context that the IPC handler tests can assert against.
+mock.module("../runtime/guardian-vellum-migration.js", () => ({
+  ensureVellumGuardianBinding: () => "test-principal",
+}));
+mock.module("../runtime/local-actor-identity.js", () => ({
+  resolveLocalIpcTrustContext: () => ({
+    trustClass: "guardian" as const,
+    sourceChannel: "vellum",
+    guardianExternalUserId: "test-principal",
+    guardianPrincipalId: "test-principal",
+  }),
+}));
+
 // Mock applyCanonicalGuardianDecision — the single decision write path.
 const mockApplyCanonicalGuardianDecision = mock(
   (
@@ -103,6 +121,7 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM channel_guardian_approval_requests");
+  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM conversations");
   mockApplyCanonicalGuardianDecision.mockClear();
 }
