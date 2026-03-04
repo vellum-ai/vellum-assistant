@@ -215,7 +215,8 @@ struct ChatView: View {
                             loadPreviousMessagePage: loadPreviousMessagePage,
                             threadId: threadId,
                             anchorMessageId: $anchorMessageId,
-                            isNearBottom: $isNearBottom
+                            isNearBottom: $isNearBottom,
+                            composerBottomInset: composerReservedHeight
                         )
                         .safeAreaInset(edge: .bottom) {
                             Color.clear.frame(height: composerReservedHeight)
@@ -435,6 +436,10 @@ private struct ChatBootstrapLoadingView: View {
 /// Fires `onScrollUp` when the user scrolls toward older content (untethers auto-scroll),
 /// and `onScrollToBottom` when the user manually scrolls back to the bottom (re-tethers).
 struct ScrollWheelDetector: NSViewRepresentable {
+    /// Extra bottom inset (e.g. composer height via safeAreaInset) that SwiftUI
+    /// accounts for but NSScrollView's raw geometry does not. Used to adjust the
+    /// "is at bottom" threshold so manual scroll detection matches programmatic scroll.
+    var bottomInset: CGFloat = 0
     let onScrollUp: () -> Void
     let onScrollToBottom: () -> Void
 
@@ -448,6 +453,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
         coordinator.view = view
         coordinator.onScrollUp = onScrollUp
         coordinator.onScrollToBottom = onScrollToBottom
+        coordinator.bottomInset = bottomInset
         coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
             // Only process events within this view's bounds (scoped to the chat scroll area)
             guard let view = coordinator.view,
@@ -455,6 +461,12 @@ struct ScrollWheelDetector: NSViewRepresentable {
                   event.window == window else { return event }
             let locationInView = view.convert(event.locationInWindow, from: nil)
             guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
+
+            // The threshold accounts for the composer's safeAreaInset which SwiftUI
+            // includes in proxy.scrollTo calculations but NSScrollView's raw geometry
+            // does not. Without this offset, manual scroll detection disagrees with
+            // programmatic scroll about where "the bottom" is.
+            let threshold = coordinator.bottomInset + 20
 
             if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
                 // Direct user scroll up (toward older content) — untether,
@@ -466,7 +478,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
                         let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY >= 20 {
+                        if docHeight - clipBounds.maxY >= threshold {
                             coordinator.onScrollUp?()
                         }
                     } else {
@@ -481,7 +493,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
                         let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY < 20 {
+                        if docHeight - clipBounds.maxY < threshold {
                             coordinator.onScrollToBottom?()
                         }
                     }
@@ -495,6 +507,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.onScrollUp = onScrollUp
         context.coordinator.onScrollToBottom = onScrollToBottom
+        context.coordinator.bottomInset = bottomInset
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -507,6 +520,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
         weak var view: NSView?
         var onScrollUp: (() -> Void)?
         var onScrollToBottom: (() -> Void)?
+        var bottomInset: CGFloat = 0
         var monitor: Any?
 
         func findEnclosingScrollView() -> NSScrollView? {

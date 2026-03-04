@@ -55,6 +55,8 @@ struct MessageListView: View {
     /// Used by notification deep links to anchor the view to a specific message.
     @Binding var anchorMessageId: UUID?
     @Binding var isNearBottom: Bool
+    /// Bottom inset from the composer's safeAreaInset, used to adjust scroll detection thresholds.
+    var composerBottomInset: CGFloat = 0
     @Environment(\.conversationZoomScale) private var conversationZoomScale
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
@@ -494,6 +496,7 @@ struct MessageListView: View {
                     Color.clear.preference(key: ScrollViewportHeightKey.self, value: geo.size.height)
                 }
                 ScrollWheelDetector(
+                    bottomInset: composerBottomInset,
                     onScrollUp: {
                         scrollDebounceTask?.cancel()
                         scrollDebounceTask = nil
