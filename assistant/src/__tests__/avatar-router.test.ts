@@ -25,15 +25,9 @@ const isManagedAvailableFn = mock(() => mockManagedAvailable);
 // ---------------------------------------------------------------------------
 
 mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => {
-    const raw: Record<string, unknown> = {};
-    if (mockStrategy !== undefined) {
-      raw.avatarGenerationStrategy = mockStrategy;
-    }
-    return raw;
-  },
   getConfig: () => ({
     apiKeys: { gemini: mockGeminiKey },
+    avatar: { generationStrategy: mockStrategy ?? "local_only" },
   }),
 }));
 
@@ -187,9 +181,6 @@ describe("avatar-router", () => {
     expect(getAvatarStrategy()).toBe("local_only");
   });
 
-  // 9. Invalid strategy value defaults to local_only
-  test("invalid strategy value defaults to local_only", () => {
-    mockStrategy = "not_a_real_strategy";
-    expect(getAvatarStrategy()).toBe("local_only");
-  });
+  // 9. Removed: Invalid strategy values are now rejected at config parse time
+  // by the Zod schema, so they cannot reach getAvatarStrategy().
 });
