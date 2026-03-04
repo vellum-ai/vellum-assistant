@@ -174,8 +174,8 @@ function canonicalizeJson(obj: unknown): string {
 
 const REQUIRED_ENTRIES = ["manifest.json", "data/db/assistant.db"];
 
-// 500 MB — reasonable upper bound for a decompressed vbundle tar
-const MAX_DECOMPRESSED_SIZE = 500 * 1024 * 1024;
+// 2 GB — must accommodate large but valid migrations from buildExportVBundle()
+const MAX_DECOMPRESSED_SIZE = 2 * 1024 * 1024 * 1024;
 
 /**
  * Validate a .vbundle archive from raw bytes.
@@ -328,6 +328,7 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   // checksum in the manifest — presence in the archive alone is not enough.
   for (const required of REQUIRED_ENTRIES) {
     if (required === "manifest.json") continue;
+    if (!entryMap.has(required)) continue;
     if (!manifestFilePaths.has(required)) {
       errors.push({
         code: "REQUIRED_FILE_NOT_IN_MANIFEST",
