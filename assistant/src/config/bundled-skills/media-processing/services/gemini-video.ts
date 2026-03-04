@@ -137,7 +137,7 @@ export async function analyzeVideoDirectly(
                 {
                   fileData: {
                     fileUri: uploadResult.uri,
-                    mimeType: uploadResult.mimeType ?? "video/mp4",
+                    mimeType: uploadResult.mimeType ?? mimeType,
                   },
                 },
                 { text: promptText },
