@@ -1404,7 +1404,7 @@ describe("expired guardian approval auto-denies via sweep", () => {
     sweepExpiredGuardianApprovals("https://gateway.test", () => "token");
 
     // Wait for async notifications
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // The session should have been denied
     expect(sessionMock).toHaveBeenCalledWith("req-exp-1", "deny");
@@ -1461,7 +1461,7 @@ describe("expired guardian approval auto-denies via sweep", () => {
 
     sweepExpiredGuardianApprovals("https://gateway.test", () => "token");
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // The session should NOT have been called
     expect(sessionMock).not.toHaveBeenCalled();
@@ -2970,7 +2970,7 @@ describe("background channel processing approval prompts", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
     expect(processCalls.length).toBeGreaterThan(0);
     expect(processCalls[0].options?.isInteractive).toBe(true);
@@ -3039,7 +3039,7 @@ describe("background channel processing approval prompts", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
     expect(processCalls.length).toBeGreaterThan(0);
     expect(processCalls[0].options?.isInteractive).toBe(true);
@@ -3145,7 +3145,7 @@ describe("background channel processing approval prompts", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
     expect(processCalls.length).toBeGreaterThan(0);
     expect(processCalls[0].options?.isInteractive).toBe(false);
