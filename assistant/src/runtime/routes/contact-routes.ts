@@ -37,7 +37,8 @@ export function handleListContacts(url: URL, assistantId: string): Response {
   const channelType = url.searchParams.get("channelType");
   const relationship = url.searchParams.get("relationship");
 
-  const hasSearchParams = query || channelAddress || relationship;
+  const hasSearchParams =
+    query || channelAddress || channelType || relationship;
 
   if (hasSearchParams) {
     const contacts = searchContacts({
