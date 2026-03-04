@@ -723,17 +723,15 @@ export function findContactChannel(params: {
  */
 export function findGuardianForChannel(
   channelType: string,
-  assistantId?: string,
+  assistantId: string,
 ): { contact: Contact; channel: ContactChannel } | null {
   const db = getDb();
   const conditions = [
     eq(contacts.role, "guardian"),
     eq(contactChannels.type, channelType),
     eq(contactChannels.status, "active"),
+    eq(contacts.assistantId, assistantId),
   ];
-  if (assistantId) {
-    conditions.push(eq(contacts.assistantId, assistantId));
-  }
   const rows = db
     .select({
       contact: contacts,

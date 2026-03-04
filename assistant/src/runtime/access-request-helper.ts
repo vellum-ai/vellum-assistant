@@ -108,7 +108,10 @@ export function notifyGuardianOfAccessRequest(
     "none";
 
   // Try contacts-first: source channel
-  const sourceGuardian = findGuardianForChannel(sourceChannel);
+  const sourceGuardian = findGuardianForChannel(
+    sourceChannel,
+    canonicalAssistantId,
+  );
   if (sourceGuardian) {
     guardianExternalUserId = sourceGuardian.channel.externalUserId;
     guardianPrincipalId = sourceGuardian.contact.principalId;
@@ -143,7 +146,10 @@ export function notifyGuardianOfAccessRequest(
       "No guardian principal for access request — self-healing vellum binding",
     );
     const healedPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
-    const vellumGuardian = findGuardianForChannel("vellum");
+    const vellumGuardian = findGuardianForChannel(
+      "vellum",
+      canonicalAssistantId,
+    );
     if (vellumGuardian) {
       guardianExternalUserId =
         vellumGuardian.channel.externalUserId ?? guardianExternalUserId;

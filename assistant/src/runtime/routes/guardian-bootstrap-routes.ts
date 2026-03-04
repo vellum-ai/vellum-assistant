@@ -44,7 +44,7 @@ function ensureGuardianPrincipal(assistantId: string): {
   guardianPrincipalId: string;
   isNew: boolean;
 } {
-  const guardianResult = findGuardianForChannel("vellum");
+  const guardianResult = findGuardianForChannel("vellum", assistantId);
   if (guardianResult && guardianResult.contact.principalId) {
     return {
       guardianPrincipalId: guardianResult.contact.principalId,

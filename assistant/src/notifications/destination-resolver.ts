@@ -44,7 +44,7 @@ export function resolveDestinations(
         // Vellum delivery is local IPC — no external endpoint required.
         // Include the guardianPrincipalId so the adapter can annotate
         // guardian-sensitive notifications for scoped delivery.
-        const guardianResult = findGuardianForChannel("vellum");
+        const guardianResult = findGuardianForChannel("vellum", assistantId);
         const metadata: Record<string, unknown> = {};
         if (guardianResult) {
           metadata.guardianPrincipalId = guardianResult.contact.principalId;
@@ -65,7 +65,7 @@ export function resolveDestinations(
       }
       case "telegram":
       case "sms": {
-        const guardianResult = findGuardianForChannel(channel);
+        const guardianResult = findGuardianForChannel(channel, assistantId);
         if (guardianResult && guardianResult.channel.externalChatId) {
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,

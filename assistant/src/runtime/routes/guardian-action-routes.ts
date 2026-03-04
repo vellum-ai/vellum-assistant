@@ -80,7 +80,10 @@ function requireBoundGuardian(authContext: AuthContext): Response | null {
       403,
     );
   }
-  const guardianResult = findGuardianForChannel("vellum");
+  const guardianResult = findGuardianForChannel(
+    "vellum",
+    authContext.assistantId,
+  );
   if (!guardianResult) {
     // No guardian yet — in pre-bootstrap state, allow through
     return null;

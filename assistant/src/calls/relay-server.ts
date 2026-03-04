@@ -2006,7 +2006,7 @@ export class RelayConnection {
     let metadataJson: string | null = null;
     // Contacts-first: prefer the voice-bound guardian, then fall back to
     // any guardian channel (mirrors the voice-first pattern in the legacy path).
-    const voiceGuardian = findGuardianForChannel("voice");
+    const voiceGuardian = findGuardianForChannel("voice", assistantId);
     const guardianChannels = voiceGuardian
       ? null
       : listGuardianChannels(assistantId);

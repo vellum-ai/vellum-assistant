@@ -29,7 +29,7 @@ const log = getLogger("guardian-vellum-migration");
 export function ensureVellumGuardianBinding(
   assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
 ): string {
-  const guardianResult = findGuardianForChannel("vellum");
+  const guardianResult = findGuardianForChannel("vellum", assistantId);
   if (guardianResult && guardianResult.contact.principalId) {
     log.debug(
       { assistantId, guardianPrincipalId: guardianResult.contact.principalId },

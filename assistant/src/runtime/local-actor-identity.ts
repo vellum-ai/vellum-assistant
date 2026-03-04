@@ -41,7 +41,7 @@ export function resolveLocalIpcTrustContext(
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
   // Try contacts-first for the vellum guardian channel
-  const guardianResult = findGuardianForChannel("vellum");
+  const guardianResult = findGuardianForChannel("vellum", assistantId);
   if (guardianResult && guardianResult.contact.principalId) {
     const guardianPrincipalId = guardianResult.contact.principalId;
     const trustCtx = resolveTrustContext({
@@ -55,9 +55,7 @@ export function resolveLocalIpcTrustContext(
 
   // No guardian contact with a principalId — bootstrap via ensureVellumGuardianBinding
   // to self-heal (creates the binding + contact if missing).
-  log.debug(
-    "No vellum guardian contact found; bootstrapping binding for IPC",
-  );
+  log.debug("No vellum guardian contact found; bootstrapping binding for IPC");
   const principalId = ensureVellumGuardianBinding(assistantId);
   const trustCtx = resolveTrustContext({
     assistantId,
@@ -81,7 +79,10 @@ export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
   const authContext = buildIpcAuthContext(sessionId);
 
   // Enrich with the guardian principal ID from contacts-first path
-  const guardianResult = findGuardianForChannel("vellum");
+  const guardianResult = findGuardianForChannel(
+    "vellum",
+    authContext.assistantId,
+  );
   if (guardianResult && guardianResult.contact.principalId) {
     return {
       ...authContext,

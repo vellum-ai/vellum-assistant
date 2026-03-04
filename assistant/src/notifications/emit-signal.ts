@@ -95,7 +95,7 @@ function getBroadcaster(): NotificationBroadcaster {
 
 // ── Connected channels resolution ──────────────────────────────────────
 
-function getConnectedChannels(_assistantId: string): NotificationChannel[] {
+function getConnectedChannels(assistantId: string): NotificationChannel[] {
   const channels: NotificationChannel[] = [];
 
   // getDeliverableChannels() returns ChannelId[] but every returned channel
@@ -115,7 +115,7 @@ function getConnectedChannels(_assistantId: string): NotificationChannel[] {
         // externalChatId check ensures we don't report a channel as
         // connected when the contacts record exists but lacks the
         // delivery address the destination-resolver needs.
-        const guardian = findGuardianForChannel(channel);
+        const guardian = findGuardianForChannel(channel, assistantId);
         if (guardian && guardian.channel.externalChatId) {
           channels.push(channel);
         }
