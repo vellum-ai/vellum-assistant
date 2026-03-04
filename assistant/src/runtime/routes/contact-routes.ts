@@ -11,6 +11,7 @@ import {
   getContact,
   listContacts,
   mergeContacts,
+  searchContacts,
   updateChannelStatus,
 } from "../../contacts/contact-store.js";
 import type {
@@ -22,10 +23,32 @@ import { httpError } from "../http-errors.js";
 
 /**
  * GET /v1/contacts?limit=50&role=guardian
+ *
+ * Also supports search query params: query, channelAddress, channelType, relationship.
+ * When any search param is provided, delegates to searchContacts() instead of listContacts().
  */
 export function handleListContacts(url: URL, assistantId: string): Response {
   const limit = Number(url.searchParams.get("limit") ?? 50);
   const role = url.searchParams.get("role") as ContactRole | null;
+  const query = url.searchParams.get("query");
+  const channelAddress = url.searchParams.get("channelAddress");
+  const channelType = url.searchParams.get("channelType");
+  const relationship = url.searchParams.get("relationship");
+
+  const hasSearchParams = query || channelAddress || relationship;
+
+  if (hasSearchParams) {
+    const contacts = searchContacts({
+      assistantId,
+      query: query ?? undefined,
+      channelAddress: channelAddress ?? undefined,
+      channelType: channelType ?? undefined,
+      relationship: relationship ?? undefined,
+      limit,
+    });
+    return Response.json({ ok: true, contacts });
+  }
+
   const contacts = listContacts(assistantId, limit, role ?? undefined);
   return Response.json({ ok: true, contacts });
 }
