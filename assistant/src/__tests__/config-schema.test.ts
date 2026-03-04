@@ -102,6 +102,13 @@ describe("AssistantConfigSchema", () => {
       preserveRecentUserTurns: 8,
       summaryMaxTokens: 1200,
       chunkTokens: 12000,
+      overflowRecovery: {
+        enabled: true,
+        safetyMarginRatio: 0.05,
+        maxAttempts: 3,
+        interactiveLatestTurnCompression: "summarize",
+        nonInteractiveLatestTurnCompression: "truncate",
+      },
     });
     expect(result.timeouts).toEqual({
       shellDefaultTimeoutSec: 120,
@@ -337,6 +344,54 @@ describe("AssistantConfigSchema", () => {
             issue.message.includes(
               "must be less than contextWindow.maxInputTokens",
             ),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects overflowRecovery safetyMarginRatio out of (0,1) range", () => {
+    for (const bad of [0, 1, -0.1, 1.5]) {
+      const result = AssistantConfigSchema.safeParse({
+        contextWindow: { overflowRecovery: { safetyMarginRatio: bad } },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((issue) =>
+            issue.path.join(".").includes("safetyMarginRatio"),
+          ),
+        ).toBe(true);
+      }
+    }
+  });
+
+  test("rejects invalid overflowRecovery interactiveLatestTurnCompression", () => {
+    const result = AssistantConfigSchema.safeParse({
+      contextWindow: {
+        overflowRecovery: { interactiveLatestTurnCompression: "explode" },
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) =>
+          issue.path.join(".").includes("interactiveLatestTurnCompression"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects invalid overflowRecovery nonInteractiveLatestTurnCompression", () => {
+    const result = AssistantConfigSchema.safeParse({
+      contextWindow: {
+        overflowRecovery: { nonInteractiveLatestTurnCompression: "nope" },
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) =>
+          issue.path.join(".").includes("nonInteractiveLatestTurnCompression"),
         ),
       ).toBe(true);
     }
@@ -1060,6 +1115,13 @@ describe("loadConfig with schema validation", () => {
       preserveRecentUserTurns: 8,
       summaryMaxTokens: 1200,
       chunkTokens: 12000,
+      overflowRecovery: {
+        enabled: true,
+        safetyMarginRatio: 0.05,
+        maxAttempts: 3,
+        interactiveLatestTurnCompression: "summarize",
+        nonInteractiveLatestTurnCompression: "truncate",
+      },
     });
   });
 
