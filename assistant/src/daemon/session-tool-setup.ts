@@ -6,12 +6,11 @@
  * keeping the constructor body focused on wiring.
  */
 
+import { isHttpAuthDisabled } from "../config/env.js";
 import type {
   ProxyApprovalCallback,
   ProxyApprovalRequest,
-} from "@vellumai/outbound-proxy";
-
-import { isHttpAuthDisabled } from "../config/env.js";
+} from "../outbound-proxy/index.js";
 import {
   generateAllowlistOptions,
   generateScopeOptions,

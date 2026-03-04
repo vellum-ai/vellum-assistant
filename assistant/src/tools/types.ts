@@ -1,3 +1,4 @@
+import type { ProxyApprovalCallback } from "../outbound-proxy/index.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type {
   AllowlistOption,
@@ -145,7 +146,7 @@ export interface ToolContext {
   /** When true, tools with private side-effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /** Approval callback for proxy policy decisions that require user confirmation. */
-  proxyApprovalCallback?: import("@vellumai/outbound-proxy").ProxyApprovalCallback;
+  proxyApprovalCallback?: ProxyApprovalCallback;
   /** Optional principal identifier propagated to sub-tool confirmation flows. */
   principal?: string;
   /**
