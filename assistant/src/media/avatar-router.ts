@@ -3,7 +3,7 @@
  * Selects managed platform or local Gemini path based on config.
  */
 
-import { getConfig, loadRawConfig } from "../config/loader.js";
+import { getConfig } from "../config/loader.js";
 import { ConfigError, ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type {
@@ -18,23 +18,8 @@ import {
 
 const log = getLogger("avatar-router");
 
-const VALID_STRATEGIES: ReadonlySet<string> = new Set([
-  "managed_required",
-  "managed_prefer",
-  "local_only",
-]);
-
 export function getAvatarStrategy(): AvatarGenerationStrategy {
-  try {
-    const raw = loadRawConfig();
-    const strategy = raw.avatarGenerationStrategy as string | undefined;
-    if (strategy && VALID_STRATEGIES.has(strategy)) {
-      return strategy as AvatarGenerationStrategy;
-    }
-  } catch {
-    /* fall through */
-  }
-  return "local_only";
+  return getConfig().avatar.generationStrategy;
 }
 
 async function generateLocal(

@@ -32,6 +32,7 @@ export {
 } from "./calls-schema.js";
 export type {
   AuditLogConfig,
+  AvatarConfig,
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
   DaemonConfig,
@@ -52,6 +53,7 @@ export type {
 } from "./core-schema.js";
 export {
   AuditLogConfigSchema,
+  AvatarConfigSchema,
   ContextOverflowRecoveryConfigSchema,
   ContextWindowConfigSchema,
   DaemonConfigSchema,
@@ -147,6 +149,7 @@ import {
 import { CallsConfigSchema } from "./calls-schema.js";
 import {
   AuditLogConfigSchema,
+  AvatarConfigSchema,
   ContextWindowConfigSchema,
   DaemonConfigSchema,
   EffortSchema,
@@ -267,6 +270,7 @@ export const AssistantConfigSchema = z
     notifications: NotificationsConfigSchema.default(
       NotificationsConfigSchema.parse({}),
     ),
+    avatar: AvatarConfigSchema.default(AvatarConfigSchema.parse({})),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
     featureFlags: z
       .record(
