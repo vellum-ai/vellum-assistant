@@ -77,6 +77,18 @@ mock.module("../daemon/approval-generators.js", () => ({
   }),
 }));
 
+mock.module("../runtime/local-actor-identity.js", () => ({
+  resolveLocalIpcTrustContext: () => ({
+    trustClass: "guardian",
+    sourceChannel: "vellum",
+    guardianPrincipalId: "local-principal",
+  }),
+  resolveLocalIpcAuthContext: () => ({
+    scope: "ipc_v1",
+    actorPrincipalId: "local-principal",
+  }),
+}));
+
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
