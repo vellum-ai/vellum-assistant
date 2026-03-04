@@ -62,20 +62,19 @@ export interface ProcessingStage {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute a content hash for deduplication. Uses Bun.hash (wyhash) for speed,
- * encoded as base-36 for compact storage.
+ * Compute a content hash for deduplication. Uses SHA-256 hex encoding for
+ * consistency with the streaming variant.
  */
 export function computeFileHash(data: Buffer | Uint8Array): string {
-  return Bun.hash(data).toString(36);
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(data);
+  return hasher.digest("hex");
 }
 
 /**
  * Streaming variant of content hashing that avoids loading the entire file
  * into memory. Uses SHA-256 via Bun.CryptoHasher so multi-GB files won't OOM.
- *
- * Note: produces a different hash format (hex SHA-256) than `computeFileHash`
- * (base-36 wyhash). Existing assets hashed with the old function won't match,
- * but that's acceptable — dedup still works for newly-ingested assets.
+ * Produces the same hash format as `computeFileHash`.
  */
 export async function computeFileHashStreaming(
   filePath: string,
