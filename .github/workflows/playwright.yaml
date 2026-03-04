@@ -279,7 +279,7 @@ jobs:
         continue-on-error: true
         env:
           RUN_EXPERIMENTAL: ${{ inputs.run_experimental && '1' || '' }}
-          PW_WORKERS: ${{ github.event_name == 'schedule' && '4' || '' }}
+          PW_WORKERS: ${{ github.event_name == 'schedule' && '4' || inputs.workers || '1' }}
         run: |
           SHARD_ARGS=""
           if [ "$TOTAL_SHARDS" -gt 1 ]; then
