@@ -4,8 +4,6 @@
  * verification, guardian action answers, approval interception, and
  * invite token redemption.
  */
-// Side-effect imports: register channel invite transport adapters so the
-// ACL enforcement module can resolve transports at runtime.
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -14,25 +12,14 @@ import {
 } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
-import {
-  createCanonicalGuardianRequest,
-  listCanonicalGuardianRequests,
-  listPendingCanonicalGuardianRequestsByDestinationChat,
-} from "../../memory/canonical-guardian-store.js";
 import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
 import { recordConversationSeenSignal } from "../../memory/conversation-attention-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import { emitNotificationSignal } from "../../notifications/emit-signal.js";
-import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
-import { IngressBlockedError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../auth/token-service.js";
-import { getGuardianBinding } from "../channel-guardian-service.js";
 import { deliverChannelReply } from "../gateway-client.js";
-import { routeGuardianReply } from "../guardian-reply-router.js";
 import { httpError } from "../http-errors.js";
 import type {
   ApprovalConversationGenerator,
@@ -42,14 +29,15 @@ import type {
   MessageProcessor,
 } from "../http-types.js";
 import { resolveTrustContext } from "../trust-context-resolver.js";
-import {
-  canonicalChannelAssistantId,
-  GUARDIAN_APPROVAL_TTL_MS,
-} from "./channel-route-shared.js";
+import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
 import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
+import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
+import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
+import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
+import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { handleVerificationIntercept } from "./inbound-stages/verification-intercept.js";
 
 import "../channel-invite-transports/telegram.js";
@@ -251,69 +239,14 @@ export async function handleChannelInbound(
 
   // ── Edit path: update existing message content, no new agent loop ──
   if (isEdit && sourceMessageId) {
-    // Dedup the edit event itself (retried edited_message webhooks)
-    const editResult = channelDeliveryStore.recordInbound(
+    return handleEditIntercept({
       sourceChannel,
       conversationExternalId,
       externalMessageId,
-      { sourceMessageId, assistantId: canonicalAssistantId },
-    );
-
-    if (editResult.duplicate) {
-      return Response.json({
-        accepted: true,
-        duplicate: true,
-        eventId: editResult.eventId,
-      });
-    }
-
-    // Retry lookup a few times — the original message may still be processing
-    // (linkMessage hasn't been called yet). Short backoff avoids losing edits
-    // that arrive while the original agent loop is in progress.
-    const EDIT_LOOKUP_RETRIES = 5;
-    const EDIT_LOOKUP_DELAY_MS = 2000;
-
-    let original: { messageId: string; conversationId: string } | null = null;
-    for (let attempt = 0; attempt <= EDIT_LOOKUP_RETRIES; attempt++) {
-      original = channelDeliveryStore.findMessageBySourceId(
-        sourceChannel,
-        conversationExternalId,
-        sourceMessageId,
-      );
-      if (original) break;
-      if (attempt < EDIT_LOOKUP_RETRIES) {
-        log.info(
-          {
-            assistantId,
-            sourceMessageId,
-            attempt: attempt + 1,
-            maxAttempts: EDIT_LOOKUP_RETRIES,
-          },
-          "Original message not linked yet, retrying edit lookup",
-        );
-        await new Promise((resolve) =>
-          setTimeout(resolve, EDIT_LOOKUP_DELAY_MS),
-        );
-      }
-    }
-
-    if (original) {
-      conversationStore.updateMessageContent(original.messageId, content ?? "");
-      log.info(
-        { assistantId, sourceMessageId, messageId: original.messageId },
-        "Updated message content from edited_message",
-      );
-    } else {
-      log.warn(
-        { assistantId, sourceChannel, conversationExternalId, sourceMessageId },
-        "Could not find original message for edit after retries, ignoring",
-      );
-    }
-
-    return Response.json({
-      accepted: true,
-      duplicate: false,
-      eventId: editResult.eventId,
+      sourceMessageId,
+      canonicalAssistantId,
+      assistantId,
+      content,
     });
   }
 
@@ -380,104 +313,26 @@ export async function handleChannelInbound(
   }
 
   // ── Ingress escalation ──
-  // When the member's policy is 'escalate', create a pending guardian
-  // approval request and halt the run. This check runs after recordInbound
-  // so we have a conversationId for the approval record.
-  if (resolvedMember?.policy === "escalate") {
-    const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
-    if (!binding) {
-      // Fail-closed: can't escalate without a guardian to route to
-      log.info(
-        { sourceChannel, memberId: resolvedMember.id },
-        "Ingress ACL: escalate policy but no guardian binding, denying",
-      );
-      return Response.json({
-        accepted: true,
-        denied: true,
-        reason: "escalate_no_guardian",
-      });
-    }
-
-    // Persist the raw payload so the decide handler can recover the original
-    // message content when the escalation is approved.
-    channelDeliveryStore.storePayload(result.eventId, {
-      sourceChannel,
-      interface: sourceInterface,
-      externalChatId: conversationExternalId,
-      externalMessageId,
-      content,
-      attachmentIds,
-      sourceMetadata: body.sourceMetadata,
-      senderName: body.actorDisplayName,
-      senderExternalUserId: body.actorExternalId,
-      senderUsername: body.actorUsername,
-      replyCallbackUrl: body.replyCallbackUrl,
-      assistantId: canonicalAssistantId,
-    });
-
-    try {
-      createCanonicalGuardianRequest({
-        kind: "tool_approval",
-        sourceType: "channel",
-        sourceChannel,
-        conversationId: result.conversationId,
-        requesterExternalUserId: canonicalSenderId ?? rawSenderId ?? undefined,
-        guardianExternalUserId: binding.guardianExternalUserId,
-        guardianPrincipalId: binding.guardianPrincipalId,
-        toolName: "ingress_message",
-        questionText: "Ingress policy requires guardian approval",
-        expiresAt: new Date(
-          Date.now() + GUARDIAN_APPROVAL_TTL_MS,
-        ).toISOString(),
-      });
-    } catch (err) {
-      log.warn(
-        { err, conversationId: result.conversationId, sourceChannel },
-        "Failed to create canonical guardian request for ingress escalation — escalation continues via notification pipeline",
-      );
-    }
-
-    // Emit notification signal through the unified pipeline (fire-and-forget).
-    // This lets the decision engine route escalation alerts to all configured
-    // channels, supplementing the direct guardian notification below.
-    void emitNotificationSignal({
-      sourceEventName: "ingress.escalation",
-      sourceChannel: sourceChannel,
-      sourceSessionId: result.conversationId,
-      assistantId: canonicalAssistantId,
-      attentionHints: {
-        requiresAction: true,
-        urgency: "high",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-      contextPayload: {
-        conversationId: result.conversationId,
-        sourceChannel,
-        conversationExternalId,
-        senderIdentifier:
-          body.actorDisplayName ||
-          body.actorUsername ||
-          rawSenderId ||
-          "Unknown sender",
-        eventId: result.eventId,
-      },
-      dedupeKey: `escalation:${result.eventId}`,
-    });
-
-    // Guardian escalation channel delivery is handled by the notification
-    // pipeline — no legacy callback dispatch needed.
-    log.info(
-      { conversationId: result.conversationId },
-      "Guardian escalation created — notification pipeline handles channel delivery",
-    );
-
-    return Response.json({
-      accepted: true,
-      escalated: true,
-      reason: "policy_escalate",
-    });
-  }
+  const escalationResponse = handleEscalationIntercept({
+    resolvedMember,
+    canonicalAssistantId,
+    sourceChannel,
+    sourceInterface,
+    conversationExternalId,
+    externalMessageId,
+    conversationId: result.conversationId,
+    eventId: result.eventId,
+    content,
+    attachmentIds,
+    sourceMetadata: body.sourceMetadata,
+    actorDisplayName: body.actorDisplayName,
+    actorExternalId: body.actorExternalId,
+    actorUsername: body.actorUsername,
+    replyCallbackUrl: body.replyCallbackUrl,
+    canonicalSenderId,
+    rawSenderId,
+  });
+  if (escalationResponse) return escalationResponse;
 
   const metadataHintsRaw = sourceMetadata?.hints;
   const metadataHints = Array.isArray(metadataHintsRaw)
@@ -556,116 +411,37 @@ export async function handleChannelInbound(
     actorDisplayName: body.actorDisplayName,
   });
 
-  // Hoisted flag: set by the canonical guardian reply router when the invite
-  // handoff bypass fires. Prevents legacy approval interception from swallowing
-  // the message when other approvals are pending in the same chat.
-  let skipApprovalInterception = false;
-
   // ── Canonical guardian reply router ──
-  // Attempts to route inbound messages through the canonical decision pipeline
-  // before falling through to the legacy approval interception. Handles
-  // deterministic callbacks (button presses), request code prefixes, and
-  // NL classification via the conversational approval engine.
-  if (
-    !result.duplicate &&
-    replyCallbackUrl &&
-    (trimmedContent.length > 0 || hasCallbackData) &&
-    rawSenderId &&
-    trustCtx.trustClass === "guardian"
-  ) {
-    // Compute destination-scoped pending request hints so the router can
-    // discover canonical requests delivered to this chat even when the
-    // request lacks a guardianExternalUserId (e.g. voice-originated
-    // pending_question requests).
-    //
-    // When delivery-scoped matches exist, union them with any identity-
-    // based pending requests so that requests without delivery rows (e.g.
-    // tool_approval requests created inline) are not silently excluded.
-    // Pass undefined (not []) when there are zero combined results so the
-    // router's own identity-based fallback stays active.
-    const deliveryScopedPendingRequests =
-      listPendingCanonicalGuardianRequestsByDestinationChat(
-        sourceChannel,
-        conversationExternalId,
-      );
-    let pendingRequestIds: string[] | undefined;
-    if (deliveryScopedPendingRequests.length > 0) {
-      const deliveryIds = new Set(
-        deliveryScopedPendingRequests.map((r) => r.id),
-      );
-      // Also include identity-based pending requests so we don't hide them
-      const identityId = canonicalSenderId ?? rawSenderId!;
-      const identityPending = listCanonicalGuardianRequests({
-        status: "pending",
-        guardianExternalUserId: identityId,
-      });
-      for (const r of identityPending) {
-        deliveryIds.add(r.id);
-      }
-      pendingRequestIds = [...deliveryIds];
-    }
-
-    const routerResult = await routeGuardianReply({
-      messageText: trimmedContent,
-      channel: sourceChannel,
-      actor: {
-        externalUserId: canonicalSenderId ?? rawSenderId!,
-        channel: sourceChannel,
-        guardianPrincipalId: trustCtx.guardianPrincipalId ?? undefined,
-      },
-      conversationId: result.conversationId,
-      callbackData: body.callbackData,
-      pendingRequestIds,
-      approvalConversationGenerator,
-      channelDeliveryContext: {
-        replyCallbackUrl,
-        guardianChatId: conversationExternalId,
-        assistantId: canonicalAssistantId,
-        bearerToken: mintBearerToken(),
-      },
-    });
-
-    if (routerResult.consumed) {
-      // Deliver reply text if the router produced one
-      if (routerResult.replyText) {
-        try {
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: routerResult.replyText,
-              assistantId: canonicalAssistantId,
-            },
-            mintBearerToken(),
-          );
-        } catch (err) {
-          log.error(
-            { err, conversationExternalId },
-            "Failed to deliver canonical router reply",
-          );
-        }
-      }
-
-      return Response.json({
-        accepted: true,
-        duplicate: false,
-        eventId: result.eventId,
-        canonicalRouter: routerResult.type,
-        requestId: routerResult.requestId,
-      });
-    }
-
-    if (routerResult.skipApprovalInterception) {
-      skipApprovalInterception = true;
-    }
-  }
+  const guardianReplyResult = await handleGuardianReplyIntercept({
+    isDuplicate: result.duplicate,
+    trimmedContent,
+    hasCallbackData,
+    callbackData: body.callbackData,
+    rawSenderId,
+    canonicalSenderId,
+    canonicalAssistantId,
+    sourceChannel,
+    conversationExternalId,
+    conversationId: result.conversationId,
+    eventId: result.eventId,
+    replyCallbackUrl,
+    mintBearerToken,
+    trustClass: trustCtx.trustClass,
+    guardianPrincipalId: trustCtx.guardianPrincipalId,
+    approvalConversationGenerator,
+  });
+  if (guardianReplyResult.response) return guardianReplyResult.response;
 
   // ── Approval interception ──
   // Keep this active whenever callback context is available.
   // Skipped when the canonical router flagged skipApprovalInterception (e.g.
   // invite handoff bypass) to prevent the legacy interceptor from swallowing
   // messages that should reach the assistant.
-  if (replyCallbackUrl && !result.duplicate && !skipApprovalInterception) {
+  if (
+    replyCallbackUrl &&
+    !result.duplicate &&
+    !guardianReplyResult.skipApprovalInterception
+  ) {
     const approvalResult = await handleApprovalInterception({
       conversationId: result.conversationId,
       callbackData: body.callbackData,
@@ -772,67 +548,23 @@ export async function handleChannelInbound(
   // For new (non-duplicate) messages, run the secret ingress check
   // synchronously, then fire off the agent loop in the background.
   if (!result.duplicate && processMessage) {
-    // Persist the raw payload first so dead-lettered events can always be
-    // replayed. If the ingress check later detects secrets we clear it
-    // before throwing, so secret-bearing content is never left on disk.
-    channelDeliveryStore.storePayload(result.eventId, {
+    runSecretIngressCheck({
+      eventId: result.eventId,
       sourceChannel,
-      externalChatId: conversationExternalId,
+      conversationExternalId,
       externalMessageId,
+      conversationId: result.conversationId,
       content,
+      trimmedContent,
       attachmentIds,
       sourceMetadata: body.sourceMetadata,
-      senderName: body.actorDisplayName,
-      senderExternalUserId: body.actorExternalId,
-      senderUsername: body.actorUsername,
+      actorDisplayName: body.actorDisplayName,
+      actorExternalId: body.actorExternalId,
+      actorUsername: body.actorUsername,
       trustCtx,
       replyCallbackUrl,
-      assistantId: canonicalAssistantId,
+      canonicalAssistantId,
     });
-
-    const contentToCheck = content ?? "";
-    let ingressCheck: ReturnType<typeof checkIngressForSecrets>;
-    try {
-      ingressCheck = checkIngressForSecrets(contentToCheck);
-    } catch (checkErr) {
-      channelDeliveryStore.clearPayload(result.eventId);
-      throw checkErr;
-    }
-    if (ingressCheck.blocked) {
-      channelDeliveryStore.clearPayload(result.eventId);
-      throw new IngressBlockedError(
-        ingressCheck.userNotice!,
-        ingressCheck.detectedTypes,
-      );
-    }
-
-    // Record inferred seen signal for non-duplicate Telegram inbound messages
-    if (sourceChannel === "telegram") {
-      try {
-        const msgPreview =
-          trimmedContent.length > 80
-            ? trimmedContent.slice(0, 80) + "..."
-            : trimmedContent;
-        const evidence =
-          trimmedContent.length > 0
-            ? `User sent message: '${msgPreview}'`
-            : "User sent media attachment";
-        recordConversationSeenSignal({
-          conversationId: result.conversationId,
-          assistantId: canonicalAssistantId,
-          signalType: "telegram_inbound_message",
-          confidence: "inferred",
-          sourceChannel: "telegram",
-          source: "inbound-message-handler",
-          evidenceText: evidence,
-        });
-      } catch (err) {
-        log.warn(
-          { err, conversationId: result.conversationId },
-          "Failed to record seen signal for Telegram inbound message",
-        );
-      }
-    }
 
     // Fire-and-forget: process the message and deliver the reply in the background.
     // The HTTP response returns immediately so the gateway webhook is not blocked.
