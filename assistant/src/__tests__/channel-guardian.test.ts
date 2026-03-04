@@ -145,6 +145,7 @@ import {
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
 import { channelGuardianVerificationChallenges } from "../memory/schema.js";
 import {
   bindSessionIdentity as serviceBindSessionIdentity,
@@ -185,6 +186,7 @@ function resetTables(): void {
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  db.run("DELETE FROM external_conversation_bindings");
   smsSendCalls.length = 0;
   telegramDeliverCalls.length = 0;
   voiceCallInitCalls.length = 0;
@@ -1233,8 +1235,8 @@ describe("assistant-scoped guardian resolution", () => {
     resetTables();
   });
 
-  test("isGuardian resolves independently per channel", () => {
-    // Create guardian binding on telegram
+  test("isGuardian resolves independently per assistantId", () => {
+    // Create guardian binding for asst-A on telegram
     createGuardianBindingContactsFirst({
       assistantId: "asst-A",
       channel: "telegram",
@@ -1242,25 +1244,25 @@ describe("assistant-scoped guardian resolution", () => {
       guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
-    // Create guardian binding on sms with a different user
+    // Create guardian binding for asst-B on telegram with a different user
     createGuardianBindingContactsFirst({
       assistantId: "asst-B",
-      channel: "sms",
+      channel: "telegram",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
     });
 
-    // user-alpha is guardian for telegram but not sms
+    // user-alpha is guardian for asst-A but not asst-B
     expect(isGuardian("asst-A", "telegram", "user-alpha")).toBe(true);
-    expect(isGuardian("asst-B", "sms", "user-alpha")).toBe(false);
+    expect(isGuardian("asst-B", "telegram", "user-alpha")).toBe(false);
 
-    // user-beta is guardian for sms but not telegram
-    expect(isGuardian("asst-B", "sms", "user-beta")).toBe(true);
+    // user-beta is guardian for asst-B but not asst-A
+    expect(isGuardian("asst-B", "telegram", "user-beta")).toBe(true);
     expect(isGuardian("asst-A", "telegram", "user-beta")).toBe(false);
   });
 
-  test("getGuardianBinding returns different bindings for different channels", () => {
+  test("getGuardianBinding returns different bindings for different assistants", () => {
     createGuardianBindingContactsFirst({
       assistantId: "asst-A",
       channel: "telegram",
@@ -1270,14 +1272,14 @@ describe("assistant-scoped guardian resolution", () => {
     });
     createGuardianBindingContactsFirst({
       assistantId: "asst-B",
-      channel: "sms",
+      channel: "telegram",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
     });
 
     const bindingA = getGuardianBinding("asst-A", "telegram");
-    const bindingB = getGuardianBinding("asst-B", "sms");
+    const bindingB = getGuardianBinding("asst-B", "telegram");
 
     expect(bindingA).not.toBeNull();
     expect(bindingB).not.toBeNull();
@@ -1285,7 +1287,7 @@ describe("assistant-scoped guardian resolution", () => {
     expect(bindingB!.guardianExternalUserId).toBe("user-beta");
   });
 
-  test("revoking binding for one channel does not affect another", () => {
+  test("revoking binding for one assistant does not affect another", () => {
     createGuardianBindingContactsFirst({
       assistantId: "asst-A",
       channel: "telegram",
@@ -1295,7 +1297,7 @@ describe("assistant-scoped guardian resolution", () => {
     });
     createGuardianBindingContactsFirst({
       assistantId: "asst-B",
-      channel: "sms",
+      channel: "telegram",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
@@ -1304,52 +1306,55 @@ describe("assistant-scoped guardian resolution", () => {
     serviceRevokeBinding("asst-A", "telegram");
 
     expect(getGuardianBinding("asst-A", "telegram")).toBeNull();
-    expect(getGuardianBinding("asst-B", "sms")).not.toBeNull();
+    expect(getGuardianBinding("asst-B", "telegram")).not.toBeNull();
   });
 
-  test("validateAndConsumeChallenge scoped to channel", () => {
-    // Create challenge for telegram
-    const { secret: secretTg } = createVerificationChallenge(
+  test("validateAndConsumeChallenge scoped to assistantId", () => {
+    // Create challenge for asst-A on telegram
+    const { secret: secretA } = createVerificationChallenge(
       "asst-A",
       "telegram",
     );
-    // Create challenge for sms
-    const { secret: secretSms } = createVerificationChallenge("asst-B", "sms");
+    // Create challenge for asst-B on telegram
+    const { secret: secretB } = createVerificationChallenge(
+      "asst-B",
+      "telegram",
+    );
 
-    // Attempting to consume telegram challenge with sms should fail
+    // Attempting to consume asst-A challenge with asst-B should fail
     const crossResult = validateAndConsumeChallenge(
       "asst-B",
-      "sms",
-      secretTg,
+      "telegram",
+      secretA,
       "user-1",
       "chat-1",
     );
     expect(crossResult.success).toBe(false);
 
-    // Consuming with correct channel should succeed
-    const resultTg = validateAndConsumeChallenge(
+    // Consuming with correct assistant should succeed
+    const resultA = validateAndConsumeChallenge(
       "asst-A",
       "telegram",
-      secretTg,
+      secretA,
       "user-1",
       "chat-1",
     );
-    expect(resultTg.success).toBe(true);
+    expect(resultA.success).toBe(true);
 
-    const resultSms = validateAndConsumeChallenge(
+    const resultB = validateAndConsumeChallenge(
       "asst-B",
-      "sms",
-      secretSms,
+      "telegram",
+      secretB,
       "user-2",
       "chat-2",
     );
-    expect(resultSms.success).toBe(true);
+    expect(resultB.success).toBe(true);
 
-    // Verify bindings are scoped correctly per channel
-    const bindingTg = getGuardianBinding("asst-A", "telegram");
-    const bindingSms = getGuardianBinding("asst-B", "sms");
-    expect(bindingTg!.guardianExternalUserId).toBe("user-1");
-    expect(bindingSms!.guardianExternalUserId).toBe("user-2");
+    // Verify bindings are scoped correctly per assistant
+    const bindingA = getGuardianBinding("asst-A", "telegram");
+    const bindingB = getGuardianBinding("asst-B", "telegram");
+    expect(bindingA!.guardianExternalUserId).toBe("user-1");
+    expect(bindingB!.guardianExternalUserId).toBe("user-2");
   });
 });
 
@@ -1539,12 +1544,6 @@ describe("IPC handler channel-aware guardian status", () => {
   });
 
   test("status action returns guardian username/displayName from binding metadata", () => {
-    // createGuardianBindingContactsFirst stores the displayName from
-    // metadataJson on the contact record. getGuardianBinding then
-    // synthesizes metadataJson back from contact.displayName, so the
-    // IPC handler can extract displayName from it. However, the
-    // username field is not persisted in the contacts table, so it
-    // remains undefined unless populated via externalConversationStore.
     createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
@@ -1555,6 +1554,18 @@ describe("IPC handler channel-aware guardian status", () => {
         username: "guardian_handle",
         displayName: "Guardian Name",
       }),
+    });
+
+    // The contacts table stores displayName but not username.
+    // The handler falls back to externalConversationStore for username,
+    // so populate it here to ensure identity data is fully surfaced.
+    upsertExternalBinding({
+      conversationId: "conv-guardian-43",
+      sourceChannel: "telegram",
+      externalChatId: "chat-43",
+      externalUserId: "user-43",
+      username: "guardian_handle",
+      displayName: "Guardian Name",
     });
 
     const { ctx, lastResponse } = createMockCtx();
@@ -1568,10 +1579,7 @@ describe("IPC handler channel-aware guardian status", () => {
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
-    // username is not stored in the contacts table, so it stays undefined
-    expect(resp!.guardianUsername).toBeUndefined();
-    // displayName is persisted on the contact and synthesized back into
-    // metadataJson by getGuardianBinding, so the handler extracts it
+    expect(resp!.guardianUsername).toBe("guardian_handle");
     expect(resp!.guardianDisplayName).toBe("Guardian Name");
   });
 
