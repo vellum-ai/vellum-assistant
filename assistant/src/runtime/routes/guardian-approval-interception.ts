@@ -45,6 +45,10 @@ import {
   buildGuardianDenyContext,
   parseCallbackData,
 } from "./channel-route-shared.js";
+import {
+  deliverIdentityMismatchReply,
+  deliverStaleApprovalReply,
+} from "./guardian-approval-reply-helpers.js";
 
 const log = getLogger("runtime-http");
 
@@ -137,31 +141,20 @@ export async function handleApprovalInterception(
       } else if (allPending.length > 1) {
         // The callback targeted a stale/expired request but the guardian has other
         // pending approvals. Inform them the clicked approval is no longer valid.
-        try {
-          const staleText = await composeApprovalMessageGenerative(
-            {
-              scenario: "guardian_disambiguation",
-              pendingCount: allPending.length,
-              channel: sourceChannel,
-            },
-            {},
-            approvalCopyGenerator,
-          );
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: staleText,
-              assistantId,
-            },
-            bearerToken,
-          );
-        } catch (err) {
-          log.error(
-            { err, conversationExternalId },
+        await deliverStaleApprovalReply({
+          scenario: "guardian_disambiguation",
+          sourceChannel,
+          replyCallbackUrl,
+          chatId: conversationExternalId,
+          assistantId,
+          bearerToken,
+          approvalCopyGenerator,
+          logger: log,
+          errorLogMessage:
             "Failed to deliver stale callback disambiguation notice",
-          );
-        }
+          extraContext: { pendingCount: allPending.length },
+          errorLogContext: { conversationExternalId },
+        });
         return { handled: true, type: "stale_ignored" };
       }
     }
@@ -202,30 +195,18 @@ export async function handleApprovalInterception(
           },
           "Non-guardian sender attempted to act on guardian approval request",
         );
-        try {
-          const mismatchText = await composeApprovalMessageGenerative(
-            {
-              scenario: "guardian_identity_mismatch",
-              channel: sourceChannel,
-            },
-            {},
-            approvalCopyGenerator,
-          );
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: mismatchText,
-              assistantId,
-            },
-            bearerToken,
-          );
-        } catch (err) {
-          log.error(
-            { err, conversationExternalId },
+        await deliverIdentityMismatchReply({
+          sourceChannel,
+          replyCallbackUrl,
+          chatId: conversationExternalId,
+          assistantId,
+          bearerToken,
+          approvalCopyGenerator,
+          logger: log,
+          errorLogMessage:
             "Failed to deliver guardian identity rejection notice",
-          );
-        }
+          errorLogContext: { conversationExternalId },
+        });
         return { handled: true, type: "guardian_decision_applied" };
       }
 
@@ -393,30 +374,18 @@ export async function handleApprovalInterception(
             },
             "Guardian identity mismatch on engine-selected target approval",
           );
-          try {
-            const mismatchText = await composeApprovalMessageGenerative(
-              {
-                scenario: "guardian_identity_mismatch",
-                channel: sourceChannel,
-              },
-              {},
-              approvalCopyGenerator,
-            );
-            await deliverChannelReply(
-              replyCallbackUrl,
-              {
-                chatId: conversationExternalId,
-                text: mismatchText,
-                assistantId,
-              },
-              bearerToken,
-            );
-          } catch (err) {
-            log.error(
-              { err, conversationExternalId },
+          await deliverIdentityMismatchReply({
+            sourceChannel,
+            replyCallbackUrl,
+            chatId: conversationExternalId,
+            assistantId,
+            bearerToken,
+            approvalCopyGenerator,
+            logger: log,
+            errorLogMessage:
               "Failed to deliver guardian identity mismatch notice for engine target",
-            );
-          }
+            errorLogContext: { conversationExternalId },
+          });
           return { handled: true, type: "guardian_decision_applied" };
         }
 
@@ -501,30 +470,18 @@ export async function handleApprovalInterception(
 
         // Race condition: request was already resolved. Deliver a stale notice
         // instead of the engine's optimistic reply.
-        try {
-          const staleText = await composeApprovalMessageGenerative(
-            {
-              scenario: "approval_already_resolved",
-              channel: sourceChannel,
-            },
-            {},
-            approvalCopyGenerator,
-          );
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: staleText,
-              assistantId,
-            },
-            bearerToken,
-          );
-        } catch (err) {
-          log.error(
-            { err, conversationId: targetApproval.conversationId },
-            "Failed to deliver stale guardian approval notice",
-          );
-        }
+        await deliverStaleApprovalReply({
+          scenario: "approval_already_resolved",
+          sourceChannel,
+          replyCallbackUrl,
+          chatId: conversationExternalId,
+          assistantId,
+          bearerToken,
+          approvalCopyGenerator,
+          logger: log,
+          errorLogMessage: "Failed to deliver stale guardian approval notice",
+          errorLogContext: { conversationId: targetApproval.conversationId },
+        });
 
         return { handled: true, type: "stale_ignored" };
       }
@@ -556,30 +513,19 @@ export async function handleApprovalInterception(
             if (!resolvedByRequest) {
               // The referenced request doesn't match any pending guardian
               // approval — it may have expired or already been resolved.
-              try {
-                const staleText = await composeApprovalMessageGenerative(
-                  {
-                    scenario: "guardian_disambiguation",
-                    channel: sourceChannel,
-                  },
-                  {},
-                  approvalCopyGenerator,
-                );
-                await deliverChannelReply(
-                  replyCallbackUrl,
-                  {
-                    chatId: conversationExternalId,
-                    text: staleText,
-                    assistantId,
-                  },
-                  bearerToken,
-                );
-              } catch (err) {
-                log.error(
-                  { err, conversationExternalId },
+              await deliverStaleApprovalReply({
+                scenario: "guardian_disambiguation",
+                sourceChannel,
+                replyCallbackUrl,
+                chatId: conversationExternalId,
+                assistantId,
+                bearerToken,
+                approvalCopyGenerator,
+                logger: log,
+                errorLogMessage:
                   "Failed to deliver stale approval notice (legacy path)",
-                );
-              }
+                errorLogContext: { conversationExternalId },
+              });
               return { handled: true, type: "stale_ignored" };
             }
             targetLegacyApproval = resolvedByRequest;
@@ -598,30 +544,18 @@ export async function handleApprovalInterception(
               },
               "Guardian identity mismatch on legacy ref-resolved target approval",
             );
-            try {
-              const mismatchText = await composeApprovalMessageGenerative(
-                {
-                  scenario: "guardian_identity_mismatch",
-                  channel: sourceChannel,
-                },
-                {},
-                approvalCopyGenerator,
-              );
-              await deliverChannelReply(
-                replyCallbackUrl,
-                {
-                  chatId: conversationExternalId,
-                  text: mismatchText,
-                  assistantId,
-                },
-                bearerToken,
-              );
-            } catch (err) {
-              log.error(
-                { err, conversationExternalId },
+            await deliverIdentityMismatchReply({
+              sourceChannel,
+              replyCallbackUrl,
+              chatId: conversationExternalId,
+              assistantId,
+              bearerToken,
+              approvalCopyGenerator,
+              logger: log,
+              errorLogMessage:
                 "Failed to deliver guardian identity mismatch notice (legacy path)",
-              );
-            }
+              errorLogContext: { conversationExternalId },
+            });
             return { handled: true, type: "guardian_decision_applied" };
           }
 
@@ -682,59 +616,38 @@ export async function handleApprovalInterception(
           }
 
           // Race condition: request was already resolved. Deliver stale notice.
-          try {
-            const staleText = await composeApprovalMessageGenerative(
-              {
-                scenario: "approval_already_resolved",
-                channel: sourceChannel,
-              },
-              {},
-              approvalCopyGenerator,
-            );
-            await deliverChannelReply(
-              replyCallbackUrl,
-              {
-                chatId: conversationExternalId,
-                text: staleText,
-                assistantId,
-              },
-              bearerToken,
-            );
-          } catch (err) {
-            log.error(
-              { err, conversationId: targetLegacyApproval.conversationId },
+          await deliverStaleApprovalReply({
+            scenario: "approval_already_resolved",
+            sourceChannel,
+            replyCallbackUrl,
+            chatId: conversationExternalId,
+            assistantId,
+            bearerToken,
+            approvalCopyGenerator,
+            logger: log,
+            errorLogMessage:
               "Failed to deliver stale guardian legacy fallback notice",
-            );
-          }
+            errorLogContext: {
+              conversationId: targetLegacyApproval.conversationId,
+            },
+          });
           return { handled: true, type: "stale_ignored" };
         }
 
         // No decision could be parsed — send a generic reminder to the guardian
-        try {
-          const reminderText = await composeApprovalMessageGenerative(
-            {
-              scenario: "reminder_prompt",
-              toolName: guardianApproval.toolName,
-              channel: sourceChannel,
-            },
-            {},
-            approvalCopyGenerator,
-          );
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: reminderText,
-              assistantId,
-            },
-            bearerToken,
-          );
-        } catch (err) {
-          log.error(
-            { err, conversationId: guardianApproval.conversationId },
-            "Failed to deliver guardian reminder (legacy path)",
-          );
-        }
+        await deliverStaleApprovalReply({
+          scenario: "reminder_prompt",
+          sourceChannel,
+          replyCallbackUrl,
+          chatId: conversationExternalId,
+          assistantId,
+          bearerToken,
+          approvalCopyGenerator,
+          logger: log,
+          errorLogMessage: "Failed to deliver guardian reminder (legacy path)",
+          extraContext: { toolName: guardianApproval.toolName },
+          errorLogContext: { conversationId: guardianApproval.conversationId },
+        });
         return { handled: true, type: "assistant_turn" };
       }
 
@@ -896,30 +809,19 @@ export async function handleApprovalInterception(
             }
 
             // Race condition: approval was already resolved elsewhere.
-            try {
-              const staleText = await composeApprovalMessageGenerative(
-                {
-                  scenario: "approval_already_resolved",
-                  channel: sourceChannel,
-                },
-                {},
-                approvalCopyGenerator,
-              );
-              await deliverChannelReply(
-                replyCallbackUrl,
-                {
-                  chatId: conversationExternalId,
-                  text: staleText,
-                  assistantId,
-                },
-                bearerToken,
-              );
-            } catch (err) {
-              log.error(
-                { err, conversationId },
+            await deliverStaleApprovalReply({
+              scenario: "approval_already_resolved",
+              sourceChannel,
+              replyCallbackUrl,
+              chatId: conversationExternalId,
+              assistantId,
+              bearerToken,
+              approvalCopyGenerator,
+              logger: log,
+              errorLogMessage:
                 "Failed to deliver stale requester-cancel notice",
-              );
-            }
+              errorLogContext: { conversationId },
+            });
             return { handled: true, type: "stale_ignored" };
           }
 
@@ -945,30 +847,19 @@ export async function handleApprovalInterception(
         }
 
         // Not a cancel intent — tell the requester their request is pending
-        try {
-          const pendingText = await composeApprovalMessageGenerative(
-            {
-              scenario: "request_pending_guardian",
-              channel: sourceChannel,
-            },
-            {},
-            approvalCopyGenerator,
-          );
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: pendingText,
-              assistantId,
-            },
-            bearerToken,
-          );
-        } catch (err) {
-          log.error(
-            { err, conversationId },
+        await deliverStaleApprovalReply({
+          scenario: "request_pending_guardian",
+          sourceChannel,
+          replyCallbackUrl,
+          chatId: conversationExternalId,
+          assistantId,
+          bearerToken,
+          approvalCopyGenerator,
+          logger: log,
+          errorLogMessage:
             "Failed to deliver guardian-pending notice to requester",
-          );
-        }
+          errorLogContext: { conversationId },
+        });
         return { handled: true, type: "assistant_turn" };
       }
 
@@ -989,31 +880,20 @@ export async function handleApprovalInterception(
         };
         handleChannelDecision(conversationId, expiredDecision);
 
-        try {
-          const expiredText = await composeApprovalMessageGenerative(
-            {
-              scenario: "guardian_expired_requester",
-              toolName: pending[0].toolName,
-              channel: sourceChannel,
-            },
-            {},
-            approvalCopyGenerator,
-          );
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: expiredText,
-              assistantId,
-            },
-            bearerToken,
-          );
-        } catch (err) {
-          log.error(
-            { err, conversationId },
+        await deliverStaleApprovalReply({
+          scenario: "guardian_expired_requester",
+          sourceChannel,
+          replyCallbackUrl,
+          chatId: conversationExternalId,
+          assistantId,
+          bearerToken,
+          approvalCopyGenerator,
+          logger: log,
+          errorLogMessage:
             "Failed to deliver guardian-expiry notice to requester",
-          );
-        }
+          extraContext: { toolName: pending[0].toolName },
+          errorLogContext: { conversationId },
+        });
         return { handled: true, type: "decision_applied" };
       }
 
@@ -1037,30 +917,19 @@ export async function handleApprovalInterception(
           },
           "Blocking non-guardian self-approval: pending confirmation exists but guardian approval row not yet created",
         );
-        try {
-          const pendingText = await composeApprovalMessageGenerative(
-            {
-              scenario: "request_pending_guardian",
-              channel: sourceChannel,
-            },
-            {},
-            approvalCopyGenerator,
-          );
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: pendingText,
-              assistantId,
-            },
-            bearerToken,
-          );
-        } catch (err) {
-          log.error(
-            { err, conversationId },
+        await deliverStaleApprovalReply({
+          scenario: "request_pending_guardian",
+          sourceChannel,
+          replyCallbackUrl,
+          chatId: conversationExternalId,
+          assistantId,
+          bearerToken,
+          approvalCopyGenerator,
+          logger: log,
+          errorLogMessage:
             "Failed to deliver guardian-pending notice to non-guardian actor (pre-row guard)",
-          );
-        }
+          errorLogContext: { conversationId },
+        });
         return { handled: true, type: "assistant_turn" };
       }
     }
@@ -1183,30 +1052,18 @@ export async function handleApprovalInterception(
     // Race condition: request was already resolved by expiry sweep or
     // concurrent callback. Deliver a stale notice instead of the
     // engine's optimistic reply.
-    try {
-      const staleText = await composeApprovalMessageGenerative(
-        {
-          scenario: "approval_already_resolved",
-          channel: sourceChannel,
-        },
-        {},
-        approvalCopyGenerator,
-      );
-      await deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId: conversationExternalId,
-          text: staleText,
-          assistantId,
-        },
-        bearerToken,
-      );
-    } catch (err) {
-      log.error(
-        { err, conversationId },
-        "Failed to deliver stale approval notice",
-      );
-    }
+    await deliverStaleApprovalReply({
+      scenario: "approval_already_resolved",
+      sourceChannel,
+      replyCallbackUrl,
+      chatId: conversationExternalId,
+      assistantId,
+      bearerToken,
+      approvalCopyGenerator,
+      logger: log,
+      errorLogMessage: "Failed to deliver stale approval notice",
+      errorLogContext: { conversationId },
+    });
 
     return { handled: true, type: "stale_ignored" };
   }
@@ -1231,61 +1088,40 @@ export async function handleApprovalInterception(
       }
 
       // Race condition: request was already resolved.
-      try {
-        const staleText = await composeApprovalMessageGenerative(
-          {
-            scenario: "approval_already_resolved",
-            channel: sourceChannel,
-          },
-          {},
-          approvalCopyGenerator,
-        );
-        await deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: conversationExternalId,
-            text: staleText,
-            assistantId,
-          },
-          bearerToken,
-        );
-      } catch (err) {
-        log.error(
-          { err, conversationId },
+      await deliverStaleApprovalReply({
+        scenario: "approval_already_resolved",
+        sourceChannel,
+        replyCallbackUrl,
+        chatId: conversationExternalId,
+        assistantId,
+        bearerToken,
+        approvalCopyGenerator,
+        logger: log,
+        errorLogMessage:
           "Failed to deliver stale approval notice (legacy path)",
-        );
-      }
+        errorLogContext: { conversationId },
+      });
       return { handled: true, type: "stale_ignored" };
     }
   }
 
   // No decision could be extracted and no conversational engine is available —
   // deliver a simple status reply rather than a reminder prompt.
-  try {
-    const statusText = await composeApprovalMessageGenerative(
-      {
-        scenario: "reminder_prompt",
-        channel: sourceChannel,
-        toolName: pending.length > 0 ? pending[0].toolName : undefined,
-      },
-      {},
-      approvalCopyGenerator,
-    );
-    await deliverChannelReply(
-      replyCallbackUrl,
-      {
-        chatId: conversationExternalId,
-        text: statusText,
-        assistantId,
-      },
-      bearerToken,
-    );
-  } catch (err) {
-    log.error(
-      { err, conversationId },
-      "Failed to deliver approval status reply",
-    );
-  }
+  await deliverStaleApprovalReply({
+    scenario: "reminder_prompt",
+    sourceChannel,
+    replyCallbackUrl,
+    chatId: conversationExternalId,
+    assistantId,
+    bearerToken,
+    approvalCopyGenerator,
+    logger: log,
+    errorLogMessage: "Failed to deliver approval status reply",
+    extraContext: {
+      toolName: pending.length > 0 ? pending[0].toolName : undefined,
+    },
+    errorLogContext: { conversationId },
+  });
 
   return { handled: true, type: "assistant_turn" };
 }
