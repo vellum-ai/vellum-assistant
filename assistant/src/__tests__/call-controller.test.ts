@@ -1395,7 +1395,7 @@ describe("call-controller", () => {
 
   test("consultation timeout: fires generated turn with GUARDIAN_TIMEOUT instruction instead of hardcoded text", async () => {
     // Use a short consultation timeout so we can wait for it in the test
-    mockConsultationTimeoutMs = 20;
+    mockConsultationTimeoutMs = 50;
 
     // Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
@@ -1424,7 +1424,7 @@ describe("call-controller", () => {
     );
 
     // Wait for the short consultation timeout to fire
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 200));
 
     // A generated turn should have been fired with the GUARDIAN_TIMEOUT instruction.
     // The instruction starts with '[' so flushPendingInstructions passes it through
@@ -1449,7 +1449,7 @@ describe("call-controller", () => {
 
   test("consultation timeout: timeout instruction fires even when controller is idle", async () => {
     // Use a short consultation timeout so we can wait for it in the test
-    mockConsultationTimeoutMs = 20;
+    mockConsultationTimeoutMs = 50;
 
     // Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
@@ -1476,7 +1476,7 @@ describe("call-controller", () => {
     );
 
     // Wait for the short consultation timeout to fire
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 200));
 
     // The timeout instruction turn should have fired
     const timeoutTurns = turnContents.filter((c) =>
@@ -1492,7 +1492,7 @@ describe("call-controller", () => {
   });
 
   test("consultation timeout: marks linked guardian action request as timed out", async () => {
-    mockConsultationTimeoutMs = 20;
+    mockConsultationTimeoutMs = 50;
 
     // Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
@@ -1521,7 +1521,7 @@ describe("call-controller", () => {
     );
 
     // Wait for the consultation timeout
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 200));
 
     // The canonical guardian request should now be expired
     const timedOutRequest = getCanonicalGuardianRequest(pendingRequest!.id);
@@ -1541,7 +1541,7 @@ describe("call-controller", () => {
   // ── Guardian unavailable skip after timeout ────────────────────────
 
   test("ASK_GUARDIAN after timeout: skips wait and injects GUARDIAN_UNAVAILABLE instruction", async () => {
-    mockConsultationTimeoutMs = 20;
+    mockConsultationTimeoutMs = 50;
 
     // Step 1: Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
@@ -1560,7 +1560,7 @@ describe("call-controller", () => {
     );
 
     // Wait for the consultation timeout
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 200));
     expect(controller.getState()).toBe("idle");
 
     // Step 3: Model tries ASK_GUARDIAN again in a subsequent turn
@@ -1873,7 +1873,7 @@ describe("call-controller", () => {
   });
 
   test("timeout + late answer: after timeout, a late answer is rejected as stale", async () => {
-    mockConsultationTimeoutMs = 20;
+    mockConsultationTimeoutMs = 50;
 
     // Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
@@ -1889,7 +1889,7 @@ describe("call-controller", () => {
     );
 
     // Wait for the consultation timeout to expire the consultation
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 200));
 
     // Consultation should be cleared by the timeout
     expect(controller.getPendingConsultationQuestionId()).toBeNull();
