@@ -3,7 +3,6 @@ import {
   closeSync,
   existsSync,
   mkdirSync,
-  openSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
