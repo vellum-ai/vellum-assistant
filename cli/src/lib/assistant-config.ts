@@ -141,10 +141,14 @@ export function saveAssistantEntry(entry: AssistantEntry): void {
  * available when `probePort()` returns false (nothing listening). Scans up to
  * 100 ports above the base before giving up.
  */
-async function findAvailablePort(basePort: number): Promise<number> {
+async function findAvailablePort(
+  basePort: number,
+  excludedPorts: number[] = [],
+): Promise<number> {
   const maxOffset = 100;
   for (let offset = 0; offset < maxOffset; offset++) {
     const port = basePort + offset;
+    if (excludedPorts.includes(port)) continue;
     const inUse = await probePort(port);
     if (!inUse) return port;
   }
@@ -164,10 +168,15 @@ export async function allocateLocalResources(
   const instanceDir = join(homedir(), ".vellum", "instances", instanceName);
   mkdirSync(instanceDir, { recursive: true });
 
-  const [daemonPort, gatewayPort, qdrantPort] = await Promise.all([
-    findAvailablePort(DEFAULT_DAEMON_PORT),
-    findAvailablePort(DEFAULT_GATEWAY_PORT),
-    findAvailablePort(DEFAULT_QDRANT_PORT),
+  // Allocate ports sequentially to avoid overlapping ranges assigning the
+  // same port to multiple services (e.g. daemon 7821-7920 overlaps gateway 7830-7929).
+  const daemonPort = await findAvailablePort(DEFAULT_DAEMON_PORT);
+  const gatewayPort = await findAvailablePort(DEFAULT_GATEWAY_PORT, [
+    daemonPort,
+  ]);
+  const qdrantPort = await findAvailablePort(DEFAULT_QDRANT_PORT, [
+    daemonPort,
+    gatewayPort,
   ]);
 
   return {

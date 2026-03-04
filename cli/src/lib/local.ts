@@ -469,7 +469,8 @@ function isSocketResponsive(
   });
 }
 
-async function discoverPublicUrl(): Promise<string | undefined> {
+async function discoverPublicUrl(port?: number): Promise<string | undefined> {
+  const effectivePort = port ?? GATEWAY_PORT;
   const cloud = process.env.VELLUM_CLOUD;
 
   let externalIp: string | undefined;
@@ -507,7 +508,7 @@ async function discoverPublicUrl(): Promise<string | undefined> {
 
     if (externalIp) {
       console.log(`   Discovered external IP: ${externalIp}`);
-      return `http://${externalIp}:${GATEWAY_PORT}`;
+      return `http://${externalIp}:${effectivePort}`;
     }
   }
 
@@ -518,18 +519,18 @@ async function discoverPublicUrl(): Promise<string | undefined> {
     const localHostname = getMacLocalHostname();
     if (localHostname) {
       console.log(`   Discovered macOS local hostname: ${localHostname}`);
-      return `http://${localHostname}:${GATEWAY_PORT}`;
+      return `http://${localHostname}:${effectivePort}`;
     }
   }
 
   const lanIp = getLocalLanIPv4();
   if (lanIp) {
     console.log(`   Discovered LAN IP: ${lanIp}`);
-    return `http://${lanIp}:${GATEWAY_PORT}`;
+    return `http://${lanIp}:${effectivePort}`;
   }
 
   // Final fallback to localhost when no LAN address could be discovered.
-  return `http://localhost:${GATEWAY_PORT}`;
+  return `http://localhost:${effectivePort}`;
 }
 
 /**
@@ -741,9 +742,9 @@ export async function startLocalDaemon(
         // Kill the bundled daemon to avoid two processes competing for the same socket/port
         await stopProcessByPidFile(pidFile, "bundled daemon", [socketFile]);
         if (watch) {
-          await startDaemonWatchFromSource(assistantIndex);
+          await startDaemonWatchFromSource(assistantIndex, resources);
         } else {
-          await startDaemonFromSource(assistantIndex);
+          await startDaemonFromSource(assistantIndex, resources);
         }
         socketReady = await waitForSocketFile(socketFile, 60000);
       }
@@ -800,7 +801,9 @@ export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
 ): Promise<string> {
-  const publicUrl = await discoverPublicUrl();
+  const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
+
+  const publicUrl = await discoverPublicUrl(effectiveGatewayPort);
   if (publicUrl) {
     console.log(`   Public URL: ${publicUrl}`);
   }
@@ -880,8 +883,6 @@ export async function startGateway(
         "  Ensure the daemon is running and has written the token file, or set VELLUM_HTTP_TOKEN_PATH to the correct path.",
     );
   }
-
-  const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
   const effectiveDaemonPort =
     resources?.daemonPort ?? Number(process.env.RUNTIME_HTTP_PORT || "7821");
 
