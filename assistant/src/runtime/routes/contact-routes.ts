@@ -165,6 +165,9 @@ export async function handleUpsertContact(
   }
 
   if (body.channels) {
+    if (!Array.isArray(body.channels)) {
+      return httpError("BAD_REQUEST", "channels must be an array", 400);
+    }
     for (const ch of body.channels) {
       if (ch.status !== undefined && !isChannelStatus(ch.status)) {
         return httpError(
