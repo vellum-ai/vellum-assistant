@@ -3,7 +3,7 @@ import { homedir } from "os";
 import { join } from "path";
 
 import { loadAllAssistants } from "../lib/assistant-config";
-import { isProcessAlive } from "../lib/process";
+import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
   startLocalDaemon,
   startGateway,
@@ -37,6 +37,7 @@ export async function wake(): Promise<void> {
 
   const vellumDir = join(homedir(), ".vellum");
   const pidFile = join(vellumDir, "vellum.pid");
+  const socketFile = join(vellumDir, "vellum.sock");
 
   // Check if daemon is already running
   let daemonRunning = false;
@@ -47,7 +48,16 @@ export async function wake(): Promise<void> {
       try {
         process.kill(pid, 0);
         daemonRunning = true;
-        console.log(`Assistant already running (pid ${pid}).`);
+        if (watch) {
+          // Restart in watch mode
+          console.log(
+            `Assistant running (pid ${pid}) — restarting in watch mode...`,
+          );
+          await stopProcessByPidFile(pidFile, "assistant", [socketFile]);
+          daemonRunning = false;
+        } else {
+          console.log(`Assistant already running (pid ${pid}).`);
+        }
       } catch {
         // Process not alive, will start below
       }
@@ -63,13 +73,31 @@ export async function wake(): Promise<void> {
     const gatewayPidFile = join(vellumDir, "gateway.pid");
     const { alive, pid } = isProcessAlive(gatewayPidFile);
     if (alive) {
-      console.log(`Gateway already running (pid ${pid}).`);
+      if (watch) {
+        // Restart in watch mode
+        console.log(
+          `Gateway running (pid ${pid}) — restarting in watch mode...`,
+        );
+        await stopProcessByPidFile(gatewayPidFile, "gateway");
+        await startGateway(undefined, watch);
+      } else {
+        console.log(`Gateway already running (pid ${pid}).`);
+      }
     } else {
       await startGateway(undefined, watch);
     }
   }
 
   // Start outbound proxy
+  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
+  const outboundProxyStatus = isProcessAlive(outboundProxyPidFile);
+  if (outboundProxyStatus.alive && watch) {
+    // Restart in watch mode
+    console.log(
+      `Outbound proxy running (pid ${outboundProxyStatus.pid}) — restarting in watch mode...`,
+    );
+    await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
+  }
   await startOutboundProxy(watch);
 
   console.log("✅ Wake complete.");
