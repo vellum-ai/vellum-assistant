@@ -803,7 +803,9 @@ function initiateSlackVerificationChallenge(params: {
     params;
 
   // Skip if there is already a pending challenge or active session for
-  // this channel to avoid flooding the user with duplicate codes.
+  // this sender to avoid flooding them with duplicate codes. We scope by
+  // sender identity (expectedExternalUserId) so that a pending session for
+  // user A does not suppress challenges for user B.
   const existingChallenge = getPendingChallenge(
     canonicalAssistantId,
     sourceChannel,
@@ -812,7 +814,12 @@ function initiateSlackVerificationChallenge(params: {
     canonicalAssistantId,
     sourceChannel,
   );
-  if (existingChallenge || existingSession) {
+  const senderHasPending =
+    (existingChallenge &&
+      existingChallenge.expectedExternalUserId === senderUserId) ||
+    (existingSession &&
+      existingSession.expectedExternalUserId === senderUserId);
+  if (senderHasPending) {
     log.debug(
       {
         sourceChannel,
@@ -820,7 +827,7 @@ function initiateSlackVerificationChallenge(params: {
         hasChallenge: !!existingChallenge,
         hasSession: !!existingSession,
       },
-      "Slack verification: skipping — existing challenge/session",
+      "Slack verification: skipping — existing challenge/session for this sender",
     );
     return { initiated: false };
   }
@@ -837,7 +844,7 @@ function initiateSlackVerificationChallenge(params: {
     });
 
     const slackBody = composeVerificationSlack(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST,
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE,
       {
         code: session.secret,
         expiresInMinutes: Math.floor(session.ttlSeconds / 60),
