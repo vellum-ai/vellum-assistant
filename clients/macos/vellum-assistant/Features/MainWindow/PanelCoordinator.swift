@@ -813,11 +813,11 @@ struct DynamicWorkspaceWrapper: View {
             HStack {
                 // Left: Close Chat primary CTA in edit mode, Edit primary button otherwise
                 if case .appEditing = windowState.selection {
-                    VButton(label: "Close chat", icon: "xmark", style: .primary) {
+                    VButton(label: "Close chat", icon: "xmark", style: .primary, size: .medium) {
                         onToggleChatDock()
                     }
                 } else {
-                    VButton(label: "Edit", icon: "pencil", style: .primary) {
+                    VButton(label: "Edit", icon: "pencil", style: .primary, size: .medium) {
                         if !isChatDockOpen {
                             windowState.workspaceComposerExpanded = false
                         }

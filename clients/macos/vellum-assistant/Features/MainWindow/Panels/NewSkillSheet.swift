@@ -258,6 +258,7 @@ struct NewSkillSheet: View {
                     label: skillsManager.isDrafting ? "Generating..." : "Generate Draft",
                     leftIcon: skillsManager.isDrafting ? nil : "wand.and.stars",
                     style: .primary,
+                    size: .medium,
                     isDisabled: sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || skillsManager.isDrafting
                 ) {
                     skillsManager.draftSkill(sourceText: sourceText)
@@ -267,6 +268,7 @@ struct NewSkillSheet: View {
                     label: skillsManager.isCreating ? "Creating..." : "Create Skill",
                     leftIcon: skillsManager.isCreating ? nil : "plus.circle.fill",
                     style: .primary,
+                    size: .medium,
                     isDisabled: !isFormValid || skillsManager.isCreating
                 ) {
                     skillsManager.createSkillFromDraft(
