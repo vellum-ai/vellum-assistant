@@ -3,12 +3,21 @@ import type { Server } from "node:http";
 import { join } from "node:path";
 
 import {
+  buildDecisionTrace,
+  createProxyServer,
+  ensureCombinedCABundle,
+  ensureLocalCA,
+  evaluateRequestWithApproval,
+  getCAPath,
+  routeConnection,
+  stripQueryString,
+  type PolicyCallback,
   type ProxyApprovalCallback,
   type ProxyEnvVars,
+  type ProxyServerConfig,
   type ProxySession,
   type ProxySessionConfig,
   type ProxySessionId,
-  routeConnection,
 } from "@vellumai/outbound-proxy";
 
 import { getSecureKey } from "../../../security/secure-keys.js";
@@ -22,12 +31,6 @@ import {
 import { listCredentialMetadata } from "../../credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
 import { resolveById } from "../../credentials/resolve.js";
-import { ensureCombinedCABundle, ensureLocalCA, getCAPath } from "./certs.js";
-import type { PolicyCallback } from "./http-forwarder.js";
-import { buildDecisionTrace, stripQueryString } from "./logging.js";
-import { evaluateRequestWithApproval } from "./policy.js";
-import type { ProxyServerConfig } from "./server.js";
-import { createProxyServer } from "./server.js";
 
 const log = getLogger("proxy-session");
 

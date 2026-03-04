@@ -27,12 +27,7 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
   getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
 }));
 
-import {
-  createSession,
-  startSession,
-  stopAllSessions,
-  stopSession,
-} from "../tools/network/script-proxy/index.js";
+import { createSession, startSession, stopAllSessions, stopSession } from '../tools/network/script-proxy/session-manager.js';
 
 let upstreamServer: Server | null = null;
 
