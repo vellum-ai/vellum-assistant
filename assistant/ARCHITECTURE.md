@@ -89,7 +89,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/integrations/guardian/vellum/refresh` (token rotation)                              |
 | `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
 | `src/runtime/local-actor-identity.ts`             | `resolveLocalIpcGuardianContext` — deterministic IPC identity                                 |
-| `src/memory/guardian-bindings.ts`                 | Guardian binding persistence (shared across all channels)                                     |
+| `src/memory/channel-guardian-store.ts`            | Guardian binding types and re-exports (types moved here from deleted guardian-bindings.ts)    |
 
 ### Channel-Agnostic Scoped Approval Grants
 
@@ -424,7 +424,7 @@ External users who are not the guardian can gain access to the assistant through
 3. Guardian approves or denies via callback button or conversational intent (routed through `guardian-approval-interception.ts`).
 4. On approval, an identity-bound verification session with a 6-digit code is created (`access-request-decision.ts` → `channel-guardian-service.ts`).
 5. Guardian gives the code to the requester out-of-band.
-6. Requester enters the code; identity binding is verified, the challenge is consumed, and an active member record is created in `assistant_ingress_members`.
+6. Requester enters the code; identity binding is verified, the challenge is consumed, and an active contact channel is created in the contacts table.
 7. All subsequent messages are accepted through the ingress ACL.
 
 **Channel-agnostic design:** The entire flow operates on abstract `ChannelId` and `actorExternalId`/`conversationExternalId` fields (DB column names `externalUserId`/`externalChatId` are unchanged). Identity binding adapts per channel: Telegram uses chat IDs, SMS/voice use E.164 phone numbers, HTTP API uses caller-provided identity. No channel-specific branching exists in the trusted contact code paths.
@@ -458,7 +458,7 @@ External users who are not the guardian can gain access to the assistant through
 | `src/runtime/channel-guardian-service.ts`              | Verification challenge lifecycle, identity binding, rate limiting             |
 | `src/runtime/routes/ingress-routes.ts`                 | HTTP API handlers for member/invite management                                |
 | `src/runtime/ingress-service.ts`                       | Business logic for member CRUD                                                |
-| `src/memory/ingress-member-store.ts`                   | Member record persistence                                                     |
+| `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
 | `src/memory/channel-guardian-store.ts`                 | Approval request and verification challenge persistence                       |
 | `src/config/bundled-skills/trusted-contacts/SKILL.md`  | Skill teaching the assistant to manage contacts via HTTP API                  |
 
@@ -1417,6 +1417,7 @@ graph LR
 ```
 
 Rules enforced by guard tests:
+
 - Retrieval reads use `bash` + canonical CLI surfaces (`vellum config get` and domain read commands where available).
 - Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
 - Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
@@ -2248,7 +2249,7 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Explicit trust gates:** `trustClass` is a **required** field in `ToolContext` (in `src/tools/types.ts`). Every tool execution must carry a trust classification — the field is not optional. This ensures trust-gated tool policies (guardian control-plane restrictions, host-tool blocking for untrusted actors) cannot be bypassed by omitting the classification.
 
-**Guardian bindings** (in `src/memory/guardian-bindings.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
+**Guardian bindings** (in `src/memory/channel-guardian-store.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
 
 **Strict retry sweep parsing:** The channel retry sweep (`src/runtime/channel-retry-sweep.ts`) uses `parseTrustRuntimeContext()` which validates `trustClass` against the canonical three-value set. There is no fallback to a legacy `actorRole` field — stored payloads that lack a valid `trustClass` are rejected deterministically to prevent silent privilege escalation. When `trustCtx` is entirely absent from a stored payload (pre-guardian events), the sweep synthesizes an explicit `trustClass: 'unknown'` context so that replay never proceeds without a trust classification.
 
@@ -2261,5 +2262,5 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 | `src/daemon/session-runtime-assembly.ts`     | `TrustContext` type definition                        |
 | `src/tools/types.ts`                         | `ToolContext.trustClass` (required trust gate)        |
 | `src/runtime/channel-retry-sweep.ts`         | Strict `trustClass` parser for retry sweep            |
-| `src/memory/guardian-bindings.ts`            | `GuardianBinding` with required `guardianPrincipalId` |
+| `src/memory/channel-guardian-store.ts`       | `GuardianBinding` with required `guardianPrincipalId` |
 | `src/__tests__/trust-context-guards.test.ts` | Guard tests enforcing trust-context type invariants   |
