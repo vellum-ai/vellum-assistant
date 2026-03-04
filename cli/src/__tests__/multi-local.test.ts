@@ -1,11 +1,25 @@
 import { describe, test, expect, beforeEach, afterAll, mock } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Point lockfile operations at a temp directory before importing modules
+// Create a temp directory that acts as a fake home, so allocateLocalResources()
+// and defaultLocalResources() never touch the real ~/.vellum directory.
 const testDir = mkdtempSync(join(tmpdir(), "cli-multi-local-test-"));
 process.env.BASE_DATA_DIR = testDir;
+
+// Mock homedir() to return testDir — this isolates allocateLocalResources()
+// which uses homedir() directly for instance directory creation.
+const realOs = await import("node:os");
+mock.module("node:os", () => ({
+  ...realOs,
+  homedir: () => testDir,
+}));
+// Also mock the bare "os" specifier since assistant-config.ts uses `from "os"`
+mock.module("os", () => ({
+  ...realOs,
+  homedir: () => testDir,
+}));
 
 // Mock probePort so we control which ports appear in-use without touching the network
 const probePortMock = mock<(port: number, host?: string) => Promise<boolean>>(
@@ -29,14 +43,6 @@ import { DEFAULT_DAEMON_PORT } from "../lib/constants.js";
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
-  // Clean up instance directories created by allocateLocalResources under real homedir
-  // (allocateLocalResources uses homedir() directly, not BASE_DATA_DIR)
-  for (const name of ["instance-a", "instance-b", "probe-test"]) {
-    rmSync(join(homedir(), ".vellum", "instances", name), {
-      recursive: true,
-      force: true,
-    });
-  }
   delete process.env.BASE_DATA_DIR;
 });
 
@@ -136,7 +142,7 @@ describe("multi-local", () => {
   describe("defaultLocalResources() returns legacy paths", () => {
     test("instanceDir is homedir", () => {
       const res = defaultLocalResources();
-      expect(res.instanceDir).toBe(homedir());
+      expect(res.instanceDir).toBe(testDir);
     });
 
     test("daemonPort is DEFAULT_DAEMON_PORT", () => {
