@@ -79,6 +79,7 @@ let fetchCalls: {
   url: string;
   body?: unknown;
   headers?: Record<string, string>;
+  rawBody?: string;
 }[];
 
 beforeEach(() => {
@@ -92,8 +93,12 @@ beforeEach(() => {
             ? input.toString()
             : input.url;
       let body: unknown;
+      let rawBody: string | undefined;
       try {
-        if (init?.body) body = JSON.parse(String(init.body));
+        if (init?.body && typeof init.body === "string") {
+          rawBody = init.body;
+          body = JSON.parse(init.body);
+        }
       } catch {
         /* not JSON */
       }
@@ -106,7 +111,57 @@ beforeEach(() => {
           }
         }
       }
-      fetchCalls.push({ url, body, headers });
+      fetchCalls.push({ url, body, headers, rawBody });
+
+      // Runtime attachment download endpoint
+      if (url.includes("/v1/attachments/")) {
+        const id = url.split("/v1/attachments/")[1];
+        if (id === "att-fail") {
+          return new Response('{"error":"not found"}', { status: 404 });
+        }
+        const payloads: Record<string, unknown> = {
+          "att-img": {
+            id: "att-img",
+            filename: "photo.png",
+            mimeType: "image/png",
+            sizeBytes: 100,
+            kind: "generated_image",
+            data: "iVBORw0KGgo=",
+          },
+          "att-pdf": {
+            id: "att-pdf",
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 200,
+            kind: "filesystem",
+            data: "JVBER",
+          },
+          "att-big": {
+            id: "att-big",
+            filename: "huge.zip",
+            mimeType: "application/zip",
+            sizeBytes: 999999999,
+            kind: "filesystem",
+            data: "AQID",
+          },
+          "att-ok": {
+            id: "att-ok",
+            filename: "good.png",
+            mimeType: "image/png",
+            sizeBytes: 50,
+            kind: "generated_image",
+            data: "iVBORw0KGgo=",
+          },
+        };
+        const payload = payloads[id ?? ""];
+        if (payload) {
+          return new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response('{"error":"not found"}', { status: 404 });
+      }
 
       // Slack API responses
       if (
@@ -130,6 +185,24 @@ beforeEach(() => {
           },
         );
       }
+
+      // Slack file upload URL (step 2 of files.uploadV2 flow)
+      if (url.includes("files.slack.com/upload/")) {
+        return new Response("OK", { status: 200 });
+      }
+
+      // Slack API responses (generic fallback for file upload APIs)
+      if (url.includes("slack.com/api/")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            upload_url: "https://files.slack.com/upload/v1/abc",
+            file_id: "F123",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
       return new Response("Not found", { status: 404 });
     },
   );
@@ -190,19 +263,6 @@ describe("slack-deliver endpoint", () => {
     expect(body.error).toBe("chatId is required");
   });
 
-  test("returns 400 with 'not supported' message when attachments are provided", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
-    const req = makeRequest({
-      chatId: "C123",
-      text: "hello",
-      attachments: [{ id: "att-1" }],
-    });
-    const res = await handler(req);
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toContain("not supported");
-  });
-
   test("returns 503 when bot token is not configured", async () => {
     const handler = createSlackDeliverHandler(
       makeConfig({ slackChannelBotToken: undefined }),
@@ -227,13 +287,13 @@ describe("slack-deliver endpoint", () => {
     expect((slackCall!.body as any).channel).toBe("C_TO_CHAN");
   });
 
-  test("returns 400 when text is missing", async () => {
+  test("returns 400 when both text and attachments are missing", async () => {
     const handler = createSlackDeliverHandler(makeConfig());
     const req = makeRequest({ chatId: "C123" });
     const res = await handler(req);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("text is required");
+    expect(body.error).toBe("text or attachments required");
   });
 
   test("returns 400 for invalid JSON", async () => {
@@ -318,6 +378,41 @@ describe("slack-deliver endpoint", () => {
     );
     expect(slackCall).toBeDefined();
     expect((slackCall!.body as any).thread_ts).toBeUndefined();
+  });
+
+  test("returns 400 when text is a non-string truthy value", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "C123", text: { x: 1 } });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("text must be a string");
+  });
+
+  test("returns 400 when attachment is missing an id", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "hello",
+      attachments: [{ filename: "no-id.png" }],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("each attachment must have an id");
+  });
+
+  test("returns 400 when attachments is not an array", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "hello",
+      attachments: "not-array",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("attachments must be an array");
   });
 
   test("uses chat.postEphemeral when ephemeral flag is set", async () => {
@@ -413,16 +508,6 @@ describe("slack-deliver endpoint", () => {
     expect(onThreadReply).toHaveBeenCalledWith("1700000000.000300");
   });
 
-  test("returns ts in response body for new messages", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
-    const req = makeRequest({ chatId: "C123", text: "hello" });
-    const res = await handler(req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.ts).toBe("1700000000.000100");
-  });
-
   test("uses chat.update when messageTs is provided", async () => {
     const handler = createSlackDeliverHandler(makeConfig());
     const req = makeRequest({
@@ -432,9 +517,6 @@ describe("slack-deliver endpoint", () => {
     });
     const res = await handler(req);
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.ts).toBe("1700000000.000050");
 
     const updateCall = fetchCalls.find((c) => c.url.includes("chat.update"));
     expect(updateCall).toBeDefined();
@@ -517,9 +599,6 @@ describe("slack-deliver endpoint", () => {
     });
     const res = await handler(req);
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.ts).toBe("1700000000.000200");
 
     // Should have called both: first update (failed), then postMessage (fallback)
     const updateCall = fetchCalls.find((c) => c.url.includes("chat.update"));
@@ -544,5 +623,201 @@ describe("slack-deliver endpoint", () => {
     expect(postCall).toBeDefined();
     const updateCall = fetchCalls.find((c) => c.url.includes("chat.update"));
     expect(updateCall).toBeUndefined();
+  });
+});
+
+describe("slack attachment delivery", () => {
+  test("uploads image attachment via files.getUploadURLExternal flow", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Here is a photo",
+      attachments: [
+        {
+          id: "att-img",
+          filename: "photo.png",
+          mimeType: "image/png",
+          sizeBytes: 100,
+        },
+      ],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    // Should have called: chat.postMessage, download attachment, getUploadURLExternal, upload to URL, completeUploadExternal
+    const downloadCall = fetchCalls.find((c) =>
+      c.url.includes("/v1/attachments/att-img"),
+    );
+    expect(downloadCall).toBeDefined();
+
+    const getUrlCall = fetchCalls.find((c) =>
+      c.url.includes("files.getUploadURLExternal"),
+    );
+    expect(getUrlCall).toBeDefined();
+
+    const completeCall = fetchCalls.find((c) =>
+      c.url.includes("files.completeUploadExternal"),
+    );
+    expect(completeCall).toBeDefined();
+    expect((completeCall!.body as any).channel_id).toBe("C123");
+  });
+
+  test("uploads document attachment (pdf)", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Here is a report",
+      attachments: [
+        {
+          id: "att-pdf",
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 200,
+        },
+      ],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const downloadCall = fetchCalls.find((c) =>
+      c.url.includes("/v1/attachments/att-pdf"),
+    );
+    expect(downloadCall).toBeDefined();
+
+    const getUrlCall = fetchCalls.find((c) =>
+      c.url.includes("files.getUploadURLExternal"),
+    );
+    expect(getUrlCall).toBeDefined();
+  });
+
+  test("skips oversized attachment and sends failure notice", async () => {
+    const handler = createSlackDeliverHandler(
+      makeConfig({ maxAttachmentBytes: 50 }),
+    );
+    const req = makeRequest({
+      chatId: "C123",
+      text: "hello",
+      attachments: [
+        {
+          id: "att-img",
+          filename: "photo.png",
+          mimeType: "image/png",
+          sizeBytes: 100, // exceeds 50 byte limit
+        },
+      ],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    // Should not have downloaded the attachment
+    const downloadCall = fetchCalls.find((c) =>
+      c.url.includes("/v1/attachments/att-img"),
+    );
+    expect(downloadCall).toBeUndefined();
+
+    // Should have sent the text message and the failure notice
+    const messageCalls = fetchCalls.filter((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(messageCalls.length).toBe(2); // original text + failure notice
+  });
+
+  test("delivers attachments-only request without text", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      attachments: [
+        {
+          id: "att-img",
+          filename: "photo.png",
+          mimeType: "image/png",
+          sizeBytes: 100,
+        },
+      ],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    // No chat.postMessage for text since text was absent
+    const textCall = fetchCalls.find(
+      (c) =>
+        c.url.includes("chat.postMessage") &&
+        (c.body as any)?.text !== undefined &&
+        !(c.body as any)?.text?.includes("could not be delivered"),
+    );
+    expect(textCall).toBeUndefined();
+
+    // But should have downloaded and uploaded the attachment
+    const downloadCall = fetchCalls.find((c) =>
+      c.url.includes("/v1/attachments/att-img"),
+    );
+    expect(downloadCall).toBeDefined();
+  });
+
+  test("continues sending remaining attachments on individual failure", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "hello",
+      attachments: [
+        {
+          id: "att-fail",
+          filename: "bad.png",
+          mimeType: "image/png",
+          sizeBytes: 50,
+        },
+        {
+          id: "att-ok",
+          filename: "good.png",
+          mimeType: "image/png",
+          sizeBytes: 50,
+        },
+      ],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    // Second attachment should still be downloaded and uploaded
+    const okDownload = fetchCalls.find((c) =>
+      c.url.includes("/v1/attachments/att-ok"),
+    );
+    expect(okDownload).toBeDefined();
+
+    // Should send failure notice for the failed attachment
+    const noticeCalls = fetchCalls.filter(
+      (c) =>
+        c.url.includes("chat.postMessage") &&
+        typeof (c.body as any)?.text === "string" &&
+        (c.body as any).text.includes("could not be delivered"),
+    );
+    expect(noticeCalls.length).toBe(1);
+  });
+
+  test("passes threadTs to file upload completeUploadExternal", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest(
+      {
+        chatId: "C123",
+        text: "threaded attachment",
+        attachments: [
+          {
+            id: "att-img",
+            filename: "photo.png",
+            mimeType: "image/png",
+            sizeBytes: 100,
+          },
+        ],
+      },
+      undefined,
+      "?threadTs=1700000000.000050",
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const completeCall = fetchCalls.find((c) =>
+      c.url.includes("files.completeUploadExternal"),
+    );
+    expect(completeCall).toBeDefined();
+    expect((completeCall!.body as any).thread_ts).toBe("1700000000.000050");
   });
 });

@@ -2,6 +2,10 @@ import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
+import {
+  downloadAttachment,
+  type RuntimeAttachmentMeta,
+} from "../../runtime/client.js";
 import { classifySlackError } from "../../slack/errors.js";
 
 const log = getLogger("slack-deliver");
@@ -104,6 +108,183 @@ async function callSlackApiWithRetries(
   return Response.json({ error: "Delivery failed" }, { status: 502 });
 }
 
+/**
+ * Upload a single file to Slack using the files.uploadV2 flow:
+ * 1. Get an upload URL via files.getUploadURLExternal
+ * 2. POST file content to that URL
+ * 3. Complete the upload via files.completeUploadExternal, sharing to the channel
+ */
+async function uploadFileToSlack(
+  config: GatewayConfig,
+  channelId: string,
+  buffer: Buffer,
+  filename: string,
+  threadTs?: string,
+): Promise<void> {
+  const token = config.slackChannelBotToken!;
+
+  // Step 1: Get an upload URL
+  const urlRes = await fetchImpl(
+    "https://slack.com/api/files.getUploadURLExternal",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        filename,
+        length: String(buffer.length),
+      }),
+    },
+  );
+
+  const urlData = (await urlRes.json()) as {
+    ok?: boolean;
+    error?: string;
+    upload_url?: string;
+    file_id?: string;
+  };
+
+  if (!urlData.ok || !urlData.upload_url || !urlData.file_id) {
+    throw new Error(
+      `files.getUploadURLExternal failed: ${urlData.error ?? "unknown"}`,
+    );
+  }
+
+  // Step 2: Upload file content to the provided URL
+  const uploadRes = await fetchImpl(urlData.upload_url, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: buffer,
+  });
+
+  if (!uploadRes.ok) {
+    throw new Error(
+      `File upload to Slack failed with status ${uploadRes.status}`,
+    );
+  }
+
+  // Step 3: Complete the upload and share to channel
+  const completeBody: {
+    files: Array<{ id: string; title: string }>;
+    channel_id: string;
+    thread_ts?: string;
+  } = {
+    files: [{ id: urlData.file_id, title: filename }],
+    channel_id: channelId,
+  };
+  if (threadTs) {
+    completeBody.thread_ts = threadTs;
+  }
+
+  const completeRes = await fetchImpl(
+    "https://slack.com/api/files.completeUploadExternal",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(completeBody),
+    },
+  );
+
+  const completeData = (await completeRes.json()) as {
+    ok?: boolean;
+    error?: string;
+  };
+
+  if (!completeData.ok) {
+    throw new Error(
+      `files.completeUploadExternal failed: ${completeData.error ?? "unknown"}`,
+    );
+  }
+}
+
+export async function sendSlackAttachments(
+  config: GatewayConfig,
+  channelId: string,
+  attachments: RuntimeAttachmentMeta[],
+  threadTs?: string,
+): Promise<void> {
+  const failures: string[] = [];
+
+  for (const meta of attachments) {
+    // Skip oversized attachments before downloading when size is known
+    if (
+      meta.sizeBytes !== undefined &&
+      meta.sizeBytes > config.maxAttachmentBytes
+    ) {
+      log.warn(
+        { attachmentId: meta.id, sizeBytes: meta.sizeBytes },
+        "Skipping oversized outbound attachment",
+      );
+      failures.push(meta.filename ?? meta.id);
+      continue;
+    }
+
+    try {
+      const payload = await downloadAttachment(config, meta.id);
+
+      // Hydrate missing metadata from downloaded payload
+      const mimeType =
+        meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
+      const filename = meta.filename ?? payload.filename ?? meta.id;
+      const buffer = Buffer.from(payload.data, "base64");
+      const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? buffer.length;
+
+      // Check size after hydration for ID-only payloads
+      if (sizeBytes > config.maxAttachmentBytes) {
+        log.warn(
+          { attachmentId: meta.id, sizeBytes },
+          "Skipping oversized outbound attachment (detected after download)",
+        );
+        failures.push(filename);
+        continue;
+      }
+
+      await uploadFileToSlack(config, channelId, buffer, filename, threadTs);
+
+      log.debug(
+        { channelId, attachmentId: meta.id, filename, mimeType },
+        "Attachment sent to Slack",
+      );
+    } catch (err) {
+      const displayName = meta.filename ?? meta.id;
+      log.error(
+        { err, attachmentId: meta.id, filename: displayName },
+        "Failed to send attachment to Slack",
+      );
+      failures.push(displayName);
+    }
+  }
+
+  // Send a text fallback for any attachments that failed
+  if (failures.length > 0) {
+    const notice = `${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
+    try {
+      const slackBody: Record<string, string> = {
+        channel: channelId,
+        text: notice,
+      };
+      if (threadTs) {
+        slackBody.thread_ts = threadTs;
+      }
+      await fetchImpl("https://slack.com/api/chat.postMessage", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.slackChannelBotToken!}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(slackBody),
+      });
+    } catch (err) {
+      log.error({ err, channelId }, "Failed to send attachment failure notice");
+    }
+  }
+}
+
 export function createSlackDeliverHandler(
   config: GatewayConfig,
   onThreadReply?: (threadTs: string) => void,
@@ -136,7 +317,7 @@ export function createSlackDeliverHandler(
       to?: string;
       text?: string;
       assistantId?: string;
-      attachments?: unknown[];
+      attachments?: RuntimeAttachmentMeta[];
       ephemeral?: boolean;
       user?: string;
       /** When provided, use chat.update to edit an existing message instead of posting a new one. */
@@ -152,15 +333,30 @@ export function createSlackDeliverHandler(
       return Response.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    if (
-      body.attachments &&
-      Array.isArray(body.attachments) &&
-      body.attachments.length > 0
-    ) {
-      return Response.json(
-        { error: "Slack attachments not supported in MVP" },
-        { status: 400 },
-      );
+    const { attachments } = body;
+
+    // Validate attachment array shape
+    if (attachments) {
+      if (!Array.isArray(attachments)) {
+        return Response.json(
+          { error: "attachments must be an array" },
+          { status: 400 },
+        );
+      }
+      for (const att of attachments) {
+        if (att === null || typeof att !== "object" || Array.isArray(att)) {
+          return Response.json(
+            { error: "each attachment must be an object" },
+            { status: 400 },
+          );
+        }
+        if (!att.id || typeof att.id !== "string") {
+          return Response.json(
+            { error: "each attachment must have an id" },
+            { status: 400 },
+          );
+        }
+      }
     }
 
     // Accept `chatId` as an alias for `to` so runtime channel callbacks work without translation.
@@ -172,8 +368,15 @@ export function createSlackDeliverHandler(
 
     const { text } = body;
 
-    if (!text || typeof text !== "string") {
-      return Response.json({ error: "text is required" }, { status: 400 });
+    if (!text && (!attachments || attachments.length === 0)) {
+      return Response.json(
+        { error: "text or attachments required" },
+        { status: 400 },
+      );
+    }
+
+    if (text !== undefined && typeof text !== "string") {
+      return Response.json({ error: "text must be a string" }, { status: 400 });
     }
 
     const isEphemeral = body.ephemeral === true;
@@ -190,72 +393,76 @@ export function createSlackDeliverHandler(
     const isUpdate = typeof messageTs === "string" && messageTs.length > 0;
 
     try {
-      const slackBody: Record<string, string> = {
-        channel: chatId,
-        text,
-      };
-      if (threadTs) {
-        slackBody.thread_ts = threadTs;
-      }
-
-      // Ephemeral messages are only visible to the target user and cannot be
-      // edited or deleted after posting — they are fire-and-forget.
-      if (isEphemeral) {
-        slackBody.user = body.user!;
-      }
-
-      let result: SlackApiResult | Response;
-
-      if (isUpdate) {
-        // chat.update only accepts channel, ts, and text — thread_ts is not
-        // a valid parameter and would cause the call to fail silently.
-        const updateBody: Record<string, string> = {
+      if (text && typeof text === "string") {
+        const slackBody: Record<string, string> = {
           channel: chatId,
           text,
-          ts: messageTs,
         };
-        result = await callSlackApiWithRetries(
-          "https://slack.com/api/chat.update",
-          updateBody,
-          config.slackChannelBotToken,
-          chatId,
-          tlog,
-        );
+        if (threadTs) {
+          slackBody.thread_ts = threadTs;
+        }
 
-        // Fall back to posting a new message if update fails
-        if (result instanceof Response) {
-          tlog.warn(
-            { chatId, messageTs },
-            "Slack chat.update failed, falling back to chat.postMessage",
-          );
+        // Ephemeral messages are only visible to the target user and cannot be
+        // edited or deleted after posting — they are fire-and-forget.
+        if (isEphemeral) {
+          slackBody.user = body.user!;
+        }
+
+        let result: SlackApiResult | Response;
+
+        if (isUpdate) {
+          // chat.update only accepts channel, ts, and text — thread_ts is not
+          // a valid parameter and would cause the call to fail silently.
+          const updateBody: Record<string, string> = {
+            channel: chatId,
+            text,
+            ts: messageTs,
+          };
           result = await callSlackApiWithRetries(
-            "https://slack.com/api/chat.postMessage",
+            "https://slack.com/api/chat.update",
+            updateBody,
+            config.slackChannelBotToken,
+            chatId,
+            tlog,
+          );
+
+          // Fall back to posting a new message if update fails
+          if (result instanceof Response) {
+            tlog.warn(
+              { chatId, messageTs },
+              "Slack chat.update failed, falling back to chat.postMessage",
+            );
+            result = await callSlackApiWithRetries(
+              "https://slack.com/api/chat.postMessage",
+              slackBody,
+              config.slackChannelBotToken,
+              chatId,
+              tlog,
+            );
+          }
+        } else {
+          const slackMethod = isEphemeral
+            ? "chat.postEphemeral"
+            : "chat.postMessage";
+
+          result = await callSlackApiWithRetries(
+            `https://slack.com/api/${slackMethod}`,
             slackBody,
             config.slackChannelBotToken,
             chatId,
             tlog,
           );
         }
-      } else {
-        const slackMethod = isEphemeral
-          ? "chat.postEphemeral"
-          : "chat.postMessage";
 
-        result = await callSlackApiWithRetries(
-          `https://slack.com/api/${slackMethod}`,
-          slackBody,
-          config.slackChannelBotToken,
-          chatId,
-          tlog,
-        );
+        // If result is a Response, it's an error response — return it directly
+        if (result instanceof Response) {
+          return result;
+        }
       }
 
-      // If result is a Response, it's an error response — return it directly
-      if (result instanceof Response) {
-        return result;
+      if (attachments && attachments.length > 0) {
+        await sendSlackAttachments(config, chatId, attachments, threadTs);
       }
-
-      const responseTs = result.ts;
 
       tlog.info(
         {
@@ -263,7 +470,8 @@ export function createSlackDeliverHandler(
           hasThreadTs: !!threadTs,
           isUpdate,
           ephemeral: isEphemeral,
-          responseTs,
+          hasText: !!text,
+          attachmentCount: attachments?.length ?? 0,
         },
         isUpdate ? "Slack message updated" : "Slack message sent",
       );
@@ -275,7 +483,7 @@ export function createSlackDeliverHandler(
         onThreadReply(threadTs);
       }
 
-      return Response.json({ ok: true, ts: responseTs });
+      return Response.json({ ok: true });
     } catch (err) {
       tlog.error({ err, chatId }, "Failed to deliver Slack message");
       return Response.json({ error: "Delivery failed" }, { status: 502 });
