@@ -5,22 +5,22 @@
  * for a given (assistantId, channel) pair.
  */
 
-import { and, asc, desc, eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, asc, desc, eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { syncSingleGuardianBinding } from '../contacts/contact-sync.js';
-import { revokeGuardianChannel } from '../contacts/contact-store.js';
-import { getLogger } from '../util/logger.js';
-import { getDb } from './db.js';
-import { channelGuardianBindings } from './schema.js';
+import { revokeGuardianChannel } from "../contacts/contact-store.js";
+import { syncSingleGuardianBinding } from "../contacts/contact-sync.js";
+import { getLogger } from "../util/logger.js";
+import { getDb } from "./db.js";
+import { channelGuardianBindings } from "./schema.js";
 
-const log = getLogger('guardian-bindings');
+const log = getLogger("guardian-bindings");
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type BindingStatus = 'active' | 'revoked';
+export type BindingStatus = "active" | "revoked";
 
 export interface GuardianBinding {
   id: string;
@@ -41,7 +41,9 @@ export interface GuardianBinding {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToBinding(row: typeof channelGuardianBindings.$inferSelect): GuardianBinding {
+function rowToBinding(
+  row: typeof channelGuardianBindings.$inferSelect,
+): GuardianBinding {
   return {
     id: row.id,
     assistantId: row.assistantId,
@@ -82,9 +84,9 @@ export function createBinding(params: {
     guardianExternalUserId: params.guardianExternalUserId,
     guardianDeliveryChatId: params.guardianDeliveryChatId,
     guardianPrincipalId: params.guardianPrincipalId,
-    status: 'active' as const,
+    status: "active" as const,
     verifiedAt: now,
-    verifiedVia: params.verifiedVia ?? 'challenge',
+    verifiedVia: params.verifiedVia ?? "challenge",
     metadataJson: params.metadataJson ?? null,
     createdAt: now,
     updatedAt: now,
@@ -96,13 +98,16 @@ export function createBinding(params: {
   try {
     syncSingleGuardianBinding(binding);
   } catch (err) {
-    log.warn({ err }, 'Contact sync failed for guardian binding');
+    log.warn({ err }, "Contact sync failed for guardian binding");
   }
 
   return binding;
 }
 
-export function getActiveBinding(assistantId: string, channel: string): GuardianBinding | null {
+export function getActiveBinding(
+  assistantId: string,
+  channel: string,
+): GuardianBinding | null {
   const db = getDb();
   const row = db
     .select()
@@ -111,7 +116,7 @@ export function getActiveBinding(assistantId: string, channel: string): Guardian
       and(
         eq(channelGuardianBindings.assistantId, assistantId),
         eq(channelGuardianBindings.channel, channel),
-        eq(channelGuardianBindings.status, 'active'),
+        eq(channelGuardianBindings.status, "active"),
       ),
     )
     .get();
@@ -124,7 +129,9 @@ export function getActiveBinding(assistantId: string, channel: string): Guardian
  * Deterministic ordering: verifiedAt DESC (most recently verified first),
  * then channel ASC (alphabetical tiebreaker).
  */
-export function listActiveBindingsByAssistant(assistantId: string): GuardianBinding[] {
+export function listActiveBindingsByAssistant(
+  assistantId: string,
+): GuardianBinding[] {
   const db = getDb();
   return db
     .select()
@@ -132,7 +139,7 @@ export function listActiveBindingsByAssistant(assistantId: string): GuardianBind
     .where(
       and(
         eq(channelGuardianBindings.assistantId, assistantId),
-        eq(channelGuardianBindings.status, 'active'),
+        eq(channelGuardianBindings.status, "active"),
       ),
     )
     .orderBy(
@@ -154,7 +161,7 @@ export function revokeBinding(assistantId: string, channel: string): boolean {
       and(
         eq(channelGuardianBindings.assistantId, assistantId),
         eq(channelGuardianBindings.channel, channel),
-        eq(channelGuardianBindings.status, 'active'),
+        eq(channelGuardianBindings.status, "active"),
       ),
     )
     .get();
@@ -162,7 +169,7 @@ export function revokeBinding(assistantId: string, channel: string): boolean {
   if (!existing) return false;
 
   db.update(channelGuardianBindings)
-    .set({ status: 'revoked', updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(eq(channelGuardianBindings.id, existing.id))
     .run();
 
@@ -171,7 +178,7 @@ export function revokeBinding(assistantId: string, channel: string): boolean {
   try {
     revokeGuardianChannel(channel);
   } catch (err) {
-    log.warn({ err }, 'Failed to revoke contact channel for guardian binding');
+    log.warn({ err }, "Failed to revoke contact channel for guardian binding");
   }
 
   return true;

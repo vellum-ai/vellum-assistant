@@ -1,6 +1,10 @@
 import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
+import {
+  revokeGuardianBindingContactsFirst,
+  revokeMemberContactsFirst,
+} from "../../contacts/contacts-write.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import { findMember } from "../../memory/ingress-member-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
@@ -11,7 +15,6 @@ import {
   getPendingChallenge,
   revokePendingChallenges,
 } from "../../runtime/channel-guardian-service.js";
-import { revokeGuardianBindingContactsFirst, revokeMemberContactsFirst } from "../../contacts/contacts-write.js";
 import {
   type ChannelReadinessService,
   createReadinessService,

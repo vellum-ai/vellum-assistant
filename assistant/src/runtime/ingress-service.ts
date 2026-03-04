@@ -5,9 +5,14 @@
  * both the HTTP routes and the IPC handlers call the same logic.
  */
 
-import { isChannelId } from '../channels/types.js';
-import { listContacts } from '../contacts/contact-store.js';
-import type { ContactWithChannels } from '../contacts/types.js';
+import { isChannelId } from "../channels/types.js";
+import { listContacts } from "../contacts/contact-store.js";
+import {
+  blockMemberContactsFirst,
+  revokeMemberContactsFirst,
+  upsertMemberContactsFirst,
+} from "../contacts/contacts-write.js";
+import type { ContactWithChannels } from "../contacts/types.js";
 import {
   createInvite,
   type IngressInvite,
@@ -15,24 +20,23 @@ import {
   listInvites,
   redeemInvite,
   revokeInvite,
-} from '../memory/ingress-invite-store.js';
+} from "../memory/ingress-invite-store.js";
 import {
   type IngressMember,
   type MemberPolicy,
   type MemberStatus,
-} from '../memory/ingress-member-store.js';
-import { upsertMemberContactsFirst, revokeMemberContactsFirst, blockMemberContactsFirst } from '../contacts/contacts-write.js';
-import { isValidE164 } from '../util/phone.js';
-import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
-import { getTransport } from './channel-invite-transport.js';
+} from "../memory/ingress-member-store.js";
+import { isValidE164 } from "../util/phone.js";
+import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
+import { getTransport } from "./channel-invite-transport.js";
 import {
   type InviteRedemptionOutcome,
   redeemInvite as redeemInviteTyped,
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
   type VoiceRedemptionOutcome,
-} from './invite-redemption-service.js';
+} from "./invite-redemption-service.js";
 
-import './channel-invite-transports/telegram.js';
+import "./channel-invite-transports/telegram.js";
 
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and IPC handlers
@@ -78,7 +82,10 @@ export interface MemberResponseData {
 // Mappers
 // ---------------------------------------------------------------------------
 
-function buildSharePayload(sourceChannel: string, rawToken?: string): InviteResponseData['share'] | undefined {
+function buildSharePayload(
+  sourceChannel: string,
+  rawToken?: string,
+): InviteResponseData["share"] | undefined {
   if (!rawToken || !isChannelId(sourceChannel)) return undefined;
   const transport = getTransport(sourceChannel);
   if (!transport?.buildShareableInvite) return undefined;
@@ -95,7 +102,10 @@ function buildSharePayload(sourceChannel: string, rawToken?: string): InviteResp
   }
 }
 
-function inviteToResponse(inv: IngressInvite, opts?: { rawToken?: string; voiceCode?: string }): InviteResponseData {
+function inviteToResponse(
+  inv: IngressInvite,
+  opts?: { rawToken?: string; voiceCode?: string },
+): InviteResponseData {
   const share = buildSharePayload(inv.sourceChannel, opts?.rawToken);
   return {
     id: inv.id,
@@ -108,9 +118,13 @@ function inviteToResponse(inv: IngressInvite, opts?: { rawToken?: string; voiceC
     expiresAt: inv.expiresAt,
     status: inv.status,
     note: inv.note ?? undefined,
-    ...(inv.expectedExternalUserId ? { expectedExternalUserId: inv.expectedExternalUserId } : {}),
+    ...(inv.expectedExternalUserId
+      ? { expectedExternalUserId: inv.expectedExternalUserId }
+      : {}),
     ...(opts?.voiceCode ? { voiceCode: opts.voiceCode } : {}),
-    ...(inv.voiceCodeDigits != null ? { voiceCodeDigits: inv.voiceCodeDigits } : {}),
+    ...(inv.voiceCodeDigits != null
+      ? { voiceCodeDigits: inv.voiceCodeDigits }
+      : {}),
     ...(inv.friendName ? { friendName: inv.friendName } : {}),
     ...(inv.guardianName ? { guardianName: inv.guardianName } : {}),
     createdAt: inv.createdAt,
@@ -132,7 +146,9 @@ export function memberToResponse(m: IngressMember): MemberResponseData {
   };
 }
 
-function contactToMemberResponse(contact: ContactWithChannels): MemberResponseData[] {
+function contactToMemberResponse(
+  contact: ContactWithChannels,
+): MemberResponseData[] {
   return contact.channels.map((ch) => ({
     id: `${contact.id}:${ch.id}`,
     sourceChannel: ch.type,
@@ -171,7 +187,7 @@ export function createIngressInvite(params: {
   guardianName?: string;
 }): IngressResult<InviteResponseData> {
   if (!params.sourceChannel) {
-    return { ok: false, error: 'sourceChannel is required for create' };
+    return { ok: false, error: "sourceChannel is required for create" };
   }
 
   // For voice invites: generate a one-time numeric code, hash it, and pass
@@ -179,20 +195,30 @@ export function createIngressInvite(params: {
   // exactly once and never stored.
   let voiceCode: string | undefined;
   let voiceCodeHash: string | undefined;
-  const isVoice = params.sourceChannel === 'voice';
+  const isVoice = params.sourceChannel === "voice";
 
   if (isVoice) {
     if (!params.expectedExternalUserId) {
-      return { ok: false, error: 'expectedExternalUserId is required for voice invites' };
+      return {
+        ok: false,
+        error: "expectedExternalUserId is required for voice invites",
+      };
     }
     if (!isValidE164(params.expectedExternalUserId)) {
-      return { ok: false, error: 'expectedExternalUserId must be in E.164 format (e.g., +15551234567)' };
+      return {
+        ok: false,
+        error:
+          "expectedExternalUserId must be in E.164 format (e.g., +15551234567)",
+      };
     }
-    if (typeof params.friendName !== 'string' || !params.friendName.trim()) {
-      return { ok: false, error: 'friendName is required for voice invites' };
+    if (typeof params.friendName !== "string" || !params.friendName.trim()) {
+      return { ok: false, error: "friendName is required for voice invites" };
     }
-    if (typeof params.guardianName !== 'string' || !params.guardianName.trim()) {
-      return { ok: false, error: 'guardianName is required for voice invites' };
+    if (
+      typeof params.guardianName !== "string" ||
+      !params.guardianName.trim()
+    ) {
+      return { ok: false, error: "guardianName is required for voice invites" };
     }
     voiceCode = generateVoiceCode(6);
     voiceCodeHash = hashVoiceCode(voiceCode);
@@ -203,17 +229,25 @@ export function createIngressInvite(params: {
     note: params.note,
     maxUses: params.maxUses,
     expiresInMs: params.expiresInMs,
-    ...(isVoice ? {
-      expectedExternalUserId: params.expectedExternalUserId,
-      voiceCodeHash,
-      voiceCodeDigits: 6,
-      friendName: params.friendName,
-      guardianName: params.guardianName,
-    } : {}),
+    ...(isVoice
+      ? {
+          expectedExternalUserId: params.expectedExternalUserId,
+          voiceCodeHash,
+          voiceCodeDigits: 6,
+          friendName: params.friendName,
+          guardianName: params.guardianName,
+        }
+      : {}),
   });
   // Voice invites must not expose the token — callers must redeem via the
   // identity-bound voice code flow, not the generic token redemption path.
-  return { ok: true, data: inviteToResponse(invite, { rawToken: isVoice ? undefined : rawToken, voiceCode }) };
+  return {
+    ok: true,
+    data: inviteToResponse(invite, {
+      rawToken: isVoice ? undefined : rawToken,
+      voiceCode,
+    }),
+  };
 }
 
 export function listIngressInvites(params: {
@@ -230,13 +264,15 @@ export function listIngressInvites(params: {
   };
 }
 
-export function revokeIngressInvite(inviteId?: string): IngressResult<InviteResponseData> {
+export function revokeIngressInvite(
+  inviteId?: string,
+): IngressResult<InviteResponseData> {
   if (!inviteId) {
-    return { ok: false, error: 'inviteId is required for revoke' };
+    return { ok: false, error: "inviteId is required for revoke" };
   }
   const revoked = revokeInvite(inviteId);
   if (!revoked) {
-    return { ok: false, error: 'Invite not found or already revoked' };
+    return { ok: false, error: "Invite not found or already revoked" };
   }
   return { ok: true, data: inviteToResponse(revoked) };
 }
@@ -248,7 +284,7 @@ export function redeemIngressInvite(params: {
   sourceChannel?: string;
 }): IngressResult<InviteResponseData> {
   if (!params.token) {
-    return { ok: false, error: 'token is required for redeem' };
+    return { ok: false, error: "token is required for redeem" };
   }
   const result = redeemInvite({
     rawToken: params.token,
@@ -256,7 +292,7 @@ export function redeemIngressInvite(params: {
     externalChatId: params.externalChatId,
     sourceChannel: params.sourceChannel,
   });
-  if ('error' in result) {
+  if ("error" in result) {
     return { ok: false, error: result.error };
   }
   return { ok: true, data: inviteToResponse(result.invite) };
@@ -266,8 +302,8 @@ export function redeemIngressInvite(params: {
 // Typed invite redemption — preferred entry point for new callers
 // ---------------------------------------------------------------------------
 
-export { type InviteRedemptionOutcome } from './invite-redemption-service.js';
-export { type VoiceRedemptionOutcome } from './invite-redemption-service.js';
+export { type InviteRedemptionOutcome } from "./invite-redemption-service.js";
+export { type VoiceRedemptionOutcome } from "./invite-redemption-service.js";
 
 export function redeemIngressInviteTyped(params: {
   rawToken: string;
@@ -284,7 +320,7 @@ export function redeemIngressInviteTyped(params: {
 export function redeemVoiceInviteCode(params: {
   assistantId?: string;
   callerExternalUserId: string;
-  sourceChannel: 'voice';
+  sourceChannel: "voice";
   code: string;
 }): VoiceRedemptionOutcome {
   return redeemVoiceInviteCodeTyped(params);
@@ -300,11 +336,12 @@ export function listIngressMembers(params: {
   status?: string;
   policy?: string;
 }): IngressResult<MemberResponseData[]> {
-  const allContacts = listContacts(200, 'contact');
+  const allContacts = listContacts(200, "contact");
   const members = allContacts.flatMap(contactToMemberResponse);
 
   const filtered = members.filter((m) => {
-    if (params.sourceChannel && m.sourceChannel !== params.sourceChannel) return false;
+    if (params.sourceChannel && m.sourceChannel !== params.sourceChannel)
+      return false;
     if (params.status && m.status !== params.status) return false;
     if (params.policy && m.policy !== params.policy) return false;
     return true;
@@ -324,10 +361,14 @@ export function upsertIngressMember(params: {
   assistantId?: string;
 }): IngressResult<MemberResponseData> {
   if (!params.sourceChannel) {
-    return { ok: false, error: 'sourceChannel is required for upsert' };
+    return { ok: false, error: "sourceChannel is required for upsert" };
   }
   if (!params.externalUserId && !params.externalChatId) {
-    return { ok: false, error: 'At least one of externalUserId or externalChatId is required for upsert' };
+    return {
+      ok: false,
+      error:
+        "At least one of externalUserId or externalChatId is required for upsert",
+    };
   }
   const member = upsertMemberContactsFirst({
     assistantId: params.assistantId,
@@ -342,24 +383,30 @@ export function upsertIngressMember(params: {
   return { ok: true, data: memberToResponse(member) };
 }
 
-export function revokeIngressMember(memberId?: string, reason?: string): IngressResult<MemberResponseData> {
+export function revokeIngressMember(
+  memberId?: string,
+  reason?: string,
+): IngressResult<MemberResponseData> {
   if (!memberId) {
-    return { ok: false, error: 'memberId is required for revoke' };
+    return { ok: false, error: "memberId is required for revoke" };
   }
   const revoked = revokeMemberContactsFirst(memberId, reason);
   if (!revoked) {
-    return { ok: false, error: 'Member not found or cannot be revoked' };
+    return { ok: false, error: "Member not found or cannot be revoked" };
   }
   return { ok: true, data: memberToResponse(revoked) };
 }
 
-export function blockIngressMember(memberId?: string, reason?: string): IngressResult<MemberResponseData> {
+export function blockIngressMember(
+  memberId?: string,
+  reason?: string,
+): IngressResult<MemberResponseData> {
   if (!memberId) {
-    return { ok: false, error: 'memberId is required for block' };
+    return { ok: false, error: "memberId is required for block" };
   }
   const blocked = blockMemberContactsFirst(memberId, reason);
   if (!blocked) {
-    return { ok: false, error: 'Member not found or already blocked' };
+    return { ok: false, error: "Member not found or already blocked" };
   }
   return { ok: true, data: memberToResponse(blocked) };
 }

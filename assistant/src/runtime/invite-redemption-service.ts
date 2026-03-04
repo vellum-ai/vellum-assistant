@@ -7,42 +7,61 @@
  * persisted, or returned in the outcome.
  */
 
-import type { ChannelId } from '../channels/types.js';
-import { getSqlite } from '../memory/db.js';
-import { findActiveVoiceInvites,findByTokenHash, hashToken, markInviteExpired, recordInviteUse, redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
-import { findMember } from '../memory/ingress-member-store.js';
-import { upsertMemberContactsFirst } from '../contacts/contacts-write.js';
-import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
-import { hashVoiceCode } from '../util/voice-code.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
+import type { ChannelId } from "../channels/types.js";
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
+import { getSqlite } from "../memory/db.js";
+import {
+  findActiveVoiceInvites,
+  findByTokenHash,
+  hashToken,
+  markInviteExpired,
+  recordInviteUse,
+  redeemInvite as storeRedeemInvite,
+} from "../memory/ingress-invite-store.js";
+import { findMember } from "../memory/ingress-member-store.js";
+import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { hashVoiceCode } from "../util/voice-code.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 // ---------------------------------------------------------------------------
 // Outcome type
 // ---------------------------------------------------------------------------
 
 export type InviteRedemptionOutcome =
-  | { ok: true; type: 'redeemed'; memberId: string; inviteId: string }
-  | { ok: true; type: 'already_member'; memberId: string }
-  | { ok: false; reason: 'invalid_token' | 'expired' | 'revoked' | 'max_uses_reached' | 'channel_mismatch' | 'missing_identity' };
+  | { ok: true; type: "redeemed"; memberId: string; inviteId: string }
+  | { ok: true; type: "already_member"; memberId: string }
+  | {
+      ok: false;
+      reason:
+        | "invalid_token"
+        | "expired"
+        | "revoked"
+        | "max_uses_reached"
+        | "channel_mismatch"
+        | "missing_identity";
+    };
 
 // Generic failure reasons for voice redemption — intentionally vague to avoid
 // leaking information about which invites exist or which identity is bound.
 export type VoiceRedemptionOutcome =
-  | { ok: true; type: 'redeemed'; memberId: string; inviteId: string }
-  | { ok: true; type: 'already_member'; memberId: string }
-  | { ok: false; reason: 'invalid_or_expired' };
+  | { ok: true; type: "redeemed"; memberId: string; inviteId: string }
+  | { ok: true; type: "already_member"; memberId: string }
+  | { ok: false; reason: "invalid_or_expired" };
 
 // ---------------------------------------------------------------------------
 // Error-string to typed-reason mapping
 // ---------------------------------------------------------------------------
 
-const STORE_ERROR_TO_REASON: Record<string, InviteRedemptionOutcome & { ok: false } | undefined> = {
-  invite_not_found: { ok: false, reason: 'invalid_token' },
-  invite_expired: { ok: false, reason: 'expired' },
-  invite_revoked: { ok: false, reason: 'revoked' },
-  invite_redeemed: { ok: false, reason: 'max_uses_reached' },
-  invite_max_uses_reached: { ok: false, reason: 'max_uses_reached' },
-  invite_channel_mismatch: { ok: false, reason: 'channel_mismatch' },
+const STORE_ERROR_TO_REASON: Record<
+  string,
+  (InviteRedemptionOutcome & { ok: false }) | undefined
+> = {
+  invite_not_found: { ok: false, reason: "invalid_token" },
+  invite_expired: { ok: false, reason: "expired" },
+  invite_revoked: { ok: false, reason: "revoked" },
+  invite_redeemed: { ok: false, reason: "max_uses_reached" },
+  invite_max_uses_reached: { ok: false, reason: "max_uses_reached" },
+  invite_channel_mismatch: { ok: false, reason: "channel_mismatch" },
 };
 
 // ---------------------------------------------------------------------------
@@ -58,10 +77,18 @@ export function redeemInvite(params: {
   username?: string;
   assistantId?: string;
 }): InviteRedemptionOutcome {
-  const { rawToken, sourceChannel, externalUserId, externalChatId, displayName, username, assistantId } = params;
+  const {
+    rawToken,
+    sourceChannel,
+    externalUserId,
+    externalChatId,
+    displayName,
+    username,
+    assistantId,
+  } = params;
 
   if (!externalUserId && !externalChatId) {
-    return { ok: false, reason: 'missing_identity' };
+    return { ok: false, reason: "missing_identity" };
   }
 
   // Validate the invite token before any membership checks to prevent
@@ -70,28 +97,28 @@ export function redeemInvite(params: {
   const invite = findByTokenHash(tokenHash);
 
   if (!invite) {
-    return { ok: false, reason: 'invalid_token' };
+    return { ok: false, reason: "invalid_token" };
   }
 
-  if (invite.status !== 'active') {
+  if (invite.status !== "active") {
     const mapped = STORE_ERROR_TO_REASON[`invite_${invite.status}`];
     if (mapped) return mapped;
-    return { ok: false, reason: 'invalid_token' };
+    return { ok: false, reason: "invalid_token" };
   }
 
   if (invite.expiresAt <= Date.now()) {
     markInviteExpired(invite.id);
-    return { ok: false, reason: 'expired' };
+    return { ok: false, reason: "expired" };
   }
 
   if (invite.useCount >= invite.maxUses) {
-    return { ok: false, reason: 'max_uses_reached' };
+    return { ok: false, reason: "max_uses_reached" };
   }
 
   // Enforce channel match: the token must belong to the channel the caller
   // is redeeming from.
   if (sourceChannel !== invite.sourceChannel) {
-    return { ok: false, reason: 'channel_mismatch' };
+    return { ok: false, reason: "channel_mismatch" };
   }
 
   // Token is valid — now safe to check existing membership without leaking
@@ -103,15 +130,15 @@ export function redeemInvite(params: {
     externalChatId,
   });
 
-  if (existingMember && existingMember.status === 'active') {
-    return { ok: true, type: 'already_member', memberId: existingMember.id };
+  if (existingMember && existingMember.status === "active") {
+    return { ok: true, type: "already_member", memberId: existingMember.id };
   }
 
   // Blocked members cannot bypass the guardian's explicit block via invite
   // links. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (existingMember && existingMember.status === 'blocked') {
-    return { ok: false, reason: 'invalid_token' };
+  if (existingMember && existingMember.status === "blocked") {
+    return { ok: false, reason: "invalid_token" };
   }
 
   // Inactive member reactivation: when the user already has a member record
@@ -122,51 +149,65 @@ export function redeemInvite(params: {
   if (existingMember) {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
-    const STALE_INVITE = Symbol('stale_invite');
-    const canonicalMemberId = existingMember.externalUserId ? canonicalizeInboundIdentity(sourceChannel as ChannelId, existingMember.externalUserId) : null;
-    const canonicalCallerId = externalUserId ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId) : null;
-    const memberMatchesSender = !!(canonicalMemberId && canonicalCallerId && canonicalMemberId === canonicalCallerId);
-    const preservedDisplayName = memberMatchesSender && existingMember.displayName?.trim().length
-      ? existingMember.displayName
-      : displayName;
+    const STALE_INVITE = Symbol("stale_invite");
+    const canonicalMemberId = existingMember.externalUserId
+      ? canonicalizeInboundIdentity(
+          sourceChannel as ChannelId,
+          existingMember.externalUserId,
+        )
+      : null;
+    const canonicalCallerId = externalUserId
+      ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId)
+      : null;
+    const memberMatchesSender = !!(
+      canonicalMemberId &&
+      canonicalCallerId &&
+      canonicalMemberId === canonicalCallerId
+    );
+    const preservedDisplayName =
+      memberMatchesSender && existingMember.displayName?.trim().length
+        ? existingMember.displayName
+        : displayName;
 
     let reactivated: ReturnType<typeof upsertMemberContactsFirst> | undefined;
     try {
-      getSqlite().transaction(() => {
-        reactivated = upsertMemberContactsFirst({
-          assistantId: assistantId ?? invite.assistantId,
-          sourceChannel,
-          externalUserId,
-          externalChatId,
-          // Reactivation should not overwrite a guardian-managed nickname.
-          displayName: preservedDisplayName,
-          username,
-          status: 'active',
-          policy: 'allow',
-          inviteId: invite.id,
-        });
+      getSqlite()
+        .transaction(() => {
+          reactivated = upsertMemberContactsFirst({
+            assistantId: assistantId ?? invite.assistantId,
+            sourceChannel,
+            externalUserId,
+            externalChatId,
+            // Reactivation should not overwrite a guardian-managed nickname.
+            displayName: preservedDisplayName,
+            username,
+            status: "active",
+            policy: "allow",
+            inviteId: invite.id,
+          });
 
-        const recorded = recordInviteUse({
-          inviteId: invite.id,
-          externalUserId,
-          externalChatId,
-        });
+          const recorded = recordInviteUse({
+            inviteId: invite.id,
+            externalUserId,
+            externalChatId,
+          });
 
-        // If the invite was revoked/expired between pre-validation and this
-        // write, recordInviteUse returns false — throw to roll back the
-        // member reactivation so the DB stays consistent.
-        if (!recorded) throw STALE_INVITE;
-      }).immediate();
+          // If the invite was revoked/expired between pre-validation and this
+          // write, recordInviteUse returns false — throw to roll back the
+          // member reactivation so the DB stays consistent.
+          if (!recorded) throw STALE_INVITE;
+        })
+        .immediate();
     } catch (err) {
       if (err === STALE_INVITE) {
-        return { ok: false, reason: 'invalid_token' };
+        return { ok: false, reason: "invalid_token" };
       }
       throw err;
     }
 
     return {
       ok: true,
-      type: 'redeemed',
+      type: "redeemed",
       memberId: reactivated!.id,
       inviteId: invite.id,
     };
@@ -184,16 +225,16 @@ export function redeemInvite(params: {
     username,
   });
 
-  if ('error' in result) {
+  if ("error" in result) {
     const mapped = STORE_ERROR_TO_REASON[result.error];
     if (mapped) return mapped;
     // Fallback for any unrecognized store error
-    return { ok: false, reason: 'invalid_token' };
+    return { ok: false, reason: "invalid_token" };
   }
 
   return {
     ok: true,
-    type: 'redeemed',
+    type: "redeemed",
     memberId: result.member.id,
     inviteId: result.invite.id,
   };
@@ -222,13 +263,17 @@ export function redeemInvite(params: {
 export function redeemVoiceInviteCode(params: {
   assistantId?: string;
   callerExternalUserId: string;
-  sourceChannel: 'voice';
+  sourceChannel: "voice";
   code: string;
 }): VoiceRedemptionOutcome {
-  const { assistantId = DAEMON_INTERNAL_ASSISTANT_ID, callerExternalUserId, code } = params;
+  const {
+    assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
+    callerExternalUserId,
+    code,
+  } = params;
 
   if (!callerExternalUserId) {
-    return { ok: false, reason: 'invalid_or_expired' };
+    return { ok: false, reason: "invalid_or_expired" };
   }
 
   // Find all active voice invites bound to the caller's phone number
@@ -238,7 +283,7 @@ export function redeemVoiceInviteCode(params: {
   });
 
   if (candidates.length === 0) {
-    return { ok: false, reason: 'invalid_or_expired' };
+    return { ok: false, reason: "invalid_or_expired" };
   }
 
   const codeHash = hashVoiceCode(code);
@@ -255,36 +300,36 @@ export function redeemVoiceInviteCode(params: {
   if (!invite) {
     // Mark any expired candidates while we're here
     for (const inv of candidates) {
-      if (inv.expiresAt <= now && inv.status === 'active') {
+      if (inv.expiresAt <= now && inv.status === "active") {
         markInviteExpired(inv.id);
       }
     }
-    return { ok: false, reason: 'invalid_or_expired' };
+    return { ok: false, reason: "invalid_or_expired" };
   }
 
   // Channel enforcement: voice invites can only be redeemed on the voice channel
-  if (invite.sourceChannel !== 'voice') {
-    return { ok: false, reason: 'invalid_or_expired' };
+  if (invite.sourceChannel !== "voice") {
+    return { ok: false, reason: "invalid_or_expired" };
   }
 
   // Check for existing membership
   const existingMember = findMember({
     assistantId: invite.assistantId,
-    sourceChannel: 'voice',
+    sourceChannel: "voice",
     externalUserId: callerExternalUserId,
   });
 
-  if (existingMember && existingMember.status === 'active') {
-    return { ok: true, type: 'already_member', memberId: existingMember.id };
+  if (existingMember && existingMember.status === "active") {
+    return { ok: true, type: "already_member", memberId: existingMember.id };
   }
 
   // Blocked members cannot bypass the guardian's explicit block
-  if (existingMember && existingMember.status === 'blocked') {
-    return { ok: false, reason: 'invalid_or_expired' };
+  if (existingMember && existingMember.status === "blocked") {
+    return { ok: false, reason: "invalid_or_expired" };
   }
 
   // Atomic redemption: upsert member + consume invite use in a transaction
-  const STALE_INVITE = Symbol('stale_invite');
+  const STALE_INVITE = Symbol("stale_invite");
   let memberId: string | undefined;
 
   // Reactivation should not overwrite a guardian-managed nickname (same
@@ -294,36 +339,38 @@ export function redeemVoiceInviteCode(params: {
     : (invite.friendName ?? undefined);
 
   try {
-    getSqlite().transaction(() => {
-      const member = upsertMemberContactsFirst({
-        assistantId: invite.assistantId,
-        sourceChannel: 'voice',
-        externalUserId: callerExternalUserId,
-        externalChatId: callerExternalUserId,
-        displayName: preservedDisplayName,
-        status: 'active',
-        policy: 'allow',
-        inviteId: invite.id,
-      });
-      memberId = member.id;
+    getSqlite()
+      .transaction(() => {
+        const member = upsertMemberContactsFirst({
+          assistantId: invite.assistantId,
+          sourceChannel: "voice",
+          externalUserId: callerExternalUserId,
+          externalChatId: callerExternalUserId,
+          displayName: preservedDisplayName,
+          status: "active",
+          policy: "allow",
+          inviteId: invite.id,
+        });
+        memberId = member.id;
 
-      const recorded = recordInviteUse({
-        inviteId: invite.id,
-        externalUserId: callerExternalUserId,
-      });
+        const recorded = recordInviteUse({
+          inviteId: invite.id,
+          externalUserId: callerExternalUserId,
+        });
 
-      if (!recorded) throw STALE_INVITE;
-    }).immediate();
+        if (!recorded) throw STALE_INVITE;
+      })
+      .immediate();
   } catch (err) {
     if (err === STALE_INVITE) {
-      return { ok: false, reason: 'invalid_or_expired' };
+      return { ok: false, reason: "invalid_or_expired" };
     }
     throw err;
   }
 
   return {
     ok: true,
-    type: 'redeemed',
+    type: "redeemed",
     memberId: memberId!,
     inviteId: invite.id,
   };
