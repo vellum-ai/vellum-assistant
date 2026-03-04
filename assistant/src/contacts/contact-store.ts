@@ -1024,11 +1024,13 @@ export function updateChannelLastSeenById(channelId: string): void {
 function parseAssistantMetadata(
   row: typeof assistantContactMetadata.$inferSelect,
 ): AssistantContactMetadata {
+  // Species–metadata pairing is enforced at write time; the cast bridges the
+  // runtime DB row into the compile-time discriminated union.
   return {
     contactId: row.contactId,
-    species: row.species as AssistantSpecies,
+    species: row.species,
     metadata: row.metadata ? JSON.parse(row.metadata) : null,
-  };
+  } as AssistantContactMetadata;
 }
 
 export function upsertAssistantContactMetadata(params: {
