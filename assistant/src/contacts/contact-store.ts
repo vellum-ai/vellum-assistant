@@ -352,11 +352,12 @@ export function searchContacts(params: {
   return rows.map((r) => withChannels(parseContact(r)));
 }
 
-export function listContacts(limit = 50): ContactWithChannels[] {
+export function listContacts(limit = 50, role?: ContactRole): ContactWithChannels[] {
   const db = getDb();
   const rows = db
     .select()
     .from(contacts)
+    .where(role ? eq(contacts.role, role) : undefined)
     .orderBy(
       sql`${contacts.role} = 'guardian' DESC`,
       desc(contacts.importance),
@@ -512,8 +513,8 @@ export function updateChannelStatus(
   params: {
     status?: ChannelStatus;
     policy?: ChannelPolicy;
-    revokedReason?: string;
-    blockedReason?: string;
+    revokedReason?: string | null;
+    blockedReason?: string | null;
   },
 ): ContactChannel | null {
   const db = getDb();
