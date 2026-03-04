@@ -14,6 +14,9 @@ export const FFMPEG_TRANSCODE_TIMEOUT_MS = 120_000;
 /** Metadata extraction via ffprobe. Very fast — just reads headers. */
 export const FFPROBE_TIMEOUT_MS = 15_000;
 
+/** Palette/color analysis on a single frame via ffmpeg. Moderate — heavier than metadata reads. */
+export const FFMPEG_PALETTE_TIMEOUT_MS = 30_000;
+
 export function spawnWithTimeout(
   cmd: string[],
   timeoutMs: number,

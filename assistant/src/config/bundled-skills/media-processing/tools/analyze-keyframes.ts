@@ -158,6 +158,7 @@ export async function run(
         },
         asset.filePath,
         asset.durationSeconds ?? 0,
+        asset.mimeType,
         context.onOutput,
       );
     } else {

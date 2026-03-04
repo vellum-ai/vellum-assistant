@@ -540,9 +540,9 @@ describe("ContextWindowManager", () => {
       minKeepRecentUserTurns: 0,
     });
     expect(result.compacted).toBe(true);
-    // targetInputTokens=60 is tight enough that even a single user turn
-    // exceeds budget, so pickKeepBoundary drops to keepTurns=0 and all
-    // three messages are compacted into the summary.
+    // With minKeepRecentUserTurns=0 and a tight targetInputTokens budget,
+    // pickKeepBoundary drops keepTurns all the way to 0.
+    // All three messages are compacted into a single summary message.
     expect(result.compactedMessages).toBe(3);
     expect(result.messages).toHaveLength(1);
     expect(getSummaryFromContextMessage(result.messages[0])).toContain(

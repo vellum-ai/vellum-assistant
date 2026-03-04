@@ -19,8 +19,8 @@ import {
   updateProcessingStage,
 } from "../../../../memory/media-store.js";
 import {
+  FFMPEG_PALETTE_TIMEOUT_MS,
   FFMPEG_PREPROCESS_TIMEOUT_MS,
-  FFPROBE_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../../../util/spawn.js";
 import { transcribeSegmentAudio } from "./audio-transcribe.js";
@@ -312,7 +312,7 @@ async function extractDominantColors(framePath: string): Promise<string[]> {
       "null",
       "-",
     ],
-    FFPROBE_TIMEOUT_MS,
+    FFMPEG_PALETTE_TIMEOUT_MS,
   );
 
   // Fallback: return empty if analysis fails
@@ -495,6 +495,8 @@ export async function preprocessForAsset(
         onProgress?.(
           `Warning: frame extraction failed for ${seg.id}: ${result.stderr.slice(0, 200)}\n`,
         );
+        const segProgress = Math.round(((i + 1) / rawSegments.length) * 80);
+        updateProcessingStage(stage.id, { progress: segProgress });
         continue;
       }
 
