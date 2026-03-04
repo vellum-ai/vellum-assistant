@@ -112,11 +112,19 @@ export class SlackSocketModeClient {
           "Resolved Slack bot identity",
         );
       } catch (err) {
-        this.running = false;
-        this.stopDedupCleanup();
-        throw new Error("Failed to resolve Slack bot identity via auth.test", {
-          cause: err,
-        });
+        // Explicit auth rejection (data.ok === false) is fatal — the bot
+        // token is invalid and retrying won't help.
+        const isAuthRejection =
+          err instanceof Error &&
+          err.message.includes("bot token is invalid or expired");
+        if (isAuthRejection) {
+          this.running = false;
+          this.stopDedupCleanup();
+          throw err;
+        }
+        // Transient fetch/network errors — warn and proceed to connect(),
+        // which has its own reconnect logic with backoff.
+        log.warn({ err }, "Failed to resolve bot identity via auth.test");
       }
     }
 
