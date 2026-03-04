@@ -76,7 +76,7 @@ struct GatewaySettingsCard: View {
 
             // Running badge — only shown when gateway is reachable
             if store.gatewayReachable == true {
-                VButton(label: "Running", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                VButton(label: "Running", leftIcon: "checkmark.circle.fill", style: .success) {}
             }
 
             Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
@@ -107,7 +107,7 @@ struct GatewaySettingsCard: View {
 
             // Save button at the bottom
             HStack {
-                VButton(label: "Save", style: .primary, size: .medium) {
+                VButton(label: "Save", style: .primary) {
                     store.saveIngressPublicBaseUrl(gatewayUrlText)
                     isGatewayUrlFocused = false
                 }
