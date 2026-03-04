@@ -1,13 +1,13 @@
 /**
  * Commits a validated .vbundle archive to disk.
  *
- * Given a valid .vbundle archive (already validated), this module:
- * 1. Re-validates the bundle for safety (validation before mutation)
- * 2. Extracts files from the archive
- * 3. Backs up existing files before overwriting
- * 4. Writes bundle files to their target disk locations
- * 5. Verifies written files match expected checksums (post-write integrity)
- * 6. Returns a detailed import report
+ * Given a .vbundle archive, this module:
+ * 1. Validates the bundle (decompresses and parses once — reuses the entries
+ *    from validation to avoid a second decompression pass)
+ * 2. Backs up existing files before overwriting
+ * 3. Writes bundle files to their target disk locations
+ * 4. Verifies written files match expected checksums (post-write integrity)
+ * 5. Returns a detailed import report
  *
  * Backup files are stored alongside the originals with a timestamped suffix.
  */
@@ -21,10 +21,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
-import { gunzipSync } from "node:zlib";
 
 import type { PathResolver } from "./vbundle-import-analyzer.js";
-import type { ManifestType } from "./vbundle-validator.js";
+import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
 import { validateVBundle } from "./vbundle-validator.js";
 
 // ---------------------------------------------------------------------------
@@ -83,80 +82,6 @@ export type ImportCommitResult =
     };
 
 // ---------------------------------------------------------------------------
-// Tar parsing (duplicated from validator — the validator's parser is private)
-// ---------------------------------------------------------------------------
-
-interface TarEntry {
-  name: string;
-  data: Uint8Array;
-  size: number;
-}
-
-function parseTar(buffer: Uint8Array): TarEntry[] {
-  const entries: TarEntry[] = [];
-  let offset = 0;
-  const BLOCK_SIZE = 512;
-  let longName: string | null = null;
-
-  while (offset + BLOCK_SIZE <= buffer.length) {
-    const header = buffer.subarray(offset, offset + BLOCK_SIZE);
-
-    if (header.every((b) => b === 0)) {
-      break;
-    }
-
-    let name: string;
-    if (longName) {
-      name = longName;
-      longName = null;
-    } else {
-      const rawName = decodeNullTerminated(header, 0, 100);
-      const prefix = decodeNullTerminated(header, 345, 155);
-      name = prefix ? `${prefix}/${rawName}` : rawName;
-    }
-
-    const typeFlag = String.fromCharCode(header[156]);
-
-    const sizeStr = decodeNullTerminated(header, 124, 12);
-    const size = parseInt(sizeStr, 8) || 0;
-
-    const dataBlocks = Math.ceil(size / BLOCK_SIZE);
-    const dataStart = offset + BLOCK_SIZE;
-    const data = buffer.subarray(dataStart, dataStart + size);
-
-    if (typeFlag === "L") {
-      longName = new TextDecoder().decode(data).replace(/\0+$/, "");
-      offset = dataStart + dataBlocks * BLOCK_SIZE;
-      continue;
-    }
-
-    if (typeFlag === "0" || typeFlag === "\0" || typeFlag === "") {
-      entries.push({ name: normalizePath(name), data, size });
-    }
-
-    offset = dataStart + dataBlocks * BLOCK_SIZE;
-  }
-
-  return entries;
-}
-
-function decodeNullTerminated(
-  buf: Uint8Array,
-  start: number,
-  maxLen: number,
-): string {
-  let end = start;
-  while (end < start + maxLen && buf[end] !== 0) {
-    end++;
-  }
-  return new TextDecoder().decode(buf.subarray(start, end));
-}
-
-function normalizePath(p: string): string {
-  return p.replace(/^\.\//, "").replace(/\/+$/, "");
-}
-
-// ---------------------------------------------------------------------------
 // Hash helper
 // ---------------------------------------------------------------------------
 
@@ -194,9 +119,11 @@ export interface ImportCommitOptions {
 export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   const { archiveData, pathResolver } = options;
 
-  // Step 1: Validate the bundle (validation before mutation)
+  // Step 1: Validate the bundle (validation before mutation).
+  // validateVBundle decompresses and parses the tar, returning the entries
+  // alongside the validation result so we avoid a second decompression.
   const validation = validateVBundle(archiveData);
-  if (!validation.is_valid || !validation.manifest) {
+  if (!validation.is_valid || !validation.manifest || !validation.entries) {
     return {
       ok: false,
       reason: "validation_failed",
@@ -205,36 +132,9 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   }
 
   const manifest = validation.manifest;
+  const entryMap: Map<string, VBundleTarEntry> = validation.entries;
 
-  // Step 2: Extract tar entries
-  let tarData: Uint8Array;
-  try {
-    tarData = gunzipSync(archiveData);
-  } catch (err) {
-    return {
-      ok: false,
-      reason: "extraction_failed",
-      message: `Failed to decompress archive: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  let entries: TarEntry[];
-  try {
-    entries = parseTar(tarData);
-  } catch (err) {
-    return {
-      ok: false,
-      reason: "extraction_failed",
-      message: `Failed to parse tar archive: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  const entryMap = new Map<string, TarEntry>();
-  for (const entry of entries) {
-    entryMap.set(entry.name, entry);
-  }
-
-  // Step 3: Write files to disk with backups
+  // Step 2: Write files to disk with backups
   const importedFiles: ImportedFileReport[] = [];
   const warnings: string[] = [];
   let backupsCreated = 0;
@@ -253,7 +153,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         backup_path: null,
       });
       warnings.push(
-        `Skipped "${fileEntry.path}": no known disk target for this archive path`,
+        `Skipped "${fileEntry.path}": no known disk target for this archive path`
       );
       continue;
     }
@@ -271,7 +171,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         backup_path: null,
       });
       warnings.push(
-        `Skipped "${fileEntry.path}": declared in manifest but not found in archive`,
+        `Skipped "${fileEntry.path}": declared in manifest but not found in archive`
       );
       continue;
     }
@@ -290,12 +190,14 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         return {
           ok: false,
           reason: "write_failed",
-          message: `Failed to create backup of "${diskPath}": ${err instanceof Error ? err.message : String(err)}`,
+          message: `Failed to create backup of "${diskPath}": ${
+            err instanceof Error ? err.message : String(err)
+          }`,
           partial_report: buildPartialReport(
             importedFiles,
             manifest,
             warnings,
-            backupsCreated,
+            backupsCreated
           ),
         };
       }
@@ -313,12 +215,14 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         return {
           ok: false,
           reason: "write_failed",
-          message: `Failed to create directory "${parentDir}": ${err instanceof Error ? err.message : String(err)}`,
+          message: `Failed to create directory "${parentDir}": ${
+            err instanceof Error ? err.message : String(err)
+          }`,
           partial_report: buildPartialReport(
             importedFiles,
             manifest,
             warnings,
-            backupsCreated,
+            backupsCreated
           ),
         };
       }
@@ -331,17 +235,19 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       return {
         ok: false,
         reason: "write_failed",
-        message: `Failed to write "${diskPath}": ${err instanceof Error ? err.message : String(err)}`,
+        message: `Failed to write "${diskPath}": ${
+          err instanceof Error ? err.message : String(err)
+        }`,
         partial_report: buildPartialReport(
           importedFiles,
           manifest,
           warnings,
-          backupsCreated,
+          backupsCreated
         ),
       };
     }
 
-    // Step 4: Post-write integrity check — verify the written file
+    // Step 3: Post-write integrity check — verify the written file
     try {
       const writtenData = new Uint8Array(readFileSync(diskPath));
       const writtenSha256 = sha256Hex(writtenData);
@@ -349,12 +255,12 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       if (writtenSha256 !== fileEntry.sha256) {
         warnings.push(
           `Post-write integrity warning for "${fileEntry.path}": ` +
-            `expected SHA-256 ${fileEntry.sha256}, got ${writtenSha256}`,
+            `expected SHA-256 ${fileEntry.sha256}, got ${writtenSha256}`
         );
       }
     } catch {
       warnings.push(
-        `Could not verify post-write integrity for "${fileEntry.path}"`,
+        `Could not verify post-write integrity for "${fileEntry.path}"`
       );
     }
 
@@ -395,7 +301,7 @@ function buildPartialReport(
   files: ImportedFileReport[],
   manifest: ManifestType,
   warnings: string[],
-  backupsCreated: number,
+  backupsCreated: number
 ): ImportCommitReport {
   return {
     success: false,
