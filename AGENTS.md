@@ -158,33 +158,7 @@ After creating a PR, consider whether it contains anything that genuinely warran
 
 ## Public API / Webhook Ingress
 
-All inbound HTTP endpoints — APIs, webhooks, OAuth callbacks, or any route that receives requests from the internet — **MUST** be routed through the **gateway** (`gateway/`). Never add ingresses, routes, or listeners directly to the daemon runtime (`assistant/`).
-
-Concretely:
-- Define new routes in the gateway and have the gateway forward requests to the assistant over the internal IPC/transport.
-- The gateway's public URL is controlled by the **public ingress URL** setting. All externally-facing URLs you generate or advertise (callback URLs, webhook registration URLs, etc.) must be derived from this setting — never hardcode a hostname or port.
-- The daemon should remain unreachable from the public internet. It only receives traffic from the gateway over the internal network.
-
-Why: the gateway is the single point of ingress, handling TLS termination, auth, rate limiting, and routing. Exposing the daemon directly bypasses these protections and breaks the deployment model.
-
-### Gateway-Only API Consumption
-
-All assistant API requests from clients, CLI, skills, and user-facing tooling **MUST** target gateway URLs. Never construct URLs using the daemon runtime port (`7821`) or `RUNTIME_HTTP_PORT` for external API consumption.
-
-**Exception boundary:** The gateway service itself may call the runtime internally. Tests may use direct runtime URLs for isolated unit/integration scenarios. Intentional local daemon-control paths are exempt:
-- `clients/shared/IPC/DaemonClient.swift`
-- `clients/macos/vellum-assistant/App/AppDelegate.swift` (`localHttpEnabled`)
-- `clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift` (health probe)
-
-**Migration rule:** If a needed endpoint is not available at the gateway, add a gateway route/proxy first, then consume it. Do not work around a missing gateway endpoint by hitting the runtime directly.
-
-**Ban on hardcoded runtime hosts/ports:** Do not embed `localhost:7821`, `127.0.0.1:7821`, or runtime-port-derived URLs in docs, skills, or user-facing guidance. Always reference gateway URLs instead. A CI guard test (`gateway-only-guard.test.ts`) enforces this — any new direct runtime URL reference in production code or skills will fail CI.
-
-**SKILL.md retrieval contract:** For config/status retrieval in bundled skills, use `bash` + canonical CLI surfaces. Start with `vellum config get` for generic config keys and secure credential surfaces (`credential_store`, `vellum keys`) for secrets. Use domain read commands (for example `vellum integrations ...`, `vellum email status ...`) where those domain surfaces exist. Do not use direct gateway `curl` (or manual `Authorization: Bearer $GATEWAY_AUTH_TOKEN`) for read-only retrieval paths. Do not use keychain lookup commands (`security find-generic-password`, `secret-tool`) in SKILL.md. `host_bash` is not allowed for Vellum CLI retrieval commands unless a documented exception is intentionally allowlisted.
-
-**SKILL.md proxied outbound pattern:** For outbound third-party API calls from skills that require stored credentials, default to `bash` with `network_mode: "proxied"` and `credential_ids` instead of manual token/keychain plumbing. This keeps credentials out of chat and enforces credential policies consistently.
-
-**SKILL.md gateway URL pattern:** For gateway control-plane writes/actions that are not exposed through a CLI read command, use `$INTERNAL_GATEWAY_BASE_URL` (injected by `bash` and `host_bash`). `$GATEWAY_BASE_URL` is also injected and resolves to the configured public ingress URL when set (falling back to the internal gateway target). Do not hardcode `localhost`/ports in skill examples, and do not instruct users/agents to manually export either variable from Settings.
+All inbound HTTP endpoints must be routed through the gateway (`gateway/`). See `gateway/AGENTS.md` for full rules including gateway-only API consumption, SKILL.md patterns, and channel identity vocabulary. Guard test: `gateway-only-guard.test.ts`.
 
 ## Assistant Identity Boundary
 
@@ -195,19 +169,6 @@ The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSI
 - The `normalizeAssistantId()` function (in `util/platform.ts`) is for gateway/platform use only — do not import or call it in daemon scoping modules.
 - The daemon HTTP server uses flat `/v1/<endpoint>` paths. Do not add assistant-scoped routes (`/v1/assistants/:assistantId/...`) to the daemon.
 - Guard tests in `assistant/src/__tests__/assistant-id-boundary-guard.test.ts` enforce these rules.
-
-### Channel Identity Vocabulary
-
-Gateway inbound events use a channel-discriminated union model (`GatewayInboundEvent`) with explicit identity fields:
-
-- **`conversationExternalId`**: Delivery/thread address (e.g., Telegram chat ID, SMS phone number). Used for conversation binding and message routing. **Not** used for trust classification.
-- **`actorExternalId`**: Sender identity (e.g., Telegram user ID, WhatsApp phone number). Used for trust classification, guardian binding, and ACL enforcement. **Required** for all public channel ingress.
-- **"conversation"** is canonical vocabulary for delivery addresses. "thread" is reserved for provider-specific fields (Slack `thread_ts`, email thread IDs).
-- **"actor"** is canonical vocabulary for sender identity.
-
-Trust/guardian decisions must be keyed on `actorExternalId` only — never fall back to `conversationExternalId` for actor identity.
-
-Physical DB column names (`externalUserId`, `externalChatId`) are unchanged; the rename is at the API/type layer only.
 
 ## Assistant Feature Flags
 
@@ -255,145 +216,25 @@ Why: the assistant daemon carries context, identity, and user preferences. Text 
 
 There may be narrow cases where a direct provider call is acceptable (e.g., a low-level embedding or a purely mechanical transformation with no user-facing prose). If you believe your case qualifies, call it out explicitly in the PR description and get sign-off — don't silently bypass the daemon.
 
-## Approval Flow Resilience
-
-- **Rich delivery failures must degrade gracefully.** If delivering a rich approval prompt (e.g., Telegram inline buttons) fails, fall back to plain text with parser-compatible instructions (e.g., `Reply "yes" to approve`) — never auto-deny.
-- **Non-rich channels** (SMS, http-api) receive plain-text approval prompts without approval metadata payloads.
-- **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
-- **Requester self-cancel:** A requester with a pending guardian approval must be able to cancel their own request (but not self-approve).
-- **Unified guardian decision primitive:** All guardian decision paths (callback buttons, conversational engine, legacy text parser, requester self-cancel) must route through `applyGuardianDecision()` in `assistant/src/approvals/guardian-decision-primitive.ts`. Do not inline decision logic (approve_always downgrade, approval record updates, grant minting) at individual callsites.
-
 ## HTTP API Patterns
 
-### Sending messages
-
-The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
-- **Queue if busy**: When the session is processing, messages are queued and processed when the current agent turn completes. No 409 rejections.
-- **Fire-and-forget**: Returns `202 { accepted: true }` immediately. The client observes progress via SSE (`GET /v1/events`).
-- **Hub publishing**: All agent events are published to `assistantEventHub`, making them observable via SSE.
-
-Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP) or `session.processMessage()` (IPC).
-
-### Approvals (confirmations, secrets, trust rules)
-
-Approvals are **orthogonal to message sending**. The assistant asks for approval whenever it needs one — this is a separate concern from how a message enters the system.
-
-- **Discovery**: Clients discover pending approvals via SSE events (`confirmation_request`, `secret_request`) which include a `requestId`.
-- **Resolution**: Clients respond via standalone endpoints keyed by `requestId`:
-  - `POST /v1/confirm` — `{ requestId, decision: "allow" | "deny" }`
-  - `POST /v1/secret` — `{ requestId, value, delivery }`
-  - `POST /v1/trust-rules` — `{ requestId, pattern, scope }`
-- **Tracking**: The `pending-interactions` tracker (`assistant/src/runtime/pending-interactions.ts`) maps `requestId → session`. Use `register()` to track, `resolve()` to consume, `getByConversation()` to query.
-
-Do NOT couple approval handling to message sending. Do NOT add run/status tracking to the send path.
-
-### Channel approvals (Telegram, SMS)
-
-Channel approval flows use `requestId` (not `runId`) as the primary identifier:
-- Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
-- Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
-- The conversational approval engine classifies user intent and resolves via `session.handleConfirmationResponse(requestId, decision)`.
-
-### What NOT to do
-
-- Do NOT use `RunOrchestrator` or `runs-store` — they have been removed.
-- Do NOT add `/v1/runs` endpoints — use `/v1/messages` and standalone approval endpoints.
-- Do NOT create run status tracking (queued/running/completed/failed) — clients observe progress via SSE events.
-- Do NOT use `runId` as an identifier for approval flows — use `requestId`.
+See `assistant/src/runtime/AGENTS.md` for HTTP API patterns (message sending, approvals, channel approvals).
 
 ## HTTP-First for New Endpoints
 
-New configuration and control endpoints MUST be exposed over HTTP on the runtime server (`assistant/src/runtime/http-server.ts`), not as IPC-only message types. The runtime HTTP server is the canonical API surface — IPC is a legacy transport being phased out.
-
-Existing IPC-only handlers should be migrated to HTTP when touched. The pattern: extract business logic into a shared function, add an HTTP route handler in `assistant/src/runtime/routes/`, keep the IPC handler as a thin wrapper that calls the same logic.
-
-When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (JWT-authenticated via `Authorization: Bearer <jwt>`) rather than describing IPC socket protocol details. The assistant already knows how to use `curl`.
+New endpoints must be HTTP routes on the runtime server, not IPC-only. See `assistant/src/runtime/AGENTS.md`.
 
 ## Error Handling Conventions
 
-Use the right error signaling mechanism for the situation. The codebase has three patterns — pick the one that matches the failure mode:
-
-### 1. Throw for programming errors and unrecoverable failures
-
-Throw an exception (using the error hierarchy from `util/errors.ts`) when:
-- A precondition or invariant is violated (indicates a bug in the caller).
-- The failure is unrecoverable and the caller cannot meaningfully continue.
-- An external dependency is completely unavailable and there is no fallback.
-
-Use the existing `VellumError` hierarchy (`ToolError`, `ConfigError`, `ProviderError`, etc.) rather than bare `Error`. This ensures structured error codes propagate to logging and monitoring.
-
-```typescript
-// Good: typed error for a precondition violation
-throw new ConfigError('Missing required provider configuration');
-
-// Good: subagent manager throws when depth limit is exceeded
-throw new AssistantError('Cannot spawn subagent: parent is itself a subagent', ErrorCode.DAEMON_ERROR);
-```
-
-### 2. Result objects for operations that can fail in expected ways
-
-Return a discriminated union or result object when:
-- The caller is expected to handle both success and failure paths.
-- The failure is a normal operational outcome, not a bug (e.g., "file not found", "path out of bounds", "ambiguous match").
-
-The codebase uses two result patterns — both are acceptable:
-
-**Discriminated union with `ok` flag** (preferred for new code):
-```typescript
-type EditResult =
-  | { ok: true; updatedContent: string }
-  | { ok: false; reason: 'not_found' }
-  | { ok: false; reason: 'ambiguous'; matchCount: number };
-```
-
-**Content + error flag** (used by tool execution):
-```typescript
-interface ToolExecutionResult {
-  content: string;
-  isError: boolean;
-}
-```
-
-Existing examples: `EditEngineResult` in `edit-engine.ts`, `PathResult` in `path-policy.ts`, `ToolExecutionResult` in `tools/types.ts`, `MemoryRecallResult` in `memory/retriever.ts`.
-
-### 3. Never return null/undefined to indicate failure
-
-Do not use `null` or `undefined` as a failure signal. When a function can legitimately fail, use a result object (pattern 2 above) so the caller can distinguish between "no result" and "operation failed, here's why."
-
-Returning `undefined` is acceptable only for **lookup functions** where "not found" is a normal query result rather than a failure — e.g., `Map.get()`, `getState(id): State | undefined`. In these cases, `undefined` means "this entity does not exist," not "something went wrong."
-
-### Where each pattern is used
-
-| Module | Pattern | Rationale |
-|---|---|---|
-| Agent loop (`agent/loop.ts`) | Throws + catch-and-emit | Unrecoverable provider errors break the loop; expected errors (abort, tool-use limits) are caught and emitted as events |
-| Tool executor (`tools/executor.ts`) | Result object (`ToolExecutionResult`) | Tool failures are expected operational outcomes — permission denied, unknown tool, sandbox violations. Never throws to callers |
-| Memory retriever (`memory/retriever.ts`) | Result object (`MemoryRecallResult`) with degraded/reason fields | Graceful degradation — embedding failures, search failures degrade quality without crashing |
-| Filesystem tools (`path-policy.ts`, `edit-engine.ts`) | Discriminated union (`{ ok, reason }`) | Validation outcomes that the caller must handle (out of bounds, not found, ambiguous) |
-| Subagent manager (`subagent/manager.ts`) | Throws for precondition violations, string literal unions for expected outcomes | Depth limit exceeded is a bug; `sendMessage` returns `'not_found' | 'terminal' | 'queue_full'` as expected states |
+See `assistant/docs/error-handling.md` for error handling conventions (throw vs result objects vs null).
 
 ## Notification Pipeline
 
-All notification producers **MUST** go through `emitNotificationSignal()` in `notifications/emit-signal.ts`. Do not bypass the pipeline by broadcasting IPC events directly -- the pipeline handles event persistence, deduplication, decision routing, and delivery audit.
+All notification producers must go through `emitNotificationSignal()`. See `assistant/src/notifications/AGENTS.md`.
 
-When a notification flow creates a server-side conversation (e.g. guardian question threads, task run threads), the conversation and initial message **MUST** be persisted before the IPC thread-created event is emitted. This ensures the macOS/iOS client can immediately fetch the conversation contents when it receives the event.
+## Trust & Guardian Invariants
 
-## Guardian Verification Invariant
-
-Guardian verification consumption must be identity-bound to the expected recipient identity. Every outbound verification session stores the expected identity (phone E.164, Telegram user/chat ID), and the consume path rejects attempts where the responding actor's identity does not match.
-
-Conversational guardian verification control-plane invocation is guardian-only. Non-guardian and unverified-channel actors cannot invoke guardian verification endpoints (`/v1/integrations/guardian/*`) conversationally via tools. Enforcement is a deterministic gate in the tool execution layer (`assistant/src/tools/executor.ts`) using actor-role context — only `guardian` and `undefined` (desktop/trusted) actor roles pass. The policy module is at `assistant/src/tools/guardian-control-plane-policy.ts`.
-
-## Memory Provenance Invariant
-
-All memory extraction and retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not trigger profile extraction or receive memory recall/conflict disclosures. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).
-
-## Guardian Privilege Isolation Invariant
-
-Untrusted actors (`non-guardian`, `unverified_channel`) must never receive privileged host/tool capabilities or privileged conversation context directly.
-
-- Tool execution gate: untrusted actors cannot execute host-target tools or side-effect tools in-band. These actions require guardian-mediated approval flow. Enforcement lives in `assistant/src/tools/tool-approval-handler.ts`.
-- History view gate: when loading session history for untrusted actors, only untrusted-provenance messages are included and compacted summaries are suppressed. This prevents replay of guardian-era context after trust downgrades. Enforcement lives in `assistant/src/daemon/session-lifecycle.ts` and actor-scoped reload wiring in `assistant/src/daemon/session.ts`.
+Guardian and trust invariants are enforced in domain-specific code. See `assistant/src/approvals/AGENTS.md` for: approval flow resilience, guardian verification (identity-bound consumption), guardian privilege isolation (tool/history gates for untrusted actors), and memory provenance (untrusted actors excluded from extraction/recall).
 
 ## Tooling Direction
 
