@@ -56,6 +56,16 @@ function formatTimestamp(seconds: number): string {
     .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
+function sanitizeFilename(title: string): string {
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 50) || "clip"
+  );
+}
+
 const MIME_BY_FORMAT: Record<string, string> = {
   mp4: "video/mp4",
   webm: "video/webm",
@@ -95,6 +105,7 @@ export async function run(
   const preRoll = (input.pre_roll as number) ?? 3;
   const postRoll = (input.post_roll as number) ?? 2;
   const outputFormat = (input.output_format as string) ?? "mp4";
+  const title = input.title as string | undefined;
 
   const asset = getMediaAssetById(assetId);
   if (!asset) {
@@ -126,10 +137,9 @@ export async function run(
   const clipDir = join(dirname(asset.filePath), "pipeline", assetId, "clips");
   await mkdir(clipDir, { recursive: true });
 
-  const clipFilename = `clip-${formatTimestamp(startTime).replace(
-    /:/g,
-    "",
-  )}-${formatTimestamp(endTime).replace(/:/g, "")}.${outputFormat}`;
+  const clipFilename = title
+    ? `${sanitizeFilename(title)}.${outputFormat}`
+    : `clip-${formatTimestamp(startTime).replace(/:/g, "")}-${formatTimestamp(endTime).replace(/:/g, "")}.${outputFormat}`;
   const clipPath = join(clipDir, clipFilename);
 
   try {

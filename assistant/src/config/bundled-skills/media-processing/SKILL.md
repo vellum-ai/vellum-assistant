@@ -202,6 +202,8 @@ Be specific and factual. Describe what you see, not what you infer happened betw
 
 The `generate_clip` tool automatically opens clips in the user's default video player after extraction. Clips are saved persistently in the asset's pipeline directory (`pipeline/<assetId>/clips/`). The `clipPath` field in the tool response contains the absolute file path.
 
+Always provide a descriptive `title` parameter (e.g. `"snow-dive-closeup"`, `"goal-celebration"`) so clips get meaningful filenames instead of timestamp-based names.
+
 ## Known Limitations — Vision Analysis
 
 Gemini performs well at **spatial/descriptive analysis** from static keyframes:
