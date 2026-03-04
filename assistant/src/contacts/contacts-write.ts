@@ -163,6 +163,7 @@ export function upsertMemberContactsFirst(params: {
     // No usable identity — return a minimal fallback record
     return {
       id: "",
+      contactId: null,
       assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
       sourceChannel: params.sourceChannel,
       externalUserId: params.externalUserId ?? null,
@@ -229,6 +230,7 @@ export function upsertMemberContactsFirst(params: {
   // Fallback: construct minimal IngressMember from params
   return {
     id: "",
+    contactId: null,
     assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     sourceChannel: params.sourceChannel,
     externalUserId: params.externalUserId ?? null,
@@ -249,8 +251,8 @@ export function upsertMemberContactsFirst(params: {
 
 /**
  * Revoke an ingress member by updating the contacts channel status.
- * The memberId may be a channel ID (from contactChannelToMemberRecord shim)
- * or a composite contactId:channelId (from contactToMemberResponse in ingress-service).
+ * The memberId may be a plain channel ID (internal callers) or a composite
+ * contactId:channelId (from the API response format).
  */
 export function revokeMemberContactsFirst(
   memberId: string,
@@ -279,8 +281,8 @@ export function revokeMemberContactsFirst(
 
 /**
  * Block an ingress member by updating the contacts channel status.
- * The memberId may be a channel ID (from contactChannelToMemberRecord shim)
- * or a composite contactId:channelId (from contactToMemberResponse in ingress-service).
+ * The memberId may be a plain channel ID (internal callers) or a composite
+ * contactId:channelId (from the API response format).
  */
 export function blockMemberContactsFirst(
   memberId: string,
@@ -308,7 +310,7 @@ export function blockMemberContactsFirst(
 
 /**
  * Update the lastSeenAt timestamp on a contact channel by its ID.
- * The channelId comes from the contactChannelToMemberRecord shim (member.id = channel.id).
+ * Expects a plain channel UUID (IngressMember.id), not the composite API ID.
  */
 export function touchChannelLastSeen(channelId: string): void {
   try {

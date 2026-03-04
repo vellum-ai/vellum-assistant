@@ -18,6 +18,8 @@ export type MemberPolicy = "allow" | "deny" | "escalate";
 
 export interface IngressMember {
   id: string;
+  /** The owning contact's ID — used to build composite contactId:channelId API IDs. */
+  contactId: string | null;
   assistantId: string;
   sourceChannel: string;
   externalUserId: string | null;
@@ -41,6 +43,7 @@ export function contactChannelToMemberRecord(
 ): IngressMember {
   return {
     id: channel.id,
+    contactId: contact.id,
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     sourceChannel: channel.type,
     externalUserId: channel.externalUserId,

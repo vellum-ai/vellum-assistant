@@ -134,7 +134,7 @@ function inviteToResponse(
 
 export function memberToResponse(m: IngressMember): MemberResponseData {
   return {
-    id: m.id,
+    id: m.contactId ? `${m.contactId}:${m.id}` : m.id,
     sourceChannel: m.sourceChannel,
     externalUserId: m.externalUserId ?? undefined,
     externalChatId: m.externalChatId ?? undefined,
@@ -151,7 +151,7 @@ function contactToMemberResponse(
   contact: ContactWithChannels,
 ): MemberResponseData[] {
   return contact.channels.map((ch) => ({
-    id: ch.id,
+    id: `${contact.id}:${ch.id}`,
     sourceChannel: ch.type,
     externalUserId: ch.externalUserId ?? undefined,
     externalChatId: ch.externalChatId ?? undefined,
