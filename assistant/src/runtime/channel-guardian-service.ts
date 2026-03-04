@@ -22,6 +22,8 @@ import type {
   VerificationPurpose,
 } from "../memory/channel-guardian-store.js";
 import {
+  getActiveBinding,
+  revokeBinding as legacyRevokeBinding,
   bindSessionIdentity as storeBindSessionIdentity,
   consumeChallenge,
   countRecentSendsToDestination as storeCountRecentSendsToDestination,
@@ -378,29 +380,38 @@ export function validateAndConsumeChallenge(
 
 /**
  * Look up the active guardian binding for a given assistant and channel.
- * Reads from the contacts table via findGuardianForChannel and synthesizes
- * a GuardianBinding-shaped object for backward compatibility.
+ * Reads from the contacts table via findGuardianForChannel first and
+ * synthesizes a GuardianBinding-shaped object for backward compatibility.
+ * Falls back to the legacy channelGuardianBindings table when the contacts
+ * lookup returns nothing — this covers bindings where the contacts-write
+ * failed but the legacy row was still persisted.
  */
 export function getGuardianBinding(
   assistantId: string,
   channel: string,
 ): GuardianBinding | null {
   const result = findGuardianForChannel(channel);
-  if (!result) return null;
-  return {
-    id: result.channel.id,
-    assistantId,
-    channel,
-    guardianExternalUserId: result.channel.externalUserId ?? '',
-    guardianDeliveryChatId: result.channel.externalChatId ?? '',
-    guardianPrincipalId: result.contact.principalId ?? '',
-    status: 'active' as const,
-    verifiedAt: result.channel.verifiedAt ?? 0,
-    verifiedVia: result.channel.verifiedVia ?? '',
-    metadataJson: null,
-    createdAt: result.channel.createdAt,
-    updatedAt: result.channel.updatedAt ?? result.channel.createdAt,
-  };
+  if (result) {
+    return {
+      id: result.channel.id,
+      assistantId,
+      channel,
+      guardianExternalUserId: result.channel.externalUserId ?? '',
+      guardianDeliveryChatId: result.channel.externalChatId ?? '',
+      guardianPrincipalId: result.contact.principalId ?? '',
+      status: 'active' as const,
+      verifiedAt: result.channel.verifiedAt ?? 0,
+      verifiedVia: result.channel.verifiedVia ?? '',
+      metadataJson: result.contact.displayName
+        ? JSON.stringify({ displayName: result.contact.displayName })
+        : null,
+      createdAt: result.channel.createdAt,
+      updatedAt: result.channel.updatedAt ?? result.channel.createdAt,
+    };
+  }
+
+  // Legacy fallback: contacts write may have failed but the legacy row exists
+  return getActiveBinding(assistantId, channel);
 }
 
 /**
@@ -413,14 +424,24 @@ export function isGuardian(
   externalUserId: string,
 ): boolean {
   const result = findGuardianForChannel(channel);
-  return result != null && result.channel.externalUserId === externalUserId;
+  if (result) {
+    return result.channel.externalUserId === externalUserId;
+  }
+
+  // Legacy fallback for bindings where contacts write failed
+  const legacyBinding = getActiveBinding(assistantId, channel);
+  return legacyBinding != null && legacyBinding.guardianExternalUserId === externalUserId;
 }
 
 /**
  * Revoke the active guardian binding for a given assistant and channel.
+ * Revokes both the contacts entry and the legacy channelGuardianBindings row
+ * so that the legacy fallback in getGuardianBinding does not resurface it.
  */
 export function revokeBinding(assistantId: string, channel: string): boolean {
-  return revokeGuardianBindingContactsFirst(assistantId, channel);
+  const contactsRevoked = revokeGuardianBindingContactsFirst(assistantId, channel);
+  const legacyRevoked = legacyRevokeBinding(assistantId, channel);
+  return contactsRevoked || legacyRevoked;
 }
 
 /**
