@@ -280,10 +280,10 @@ struct ComposerView: View {
         .tint(VColor.accent)
         .focused($composerFocus)
         .disabled(!hasAPIKey)
-        .onKeyPress(.return) { press in
+        .onKeyPress(.return, phases: .down) { press in
             handleReturnKeyPress(modifiers: press.modifiers)
         }
-        .onKeyPress(.tab) { press in
+        .onKeyPress(.tab, phases: .down) { press in
             if !press.modifiers.contains(.shift), showSlashMenu {
                 handleSlashNavigation(.tab)
                 return .handled
@@ -294,21 +294,21 @@ struct ComposerView: View {
             }
             return .ignored
         }
-        .onKeyPress(.upArrow) { _ in
+        .onKeyPress(.upArrow) {
             if showSlashMenu {
                 handleSlashNavigation(.up)
                 return .handled
             }
             return .ignored
         }
-        .onKeyPress(.downArrow) { _ in
+        .onKeyPress(.downArrow) {
             if showSlashMenu {
                 handleSlashNavigation(.down)
                 return .handled
             }
             return .ignored
         }
-        .onKeyPress(.escape) { _ in
+        .onKeyPress(.escape) {
             if showSlashMenu {
                 handleSlashNavigation(.dismiss)
                 return .handled
