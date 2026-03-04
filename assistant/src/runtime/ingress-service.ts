@@ -1,23 +1,14 @@
 /**
- * Shared business logic for ingress contact and invite management.
+ * Shared business logic for ingress invite management.
  *
  * Extracted from the IPC handlers in daemon/handlers/config-inbox.ts so that
  * both the HTTP routes and the IPC handlers call the same logic.
+ *
+ * Member/contact operations have been migrated to the /v1/contacts and
+ * /v1/contacts/channels endpoints.
  */
 
 import { isChannelId } from "../channels/types.js";
-import { listContacts } from "../contacts/contact-store.js";
-import {
-  blockMember,
-  revokeMember,
-  upsertMember,
-} from "../contacts/contacts-write.js";
-import type {
-  ContactWithChannels,
-  ContactWriteResult,
-  MemberPolicy,
-  MemberStatus,
-} from "../contacts/types.js";
 import {
   createInvite,
   findByTokenHash,
@@ -29,7 +20,6 @@ import {
 } from "../memory/ingress-invite-store.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { getTransport } from "./channel-invite-transport.js";
 import {
   type InviteRedemptionOutcome,
@@ -64,19 +54,6 @@ export interface InviteResponseData {
   voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
-  createdAt: number;
-}
-
-export interface MemberResponseData {
-  id: string;
-  sourceChannel: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  displayName?: string;
-  username?: string;
-  status: string;
-  policy: string;
-  lastSeenAt?: number;
   createdAt: number;
 }
 
@@ -131,41 +108,6 @@ function inviteToResponse(
     ...(inv.guardianName ? { guardianName: inv.guardianName } : {}),
     createdAt: inv.createdAt,
   };
-}
-
-function writeResultToResponse(result: ContactWriteResult): MemberResponseData {
-  return {
-    id: `${result.contact.id}:${result.channel.id}`,
-    sourceChannel: result.channel.type,
-    externalUserId: result.channel.externalUserId ?? undefined,
-    externalChatId: result.channel.externalChatId ?? undefined,
-    displayName: result.contact.displayName,
-    username: undefined,
-    status:
-      result.channel.status === "unverified"
-        ? "pending"
-        : result.channel.status,
-    policy: result.channel.policy,
-    lastSeenAt: result.channel.lastSeenAt ?? undefined,
-    createdAt: result.channel.createdAt,
-  };
-}
-
-function contactToMemberResponse(
-  contact: ContactWithChannels,
-): MemberResponseData[] {
-  return contact.channels.map((ch) => ({
-    id: `${contact.id}:${ch.id}`,
-    sourceChannel: ch.type,
-    externalUserId: ch.externalUserId ?? undefined,
-    externalChatId: ch.externalChatId ?? undefined,
-    displayName: contact.displayName,
-    username: undefined,
-    status: ch.status,
-    policy: ch.policy,
-    lastSeenAt: ch.lastSeenAt ?? undefined,
-    createdAt: ch.createdAt,
-  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -346,98 +288,4 @@ export function redeemVoiceInviteCode(params: {
   code: string;
 }): VoiceRedemptionOutcome {
   return redeemVoiceInviteCodeTyped(params);
-}
-
-// ---------------------------------------------------------------------------
-// Contact operations
-// ---------------------------------------------------------------------------
-
-export function listIngressContacts(params: {
-  assistantId?: string;
-  sourceChannel?: string;
-  status?: string;
-  policy?: string;
-}): IngressResult<MemberResponseData[]> {
-  // Use uncapped: true since this internal path needs the full dataset
-  const allContacts = listContacts(
-    params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-    Number.MAX_SAFE_INTEGER,
-    "contact",
-    { uncapped: true },
-  );
-  const members = allContacts.flatMap((c) => contactToMemberResponse(c));
-
-  const filtered = members.filter((m) => {
-    if (params.sourceChannel && m.sourceChannel !== params.sourceChannel)
-      return false;
-    if (params.status && m.status !== params.status) return false;
-    if (params.policy && m.policy !== params.policy) return false;
-    return true;
-  });
-
-  return { ok: true, data: filtered };
-}
-
-export function upsertIngressContact(params: {
-  sourceChannel?: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  displayName?: string;
-  username?: string;
-  policy?: string;
-  status?: string;
-  assistantId?: string;
-}): IngressResult<MemberResponseData> {
-  if (!params.sourceChannel) {
-    return { ok: false, error: "sourceChannel is required for upsert" };
-  }
-  if (!params.externalUserId && !params.externalChatId) {
-    return {
-      ok: false,
-      error:
-        "At least one of externalUserId or externalChatId is required for upsert",
-    };
-  }
-  const result = upsertMember({
-    assistantId: params.assistantId,
-    sourceChannel: params.sourceChannel,
-    externalUserId: params.externalUserId,
-    externalChatId: params.externalChatId,
-    displayName: params.displayName,
-    username: params.username,
-    policy: params.policy as MemberPolicy | undefined,
-    status: params.status as MemberStatus | undefined,
-  });
-  if (!result) {
-    return { ok: false, error: "Failed to upsert member" };
-  }
-  return { ok: true, data: writeResultToResponse(result) };
-}
-
-export function revokeIngressContact(
-  memberId?: string,
-  reason?: string,
-): IngressResult<MemberResponseData> {
-  if (!memberId) {
-    return { ok: false, error: "memberId is required for revoke" };
-  }
-  const result = revokeMember(memberId, reason);
-  if (!result) {
-    return { ok: false, error: "Member not found or cannot be revoked" };
-  }
-  return { ok: true, data: writeResultToResponse(result) };
-}
-
-export function blockIngressContact(
-  memberId?: string,
-  reason?: string,
-): IngressResult<MemberResponseData> {
-  if (!memberId) {
-    return { ok: false, error: "memberId is required for block" };
-  }
-  const result = blockMember(memberId, reason);
-  if (!result) {
-    return { ok: false, error: "Member not found or already blocked" };
-  }
-  return { ok: true, data: writeResultToResponse(result) };
 }

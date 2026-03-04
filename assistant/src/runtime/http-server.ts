@@ -160,14 +160,10 @@ import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { handleGetIdentity, handleHealth } from "./routes/identity-routes.js";
 import {
-  handleBlockMember,
   handleCreateInvite,
   handleListInvites,
-  handleListMembers,
   handleRedeemInvite,
   handleRevokeInvite,
-  handleRevokeMember,
-  handleUpsertMember,
 } from "./routes/ingress-routes.js";
 import {
   handleCancelOutbound,
@@ -1138,32 +1134,6 @@ export class RuntimeHttpServer {
         policyKey: "contacts",
         handler: ({ params, authContext }) =>
           handleGetContact(params.id, authContext.assistantId),
-      },
-
-      // ------------------------------------------------------------------
-      // Ingress contacts
-      // ------------------------------------------------------------------
-      {
-        endpoint: "ingress/members",
-        method: "GET",
-        handler: ({ url }) => handleListMembers(url),
-      },
-      {
-        endpoint: "ingress/members",
-        method: "POST",
-        handler: async ({ req }) => handleUpsertMember(req),
-      },
-      {
-        endpoint: "ingress/members/:id/block",
-        method: "POST",
-        policyKey: "ingress/members/block",
-        handler: async ({ req, params }) => handleBlockMember(req, params.id),
-      },
-      {
-        endpoint: "ingress/members/:id",
-        method: "DELETE",
-        policyKey: "ingress/members",
-        handler: async ({ req, params }) => handleRevokeMember(req, params.id),
       },
 
       // ------------------------------------------------------------------
