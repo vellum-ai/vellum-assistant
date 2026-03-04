@@ -98,10 +98,21 @@ export async function executeAppCreate(
   const name = input.name;
   const description = input.description;
   const schemaJson = input.schema_json ?? "{}";
-  const htmlDefinition =
-    typeof input.html === "string"
-      ? input.html
-      : "<!DOCTYPE html><html><head></head><body></body></html>";
+  // Default to a minimal scaffold only when html is truly omitted; reject
+  // invalid types (e.g. object/number) so malformed tool calls surface errors.
+  let htmlDefinition: string;
+  if (typeof input.html === "string") {
+    htmlDefinition = input.html;
+  } else if (input.html == null) {
+    htmlDefinition = "<!DOCTYPE html><html><head></head><body></body></html>";
+  } else {
+    return {
+      content: JSON.stringify({
+        error: `html must be a string, got ${typeof input.html}`,
+      }),
+      isError: true,
+    };
+  }
   const pages = input.pages;
   const autoOpen = input.auto_open !== false; // default true
   const preview = input.preview;
