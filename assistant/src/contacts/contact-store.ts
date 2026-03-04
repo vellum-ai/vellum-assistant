@@ -574,6 +574,46 @@ export function findGuardianForChannel(
 }
 
 /**
+ * List all active channels for the guardian contact.
+ * This is the contacts-based equivalent of listActiveBindingsByAssistant(assistantId).
+ * Returns channels ordered by most-recently-verified first.
+ */
+export function listGuardianChannels(): { contact: Contact; channels: ContactChannel[] } | null {
+  const db = getDb();
+  // Find the guardian contact
+  const guardianRow = db
+    .select()
+    .from(contacts)
+    .where(eq(contacts.role, 'guardian'))
+    .limit(1)
+    .get();
+
+  if (!guardianRow) return null;
+
+  const guardian = parseContact(guardianRow);
+
+  // Get all active channels for the guardian, ordered by verifiedAt desc
+  const channelRows = db
+    .select()
+    .from(contactChannels)
+    .where(
+      and(
+        eq(contactChannels.contactId, guardian.id),
+        eq(contactChannels.status, 'active'),
+      ),
+    )
+    .orderBy(desc(contactChannels.verifiedAt))
+    .all();
+
+  if (channelRows.length === 0) return null;
+
+  return {
+    contact: guardian,
+    channels: channelRows.map(parseChannel),
+  };
+}
+
+/**
  * Update a channel's access-control fields (status, policy, reasons).
  * Returns the updated channel, or null if the channel does not exist.
  */
