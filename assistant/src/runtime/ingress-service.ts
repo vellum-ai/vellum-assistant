@@ -8,9 +8,9 @@
 import { isChannelId } from "../channels/types.js";
 import { listContacts } from "../contacts/contact-store.js";
 import {
-  blockMemberContactsFirst,
-  revokeMemberContactsFirst,
-  upsertMemberContactsFirst,
+  blockMember,
+  revokeMember,
+  upsertMember,
 } from "../contacts/contacts-write.js";
 import type {
   ContactWithChannels,
@@ -394,7 +394,7 @@ export function upsertIngressMember(params: {
         "At least one of externalUserId or externalChatId is required for upsert",
     };
   }
-  const result = upsertMemberContactsFirst({
+  const result = upsertMember({
     assistantId: params.assistantId,
     sourceChannel: params.sourceChannel,
     externalUserId: params.externalUserId,
@@ -417,7 +417,7 @@ export function revokeIngressMember(
   if (!memberId) {
     return { ok: false, error: "memberId is required for revoke" };
   }
-  const result = revokeMemberContactsFirst(memberId, reason);
+  const result = revokeMember(memberId, reason);
   if (!result) {
     return { ok: false, error: "Member not found or cannot be revoked" };
   }
@@ -431,7 +431,7 @@ export function blockIngressMember(
   if (!memberId) {
     return { ok: false, error: "memberId is required for block" };
   }
-  const result = blockMemberContactsFirst(memberId, reason);
+  const result = blockMember(memberId, reason);
   if (!result) {
     return { ok: false, error: "Member not found or already blocked" };
   }

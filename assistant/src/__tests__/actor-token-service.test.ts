@@ -48,7 +48,7 @@ mock.module("../config/env.js", () => ({
 }));
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   createActorTokenRecord,
@@ -227,7 +227,7 @@ describe("guardian vellum migration", () => {
   });
 
   test("ensureVellumGuardianBinding preserves existing bindings for other channels", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-user-123",

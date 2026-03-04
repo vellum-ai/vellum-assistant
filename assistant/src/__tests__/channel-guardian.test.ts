@@ -113,7 +113,7 @@ globalThis.fetch = (async (
 }) as unknown as typeof fetch;
 import { eq } from "drizzle-orm";
 
-import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import {
   handleGuardianVerification,
   MAX_SENDS_PER_SESSION,
@@ -551,7 +551,7 @@ describe("guardian service challenge validation", () => {
 
   test("validateAndConsumeChallenge revokes existing binding before creating new one", () => {
     // Create initial guardian binding
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "old-user",
@@ -594,7 +594,7 @@ describe("guardian identity check", () => {
   });
 
   test("isGuardian returns true for matching user", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -606,7 +606,7 @@ describe("guardian identity check", () => {
   });
 
   test("isGuardian returns false for non-matching user", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -622,7 +622,7 @@ describe("guardian identity check", () => {
   });
 
   test("isGuardian returns false after binding is revoked", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -636,7 +636,7 @@ describe("guardian identity check", () => {
   });
 
   test("getGuardianBinding returns the active binding", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -655,7 +655,7 @@ describe("guardian identity check", () => {
   });
 
   test("isGuardian works for sms channel", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "sms",
       guardianExternalUserId: "phone-user-1",
@@ -670,7 +670,7 @@ describe("guardian identity check", () => {
   });
 
   test("serviceRevokeBinding revokes the active binding", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -1253,7 +1253,7 @@ describe("channel-scoped guardian resolution", () => {
 
   test("isGuardian resolves independently per channel", () => {
     // Create guardian binding on telegram
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
@@ -1261,7 +1261,7 @@ describe("channel-scoped guardian resolution", () => {
       guardianDeliveryChatId: "chat-alpha",
     });
     // Create guardian binding on sms with a different user
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "user-beta",
@@ -1279,14 +1279,14 @@ describe("channel-scoped guardian resolution", () => {
   });
 
   test("getGuardianBinding returns different bindings for different channels", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
       guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "user-beta",
@@ -1304,14 +1304,14 @@ describe("channel-scoped guardian resolution", () => {
   });
 
   test("revoking binding for one channel does not affect another", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
       guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "user-beta",
@@ -1533,7 +1533,7 @@ describe("IPC handler channel-aware guardian status", () => {
   });
 
   test("status action returns guardianDeliveryChatId when bound", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -1561,7 +1561,7 @@ describe("IPC handler channel-aware guardian status", () => {
   });
 
   test("status action returns guardian username/displayName from binding metadata", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-43",
@@ -1871,7 +1871,7 @@ describe("voice guardian challenge validation", () => {
   });
 
   test("validateAndConsumeChallenge revokes existing voice binding before creating new one", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "old-voice-user",
@@ -1913,7 +1913,7 @@ describe("voice guardian identity and revocation", () => {
   });
 
   test("isGuardian works for voice channel", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
@@ -1928,7 +1928,7 @@ describe("voice guardian identity and revocation", () => {
   });
 
   test("getGuardianBinding returns voice binding", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
@@ -1943,7 +1943,7 @@ describe("voice guardian identity and revocation", () => {
   });
 
   test("revokeBinding clears active voice guardian binding", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
@@ -1957,14 +1957,14 @@ describe("voice guardian identity and revocation", () => {
   });
 
   test("revokeBinding for voice does not affect telegram binding", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "tg-user-1",
@@ -2192,7 +2192,7 @@ describe("IPC handler voice guardian verification", () => {
   });
 
   test("status for voice reflects bound state", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
@@ -2219,7 +2219,7 @@ describe("IPC handler voice guardian verification", () => {
   });
 
   test("revoke for voice clears active binding", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
@@ -2246,14 +2246,14 @@ describe("IPC handler voice guardian verification", () => {
   });
 
   test("revoke for voice does not affect telegram binding", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-user-1",
@@ -2812,7 +2812,7 @@ describe("outbound SMS verification", () => {
 
   test("start_outbound rejects when active binding exists (rebind=false)", () => {
     // Create an existing guardian binding
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "+15551234567",
@@ -2839,7 +2839,7 @@ describe("outbound SMS verification", () => {
 
   test("start_outbound allows rebind when rebind=true", () => {
     // Create an existing guardian binding
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "+15551234567",
@@ -3352,7 +3352,7 @@ describe("outbound Telegram verification", () => {
   });
 
   test("start_outbound for telegram rejects when active binding exists (rebind=false)", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -3876,7 +3876,7 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound for voice rejects when binding exists (rebind=false)", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15551234567",

@@ -46,9 +46,9 @@ import {
   findGuardianForChannel,
 } from "../contacts/contact-store.js";
 import {
-  createGuardianBindingContactsFirst,
-  revokeMemberContactsFirst,
-  upsertMemberContactsFirst,
+  createGuardianBinding,
+  revokeMember,
+  upsertMember,
 } from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -118,7 +118,7 @@ describe("trusted contact verification → member activation", () => {
     }
 
     // Simulate the member upsert that inbound-message-handler performs on success
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "requester-user-123",
       externalChatId: "requester-chat-123",
@@ -144,7 +144,7 @@ describe("trusted contact verification → member activation", () => {
   });
 
   test("resolveActorTrust surfaces member displayName when sender displayName is missing", () => {
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "requester-user-jeff",
       externalChatId: "requester-chat-jeff",
@@ -172,7 +172,7 @@ describe("trusted contact verification → member activation", () => {
   });
 
   test("resolveActorTrust prioritizes member displayName over sender displayName", () => {
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "requester-user-jeff-priority",
       externalChatId: "requester-chat-jeff-priority",
@@ -204,7 +204,7 @@ describe("trusted contact verification → member activation", () => {
   test("resolveActorTrust falls back to sender metadata when member record matches chat but not sender (group chat)", () => {
     // Simulate a group chat: member record exists for a different user who
     // shares the same externalChatId (e.g., Telegram group).
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "other-user-in-group",
       externalChatId: "shared-group-chat",
@@ -256,7 +256,7 @@ describe("trusted contact verification → member activation", () => {
     );
 
     // Simulate member upsert on verification success
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "requester-chat-456",
@@ -296,7 +296,7 @@ describe("trusted contact verification → member activation", () => {
       "chat-cross-test",
     );
 
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "user-cross-test",
       externalChatId: "chat-cross-test",
@@ -322,7 +322,7 @@ describe("trusted contact verification → member activation", () => {
 
   test("re-verification of previously revoked member reactivates them", () => {
     // Create and activate a member
-    const member = upsertMemberContactsFirst({
+    const member = upsertMember({
       sourceChannel: "telegram",
       externalUserId: "user-revoked",
       externalChatId: "chat-revoked",
@@ -332,7 +332,7 @@ describe("trusted contact verification → member activation", () => {
     });
 
     // Revoke the member
-    const revoked = revokeMemberContactsFirst(
+    const revoked = revokeMember(
       member!.channel.id,
       "testing revocation",
     );
@@ -371,8 +371,8 @@ describe("trusted contact verification → member activation", () => {
       expect(result.verificationType).toBe("trusted_contact");
     }
 
-    // upsertMemberContactsFirst reactivates the existing record
-    upsertMemberContactsFirst({
+    // upsertMember reactivates the existing record
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "user-revoked",
       externalChatId: "chat-revoked",
@@ -392,7 +392,7 @@ describe("trusted contact verification → member activation", () => {
 
   test("trusted contact verification does NOT create a guardian binding", () => {
     // Ensure there's an existing guardian binding we want to preserve
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-original",

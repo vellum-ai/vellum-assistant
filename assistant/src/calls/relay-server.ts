@@ -17,7 +17,7 @@ import {
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
-import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
+import { upsertMember } from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
@@ -983,7 +983,7 @@ export class RelayConnection {
 
     if (!params.skipMemberActivation) {
       try {
-        upsertMemberContactsFirst({
+        upsertMember({
           assistantId,
           sourceChannel: "voice",
           externalUserId: fromNumber,

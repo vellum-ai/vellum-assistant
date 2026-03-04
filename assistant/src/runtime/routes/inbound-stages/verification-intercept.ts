@@ -12,7 +12,7 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
-import { upsertMemberContactsFirst } from "../../../contacts/contacts-write.js";
+import { upsertMember } from "../../../contacts/contacts-write.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
@@ -135,7 +135,7 @@ export async function handleVerificationIntercept(
         ? existingContact.displayName
         : actorDisplayName;
 
-    upsertMemberContactsFirst({
+    upsertMember({
       assistantId: canonicalAssistantId,
       sourceChannel,
       externalUserId: canonicalSenderId ?? rawSenderId,

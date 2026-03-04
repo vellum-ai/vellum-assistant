@@ -24,7 +24,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
+import { upsertMember } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   createInvite,
@@ -179,7 +179,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "existing-user",
       status: "active",
@@ -209,7 +209,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create a blocked member — simulates a guardian-initiated block
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "blocked-user",
       status: "blocked",
@@ -231,7 +231,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create a revoked member
-    const member = upsertMemberContactsFirst({
+    const member = upsertMember({
       sourceChannel: "telegram",
       externalUserId: "revoked-user",
       status: "revoked",
@@ -282,7 +282,7 @@ describe("invite-redemption-service", () => {
 
   test("returns invalid_token for an active member with a bogus token (no membership probing)", () => {
     // Pre-create an active member
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "probed-user",
       status: "active",
@@ -307,7 +307,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "expired-token-user",
       status: "active",
@@ -331,7 +331,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member on telegram
-    upsertMemberContactsFirst({
+    upsertMember({
       sourceChannel: "telegram",
       externalUserId: "cross-channel-user",
       status: "active",

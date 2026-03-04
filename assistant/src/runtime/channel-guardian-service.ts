@@ -11,8 +11,8 @@ import { v4 as uuid } from "uuid";
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
-  createGuardianBindingContactsFirst,
-  revokeGuardianBindingContactsFirst,
+  createGuardianBinding,
+  revokeGuardianBinding,
 } from "../contacts/contacts-write.js";
 import type {
   GuardianBinding,
@@ -345,7 +345,7 @@ export function validateAndConsumeChallenge(
   }
 
   // Revoke any existing active binding before creating a new one (same-user re-verification)
-  revokeGuardianBindingContactsFirst(assistantId, channel);
+  revokeGuardianBinding(assistantId, channel);
 
   const metadata: Record<string, string> = {};
   if (actorUsername && actorUsername.trim().length > 0) {
@@ -362,7 +362,7 @@ export function validateAndConsumeChallenge(
     vellumBinding?.guardianPrincipalId ?? actorExternalUserId;
 
   // Create the new guardian binding
-  const binding = createGuardianBindingContactsFirst({
+  const binding = createGuardianBinding({
     assistantId,
     channel,
     guardianExternalUserId: actorExternalUserId,
@@ -430,7 +430,7 @@ export function isGuardian(
  * Revoke the active guardian binding for a given assistant and channel.
  */
 export function revokeBinding(assistantId: string, channel: string): boolean {
-  return revokeGuardianBindingContactsFirst(assistantId, channel);
+  return revokeGuardianBinding(assistantId, channel);
 }
 
 /**

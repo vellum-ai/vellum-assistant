@@ -2,7 +2,7 @@ import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
 import { findContactChannel } from "../../contacts/contact-store.js";
-import { revokeMemberContactsFirst } from "../../contacts/contacts-write.js";
+import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
@@ -209,7 +209,7 @@ export function revokeGuardianForChannel(
   }
 
   // Revoke the member BEFORE the guardian binding so that
-  // revokeMemberContactsFirst sees the channel as active/pending and sets the
+  // revokeMember sees the channel as active/pending and sets the
   // correct revokedReason ("guardian_binding_revoked"). If the guardian binding
   // is revoked first, the channel is already marked revoked and the member
   // revocation becomes a no-op (wrong reason or skipped entirely).
@@ -226,7 +226,7 @@ export function revokeGuardianForChannel(
       channelStatus === "pending" ||
       channelStatus === "unverified"
     ) {
-      revokeMemberContactsFirst(
+      revokeMember(
         contactResult.channel.id,
         "guardian_binding_revoked",
       );

@@ -9,7 +9,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
+import { upsertMember } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db.js";
 import {
   findActiveVoiceInvites,
@@ -150,7 +150,7 @@ export function redeemInvite(params: {
   // Inactive member reactivation: when the user already has a member record
   // in a non-active state (revoked/pending), reactivate it via upsertMember
   // and consume an invite use atomically. The fresh-member path below also
-  // uses upsertMemberContactsFirst to keep contacts in sync.
+  // uses upsertMember to keep contacts in sync.
   if (existingChannel) {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
@@ -174,11 +174,11 @@ export function redeemInvite(params: {
         ? existingContact.displayName
         : displayName;
 
-    let reactivated: ReturnType<typeof upsertMemberContactsFirst> | undefined;
+    let reactivated: ReturnType<typeof upsertMember> | undefined;
     try {
       getSqlite()
         .transaction(() => {
-          reactivated = upsertMemberContactsFirst({
+          reactivated = upsertMember({
             assistantId: assistantId ?? invite.assistantId,
             sourceChannel,
             externalUserId,
@@ -221,11 +221,11 @@ export function redeemInvite(params: {
   // Fresh member creation: upsert into contacts tables and consume an invite
   // use atomically, mirroring the reactivation path above.
   const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
-  let freshResult: ReturnType<typeof upsertMemberContactsFirst> | undefined;
+  let freshResult: ReturnType<typeof upsertMember> | undefined;
   try {
     getSqlite()
       .transaction(() => {
-        freshResult = upsertMemberContactsFirst({
+        freshResult = upsertMember({
           assistantId: assistantId ?? invite.assistantId,
           sourceChannel,
           externalUserId,
@@ -370,7 +370,7 @@ export function redeemVoiceInviteCode(params: {
   try {
     getSqlite()
       .transaction(() => {
-        const writeResult = upsertMemberContactsFirst({
+        const writeResult = upsertMember({
           assistantId: invite.assistantId,
           sourceChannel: "voice",
           externalUserId: callerExternalUserId,

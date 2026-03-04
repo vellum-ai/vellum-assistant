@@ -55,7 +55,7 @@ function parseDisplayNameFromMetadata(
  * Returns a GuardianBinding-compatible object synthesized from the input params
  * (so callers expecting binding.id still work).
  */
-export function createGuardianBindingContactsFirst(params: {
+export function createGuardianBinding(params: {
   assistantId: string;
   channel: string;
   guardianExternalUserId: string;
@@ -116,7 +116,7 @@ export function createGuardianBindingContactsFirst(params: {
  * Revoke a guardian binding by updating the contacts table.
  * Returns true when a guardian channel was found and revoked, false otherwise.
  */
-export function revokeGuardianBindingContactsFirst(
+export function revokeGuardianBinding(
   assistantId: string,
   channel: string,
 ): boolean {
@@ -138,7 +138,7 @@ export function revokeGuardianBindingContactsFirst(
  * Returns the native Contact + ContactChannel, or null if no usable
  * identity was provided or the lookup failed after upsert.
  */
-export function upsertMemberContactsFirst(params: {
+export function upsertMember(params: {
   sourceChannel: string;
   externalUserId?: string;
   externalChatId?: string;
@@ -216,7 +216,7 @@ export function upsertMemberContactsFirst(params: {
  * The memberId may be a plain channel ID (internal callers) or a composite
  * contactId:channelId (from the API response format).
  */
-export function revokeMemberContactsFirst(
+export function revokeMember(
   memberId: string,
   reason?: string,
 ): ContactWriteResult | null {
@@ -246,7 +246,7 @@ export function revokeMemberContactsFirst(
  * The memberId may be a plain channel ID (internal callers) or a composite
  * contactId:channelId (from the API response format).
  */
-export function blockMemberContactsFirst(
+export function blockMember(
   memberId: string,
   reason?: string,
 ): ContactWriteResult | null {

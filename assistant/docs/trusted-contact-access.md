@@ -92,11 +92,11 @@ Identity binding ensures the verification code can only be consumed by the inten
 
 ### Stage: `active` (code verified, trusted contact created)
 
-| Store                       | Table                                      | Record                                                                                                                                                                                                           |
-| --------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contacts-write.ts`         | `contacts` / `contact_channels`            | Upserted via `upsertMemberContactsFirst()`: creates a contact record and a `contact_channels` entry with `status: 'active'`, `policy: 'allow'`, channel type, `externalUserId`, `externalChatId`, `displayName`. |
-| `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set.                                                                                                                             |
-| `channel-guardian-store.ts` | `channel_guardian_rate_limits`             | Reset via `resetRateLimit()` on successful verification.                                                                                                                                                         |
+| Store                       | Table                                      | Record                                                                                                                                                                                              |
+| --------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contacts-write.ts`         | `contacts` / `contact_channels`            | Upserted via `upsertMember()`: creates a contact record and a `contact_channels` entry with `status: 'active'`, `policy: 'allow'`, channel type, `externalUserId`, `externalChatId`, `displayName`. |
+| `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set.                                                                                                                |
+| `channel-guardian-store.ts` | `channel_guardian_rate_limits`             | Reset via `resetRateLimit()` on successful verification.                                                                                                                                            |
 
 ### Stage: `denied` (guardian rejected)
 
@@ -137,10 +137,10 @@ Voice calls have a dedicated in-call guardian approval flow that differs from th
 
 **Key difference from text-channel flow:** Voice approvals skip the verification session step because the caller's phone identity is already known from the active call. Text-channel approvals still mint a 6-digit verification code for out-of-band identity confirmation.
 
-| Store                         | Table                           | Record                                                                                             |
-| ----------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `canonical-guardian-store.ts` | `canonical_guardian_requests`   | `kind: 'access_request'`, `status: 'pending'` -> `'approved'` or `'denied'`                        |
-| `contacts-write.ts`           | `contacts` / `contact_channels` | On approval: upserted via `upsertMemberContactsFirst()` with `status: 'active'`, `policy: 'allow'` |
+| Store                         | Table                           | Record                                                                                |
+| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
+| `canonical-guardian-store.ts` | `canonical_guardian_requests`   | `kind: 'access_request'`, `status: 'pending'` -> `'approved'` or `'denied'`           |
+| `contacts-write.ts`           | `contacts` / `contact_channels` | On approval: upserted via `upsertMember()` with `status: 'active'`, `policy: 'allow'` |
 
 ## Sequence Diagram
 
