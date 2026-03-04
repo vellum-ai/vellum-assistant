@@ -1590,7 +1590,7 @@ public final class SettingsStore: ObservableObject {
 
     func refreshTelegramApprovedMembers() {
         guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/ingress/members?sourceChannel=telegram&status=active") else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/contacts?channelType=telegram") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
@@ -1604,22 +1604,32 @@ public final class SettingsStore: ObservableObject {
                 guard let httpResp = response as? HTTPURLResponse else { return }
                 if httpResp.statusCode == 200 {
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let members = json["members"] as? [[String: Any]] {
+                       let contactsList = json["contacts"] as? [[String: Any]] {
                         let guardianId = self.telegramGuardianIdentity
-                        self.telegramApprovedMembers = members.compactMap { m in
-                            guard let id = m["id"] as? String else { return nil }
-                            let externalUserId = m["externalUserId"] as? String
-                            // Skip the guardian — they're already shown in the Guardian Verification row
-                            if let guardianId, let externalUserId, externalUserId == guardianId {
-                                return nil
+                        var approvedMembers: [ApprovedMember] = []
+                        for contact in contactsList {
+                            let displayName = contact["displayName"] as? String
+                            guard let channels = contact["channels"] as? [[String: Any]] else { continue }
+                            for channel in channels {
+                                guard let channelType = channel["type"] as? String,
+                                      channelType == "telegram",
+                                      let status = channel["status"] as? String,
+                                      status == "active",
+                                      let channelId = channel["id"] as? String else { continue }
+                                let externalUserId = channel["externalUserId"] as? String
+                                // Skip the guardian — they're already shown in the Guardian Verification row
+                                if let guardianId, let externalUserId, externalUserId == guardianId {
+                                    continue
+                                }
+                                approvedMembers.append(ApprovedMember(
+                                    id: channelId,
+                                    displayName: displayName,
+                                    username: channel["address"] as? String,
+                                    externalUserId: externalUserId
+                                ))
                             }
-                            return ApprovedMember(
-                                id: id,
-                                displayName: m["displayName"] as? String,
-                                username: m["username"] as? String,
-                                externalUserId: externalUserId
-                            )
                         }
+                        self.telegramApprovedMembers = approvedMembers
                         self.telegramApprovedMembersError = nil
                     }
                 } else {
@@ -1634,10 +1644,13 @@ public final class SettingsStore: ObservableObject {
 
     func revokeTelegramApprovedMember(memberId: String) {
         guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/ingress/members/\(memberId)") else { return }
+        // memberId is now a channelId — revoke via PATCH /v1/contacts/channels/:channelId
+        guard let url = URL(string: "\(http.baseURL)/v1/contacts/channels/\(memberId)") else { return }
         var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
+        request.httpMethod = "PATCH"
         request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
         request.timeoutInterval = 10
         telegramRevokingMemberIds.insert(memberId)
         let removed = telegramApprovedMembers.filter { $0.id == memberId }
