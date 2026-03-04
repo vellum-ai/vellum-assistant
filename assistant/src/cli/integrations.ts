@@ -160,6 +160,57 @@ async function runRead(
   }
 }
 
+export function registerContactsCommand(program: Command): void {
+  const contacts = program
+    .command("contacts")
+    .description("Manage and query the contact graph")
+    .option("--json", "Machine-readable compact JSON output");
+
+  contacts
+    .command("list")
+    .description("List contacts (calls /v1/contacts)")
+    .option("--role <role>", "Filter by role")
+    .option("--limit <limit>", "Maximum number of contacts to return")
+    .option("--query <query>", "Search query to filter contacts")
+    .action(
+      async (
+        opts: {
+          role?: string;
+          limit?: string;
+          query?: string;
+        },
+        cmd: Command,
+      ) => {
+        const query = toQueryString({
+          role: opts.role,
+          limit: opts.limit,
+          query: opts.query,
+        });
+        await runRead(cmd, async () => gatewayGet(`/v1/contacts${query}`));
+      },
+    );
+
+  contacts
+    .command("invites")
+    .description("List ingress invites (calls /v1/ingress/invites)")
+    .option("--source-channel <sourceChannel>", "Filter by source channel")
+    .option("--status <status>", "Filter by invite status")
+    .action(
+      async (
+        opts: { sourceChannel?: IngressChannel; status?: string },
+        cmd: Command,
+      ) => {
+        const query = toQueryString({
+          sourceChannel: opts.sourceChannel,
+          status: opts.status,
+        });
+        await runRead(cmd, async () =>
+          gatewayGet(`/v1/ingress/invites${query}`),
+        );
+      },
+    );
+}
+
 export function registerIntegrationsCommand(program: Command): void {
   const integrations = program
     .command("integrations")
