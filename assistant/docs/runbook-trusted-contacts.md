@@ -45,7 +45,7 @@ curl -s "$BASE/v1/contacts" \
 ### Via CLI
 
 ```bash
-vellum contacts list
+vellum contacts list --role contact
 ```
 
 Response shape:
