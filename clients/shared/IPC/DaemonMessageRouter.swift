@@ -278,6 +278,8 @@ extension DaemonClient {
             onGenerateAvatarResponse?(msg)
         case .contactsResponse(let msg):
             onContactsResponse?(msg)
+        case .contactsChanged(let msg):
+            onContactsChanged?(msg)
         default:
             break
         }
