@@ -40,8 +40,8 @@ Multiple local assistant instances can run side-by-side on the same machine, eac
 Each named instance gets its own directory tree under `~/.vellum/instances/<name>/`:
 
 ```
+~/.vellum.lock.json                    # Global lockfile (all entries + activeAssistant)
 ~/.vellum/
-├── .vellum.lock.json              # Global lockfile (all entries + activeAssistant)
 ├── instances/
 │   ├── alice/                     # Instance root (= BASE_DATA_DIR for this daemon)
 │   │   └── .vellum/              # Runtime dir (getRootDir() resolves here)
