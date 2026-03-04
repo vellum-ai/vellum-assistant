@@ -3,9 +3,7 @@
  *
  * Produces a single trust-resolved actor context from raw inbound identity
  * fields. Normalizes sender identity via channel-agnostic canonicalization,
- * then resolves trust classification by checking contacts/contact_channels
- * first, falling back to the legacy assistant_ingress_members table when
- * contacts sync has not yet propagated a record.
+ * then resolves trust classification by checking contacts/contact_channels.
  *
  * Trust classifications:
  * - `guardian`: sender matches the guardian contact's channel for this channel type.
@@ -21,10 +19,8 @@ import {
 import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type { IngressMember } from "../memory/ingress-member-store.js";
-import { findMember } from "../memory/ingress-member-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 const log = getLogger("actor-trust-resolver");
 
@@ -207,7 +203,7 @@ export function resolveActorTrust(
     "trust-resolver guardian lookup",
   );
 
-  // --- Member lookup: contacts-first, legacy fallback ---
+  // --- Member lookup via contacts ---
   let memberRecord: IngressMember | null = null;
   const contactMatch = findContactByChannelExternalId(
     input.sourceChannel,
@@ -226,23 +222,10 @@ export function resolveActorTrust(
       );
     }
   }
-  if (!memberRecord) {
-    // Legacy fallback: contacts sync is best-effort and can fail silently,
-    // so an active trusted contact may exist in assistant_ingress_members
-    // without a corresponding contacts row.
-    memberRecord = findMember({
-      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-      sourceChannel: input.sourceChannel,
-      externalUserId: canonicalSenderId,
-      externalChatId: input.conversationExternalId,
-    });
-  }
-
   log.debug(
     {
       channel: input.sourceChannel,
       canonicalSenderId,
-      source: contactMatch ? "contacts" : "legacy",
       found: !!memberRecord,
     },
     "trust-resolver member lookup",
