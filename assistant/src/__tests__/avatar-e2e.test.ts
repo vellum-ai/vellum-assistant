@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mock state — mutable variables control per-test behavior
@@ -169,6 +169,9 @@ const expectedAvatarPath =
 // ---------------------------------------------------------------------------
 
 describe("avatar E2E integration", () => {
+  // Save original GEMINI_API_KEY to restore after each test
+  const originalGeminiKey = process.env.GEMINI_API_KEY;
+
   beforeEach(() => {
     mockStrategy = "local_only";
     mockGeminiKey = "test-gemini-key";
@@ -191,6 +194,15 @@ describe("avatar E2E integration", () => {
 
     // Clear env var so tests control the key entirely via config mock
     delete process.env.GEMINI_API_KEY;
+  });
+
+  afterEach(() => {
+    // Restore original GEMINI_API_KEY
+    if (originalGeminiKey === undefined) {
+      delete process.env.GEMINI_API_KEY;
+    } else {
+      process.env.GEMINI_API_KEY = originalGeminiKey;
+    }
   });
 
   // -----------------------------------------------------------------------
