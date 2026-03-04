@@ -224,20 +224,16 @@ export function upsertContact(params: {
         contactId = existingChannel.contactId;
         const updateSet: Record<string, unknown> = {
           displayName: params.displayName,
-          relationship:
-            params.relationship !== undefined ? params.relationship : undefined,
-          importance:
-            params.importance !== undefined ? params.importance : undefined,
-          responseExpectation:
-            params.responseExpectation !== undefined
-              ? params.responseExpectation
-              : undefined,
-          preferredTone:
-            params.preferredTone !== undefined
-              ? params.preferredTone
-              : undefined,
           updatedAt: now,
         };
+        if (params.relationship !== undefined)
+          updateSet.relationship = params.relationship;
+        if (params.importance !== undefined)
+          updateSet.importance = params.importance;
+        if (params.responseExpectation !== undefined)
+          updateSet.responseExpectation = params.responseExpectation;
+        if (params.preferredTone !== undefined)
+          updateSet.preferredTone = params.preferredTone;
         if (params.role !== undefined) updateSet.role = params.role;
         if (params.principalId !== undefined)
           updateSet.principalId = params.principalId;
