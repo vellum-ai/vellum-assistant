@@ -300,7 +300,7 @@ When `INGRESS_PUBLIC_BASE_URL` is configured, the gateway prioritizes it as the 
 
 ## Default Mode: Dedicated Routes Only
 
-By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, explicit control-plane proxies such as `/v1/integrations/guardian/*`, `/v1/integrations/telegram/*`, and `/v1/ingress/*`, plus the authenticated runtime health route `/v1/health`) remain available, but arbitrary runtime passthrough routes return `404` unless `GATEWAY_RUNTIME_PROXY_ENABLED=true`.
+By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, explicit control-plane proxies such as `/v1/integrations/guardian/*`, `/v1/integrations/telegram/*`, and `/v1/contacts/invites/*`, plus the authenticated runtime health route `/v1/health`) remain available, but arbitrary runtime passthrough routes return `404` unless `GATEWAY_RUNTIME_PROXY_ENABLED=true`.
 
 ## Runtime Proxy Mode
 
