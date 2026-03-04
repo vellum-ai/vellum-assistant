@@ -41,7 +41,7 @@ function extractHostFromUrl(url: string): string {
 }
 
 async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
-  console.log("\u{1F5D1}\ufe0f  Stopping local daemon...\n");
+  console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
 
   const vellumDir = join(homedir(), ".vellum");
 

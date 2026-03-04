@@ -85,7 +85,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
@@ -189,7 +189,7 @@ describe("non-member access request notification", () => {
 
   test("guardian is notified when a non-member messages and a guardian binding exists", async () => {
     // Set up a guardian binding for this channel
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -235,7 +235,7 @@ describe("non-member access request notification", () => {
   });
 
   test("no duplicate approval requests for repeated messages from same non-member", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -306,7 +306,7 @@ describe("non-member access request notification", () => {
 
   test("cross-channel fallback: SMS guardian binding resolves for Telegram access request", async () => {
     // Only an SMS guardian binding exists — no Telegram binding
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "guardian-sms-user",
@@ -342,7 +342,7 @@ describe("non-member access request notification", () => {
   });
 
   test("no notification when actorExternalId is absent", async () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -419,7 +419,7 @@ describe("access-request-helper unit tests", () => {
 
   test("notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing", () => {
     // Only SMS binding exists
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "guardian-sms",
@@ -455,7 +455,7 @@ describe("access-request-helper unit tests", () => {
 
   test("notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback", () => {
     // Both Telegram and SMS bindings exist
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-tg",
@@ -463,7 +463,7 @@ describe("access-request-helper unit tests", () => {
       guardianPrincipalId: "test-principal-tg",
       verifiedVia: "test",
     });
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "guardian-sms",

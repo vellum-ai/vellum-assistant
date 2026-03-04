@@ -20,6 +20,14 @@ type DeliverRenderedReplyParams = {
   /** Called after each segment is successfully delivered, with the
    *  1-based count of segments delivered so far (including prior attempts). */
   onSegmentDelivered?: (deliveredCount: number) => void;
+  /**
+   * When true, deliver via ephemeral messaging so only the target `user`
+   * sees the content. Ephemeral messages are fire-and-forget: they cannot
+   * be edited or deleted after posting.
+   */
+  ephemeral?: boolean;
+  /** Channel-specific user ID — required when `ephemeral` is true. */
+  user?: string;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -54,6 +62,8 @@ export async function deliverRenderedReplyViaCallback(
     interSegmentDelayMs = INTER_SEGMENT_DELAY_MS,
     startFromSegment = 0,
     onSegmentDelivered,
+    ephemeral,
+    user,
   } = params;
 
   const deliverableSegments = toDeliverableTextSegments(
@@ -71,6 +81,8 @@ export async function deliverRenderedReplyViaCallback(
           chatId,
           attachments: replyAttachments,
           assistantId,
+          ephemeral,
+          user,
         },
         bearerToken,
       );
@@ -87,6 +99,8 @@ export async function deliverRenderedReplyViaCallback(
         text: deliverableSegments[i],
         attachments: isLastSegment ? replyAttachments : undefined,
         assistantId,
+        ephemeral,
+        user,
       },
       bearerToken,
     );
@@ -104,6 +118,10 @@ export async function deliverRenderedReplyViaCallback(
 export type DeliverReplyOptions = {
   startFromSegment?: number;
   onSegmentDelivered?: (deliveredCount: number) => void;
+  /** Deliver as ephemeral (visible only to `user`). Fire-and-forget. */
+  ephemeral?: boolean;
+  /** Channel-specific user ID — required when `ephemeral` is true. */
+  user?: string;
 };
 
 export async function deliverReplyViaCallback(
@@ -145,6 +163,8 @@ export async function deliverReplyViaCallback(
       bearerToken,
       startFromSegment: options?.startFromSegment,
       onSegmentDelivered: options?.onSegmentDelivered,
+      ephemeral: options?.ephemeral,
+      user: options?.user,
     });
     break;
   }

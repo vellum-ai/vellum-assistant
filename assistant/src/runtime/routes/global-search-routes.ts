@@ -19,6 +19,7 @@ import { rawAll } from "../../memory/raw-query.js";
 import { semanticSearch } from "../../memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 
 const log = getLogger("global-search");
@@ -247,7 +248,11 @@ export async function handleGlobalSearch(url: URL): Promise<Response> {
   }
 
   if (categories.has("contacts")) {
-    const contactResults = searchContacts({ query, limit });
+    const contactResults = searchContacts({
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      query,
+      limit,
+    });
     results.contacts = contactResults.map((c) => ({
       id: c.id,
       displayName: c.displayName,

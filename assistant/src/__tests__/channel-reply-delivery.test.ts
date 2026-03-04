@@ -334,6 +334,36 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls).toHaveLength(0);
   });
 
+  it("passes ephemeral and user through to each delivery call", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "C123",
+      textSegments: ["Part 1.", "Part 2."],
+      interSegmentDelayMs: 0,
+      ephemeral: true,
+      user: "U456",
+    });
+
+    expect(deliveryCalls).toHaveLength(2);
+    expect(deliveryCalls[0].payload.ephemeral).toBe(true);
+    expect(deliveryCalls[0].payload.user).toBe("U456");
+    expect(deliveryCalls[1].payload.ephemeral).toBe(true);
+    expect(deliveryCalls[1].payload.user).toBe("U456");
+  });
+
+  it("does not include ephemeral fields when not set", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "C123",
+      textSegments: ["Normal message."],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.ephemeral).toBeUndefined();
+    expect(deliveryCalls[0].payload.user).toBeUndefined();
+  });
+
   it("passes startFromSegment through deliverReplyViaCallback options", async () => {
     conversationMessages.push(
       { id: "msg-u", role: "user", content: "hi" },

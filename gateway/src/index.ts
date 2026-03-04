@@ -349,32 +349,6 @@ function main() {
 
     // ── Ingress control plane ──
     {
-      path: "/v1/ingress/members",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleListMembers(req),
-    },
-    {
-      path: "/v1/ingress/members",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleUpsertMember(req),
-    },
-    {
-      path: /^\/v1\/ingress\/members\/([^/]+)\/block$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req, params) =>
-        ingressControlPlaneProxy.handleBlockMember(req, params[0]),
-    },
-    {
-      path: /^\/v1\/ingress\/members\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (req, params) =>
-        ingressControlPlaneProxy.handleRevokeMember(req, params[0]),
-    },
-    {
       path: "/v1/ingress/invites",
       method: "GET",
       auth: "edge",

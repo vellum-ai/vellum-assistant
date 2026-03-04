@@ -1,5 +1,5 @@
 /**
- * Gateway proxy endpoints for ingress members/invites control-plane routes.
+ * Gateway proxy endpoints for ingress contacts/invites control-plane routes.
  *
  * These routes remain available even when the broad runtime proxy is
  * disabled, so skills and clients can use gateway URLs exclusively.
@@ -96,28 +96,6 @@ export function createIngressControlPlaneProxyHandler(config: GatewayConfig) {
   }
 
   return {
-    async handleListMembers(req: Request): Promise<Response> {
-      const url = new URL(req.url);
-      return proxyToRuntime(req, "/v1/ingress/members", url.search);
-    },
-
-    async handleUpsertMember(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/ingress/members", "");
-    },
-
-    async handleBlockMember(req: Request, memberId: string): Promise<Response> {
-      const encoded = encodeURIComponent(memberId);
-      return proxyToRuntime(req, `/v1/ingress/members/${encoded}/block`, "");
-    },
-
-    async handleRevokeMember(
-      req: Request,
-      memberId: string,
-    ): Promise<Response> {
-      const encoded = encodeURIComponent(memberId);
-      return proxyToRuntime(req, `/v1/ingress/members/${encoded}`, "");
-    },
-
     async handleListInvites(req: Request): Promise<Response> {
       const url = new URL(req.url);
       return proxyToRuntime(req, "/v1/ingress/invites", url.search);

@@ -3,7 +3,14 @@ import { createHash, randomBytes, randomUUID } from "crypto";
 import { hostname, platform, userInfo } from "os";
 import { basename } from "path";
 import qrcode from "qrcode-terminal";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { Box, render as inkRender, Text, useInput, useStdout } from "ink";
 
 import { removeAssistantEntry } from "../lib/assistant-config";
@@ -26,7 +33,16 @@ export const ANSI = {
   gray: "\x1b[90m",
 } as const;
 
-export const SLASH_COMMANDS = ["/clear", "/doctor", "/exit", "/help", "/pair", "/q", "/quit", "/retire"];
+export const SLASH_COMMANDS = [
+  "/clear",
+  "/doctor",
+  "/exit",
+  "/help",
+  "/pair",
+  "/q",
+  "/quit",
+  "/retire",
+];
 
 const POLL_INTERVAL_MS = 3000;
 const SEND_TIMEOUT_MS = 5000;
@@ -45,17 +61,24 @@ const LEFT_HEADER_LINES = 3; // spacer + heading + spacer
 const LEFT_FOOTER_LINES = 3; // spacer + runtimeUrl + dirName
 
 // Right panel structure
-const TIPS = ["Send a message to start chatting", "Use /help to see available commands"];
+const TIPS = [
+  "Send a message to start chatting",
+  "Use /help to see available commands",
+];
 const RIGHT_PANEL_INFO_SECTIONS = 3; // Assistant, Species, Status — each with heading + value
 const RIGHT_PANEL_SPACERS = 2; // top spacer + spacer between tips and info
 const RIGHT_PANEL_TIPS_HEADING = 1;
 const RIGHT_PANEL_LINE_COUNT =
-  RIGHT_PANEL_SPACERS + RIGHT_PANEL_TIPS_HEADING + TIPS.length + RIGHT_PANEL_INFO_SECTIONS * 2;
+  RIGHT_PANEL_SPACERS +
+  RIGHT_PANEL_TIPS_HEADING +
+  TIPS.length +
+  RIGHT_PANEL_INFO_SECTIONS * 2;
 
 // Header chrome (borders around panel content)
 const HEADER_TOP_BORDER_LINES = 1; // "── Vellum ───..." line
 const HEADER_BOTTOM_BORDER_LINES = 2; // bottom rule + blank line
-const HEADER_CHROME_LINES = HEADER_TOP_BORDER_LINES + HEADER_BOTTOM_BORDER_LINES;
+const HEADER_CHROME_LINES =
+  HEADER_TOP_BORDER_LINES + HEADER_BOTTOM_BORDER_LINES;
 
 // Selection / Secret windows
 const DIALOG_WINDOW_WIDTH = 60;
@@ -182,7 +205,10 @@ async function checkHealthRuntime(baseUrl: string): Promise<HealthResponse> {
   return response.json() as Promise<HealthResponse>;
 }
 
-async function bootstrapAccessToken(baseUrl: string, bearerToken?: string): Promise<string> {
+async function bootstrapAccessToken(
+  baseUrl: string,
+  bearerToken?: string,
+): Promise<string> {
   if (!bearerToken) {
     throw new Error("Missing bearer token; cannot bootstrap actor identity");
   }
@@ -249,7 +275,12 @@ async function sendMessage(
     "/messages",
     {
       method: "POST",
-      body: JSON.stringify({ conversationKey: assistantId, content, sourceChannel: "vellum", interface: "cli" }),
+      body: JSON.stringify({
+        conversationKey: assistantId,
+        content,
+        sourceChannel: "vellum",
+        interface: "cli",
+      }),
       signal,
     },
     bearerToken,
@@ -318,7 +349,10 @@ async function pollPendingInteractions(
   );
 }
 
-function formatConfirmationPreview(toolName: string, input: Record<string, unknown>): string {
+function formatConfirmationPreview(
+  toolName: string,
+  input: Record<string, unknown>,
+): string {
   switch (toolName) {
     case "bash":
       return String(input.command ?? "");
@@ -333,7 +367,9 @@ function formatConfirmationPreview(toolName: string, input: Record<string, unkno
     case "browser_navigate":
       return `navigate ${String(input.url ?? "").slice(0, 80)}`;
     case "browser_close":
-      return input.close_all_pages ? "close all browser pages" : "close browser page";
+      return input.close_all_pages
+        ? "close all browser pages"
+        : "close browser page";
     case "browser_click":
       return `click ${input.element_id ?? input.selector ?? ""}`;
     case "browser_type":
@@ -354,7 +390,10 @@ async function handleConfirmationPrompt(
   bearerToken?: string,
   accessToken?: string,
 ): Promise<void> {
-  const preview = formatConfirmationPreview(confirmation.toolName, confirmation.input);
+  const preview = formatConfirmationPreview(
+    confirmation.toolName,
+    confirmation.input,
+  );
   const allowlistOptions = confirmation.allowlistOptions ?? [];
 
   chatApp.addStatus(`\u250C ${confirmation.toolName}: ${preview}`);
@@ -365,14 +404,24 @@ async function handleConfirmationPrompt(
   chatApp.addStatus("\u2514");
 
   const options = ["Allow once", "Deny once"];
-  if (allowlistOptions.length > 0 && confirmation.persistentDecisionsAllowed !== false) {
+  if (
+    allowlistOptions.length > 0 &&
+    confirmation.persistentDecisionsAllowed !== false
+  ) {
     options.push("Allowlist...", "Denylist...");
   }
 
   const index = await chatApp.showSelection("Tool Approval", options);
 
   if (index === 0) {
-    await submitDecision(baseUrl, assistantId, requestId, "allow", bearerToken, accessToken);
+    await submitDecision(
+      baseUrl,
+      assistantId,
+      requestId,
+      "allow",
+      bearerToken,
+      accessToken,
+    );
     chatApp.addStatus("\u2714 Allowed", "green");
     return;
   }
@@ -403,7 +452,14 @@ async function handleConfirmationPrompt(
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, accessToken);
+  await submitDecision(
+    baseUrl,
+    assistantId,
+    requestId,
+    "deny",
+    bearerToken,
+    accessToken,
+  );
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -421,7 +477,10 @@ async function handlePatternSelection(
   const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
   const options = allowlistOptions.map((o) => o.label);
 
-  const index = await chatApp.showSelection(`${label}: choose command pattern`, options);
+  const index = await chatApp.showSelection(
+    `${label}: choose command pattern`,
+    options,
+  );
 
   if (index >= 0 && index < allowlistOptions.length) {
     const selectedPattern = allowlistOptions[index].pattern;
@@ -439,7 +498,14 @@ async function handlePatternSelection(
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, accessToken);
+  await submitDecision(
+    baseUrl,
+    assistantId,
+    requestId,
+    "deny",
+    bearerToken,
+    accessToken,
+  );
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -480,7 +546,8 @@ async function handleScopeSelection(
       bearerToken,
       accessToken,
     );
-    const ruleLabel = trustDecision === "always_deny" ? "Denylisted" : "Allowlisted";
+    const ruleLabel =
+      trustDecision === "always_deny" ? "Denylisted" : "Allowlisted";
     const ruleColor = trustDecision === "always_deny" ? "yellow" : "green";
     chatApp.addStatus(
       `${trustDecision === "always_deny" ? "\u2718" : "\u2714"} ${ruleLabel}`,
@@ -489,7 +556,14 @@ async function handleScopeSelection(
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, accessToken);
+  await submitDecision(
+    baseUrl,
+    assistantId,
+    requestId,
+    "deny",
+    bearerToken,
+    accessToken,
+  );
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -582,7 +656,8 @@ function ToolCallDisplay({ tc }: ToolCallDisplayProps): ReactElement {
         : null}
       {tc.result !== undefined ? (
         <Text dimColor>
-          {"\u2502"} <Text color={statusColor}>{statusIcon}</Text> {truncateValue(tc.result, 70)}
+          {"\u2502"} <Text color={statusColor}>{statusIcon}</Text>{" "}
+          {truncateValue(tc.result, 70)}
         </Text>
       ) : null}
       <Text dimColor>{"\u2514"}</Text>
@@ -667,7 +742,9 @@ function SpinnerDisplay({ text }: { text: string }): ReactElement {
 
 export function renderErrorMainScreen(error: unknown): number {
   const msg = error instanceof Error ? error.message : String(error);
-  console.log(`${ANSI.red}${ANSI.bold}Failed to render MainWindow${ANSI.reset}`);
+  console.log(
+    `${ANSI.red}${ANSI.bold}Failed to render MainWindow${ANSI.reset}`,
+  );
   console.log(`${ANSI.dim}${msg}${ANSI.reset}`);
   console.log(`${ANSI.dim}Run /clear to retry${ANSI.reset}`);
   return 3;
@@ -733,7 +810,10 @@ function DefaultMainScreen({
 
   return (
     <Box flexDirection="column" width={totalWidth}>
-      <Text dimColor>{HEADER_PREFIX + "─".repeat(Math.max(0, totalWidth - HEADER_PREFIX.length))}</Text>
+      <Text dimColor>
+        {HEADER_PREFIX +
+          "─".repeat(Math.max(0, totalWidth - HEADER_PREFIX.length))}
+      </Text>
       <Box flexDirection="row">
         <Box flexDirection="column" width={LEFT_PANEL_WIDTH}>
           {Array.from({ length: maxLines }, (_, i) => {
@@ -790,7 +870,6 @@ function DefaultMainScreen({
   );
 }
 
-
 export interface SelectionRequest {
   title: string;
   options: string[];
@@ -817,7 +896,12 @@ interface ErrorLine {
   text: string;
 }
 
-type FeedItem = RuntimeMessage | StatusLine | SpinnerLine | HelpLine | ErrorLine;
+type FeedItem =
+  | RuntimeMessage
+  | StatusLine
+  | SpinnerLine
+  | HelpLine
+  | ErrorLine;
 
 function isRuntimeMessage(item: FeedItem): item is RuntimeMessage {
   return "role" in item;
@@ -833,8 +917,13 @@ function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
     if (item.role === "assistant" && item.toolCalls) {
       for (const tc of item.toolCalls) {
         const paramCount =
-          typeof tc.input === "object" && tc.input ? Object.keys(tc.input).length : 0;
-        lines += TOOL_CALL_CHROME_LINES + paramCount + (tc.result !== undefined ? 1 : 0);
+          typeof tc.input === "object" && tc.input
+            ? Object.keys(tc.input).length
+            : 0;
+        lines +=
+          TOOL_CALL_CHROME_LINES +
+          paramCount +
+          (tc.result !== undefined ? 1 : 0);
       }
     }
     return lines + MESSAGE_SPACING;
@@ -863,7 +952,11 @@ function calculateHeaderHeight(species: Species): number {
 
 const SCROLL_STEP = 5;
 
-export function render(runtimeUrl: string, assistantId: string, species: Species): number {
+export function render(
+  runtimeUrl: string,
+  assistantId: string,
+  species: Species,
+): number {
   const config = SPECIES_CONFIG[species];
   const art = config.art;
 
@@ -871,7 +964,11 @@ export function render(runtimeUrl: string, assistantId: string, species: Species
   const maxLines = Math.max(leftLineCount, RIGHT_PANEL_LINE_COUNT);
 
   const { unmount } = inkRender(
-    <DefaultMainScreen runtimeUrl={runtimeUrl} assistantId={assistantId} species={species} />,
+    <DefaultMainScreen
+      runtimeUrl={runtimeUrl}
+      assistantId={assistantId}
+      species={species}
+    />,
     { exitOnCtrlC: false },
   );
   unmount();
@@ -883,7 +980,9 @@ export function render(runtimeUrl: string, assistantId: string, species: Species
       const statusText = health.detail
         ? `${withStatusEmoji(health.status)} (${health.detail})`
         : withStatusEmoji(health.status);
-      process.stdout.write(`\x1b7\x1b[${statusCanvasLine};${statusCol}H\x1b[K${statusText}\x1b8`);
+      process.stdout.write(
+        `\x1b7\x1b[${statusCanvasLine};${statusCol}H\x1b[K${statusText}\x1b8`,
+      );
     })
     .catch(() => {});
 
@@ -917,7 +1016,9 @@ function SelectionWindow({
       },
     ) => {
       if (key.upArrow) {
-        setSelectedIndex((prev: number) => (prev - 1 + options.length) % options.length);
+        setSelectedIndex(
+          (prev: number) => (prev - 1 + options.length) % options.length,
+        );
       } else if (key.downArrow) {
         setSelectedIndex((prev: number) => (prev + 1) % options.length);
       } else if (key.return) {
@@ -928,26 +1029,42 @@ function SelectionWindow({
     },
   );
 
-  const borderH = "\u2500".repeat(Math.max(0, DIALOG_WINDOW_WIDTH - title.length - DIALOG_TITLE_CHROME));
+  const borderH = "\u2500".repeat(
+    Math.max(0, DIALOG_WINDOW_WIDTH - title.length - DIALOG_TITLE_CHROME),
+  );
 
   return (
     <Box flexDirection="column" width={DIALOG_WINDOW_WIDTH}>
       <Text>{"\u250C\u2500 " + title + " " + borderH + "\u2510"}</Text>
       {options.map((option, i) => {
         const marker = i === selectedIndex ? "\u276F" : " ";
-        const padding = " ".repeat(Math.max(0, DIALOG_WINDOW_WIDTH - option.length - SELECTION_OPTION_CHROME));
+        const padding = " ".repeat(
+          Math.max(
+            0,
+            DIALOG_WINDOW_WIDTH - option.length - SELECTION_OPTION_CHROME,
+          ),
+        );
         return (
           <Text key={i}>
             {"\u2502 "}
-            <Text color={i === selectedIndex ? "cyan" : undefined}>{marker}</Text>{" "}
+            <Text color={i === selectedIndex ? "cyan" : undefined}>
+              {marker}
+            </Text>{" "}
             <Text bold={i === selectedIndex}>{option}</Text>
             {padding}
             {"\u2502"}
           </Text>
         );
       })}
-      <Text>{"\u2514" + "\u2500".repeat(DIALOG_WINDOW_WIDTH - DIALOG_BORDER_CORNERS) + "\u2518"}</Text>
-      <Tooltip text="\u2191/\u2193 navigate  Enter select  Esc cancel" delay={1000} />
+      <Text>
+        {"\u2514" +
+          "\u2500".repeat(DIALOG_WINDOW_WIDTH - DIALOG_BORDER_CORNERS) +
+          "\u2518"}
+      </Text>
+      <Tooltip
+        text="\u2191/\u2193 navigate  Enter select  Esc cancel"
+        delay={1000}
+      />
     </Box>
   );
 }
@@ -990,11 +1107,19 @@ function SecretInputWindow({
     },
   );
 
-  const borderH = "\u2500".repeat(Math.max(0, DIALOG_WINDOW_WIDTH - label.length - DIALOG_TITLE_CHROME));
+  const borderH = "\u2500".repeat(
+    Math.max(0, DIALOG_WINDOW_WIDTH - label.length - DIALOG_TITLE_CHROME),
+  );
   const masked = "\u2022".repeat(value.length);
-  const displayText = value.length > 0 ? masked : (placeholder ?? "Enter secret...");
+  const displayText =
+    value.length > 0 ? masked : (placeholder ?? "Enter secret...");
   const displayColor = value.length > 0 ? undefined : "gray";
-  const contentPad = " ".repeat(Math.max(0, DIALOG_WINDOW_WIDTH - displayText.length - SECRET_CONTENT_CHROME));
+  const contentPad = " ".repeat(
+    Math.max(
+      0,
+      DIALOG_WINDOW_WIDTH - displayText.length - SECRET_CONTENT_CHROME,
+    ),
+  );
 
   return (
     <Box flexDirection="column" width={DIALOG_WINDOW_WIDTH}>
@@ -1005,7 +1130,11 @@ function SecretInputWindow({
         {contentPad}
         {"\u2502"}
       </Text>
-      <Text>{"\u2514" + "\u2500".repeat(DIALOG_WINDOW_WIDTH - DIALOG_BORDER_CORNERS) + "\u2518"}</Text>
+      <Text>
+        {"\u2514" +
+          "\u2500".repeat(DIALOG_WINDOW_WIDTH - DIALOG_BORDER_CORNERS) +
+          "\u2518"}
+      </Text>
       <Tooltip text="Enter submit  Esc cancel" delay={1000} />
     </Box>
   );
@@ -1039,7 +1168,10 @@ export interface ChatAppHandle {
   showSecretInput: (label: string, placeholder?: string) => Promise<string>;
   handleSecretPrompt: (
     secret: PendingSecret,
-    onSubmit: (value: string, delivery?: "store" | "transient_send") => Promise<void>,
+    onSubmit: (
+      value: string,
+      delivery?: "store" | "transient_send",
+    ) => Promise<void>,
   ) => Promise<void>;
   clearFeed: () => void;
   setBusy: (busy: boolean) => void;
@@ -1071,10 +1203,14 @@ function ChatApp({
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [spinnerText, setSpinnerText] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionRequest | null>(null);
-  const [secretInput, setSecretInput] = useState<SecretInputRequest | null>(null);
+  const [secretInput, setSecretInput] = useState<SecretInputRequest | null>(
+    null,
+  );
   const [inputFocused, setInputFocused] = useState(true);
   const [scrollIndex, setScrollIndex] = useState<number | null>(null);
-  const [healthStatus, setHealthStatus] = useState<string | undefined>(undefined);
+  const [healthStatus, setHealthStatus] = useState<string | undefined>(
+    undefined,
+  );
   const prevFeedLengthRef = useRef(0);
   const busyRef = useRef(false);
   const connectedRef = useRef(false);
@@ -1098,7 +1234,10 @@ function ChatApp({
       : spinnerText
         ? SPINNER_HEIGHT + INPUT_AREA_HEIGHT
         : INPUT_AREA_HEIGHT;
-  const availableRows = Math.max(MIN_FEED_ROWS, terminalRows - headerHeight - bottomHeight);
+  const availableRows = Math.max(
+    MIN_FEED_ROWS,
+    terminalRows - headerHeight - bottomHeight,
+  );
 
   const addMessage = useCallback((msg: RuntimeMessage) => {
     setFeed((prev) => [...prev, msg]);
@@ -1198,24 +1337,33 @@ function ChatApp({
     setFeed((prev) => [...prev, item]);
   }, []);
 
-  const showSelection = useCallback((title: string, options: string[]): Promise<number> => {
-    setInputFocused(false);
-    return new Promise<number>((resolve) => {
-      setSelection({ title, options, resolve });
-    });
-  }, []);
+  const showSelection = useCallback(
+    (title: string, options: string[]): Promise<number> => {
+      setInputFocused(false);
+      return new Promise<number>((resolve) => {
+        setSelection({ title, options, resolve });
+      });
+    },
+    [],
+  );
 
-  const showSecretInput = useCallback((label: string, placeholder?: string): Promise<string> => {
-    setInputFocused(false);
-    return new Promise<string>((resolve) => {
-      setSecretInput({ label, placeholder, resolve });
-    });
-  }, []);
+  const showSecretInput = useCallback(
+    (label: string, placeholder?: string): Promise<string> => {
+      setInputFocused(false);
+      return new Promise<string>((resolve) => {
+        setSecretInput({ label, placeholder, resolve });
+      });
+    },
+    [],
+  );
 
   const handleSecretPromptFn = useCallback(
     async (
       secret: PendingSecret,
-      onSubmit: (value: string, delivery?: "store" | "transient_send") => Promise<void>,
+      onSubmit: (
+        value: string,
+        delivery?: "store" | "transient_send",
+      ) => Promise<void>,
     ): Promise<void> => {
       addStatus(`\u250C Secret needed: ${secret.label}`);
       addStatus(`\u2502 Service: ${secret.service} / ${secret.field}`);
@@ -1311,12 +1459,18 @@ function ChatApp({
     try {
       const health = await checkHealthRuntime(runtimeUrl);
       if (!accessTokenRef.current) {
-        accessTokenRef.current = await bootstrapAccessToken(runtimeUrl, bearerToken);
+        accessTokenRef.current = await bootstrapAccessToken(
+          runtimeUrl,
+          bearerToken,
+        );
       }
       h.hideSpinner();
       h.updateHealthStatus(health.status);
       if (health.status === "healthy" || health.status === "ok") {
-        h.addStatus(`${statusEmoji(health.status)} Connected to assistant`, "green");
+        h.addStatus(
+          `${statusEmoji(health.status)} Connected to assistant`,
+          "green",
+        );
       } else {
         const statusMsg = health.message ? ` - ${health.message}` : "";
         h.addStatus(
@@ -1374,7 +1528,10 @@ function ChatApp({
       connectingRef.current = false;
       h.updateHealthStatus("unreachable");
       const msg = err instanceof Error ? err.message : String(err);
-      h.addStatus(`${statusEmoji("unreachable")} Failed to connect: ${msg}`, "red");
+      h.addStatus(
+        `${statusEmoji("unreachable")} Failed to connect: ${msg}`,
+        "red",
+      );
       return false;
     }
   }, [runtimeUrl, assistantId, bearerToken]);
@@ -1427,17 +1584,27 @@ function ChatApp({
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+              ...(bearerToken
+                ? { Authorization: `Bearer ${bearerToken}` }
+                : {}),
             },
-            body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl }),
+            body: JSON.stringify({
+              pairingRequestId,
+              pairingSecret,
+              gatewayUrl,
+            }),
           });
 
           if (!registerRes.ok) {
             const body = await registerRes.text().catch(() => "");
-            throw new Error(`HTTP ${registerRes.status}: ${body || registerRes.statusText}`);
+            throw new Error(
+              `HTTP ${registerRes.status}: ${body || registerRes.statusText}`,
+            );
           }
 
-          const hostId = createHash("sha256").update(hostname() + userInfo().username).digest("hex");
+          const hostId = createHash("sha256")
+            .update(hostname() + userInfo().username)
+            .digest("hex");
           const payload = JSON.stringify({
             type: "vellum-daemon",
             v: 4,
@@ -1462,14 +1629,18 @@ function ChatApp({
           );
         } catch (err) {
           h.hideSpinner();
-          h.showError(`Pairing failed: ${err instanceof Error ? err.message : err}`);
+          h.showError(
+            `Pairing failed: ${err instanceof Error ? err.message : err}`,
+          );
         }
         return;
       }
 
       if (trimmed === "/retire") {
         if (!project || !zone) {
-          h.showError("No instance info available. Connect to a hatched instance first.");
+          h.showError(
+            "No instance info available. Connect to a hatched instance first.",
+          );
           return;
         }
 
@@ -1524,9 +1695,13 @@ function ChatApp({
           handleRef_.current?.hideSpinner();
           if (code === 0) {
             removeAssistantEntry(assistantId);
-            handleRef_.current?.addStatus(`Removed ${assistantId} from lockfile.json`);
+            handleRef_.current?.addStatus(
+              `Removed ${assistantId} from lockfile.json`,
+            );
           } else {
-            handleRef_.current?.showError(`Failed to delete instance (exit code ${code})`);
+            handleRef_.current?.showError(
+              `Failed to delete instance (exit code ${code})`,
+            );
           }
           cleanup();
           process.exit(code === 0 ? 0 : 1);
@@ -1534,14 +1709,18 @@ function ChatApp({
 
         child.on("error", (err) => {
           handleRef_.current?.hideSpinner();
-          handleRef_.current?.showError(`Failed to retire instance: ${err.message}`);
+          handleRef_.current?.showError(
+            `Failed to retire instance: ${err.message}`,
+          );
         });
         return;
       }
 
       if (trimmed === "/doctor" || trimmed.startsWith("/doctor ")) {
         if (!project || !zone) {
-          h.showError("No instance info available. Connect to a hatched instance first.");
+          h.showError(
+            "No instance info available. Connect to a hatched instance first.",
+          );
           return;
         }
         const userPrompt = trimmed.slice("/doctor".length).trim() || undefined;
@@ -1571,7 +1750,9 @@ function ChatApp({
             (event) => {
               switch (event.phase) {
                 case "invoking_prompt":
-                  handleRef_.current?.showSpinner(`Analyzing ${assistantId}...`);
+                  handleRef_.current?.showSpinner(
+                    `Analyzing ${assistantId}...`,
+                  );
                   break;
                 case "calling_tool":
                   handleRef_.current?.showSpinner(
@@ -1579,7 +1760,9 @@ function ChatApp({
                   );
                   break;
                 case "processing_tool_result":
-                  handleRef_.current?.showSpinner(`Reviewing diagnostics for ${assistantId}...`);
+                  handleRef_.current?.showSpinner(
+                    `Reviewing diagnostics for ${assistantId}...`,
+                  );
                   break;
               }
             },
@@ -1589,14 +1772,17 @@ function ChatApp({
           h.hideSpinner();
           if (result.recommendation) {
             h.addStatus(`Recommendation:\n${result.recommendation}`);
-            chatLogRef.current.push({ role: "assistant", content: result.recommendation });
+            chatLogRef.current.push({
+              role: "assistant",
+              content: result.recommendation,
+            });
           } else if (result.error) {
             h.showError(result.error);
             chatLogRef.current.push({ role: "error", content: result.error });
           }
         } catch (err) {
           h.hideSpinner();
-          const errorMsg = `Doctor daemon unreachable: ${err instanceof Error ? err.message : err}`;
+          const errorMsg = `Doctor assistant unreachable: ${err instanceof Error ? err.message : err}`;
           h.showError(errorMsg);
           chatLogRef.current.push({ role: "error", content: errorMsg });
         }
@@ -1657,7 +1843,9 @@ function ChatApp({
         h.showSpinner("Working...");
 
         while (true) {
-          await new Promise((resolve) => setTimeout(resolve, RESPONSE_POLL_INTERVAL_MS));
+          await new Promise((resolve) =>
+            setTimeout(resolve, RESPONSE_POLL_INTERVAL_MS),
+          );
 
           // Check for pending confirmations/secrets
           try {
@@ -1686,19 +1874,26 @@ function ChatApp({
             if (pending.pendingSecret) {
               const secretRequestId = pending.pendingSecret.requestId ?? "";
               h.hideSpinner();
-              await h.handleSecretPrompt(pending.pendingSecret, async (value, delivery) => {
-                await runtimeRequest(
-                  runtimeUrl,
-                  assistantId,
-                  "/secret",
-                  {
-                    method: "POST",
-                    body: JSON.stringify({ requestId: secretRequestId, value, delivery }),
-                  },
-                  bearerToken,
-                  accessTokenRef.current,
-                );
-              });
+              await h.handleSecretPrompt(
+                pending.pendingSecret,
+                async (value, delivery) => {
+                  await runtimeRequest(
+                    runtimeUrl,
+                    assistantId,
+                    "/secret",
+                    {
+                      method: "POST",
+                      body: JSON.stringify({
+                        requestId: secretRequestId,
+                        value,
+                        delivery,
+                      }),
+                    },
+                    bearerToken,
+                    accessTokenRef.current,
+                  );
+                },
+              );
               h.showSpinner("Working...");
               continue;
             }
@@ -1719,7 +1914,10 @@ function ChatApp({
                 seenMessageIdsRef.current.add(msg.id);
                 if (msg.role === "assistant") {
                   h.addMessage(msg);
-                  chatLogRef.current.push({ role: "assistant", content: msg.content });
+                  chatLogRef.current.push({
+                    role: "assistant",
+                    content: msg.content,
+                  });
                   h.setBusy(false);
                   h.hideSpinner();
                   return;
@@ -1730,7 +1928,6 @@ function ChatApp({
             // Poll failure; retry
           }
         }
-
       } catch (error) {
         h.setBusy(false);
         h.hideSpinner();
@@ -1746,7 +1943,15 @@ function ChatApp({
         }
       }
     },
-    [runtimeUrl, assistantId, bearerToken, project, zone, cleanup, ensureConnected],
+    [
+      runtimeUrl,
+      assistantId,
+      bearerToken,
+      project,
+      zone,
+      cleanup,
+      ensureConnected,
+    ],
   );
 
   const handleSubmit = useCallback(
@@ -1890,7 +2095,8 @@ function ChatApp({
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         {visibleWindow.hiddenAbove > 0 ? (
           <Text dimColor>
-            {"\u2191"} {visibleWindow.hiddenAbove} more above (Shift+\u2191/Cmd+\u2191)
+            {"\u2191"} {visibleWindow.hiddenAbove} more above
+            (Shift+\u2191/Cmd+\u2191)
           </Text>
         ) : null}
 
@@ -1905,7 +2111,10 @@ function ChatApp({
           }
           if (item.type === "status") {
             return (
-              <Text key={feedIndex} color={item.color as "green" | "yellow" | "red" | undefined}>
+              <Text
+                key={feedIndex}
+                color={item.color as "green" | "yellow" | "red" | undefined}
+              >
                 {item.text}
               </Text>
             );
@@ -1925,7 +2134,8 @@ function ChatApp({
 
         {visibleWindow.hiddenBelow > 0 ? (
           <Text dimColor>
-            {"\u2193"} {visibleWindow.hiddenBelow} more below (Shift+\u2193/Cmd+\u2193)
+            {"\u2193"} {visibleWindow.hiddenBelow} more below
+            (Shift+\u2193/Cmd+\u2193)
           </Text>
         ) : null}
       </Box>
@@ -1956,14 +2166,14 @@ function ChatApp({
           <Box paddingLeft={1}>
             <Text color="green" bold>
               you{">"}
-            {" "}
-          </Text>
-          <TextInput
-            value={inputValue}
-            onChange={setInputValue}
-            onSubmit={handleSubmit}
-            focus={inputFocused}
-          />
+              {" "}
+            </Text>
+            <TextInput
+              value={inputValue}
+              onChange={setInputValue}
+              onSubmit={handleSubmit}
+              focus={inputFocused}
+            />
           </Box>
           <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
           <Text dimColor> ? for shortcuts</Text>
