@@ -82,6 +82,13 @@ struct MessageListView: View {
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
     /// resign first responder exactly once per new confirmation appearance.
     @State private var lastAutoFocusedRequestId: String?
+    /// Whether the scroll-bottom-anchor is physically within the scroll view's
+    /// visible viewport. Used alongside `isNearBottom` to suppress the "Scroll
+    /// to latest" button when all content fits on screen.
+    @State private var anchorIsVisible: Bool = true
+    /// The scroll view's viewport height, captured via preference key. Used by
+    /// the anchor GeometryReader to determine if the anchor is within bounds.
+    @State private var scrollViewportHeight: CGFloat = .infinity
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -446,6 +453,14 @@ struct MessageListView: View {
                         .onAppear {
                             isNearBottom = true
                         }
+                        .background {
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: AnchorMinYKey.self,
+                                    value: geo.frame(in: .named("chatScrollView")).minY
+                                )
+                            }
+                        }
                 }
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
@@ -454,11 +469,15 @@ struct MessageListView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
+            .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             .onHover { hovering in
                 handleThreadContentHover(hovering)
             }
             .background {
+                GeometryReader { geo in
+                    Color.clear.preference(key: ScrollViewportHeightKey.self, value: geo.size.height)
+                }
                 ScrollWheelDetector(
                     onScrollUp: {
                         scrollDebounceTask?.cancel()
@@ -469,8 +488,12 @@ struct MessageListView: View {
                 )
                 ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
+            .onPreferenceChange(ScrollViewportHeightKey.self) { scrollViewportHeight = $0 }
+            .onPreferenceChange(AnchorMinYKey.self) { minY in
+                anchorIsVisible = minY >= -20 && minY <= scrollViewportHeight + 20
+            }
             .overlay(alignment: .bottom) {
-                if !isNearBottom {
+                if !isNearBottom && !anchorIsVisible {
                     Button(action: {
                         isNearBottom = true
                         withAnimation(VAnimation.fast) {
@@ -589,6 +612,7 @@ struct MessageListView: View {
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
+                anchorIsVisible = true
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
                 threadSwitchSuppressionTask?.cancel()
@@ -750,5 +774,28 @@ private struct ThreadScrollbarVisibilityController: NSViewRepresentable {
             }
             return nil
         }
+    }
+}
+
+/// Preference key used to propagate the scroll view's viewport height from a
+/// background GeometryReader up to the MessageListView so the anchor-visibility
+/// check can compare the anchor's Y position against the viewport bounds.
+private struct ScrollViewportHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        // Use max so sibling views in the same .background block (which report
+        // the default value of 0) don't overwrite the real viewport height.
+        value = max(value, nextValue())
+    }
+}
+
+/// Preference key that propagates the anchor's Y position (in the chatScrollView
+/// coordinate space) from the GeometryReader up to the MessageListView.
+private struct AnchorMinYKey: PreferenceKey {
+    static var defaultValue: CGFloat = .infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        // Use min so sibling views in the LazyVStack (which report the default
+        // value of .infinity) don't overwrite the anchor's actual Y position.
+        value = min(value, nextValue())
     }
 }
