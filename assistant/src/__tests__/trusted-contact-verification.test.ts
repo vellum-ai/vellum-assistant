@@ -449,7 +449,9 @@ describe("trusted contact verification → member activation", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.verificationType).toBe("guardian");
+    if (result.success) {
+      expect(result.verificationType).toBe("guardian");
+    }
 
     const guardianResult = findGuardianForChannel("telegram", "self");
     expect(guardianResult).toBeNull();

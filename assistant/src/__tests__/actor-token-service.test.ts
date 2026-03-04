@@ -449,14 +449,15 @@ describe("resolveLocalIpcAuthContext", () => {
     );
   });
 
-  test("actorPrincipalId is undefined when no vellum binding exists", () => {
+  test("actorPrincipalId is auto-created via self-heal when no vellum binding exists", () => {
     // Reset DB to ensure no binding
     resetDb();
     initializeDb();
 
     const ctx = resolveLocalIpcAuthContext("session-123");
-    // When no binding exists, actorPrincipalId is not set
-    expect(ctx.actorPrincipalId).toBeUndefined();
+    // Self-heal creates a vellum guardian binding automatically
+    expect(ctx.actorPrincipalId).toBeDefined();
+    expect(ctx.actorPrincipalId).toMatch(/^vellum-principal-/);
   });
 
   test("sessionId matches the provided argument", () => {

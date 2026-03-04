@@ -394,7 +394,9 @@ describe("guardian service challenge validation", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.verificationType).toBe("guardian");
+    if (result.success) {
+      expect(result.verificationType).toBe("guardian");
+    }
   });
 
   test("validateAndConsumeChallenge does not create a guardian binding (caller responsibility)", () => {
@@ -497,7 +499,9 @@ describe("guardian service challenge validation", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.verificationType).toBe("guardian");
+    if (result.success) {
+      expect(result.verificationType).toBe("guardian");
+    }
 
     // validateAndConsumeChallenge no longer creates bindings — that is
     // now handled by the caller (verification-intercept / relay-server).
@@ -1757,7 +1761,9 @@ describe("voice guardian challenge validation", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.verificationType).toBe("guardian");
+    if (result.success) {
+      expect(result.verificationType).toBe("guardian");
+    }
   });
 
   test("validateAndConsumeChallenge does not create a guardian binding for voice (caller responsibility)", () => {
@@ -2492,7 +2498,9 @@ describe("outbound verification sessions", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.verificationType).toBe("guardian");
+    if (result.success) {
+      expect(result.verificationType).toBe("guardian");
+    }
   });
 
   // ── Session state transitions ──
@@ -3022,7 +3030,9 @@ describe("outbound SMS verification", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.verificationType).toBe("guardian");
+    if (result.success) {
+      expect(result.verificationType).toBe("guardian");
+    }
   });
 
   test("inbound SMS from wrong identity + correct code is rejected", () => {
