@@ -1035,6 +1035,7 @@ struct MainWindowView: View {
                 Label("Archive", systemImage: "archivebox")
             }
         }
+        .pointerCursor()
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
                 if hovering {
@@ -1045,7 +1046,6 @@ struct MainWindowView: View {
                     }
                 }
             }
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
         .onDrag {
             sidebar.draggingThreadId = thread.id
