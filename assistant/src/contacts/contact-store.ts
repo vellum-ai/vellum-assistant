@@ -524,8 +524,10 @@ export function findGuardianForChannel(
       and(
         eq(contacts.role, 'guardian'),
         eq(contactChannels.type, channelType),
+        eq(contactChannels.status, 'active'),
       ),
     )
+    .orderBy(desc(contactChannels.verifiedAt))
     .limit(1)
     .all();
 
