@@ -1,9 +1,9 @@
-// Ingress access control: invite management, member management, and escalation decisions.
+// Contacts access control: invite management, member management, and escalation decisions.
 
 // === Client → Server ===
 
-export interface IngressInviteRequest {
-  type: "ingress_invite";
+export interface ContactsInviteRequest {
+  type: "contacts_invite";
   action: "create" | "list" | "revoke" | "redeem";
   /** Source channel for the invite (required for create and redeem). */
   sourceChannel?: string;
@@ -46,8 +46,8 @@ export interface AssistantInboxEscalationRequest {
 
 // === Server → Client ===
 
-export interface IngressInviteResponse {
-  type: "ingress_invite_response";
+export interface ContactsInviteResponse {
+  type: "contacts_invite_response";
   success: boolean;
   error?: string;
   /** Single invite (returned on create/revoke). Token field is only present on create. */
@@ -104,9 +104,9 @@ export interface AssistantInboxEscalationResponse {
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _InboxClientMessages =
-  | IngressInviteRequest
+  | ContactsInviteRequest
   | AssistantInboxEscalationRequest;
 
 export type _InboxServerMessages =
-  | IngressInviteResponse
+  | ContactsInviteResponse
   | AssistantInboxEscalationResponse;

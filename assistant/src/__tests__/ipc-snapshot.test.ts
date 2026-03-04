@@ -595,8 +595,8 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
       cursorInTextField: true,
     },
   },
-  ingress_invite: {
-    type: "ingress_invite",
+  contacts_invite: {
+    type: "contacts_invite",
     action: "create",
     sourceChannel: "telegram",
     note: "Test invite",
@@ -1860,8 +1860,8 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     mode: "dictation",
     actionPlan: undefined,
   },
-  ingress_invite_response: {
-    type: "ingress_invite_response",
+  contacts_invite_response: {
+    type: "contacts_invite_response",
     success: true,
     invite: {
       id: "inv-001",

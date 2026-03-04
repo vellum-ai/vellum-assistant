@@ -22,7 +22,7 @@ import {
 } from "../../runtime/ingress-service.js";
 import type {
   AssistantInboxEscalationRequest,
-  IngressInviteRequest,
+  ContactsInviteRequest,
 } from "../ipc-protocol.js";
 import {
   defineHandlers,
@@ -31,8 +31,8 @@ import {
   renderHistoryContent,
 } from "./shared.js";
 
-export function handleIngressInvite(
-  msg: IngressInviteRequest,
+export function handleContactsInvite(
+  msg: ContactsInviteRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
@@ -49,14 +49,14 @@ export function handleIngressInvite(
         });
         if (!result.ok) {
           ctx.send(socket, {
-            type: "ingress_invite_response",
+            type: "contacts_invite_response",
             success: false,
             error: result.error,
           });
           return;
         }
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: true,
           invite: result.data,
         });
@@ -70,14 +70,14 @@ export function handleIngressInvite(
         });
         if (!result.ok) {
           ctx.send(socket, {
-            type: "ingress_invite_response",
+            type: "contacts_invite_response",
             success: false,
             error: result.error,
           });
           return;
         }
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: true,
           invites: result.data,
         });
@@ -88,14 +88,14 @@ export function handleIngressInvite(
         const result = revokeIngressInvite(msg.inviteId);
         if (!result.ok) {
           ctx.send(socket, {
-            type: "ingress_invite_response",
+            type: "contacts_invite_response",
             success: false,
             error: result.error,
           });
           return;
         }
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: true,
           invite: result.data,
         });
@@ -111,14 +111,14 @@ export function handleIngressInvite(
         });
         if (!result.ok) {
           ctx.send(socket, {
-            type: "ingress_invite_response",
+            type: "contacts_invite_response",
             success: false,
             error: result.error,
           });
           return;
         }
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: true,
           invite: result.data,
         });
@@ -127,7 +127,7 @@ export function handleIngressInvite(
 
       default: {
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: false,
           error: `Unknown action: ${String(msg.action)}`,
         });
@@ -135,9 +135,9 @@ export function handleIngressInvite(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "ingress_invite handler error");
+    log.error({ err }, "contacts_invite handler error");
     ctx.send(socket, {
-      type: "ingress_invite_response",
+      type: "contacts_invite_response",
       success: false,
       error: message,
     });
@@ -451,6 +451,6 @@ async function executeDeny(
 }
 
 export const inboxInviteHandlers = defineHandlers({
-  ingress_invite: handleIngressInvite,
+  contacts_invite: handleContactsInvite,
   assistant_inbox_escalation: handleInboxEscalation,
 });
