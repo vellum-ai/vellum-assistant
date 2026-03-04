@@ -169,7 +169,7 @@ export function registerContactsCommand(program: Command): void {
   contacts
     .command("list")
     .description("List contacts (calls /v1/contacts)")
-    .option("--role <role>", "Filter by role")
+    .option("--role <role>", "Filter by role (default: contact)", "contact")
     .option("--limit <limit>", "Maximum number of contacts to return")
     .option("--query <query>", "Search query to filter contacts")
     .action(
