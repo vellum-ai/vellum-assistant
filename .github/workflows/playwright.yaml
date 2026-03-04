@@ -1,6 +1,9 @@
 name: Playwright Tests
 
 on:
+  schedule:
+    - cron: '0 9 * * *'   # Every day at 9:00 AM UTC
+    - cron: '0 19 * * *'  # Every day at 7:00 PM UTC
   workflow_dispatch:
     inputs:
       release_version:
@@ -44,6 +47,7 @@ jobs:
     name: Prepare matrix
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
     runs-on: ubuntu-latest
     outputs:
@@ -65,6 +69,7 @@ jobs:
     needs: prepare
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
     runs-on: macos-15
     timeout-minutes: 30
@@ -179,6 +184,7 @@ jobs:
     needs: [prepare, build]
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
     runs-on: macos-15
     environment: dev
@@ -300,6 +306,7 @@ jobs:
         continue-on-error: true
         env:
           RUN_EXPERIMENTAL: ${{ inputs.run_experimental && '1' || '' }}
+          PW_WORKERS: ${{ github.event_name == 'schedule' && '4' || '' }}
         run: |
           SHARD_ARGS=""
           if [ "$TOTAL_SHARDS" -gt 1 ]; then
@@ -376,3 +383,35 @@ jobs:
       - name: Fail workflow if tests failed
         if: steps.tests.outcome == 'failure'
         run: exit 1
+
+  notify:
+    name: Slack Notification
+    needs: [prepare, build, playwright]
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine status
+        id: status
+        run: |
+          if [[ "${{ needs.playwright.result }}" == "failure" ]]; then
+            echo "status=failure" >> $GITHUB_OUTPUT
+          elif [[ "${{ needs.playwright.result }}" == "cancelled" ]]; then
+            echo "status=cancelled" >> $GITHUB_OUTPUT
+          elif [[ "${{ needs.playwright.result }}" == "skipped" ]]; then
+            echo "status=skipped" >> $GITHUB_OUTPUT
+          else
+            echo "status=success" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: act10ns/slack@v2
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_USER_ID: "Scheduled Run"
+          SHOULD_TAG: 'false'
+        with:
+          status: ${{ steps.status.outputs.status }}
+          channel: "#build-alerts"
+          config: .github/config/slack.yaml
