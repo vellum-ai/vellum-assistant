@@ -15,7 +15,6 @@ import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { buildIpcAuthContext } from "../daemon/ipc-handler.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import { getActiveBinding } from "../memory/guardian-bindings.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import type { AuthContext } from "./auth/types.js";
@@ -54,30 +53,17 @@ export function resolveLocalIpcTrustContext(
     return { ...trustCtx, sourceChannel };
   }
 
-  // Legacy fallback: contacts not yet synced
-  const binding = getActiveBinding(assistantId, "vellum");
-
-  if (!binding) {
-    // No vellum binding yet (pre-bootstrap). Eagerly create one.
-    log.debug(
-      "No vellum guardian binding found; bootstrapping binding for IPC",
-    );
-    const principalId = ensureVellumGuardianBinding(assistantId);
-    const trustCtx = resolveTrustContext({
-      assistantId,
-      sourceChannel: "vellum",
-      conversationExternalId: "local",
-      actorExternalId: principalId,
-    });
-    return { ...trustCtx, sourceChannel };
-  }
-
-  const guardianPrincipalId = binding.guardianExternalUserId;
+  // No guardian contact with a principalId — bootstrap via ensureVellumGuardianBinding
+  // to self-heal (creates the binding + contact if missing).
+  log.debug(
+    "No vellum guardian contact found; bootstrapping binding for IPC",
+  );
+  const principalId = ensureVellumGuardianBinding(assistantId);
   const trustCtx = resolveTrustContext({
     assistantId,
     sourceChannel: "vellum",
     conversationExternalId: "local",
-    actorExternalId: guardianPrincipalId,
+    actorExternalId: principalId,
   });
   return { ...trustCtx, sourceChannel };
 }
@@ -101,13 +87,6 @@ export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
       ...authContext,
       actorPrincipalId: guardianResult.contact.principalId,
     };
-  }
-
-  // Legacy fallback
-  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const binding = getActiveBinding(assistantId, "vellum");
-  if (binding) {
-    return { ...authContext, actorPrincipalId: binding.guardianExternalUserId };
   }
 
   return authContext;
