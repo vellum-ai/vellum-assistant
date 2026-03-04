@@ -548,29 +548,30 @@ describe("CommitEnrichmentService", () => {
       });
     };
 
-    service.enqueue({
-      workspaceDir: testDir,
-      commitHash,
-      context: makeContext(),
-      gitService,
-    });
+    try {
+      service.enqueue({
+        workspaceDir: testDir,
+        commitHash,
+        context: makeContext(),
+        gitService,
+      });
 
-    await waitForDrain(service, 5000);
-    await service.shutdown();
+      await waitForDrain(service, 5000);
+      await service.shutdown();
 
-    // Allow any zombie work to settle — if abort didn't work, the 2s timer
-    // would still be running and would set enrichmentCompleted=true. Wait
-    // longer than the 2000ms mock delay to reliably catch the regression.
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Allow any zombie work to settle — if abort didn't work, the 2s timer
+      // would still be running and would set enrichmentCompleted=true. Wait
+      // longer than the 2000ms mock delay to reliably catch the regression.
+      await new Promise((resolve) => setTimeout(resolve, 2500));
 
-    // The job should have timed out and been counted as failed
-    expect(service._getFailedCount()).toBe(1);
-    expect(service._getSucceededCount()).toBe(0);
-    // The slow enrichment work should NOT have completed since the signal was aborted
-    expect(enrichmentCompleted).toBe(false);
-
-    // Restore original
-    gitService.writeNote = originalWriteNote;
+      // The job should have timed out and been counted as failed
+      expect(service._getFailedCount()).toBe(1);
+      expect(service._getSucceededCount()).toBe(0);
+      // The slow enrichment work should NOT have completed since the signal was aborted
+      expect(enrichmentCompleted).toBe(false);
+    } finally {
+      gitService.writeNote = originalWriteNote;
+    }
   });
 
   test("shutdown does not hang on timed-out jobs", async () => {
@@ -604,23 +605,25 @@ describe("CommitEnrichmentService", () => {
       });
     };
 
-    service.enqueue({
-      workspaceDir: testDir,
-      commitHash,
-      context: makeContext(),
-      gitService,
-    });
+    try {
+      service.enqueue({
+        workspaceDir: testDir,
+        commitHash,
+        context: makeContext(),
+        gitService,
+      });
 
-    // Shutdown should complete promptly, not hang for 5s waiting on the slow writeNote
-    const shutdownStart = Date.now();
-    await service.shutdown();
-    const shutdownElapsed = Date.now() - shutdownStart;
+      // Shutdown should complete promptly, not hang for 5s waiting on the slow writeNote
+      const shutdownStart = Date.now();
+      await service.shutdown();
+      const shutdownElapsed = Date.now() - shutdownStart;
 
-    // Shutdown should complete well under the 5s slow-work duration
-    expect(shutdownElapsed).toBeLessThan(3000);
-    expect(service._getFailedCount()).toBe(1);
-
-    gitService.writeNote = originalWriteNote;
+      // Shutdown should complete well under the 5s slow-work duration
+      expect(shutdownElapsed).toBeLessThan(3000);
+      expect(service._getFailedCount()).toBe(1);
+    } finally {
+      gitService.writeNote = originalWriteNote;
+    }
   }, 10000);
 
   test("abort signal is triggered on non-timeout errors before retry", async () => {
@@ -642,21 +645,23 @@ describe("CommitEnrichmentService", () => {
       throw new Error("Simulated writeNote failure");
     };
 
-    service.enqueue({
-      workspaceDir: testDir,
-      commitHash,
-      context: makeContext(),
-      gitService,
-    });
+    try {
+      service.enqueue({
+        workspaceDir: testDir,
+        commitHash,
+        context: makeContext(),
+        gitService,
+      });
 
-    await waitForDrain(service, 5000);
-    await service.shutdown();
+      await waitForDrain(service, 5000);
+      await service.shutdown();
 
-    // The job should have failed (no retries configured)
-    expect(service._getFailedCount()).toBe(1);
-    expect(service._getSucceededCount()).toBe(0);
-
-    gitService.writeNote = originalWriteNote;
+      // The job should have failed (no retries configured)
+      expect(service._getFailedCount()).toBe(1);
+      expect(service._getSucceededCount()).toBe(0);
+    } finally {
+      gitService.writeNote = originalWriteNote;
+    }
   });
 
   test("enqueue is fire-and-forget and never throws even when called rapidly", async () => {
