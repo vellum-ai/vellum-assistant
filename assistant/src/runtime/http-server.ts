@@ -1141,7 +1141,7 @@ export class RuntimeHttpServer {
       },
 
       // ------------------------------------------------------------------
-      // Ingress members
+      // Ingress contacts
       // ------------------------------------------------------------------
       {
         endpoint: "ingress/members",

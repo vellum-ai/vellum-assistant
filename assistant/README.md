@@ -323,10 +323,10 @@ When a member's policy is `escalate`:
 
 ### How the Systems Connect
 
-Guardian verification and ingress membership are complementary but independent systems:
+Guardian verification and ingress contact management are complementary but independent systems:
 
 - **Guardian verification** establishes _who controls the assistant_ on a given channel. The guardian can approve sensitive actions, approve escalated messages, and is the trust anchor.
-- **Ingress membership** controls _who can interact with the assistant_ on a given channel. Members are created via invite redemption, not via guardian verification.
+- **Ingress contacts** control _who can interact with the assistant_ on a given channel. Contacts are created via invite redemption, not via guardian verification.
 - **Dependency**: Escalation requires a guardian binding — if no guardian has been verified for the channel, `escalate` policy messages are denied. This means guardian verification must precede any escalation-based access control.
 
 ### Key Modules

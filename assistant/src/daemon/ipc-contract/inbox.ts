@@ -30,7 +30,7 @@ export interface IngressInviteRequest {
 }
 
 export interface IngressContactRequest {
-  type: "ingress_member";
+  type: "ingress_member"; // Legacy discriminator — kept for client compatibility
   action: "list" | "upsert" | "revoke" | "block";
   /** Assistant ID for scoping member operations (defaults to 'self'). */
   assistantId?: string;
@@ -103,7 +103,7 @@ export interface IngressInviteResponse {
 }
 
 export interface IngressContactResponse {
-  type: "ingress_member_response";
+  type: "ingress_member_response"; // Legacy discriminator — kept for client compatibility
   success: boolean;
   error?: string;
   /** Single member (returned on upsert/revoke/block). */

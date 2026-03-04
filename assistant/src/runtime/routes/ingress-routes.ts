@@ -1,5 +1,5 @@
 /**
- * Route handlers for ingress member and invite management.
+ * Route handlers for ingress contact and invite management.
  *
  * Members:
  *   GET    /v1/ingress/members           — list members

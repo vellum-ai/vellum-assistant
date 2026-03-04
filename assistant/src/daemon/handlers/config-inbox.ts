@@ -569,6 +569,6 @@ async function executeDeny(
 
 export const inboxInviteHandlers = defineHandlers({
   ingress_invite: handleIngressInvite,
-  ingress_member: handleIngressContact,
+  ingress_member: handleIngressContact, // Legacy discriminator name
   assistant_inbox_escalation: handleInboxEscalation,
 });

@@ -205,7 +205,7 @@ export async function runDaemon(): Promise<void> {
     }
 
     // Catch-up migration: populate contacts table from legacy guardian
-    // bindings and ingress member rows. Ensures upgrades from pre-contacts
+    // bindings and contact rows. Ensures upgrades from pre-contacts
     // versions have a populated contacts table on first boot.
     try {
       migrateContactsFromLegacyTables("self");

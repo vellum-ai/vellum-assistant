@@ -166,7 +166,7 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceOutboundSendCount: Int = 0
     @Published var voiceOutboundCode: String?
 
-    // MARK: - Approved Ingress Members (Telegram)
+    // MARK: - Approved Ingress Contacts (Telegram)
 
     struct ApprovedMember: Identifiable, Equatable {
         let id: String
@@ -1586,7 +1586,7 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Approved Ingress Members Actions
+    // MARK: - Approved Ingress Contacts Actions
 
     func refreshTelegramApprovedMembers() {
         guard let http = resolveRuntimeHTTP() else { return }

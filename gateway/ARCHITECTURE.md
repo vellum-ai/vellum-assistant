@@ -514,7 +514,7 @@ The channel inbound handler (`inbound-message-handler.ts`) enforces an access co
 
 **Invite-based onboarding:** Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage -- the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
 
-**Relationship to guardian verification:** Guardian verification and ingress membership are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress membership controls who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel -- without one, escalated messages are denied (fail-closed).
+**Relationship to guardian verification:** Guardian verification and ingress contact management are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress contacts control who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel -- without one, escalated messages are denied (fail-closed).
 
 #### Escalation Data Flow
 

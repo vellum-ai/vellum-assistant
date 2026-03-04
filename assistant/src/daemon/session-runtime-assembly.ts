@@ -75,7 +75,7 @@ export interface TrustContext {
   requesterDisplayName?: string;
   /** Raw sender display name as provided by the channel transport. */
   requesterSenderDisplayName?: string;
-  /** Guardian-managed member display name from ingress membership. */
+  /** Guardian-managed display name from the contact record. */
   requesterMemberDisplayName?: string;
   /** Canonical external user ID of the requester (the current actor). */
   requesterExternalUserId?: string;
@@ -103,15 +103,15 @@ export interface InboundActorContext {
   actorDisplayName?: string;
   /** Raw sender display name as provided by the channel transport. */
   actorSenderDisplayName?: string;
-  /** Guardian-managed member display name from ingress membership. */
+  /** Guardian-managed display name from the contact record. */
   actorMemberDisplayName?: string;
   /** Trust classification: guardian, trusted_contact, or unknown. */
   trustClass: "guardian" | "trusted_contact" | "unknown";
   /** Guardian identity for this (assistant, channel) binding. */
   guardianIdentity?: string;
-  /** Member status when the actor has an ingress member record. */
+  /** Member status when the actor has a contact record. */
   memberStatus?: string;
-  /** Member policy when the actor has an ingress member record. */
+  /** Member policy when the actor has a contact record. */
   memberPolicy?: string;
   /** Denial reason when access is blocked. */
   denialReason?: string;

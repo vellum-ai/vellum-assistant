@@ -197,7 +197,7 @@ export function revokeGuardianForChannel(
   revokePendingChallenges(assistantId, resolvedChannel);
 
   // Capture binding before revoking so we can revoke the guardian's
-  // ingress member record — without this, the guardian would still pass
+  // contact record — without this, the guardian would still pass
   // the ACL check after unbinding.
   const bindingBeforeRevoke = getGuardianBinding(assistantId, resolvedChannel);
   if (!bindingBeforeRevoke) {
@@ -226,10 +226,7 @@ export function revokeGuardianForChannel(
       channelStatus === "pending" ||
       channelStatus === "unverified"
     ) {
-      revokeMember(
-        contactResult.channel.id,
-        "guardian_binding_revoked",
-      );
+      revokeMember(contactResult.channel.id, "guardian_binding_revoked");
     }
   }
 
