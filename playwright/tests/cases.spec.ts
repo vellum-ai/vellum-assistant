@@ -76,7 +76,11 @@ function logRecording(testName: string, message: string): void {
   }
 }
 
+let _probeCompleted = false;
+
 function probeScreenRecording(testName: string): void {
+  if (_probeCompleted) return;
+  _probeCompleted = true;
   // Log system info for debugging
   try {
     const swVers = execSync("sw_vers 2>&1", { encoding: "utf-8", timeout: 5_000 }).trim();
@@ -269,7 +273,7 @@ for (const file of caseFiles) {
         fixtureCtx = await setupFixture(fixture, { workerIndex: testInfo.workerIndex });
       }
 
-      // Probe screen recording capabilities (first test only, for diagnostics)
+      // Probe screen recording capabilities (runs once across all tests)
       probeScreenRecording(testName);
 
       // Start macOS screen recording (captures the desktop for native app tests)
