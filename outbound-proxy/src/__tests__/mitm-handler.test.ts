@@ -21,7 +21,7 @@ let caDir: string;
 let caCert: string;
 
 beforeAll(async () => {
-  dataDir = await mkdtemp(join(tmpdir(), 'proxy-sidecar-mitm-test-'));
+  dataDir = await mkdtemp(join(tmpdir(), 'outbound-proxy-mitm-test-'));
   await ensureLocalCA(dataDir);
   caDir = join(dataDir, 'proxy-ca');
   caCert = await readFile(getCAPath(dataDir), 'utf-8');

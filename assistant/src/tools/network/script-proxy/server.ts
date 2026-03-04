@@ -1,5 +1,5 @@
 export type {
   MitmHandlerConfig,
   ProxyServerConfig,
-} from "@vellumai/proxy-sidecar";
-export { createProxyServer } from "@vellumai/proxy-sidecar";
+} from "@vellumai/outbound-proxy";
+export { createProxyServer } from "@vellumai/outbound-proxy";

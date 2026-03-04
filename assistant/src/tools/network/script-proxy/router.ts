@@ -1,2 +1,2 @@
-export type { RouteDecision, RouteReason } from "@vellumai/proxy-sidecar";
-export { routeConnection } from "@vellumai/proxy-sidecar";
+export type { RouteDecision, RouteReason } from "@vellumai/outbound-proxy";
+export { routeConnection } from "@vellumai/outbound-proxy";

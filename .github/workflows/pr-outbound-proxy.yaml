@@ -1,14 +1,14 @@
-name: PR Proxy Sidecar Checks
+name: PR Outbound Proxy Checks
 
 on:
   pull_request:
     types: [labeled, synchronize, opened, reopened]
     paths:
-      - 'proxy-sidecar/**'
-      - '.github/workflows/pr-proxy-sidecar.yaml'
+      - 'outbound-proxy/**'
+      - '.github/workflows/pr-outbound-proxy.yaml'
 
 concurrency:
-  group: pr-proxy-sidecar-${{ github.event.pull_request.number }}
+  group: pr-outbound-proxy-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: proxy-sidecar
+        working-directory: outbound-proxy
 
     steps:
       - name: Checkout
@@ -55,9 +55,9 @@ jobs:
       - name: Build image (no push)
         uses: docker/build-push-action@v6
         with:
-          context: proxy-sidecar
+          context: outbound-proxy
           push: false
           load: true
-          tags: proxy-sidecar:ci-${{ github.event.pull_request.number }}
+          tags: outbound-proxy:ci-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

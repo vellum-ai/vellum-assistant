@@ -16,4 +16,4 @@ export type {
   ProxySessionId,
   ProxySessionStatus,
   RequestTargetContext,
-} from "@vellumai/proxy-sidecar";
+} from "@vellumai/outbound-proxy";

@@ -1,2 +1,2 @@
-export type { RewriteCallback } from "@vellumai/proxy-sidecar";
-export { handleMitm } from "@vellumai/proxy-sidecar";
+export type { RewriteCallback } from "@vellumai/outbound-proxy";
+export { handleMitm } from "@vellumai/outbound-proxy";

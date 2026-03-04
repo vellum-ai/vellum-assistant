@@ -29,12 +29,12 @@ RUN apt-get update && apt-get install -y \
 # Copy bun binary from builder instead of re-installing
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 
-RUN groupadd --system --gid 1001 proxysidecar && \
-    useradd --system --uid 1001 --gid proxysidecar --create-home proxysidecar
+RUN groupadd --system --gid 1001 outboundproxy && \
+    useradd --system --uid 1001 --gid outboundproxy --create-home outboundproxy
 
-COPY --from=builder --chown=proxysidecar:proxysidecar /app /app
+COPY --from=builder --chown=outboundproxy:outboundproxy /app /app
 
-USER proxysidecar
+USER outboundproxy
 
 # Proxy port
 EXPOSE 8080
