@@ -1,6 +1,11 @@
 /**
  * Approval interception: checks for pending approvals and handles inbound
  * messages as decisions, reminders, or conversational follow-ups.
+ *
+ * This module is the top-level dispatcher. It delegates to strategy modules:
+ * - guardian-callback-strategy.ts   — guardian callback button and text decisions
+ * - guardian-text-engine-strategy.ts — conversational engine for plain-text messages
+ * - guardian-legacy-fallback-strategy.ts — deterministic parser fallback
  */
 import { applyGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../channels/types.js";
@@ -13,11 +18,7 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { runApprovalConversationTurn } from "../approval-conversation-turn.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
-import { parseApprovalDecision } from "../channel-approval-parser.js";
-import type {
-  ApprovalAction,
-  ApprovalDecisionResult,
-} from "../channel-approval-types.js";
+import type { ApprovalDecisionResult } from "../channel-approval-types.js";
 import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
@@ -30,6 +31,8 @@ import type {
   ApprovalCopyGenerator,
 } from "../http-types.js";
 import { handleGuardianCallbackDecision } from "./approval-strategies/guardian-callback-strategy.js";
+import { handleGuardianLegacyFallback } from "./approval-strategies/guardian-legacy-fallback-strategy.js";
+import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian-text-engine-strategy.js";
 import {
   buildGuardianDenyContext,
   parseCallbackData,
@@ -428,136 +431,43 @@ export async function handleApprovalInterception(
   }
 
   // ── Conversational approval engine for plain-text messages ──
-  // Instead of deterministic keyword matching and reminder prompts, delegate
-  // to the conversational approval engine which can classify natural language
-  // and respond conversationally.
+  // Delegates to the text engine strategy which classifies natural language
+  // and responds conversationally.
   const pending = getApprovalInfoByConversation(conversationId);
   if (pending.length > 0 && approvalConversationGenerator && content) {
     const allowedActions = pendingPrompt.actions.map((a) => a.id);
-    const engineContext: ApprovalConversationContext = {
-      toolName: pending[0].toolName,
-      allowedActions,
-      role: "requester",
-      pendingApprovals: pending.map((p) => ({
-        requestId: p.requestId,
-        toolName: p.toolName,
-      })),
-      userMessage: content,
-    };
-
-    const engineResult = await runApprovalConversationTurn(
-      engineContext,
-      approvalConversationGenerator,
-    );
-
-    if (engineResult.disposition === "keep_pending") {
-      // Non-decision follow-up — deliver the engine's reply and keep the request pending
-      try {
-        await deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: conversationExternalId,
-            text: engineResult.replyText,
-            assistantId,
-          },
-          bearerToken,
-        );
-      } catch (err) {
-        log.error(
-          { err, conversationId },
-          "Failed to deliver approval conversation reply",
-        );
-      }
-      return { handled: true, type: "assistant_turn" };
-    }
-
-    // Decision-bearing disposition — map to ApprovalDecisionResult and apply
-    const decisionAction = engineResult.disposition as ApprovalAction;
-    const engineDecision: ApprovalDecisionResult = {
-      action: decisionAction,
-      source: "plain_text",
-      ...(engineResult.targetRequestId
-        ? { requestId: engineResult.targetRequestId }
-        : {}),
-    };
-
-    const result = handleChannelDecision(conversationId, engineDecision);
-
-    if (result.applied) {
-      // Deliver the engine's reply text to the user
-      try {
-        await deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: conversationExternalId,
-            text: engineResult.replyText,
-            assistantId,
-          },
-          bearerToken,
-        );
-      } catch (err) {
-        log.error(
-          { err, conversationId },
-          "Failed to deliver approval decision reply",
-        );
-      }
-
-      return { handled: true, type: "decision_applied" };
-    }
-
-    // Race condition: request was already resolved by expiry sweep or
-    // concurrent callback. Deliver a stale notice instead of the
-    // engine's optimistic reply.
-    await deliverStaleApprovalReply({
-      scenario: "approval_already_resolved",
+    return handleGuardianTextEngineDecision({
+      conversationId,
+      conversationExternalId,
       sourceChannel,
       replyCallbackUrl,
-      chatId: conversationExternalId,
+      content,
       assistantId,
       bearerToken,
       approvalCopyGenerator,
-      logger: log,
-      errorLogMessage: "Failed to deliver stale approval notice",
-      errorLogContext: { conversationId },
+      approvalConversationGenerator,
+      pending,
+      allowedActions,
     });
-
-    return { handled: true, type: "stale_ignored" };
   }
 
-  // Fallback: no conversational generator available or no content — use
-  // the legacy deterministic path as a safety net. This preserves backward
-  // compatibility when the generator is not injected.
+  // ── Legacy deterministic fallback ──
+  // When no conversational engine is available, use the deterministic parser
+  // as a safety net for backward compatibility.
   if (content) {
-    const legacyDecision = parseApprovalDecision(content);
-    if (legacyDecision) {
-      if (legacyDecision.requestId) {
-        if (
-          pending.length === 0 ||
-          !pending.some((p) => p.requestId === legacyDecision.requestId)
-        ) {
-          return { handled: true, type: "stale_ignored" };
-        }
-      }
-      const result = handleChannelDecision(conversationId, legacyDecision);
-      if (result.applied) {
-        return { handled: true, type: "decision_applied" };
-      }
-
-      // Race condition: request was already resolved.
-      await deliverStaleApprovalReply({
-        scenario: "approval_already_resolved",
-        sourceChannel,
-        replyCallbackUrl,
-        chatId: conversationExternalId,
-        assistantId,
-        bearerToken,
-        approvalCopyGenerator,
-        logger: log,
-        errorLogMessage:
-          "Failed to deliver stale approval notice (legacy path)",
-        errorLogContext: { conversationId },
-      });
-      return { handled: true, type: "stale_ignored" };
+    const legacyResult = await handleGuardianLegacyFallback({
+      conversationId,
+      conversationExternalId,
+      sourceChannel,
+      replyCallbackUrl,
+      content,
+      assistantId,
+      bearerToken,
+      approvalCopyGenerator,
+      pending,
+    });
+    if (legacyResult) {
+      return legacyResult;
     }
   }
 
