@@ -117,21 +117,21 @@ struct SettingsAccountTab: View {
                 // visible so the URL can still be changed.
                 // When not reachable/configured, show the inline field or a Set Up prompt.
                 if store.vellumPlatformReachable == true {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
                     TextField("https://platform.vellum.ai", text: $platformUrlText)
                         .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                         .focused($isPlatformUrlFocused)
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .secondary, size: .medium) {
+                        VButton(label: "Save", style: .secondary) {
                             store.savePlatformBaseUrl(platformUrlText)
                             Task { await store.checkVellumPlatform() }
                             isPlatformUrlFocused = false
                             platformUrlExpanded = false
                         }
                         .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                        VButton(label: "Cancel", style: .tertiary) {
                             platformUrlText = store.platformBaseUrl
                             isPlatformUrlFocused = false
                             platformUrlExpanded = false
@@ -144,21 +144,21 @@ struct SettingsAccountTab: View {
                         .foregroundColor(VColor.textPrimary)
                         .focused($isPlatformUrlFocused)
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .secondary, size: .medium) {
+                        VButton(label: "Save", style: .secondary) {
                             store.savePlatformBaseUrl(platformUrlText)
                             Task { await store.checkVellumPlatform() }
                             isPlatformUrlFocused = false
                             platformUrlExpanded = false
                         }
                         .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                        VButton(label: "Cancel", style: .tertiary) {
                             platformUrlText = store.platformBaseUrl
                             isPlatformUrlFocused = false
                             platformUrlExpanded = false
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         platformUrlExpanded = true
                     }
                 }
@@ -175,7 +175,7 @@ struct SettingsAccountTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else if authManager.currentUser != nil {
-                VButton(label: "Log Out", style: .danger, size: .medium) {
+                VButton(label: "Log Out", style: .danger) {
                     Task { await authManager.logout() }
                 }
             } else {
@@ -320,7 +320,7 @@ struct SettingsAccountTab: View {
                             set: { isOn in
                                 if isOn { switchToAssistant(assistant) }
                             }
-                        ), size: .medium)
+                        ))
                     }
                     .padding(.vertical, VSpacing.xs)
                     .contentShape(Rectangle())
@@ -366,7 +366,7 @@ struct SettingsAccountTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                 }
-                VButton(label: "Retire...", style: .danger, size: .medium) {
+                VButton(label: "Retire...", style: .danger) {
                     showingRetireConfirmation = true
                 }
             }
@@ -449,7 +449,7 @@ struct SettingsAccountTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    VButton(label: "Hatch...", style: .primary, size: .medium) {
+                    VButton(label: "Hatch...", style: .primary) {
                         AppDelegate.shared?.replayOnboarding()
                         onClose()
                     }

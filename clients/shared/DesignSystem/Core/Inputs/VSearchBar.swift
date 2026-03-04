@@ -30,7 +30,9 @@ public struct VSearchBar: View {
                 .accessibilityLabel("Clear search")
             }
         }
-        .padding(VSpacing.md)
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.xs)
+        .frame(height: 28)
         .background(VColor.inputBackground)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
