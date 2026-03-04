@@ -2289,6 +2289,16 @@ public final class ChatViewModel: ObservableObject {
         }
 
         self.isLoadingHistory = true
+
+        // Discard any in-flight streaming text that references the pre-replacement
+        // message array. Without this, a scheduled flushStreamingBuffer() can fire
+        // after the messages array is replaced, creating an orphan assistant message
+        // or appending text to a stale currentAssistantMessageId.
+        discardStreamingBuffer()
+        currentAssistantMessageId = nil
+        currentAssistantHasText = false
+        lastContentWasToolCall = false
+
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
             // in progress, so the client may have missed the assistant's
