@@ -2166,27 +2166,26 @@ private struct DrawerMenuItem: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
-                    .frame(width: 18)
-                    .padding(.top, 1)
-                    .rotationEffect(.degrees(isHovered ? -10 : 0))
-                    .scaleEffect(isHovered ? 1.15 : 1.0)
-                    .animation(VAnimation.fast, value: isHovered)
-                VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: VSpacing.md) {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                        .frame(width: 18)
+                        .rotationEffect(.degrees(isHovered ? -10 : 0))
+                        .scaleEffect(isHovered ? 1.15 : 1.0)
+                        .animation(VAnimation.fast, value: isHovered)
                     Text(label)
                         .font(.custom("Inter", size: 13))
                         .foregroundColor(VColor.textPrimary)
-                    if let description {
-                        Text(description)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Spacer()
                 }
-                Spacer()
+                if let description {
+                    Text(description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
