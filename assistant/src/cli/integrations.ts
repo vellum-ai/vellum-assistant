@@ -302,7 +302,9 @@ export function registerIntegrationsCommand(program: Command): void {
 
   ingress
     .command("members")
-    .description("List trusted contacts (calls /v1/contacts with role=contact)")
+    .description(
+      "[Deprecated: use 'vellum contacts list'] List trusted contacts",
+    )
     .option("--limit <limit>", "Maximum number of contacts to return")
     .option("--role <role>", "Filter by role (default: contact)")
     .action(
@@ -313,6 +315,9 @@ export function registerIntegrationsCommand(program: Command): void {
         },
         cmd: Command,
       ) => {
+        process.stderr.write(
+          "⚠️  'vellum integrations ingress members' is deprecated. Use 'vellum contacts list' instead.\n",
+        );
         const query = toQueryString({
           role: opts.role ?? "contact",
           limit: opts.limit,
@@ -323,7 +328,9 @@ export function registerIntegrationsCommand(program: Command): void {
 
   ingress
     .command("invites")
-    .description("List trusted ingress invites")
+    .description(
+      "[Deprecated: use 'vellum contacts invites'] List trusted ingress invites",
+    )
     .option("--source-channel <sourceChannel>", "Filter by source channel")
     .option("--status <status>", "Filter by invite status")
     .action(
@@ -331,6 +338,9 @@ export function registerIntegrationsCommand(program: Command): void {
         opts: { sourceChannel?: IngressChannel; status?: string },
         cmd: Command,
       ) => {
+        process.stderr.write(
+          "⚠️  'vellum integrations ingress invites' is deprecated. Use 'vellum contacts invites' instead.\n",
+        );
         const query = toQueryString({
           sourceChannel: opts.sourceChannel,
           status: opts.status,
