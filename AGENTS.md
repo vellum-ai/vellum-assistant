@@ -182,6 +182,8 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 **SKILL.md retrieval contract:** For config/status retrieval in bundled skills, use `bash` + canonical CLI surfaces. Start with `vellum config get` for generic config keys and secure credential surfaces (`credential_store`, `vellum keys`) for secrets. Use domain read commands (for example `vellum integrations ...`, `vellum email status ...`) where those domain surfaces exist. Do not use direct gateway `curl` (or manual `Authorization: Bearer $GATEWAY_AUTH_TOKEN`) for read-only retrieval paths. Do not use keychain lookup commands (`security find-generic-password`, `secret-tool`) in SKILL.md. `host_bash` is not allowed for Vellum CLI retrieval commands unless a documented exception is intentionally allowlisted.
 
+**SKILL.md proxied outbound pattern:** For outbound third-party API calls from skills that require stored credentials, default to `bash` with `network_mode: "proxied"` and `credential_ids` instead of manual token/keychain plumbing. This keeps credentials out of chat and enforces credential policies consistently.
+
 **SKILL.md gateway URL pattern:** For gateway control-plane writes/actions that are not exposed through a CLI read command, use `$INTERNAL_GATEWAY_BASE_URL` (injected by `bash` and `host_bash`). `$GATEWAY_BASE_URL` is also injected and resolves to the configured public ingress URL when set (falling back to the internal gateway target). Do not hardcode `localhost`/ports in skill examples, and do not instruct users/agents to manually export either variable from Settings.
 
 ## Assistant Identity Boundary

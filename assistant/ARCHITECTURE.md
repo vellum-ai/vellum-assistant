@@ -1358,6 +1358,7 @@ Rules enforced by guard tests:
 - Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
 - Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
 - `host_bash` is not used for Vellum CLI retrieval commands unless intentionally allowlisted.
+- Outbound credentialed API calls prefer proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) so credentials are injected by policy-aware plumbing instead of copied into commands.
 
 ### Skill Directory Structure
 
