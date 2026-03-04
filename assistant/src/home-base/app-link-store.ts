@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm';
+import { eq } from "drizzle-orm";
 
-import { getDb } from '../memory/db.js';
-import { homeBaseAppLinks } from '../memory/schema.js';
+import { getDb } from "../memory/db.js";
+import { homeBaseAppLinks } from "../memory/schema.js";
 
-const HOME_BASE_LINK_ID = 'default';
+const HOME_BASE_LINK_ID = "default";
 
 export interface HomeBaseAppLink {
   id: string;
@@ -13,7 +13,9 @@ export interface HomeBaseAppLink {
   updatedAt: number;
 }
 
-function mapRowToLink(row: typeof homeBaseAppLinks.$inferSelect): HomeBaseAppLink {
+function mapRowToLink(
+  row: typeof homeBaseAppLinks.$inferSelect,
+): HomeBaseAppLink {
   return {
     id: row.id,
     appId: row.appId,
@@ -34,14 +36,16 @@ export function getHomeBaseAppLink(): HomeBaseAppLink | null {
   return row ? mapRowToLink(row) : null;
 }
 
-export function setHomeBaseAppLink(appId: string, source: string): HomeBaseAppLink {
+export function setHomeBaseAppLink(
+  appId: string,
+  source: string,
+): HomeBaseAppLink {
   const db = getDb();
   const now = Date.now();
   const existing = getHomeBaseAppLink();
 
   if (existing) {
-    db
-      .update(homeBaseAppLinks)
+    db.update(homeBaseAppLinks)
       .set({ appId, source, updatedAt: now })
       .where(eq(homeBaseAppLinks.id, HOME_BASE_LINK_ID))
       .run();
@@ -54,8 +58,7 @@ export function setHomeBaseAppLink(appId: string, source: string): HomeBaseAppLi
     };
   }
 
-  db
-    .insert(homeBaseAppLinks)
+  db.insert(homeBaseAppLinks)
     .values({
       id: HOME_BASE_LINK_ID,
       appId,
@@ -76,8 +79,7 @@ export function setHomeBaseAppLink(appId: string, source: string): HomeBaseAppLi
 
 export function clearHomeBaseAppLink(): void {
   const db = getDb();
-  db
-    .delete(homeBaseAppLinks)
+  db.delete(homeBaseAppLinks)
     .where(eq(homeBaseAppLinks.id, HOME_BASE_LINK_ID))
     .run();
 }

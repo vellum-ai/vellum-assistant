@@ -5,12 +5,12 @@
  * Works across all platforms — Slack, Gmail, Discord, etc.
  */
 
-import { randomUUID } from 'node:crypto';
-import { readdirSync,readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { randomUUID } from "node:crypto";
+import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { ensureDir, pathExists } from '../util/fs.js';
-import { getRootDir } from '../util/platform.js';
+import { ensureDir, pathExists } from "../util/fs.js";
+import { getRootDir } from "../util/platform.js";
 
 export interface Draft {
   id: string;
@@ -25,7 +25,7 @@ export interface Draft {
 }
 
 function getDraftsDir(platform: string): string {
-  const dir = join(getRootDir(), 'workspace', 'data', 'drafts', platform);
+  const dir = join(getRootDir(), "workspace", "data", "drafts", platform);
   ensureDir(dir);
   return dir;
 }
@@ -55,23 +55,26 @@ export function createDraft(opts: {
     metadata: opts.metadata,
   };
 
-  writeFileSync(getDraftPath(draft.platform, draft.id), JSON.stringify(draft, null, 2));
+  writeFileSync(
+    getDraftPath(draft.platform, draft.id),
+    JSON.stringify(draft, null, 2),
+  );
   return draft;
 }
 
 export function getDraft(platform: string, id: string): Draft | null {
   const path = getDraftPath(platform, id);
   if (!pathExists(path)) return null;
-  return JSON.parse(readFileSync(path, 'utf-8')) as Draft;
+  return JSON.parse(readFileSync(path, "utf-8")) as Draft;
 }
 
 export function listDrafts(platform: string): Draft[] {
   const dir = getDraftsDir(platform);
-  const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+  const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
   const drafts: Draft[] = [];
   for (const file of files) {
     try {
-      const content = readFileSync(join(dir, file), 'utf-8');
+      const content = readFileSync(join(dir, file), "utf-8");
       drafts.push(JSON.parse(content) as Draft);
     } catch {
       // Skip malformed files

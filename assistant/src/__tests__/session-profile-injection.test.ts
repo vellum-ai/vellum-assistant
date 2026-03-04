@@ -56,9 +56,23 @@ mock.module("../config/loader.js", () => ({
       preserveRecentUserTurns: 8,
       summaryMaxTokens: 512,
       chunkTokens: 12000,
+      overflowRecovery: {
+        enabled: true,
+        safetyMarginRatio: 0.05,
+        maxAttempts: 3,
+        interactiveLatestTurnCompression: "summarize",
+        nonInteractiveLatestTurnCompression: "truncate",
+      },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     apiKeys: {},
+    daemon: {
+      startupSocketWaitMs: 5000,
+      stopTimeoutMs: 5000,
+      sigkillGracePeriodMs: 2000,
+      titleGenerationMaxTokens: 30,
+      standaloneRecording: true,
+    },
     memory: {
       enabled: memoryEnabled,
       retrieval: {

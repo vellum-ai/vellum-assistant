@@ -28,34 +28,34 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Token schema (JWT claims):**
 
-| Claim | Type | Description |
-|-------|------|-------------|
-| `iss` | `'vellum-auth'` | Issuer — always `vellum-auth` |
-| `aud` | `'vellum-daemon'` or `'vellum-gateway'` | Audience — which service the token targets |
-| `sub` | string | Subject — encodes principal type and identity (see patterns below) |
-| `scope_profile` | string | Named permission bundle (see profiles below) |
-| `exp` | number | Expiry timestamp (seconds since epoch) |
-| `policy_epoch` | number | Policy version — stale tokens are rejected with `refresh_required` |
-| `iat` | number | Issued-at timestamp |
-| `jti` | string | Unique token ID |
+| Claim           | Type                                    | Description                                                        |
+| --------------- | --------------------------------------- | ------------------------------------------------------------------ |
+| `iss`           | `'vellum-auth'`                         | Issuer — always `vellum-auth`                                      |
+| `aud`           | `'vellum-daemon'` or `'vellum-gateway'` | Audience — which service the token targets                         |
+| `sub`           | string                                  | Subject — encodes principal type and identity (see patterns below) |
+| `scope_profile` | string                                  | Named permission bundle (see profiles below)                       |
+| `exp`           | number                                  | Expiry timestamp (seconds since epoch)                             |
+| `policy_epoch`  | number                                  | Policy version — stale tokens are rejected with `refresh_required` |
+| `iat`           | number                                  | Issued-at timestamp                                                |
+| `jti`           | string                                  | Unique token ID                                                    |
 
 **Subject patterns:**
 
-| Pattern | Principal Type | Description |
-|---------|---------------|-------------|
-| `actor:<assistantId>:<actorPrincipalId>` | `actor` | Desktop, iOS, or CLI client |
-| `svc:gateway:<assistantId>` | `svc_gateway` | Gateway service (ingress, webhooks) |
-| `ipc:<assistantId>:<sessionId>` | `ipc` | Internal IPC connections |
-| `svc:daemon:self` | n/a | Daemon self-identification (for internal use) |
+| Pattern                                  | Principal Type | Description                                   |
+| ---------------------------------------- | -------------- | --------------------------------------------- |
+| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client                   |
+| `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks)           |
+| `ipc:<assistantId>:<sessionId>`          | `ipc`          | Internal IPC connections                      |
+| `svc:daemon:self`                        | n/a            | Daemon self-identification (for internal use) |
 
 **Scope profiles:**
 
-| Profile | Scopes | Used by |
-|---------|--------|---------|
-| `actor_client_v1` | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, iOS, CLI clients |
-| `gateway_ingress_v1` | `ingress.write`, `internal.write` | Gateway channel inbound + webhook forwarding |
-| `gateway_service_v1` | `settings.read`, `settings.write`, `internal.write` | Gateway service-to-daemon calls |
-| `ipc_v1` | `ipc.all` | Internal IPC connections |
+| Profile              | Scopes                                                                                                                                                | Used by                                      |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `actor_client_v1`    | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, iOS, CLI clients                    |
+| `gateway_ingress_v1` | `ingress.write`, `internal.write`                                                                                                                     | Gateway channel inbound + webhook forwarding |
+| `gateway_service_v1` | `settings.read`, `settings.write`, `internal.write`                                                                                                   | Gateway service-to-daemon calls              |
+| `ipc_v1`             | `ipc.all`                                                                                                                                             | Internal IPC connections                     |
 
 **Identity lifecycle:**
 
@@ -75,21 +75,21 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `src/runtime/auth/types.ts` | Core type definitions: `TokenClaims`, `AuthContext`, `ScopeProfile`, `Scope`, `PrincipalType` |
-| `src/runtime/auth/token-service.ts` | JWT signing, verification, and policy epoch management |
-| `src/runtime/auth/credential-service.ts` | Credential pair minting (access token + refresh token) |
-| `src/runtime/auth/scopes.ts` | Scope profile resolver (`resolveScopeProfile`) |
-| `src/runtime/auth/context.ts` | AuthContext builder from JWT claims |
-| `src/runtime/auth/subject.ts` | Subject string parser (`parseSub`) |
-| `src/runtime/auth/middleware.ts` | JWT bearer auth middleware (`authenticateRequest`) |
-| `src/runtime/auth/route-policy.ts` | Route-level scope/principal enforcement |
-| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` (initial JWT issuance) |
-| `src/runtime/routes/guardian-refresh-routes.ts` | `POST /v1/integrations/guardian/vellum/refresh` (token rotation) |
-| `src/runtime/routes/pairing-routes.ts` | JWT credential issuance in pairing flow |
-| `src/runtime/local-actor-identity.ts` | `resolveLocalIpcGuardianContext` — deterministic IPC identity |
-| `src/memory/guardian-bindings.ts` | Guardian binding persistence (shared across all channels) |
+| File                                              | Purpose                                                                                       |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/runtime/auth/types.ts`                       | Core type definitions: `TokenClaims`, `AuthContext`, `ScopeProfile`, `Scope`, `PrincipalType` |
+| `src/runtime/auth/token-service.ts`               | JWT signing, verification, and policy epoch management                                        |
+| `src/runtime/auth/credential-service.ts`          | Credential pair minting (access token + refresh token)                                        |
+| `src/runtime/auth/scopes.ts`                      | Scope profile resolver (`resolveScopeProfile`)                                                |
+| `src/runtime/auth/context.ts`                     | AuthContext builder from JWT claims                                                           |
+| `src/runtime/auth/subject.ts`                     | Subject string parser (`parseSub`)                                                            |
+| `src/runtime/auth/middleware.ts`                  | JWT bearer auth middleware (`authenticateRequest`)                                            |
+| `src/runtime/auth/route-policy.ts`                | Route-level scope/principal enforcement                                                       |
+| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` (initial JWT issuance)                      |
+| `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/integrations/guardian/vellum/refresh` (token rotation)                              |
+| `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
+| `src/runtime/local-actor-identity.ts`             | `resolveLocalIpcGuardianContext` — deterministic IPC identity                                 |
+| `src/memory/guardian-bindings.ts`                 | Guardian binding persistence (shared across all channels)                                     |
 
 ### Channel-Agnostic Scoped Approval Grants
 
@@ -116,11 +116,13 @@ All guardian approval decisions — regardless of how they arrive — route thro
 **Unified interaction model — buttons first, text fallback:** All guardian approval prompts follow a canonical "buttons first, text fallback" pattern. Structured button UIs are the primary interaction surface, but every prompt also carries deterministic text fallback instructions so guardians can always act even when buttons are unavailable or not used. This applies uniformly across all request kinds (`tool_approval`, `pending_question`, `access_request`) and all channels (macOS desktop, Telegram, SMS, WhatsApp).
 
 **Button-first path (deterministic):**
+
 - Desktop clients (macOS/iOS) render `GuardianDecisionPrompt` objects as tappable card UIs with kind-aware headers and action buttons. The `GuardianDecisionBubble` renders distinct headers for each kind: "Tool Approval Required", "Question Pending", or "Access Request".
 - Desktop clients submit decisions via HTTP (`POST /v1/guardian-actions/decision`) or IPC (`guardian_action_decision`). Both route through `applyCanonicalGuardianDecision`.
 - Channel adapters (Telegram inline keyboards, WhatsApp) encode actions as callback data (`apr:<requestId>:<action>`).
 
 **Text fallback path (always available):**
+
 - Every prompt includes a `requestCode` (6-char alphanumeric). Guardians can reply with `<requestCode> approve` or `<requestCode> reject` on any channel.
 - `access_request` prompts additionally embed explicit text directives in `questionText`: the request-code approve/reject directive and the `"open invite flow"` phrase for starting the Trusted Contacts invite flow.
 - `pending_question` prompts (voice-originated) support `<requestCode> <your answer>` for free-text answers.
@@ -156,12 +158,12 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
+| File                                        | Purpose                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `src/runtime/session-approval-overrides.ts` | In-memory store: `setThreadMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
-| `src/permissions/types.ts` | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper |
-| `src/runtime/guardian-decision-types.ts` | `buildDecisionActions()` — controls which temporary options appear in approval prompts |
-| `src/tools/permission-checker.ts` | Permission pipeline integration — checks temporary overrides before prompting |
+| `src/permissions/types.ts`                  | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper       |
+| `src/runtime/guardian-decision-types.ts`    | `buildDecisionActions()` — controls which temporary options appear in approval prompts                             |
+| `src/tools/permission-checker.ts`           | Permission pipeline integration — checks temporary overrides before prompting                                      |
 
 ### Canonical Guardian Request System
 
@@ -1108,6 +1110,67 @@ sequenceDiagram
    - **Copy Debug Info** (shown when `debugDetails` is non-nil): copies structured debug information to the clipboard for bug reports.
    - **Dismiss (X)**: calls `dismissSessionError()` to clear the error without retrying.
 4. If the error is not retryable, the Retry button is hidden and the user can only dismiss.
+
+---
+
+## Context Overflow Recovery
+
+The session loop implements a deterministic overflow convergence pipeline that recovers from context-too-large provider rejections without surfacing errors to the user. Instead of the previous behavior where a `CONTEXT_TOO_LARGE` error was emitted as a `session_error`, the pipeline iteratively reduces the context payload until it fits within the provider's limit.
+
+### Two-Phase Architecture
+
+**Phase 1 — Preflight budgeting:** Before calling the provider, the session loop estimates prompt token count and compares it against a preflight budget (`maxInputTokens * (1 - safetyMarginRatio)`). If the estimate exceeds the budget, the reducer runs proactively, avoiding a wasted provider round-trip. This catches overflow caused by large tool results, media payloads, or accumulated history before any network call.
+
+**Phase 2 — Post-rejection convergence:** If the provider returns a context-too-large error despite preflight checks (e.g., due to estimation inaccuracy), the same reducer runs reactively in a bounded loop, retrying the provider after each tier.
+
+### Tiered Reduction
+
+The reducer (`context-overflow-reducer.ts`) applies four monotonically more aggressive tiers, each idempotent:
+
+| Tier                      | Reduction                                                                  | Effect                                                                                       |
+| ------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 1. Forced compaction      | Emergency `maybeCompact()` with `force: true`, `minKeepRecentUserTurns: 0` | Summarizes older history more aggressively than normal compaction                            |
+| 2. Tool-result truncation | `truncateToolResultsAcrossHistory()` at 4,000 chars per result             | Shrinks verbose tool outputs (shell, file reads) across all retained messages                |
+| 3. Media/file stubbing    | `stripMediaPayloadsForRetry()`                                             | Replaces image and file content blocks with lightweight text stubs                           |
+| 4. Injection downgrade    | Sets `injectionMode` to `"minimal"`                                        | Drops runtime injections (workspace listing, temporal context, memory recall) to minimal set |
+
+After each tier, the reducer re-estimates tokens. If the estimate is within budget, the loop breaks and the provider call proceeds. The loop is bounded by `maxAttempts` (default 3).
+
+### Overflow Policy and Latest-Turn Compression
+
+When all four reducer tiers are exhausted and the provider still rejects, the overflow policy resolver (`context-overflow-policy.ts`) determines the next action based on config and session interactivity:
+
+| Session Type    | Config Policy           | Action                                                                                                 |
+| --------------- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| Interactive     | `"summarize"` (default) | `request_user_approval` — prompt the user via `PermissionPrompter` before compressing the latest turn  |
+| Non-interactive | `"truncate"` (default)  | `auto_compress_latest_turn` — compress without asking                                                  |
+| Any             | `"drop"`                | `fail_gracefully` — fall through to the final context-overflow fallback, which emits a `session_error` |
+
+**Approval gate:** For interactive sessions, the pipeline uses `requestCompressionApproval()` in `context-overflow-approval.ts`, which presents a confirmation prompt through the existing `PermissionPrompter` flow (`POST /v1/confirm`). The prompt uses a reserved pseudo tool name (`context_overflow_compression`) so the UI can display a meaningful label. The decision is one-shot per overflow (no "always allow" option).
+
+**Deny handling:** If the user declines compression, the session emits a graceful assistant explanation message ("The conversation has grown too long...") instead of a `session_error`. The deny message is persisted to conversation history and delivered via `assistant_text_delta` events, so the user sees a normal chat bubble rather than an error toast. The turn ends cleanly without triggering the error classification pipeline.
+
+### Config
+
+All overflow recovery settings live under `contextWindow.overflowRecovery` in the assistant config schema:
+
+| Config key                            |       Default | Purpose                                                                        |
+| ------------------------------------- | ------------: | ------------------------------------------------------------------------------ |
+| `enabled`                             |        `true` | Master switch for the overflow recovery pipeline                               |
+| `safetyMarginRatio`                   |        `0.05` | Fraction of `maxInputTokens` reserved as safety margin for preflight budget    |
+| `maxAttempts`                         |           `3` | Maximum reducer iterations per overflow event (both preflight and convergence) |
+| `interactiveLatestTurnCompression`    | `"summarize"` | Policy for interactive sessions: `"summarize"`, `"truncate"`, or `"drop"`      |
+| `nonInteractiveLatestTurnCompression` |  `"truncate"` | Policy for non-interactive sessions: same options                              |
+
+### Key Source Files
+
+| File                                      | Purpose                                                                          |
+| ----------------------------------------- | -------------------------------------------------------------------------------- |
+| `src/daemon/context-overflow-reducer.ts`  | Tiered reducer: four-tier pipeline with idempotent steps and cumulative state    |
+| `src/daemon/context-overflow-policy.ts`   | Overflow policy resolver: maps config + interactivity to concrete action         |
+| `src/daemon/context-overflow-approval.ts` | Approval gate: prompts user for latest-turn compression via `PermissionPrompter` |
+| `src/daemon/session-agent-loop.ts`        | Integration: preflight budget check, convergence loop, approval/deny flow        |
+| `src/config/core-schema.ts`               | `ContextOverflowRecoveryConfigSchema` with defaults and validation               |
 
 ---
 
@@ -2193,10 +2256,10 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Key files:**
 
-| File                                         | Purpose                                                |
-| -------------------------------------------- | ------------------------------------------------------ |
+| File                                         | Purpose                                               |
+| -------------------------------------------- | ----------------------------------------------------- |
 | `src/daemon/session-runtime-assembly.ts`     | `TrustContext` type definition                        |
-| `src/tools/types.ts`                         | `ToolContext.trustClass` (required trust gate)         |
-| `src/runtime/channel-retry-sweep.ts`         | Strict `trustClass` parser for retry sweep             |
-| `src/memory/guardian-bindings.ts`            | `GuardianBinding` with required `guardianPrincipalId`  |
-| `src/__tests__/trust-context-guards.test.ts` | Guard tests enforcing trust-context type invariants    |
+| `src/tools/types.ts`                         | `ToolContext.trustClass` (required trust gate)        |
+| `src/runtime/channel-retry-sweep.ts`         | Strict `trustClass` parser for retry sweep            |
+| `src/memory/guardian-bindings.ts`            | `GuardianBinding` with required `guardianPrincipalId` |
+| `src/__tests__/trust-context-guards.test.ts` | Guard tests enforcing trust-context type invariants   |

@@ -6,10 +6,10 @@
  * to ask the user due to ambiguity.
  */
 
-import { isDomainAllowed } from './domain-policy.js';
-import { matchHostPattern } from './host-pattern-match.js';
-import type { CredentialMetadata } from './metadata-store.js';
-import type { CredentialInjectionTemplate } from './policy-types.js';
+import { isDomainAllowed } from "./domain-policy.js";
+import { matchHostPattern } from "./host-pattern-match.js";
+import type { CredentialMetadata } from "./metadata-store.js";
+import type { CredentialInjectionTemplate } from "./policy-types.js";
 
 export interface CredentialCandidate {
   credentialId: string;
@@ -18,7 +18,10 @@ export interface CredentialCandidate {
 }
 
 export interface CredentialSelectionResult {
-  topChoice: { credentialId: string; confidence: 'high' | 'medium' | 'low' } | null;
+  topChoice: {
+    credentialId: string;
+    confidence: "high" | "medium" | "low";
+  } | null;
   candidates: CredentialCandidate[];
   ambiguous: boolean;
 }
@@ -35,7 +38,10 @@ const SCORE_ALIAS_SET = 10;
  * Check whether `host` matches a glob-style `hostPattern`.
  * Supports leading wildcard like "*.example.com".
  */
-function hostMatchesPattern(host: string, pattern: string): 'exact' | 'wildcard' | 'none' {
+function hostMatchesPattern(
+  host: string,
+  pattern: string,
+): "exact" | "wildcard" | "none" {
   return matchHostPattern(host, pattern, { includeApexForWildcard: true });
 }
 
@@ -45,14 +51,14 @@ function hostMatchesPattern(host: string, pattern: string): 'exact' | 'wildcard'
 function bestHostMatch(
   templates: CredentialInjectionTemplate[] | undefined,
   targetHost: string,
-): 'exact' | 'wildcard' | 'none' {
-  if (!templates || templates.length === 0) return 'none';
+): "exact" | "wildcard" | "none" {
+  if (!templates || templates.length === 0) return "none";
 
-  let best: 'exact' | 'wildcard' | 'none' = 'none';
+  let best: "exact" | "wildcard" | "none" = "none";
   for (const t of templates) {
     const match = hostMatchesPattern(targetHost, t.hostPattern);
-    if (match === 'exact') return 'exact'; // can't do better
-    if (match === 'wildcard') best = 'wildcard';
+    if (match === "exact") return "exact"; // can't do better
+    if (match === "wildcard") best = "wildcard";
   }
   return best;
 }
@@ -95,22 +101,22 @@ export function rankCredentialsForEndpoint(
 
     // 1. Host specificity from injection templates
     const hostMatch = bestHostMatch(cred.injectionTemplates, targetHost);
-    if (hostMatch === 'exact') {
+    if (hostMatch === "exact") {
       tierScore += SCORE_EXACT_HOST;
-      reasons.push('exact host match');
-    } else if (hostMatch === 'wildcard') {
+      reasons.push("exact host match");
+    } else if (hostMatch === "wildcard") {
       tierScore += SCORE_WILDCARD_HOST;
-      reasons.push('wildcard host match');
+      reasons.push("wildcard host match");
     }
 
     // 2. Alias hint
     if (cred.alias) {
       tierScore += SCORE_ALIAS_SET;
-      reasons.push('alias set');
+      reasons.push("alias set");
     }
 
     if (reasons.length === 0) {
-      reasons.push('domain allowed');
+      reasons.push("domain allowed");
     }
 
     scored.push({
@@ -118,7 +124,7 @@ export function rankCredentialsForEndpoint(
       score: tierScore,
       tierScore,
       updatedAt: cred.updatedAt,
-      matchReason: reasons.join(', '),
+      matchReason: reasons.join(", "),
     });
   }
 
@@ -136,19 +142,18 @@ export function rankCredentialsForEndpoint(
   const top = scored[0];
 
   // Ambiguity: top two candidates share the same tier score
-  const ambiguous =
-    scored.length >= 2 && top.tierScore === scored[1].tierScore;
+  const ambiguous = scored.length >= 2 && top.tierScore === scored[1].tierScore;
 
   // Confidence is based on the tier score, not inflated by recency
-  let confidence: 'high' | 'medium' | 'low';
+  let confidence: "high" | "medium" | "low";
   if (ambiguous) {
-    confidence = 'low';
+    confidence = "low";
   } else if (top.tierScore >= SCORE_EXACT_HOST) {
-    confidence = 'high';
+    confidence = "high";
   } else if (top.tierScore >= SCORE_WILDCARD_HOST) {
-    confidence = 'medium';
+    confidence = "medium";
   } else {
-    confidence = 'low';
+    confidence = "low";
   }
 
   return {

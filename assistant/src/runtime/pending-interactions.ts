@@ -8,29 +8,36 @@
  * session from this tracker to resolve the interaction.
  */
 
-import type { Session } from '../daemon/session.js';
+import type { Session } from "../daemon/session.js";
 
 export interface ConfirmationDetails {
   toolName: string;
   input: Record<string, unknown>;
   riskLevel: string;
-  executionTarget?: 'sandbox' | 'host';
-  allowlistOptions: Array<{ label: string; description: string; pattern: string }>;
+  executionTarget?: "sandbox" | "host";
+  allowlistOptions: Array<{
+    label: string;
+    description: string;
+    pattern: string;
+  }>;
   scopeOptions: Array<{ label: string; scope: string }>;
   persistentDecisionsAllowed?: boolean;
-  temporaryOptionsAvailable?: Array<'allow_10m' | 'allow_thread'>;
+  temporaryOptionsAvailable?: Array<"allow_10m" | "allow_thread">;
 }
 
 export interface PendingInteraction {
   session: Session;
   conversationId: string;
-  kind: 'confirmation' | 'secret';
+  kind: "confirmation" | "secret";
   confirmationDetails?: ConfirmationDetails;
 }
 
 const pending = new Map<string, PendingInteraction>();
 
-export function register(requestId: string, interaction: PendingInteraction): void {
+export function register(
+  requestId: string,
+  interaction: PendingInteraction,
+): void {
   pending.set(requestId, interaction);
 }
 
@@ -58,7 +65,9 @@ export function get(requestId: string): PendingInteraction | undefined {
  * Return all pending interactions for a given conversation.
  * Needed by channel approval migration (PR 3).
  */
-export function getByConversation(conversationId: string): Array<{ requestId: string } & PendingInteraction> {
+export function getByConversation(
+  conversationId: string,
+): Array<{ requestId: string } & PendingInteraction> {
   const results: Array<{ requestId: string } & PendingInteraction> = [];
   for (const [requestId, interaction] of pending) {
     if (interaction.conversationId === conversationId) {

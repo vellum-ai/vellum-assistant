@@ -1,18 +1,25 @@
-import { searchContacts } from '../../../../contacts/contact-store.js';
-import type { ContactWithChannels } from '../../../../contacts/types.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { searchContacts } from "../../../../contacts/contact-store.js";
+import type { ContactWithChannels } from "../../../../contacts/types.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 
 function formatContactSummary(c: ContactWithChannels): string {
   const parts = [`- **${c.displayName}** (ID: ${c.id})`];
   if (c.relationship) parts.push(`  Relationship: ${c.relationship}`);
-  parts.push(`  Importance: ${c.importance.toFixed(2)} | Interactions: ${c.interactionCount}`);
+  parts.push(
+    `  Importance: ${c.importance.toFixed(2)} | Interactions: ${
+      c.interactionCount
+    }`,
+  );
   if (c.channels.length > 0) {
     const channelList = c.channels
-      .map((ch) => `${ch.type}:${ch.address}${ch.isPrimary ? '*' : ''}`)
-      .join(', ');
+      .map((ch) => `${ch.type}:${ch.address}${ch.isPrimary ? "*" : ""}`)
+      .join(", ");
     parts.push(`  Channels: ${channelList}`);
   }
-  return parts.join('\n');
+  return parts.join("\n");
 }
 
 export async function executeContactSearch(
@@ -27,7 +34,8 @@ export async function executeContactSearch(
 
   if (!query && !channelAddress && !relationship) {
     return {
-      content: 'Error: At least one search criterion is required (query, channel_address, or relationship)',
+      content:
+        "Error: At least one search criterion is required (query, channel_address, or relationship)",
       isError: true,
     };
   }
@@ -42,7 +50,10 @@ export async function executeContactSearch(
     });
 
     if (results.length === 0) {
-      return { content: 'No contacts found matching the search criteria.', isError: false };
+      return {
+        content: "No contacts found matching the search criteria.",
+        isError: false,
+      };
     }
 
     const lines = [`Found ${results.length} contact(s):\n`];
@@ -50,7 +61,7 @@ export async function executeContactSearch(
       lines.push(formatContactSummary(contact));
     }
 
-    return { content: lines.join('\n'), isError: false };
+    return { content: lines.join("\n"), isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };

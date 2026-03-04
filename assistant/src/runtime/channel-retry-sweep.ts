@@ -132,14 +132,17 @@ export async function sweepFailedEvents(
       | undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
-    const parsedTrustContext = parseTrustRuntimeContext(payload.trustCtx);
+    // Backward-compat: events persisted before the guardianCtx → trustCtx
+    // rename still carry the old key name.
+    const rawTrustCtx = payload.trustCtx ?? payload.guardianCtx;
+    const parsedTrustContext = parseTrustRuntimeContext(rawTrustCtx);
 
     // If the stored payload had guardian context data but it couldn't be parsed
     // into a valid canonical shape (e.g., legacy actorRole-only payloads without
     // trustClass), fail the event deterministically rather than processing it
     // without guardian context. Without this check, the downstream default of
     // `trustClass ?? 'guardian'` would silently escalate privileges.
-    if (payload.trustCtx && !parsedTrustContext) {
+    if (rawTrustCtx && !parsedTrustContext) {
       log.warn(
         { eventId: event.id },
         "Stored trustCtx could not be parsed into canonical form; marking event as failed to prevent privilege escalation",

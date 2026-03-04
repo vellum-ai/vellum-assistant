@@ -3,24 +3,30 @@ import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createTelegramDeliverHandler } = await import("../http/routes/telegram-deliver.js");
+const { createTelegramDeliverHandler } =
+  await import("../http/routes/telegram-deliver.js");
 
 /** Mint a valid daemon JWT for deliver auth. */
 function mintDeliverToken(): string {
   return mintToken({
-    aud: 'vellum-daemon',
-    sub: 'svc:gateway:self',
-    scope_profile: 'gateway_service_v1',
+    aud: "vellum-daemon",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -92,7 +98,12 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
   test("delivers attachments without assistantId using assistant-less download path", async () => {
     const calls: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
-      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const urlStr =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(urlStr);
       // Runtime attachment download (assistant-less path)
       if (urlStr.includes("/v1/attachments/att-1")) {
@@ -123,7 +134,13 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
       body: JSON.stringify({
         chatId: "123",
         attachments: [
-          { id: "att-1", filename: "photo.png", mimeType: "image/png", sizeBytes: 100, kind: "generated_image" },
+          {
+            id: "att-1",
+            filename: "photo.png",
+            mimeType: "image/png",
+            sizeBytes: 100,
+            kind: "generated_image",
+          },
         ],
       }),
     });
@@ -146,7 +163,12 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
   test("delivers attachments with assistantId using flat download path", async () => {
     const calls: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
-      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const urlStr =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(urlStr);
       // Runtime attachment download (flat path)
       if (urlStr.includes("/attachments/att-2")) {
@@ -177,7 +199,13 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
         chatId: "456",
         assistantId: "my-assistant",
         attachments: [
-          { id: "att-2", filename: "doc.pdf", mimeType: "application/pdf", sizeBytes: 200, kind: "filesystem" },
+          {
+            id: "att-2",
+            filename: "doc.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 200,
+            kind: "filesystem",
+          },
         ],
       }),
     });
@@ -198,7 +226,12 @@ describe("/deliver/telegram ID-only attachment validation", () => {
   test("accepts ID-only attachments (no filename, mimeType, sizeBytes)", async () => {
     const calls: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
-      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const urlStr =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(urlStr);
       if (urlStr.includes("/v1/attachments/att-id-only")) {
         return new Response(
@@ -236,7 +269,9 @@ describe("/deliver/telegram ID-only attachment validation", () => {
     expect(body.ok).toBe(true);
 
     // Should have downloaded the attachment and sent it to Telegram
-    const downloadCall = calls.find((u) => u.includes("/attachments/att-id-only"));
+    const downloadCall = calls.find((u) =>
+      u.includes("/attachments/att-id-only"),
+    );
     expect(downloadCall).toBeDefined();
     const telegramCall = calls.find((u) => u.includes("sendPhoto"));
     expect(telegramCall).toBeDefined();
@@ -264,7 +299,12 @@ describe("/deliver/telegram ID-only attachment validation", () => {
   test("full-metadata attachments still accepted (backward compatibility)", async () => {
     const calls: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
-      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const urlStr =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
       calls.push(urlStr);
       if (urlStr.includes("/v1/attachments/att-compat")) {
         return new Response(
@@ -293,7 +333,13 @@ describe("/deliver/telegram ID-only attachment validation", () => {
       body: JSON.stringify({
         chatId: "789",
         attachments: [
-          { id: "att-compat", filename: "doc.pdf", mimeType: "application/pdf", sizeBytes: 150, kind: "filesystem" },
+          {
+            id: "att-compat",
+            filename: "doc.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 150,
+            kind: "filesystem",
+          },
         ],
       }),
     });

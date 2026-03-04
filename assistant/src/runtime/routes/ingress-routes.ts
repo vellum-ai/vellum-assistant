@@ -24,7 +24,7 @@ import {
   revokeIngressInvite,
   revokeIngressMember,
   upsertIngressMember,
-} from '../ingress-service.js';
+} from "../ingress-service.js";
 
 // ---------------------------------------------------------------------------
 // Members
@@ -35,10 +35,10 @@ import {
  */
 export function handleListMembers(url: URL): Response {
   const result = listIngressMembers({
-    assistantId: url.searchParams.get('assistantId') ?? undefined,
-    sourceChannel: url.searchParams.get('sourceChannel') ?? undefined,
-    status: url.searchParams.get('status') ?? undefined,
-    policy: url.searchParams.get('policy') ?? undefined,
+    assistantId: url.searchParams.get("assistantId") ?? undefined,
+    sourceChannel: url.searchParams.get("sourceChannel") ?? undefined,
+    status: url.searchParams.get("status") ?? undefined,
+    policy: url.searchParams.get("policy") ?? undefined,
   });
 
   if (!result.ok) {
@@ -73,7 +73,10 @@ export async function handleUpsertMember(req: Request): Promise<Response> {
 /**
  * DELETE /v1/ingress/members/:id
  */
-export async function handleRevokeMember(req: Request, memberId: string): Promise<Response> {
+export async function handleRevokeMember(
+  req: Request,
+  memberId: string,
+): Promise<Response> {
   let reason: string | undefined;
   try {
     const body = (await req.json()) as Record<string, unknown>;
@@ -93,7 +96,10 @@ export async function handleRevokeMember(req: Request, memberId: string): Promis
 /**
  * POST /v1/ingress/members/:id/block
  */
-export async function handleBlockMember(req: Request, memberId: string): Promise<Response> {
+export async function handleBlockMember(
+  req: Request,
+  memberId: string,
+): Promise<Response> {
   let reason: string | undefined;
   try {
     const body = (await req.json()) as Record<string, unknown>;
@@ -119,8 +125,8 @@ export async function handleBlockMember(req: Request, memberId: string): Promise
  */
 export function handleListInvites(url: URL): Response {
   const result = listIngressInvites({
-    sourceChannel: url.searchParams.get('sourceChannel') ?? undefined,
-    status: url.searchParams.get('status') ?? undefined,
+    sourceChannel: url.searchParams.get("sourceChannel") ?? undefined,
+    status: url.searchParams.get("status") ?? undefined,
   });
 
   if (!result.ok) {
@@ -185,12 +191,14 @@ export async function handleRedeemInvite(req: Request): Promise<Response> {
 
   // Voice-code redemption path: triggered when `code` is present
   if (body.code != null) {
-    const callerExternalUserId = body.callerExternalUserId as string | undefined;
+    const callerExternalUserId = body.callerExternalUserId as
+      | string
+      | undefined;
     const code = body.code as string | undefined;
 
     if (!callerExternalUserId || !code) {
       return Response.json(
-        { ok: false, error: 'callerExternalUserId and code are required' },
+        { ok: false, error: "callerExternalUserId and code are required" },
         { status: 400 },
       );
     }
@@ -198,19 +206,22 @@ export async function handleRedeemInvite(req: Request): Promise<Response> {
     const result = redeemVoiceInviteCode({
       assistantId: body.assistantId as string | undefined,
       callerExternalUserId,
-      sourceChannel: 'voice',
+      sourceChannel: "voice",
       code,
     });
 
     if (!result.ok) {
-      return Response.json({ ok: false, error: result.reason }, { status: 400 });
+      return Response.json(
+        { ok: false, error: result.reason },
+        { status: 400 },
+      );
     }
 
     return Response.json({
       ok: true,
       type: result.type,
       memberId: result.memberId,
-      ...(result.type === 'redeemed' ? { inviteId: result.inviteId } : {}),
+      ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
     });
   }
 

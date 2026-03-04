@@ -125,6 +125,58 @@ export const EffortSchema = z
 
 export type Effort = z.infer<typeof EffortSchema>;
 
+const VALID_LATEST_TURN_COMPRESSION_POLICIES = [
+  "truncate",
+  "summarize",
+  "drop",
+] as const;
+
+export const ContextOverflowRecoveryConfigSchema = z.object({
+  enabled: z
+    .boolean({
+      error: "contextWindow.overflowRecovery.enabled must be a boolean",
+    })
+    .default(true),
+  safetyMarginRatio: z
+    .number({
+      error:
+        "contextWindow.overflowRecovery.safetyMarginRatio must be a number",
+    })
+    .finite("contextWindow.overflowRecovery.safetyMarginRatio must be finite")
+    .gt(
+      0,
+      "contextWindow.overflowRecovery.safetyMarginRatio must be greater than 0",
+    )
+    .lt(
+      1,
+      "contextWindow.overflowRecovery.safetyMarginRatio must be less than 1",
+    )
+    .default(0.05),
+  maxAttempts: z
+    .number({
+      error: "contextWindow.overflowRecovery.maxAttempts must be a number",
+    })
+    .int("contextWindow.overflowRecovery.maxAttempts must be an integer")
+    .positive(
+      "contextWindow.overflowRecovery.maxAttempts must be a positive integer",
+    )
+    .default(3),
+  interactiveLatestTurnCompression: z
+    .enum(VALID_LATEST_TURN_COMPRESSION_POLICIES, {
+      error: `contextWindow.overflowRecovery.interactiveLatestTurnCompression must be one of: ${VALID_LATEST_TURN_COMPRESSION_POLICIES.join(
+        ", ",
+      )}`,
+    })
+    .default("summarize"),
+  nonInteractiveLatestTurnCompression: z
+    .enum(VALID_LATEST_TURN_COMPRESSION_POLICIES, {
+      error: `contextWindow.overflowRecovery.nonInteractiveLatestTurnCompression must be one of: ${VALID_LATEST_TURN_COMPRESSION_POLICIES.join(
+        ", ",
+      )}`,
+    })
+    .default("truncate"),
+});
+
 export const ContextWindowConfigSchema = z.object({
   enabled: z
     .boolean({ error: "contextWindow.enabled must be a boolean" })
@@ -162,6 +214,9 @@ export const ContextWindowConfigSchema = z.object({
     .int("contextWindow.chunkTokens must be an integer")
     .positive("contextWindow.chunkTokens must be a positive integer")
     .default(12000),
+  overflowRecovery: ContextOverflowRecoveryConfigSchema.default(
+    ContextOverflowRecoveryConfigSchema.parse({}),
+  ),
 });
 
 export const ModelPricingOverrideSchema = z.object({
@@ -331,6 +386,9 @@ export type PermissionsConfig = z.infer<typeof PermissionsConfigSchema>;
 export type AuditLogConfig = z.infer<typeof AuditLogConfigSchema>;
 export type LogFileConfig = z.infer<typeof LogFileConfigSchema>;
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
+export type ContextOverflowRecoveryConfig = z.infer<
+  typeof ContextOverflowRecoveryConfigSchema
+>;
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type SmsConfig = z.infer<typeof SmsConfigSchema>;

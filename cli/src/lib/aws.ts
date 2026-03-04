@@ -43,7 +43,9 @@ export async function getDefaultVpcId(region: string): Promise<string> {
   ]);
   const vpcId = output.trim();
   if (!vpcId || vpcId === "None") {
-    throw new Error("No default VPC found. Please create a default VPC or specify one.");
+    throw new Error(
+      "No default VPC found. Please create a default VPC or specify one.",
+    );
   }
   return vpcId;
 }
@@ -342,15 +344,25 @@ async function pollAwsInstance(
     const output = await awsSshExec(ip, keyPath, remoteCmd);
     const sepIdx = output.indexOf("===HATCH_SEP===");
     if (sepIdx === -1) {
-      return { lastLine: output.trim() || null, done: false, failed: false, errorContent: "" };
+      return {
+        lastLine: output.trim() || null,
+        done: false,
+        failed: false,
+        errorContent: "",
+      };
     }
     const errIdx = output.indexOf("===HATCH_ERR===");
     const lastLine = output.substring(0, sepIdx).trim() || null;
     const statusEnd = errIdx === -1 ? undefined : errIdx;
-    const status = output.substring(sepIdx + "===HATCH_SEP===".length, statusEnd).trim();
+    const status = output
+      .substring(sepIdx + "===HATCH_SEP===".length, statusEnd)
+      .trim();
     const errorContent =
-      errIdx === -1 ? "" : output.substring(errIdx + "===HATCH_ERR===".length).trim();
-    const done = lastLine !== null && status !== "running" && status !== "pending";
+      errIdx === -1
+        ? ""
+        : output.substring(errIdx + "===HATCH_ERR===".length).trim();
+    const done =
+      lastLine !== null && status !== "running" && status !== "pending";
     const failed = errorContent.length > 0 || status === "error";
     return { lastLine, done, failed, errorContent };
   } catch {
@@ -394,7 +406,9 @@ export async function hatchAws(
       }
     } else {
       while (await instanceExistsByName(instanceName, region)) {
-        console.log(`\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`);
+        console.log(
+          `\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`,
+        );
         const suffix = generateRandomSuffix();
         instanceName = `${species}-${suffix}`;
       }
@@ -405,7 +419,9 @@ export async function hatchAws(
     const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
-      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
+      console.error(
+        "Error: ANTHROPIC_API_KEY environment variable is not set.",
+      );
       process.exit(1);
     }
 
@@ -464,7 +480,9 @@ export async function hatchAws(
     try {
       externalIp = await getInstancePublicIp(instanceId, region);
     } catch {
-      console.log("\u26a0\ufe0f  Could not retrieve external IP yet (instance may still be starting)");
+      console.log(
+        "\u26a0\ufe0f  Could not retrieve external IP yet (instance may still be starting)",
+      );
     }
 
     const runtimeUrl = externalIp
@@ -518,7 +536,9 @@ export async function hatchAws(
           process.exit(1);
         }
       } else {
-        console.log("\u26a0\ufe0f  No external IP available for monitoring. Instance is still running.");
+        console.log(
+          "\u26a0\ufe0f  No external IP available for monitoring. Instance is still running.",
+        );
         console.log(`   Monitor with: vel logs ${instanceName}`);
         console.log("");
       }
@@ -532,7 +552,10 @@ export async function hatchAws(
       }
     }
   } catch (error) {
-    console.error("\u274c Error:", error instanceof Error ? error.message : error);
+    console.error(
+      "\u274c Error:",
+      error instanceof Error ? error.message : error,
+    );
     process.exit(1);
   }
 }
@@ -610,7 +633,9 @@ export async function retireInstance(
     }
   }
 
-  console.log(`\u{1F5D1}\ufe0f  Terminating AWS instance ${name} (${instanceId})\n`);
+  console.log(
+    `\u{1F5D1}\ufe0f  Terminating AWS instance ${name} (${instanceId})\n`,
+  );
 
   await exec("aws", [
     "ec2",

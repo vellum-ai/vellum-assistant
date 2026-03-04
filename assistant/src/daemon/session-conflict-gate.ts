@@ -5,21 +5,24 @@
  * or skip entirely.
  */
 
-import { resolveConflictClarification } from '../memory/clarification-resolver.js';
+import { resolveConflictClarification } from "../memory/clarification-resolver.js";
 import {
   areStatementsCoherent,
   computeConflictRelevance,
   looksLikeClarificationReply,
   shouldAttemptConflictResolution,
-} from '../memory/conflict-intent.js';
-import { isConflictKindPairEligible, isStatementConflictEligible } from '../memory/conflict-policy.js';
-import type { PendingConflictDetail } from '../memory/conflict-store.js';
+} from "../memory/conflict-intent.js";
+import {
+  isConflictKindPairEligible,
+  isStatementConflictEligible,
+} from "../memory/conflict-policy.js";
+import type { PendingConflictDetail } from "../memory/conflict-store.js";
 import {
   applyConflictResolution,
   listPendingConflictDetails,
   markConflictAsked,
   resolveConflict,
-} from '../memory/conflict-store.js';
+} from "../memory/conflict-store.js";
 
 export interface ConflictGateDecision {
   question: string;
@@ -41,9 +44,10 @@ export class ConflictGate {
       askOnIrrelevantTurns: boolean;
       conflictableKinds: readonly string[];
     },
-    scopeId = 'default',
+    scopeId = "default",
   ): Promise<ConflictGateDecision | null> {
-    if (!conflictConfig.enabled || conflictConfig.gateMode !== 'soft') return null;
+    if (!conflictConfig.enabled || conflictConfig.gateMode !== "soft")
+      return null;
 
     this.turnCounter += 1;
     const threshold = conflictConfig.relevanceThreshold;
@@ -53,17 +57,22 @@ export class ConflictGate {
     // Dismiss non-actionable conflicts (kind/statement policy or incoherent pair)
     const dismissedIds = new Set<string>();
     for (const conflict of pendingBeforeResolve) {
-      const dismissReason = this.getDismissReason(conflict, conflictConfig.conflictableKinds);
+      const dismissReason = this.getDismissReason(
+        conflict,
+        conflictConfig.conflictableKinds,
+      );
       if (dismissReason) {
         resolveConflict(conflict.id, {
-          status: 'dismissed',
+          status: "dismissed",
           resolutionNote: dismissReason,
         });
         dismissedIds.add(conflict.id);
       }
     }
 
-    const actionablePending = pendingBeforeResolve.filter((c) => !dismissedIds.has(c.id));
+    const actionablePending = pendingBeforeResolve.filter(
+      (c) => !dismissedIds.has(c.id),
+    );
     const clarificationReply = looksLikeClarificationReply(userMessage);
     const candidatesBeforeResolve = actionablePending.filter((conflict) => {
       const relevance = computeConflictRelevance(userMessage, conflict);
@@ -95,9 +104,14 @@ export class ConflictGate {
     // below the threshold (including zero-relevance). Zero-relevance conflicts are
     // surfaced but not tracked as asked, preventing wasRecentlyAsked from triggering
     // heuristic resolution on subsequent unrelated turns.
-    const candidateToAsk = askable
-      ?? (conflictConfig.askOnIrrelevantTurns
-        ? scored.find((entry) => entry.relevance < threshold && this.shouldAsk(entry.conflict.id, cooldownTurns))
+    const candidateToAsk =
+      askable ??
+      (conflictConfig.askOnIrrelevantTurns
+        ? scored.find(
+            (entry) =>
+              entry.relevance < threshold &&
+              this.shouldAsk(entry.conflict.id, cooldownTurns),
+          )
         : undefined);
 
     if (!candidateToAsk) return null;
@@ -107,7 +121,9 @@ export class ConflictGate {
       markConflictAsked(candidateToAsk.conflict.id);
     }
     return {
-      question: candidateToAsk.conflict.clarificationQuestion ?? buildFallbackConflictQuestion(candidateToAsk.conflict),
+      question:
+        candidateToAsk.conflict.clarificationQuestion ??
+        buildFallbackConflictQuestion(candidateToAsk.conflict),
       relevant: candidateToAsk.relevance >= threshold,
     };
   }
@@ -126,12 +142,15 @@ export class ConflictGate {
         },
         { timeoutMs: resolverTimeoutMs },
       );
-      if (resolution.resolution === 'still_unclear') continue;
+      if (resolution.resolution === "still_unclear") continue;
 
       applyConflictResolution({
         conflictId: conflict.id,
         resolution: resolution.resolution,
-        mergedStatement: resolution.resolution === 'merge' ? resolution.resolvedStatement : null,
+        mergedStatement:
+          resolution.resolution === "merge"
+            ? resolution.resolvedStatement
+            : null,
         resolutionNote: resolution.explanation,
       });
     }
@@ -156,29 +175,54 @@ export class ConflictGate {
     conflict: PendingConflictDetail,
     conflictableKinds: readonly string[],
   ): string | null {
-    if (!isConflictKindPairEligible(conflict.existingKind, conflict.candidateKind, { conflictableKinds })) {
-      return 'Dismissed by conflict policy (kind not eligible).';
+    if (
+      !isConflictKindPairEligible(
+        conflict.existingKind,
+        conflict.candidateKind,
+        { conflictableKinds },
+      )
+    ) {
+      return "Dismissed by conflict policy (kind not eligible).";
     }
-    if (!isStatementConflictEligible(conflict.existingKind, conflict.existingStatement, { conflictableKinds })) {
-      return 'Dismissed by conflict policy (transient/non-durable).';
+    if (
+      !isStatementConflictEligible(
+        conflict.existingKind,
+        conflict.existingStatement,
+        { conflictableKinds },
+      )
+    ) {
+      return "Dismissed by conflict policy (transient/non-durable).";
     }
-    if (!isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement, { conflictableKinds })) {
-      return 'Dismissed by conflict policy (transient/non-durable).';
+    if (
+      !isStatementConflictEligible(
+        conflict.candidateKind,
+        conflict.candidateStatement,
+        { conflictableKinds },
+      )
+    ) {
+      return "Dismissed by conflict policy (transient/non-durable).";
     }
     // Dismiss incoherent conflicts where the two statements have zero topical overlap
-    if (!areStatementsCoherent(conflict.existingStatement, conflict.candidateStatement)) {
-      return 'Dismissed by conflict policy (incoherent — zero statement overlap).';
+    if (
+      !areStatementsCoherent(
+        conflict.existingStatement,
+        conflict.candidateStatement,
+      )
+    ) {
+      return "Dismissed by conflict policy (incoherent — zero statement overlap).";
     }
     return null;
   }
 }
 
-export function buildFallbackConflictQuestion(conflict: PendingConflictDetail): string {
+export function buildFallbackConflictQuestion(
+  conflict: PendingConflictDetail,
+): string {
   return [
-    'I have two conflicting notes and need your confirmation.',
+    "I have two conflicting notes and need your confirmation.",
     `A) ${conflict.existingStatement}`,
     `B) ${conflict.candidateStatement}`,
-    'Which one should I keep?',
-  ].join('\n');
+    "Which one should I keep?",
+  ].join("\n");
 }
 export { computeConflictRelevance, looksLikeClarificationReply };

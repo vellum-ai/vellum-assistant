@@ -10,12 +10,19 @@ import {
   countActiveEnrollments,
   listEnrollments,
   listSequences,
-} from './store.js';
-import type { Sequence } from './types.js';
+} from "./store.js";
+import type { Sequence } from "./types.js";
 
 // ── Event tracking ──────────────────────────────────────────────────
 
-export type SequenceEventType = 'send' | 'reply' | 'complete' | 'fail' | 'cancel' | 'pause' | 'resume';
+export type SequenceEventType =
+  | "send"
+  | "reply"
+  | "complete"
+  | "fail"
+  | "cancel"
+  | "pause"
+  | "resume";
 
 export interface SequenceEvent {
   id: string;
@@ -107,15 +114,18 @@ function computeSequenceMetrics(seq: Sequence): SequenceMetrics {
   const enrollments = listEnrollments({ sequenceId: seq.id });
   const active = countActiveEnrollments(seq.id);
 
-  const statusCounts = enrollments.reduce((acc, e) => {
-    acc[e.status] = (acc[e.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const statusCounts = enrollments.reduce(
+    (acc, e) => {
+      acc[e.status] = (acc[e.status] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
-  const replies = statusCounts['replied'] ?? 0;
-  const completions = statusCounts['completed'] ?? 0;
-  const failures = statusCounts['failed'] ?? 0;
-  const cancellations = statusCounts['cancelled'] ?? 0;
+  const replies = statusCounts["replied"] ?? 0;
+  const completions = statusCounts["completed"] ?? 0;
+  const failures = statusCounts["failed"] ?? 0;
+  const cancellations = statusCounts["cancelled"] ?? 0;
 
   const total = enrollments.length;
   const replyRate = total > 0 ? replies / total : 0;
@@ -123,13 +133,17 @@ function computeSequenceMetrics(seq: Sequence): SequenceMetrics {
 
   // Compute average time to reply from event log
   const replyEvents = eventLog.filter(
-    (e) => e.sequenceId === seq.id && e.eventType === 'reply',
+    (e) => e.sequenceId === seq.id && e.eventType === "reply",
   );
   let avgTimeToReplyMs: number | null = null;
   if (replyEvents.length > 0) {
     const firstSendTimes = new Map<string, number>();
     for (const e of eventLog) {
-      if (e.sequenceId === seq.id && e.eventType === 'send' && e.stepIndex === 0) {
+      if (
+        e.sequenceId === seq.id &&
+        e.eventType === "send" &&
+        e.stepIndex === 0
+      ) {
         if (!firstSendTimes.has(e.enrollmentId)) {
           firstSendTimes.set(e.enrollmentId, e.createdAt);
         }
@@ -149,7 +163,7 @@ function computeSequenceMetrics(seq: Sequence): SequenceMetrics {
 
   // Count sends from event log
   const sends = eventLog.filter(
-    (e) => e.sequenceId === seq.id && e.eventType === 'send',
+    (e) => e.sequenceId === seq.id && e.eventType === "send",
   ).length;
 
   return {
@@ -170,22 +184,26 @@ function computeSequenceMetrics(seq: Sequence): SequenceMetrics {
 }
 
 export function getStepMetrics(sequenceId: string): StepMetrics[] {
-  const seq = listSequences({ status: 'active' }).find((s) => s.id === sequenceId)
-    ?? listSequences().find((s) => s.id === sequenceId);
+  const seq =
+    listSequences({ status: "active" }).find((s) => s.id === sequenceId) ??
+    listSequences().find((s) => s.id === sequenceId);
   if (!seq) return [];
 
   const enrollments = listEnrollments({ sequenceId });
   const sendEvents = eventLog.filter(
-    (e) => e.sequenceId === sequenceId && e.eventType === 'send',
+    (e) => e.sequenceId === sequenceId && e.eventType === "send",
   );
 
   return seq.steps.map((step) => {
     const sends = sendEvents.filter((e) => e.stepIndex === step.index).length;
-    const reached = enrollments.filter((e) => e.currentStep >= step.index).length;
-    const prevReached = step.index === 0
-      ? enrollments.length
-      : enrollments.filter((e) => e.currentStep >= step.index - 1).length;
-    const dropOff = prevReached > 0 ? 1 - (reached / prevReached) : 0;
+    const reached = enrollments.filter(
+      (e) => e.currentStep >= step.index,
+    ).length;
+    const prevReached =
+      step.index === 0
+        ? enrollments.length
+        : enrollments.filter((e) => e.currentStep >= step.index - 1).length;
+    const dropOff = prevReached > 0 ? 1 - reached / prevReached : 0;
 
     return {
       stepIndex: step.index,
@@ -199,21 +217,28 @@ export function getStepMetrics(sequenceId: string): StepMetrics[] {
 
 export function getDashboardData(): DashboardData {
   const seqs = listSequences();
-  const activeSeqs = seqs.filter((s) => s.status === 'active');
+  const activeSeqs = seqs.filter((s) => s.status === "active");
 
   const sequenceMetrics = seqs.map(computeSequenceMetrics);
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
   const sendsToday = eventLog.filter(
-    (e) => e.eventType === 'send' && e.createdAt >= startOfDay.getTime(),
+    (e) => e.eventType === "send" && e.createdAt >= startOfDay.getTime(),
   ).length;
 
-  const totalEnrollments = sequenceMetrics.reduce((s, m) => s + m.totalEnrollments, 0);
+  const totalEnrollments = sequenceMetrics.reduce(
+    (s, m) => s + m.totalEnrollments,
+    0,
+  );
   const totalReplies = sequenceMetrics.reduce((s, m) => s + m.replies, 0);
-  const overallReplyRate = totalEnrollments > 0 ? totalReplies / totalEnrollments : 0;
+  const overallReplyRate =
+    totalEnrollments > 0 ? totalReplies / totalEnrollments : 0;
 
-  const totalActive = sequenceMetrics.reduce((s, m) => s + m.activeEnrollments, 0);
+  const totalActive = sequenceMetrics.reduce(
+    (s, m) => s + m.activeEnrollments,
+    0,
+  );
 
   return {
     summary: {

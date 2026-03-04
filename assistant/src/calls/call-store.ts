@@ -1,55 +1,74 @@
-import { and, desc,eq, notInArray, or } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, desc, eq, notInArray, or } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb, rawChanges, rawGet, rawRun } from '../memory/db.js';
-import { callEvents, callPendingQuestions,callSessions } from '../memory/schema.js';
-import { getLogger } from '../util/logger.js';
-import { cast,createRowMapper } from '../util/row-mapper.js';
-import { validateTransition } from './call-state-machine.js';
-import type { CallEvent, CallEventType, CallPendingQuestion, CallSession, CallStatus } from './types.js';
+import { getDb, rawChanges, rawGet, rawRun } from "../memory/db.js";
+import {
+  callEvents,
+  callPendingQuestions,
+  callSessions,
+} from "../memory/schema.js";
+import { getLogger } from "../util/logger.js";
+import { cast, createRowMapper } from "../util/row-mapper.js";
+import { validateTransition } from "./call-state-machine.js";
+import type {
+  CallEvent,
+  CallEventType,
+  CallPendingQuestion,
+  CallSession,
+  CallStatus,
+} from "./types.js";
 
-const log = getLogger('call-store');
+const log = getLogger("call-store");
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const parseCallSession = createRowMapper<typeof callSessions.$inferSelect, CallSession>({
-  id: 'id',
-  conversationId: 'conversationId',
-  provider: 'provider',
-  providerCallSid: 'providerCallSid',
-  fromNumber: 'fromNumber',
-  toNumber: 'toNumber',
-  task: 'task',
-  status: { from: 'status', transform: cast<CallSession['status']>() },
-  callMode: { from: 'callMode', transform: cast<CallSession['callMode']>() },
-  guardianVerificationSessionId: 'guardianVerificationSessionId',
-  callerIdentityMode: 'callerIdentityMode',
-  callerIdentitySource: 'callerIdentitySource',
-  assistantId: 'assistantId',
-  initiatedFromConversationId: 'initiatedFromConversationId',
-  startedAt: 'startedAt',
-  endedAt: 'endedAt',
-  lastError: 'lastError',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
+const parseCallSession = createRowMapper<
+  typeof callSessions.$inferSelect,
+  CallSession
+>({
+  id: "id",
+  conversationId: "conversationId",
+  provider: "provider",
+  providerCallSid: "providerCallSid",
+  fromNumber: "fromNumber",
+  toNumber: "toNumber",
+  task: "task",
+  status: { from: "status", transform: cast<CallSession["status"]>() },
+  callMode: { from: "callMode", transform: cast<CallSession["callMode"]>() },
+  guardianVerificationSessionId: "guardianVerificationSessionId",
+  callerIdentityMode: "callerIdentityMode",
+  callerIdentitySource: "callerIdentitySource",
+  assistantId: "assistantId",
+  initiatedFromConversationId: "initiatedFromConversationId",
+  startedAt: "startedAt",
+  endedAt: "endedAt",
+  lastError: "lastError",
+  createdAt: "createdAt",
+  updatedAt: "updatedAt",
 });
 
-const parseCallEvent = createRowMapper<typeof callEvents.$inferSelect, CallEvent>({
-  id: 'id',
-  callSessionId: 'callSessionId',
-  eventType: { from: 'eventType', transform: cast<CallEvent['eventType']>() },
-  payloadJson: 'payloadJson',
-  createdAt: 'createdAt',
+const parseCallEvent = createRowMapper<
+  typeof callEvents.$inferSelect,
+  CallEvent
+>({
+  id: "id",
+  callSessionId: "callSessionId",
+  eventType: { from: "eventType", transform: cast<CallEvent["eventType"]>() },
+  payloadJson: "payloadJson",
+  createdAt: "createdAt",
 });
 
-const parsePendingQuestion = createRowMapper<typeof callPendingQuestions.$inferSelect, CallPendingQuestion>({
-  id: 'id',
-  callSessionId: 'callSessionId',
-  questionText: 'questionText',
-  status: { from: 'status', transform: cast<CallPendingQuestion['status']>() },
-  askedAt: 'askedAt',
-  answeredAt: 'answeredAt',
-  answerText: 'answerText',
+const parsePendingQuestion = createRowMapper<
+  typeof callPendingQuestions.$inferSelect,
+  CallPendingQuestion
+>({
+  id: "id",
+  callSessionId: "callSessionId",
+  questionText: "questionText",
+  status: { from: "status", transform: cast<CallPendingQuestion["status"]>() },
+  askedAt: "askedAt",
+  answeredAt: "answeredAt",
+  answerText: "answerText",
 });
 
 // ── Call Sessions ────────────────────────────────────────────────────
@@ -77,8 +96,8 @@ export function createCallSession(opts: {
     fromNumber: opts.fromNumber,
     toNumber: opts.toNumber,
     task: opts.task ?? null,
-    status: 'initiated' as const,
-    callMode: (opts.callMode ?? null) as CallSession['callMode'],
+    status: "initiated" as const,
+    callMode: (opts.callMode ?? null) as CallSession["callMode"],
     guardianVerificationSessionId: opts.guardianVerificationSessionId ?? null,
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
@@ -96,7 +115,11 @@ export function createCallSession(opts: {
 
 export function getCallSession(id: string): CallSession | null {
   const db = getDb();
-  const row = db.select().from(callSessions).where(eq(callSessions.id, id)).get();
+  const row = db
+    .select()
+    .from(callSessions)
+    .where(eq(callSessions.id, id))
+    .get();
   if (!row) return null;
   return parseCallSession(row);
 }
@@ -112,7 +135,9 @@ export function getCallSessionByCallSid(callSid: string): CallSession | null {
   return parseCallSession(row);
 }
 
-export function getActiveCallSessionForConversation(conversationId: string): CallSession | null {
+export function getActiveCallSessionForConversation(
+  conversationId: string,
+): CallSession | null {
   const db = getDb();
   const row = db
     .select()
@@ -123,7 +148,7 @@ export function getActiveCallSessionForConversation(conversationId: string): Cal
           eq(callSessions.conversationId, conversationId),
           eq(callSessions.initiatedFromConversationId, conversationId),
         ),
-        notInArray(callSessions.status, ['completed', 'failed', 'cancelled']),
+        notInArray(callSessions.status, ["completed", "failed", "cancelled"]),
       ),
     )
     .orderBy(desc(callSessions.createdAt))
@@ -134,7 +159,18 @@ export function getActiveCallSessionForConversation(conversationId: string): Cal
 
 export function updateCallSession(
   id: string,
-  updates: Partial<Pick<CallSession, 'status' | 'providerCallSid' | 'startedAt' | 'endedAt' | 'lastError' | 'conversationId' | 'initiatedFromConversationId'>>,
+  updates: Partial<
+    Pick<
+      CallSession,
+      | "status"
+      | "providerCallSid"
+      | "startedAt"
+      | "endedAt"
+      | "lastError"
+      | "conversationId"
+      | "initiatedFromConversationId"
+    >
+  >,
 ): void {
   const db = getDb();
 
@@ -142,9 +178,20 @@ export function updateCallSession(
   if (updates.status) {
     const current = getCallSession(id);
     if (current) {
-      const result = validateTransition(current.status, updates.status as CallStatus);
+      const result = validateTransition(
+        current.status,
+        updates.status as CallStatus,
+      );
       if (!result.valid) {
-        log.warn({ callSessionId: id, from: current.status, to: updates.status, reason: result.reason }, 'Invalid call status transition — skipping update');
+        log.warn(
+          {
+            callSessionId: id,
+            from: current.status,
+            to: updates.status,
+            reason: result.reason,
+          },
+          "Invalid call status transition — skipping update",
+        );
         return;
       }
     }
@@ -169,7 +216,7 @@ export function listRecoverableCalls(): CallSession[] {
     .select()
     .from(callSessions)
     .where(
-      notInArray(callSessions.status, ['completed', 'failed', 'cancelled']),
+      notInArray(callSessions.status, ["completed", "failed", "cancelled"]),
     )
     .all();
   return rows.map(parseCallSession);
@@ -208,14 +255,17 @@ export function getCallEvents(callSessionId: string): CallEvent[] {
 
 // ── Pending Questions ────────────────────────────────────────────────
 
-export function createPendingQuestion(callSessionId: string, questionText: string): CallPendingQuestion {
+export function createPendingQuestion(
+  callSessionId: string,
+  questionText: string,
+): CallPendingQuestion {
   const db = getDb();
   const now = Date.now();
   const question = {
     id: uuid(),
     callSessionId,
     questionText,
-    status: 'pending' as const,
+    status: "pending" as const,
     askedAt: now,
     answeredAt: null,
     answerText: null,
@@ -224,7 +274,9 @@ export function createPendingQuestion(callSessionId: string, questionText: strin
   return question;
 }
 
-export function getPendingQuestion(callSessionId: string): CallPendingQuestion | null {
+export function getPendingQuestion(
+  callSessionId: string,
+): CallPendingQuestion | null {
   const db = getDb();
   const row = db
     .select()
@@ -232,7 +284,7 @@ export function getPendingQuestion(callSessionId: string): CallPendingQuestion |
     .where(
       and(
         eq(callPendingQuestions.callSessionId, callSessionId),
-        eq(callPendingQuestions.status, 'pending'),
+        eq(callPendingQuestions.status, "pending"),
       ),
     )
     .orderBy(desc(callPendingQuestions.askedAt))
@@ -246,30 +298,33 @@ export function answerPendingQuestion(id: string, answerText: string): void {
   const db = getDb();
   db.update(callPendingQuestions)
     .set({
-      status: 'answered',
+      status: "answered",
       answerText,
       answeredAt: Date.now(),
     })
     .where(
       and(
         eq(callPendingQuestions.id, id),
-        eq(callPendingQuestions.status, 'pending'),
+        eq(callPendingQuestions.status, "pending"),
       ),
     )
     .run();
   if (rawChanges() === 0) {
-    log.warn({ questionId: id }, 'answerPendingQuestion: no rows updated — question may have already been answered or expired');
+    log.warn(
+      { questionId: id },
+      "answerPendingQuestion: no rows updated — question may have already been answered or expired",
+    );
   }
 }
 
 export function expirePendingQuestions(callSessionId: string): void {
   const db = getDb();
   db.update(callPendingQuestions)
-    .set({ status: 'expired' })
+    .set({ status: "expired" })
     .where(
       and(
         eq(callPendingQuestions.callSessionId, callSessionId),
-        eq(callPendingQuestions.status, 'pending'),
+        eq(callPendingQuestions.status, "pending"),
       ),
     )
     .run();
@@ -291,7 +346,7 @@ export function buildCallbackDedupeKey(
   timestamp?: string | null,
   sequenceNumber?: string | null,
 ): string {
-  const discriminator = sequenceNumber ?? timestamp ?? '';
+  const discriminator = sequenceNumber ?? timestamp ?? "";
   return `${callSid}:${callStatus}:${discriminator}`;
 }
 
@@ -300,7 +355,12 @@ export function buildCallbackDedupeKey(
  * Returns true if the key already exists, false otherwise.
  */
 export function isCallbackProcessed(dedupeKey: string): boolean {
-  return rawGet<{ 1: number }>(`SELECT 1 FROM processed_callbacks WHERE dedupe_key = ?`, dedupeKey) != null;
+  return (
+    rawGet<{ 1: number }>(
+      `SELECT 1 FROM processed_callbacks WHERE dedupe_key = ?`,
+      dedupeKey,
+    ) != null
+  );
 }
 
 /**
@@ -316,7 +376,10 @@ export function recordProcessedCallback(
 ): void {
   rawRun(
     `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-    uuid(), dedupeKey, callSessionId, Date.now(),
+    uuid(),
+    dedupeKey,
+    callSessionId,
+    Date.now(),
   );
 }
 
@@ -334,10 +397,15 @@ export function tryRecordProcessedCallback(
   dedupeKey: string,
   callSessionId: string,
 ): boolean {
-  return rawRun(
-    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-    uuid(), dedupeKey, callSessionId, Date.now(),
-  ) > 0;
+  return (
+    rawRun(
+      `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
+      uuid(),
+      dedupeKey,
+      callSessionId,
+      Date.now(),
+    ) > 0
+  );
 }
 
 /**
@@ -356,17 +424,25 @@ export function tryRecordProcessedCallback(
  * operations require it so that handler A cannot accidentally release or
  * finalize a claim that was reclaimed by handler B after expiry.
  */
-export function claimCallback(dedupeKey: string, callSessionId: string): string | null {
+export function claimCallback(
+  dedupeKey: string,
+  callSessionId: string,
+): string | null {
   // Clear any expired orphaned claims so they can be reprocessed
   rawRun(
     `DELETE FROM processed_callbacks WHERE dedupe_key = ? AND created_at < ?`,
-    dedupeKey, Date.now() - CLAIM_EXPIRY_MS,
+    dedupeKey,
+    Date.now() - CLAIM_EXPIRY_MS,
   );
 
   const claimId = uuid();
   const changes = rawRun(
     `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, claim_id, created_at) VALUES (?, ?, ?, ?, ?)`,
-    uuid(), dedupeKey, callSessionId, claimId, Date.now(),
+    uuid(),
+    dedupeKey,
+    callSessionId,
+    claimId,
+    Date.now(),
   );
   return changes > 0 ? claimId : null;
 }
@@ -379,7 +455,11 @@ export function claimCallback(dedupeKey: string, callSessionId: string): string 
  * handler A from releasing a claim that was reclaimed by handler B.
  */
 export function releaseCallbackClaim(dedupeKey: string, claimId: string): void {
-  rawRun(`DELETE FROM processed_callbacks WHERE dedupe_key = ? AND claim_id = ?`, dedupeKey, claimId);
+  rawRun(
+    `DELETE FROM processed_callbacks WHERE dedupe_key = ? AND claim_id = ?`,
+    dedupeKey,
+    claimId,
+  );
 }
 
 /**
@@ -396,15 +476,23 @@ export function releaseCallbackClaim(dedupeKey: string, claimId: string): void {
  * business writes already happened but the dedupe row belongs to someone
  * else, so duplicate processing may occur on later retries.
  */
-export function finalizeCallbackClaim(dedupeKey: string, claimId: string): boolean {
+export function finalizeCallbackClaim(
+  dedupeKey: string,
+  claimId: string,
+): boolean {
   // Set created_at far in the future so expiry check never matches
   const NEVER_EXPIRE = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000; // ~100 years
   const changes = rawRun(
     `UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ? AND claim_id = ?`,
-    NEVER_EXPIRE, dedupeKey, claimId,
+    NEVER_EXPIRE,
+    dedupeKey,
+    claimId,
   );
   if (changes === 0) {
-    log.warn({ dedupeKey, claimId }, 'finalizeCallbackClaim: claim was lost — another handler reclaimed this key after expiry');
+    log.warn(
+      { dedupeKey, claimId },
+      "finalizeCallbackClaim: claim was lost — another handler reclaimed this key after expiry",
+    );
     return false;
   }
   return true;

@@ -328,7 +328,9 @@ describe("Provider streaming benchmark", () => {
             // Send stop event
             controller.enqueue(
               encoder.encode(
-                `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+                `event: message_stop\ndata: ${JSON.stringify({
+                  type: "message_stop",
+                })}\n\n`,
               ),
             );
             controller.close();

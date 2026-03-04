@@ -1,9 +1,9 @@
-import { deleteTask, deleteTasks, getTask } from '../../tasks/task-store.js';
-import { getLogger } from '../../util/logger.js';
-import { removeWorkItemFromQueue } from '../../work-items/work-item-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { deleteTask, deleteTasks, getTask } from "../../tasks/task-store.js";
+import { getLogger } from "../../util/logger.js";
+import { removeWorkItemFromQueue } from "../../work-items/work-item-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const log = getLogger('task-delete');
+const log = getLogger("task-delete");
 
 export async function executeTaskDelete(
   input: Record<string, unknown>,
@@ -11,11 +11,19 @@ export async function executeTaskDelete(
 ): Promise<ToolExecutionResult> {
   const raw = input.task_ids;
   if (!Array.isArray(raw) || raw.length === 0) {
-    return { content: 'Error: task_ids must be a non-empty array of task ID strings', isError: true };
+    return {
+      content: "Error: task_ids must be a non-empty array of task ID strings",
+      isError: true,
+    };
   }
-  const ids = raw.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+  const ids = raw.filter(
+    (v): v is string => typeof v === "string" && v.trim().length > 0,
+  );
   if (ids.length === 0) {
-    return { content: 'Error: task_ids must contain at least one non-empty string', isError: true };
+    return {
+      content: "Error: task_ids must contain at least one non-empty string",
+      isError: true,
+    };
   }
 
   try {
@@ -27,14 +35,29 @@ export async function executeTaskDelete(
         // Fall back to removing from the task queue so the user's intent succeeds.
         const result = removeWorkItemFromQueue(ids[0]);
         if (result.success) {
-          log.info({ inputId: ids[0], fallback: true, deletedCount: 1 }, 'deleted via work item fallback');
+          log.info(
+            { inputId: ids[0], fallback: true, deletedCount: 1 },
+            "deleted via work item fallback",
+          );
           return { content: result.message, isError: false };
         }
-        log.warn({ inputId: ids[0] }, 'no task or work item found for deletion');
-        return { content: `No task template or work item found with ID "${ids[0]}". Use task_list to see task templates or task_list_show to see work items in the queue.`, isError: true };
+        log.warn(
+          { inputId: ids[0] },
+          "no task or work item found for deletion",
+        );
+        return {
+          content: `No task template or work item found with ID "${ids[0]}". Use task_list to see task templates or task_list_show to see work items in the queue.`,
+          isError: true,
+        };
       }
-      log.info({ taskId: ids[0], title: task?.title, deletedCount: 1 }, 'task deleted');
-      return { content: `Deleted task: ${task?.title ?? ids[0]}`, isError: false };
+      log.info(
+        { taskId: ids[0], title: task?.title, deletedCount: 1 },
+        "task deleted",
+      );
+      return {
+        content: `Deleted task: ${task?.title ?? ids[0]}`,
+        isError: false,
+      };
     }
 
     const taskIds: string[] = [];
@@ -49,10 +72,13 @@ export async function executeTaskDelete(
       } else {
         const result = removeWorkItemFromQueue(id);
         if (result.success) {
-          log.info({ inputId: id, fallback: true }, 'deleted work item in batch (fallback)');
+          log.info(
+            { inputId: id, fallback: true },
+            "deleted work item in batch (fallback)",
+          );
           workItemTitles.push(result.title);
         } else {
-          log.warn({ inputId: id }, 'batch delete: no task or work item found');
+          log.warn({ inputId: id }, "batch delete: no task or work item found");
         }
       }
     }
@@ -60,23 +86,36 @@ export async function executeTaskDelete(
     const taskCount = taskIds.length > 0 ? deleteTasks(taskIds) : 0;
 
     if (taskCount === 0 && workItemTitles.length === 0) {
-      log.warn({ inputIds: ids }, 'no matching tasks found to delete');
-      return { content: 'No matching tasks found to delete.', isError: true };
+      log.warn({ inputIds: ids }, "no matching tasks found to delete");
+      return { content: "No matching tasks found to delete.", isError: true };
     }
 
-    log.info({ deletedTasks: taskCount, deletedWorkItems: workItemTitles.length, totalInput: ids.length }, 'batch delete completed');
+    log.info(
+      {
+        deletedTasks: taskCount,
+        deletedWorkItems: workItemTitles.length,
+        totalInput: ids.length,
+      },
+      "batch delete completed",
+    );
 
     const lines: string[] = [];
     if (taskCount > 0) {
-      lines.push(`Deleted ${taskCount} task(s):`, ...taskTitles.map((t) => `- ${t}`));
+      lines.push(
+        `Deleted ${taskCount} task(s):`,
+        ...taskTitles.map((t) => `- ${t}`),
+      );
     }
     if (workItemTitles.length > 0) {
-      lines.push(`Removed ${workItemTitles.length} item(s) from the task queue:`, ...workItemTitles.map((t) => `- ${t}`));
+      lines.push(
+        `Removed ${workItemTitles.length} item(s) from the task queue:`,
+        ...workItemTitles.map((t) => `- ${t}`),
+      );
     }
-    return { content: lines.join('\n'), isError: false };
+    return { content: lines.join("\n"), isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ inputIds: ids, error: msg }, 'delete failed');
+    log.error({ inputIds: ids, error: msg }, "delete failed");
     return { content: `Error: ${msg}`, isError: true };
   }
 }

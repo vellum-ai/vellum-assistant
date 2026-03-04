@@ -7,10 +7,10 @@
  * list APIs.
  */
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from "drizzle-orm";
 
-import { getDb } from './db.js';
-import { externalConversationBindings } from './schema.js';
+import { getDb } from "./db.js";
+import { externalConversationBindings } from "./schema.js";
 
 export interface ExternalConversationBinding {
   conversationId: string;
@@ -44,10 +44,18 @@ export function upsertBinding(input: UpsertBindingInput): void {
 
   // If a stale binding exists for this (sourceChannel, externalChatId) under a
   // different conversationId, remove it first so the unique index is not violated.
-  const existing = getBindingByChannelChat(input.sourceChannel, input.externalChatId);
+  const existing = getBindingByChannelChat(
+    input.sourceChannel,
+    input.externalChatId,
+  );
   if (existing && existing.conversationId !== input.conversationId) {
     db.delete(externalConversationBindings)
-      .where(eq(externalConversationBindings.conversationId, existing.conversationId))
+      .where(
+        eq(
+          externalConversationBindings.conversationId,
+          existing.conversationId,
+        ),
+      )
       .run();
   }
 
@@ -93,10 +101,18 @@ export function upsertOutboundBinding(input: {
 
   // If a stale binding exists for this (sourceChannel, externalChatId) under a
   // different conversationId, remove it first so the unique index is not violated.
-  const existing = getBindingByChannelChat(input.sourceChannel, input.externalChatId);
+  const existing = getBindingByChannelChat(
+    input.sourceChannel,
+    input.externalChatId,
+  );
   if (existing && existing.conversationId !== input.conversationId) {
     db.delete(externalConversationBindings)
-      .where(eq(externalConversationBindings.conversationId, existing.conversationId))
+      .where(
+        eq(
+          externalConversationBindings.conversationId,
+          existing.conversationId,
+        ),
+      )
       .run();
   }
 
@@ -196,13 +212,13 @@ export function listBindings(options?: {
   sourceChannel?: string;
 }): ExternalConversationBinding[] {
   const db = getDb();
-  const query = db
-    .select()
-    .from(externalConversationBindings);
+  const query = db.select().from(externalConversationBindings);
 
   if (options?.sourceChannel) {
     return query
-      .where(eq(externalConversationBindings.sourceChannel, options.sourceChannel))
+      .where(
+        eq(externalConversationBindings.sourceChannel, options.sourceChannel),
+      )
       .all();
   }
 
@@ -224,7 +240,9 @@ export function getBindingsForConversations(
   const all = db
     .select()
     .from(externalConversationBindings)
-    .where(inArray(externalConversationBindings.conversationId, conversationIds))
+    .where(
+      inArray(externalConversationBindings.conversationId, conversationIds),
+    )
     .all();
 
   for (const row of all) {

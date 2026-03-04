@@ -12,11 +12,11 @@
  */
 
 const GUARDIAN_ENDPOINT_PATHS = [
-  '/v1/integrations/guardian/challenge',
-  '/v1/integrations/guardian/status',
-  '/v1/integrations/guardian/outbound/start',
-  '/v1/integrations/guardian/outbound/resend',
-  '/v1/integrations/guardian/outbound/cancel',
+  "/v1/integrations/guardian/challenge",
+  "/v1/integrations/guardian/status",
+  "/v1/integrations/guardian/outbound/start",
+  "/v1/integrations/guardian/outbound/resend",
+  "/v1/integrations/guardian/outbound/cancel",
 ] as const;
 
 /**
@@ -27,10 +27,10 @@ const GUARDIAN_ENDPOINT_PATHS = [
 const GUARDIAN_PATH_REGEX = /\/v1\/integrations\/guardian\//;
 
 /** Tools whose `input.command` (string) may contain guardian endpoint paths. */
-const COMMAND_TOOLS = new Set(['bash', 'host_bash']);
+const COMMAND_TOOLS = new Set(["bash", "host_bash"]);
 
 /** Tools whose `input.url` (string) may contain guardian endpoint paths. */
-const URL_TOOLS = new Set(['network_request', 'web_fetch', 'browser_navigate']);
+const URL_TOOLS = new Set(["network_request", "web_fetch", "browser_navigate"]);
 
 /**
  * Normalize a string to defeat common URL obfuscation techniques before matching:
@@ -43,7 +43,7 @@ function normalizeForMatching(value: string): string {
   // Iteratively decode percent-encoding to handle double-encoding (%252F → %2F → /)
   // Use per-sequence replacement instead of decodeURIComponent to avoid a single
   // malformed sequence (e.g. %ZZ) preventing all other valid sequences from decoding.
-  let prev = '';
+  let prev = "";
   while (prev !== normalized) {
     prev = normalized;
     normalized = normalized.replace(/%[0-9a-fA-F]{2}/g, (match) => {
@@ -55,7 +55,7 @@ function normalizeForMatching(value: string): string {
     });
   }
   // Collapse consecutive slashes (but preserve the double slash in protocol e.g. https://)
-  normalized = normalized.replace(/(?<!:)\/{2,}/g, '/');
+  normalized = normalized.replace(/(?<!:)\/{2,}/g, "/");
   return normalized.toLowerCase();
 }
 
@@ -86,7 +86,7 @@ function containsGuardianEndpointPath(value: string): boolean {
  */
 function containsGuardianFragments(command: string): boolean {
   const lower = command.toLowerCase();
-  return lower.includes('/v1/integrations') && lower.includes('guardian');
+  return lower.includes("/v1/integrations") && lower.includes("guardian");
 }
 
 /**
@@ -99,7 +99,7 @@ export function isGuardianControlPlaneInvocation(
 ): boolean {
   if (COMMAND_TOOLS.has(toolName)) {
     const command = input.command;
-    if (typeof command === 'string') {
+    if (typeof command === "string") {
       // Primary: exact/normalized path matching
       if (containsGuardianEndpointPath(command)) return true;
       // Fallback: detect shell-expanded construction of guardian paths
@@ -109,7 +109,7 @@ export function isGuardianControlPlaneInvocation(
 
   if (URL_TOOLS.has(toolName)) {
     const url = input.url;
-    if (typeof url === 'string' && containsGuardianEndpointPath(url)) {
+    if (typeof url === "string" && containsGuardianEndpointPath(url)) {
       return true;
     }
   }
@@ -130,12 +130,13 @@ export function enforceGuardianOnlyPolicy(
     return { denied: false };
   }
 
-  if (trustClass === 'guardian') {
+  if (trustClass === "guardian") {
     return { denied: false };
   }
 
   return {
     denied: true,
-    reason: 'Guardian verification control-plane actions are restricted to guardian users. This is a security restriction \u2014 please wait for the designated guardian to perform this action.',
+    reason:
+      "Guardian verification control-plane actions are restricted to guardian users. This is a security restriction \u2014 please wait for the designated guardian to perform this action.",
   };
 }

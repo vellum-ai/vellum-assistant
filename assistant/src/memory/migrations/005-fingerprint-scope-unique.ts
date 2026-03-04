@@ -1,36 +1,45 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * Migrate from a column-level UNIQUE on fingerprint to a compound unique
  * index on (fingerprint, scope_id) so that the same item can exist in
  * different scopes independently.
  */
-export function migrateMemoryItemsFingerprintScopeUnique(database: DrizzleDb): void {
+export function migrateMemoryItemsFingerprintScopeUnique(
+  database: DrizzleDb,
+): void {
   const raw = getSqliteFrom(database);
-  const checkpointKey = 'migration_memory_items_fingerprint_scope_unique_v1';
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey);
+  const checkpointKey = "migration_memory_items_fingerprint_scope_unique_v1";
+  const checkpoint = raw
+    .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey);
   if (checkpoint) return;
 
   // Check if the old column-level UNIQUE constraint still exists by inspecting
   // the CREATE TABLE DDL for the word UNIQUE (the PK also creates an autoindex,
   // so we cannot rely on sqlite_autoindex_* presence alone).
-  const tableDdl = raw.query(
-    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_items'`,
-  ).get() as { sql: string } | null;
-  if (!tableDdl || !tableDdl.sql.match(/fingerprint\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i)) {
+  const tableDdl = raw
+    .query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_items'`,
+    )
+    .get() as { sql: string } | null;
+  if (
+    !tableDdl ||
+    !tableDdl.sql.match(/fingerprint\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i)
+  ) {
     // No column-level UNIQUE on fingerprint — either fresh DB or already migrated.
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
     return;
   }
 
   // Rebuild the table without the column-level UNIQUE constraint.
-  raw.exec('PRAGMA foreign_keys = OFF');
+  raw.exec("PRAGMA foreign_keys = OFF");
   try {
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
 
     // Create new table without UNIQUE on fingerprint — all other columns
     // match the latest schema (including migration-added columns).
@@ -66,15 +75,21 @@ export function migrateMemoryItemsFingerprintScopeUnique(database: DrizzleDb): v
     raw.exec(/*sql*/ `DROP TABLE memory_items`);
     raw.exec(/*sql*/ `ALTER TABLE memory_items_new RENAME TO memory_items`);
 
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
 
-    raw.exec('COMMIT');
+    raw.exec("COMMIT");
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   } finally {
-    raw.exec('PRAGMA foreign_keys = ON');
+    raw.exec("PRAGMA foreign_keys = ON");
   }
 }

@@ -16,26 +16,26 @@
  * actor-refresh-token-store infrastructure.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from "node:crypto";
 
-import { getDb } from '../../memory/db.js';
-import { getLogger } from '../../util/logger.js';
+import { getDb } from "../../memory/db.js";
+import { getLogger } from "../../util/logger.js";
 import {
   createRefreshTokenRecord,
   findByTokenHash as findRefreshByHash,
   markRotated,
   revokeByDeviceBinding as revokeRefreshTokensByDevice,
   revokeFamily,
-} from '../actor-refresh-token-store.js';
+} from "../actor-refresh-token-store.js";
 import {
   createActorTokenRecord,
   revokeByDeviceBinding as revokeActorTokensByDevice,
-} from '../actor-token-store.js';
-import { getExternalAssistantId } from './external-assistant-id.js';
-import { CURRENT_POLICY_EPOCH } from './policy.js';
-import { hashToken, mintToken } from './token-service.js';
+} from "../actor-token-store.js";
+import { getExternalAssistantId } from "./external-assistant-id.js";
+import { CURRENT_POLICY_EPOCH } from "./policy.js";
+import { hashToken, mintToken } from "./token-service.js";
 
-const log = getLogger('credential-service');
+const log = getLogger("credential-service");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,11 +61,11 @@ const REFRESH_AFTER_FRACTION = 0.8;
 // ---------------------------------------------------------------------------
 
 export type RefreshErrorCode =
-  | 'refresh_invalid'
-  | 'refresh_expired'
-  | 'refresh_reuse_detected'
-  | 'device_binding_mismatch'
-  | 'revoked';
+  | "refresh_invalid"
+  | "refresh_expired"
+  | "refresh_reuse_detected"
+  | "device_binding_mismatch"
+  | "revoked";
 
 export interface CredentialPairResult {
   accessToken: string;
@@ -90,7 +90,7 @@ export interface RotateResult {
 // ---------------------------------------------------------------------------
 
 function generateRefreshToken(): string {
-  return randomBytes(32).toString('base64url');
+  return randomBytes(32).toString("base64url");
 }
 
 function hashRefreshToken(token: string): string {
@@ -111,9 +111,9 @@ function mintAccessToken(guardianPrincipalId: string): {
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
 
   const token = mintToken({
-    aud: 'vellum-gateway',
+    aud: "vellum-gateway",
     sub,
-    scope_profile: 'actor_client_v1',
+    scope_profile: "actor_client_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: ACCESS_TOKEN_TTL_SECONDS,
   });
@@ -145,10 +145,11 @@ function mintRefreshTokenInternal(params: {
   refreshAfter: number;
 } {
   const now = Date.now();
-  const familyId = params.familyId ?? randomBytes(16).toString('hex');
+  const familyId = params.familyId ?? randomBytes(16).toString("hex");
   const refreshToken = generateRefreshToken();
   const refreshTokenHash = hashRefreshToken(refreshToken);
-  const absoluteExpiresAt = params.absoluteExpiresAt ?? now + REFRESH_ABSOLUTE_TTL_MS;
+  const absoluteExpiresAt =
+    params.absoluteExpiresAt ?? now + REFRESH_ABSOLUTE_TTL_MS;
   const inactivityExpiresAt = now + REFRESH_INACTIVITY_TTL_MS;
 
   createRefreshTokenRecord({
@@ -167,7 +168,8 @@ function mintRefreshTokenInternal(params: {
     refreshToken,
     refreshTokenHash,
     refreshTokenExpiresAt: Math.min(absoluteExpiresAt, inactivityExpiresAt),
-    refreshAfter: now + Math.floor(ACCESS_TOKEN_TTL_MS * REFRESH_AFTER_FRACTION),
+    refreshAfter:
+      now + Math.floor(ACCESS_TOKEN_TTL_MS * REFRESH_AFTER_FRACTION),
   };
 }
 
@@ -189,8 +191,16 @@ export function mintCredentialPair(params: {
   hashedDeviceId: string;
 }): CredentialPairResult {
   // Revoke any existing credentials for this device
-  revokeActorTokensByDevice(params.assistantId, params.guardianPrincipalId, params.hashedDeviceId);
-  revokeRefreshTokensByDevice(params.assistantId, params.guardianPrincipalId, params.hashedDeviceId);
+  revokeActorTokensByDevice(
+    params.assistantId,
+    params.guardianPrincipalId,
+    params.hashedDeviceId,
+  );
+  revokeRefreshTokensByDevice(
+    params.assistantId,
+    params.guardianPrincipalId,
+    params.hashedDeviceId,
+  );
 
   // Mint new JWT access token
   const access = mintAccessToken(params.guardianPrincipalId);
@@ -237,30 +247,38 @@ export function rotateCredentials(params: {
   refreshToken: string;
   platform: string;
   deviceId: string;
-}): { ok: true; result: RotateResult } | { ok: false; error: RefreshErrorCode } {
+}):
+  | { ok: true; result: RotateResult }
+  | { ok: false; error: RefreshErrorCode } {
   const refreshTokenHash = hashRefreshToken(params.refreshToken);
-  const hashedDeviceId = createHash('sha256').update(params.deviceId).digest('hex');
+  const hashedDeviceId = createHash("sha256")
+    .update(params.deviceId)
+    .digest("hex");
 
   // Look up the refresh token by hash (any status)
   const record = findRefreshByHash(refreshTokenHash);
 
   if (!record) {
-    return { ok: false, error: 'refresh_invalid' };
+    return { ok: false, error: "refresh_invalid" };
   }
 
   // Check if this is a reuse of an already-rotated token (replay detection)
-  if (record.status === 'rotated') {
+  if (record.status === "rotated") {
     log.warn(
       { familyId: record.familyId, hashedDeviceId: record.hashedDeviceId },
-      'Refresh token reuse detected — revoking entire family',
+      "Refresh token reuse detected — revoking entire family",
     );
     revokeFamily(record.familyId);
-    revokeActorTokensByDevice(record.assistantId, record.guardianPrincipalId, record.hashedDeviceId);
-    return { ok: false, error: 'refresh_reuse_detected' };
+    revokeActorTokensByDevice(
+      record.assistantId,
+      record.guardianPrincipalId,
+      record.hashedDeviceId,
+    );
+    return { ok: false, error: "refresh_reuse_detected" };
   }
 
-  if (record.status === 'revoked') {
-    return { ok: false, error: 'revoked' };
+  if (record.status === "revoked") {
+    return { ok: false, error: "revoked" };
   }
 
   // At this point status === 'active'
@@ -268,21 +286,21 @@ export function rotateCredentials(params: {
 
   // Check absolute expiry
   if (now > record.absoluteExpiresAt) {
-    return { ok: false, error: 'refresh_expired' };
+    return { ok: false, error: "refresh_expired" };
   }
 
   // Check inactivity expiry
   if (now > record.inactivityExpiresAt) {
-    return { ok: false, error: 'refresh_expired' };
+    return { ok: false, error: "refresh_expired" };
   }
 
   // Verify device binding
   if (record.hashedDeviceId !== hashedDeviceId) {
-    return { ok: false, error: 'device_binding_mismatch' };
+    return { ok: false, error: "device_binding_mismatch" };
   }
 
   if (record.platform !== params.platform) {
-    return { ok: false, error: 'device_binding_mismatch' };
+    return { ok: false, error: "device_binding_mismatch" };
   }
 
   // Wrap the entire rotate-revoke-remint sequence in a transaction
@@ -291,11 +309,15 @@ export function rotateCredentials(params: {
     // Mark old refresh token as rotated (atomic CAS)
     const didRotate = markRotated(refreshTokenHash);
     if (!didRotate) {
-      return { ok: false as const, error: 'refresh_reuse_detected' as const };
+      return { ok: false as const, error: "refresh_reuse_detected" as const };
     }
 
     // Revoke old access tokens for this device
-    revokeActorTokensByDevice(record.assistantId, record.guardianPrincipalId, record.hashedDeviceId);
+    revokeActorTokensByDevice(
+      record.assistantId,
+      record.guardianPrincipalId,
+      record.hashedDeviceId,
+    );
 
     // Mint new JWT access token
     const access = mintAccessToken(record.guardianPrincipalId);
@@ -324,7 +346,7 @@ export function rotateCredentials(params: {
 
     log.info(
       { familyId: record.familyId, platform: params.platform },
-      'Credential rotation completed',
+      "Credential rotation completed",
     );
 
     return {

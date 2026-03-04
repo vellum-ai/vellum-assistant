@@ -22,89 +22,105 @@ export interface MigrationRegistryEntry {
 
 export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   {
-    key: 'migration_job_deferrals',
+    key: "migration_job_deferrals",
     version: 1,
-    description: 'Reconcile legacy deferral history from attempts column into deferrals column',
+    description:
+      "Reconcile legacy deferral history from attempts column into deferrals column",
   },
   {
-    key: 'migration_memory_entity_relations_dedup_v1',
+    key: "migration_memory_entity_relations_dedup_v1",
     version: 2,
-    description: 'Deduplicate entity relation edges before enforcing the (source, target, relation) unique index',
+    description:
+      "Deduplicate entity relation edges before enforcing the (source, target, relation) unique index",
   },
   {
-    key: 'migration_memory_items_fingerprint_scope_unique_v1',
+    key: "migration_memory_items_fingerprint_scope_unique_v1",
     version: 3,
-    description: 'Replace column-level UNIQUE on fingerprint with compound (fingerprint, scope_id) unique index',
+    description:
+      "Replace column-level UNIQUE on fingerprint with compound (fingerprint, scope_id) unique index",
   },
   {
-    key: 'migration_memory_items_scope_salted_fingerprints_v1',
+    key: "migration_memory_items_scope_salted_fingerprints_v1",
     version: 4,
-    dependsOn: ['migration_memory_items_fingerprint_scope_unique_v1'],
-    description: 'Recompute memory item fingerprints to include scope_id prefix after schema change',
+    dependsOn: ["migration_memory_items_fingerprint_scope_unique_v1"],
+    description:
+      "Recompute memory item fingerprints to include scope_id prefix after schema change",
   },
   {
-    key: 'migration_normalize_assistant_id_to_self_v1',
+    key: "migration_normalize_assistant_id_to_self_v1",
     version: 5,
-    description: 'Normalize all assistant_id values in scoped tables to the implicit "self" single-tenant identity',
+    description:
+      'Normalize all assistant_id values in scoped tables to the implicit "self" single-tenant identity',
   },
   {
-    key: 'migration_remove_assistant_id_columns_v1',
+    key: "migration_remove_assistant_id_columns_v1",
     version: 6,
-    dependsOn: ['migration_normalize_assistant_id_to_self_v1'],
-    description: 'Rebuild four tables to drop the assistant_id column after normalization',
+    dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
+    description:
+      "Rebuild four tables to drop the assistant_id column after normalization",
   },
   {
-    key: 'migration_remove_assistant_id_lue_v1',
+    key: "migration_remove_assistant_id_lue_v1",
     version: 7,
-    dependsOn: ['migration_normalize_assistant_id_to_self_v1'],
-    description: 'Remove assistant_id column from llm_usage_events (separate checkpoint from the four-table migration)',
+    dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
+    description:
+      "Remove assistant_id column from llm_usage_events (separate checkpoint from the four-table migration)",
   },
   {
-    key: 'backfill_inbox_thread_state_from_bindings',
+    key: "backfill_inbox_thread_state_from_bindings",
     version: 8,
-    description: 'Seed assistant_inbox_thread_state from external_conversation_bindings',
+    description:
+      "Seed assistant_inbox_thread_state from external_conversation_bindings",
   },
   {
-    key: 'drop_active_search_index_v1',
+    key: "drop_active_search_index_v1",
     version: 9,
-    description: 'Drop old idx_memory_items_active_search so it can be recreated with updated covering columns',
+    description:
+      "Drop old idx_memory_items_active_search so it can be recreated with updated covering columns",
   },
   {
-    key: 'migration_notification_tables_schema_v1',
+    key: "migration_notification_tables_schema_v1",
     version: 10,
-    description: 'Drop legacy enum-based notification tables so they can be recreated with the new signal-contract schema',
+    description:
+      "Drop legacy enum-based notification tables so they can be recreated with the new signal-contract schema",
   },
   {
-    key: 'migration_rename_macos_ios_channel_to_vellum_v1',
+    key: "migration_rename_macos_ios_channel_to_vellum_v1",
     version: 11,
-    description: 'Rename macos and ios channel identifiers to vellum across all tables',
+    description:
+      "Rename macos and ios channel identifiers to vellum across all tables",
   },
   {
-    key: 'migration_embedding_vector_blob_v1',
+    key: "migration_embedding_vector_blob_v1",
     version: 12,
-    description: 'Add vector_blob BLOB column to memory_embeddings and backfill from vector_json for compact binary storage',
+    description:
+      "Add vector_blob BLOB column to memory_embeddings and backfill from vector_json for compact binary storage",
   },
   {
-    key: 'migration_embeddings_nullable_vector_json_v1',
+    key: "migration_embeddings_nullable_vector_json_v1",
     version: 13,
-    dependsOn: ['migration_embedding_vector_blob_v1'],
-    description: 'Rebuild memory_embeddings to make vector_json nullable (pre-100 DBs had NOT NULL)',
+    dependsOn: ["migration_embedding_vector_blob_v1"],
+    description:
+      "Rebuild memory_embeddings to make vector_json nullable (pre-100 DBs had NOT NULL)",
   },
   {
-    key: 'migration_normalize_phone_identities_v1',
+    key: "migration_normalize_phone_identities_v1",
     version: 14,
-    description: 'Normalize phone-like identity fields to E.164 format across guardian bindings, verification challenges, canonical requests, ingress members, and rate limits',
+    description:
+      "Normalize phone-like identity fields to E.164 format across guardian bindings, verification challenges, canonical requests, ingress members, and rate limits",
   },
   {
-    key: 'migration_backfill_guardian_principal_id_v3',
+    key: "migration_backfill_guardian_principal_id_v3",
     version: 15,
-    description: 'Backfill guardianPrincipalId for existing channel_guardian_bindings and canonical_guardian_requests rows, expire unresolvable pending requests',
+    description:
+      "Backfill guardianPrincipalId for existing channel_guardian_bindings and canonical_guardian_requests rows, expire unresolvable pending requests",
   },
   {
-    key: 'migration_guardian_principal_id_not_null_v1',
+    key: "migration_guardian_principal_id_not_null_v1",
     version: 16,
-    dependsOn: ['migration_backfill_guardian_principal_id_v3'],
-    description: 'Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id after backfill',
+    dependsOn: ["migration_backfill_guardian_principal_id_v3"],
+    description:
+      "Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id after backfill",
   },
 ];
 

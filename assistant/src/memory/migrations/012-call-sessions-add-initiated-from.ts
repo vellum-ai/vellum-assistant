@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * Add the `initiated_from_conversation_id` column to `call_sessions` so
@@ -12,7 +12,9 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
 export function migrateCallSessionsAddInitiatedFrom(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
   try {
-    raw.exec(/*sql*/ `ALTER TABLE call_sessions ADD COLUMN initiated_from_conversation_id TEXT`);
+    raw.exec(
+      /*sql*/ `ALTER TABLE call_sessions ADD COLUMN initiated_from_conversation_id TEXT`,
+    );
   } catch {
     // Column already exists — nothing to do.
   }

@@ -112,7 +112,11 @@ describe("resolveAssistant", () => {
     const config = makeConfig({
       routingEntries: [
         { type: "actor_id", key: "55001", assistantId: "assistant-user" },
-        { type: "conversation_id", key: "99001", assistantId: "assistant-chat" },
+        {
+          type: "conversation_id",
+          key: "99001",
+          assistantId: "assistant-chat",
+        },
       ],
     });
 

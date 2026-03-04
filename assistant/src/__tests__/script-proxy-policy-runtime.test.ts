@@ -4,7 +4,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import type { ResolvedCredential } from "../tools/credentials/resolve.js";
-import type { ProxyApprovalCallback } from "../tools/network/script-proxy/types.js";
+import type { ProxyApprovalCallback } from "../tools/network/script-proxy/index.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 

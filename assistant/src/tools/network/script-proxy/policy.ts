@@ -1,4 +1,4 @@
 export {
   evaluateRequest,
   evaluateRequestWithApproval,
-} from "@vellumai/proxy-sidecar";
+} from "@vellumai/outbound-proxy";

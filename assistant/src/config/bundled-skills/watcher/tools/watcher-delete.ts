@@ -1,5 +1,8 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { executeWatcherDelete } from '../../../../tools/watcher/delete.js';
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { executeWatcherDelete } from "../../../../tools/watcher/delete.js";
 
 export async function run(
   input: Record<string, unknown>,

@@ -13,17 +13,17 @@
  * does not match their own identity.
  */
 
-import type { ServerMessage } from '../../daemon/ipc-contract.js';
-import { getLogger } from '../../util/logger.js';
+import type { ServerMessage } from "../../daemon/ipc-contract.js";
+import { getLogger } from "../../util/logger.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
   NotificationChannel,
-} from '../types.js';
+} from "../types.js";
 
-const log = getLogger('notif-adapter-vellum');
+const log = getLogger("notif-adapter-vellum");
 
 export type BroadcastFn = (msg: ServerMessage) => void;
 
@@ -34,19 +34,20 @@ export type BroadcastFn = (msg: ServerMessage) => void;
  * `targetGuardianPrincipalId`.
  */
 const GUARDIAN_SENSITIVE_EVENT_PREFIXES = [
-  'guardian.question',
-  'ingress.escalation',
-  'ingress.access_request',
+  "guardian.question",
+  "ingress.escalation",
+  "ingress.access_request",
 ] as const;
 
 export function isGuardianSensitiveEvent(sourceEventName: string): boolean {
   return GUARDIAN_SENSITIVE_EVENT_PREFIXES.some(
-    (prefix) => sourceEventName === prefix || sourceEventName.startsWith(prefix + '.'),
+    (prefix) =>
+      sourceEventName === prefix || sourceEventName.startsWith(prefix + "."),
   );
 }
 
 export class VellumAdapter implements ChannelAdapter {
-  readonly channel: NotificationChannel = 'vellum';
+  readonly channel: NotificationChannel = "vellum";
 
   private broadcast: BroadcastFn;
 
@@ -54,14 +55,17 @@ export class VellumAdapter implements ChannelAdapter {
     this.broadcast = broadcast;
   }
 
-  async send(payload: ChannelDeliveryPayload, destination: ChannelDestination): Promise<DeliveryResult> {
+  async send(
+    payload: ChannelDeliveryPayload,
+    destination: ChannelDestination,
+  ): Promise<DeliveryResult> {
     try {
       // For guardian-sensitive events, annotate the outbound message with
       // the target guardian identity so clients can filter. The
       // guardianPrincipalId comes from the vellum binding resolved by
       // the destination resolver.
       const guardianPrincipalId =
-        typeof destination.metadata?.guardianPrincipalId === 'string'
+        typeof destination.metadata?.guardianPrincipalId === "string"
           ? destination.metadata.guardianPrincipalId
           : undefined;
 
@@ -71,7 +75,7 @@ export class VellumAdapter implements ChannelAdapter {
           : undefined;
 
       this.broadcast({
-        type: 'notification_intent',
+        type: "notification_intent",
         deliveryId: payload.deliveryId,
         sourceEventName: payload.sourceEventName,
         title: payload.copy.title,
@@ -86,13 +90,16 @@ export class VellumAdapter implements ChannelAdapter {
           title: payload.copy.title,
           guardianScoped: targetGuardianPrincipalId != null,
         },
-        'Vellum notification intent broadcast',
+        "Vellum notification intent broadcast",
       );
 
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, sourceEventName: payload.sourceEventName }, 'Failed to broadcast Vellum notification intent');
+      log.error(
+        { err, sourceEventName: payload.sourceEventName },
+        "Failed to broadcast Vellum notification intent",
+      );
       return { success: false, error: message };
     }
   }

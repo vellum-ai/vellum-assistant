@@ -4,12 +4,12 @@
  * Silently no-ops when stderr is not a TTY (e.g. redirected to file).
  */
 
-const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const DIM = '\x1b[2m';
-const RESET = '\x1b[0m';
+const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const DIM = "\x1b[2m";
+const RESET = "\x1b[0m";
 
 export class Spinner {
-  private message = '';
+  private message = "";
   private startTime = 0;
   private frameIndex = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -38,14 +38,16 @@ export class Spinner {
       this.timer = null;
     }
     // Clear the spinner line
-    process.stderr.write('\r\x1b[K');
+    process.stderr.write("\r\x1b[K");
   }
 
   private render(): void {
     const frame = FRAMES[this.frameIndex % FRAMES.length];
     this.frameIndex++;
     const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-    const timeStr = elapsed > 0 ? ` (${elapsed}s)` : '';
-    process.stderr.write(`\r\x1b[K${DIM}${frame} ${this.message}${timeStr}${RESET}`);
+    const timeStr = elapsed > 0 ? ` (${elapsed}s)` : "";
+    process.stderr.write(
+      `\r\x1b[K${DIM}${frame} ${this.message}${timeStr}${RESET}`,
+    );
   }
 }

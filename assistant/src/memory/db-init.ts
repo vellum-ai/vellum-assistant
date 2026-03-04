@@ -1,4 +1,4 @@
-import { getDb } from './db-connection.js';
+import { getDb } from "./db-connection.js";
 import {
   addCoreColumns,
   createActorRefreshTokenRecordsTable,
@@ -25,6 +25,9 @@ import {
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
   migrateChannelInboundDeliveredSegments,
+  migrateContactChannelsAccessFields,
+  migrateContactChannelsTypeChatIdIndex,
+  migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
@@ -47,7 +50,7 @@ import {
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
-} from './migrations/index.js';
+} from "./migrations/index.js";
 
 export function initializeDb(): void {
   const database = getDb();
@@ -188,6 +191,15 @@ export function initializeDb(): void {
 
   // 31. Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id
   migrateGuardianPrincipalIdNotNull(database);
+
+  // 32. Add role and principal_id columns to contacts table
+  migrateContactsRolePrincipal(database);
+
+  // 33. Add verification and access-control columns to contact_channels
+  migrateContactChannelsAccessFields(database);
+
+  // 34. Composite index on (type, external_chat_id) for updateChannelLastSeenByExternalChatId
+  migrateContactChannelsTypeChatIdIndex(database);
 
   validateMigrationState(database);
 }

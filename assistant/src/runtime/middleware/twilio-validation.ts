@@ -2,14 +2,14 @@
  * Twilio webhook signature validation and related constants.
  */
 
-import { TwilioConversationRelayProvider } from '../../calls/twilio-provider.js';
-import { isTwilioWebhookValidationDisabled } from '../../config/env.js';
-import { loadConfig } from '../../config/loader.js';
-import { getPublicBaseUrl } from '../../inbound/public-ingress-urls.js';
-import { getLogger } from '../../util/logger.js';
-import { httpError } from '../http-errors.js';
+import { TwilioConversationRelayProvider } from "../../calls/twilio-provider.js";
+import { isTwilioWebhookValidationDisabled } from "../../config/env.js";
+import { loadConfig } from "../../config/loader.js";
+import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
+import { getLogger } from "../../util/logger.js";
+import { httpError } from "../http-errors.js";
 
-const log = getLogger('runtime-http');
+const log = getLogger("runtime-http");
 
 /**
  * Regex to extract the Twilio webhook subpath:
@@ -26,10 +26,10 @@ export const TWILIO_WEBHOOK_RE = /^\/v1\/calls\/twilio\/(.+)$/;
  */
 export const TWILIO_GATEWAY_WEBHOOK_RE = /^\/webhooks\/twilio\/(.+)$/;
 export const GATEWAY_SUBPATH_MAP: Record<string, string> = {
-  voice: 'voice-webhook',
-  status: 'status',
-  'connect-action': 'connect-action',
-  sms: 'sms',
+  voice: "voice-webhook",
+  status: "status",
+  "connect-action": "connect-action",
+  sms: "sms",
 };
 
 /**
@@ -38,7 +38,12 @@ export const GATEWAY_SUBPATH_MAP: Record<string, string> = {
  * because the runtime must never serve as a direct ingress for external webhooks.
  * Internal forwarding endpoints (gateway->runtime) are unaffected.
  */
-export const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set(['voice-webhook', 'status', 'connect-action', 'sms']);
+export const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set([
+  "voice-webhook",
+  "status",
+  "connect-action",
+  "sms",
+]);
 
 /**
  * Validate a Twilio webhook request's X-Twilio-Signature header.
@@ -58,7 +63,9 @@ export async function validateTwilioWebhook(
 
   // Allow explicit local-dev bypass -- must be exactly "true"
   if (isTwilioWebhookValidationDisabled()) {
-    log.warn('Twilio webhook signature validation explicitly disabled via TWILIO_WEBHOOK_VALIDATION_DISABLED');
+    log.warn(
+      "Twilio webhook signature validation explicitly disabled via TWILIO_WEBHOOK_VALIDATION_DISABLED",
+    );
     return { body: rawBody };
   }
 
@@ -66,14 +73,16 @@ export async function validateTwilioWebhook(
 
   // Fail-closed: reject if no auth token is configured
   if (!authToken) {
-    log.error('Twilio auth token not configured — rejecting webhook request (fail-closed)');
-    return httpError('FORBIDDEN', 'Forbidden', 403);
+    log.error(
+      "Twilio auth token not configured — rejecting webhook request (fail-closed)",
+    );
+    return httpError("FORBIDDEN", "Forbidden", 403);
   }
 
-  const signature = req.headers.get('x-twilio-signature');
+  const signature = req.headers.get("x-twilio-signature");
   if (!signature) {
-    log.warn('Twilio webhook request missing X-Twilio-Signature header');
-    return httpError('FORBIDDEN', 'Forbidden', 403);
+    log.warn("Twilio webhook request missing X-Twilio-Signature header");
+    return httpError("FORBIDDEN", "Forbidden", 403);
   }
 
   // Parse form-urlencoded body into key-value params for signature computation
@@ -106,8 +115,8 @@ export async function validateTwilioWebhook(
   );
 
   if (!isValid) {
-    log.warn('Twilio webhook signature validation failed');
-    return httpError('FORBIDDEN', 'Forbidden', 403);
+    log.warn("Twilio webhook signature validation failed");
+    return httpError("FORBIDDEN", "Forbidden", 403);
   }
 
   return { body: rawBody };

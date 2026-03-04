@@ -7,7 +7,10 @@
  */
 
 /** How a credential was originally captured. */
-export type CredentialCreationFlow = 'secure_prompt' | 'tool_store' | 'migration';
+export type CredentialCreationFlow =
+  | "secure_prompt"
+  | "tool_store"
+  | "migration";
 
 /** Policy that governs how a credential may be used. */
 export interface CredentialPolicy {
@@ -25,7 +28,7 @@ export interface CredentialPolicy {
 }
 
 /** How a credential value is injected into an outbound proxied request. */
-export type CredentialInjectionType = 'header' | 'query';
+export type CredentialInjectionType = "header" | "query";
 
 /**
  * Describes where and how to inject a credential into proxied requests

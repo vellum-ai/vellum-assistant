@@ -7,4 +7,4 @@
  * should never derive scoping decisions from externally-provided assistant
  * IDs — use this constant instead.
  */
-export const DAEMON_INTERNAL_ASSISTANT_ID = 'self' as const;
+export const DAEMON_INTERNAL_ASSISTANT_ID = "self" as const;

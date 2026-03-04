@@ -2,7 +2,10 @@ import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
 import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
-import { sendWhatsAppAttachments, sendWhatsAppReply } from "../../whatsapp/send.js";
+import {
+  sendWhatsAppAttachments,
+  sendWhatsAppReply,
+} from "../../whatsapp/send.js";
 
 const log = getLogger("whatsapp-deliver");
 
@@ -27,7 +30,11 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    const authResponse = checkDeliverAuth(req, config, "whatsappDeliverAuthBypass");
+    const authResponse = checkDeliverAuth(
+      req,
+      config,
+      "whatsappDeliverAuthBypass",
+    );
     if (authResponse) return authResponse;
 
     // Verify WhatsApp sending is configured
@@ -68,8 +75,15 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
 
     // Validate approval payload shape when present.
     if (approval !== undefined) {
-      if (approval === null || typeof approval !== "object" || Array.isArray(approval)) {
-        return Response.json({ error: "approval must be an object" }, { status: 400 });
+      if (
+        approval === null ||
+        typeof approval !== "object" ||
+        Array.isArray(approval)
+      ) {
+        return Response.json(
+          { error: "approval must be an object" },
+          { status: 400 },
+        );
       }
       if (!text) {
         return Response.json(
@@ -78,41 +92,75 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
         );
       }
       if (!approval.runId || typeof approval.runId !== "string") {
-        return Response.json({ error: "approval.runId is required" }, { status: 400 });
+        return Response.json(
+          { error: "approval.runId is required" },
+          { status: 400 },
+        );
       }
       if (!approval.requestId || typeof approval.requestId !== "string") {
-        return Response.json({ error: "approval.requestId is required" }, { status: 400 });
+        return Response.json(
+          { error: "approval.requestId is required" },
+          { status: 400 },
+        );
       }
       if (!Array.isArray(approval.actions) || approval.actions.length === 0) {
-        return Response.json({ error: "approval.actions must be a non-empty array" }, { status: 400 });
+        return Response.json(
+          { error: "approval.actions must be a non-empty array" },
+          { status: 400 },
+        );
       }
       for (const action of approval.actions) {
-        if (action === null || typeof action !== "object" || Array.isArray(action)) {
-          return Response.json({ error: "each approval action must be an object" }, { status: 400 });
+        if (
+          action === null ||
+          typeof action !== "object" ||
+          Array.isArray(action)
+        ) {
+          return Response.json(
+            { error: "each approval action must be an object" },
+            { status: 400 },
+          );
         }
         if (!action.id || typeof action.id !== "string") {
-          return Response.json({ error: "each approval action must have an id" }, { status: 400 });
+          return Response.json(
+            { error: "each approval action must have an id" },
+            { status: 400 },
+          );
         }
         if (!action.label || typeof action.label !== "string") {
-          return Response.json({ error: "each approval action must have a label" }, { status: 400 });
+          return Response.json(
+            { error: "each approval action must have a label" },
+            { status: 400 },
+          );
         }
       }
     }
 
     if (!text && (!attachments || attachments.length === 0)) {
-      return Response.json({ error: "text or attachments required" }, { status: 400 });
+      return Response.json(
+        { error: "text or attachments required" },
+        { status: 400 },
+      );
     }
 
     if (attachments) {
       if (!Array.isArray(attachments)) {
-        return Response.json({ error: "attachments must be an array" }, { status: 400 });
+        return Response.json(
+          { error: "attachments must be an array" },
+          { status: 400 },
+        );
       }
       for (const att of attachments) {
         if (att === null || typeof att !== "object" || Array.isArray(att)) {
-          return Response.json({ error: "each attachment must be an object" }, { status: 400 });
+          return Response.json(
+            { error: "each attachment must be an object" },
+            { status: 400 },
+          );
         }
         if (!att.id || typeof att.id !== "string") {
-          return Response.json({ error: "each attachment must have an id" }, { status: 400 });
+          return Response.json(
+            { error: "each attachment must have an id" },
+            { status: 400 },
+          );
         }
       }
     }
@@ -134,16 +182,34 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
 
       if (result.allFailed && !textSent) {
         // Nothing was delivered at all -- signal failure so the caller can retry
-        tlog.error({ to, failureCount: result.failureCount }, "All attachments failed and no text was sent");
+        tlog.error(
+          { to, failureCount: result.failureCount },
+          "All attachments failed and no text was sent",
+        );
         return Response.json({ error: "Delivery failed" }, { status: 502 });
       }
 
       if (result.failureCount > 0) {
-        tlog.warn({ to, failureCount: result.failureCount, totalCount: result.totalCount }, "Partial attachment delivery failure");
+        tlog.warn(
+          {
+            to,
+            failureCount: result.failureCount,
+            totalCount: result.totalCount,
+          },
+          "Partial attachment delivery failure",
+        );
       }
     }
 
-    tlog.info({ to, hasText: !!text, attachmentCount: attachments?.length ?? 0, hasApproval: !!approval }, "WhatsApp reply sent");
+    tlog.info(
+      {
+        to,
+        hasText: !!text,
+        attachmentCount: attachments?.length ?? 0,
+        hasApproval: !!approval,
+      },
+      "WhatsApp reply sent",
+    );
     return Response.json({ ok: true });
   };
 }

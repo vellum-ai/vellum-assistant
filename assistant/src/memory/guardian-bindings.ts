@@ -1,21 +1,25 @@
 /**
+ * @deprecated Legacy store. All reads and writes now go through the contacts
+ * table. This file is retained only for type exports and test backward
+ * compatibility until tests are migrated.
+ *
  * Guardian binding CRUD operations.
  *
  * A binding records which external user is the designated guardian
  * for a given (assistantId, channel) pair.
  */
 
-import { and, asc, desc, eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, asc, desc, eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb } from './db.js';
-import { channelGuardianBindings } from './schema.js';
+import { getDb } from "./db.js";
+import { channelGuardianBindings } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type BindingStatus = 'active' | 'revoked';
+export type BindingStatus = "active" | "revoked";
 
 export interface GuardianBinding {
   id: string;
@@ -36,7 +40,9 @@ export interface GuardianBinding {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToBinding(row: typeof channelGuardianBindings.$inferSelect): GuardianBinding {
+function rowToBinding(
+  row: typeof channelGuardianBindings.$inferSelect,
+): GuardianBinding {
   return {
     id: row.id,
     assistantId: row.assistantId,
@@ -77,9 +83,9 @@ export function createBinding(params: {
     guardianExternalUserId: params.guardianExternalUserId,
     guardianDeliveryChatId: params.guardianDeliveryChatId,
     guardianPrincipalId: params.guardianPrincipalId,
-    status: 'active' as const,
+    status: "active" as const,
     verifiedAt: now,
-    verifiedVia: params.verifiedVia ?? 'challenge',
+    verifiedVia: params.verifiedVia ?? "challenge",
     metadataJson: params.metadataJson ?? null,
     createdAt: now,
     updatedAt: now,
@@ -90,7 +96,10 @@ export function createBinding(params: {
   return rowToBinding(row);
 }
 
-export function getActiveBinding(assistantId: string, channel: string): GuardianBinding | null {
+export function getActiveBinding(
+  assistantId: string,
+  channel: string,
+): GuardianBinding | null {
   const db = getDb();
   const row = db
     .select()
@@ -99,7 +108,7 @@ export function getActiveBinding(assistantId: string, channel: string): Guardian
       and(
         eq(channelGuardianBindings.assistantId, assistantId),
         eq(channelGuardianBindings.channel, channel),
-        eq(channelGuardianBindings.status, 'active'),
+        eq(channelGuardianBindings.status, "active"),
       ),
     )
     .get();
@@ -112,7 +121,9 @@ export function getActiveBinding(assistantId: string, channel: string): Guardian
  * Deterministic ordering: verifiedAt DESC (most recently verified first),
  * then channel ASC (alphabetical tiebreaker).
  */
-export function listActiveBindingsByAssistant(assistantId: string): GuardianBinding[] {
+export function listActiveBindingsByAssistant(
+  assistantId: string,
+): GuardianBinding[] {
   const db = getDb();
   return db
     .select()
@@ -120,7 +131,7 @@ export function listActiveBindingsByAssistant(assistantId: string): GuardianBind
     .where(
       and(
         eq(channelGuardianBindings.assistantId, assistantId),
-        eq(channelGuardianBindings.status, 'active'),
+        eq(channelGuardianBindings.status, "active"),
       ),
     )
     .orderBy(
@@ -142,7 +153,7 @@ export function revokeBinding(assistantId: string, channel: string): boolean {
       and(
         eq(channelGuardianBindings.assistantId, assistantId),
         eq(channelGuardianBindings.channel, channel),
-        eq(channelGuardianBindings.status, 'active'),
+        eq(channelGuardianBindings.status, "active"),
       ),
     )
     .get();
@@ -150,7 +161,7 @@ export function revokeBinding(assistantId: string, channel: string): boolean {
   if (!existing) return false;
 
   db.update(channelGuardianBindings)
-    .set({ status: 'revoked', updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(eq(channelGuardianBindings.id, existing.id))
     .run();
 

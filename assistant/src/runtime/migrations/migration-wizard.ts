@@ -15,18 +15,15 @@
 
 import type {
   ExportManagedResult,
-  ExportRuntimeResult,
   ImportCommitResponse,
   ImportPreflightResponse,
   TransportConfig,
   ValidateResponse,
 } from "./migration-transport.js";
 import {
-  exportBundle,
   importCommit,
   importPreflight,
   MigrationTransportError,
-  pollUntilComplete,
   validateBundle,
 } from "./migration-transport.js";
 
@@ -432,12 +429,21 @@ export async function executePreflightStep(
         preflightResult: result,
         currentStep: "transfer",
       };
-    } else {
+    } else if ("validation" in result) {
       current = setStepStatus(current, "preflight-review", "error", {
         message:
           result.validation.errors.map((e) => e.message).join("; ") ||
           "Import preflight validation failed",
         code: result.validation.errors[0]?.code,
+        retryable: true,
+      });
+      current = { ...current, preflightResult: result };
+    } else {
+      current = setStepStatus(current, "preflight-review", "error", {
+        message:
+          result.conflicts.map((c) => c.message).join("; ") ||
+          "Import blocked by conflicts",
+        code: result.conflicts[0]?.code,
         retryable: true,
       });
       current = { ...current, preflightResult: result };
@@ -457,10 +463,7 @@ export async function executePreflightStep(
 }
 
 /**
- * Execute the transfer step: export from source and import to destination.
- *
- * For managed sources, this includes async export polling.
- * For runtime sources, the export returns binary data directly.
+ * Execute the transfer step: import the validated bundle to the destination.
  */
 export async function executeTransferStep(
   state: MigrationWizardState,
@@ -476,74 +479,11 @@ export async function executeTransferStep(
   options.onStateChange?.(current);
 
   try {
-    // Phase 1: Export from source
-    const exportResult = await exportBundle(options.sourceConfig);
-
-    let bundleToImport: ArrayBuffer;
-
-    if ("archive" in exportResult) {
-      // Runtime export — binary archive available immediately
-      const runtimeExport = exportResult as ExportRuntimeResult;
-      bundleToImport = runtimeExport.archive;
-      current = {
-        ...current,
-        exportResult: {
-          ok: true,
-          filename: runtimeExport.filename,
-          schemaVersion: runtimeExport.schemaVersion,
-          manifestSha256: runtimeExport.manifestSha256,
-        },
-      };
-    } else {
-      // Managed export — poll until complete, then fetch archive
-      const managedExport = exportResult as ExportManagedResult;
-      current = { ...current, exportResult: managedExport };
-      options.onStateChange?.(touch(current));
-
-      const finalStatus = await pollUntilComplete(
-        options.sourceConfig,
-        "export",
-        managedExport.jobId,
-        { intervalMs: 2000, maxAttempts: 60 },
-      );
-
-      if (finalStatus.status === "failed") {
-        current = setStepStatus(current, "transfer", "error", {
-          message: `Export job failed: ${finalStatus.error}`,
-          code: "EXPORT_JOB_FAILED",
-          retryable: true,
-        });
-        current = touch(current);
-        options.onStateChange?.(current);
-        return current;
-      }
-
-      // Download the export archive
-      if (!finalStatus.downloadUrl) {
-        current = setStepStatus(current, "transfer", "error", {
-          message: "Export completed but no download URL was provided",
-          code: "NO_DOWNLOAD_URL",
-          retryable: true,
-        });
-        current = touch(current);
-        options.onStateChange?.(current);
-        return current;
-      }
-
-      const fetchFn = options.sourceConfig.fetchFn ?? globalThis.fetch;
-      const downloadResponse = await fetchFn(finalStatus.downloadUrl);
-      if (!downloadResponse.ok) {
-        throw new MigrationTransportError(
-          `Failed to download export: HTTP ${downloadResponse.status}`,
-          downloadResponse.status,
-          await downloadResponse.text().catch(() => "<unreadable>"),
-        );
-      }
-      bundleToImport = await downloadResponse.arrayBuffer();
-    }
-
-    // Phase 2: Import to destination
-    const importResult = await importCommit(options.destConfig, bundleToImport);
+    // Import the same bundle that was validated and preflighted
+    const importResult = await importCommit(
+      options.destConfig,
+      options.bundleData,
+    );
     current = { ...current, importResult };
 
     if (importResult.success) {
@@ -678,17 +618,27 @@ export function prepareForResume(
     current = setStepStatus(current, step, "idle");
   }
 
-  // If we need bundle data but don't have it, go back to upload-bundle
+  // If we need bundle data but don't have it, rewind to upload-bundle
+  // and reset all downstream steps + stale results (mirrors goBackTo logic)
   const needsBundleData =
     step === "validate" || step === "preflight-review" || step === "transfer";
   if (needsBundleData && !current.hasBundleData) {
+    const uploadBundleIdx = STEP_INDEX.get("upload-bundle")!;
+    const newSteps = { ...current.steps };
+    for (const s of STEP_ORDER) {
+      const idx = STEP_INDEX.get(s)!;
+      if (idx >= uploadBundleIdx) {
+        newSteps[s] = { status: "idle" };
+      }
+    }
     current = {
       ...current,
       currentStep: "upload-bundle",
-      steps: {
-        ...current.steps,
-        "upload-bundle": { status: "idle" },
-      },
+      steps: newSteps,
+      validateResult: undefined,
+      preflightResult: undefined,
+      exportResult: undefined,
+      importResult: undefined,
     };
   }
 

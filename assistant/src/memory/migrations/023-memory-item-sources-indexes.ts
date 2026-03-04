@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Originally added an index on memory_item_sources(memory_item_id), but that
@@ -8,5 +8,7 @@ import type { DrizzleDb } from '../db-connection.js';
  */
 export function migrateMemoryItemSourcesIndexes(database: DrizzleDb): void {
   // Drop the redundant index if it was already created on existing databases.
-  database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_item_sources_memory_item_id`);
+  database.run(
+    /*sql*/ `DROP INDEX IF EXISTS idx_memory_item_sources_memory_item_id`,
+  );
 }

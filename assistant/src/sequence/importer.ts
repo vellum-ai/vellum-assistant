@@ -5,17 +5,17 @@
  * and bulk-enrolls contacts into a sequence.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync } from "node:fs";
 
-import { getLogger } from '../util/logger.js';
+import { getLogger } from "../util/logger.js";
 import {
   checkCooldown,
   checkDuplicateEnrollment,
   checkEnrollmentCap,
-} from './guardrails.js';
-import { enrollContact, getSequence } from './store.js';
+} from "./guardrails.js";
+import { enrollContact, getSequence } from "./store.js";
 
-const log = getLogger('sequence:importer');
+const log = getLogger("sequence:importer");
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -49,13 +49,28 @@ function isValidEmail(email: string): boolean {
 
 // Alias lists are pre-normalized (same transform as normalizeHeader) so lookups
 // match regardless of the original casing, spacing, or punctuation in the file.
-const EMAIL_HEADERS = ['email', 'e_mail', 'email_address', 'emailaddress', 'mail'];
-const NAME_HEADERS = ['name', 'full_name', 'fullname', 'display_name', 'displayname'];
-const FIRST_NAME_HEADERS = ['first_name', 'firstname', 'first'];
-const LAST_NAME_HEADERS = ['last_name', 'lastname', 'last'];
+const EMAIL_HEADERS = [
+  "email",
+  "e_mail",
+  "email_address",
+  "emailaddress",
+  "mail",
+];
+const NAME_HEADERS = [
+  "name",
+  "full_name",
+  "fullname",
+  "display_name",
+  "displayname",
+];
+const FIRST_NAME_HEADERS = ["first_name", "firstname", "first"];
+const LAST_NAME_HEADERS = ["last_name", "lastname", "last"];
 
 function normalizeHeader(h: string): string {
-  return h.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  return h
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_");
 }
 
 function detectColumns(headers: string[]): {
@@ -69,11 +84,19 @@ function detectColumns(headers: string[]): {
 
   const emailIdx = normalized.findIndex((h) => EMAIL_HEADERS.includes(h));
   const nameIdx = normalized.findIndex((h) => NAME_HEADERS.includes(h));
-  const firstNameIdx = normalized.findIndex((h) => FIRST_NAME_HEADERS.includes(h));
-  const lastNameIdx = normalized.findIndex((h) => LAST_NAME_HEADERS.includes(h));
+  const firstNameIdx = normalized.findIndex((h) =>
+    FIRST_NAME_HEADERS.includes(h),
+  );
+  const lastNameIdx = normalized.findIndex((h) =>
+    LAST_NAME_HEADERS.includes(h),
+  );
 
-  const specialIdxs = new Set([emailIdx, nameIdx, firstNameIdx, lastNameIdx].filter((i) => i >= 0));
-  const contextIdxs = headers.map((_, i) => i).filter((i) => !specialIdxs.has(i));
+  const specialIdxs = new Set(
+    [emailIdx, nameIdx, firstNameIdx, lastNameIdx].filter((i) => i >= 0),
+  );
+  const contextIdxs = headers
+    .map((_, i) => i)
+    .filter((i) => !specialIdxs.has(i));
 
   return { emailIdx, nameIdx, firstNameIdx, lastNameIdx, contextIdxs };
 }
@@ -81,14 +104,14 @@ function detectColumns(headers: string[]): {
 // ── CSV parsing ─────────────────────────────────────────────────────
 
 function detectDelimiter(firstLine: string): string {
-  if (firstLine.includes('\t')) return '\t';
-  if (firstLine.includes(';')) return ';';
-  return ',';
+  if (firstLine.includes("\t")) return "\t";
+  if (firstLine.includes(";")) return ";";
+  return ",";
 }
 
 function parseCSVLine(line: string, delimiter: string): string[] {
   const fields: string[] = [];
-  let current = '';
+  let current = "";
   let inQuotes = false;
 
   for (let i = 0; i < line.length; i++) {
@@ -107,7 +130,7 @@ function parseCSVLine(line: string, delimiter: string): string[] {
         inQuotes = true;
       } else if (ch === delimiter) {
         fields.push(current.trim());
-        current = '';
+        current = "";
       } else {
         current += ch;
       }
@@ -123,7 +146,7 @@ function parseCSVLine(line: string, delimiter: string): string[] {
  */
 function splitCSVRows(content: string): string[] {
   const rows: string[] = [];
-  let current = '';
+  let current = "";
   let inQuotes = false;
 
   for (let i = 0; i < content.length; i++) {
@@ -145,15 +168,15 @@ function splitCSVRows(content: string): string[] {
       if (ch === '"') {
         inQuotes = true;
         current += ch;
-      } else if (ch === '\r' && content[i + 1] === '\n') {
+      } else if (ch === "\r" && content[i + 1] === "\n") {
         // CRLF row boundary
         if (current.trim().length > 0) rows.push(current);
-        current = '';
+        current = "";
         i++; // skip the \n
-      } else if (ch === '\n') {
+      } else if (ch === "\n") {
         // LF row boundary
         if (current.trim().length > 0) rows.push(current);
-        current = '';
+        current = "";
       } else {
         current += ch;
       }
@@ -167,18 +190,24 @@ function splitCSVRows(content: string): string[] {
  * Parse a CSV/TSV file into structured contacts.
  */
 export function parseContactFile(filePath: string): ParseResult {
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, "utf-8");
   const lines = splitCSVRows(content);
 
   if (lines.length === 0) {
-    return { contacts: [], errors: [{ row: 0, reason: 'File is empty' }], headers: [] };
+    return {
+      contacts: [],
+      errors: [{ row: 0, reason: "File is empty" }],
+      headers: [],
+    };
   }
 
   const delimiter = detectDelimiter(lines[0]);
   const firstRow = parseCSVLine(lines[0], delimiter);
 
   // Detect if first row is headers
-  const hasHeaders = firstRow.some((f) => EMAIL_HEADERS.includes(normalizeHeader(f)));
+  const hasHeaders = firstRow.some((f) =>
+    EMAIL_HEADERS.includes(normalizeHeader(f)),
+  );
 
   let headers: string[];
   let dataStartIdx: number;
@@ -188,11 +217,16 @@ export function parseContactFile(filePath: string): ParseResult {
     dataStartIdx = 1;
   } else {
     // No headers — assume col 1 = email, col 2 = name
-    headers = ['email', 'name', ...firstRow.slice(2).map((_, i) => `col_${i + 3}`)];
+    headers = [
+      "email",
+      "name",
+      ...firstRow.slice(2).map((_, i) => `col_${i + 3}`),
+    ];
     dataStartIdx = 0;
   }
 
-  const { emailIdx, nameIdx, firstNameIdx, lastNameIdx, contextIdxs } = detectColumns(headers);
+  const { emailIdx, nameIdx, firstNameIdx, lastNameIdx, contextIdxs } =
+    detectColumns(headers);
   const effectiveEmailIdx = emailIdx >= 0 ? emailIdx : 0;
 
   const contacts: ParsedContact[] = [];
@@ -205,7 +239,7 @@ export function parseContactFile(filePath: string): ParseResult {
 
     const rawEmail = fields[effectiveEmailIdx]?.trim();
     if (!rawEmail) {
-      errors.push({ row: rowNum, reason: 'Missing email' });
+      errors.push({ row: rowNum, reason: "Missing email" });
       continue;
     }
 
@@ -226,9 +260,9 @@ export function parseContactFile(filePath: string): ParseResult {
     if (nameIdx >= 0) {
       name = fields[nameIdx]?.trim() || undefined;
     } else if (firstNameIdx >= 0) {
-      const first = fields[firstNameIdx]?.trim() ?? '';
-      const last = lastNameIdx >= 0 ? (fields[lastNameIdx]?.trim() ?? '') : '';
-      name = [first, last].filter(Boolean).join(' ') || undefined;
+      const first = fields[firstNameIdx]?.trim() ?? "";
+      const last = lastNameIdx >= 0 ? (fields[lastNameIdx]?.trim() ?? "") : "";
+      name = [first, last].filter(Boolean).join(" ") || undefined;
     }
 
     // Build context from remaining columns
@@ -249,7 +283,10 @@ export function parseContactFile(filePath: string): ParseResult {
 /**
  * Bulk-enroll parsed contacts into a sequence, respecting guardrails.
  */
-export function bulkEnroll(sequenceId: string, contacts: ParsedContact[]): EnrollResult {
+export function bulkEnroll(
+  sequenceId: string,
+  contacts: ParsedContact[],
+): EnrollResult {
   const seq = getSequence(sequenceId);
   if (!seq) throw new Error(`Sequence not found: ${sequenceId}`);
 
@@ -282,12 +319,13 @@ export function bulkEnroll(sequenceId: string, contacts: ParsedContact[]): Enrol
         sequenceId,
         contactEmail: contact.email,
         contactName: contact.name,
-        context: Object.keys(contact.context).length > 0 ? contact.context : undefined,
+        context:
+          Object.keys(contact.context).length > 0 ? contact.context : undefined,
       });
       enrolled.push(contact.email);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
-      log.warn({ email: contact.email, err: e }, 'Failed to enroll contact');
+      log.warn({ email: contact.email, err: e }, "Failed to enroll contact");
       failed.push({ email: contact.email, reason });
     }
   }

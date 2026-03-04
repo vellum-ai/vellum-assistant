@@ -40,7 +40,10 @@ import {
   registerBroadcastFn,
 } from "../notifications/emit-signal.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { initAuthSigningKey, loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
+import {
+  initAuthSigningKey,
+  loadOrCreateSigningKey,
+} from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";

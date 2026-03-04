@@ -45,16 +45,16 @@ Then start the gateway again using whatever method the user's deployment uses (e
 
 ## Step 4: Restart the daemon
 
-Use `vellum daemon restart` which stops the old daemon and starts a new one from the updated binary in a single command:
+Use `vellum sleep` to stop the running daemon and gateway, then `vellum wake` to start them again from the updated binary:
 
 ```bash
-vellum daemon restart
+vellum sleep && vellum wake
 ```
 
 Verify it is running:
 
 ```bash
-vellum daemon status
+vellum ps
 ```
 
 **Important:** This is the last step because the current daemon process is the one executing this conversation. After the restart, the new daemon takes over and this session ends gracefully.

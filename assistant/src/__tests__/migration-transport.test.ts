@@ -346,6 +346,7 @@ describe("importPreflight", () => {
         files_to_create: 0,
         files_to_overwrite: 2,
         files_unchanged: 0,
+        files_to_skip: 0,
       },
       files: [
         {
@@ -385,7 +386,7 @@ describe("importPreflight", () => {
     const config = runtimeConfig({ fetchFn: mockFetch(200, responseBody) });
     const result = await importPreflight(config, sampleFileData);
     expect(result.can_import).toBe(false);
-    if (!result.can_import) {
+    if (!result.can_import && "validation" in result) {
       expect(result.validation.errors).toHaveLength(1);
     }
   });
@@ -781,6 +782,7 @@ describe("Multi-step flow behavior", () => {
               files_to_create: 1,
               files_to_overwrite: 0,
               files_unchanged: 0,
+              files_to_skip: 0,
             },
             files: [],
             conflicts: [],

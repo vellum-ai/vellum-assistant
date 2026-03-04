@@ -6,13 +6,13 @@
  * in the secure key backend only.
  */
 
-import { randomUUID } from 'node:crypto';
-import { renameSync,writeFileSync } from 'node:fs';
-import { dirname,join } from 'node:path';
+import { randomUUID } from "node:crypto";
+import { renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-import { ensureDir, readTextFileSync } from '../../util/fs.js';
-import { getDataDir } from '../../util/platform.js';
-import type { CredentialInjectionTemplate } from './policy-types.js';
+import { ensureDir, readTextFileSync } from "../../util/fs.js";
+import { getDataDir } from "../../util/platform.js";
+import type { CredentialInjectionTemplate } from "./policy-types.js";
 
 export interface CredentialMetadata {
   credentialId: string;
@@ -52,7 +52,7 @@ let overridePath: string | null = null;
 
 function getMetadataPath(): string {
   if (overridePath) return overridePath;
-  return join(getDataDir(), 'credentials', 'metadata.json');
+  return join(getDataDir(), "credentials", "metadata.json");
 }
 
 /**
@@ -67,44 +67,71 @@ interface UnknownVersionResult {
 type LoadResult = MetadataFile | UnknownVersionResult;
 
 function isUnknownVersion(r: LoadResult): r is UnknownVersionResult {
-  return 'unknownVersion' in r;
+  return "unknownVersion" in r;
 }
 
 /**
  * Returns true if a value looks like a valid credential record (has required fields).
  * Filters out corrupted or incomplete entries during migration.
  */
-function isValidCredentialRecord(record: unknown): record is Record<string, unknown> {
-  if (typeof record !== 'object' || record == null) return false;
+function isValidCredentialRecord(
+  record: unknown,
+): record is Record<string, unknown> {
+  if (typeof record !== "object" || record == null) return false;
   const r = record as Record<string, unknown>;
   return (
-    typeof r.credentialId === 'string' &&
-    typeof r.service === 'string' &&
-    typeof r.field === 'string' &&
-    typeof r.createdAt === 'number' &&
-    typeof r.updatedAt === 'number'
+    typeof r.credentialId === "string" &&
+    typeof r.service === "string" &&
+    typeof r.field === "string" &&
+    typeof r.createdAt === "number" &&
+    typeof r.updatedAt === "number"
   );
 }
 
 /**
  * Migrate a v1 record to v2 by backfilling new optional fields with defaults.
  */
-function migrateRecordV1toV2(record: Record<string, unknown>): CredentialMetadata {
+function migrateRecordV1toV2(
+  record: Record<string, unknown>,
+): CredentialMetadata {
   return {
     credentialId: record.credentialId as string,
     service: record.service as string,
     field: record.field as string,
-    allowedTools: Array.isArray(record.allowedTools) ? (record.allowedTools as string[]) : [],
-    allowedDomains: Array.isArray(record.allowedDomains) ? (record.allowedDomains as string[]) : [],
-    usageDescription: typeof record.usageDescription === 'string' ? record.usageDescription : undefined,
-    expiresAt: typeof record.expiresAt === 'number' ? record.expiresAt : undefined,
-    grantedScopes: Array.isArray(record.grantedScopes) ? (record.grantedScopes as string[]) : undefined,
-    accountInfo: typeof record.accountInfo === 'string' ? record.accountInfo : undefined,
-    oauth2TokenUrl: typeof record.oauth2TokenUrl === 'string' ? record.oauth2TokenUrl : undefined,
-    oauth2ClientId: typeof record.oauth2ClientId === 'string' ? record.oauth2ClientId : undefined,
-    oauth2ClientSecret: typeof record.oauth2ClientSecret === 'string' ? record.oauth2ClientSecret : undefined,
-    oauth2TokenEndpointAuthMethod: typeof record.oauth2TokenEndpointAuthMethod === 'string' ? record.oauth2TokenEndpointAuthMethod : undefined,
-    alias: typeof record.alias === 'string' ? record.alias : undefined,
+    allowedTools: Array.isArray(record.allowedTools)
+      ? (record.allowedTools as string[])
+      : [],
+    allowedDomains: Array.isArray(record.allowedDomains)
+      ? (record.allowedDomains as string[])
+      : [],
+    usageDescription:
+      typeof record.usageDescription === "string"
+        ? record.usageDescription
+        : undefined,
+    expiresAt:
+      typeof record.expiresAt === "number" ? record.expiresAt : undefined,
+    grantedScopes: Array.isArray(record.grantedScopes)
+      ? (record.grantedScopes as string[])
+      : undefined,
+    accountInfo:
+      typeof record.accountInfo === "string" ? record.accountInfo : undefined,
+    oauth2TokenUrl:
+      typeof record.oauth2TokenUrl === "string"
+        ? record.oauth2TokenUrl
+        : undefined,
+    oauth2ClientId:
+      typeof record.oauth2ClientId === "string"
+        ? record.oauth2ClientId
+        : undefined,
+    oauth2ClientSecret:
+      typeof record.oauth2ClientSecret === "string"
+        ? record.oauth2ClientSecret
+        : undefined,
+    oauth2TokenEndpointAuthMethod:
+      typeof record.oauth2TokenEndpointAuthMethod === "string"
+        ? record.oauth2TokenEndpointAuthMethod
+        : undefined,
+    alias: typeof record.alias === "string" ? record.alias : undefined,
     injectionTemplates: Array.isArray(record.injectionTemplates)
       ? (record.injectionTemplates as CredentialInjectionTemplate[])
       : undefined,
@@ -120,15 +147,17 @@ function loadFile(): LoadResult {
   }
   try {
     const data = JSON.parse(raw);
-    if (typeof data !== 'object' || data == null) {
+    if (typeof data !== "object" || data == null) {
       return { version: CURRENT_VERSION, credentials: [] };
     }
-    const fileVersion = typeof data.version === 'number' ? data.version : 1;
+    const fileVersion = typeof data.version === "number" ? data.version : 1;
     if (fileVersion !== 1 && fileVersion !== 2) {
       // Unrecognized version (future, fractional, negative, zero) — refuse to touch it
       return { unknownVersion: true };
     }
-    const rawCredentials: unknown[] = Array.isArray(data.credentials) ? data.credentials : [];
+    const rawCredentials: unknown[] = Array.isArray(data.credentials)
+      ? data.credentials
+      : [];
     // Filter out malformed entries that lack required fields
     const validRecords = rawCredentials.filter(isValidCredentialRecord);
 
@@ -136,11 +165,18 @@ function loadFile(): LoadResult {
       // Migrate from v1 to v2 and persist the upgrade so we don't re-migrate on every read
       const credentials = validRecords.map(migrateRecordV1toV2);
       const migrated: MetadataFile = { version: CURRENT_VERSION, credentials };
-      try { saveFile(migrated); } catch { /* persist failed — will retry on next write */ }
+      try {
+        saveFile(migrated);
+      } catch {
+        /* persist failed — will retry on next write */
+      }
       return migrated;
     }
 
-    return { version: CURRENT_VERSION, credentials: validRecords as unknown as CredentialMetadata[] };
+    return {
+      version: CURRENT_VERSION,
+      credentials: validRecords as unknown as CredentialMetadata[],
+    };
   } catch {
     // Corrupted / unparseable file — treat as empty to avoid data loss on next write
     return { version: CURRENT_VERSION, credentials: [] };
@@ -152,7 +188,7 @@ function saveFile(data: MetadataFile): void {
   const dir = dirname(path);
   ensureDir(dir);
   const tmpPath = join(dir, `.tmp-${randomUUID()}`);
-  writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+  writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
   renameSync(tmpPath, path);
 }
 
@@ -164,7 +200,9 @@ function saveFile(data: MetadataFile): void {
 export function assertMetadataWritable(): void {
   const result = loadFile();
   if (isUnknownVersion(result)) {
-    throw new Error('Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss');
+    throw new Error(
+      "Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss",
+    );
   }
 }
 
@@ -197,7 +235,9 @@ export function upsertCredentialMetadata(
 ): CredentialMetadata {
   const result = loadFile();
   if (isUnknownVersion(result)) {
-    throw new Error('Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss');
+    throw new Error(
+      "Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss",
+    );
   }
   const data = result;
   const now = Date.now();
@@ -207,9 +247,12 @@ export function upsertCredentialMetadata(
   );
 
   if (existing) {
-    if (policy?.allowedTools !== undefined) existing.allowedTools = policy.allowedTools;
-    if (policy?.allowedDomains !== undefined) existing.allowedDomains = policy.allowedDomains;
-    if (policy?.usageDescription !== undefined) existing.usageDescription = policy.usageDescription;
+    if (policy?.allowedTools !== undefined)
+      existing.allowedTools = policy.allowedTools;
+    if (policy?.allowedDomains !== undefined)
+      existing.allowedDomains = policy.allowedDomains;
+    if (policy?.usageDescription !== undefined)
+      existing.usageDescription = policy.usageDescription;
     if (policy?.expiresAt !== undefined) {
       if (policy.expiresAt == null) {
         delete existing.expiresAt;
@@ -217,7 +260,8 @@ export function upsertCredentialMetadata(
         existing.expiresAt = policy.expiresAt;
       }
     }
-    if (policy?.grantedScopes !== undefined) existing.grantedScopes = policy.grantedScopes;
+    if (policy?.grantedScopes !== undefined)
+      existing.grantedScopes = policy.grantedScopes;
     if (policy?.accountInfo !== undefined) {
       if (policy.accountInfo == null) {
         delete existing.accountInfo;
@@ -225,8 +269,10 @@ export function upsertCredentialMetadata(
         existing.accountInfo = policy.accountInfo;
       }
     }
-    if (policy?.oauth2TokenUrl !== undefined) existing.oauth2TokenUrl = policy.oauth2TokenUrl;
-    if (policy?.oauth2ClientId !== undefined) existing.oauth2ClientId = policy.oauth2ClientId;
+    if (policy?.oauth2TokenUrl !== undefined)
+      existing.oauth2TokenUrl = policy.oauth2TokenUrl;
+    if (policy?.oauth2ClientId !== undefined)
+      existing.oauth2ClientId = policy.oauth2ClientId;
     if (policy?.oauth2ClientSecret !== undefined) {
       if (policy.oauth2ClientSecret == null) {
         delete existing.oauth2ClientSecret;
@@ -234,7 +280,9 @@ export function upsertCredentialMetadata(
         existing.oauth2ClientSecret = policy.oauth2ClientSecret;
       }
     }
-    if (policy?.oauth2TokenEndpointAuthMethod !== undefined) existing.oauth2TokenEndpointAuthMethod = policy.oauth2TokenEndpointAuthMethod;
+    if (policy?.oauth2TokenEndpointAuthMethod !== undefined)
+      existing.oauth2TokenEndpointAuthMethod =
+        policy.oauth2TokenEndpointAuthMethod;
     if (policy?.alias !== undefined) {
       if (policy.alias == null) {
         delete existing.alias;
@@ -322,7 +370,9 @@ export function deleteCredentialMetadata(
 ): boolean {
   const result = loadFile();
   if (isUnknownVersion(result)) {
-    throw new Error('Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss');
+    throw new Error(
+      "Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss",
+    );
   }
   const data = result;
   const idx = data.credentials.findIndex(

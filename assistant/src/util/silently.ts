@@ -1,6 +1,6 @@
-import { getLogger } from './logger.js';
+import { getLogger } from "./logger.js";
 
-const log = getLogger('silently');
+const log = getLogger("silently");
 
 /**
  * Attaches a `.catch()` to `promise` that emits a debug-level log instead of
@@ -13,9 +13,12 @@ const log = getLogger('silently');
  * @example
  *   silentlyWithLog(stopSession(id), 'idle session cleanup');
  */
-export function silentlyWithLog<T>(promise: Promise<T>, context: string): Promise<T> {
+export function silentlyWithLog<T>(
+  promise: Promise<T>,
+  context: string,
+): Promise<T> {
   promise.catch((err: unknown) => {
-    log.debug({ err, context }, 'Suppressed async error');
+    log.debug({ err, context }, "Suppressed async error");
   });
   return promise;
 }

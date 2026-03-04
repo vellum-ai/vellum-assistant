@@ -1,5 +1,5 @@
 export interface ToolDomainEvents {
-  'tool.execution.started': {
+  "tool.execution.started": {
     conversationId: string;
     sessionId: string;
     requestId?: string;
@@ -7,7 +7,7 @@ export interface ToolDomainEvents {
     input: Record<string, unknown>;
     startedAtMs: number;
   };
-  'tool.permission.requested': {
+  "tool.permission.requested": {
     conversationId: string;
     sessionId: string;
     requestId?: string;
@@ -15,25 +15,31 @@ export interface ToolDomainEvents {
     riskLevel: string;
     requestedAtMs: number;
   };
-  'tool.permission.decided': {
+  "tool.permission.decided": {
     conversationId: string;
     sessionId: string;
     requestId?: string;
     toolName: string;
-    decision: 'allow' | 'allow_10m' | 'allow_thread' | 'always_allow' | 'deny' | 'always_deny';
+    decision:
+      | "allow"
+      | "allow_10m"
+      | "allow_thread"
+      | "always_allow"
+      | "deny"
+      | "always_deny";
     riskLevel: string;
     decidedAtMs: number;
   };
-  'tool.secret.detected': {
+  "tool.secret.detected": {
     conversationId: string;
     sessionId: string;
     requestId?: string;
     toolName: string;
-    action: 'redact' | 'warn' | 'block' | 'prompt';
+    action: "redact" | "warn" | "block" | "prompt";
     matches: Array<{ type: string; redactedValue: string }>;
     detectedAtMs: number;
   };
-  'tool.execution.finished': {
+  "tool.execution.finished": {
     conversationId: string;
     sessionId: string;
     requestId?: string;
@@ -44,7 +50,7 @@ export interface ToolDomainEvents {
     durationMs: number;
     finishedAtMs: number;
   };
-  'tool.execution.failed': {
+  "tool.execution.failed": {
     conversationId: string;
     sessionId: string;
     requestId?: string;
@@ -61,21 +67,21 @@ export interface ToolDomainEvents {
 }
 
 export interface DaemonDomainEvents {
-  'daemon.lifecycle.started': {
+  "daemon.lifecycle.started": {
     pid: number;
     socketPath: string;
     startedAtMs: number;
   };
-  'daemon.lifecycle.stopped': {
+  "daemon.lifecycle.stopped": {
     stoppedAtMs: number;
   };
-  'daemon.session.created': {
+  "daemon.session.created": {
     conversationId: string;
     createdAtMs: number;
   };
-  'daemon.session.evicted': {
+  "daemon.session.evicted": {
     conversationId: string;
-    reason: 'idle' | 'stale' | 'shutdown';
+    reason: "idle" | "stale" | "shutdown";
     evictedAtMs: number;
   };
 }

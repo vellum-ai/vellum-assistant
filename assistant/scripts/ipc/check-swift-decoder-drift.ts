@@ -60,6 +60,9 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   "work_item_status_changed",
   "work_item_update_response",
   "work_items_list_response",
+  // Contact management — not yet consumed by the macOS client
+  "contacts_response",
+  "contacts_changed",
 ]);
 
 /**

@@ -7,21 +7,26 @@
  * request from the expected status wins.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, desc, eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { IntegrityError } from '../util/errors.js';
-import { getDb, rawChanges } from './db.js';
+import { IntegrityError } from "../util/errors.js";
+import { getDb, rawChanges } from "./db.js";
 import {
   canonicalGuardianDeliveries,
   canonicalGuardianRequests,
-} from './schema.js';
+} from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type CanonicalRequestStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled';
+export type CanonicalRequestStatus =
+  | "pending"
+  | "approved"
+  | "denied"
+  | "expired"
+  | "cancelled";
 
 export interface CanonicalGuardianRequest {
   id: string;
@@ -74,7 +79,7 @@ export interface CanonicalGuardianDelivery {
 export function generateCanonicalRequestCode(): string {
   const MAX_RETRIES = 5;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const code = uuid().replace(/-/g, '').slice(0, 6).toUpperCase();
+    const code = uuid().replace(/-/g, "").slice(0, 6).toUpperCase();
     // Only check for collisions among pending requests — resolved requests
     // with the same code are harmless since getCanonicalGuardianRequestByCode
     // already filters by status='pending'.
@@ -83,7 +88,7 @@ export function generateCanonicalRequestCode(): string {
   }
   // Last resort: return the code even if it collides (extremely unlikely
   // with 16^6 = ~16.7M possible codes).
-  return uuid().replace(/-/g, '').slice(0, 6).toUpperCase();
+  return uuid().replace(/-/g, "").slice(0, 6).toUpperCase();
 }
 
 /**
@@ -99,7 +104,7 @@ function getCanonicalGuardianRequestByCodeInternal(code: string): boolean {
     .where(
       and(
         eq(canonicalGuardianRequests.requestCode, code),
-        eq(canonicalGuardianRequests.status, 'pending'),
+        eq(canonicalGuardianRequests.status, "pending"),
       ),
     )
     .get();
@@ -110,7 +115,9 @@ function getCanonicalGuardianRequestByCodeInternal(code: string): boolean {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToRequest(row: typeof canonicalGuardianRequests.$inferSelect): CanonicalGuardianRequest {
+function rowToRequest(
+  row: typeof canonicalGuardianRequests.$inferSelect,
+): CanonicalGuardianRequest {
   return {
     id: row.id,
     kind: row.kind,
@@ -138,7 +145,9 @@ function rowToRequest(row: typeof canonicalGuardianRequests.$inferSelect): Canon
   };
 }
 
-function rowToDelivery(row: typeof canonicalGuardianDeliveries.$inferSelect): CanonicalGuardianDelivery {
+function rowToDelivery(
+  row: typeof canonicalGuardianDeliveries.$inferSelect,
+): CanonicalGuardianDelivery {
   return {
     id: row.id,
     requestId: row.requestId,
@@ -187,13 +196,15 @@ export interface CreateCanonicalGuardianRequestParams {
  * updates) are exempt from this requirement.
  */
 const DECISIONABLE_KINDS = new Set([
-  'tool_approval',
-  'tool_grant_request',
-  'pending_question',
-  'access_request',
+  "tool_approval",
+  "tool_grant_request",
+  "pending_question",
+  "access_request",
 ]);
 
-export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRequestParams): CanonicalGuardianRequest {
+export function createCanonicalGuardianRequest(
+  params: CreateCanonicalGuardianRequestParams,
+): CanonicalGuardianRequest {
   // Guard: decisionable request kinds must have a principal bound at creation
   // time. This ensures every request that will eventually require a guardian
   // decision is attributable to a specific identity. Informational kinds are
@@ -224,7 +235,7 @@ export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRe
     requestCode: params.requestCode ?? generateCanonicalRequestCode(),
     toolName: params.toolName ?? null,
     inputDigest: params.inputDigest ?? null,
-    status: params.status ?? ('pending' as const),
+    status: params.status ?? ("pending" as const),
     answerText: params.answerText ?? null,
     decidedByExternalUserId: params.decidedByExternalUserId ?? null,
     decidedByPrincipalId: params.decidedByPrincipalId ?? null,
@@ -238,7 +249,9 @@ export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRe
   return rowToRequest(row);
 }
 
-export function getCanonicalGuardianRequest(id: string): CanonicalGuardianRequest | null {
+export function getCanonicalGuardianRequest(
+  id: string,
+): CanonicalGuardianRequest | null {
   const db = getDb();
   const row = db
     .select()
@@ -253,7 +266,9 @@ export function getCanonicalGuardianRequest(id: string): CanonicalGuardianReques
  * Scoped to pending (unresolved) requests so that codes recycled by older,
  * already-resolved requests do not collide with the active one.
  */
-export function getCanonicalGuardianRequestByCode(code: string): CanonicalGuardianRequest | null {
+export function getCanonicalGuardianRequestByCode(
+  code: string,
+): CanonicalGuardianRequest | null {
   const db = getDb();
   const row = db
     .select()
@@ -261,7 +276,7 @@ export function getCanonicalGuardianRequestByCode(code: string): CanonicalGuardi
     .where(
       and(
         eq(canonicalGuardianRequests.requestCode, code),
-        eq(canonicalGuardianRequests.status, 'pending'),
+        eq(canonicalGuardianRequests.status, "pending"),
       ),
     )
     .get();
@@ -280,7 +295,9 @@ export interface ListCanonicalGuardianRequestsFilters {
   toolName?: string;
 }
 
-export function listCanonicalGuardianRequests(filters?: ListCanonicalGuardianRequestsFilters): CanonicalGuardianRequest[] {
+export function listCanonicalGuardianRequests(
+  filters?: ListCanonicalGuardianRequestsFilters,
+): CanonicalGuardianRequest[] {
   const db = getDb();
 
   const conditions = [];
@@ -288,22 +305,43 @@ export function listCanonicalGuardianRequests(filters?: ListCanonicalGuardianReq
     conditions.push(eq(canonicalGuardianRequests.status, filters.status));
   }
   if (filters?.guardianExternalUserId) {
-    conditions.push(eq(canonicalGuardianRequests.guardianExternalUserId, filters.guardianExternalUserId));
+    conditions.push(
+      eq(
+        canonicalGuardianRequests.guardianExternalUserId,
+        filters.guardianExternalUserId,
+      ),
+    );
   }
   if (filters?.guardianPrincipalId) {
-    conditions.push(eq(canonicalGuardianRequests.guardianPrincipalId, filters.guardianPrincipalId));
+    conditions.push(
+      eq(
+        canonicalGuardianRequests.guardianPrincipalId,
+        filters.guardianPrincipalId,
+      ),
+    );
   }
   if (filters?.conversationId) {
-    conditions.push(eq(canonicalGuardianRequests.conversationId, filters.conversationId));
+    conditions.push(
+      eq(canonicalGuardianRequests.conversationId, filters.conversationId),
+    );
   }
   if (filters?.requesterExternalUserId) {
-    conditions.push(eq(canonicalGuardianRequests.requesterExternalUserId, filters.requesterExternalUserId));
+    conditions.push(
+      eq(
+        canonicalGuardianRequests.requesterExternalUserId,
+        filters.requesterExternalUserId,
+      ),
+    );
   }
   if (filters?.sourceType) {
-    conditions.push(eq(canonicalGuardianRequests.sourceType, filters.sourceType));
+    conditions.push(
+      eq(canonicalGuardianRequests.sourceType, filters.sourceType),
+    );
   }
   if (filters?.sourceChannel) {
-    conditions.push(eq(canonicalGuardianRequests.sourceChannel, filters.sourceChannel));
+    conditions.push(
+      eq(canonicalGuardianRequests.sourceChannel, filters.sourceChannel),
+    );
   }
   if (filters?.kind) {
     conditions.push(eq(canonicalGuardianRequests.kind, filters.kind));
@@ -342,10 +380,14 @@ export function updateCanonicalGuardianRequest(
 
   const setValues: Record<string, unknown> = { updatedAt: now };
   if (updates.status !== undefined) setValues.status = updates.status;
-  if (updates.answerText !== undefined) setValues.answerText = updates.answerText;
-  if (updates.decidedByExternalUserId !== undefined) setValues.decidedByExternalUserId = updates.decidedByExternalUserId;
-  if (updates.decidedByPrincipalId !== undefined) setValues.decidedByPrincipalId = updates.decidedByPrincipalId;
-  if (updates.followupState !== undefined) setValues.followupState = updates.followupState;
+  if (updates.answerText !== undefined)
+    setValues.answerText = updates.answerText;
+  if (updates.decidedByExternalUserId !== undefined)
+    setValues.decidedByExternalUserId = updates.decidedByExternalUserId;
+  if (updates.decidedByPrincipalId !== undefined)
+    setValues.decidedByPrincipalId = updates.decidedByPrincipalId;
+  if (updates.followupState !== undefined)
+    setValues.followupState = updates.followupState;
   if (updates.expiresAt !== undefined) setValues.expiresAt = updates.expiresAt;
 
   db.update(canonicalGuardianRequests)
@@ -380,9 +422,12 @@ export function resolveCanonicalGuardianRequest(
     status: decision.status,
     updatedAt: now,
   };
-  if (decision.answerText !== undefined) setValues.answerText = decision.answerText;
-  if (decision.decidedByExternalUserId !== undefined) setValues.decidedByExternalUserId = decision.decidedByExternalUserId;
-  if (decision.decidedByPrincipalId !== undefined) setValues.decidedByPrincipalId = decision.decidedByPrincipalId;
+  if (decision.answerText !== undefined)
+    setValues.answerText = decision.answerText;
+  if (decision.decidedByExternalUserId !== undefined)
+    setValues.decidedByExternalUserId = decision.decidedByExternalUserId;
+  if (decision.decidedByPrincipalId !== undefined)
+    setValues.decidedByPrincipalId = decision.decidedByPrincipalId;
 
   db.update(canonicalGuardianRequests)
     .set(setValues)
@@ -413,7 +458,9 @@ export interface CreateCanonicalGuardianDeliveryParams {
   status?: string;
 }
 
-export function createCanonicalGuardianDelivery(params: CreateCanonicalGuardianDeliveryParams): CanonicalGuardianDelivery {
+export function createCanonicalGuardianDelivery(
+  params: CreateCanonicalGuardianDeliveryParams,
+): CanonicalGuardianDelivery {
   const db = getDb();
   const now = new Date().toISOString();
   const id = params.id ?? uuid();
@@ -425,7 +472,7 @@ export function createCanonicalGuardianDelivery(params: CreateCanonicalGuardianD
     destinationConversationId: params.destinationConversationId ?? null,
     destinationChatId: params.destinationChatId ?? null,
     destinationMessageId: params.destinationMessageId ?? null,
-    status: params.status ?? ('pending' as const),
+    status: params.status ?? ("pending" as const),
     createdAt: now,
     updatedAt: now,
   };
@@ -434,7 +481,9 @@ export function createCanonicalGuardianDelivery(params: CreateCanonicalGuardianD
   return rowToDelivery(row);
 }
 
-export function listCanonicalGuardianDeliveries(requestId: string): CanonicalGuardianDelivery[] {
+export function listCanonicalGuardianDeliveries(
+  requestId: string,
+): CanonicalGuardianDelivery[] {
   const db = getDb();
   return db
     .select()
@@ -459,9 +508,16 @@ export function listPendingCanonicalGuardianRequestsByDestinationConversation(
 ): CanonicalGuardianRequest[] {
   const db = getDb();
 
-  const deliveryConditions = [eq(canonicalGuardianDeliveries.destinationConversationId, destinationConversationId)];
+  const deliveryConditions = [
+    eq(
+      canonicalGuardianDeliveries.destinationConversationId,
+      destinationConversationId,
+    ),
+  ];
   if (destinationChannel) {
-    deliveryConditions.push(eq(canonicalGuardianDeliveries.destinationChannel, destinationChannel));
+    deliveryConditions.push(
+      eq(canonicalGuardianDeliveries.destinationChannel, destinationChannel),
+    );
   }
 
   const deliveries = db
@@ -480,7 +536,7 @@ export function listPendingCanonicalGuardianRequestsByDestinationConversation(
     seenRequestIds.add(delivery.requestId);
 
     const request = getCanonicalGuardianRequest(delivery.requestId);
-    if (request && request.status === 'pending') {
+    if (request && request.status === "pending") {
       pendingRequests.push(request);
     }
   }
@@ -525,7 +581,7 @@ export function listPendingCanonicalGuardianRequestsByDestinationChat(
     seenRequestIds.add(delivery.requestId);
 
     const request = getCanonicalGuardianRequest(delivery.requestId);
-    if (request && request.status === 'pending') {
+    if (request && request.status === "pending") {
       pendingRequests.push(request);
     }
   }
@@ -555,10 +611,14 @@ export function listPendingRequestsByConversationScope(
 ): CanonicalGuardianRequest[] {
   const bySource = listCanonicalGuardianRequests({
     conversationId,
-    status: 'pending',
+    status: "pending",
   });
 
-  const byDestination = listPendingCanonicalGuardianRequestsByDestinationConversation(conversationId, channel);
+  const byDestination =
+    listPendingCanonicalGuardianRequestsByDestinationConversation(
+      conversationId,
+      channel,
+    );
 
   const seen = new Set<string>();
   const result: CanonicalGuardianRequest[] = [];
@@ -603,9 +663,10 @@ export function isRequestInConversationScope(
 
   // Destination delivery match, optionally scoped by channel
   const deliveries = listCanonicalGuardianDeliveries(requestId);
-  return deliveries.some((d) =>
-    d.destinationConversationId === conversationId &&
-    (!channel || d.destinationChannel === channel),
+  return deliveries.some(
+    (d) =>
+      d.destinationConversationId === conversationId &&
+      (!channel || d.destinationChannel === channel),
   );
 }
 
@@ -622,7 +683,9 @@ export interface UpdateCanonicalGuardianDeliveryParams {
  * Find the most recent pending canonical guardian request for a given call session.
  * Used by the call-controller's consultation timeout handler.
  */
-export function getPendingCanonicalRequestByCallSessionId(callSessionId: string): CanonicalGuardianRequest | null {
+export function getPendingCanonicalRequestByCallSessionId(
+  callSessionId: string,
+): CanonicalGuardianRequest | null {
   const db = getDb();
   const row = db
     .select()
@@ -630,7 +693,7 @@ export function getPendingCanonicalRequestByCallSessionId(callSessionId: string)
     .where(
       and(
         eq(canonicalGuardianRequests.callSessionId, callSessionId),
-        eq(canonicalGuardianRequests.status, 'pending'),
+        eq(canonicalGuardianRequests.status, "pending"),
       ),
     )
     .orderBy(desc(canonicalGuardianRequests.createdAt))
@@ -642,7 +705,9 @@ export function getPendingCanonicalRequestByCallSessionId(callSessionId: string)
  * Find a canonical guardian request by its linked pending question ID.
  * Used after async dispatch completes to locate the newly created request.
  */
-export function getCanonicalRequestByPendingQuestionId(questionId: string): CanonicalGuardianRequest | null {
+export function getCanonicalRequestByPendingQuestionId(
+  questionId: string,
+): CanonicalGuardianRequest | null {
   const db = getDb();
   const row = db
     .select()
@@ -661,17 +726,17 @@ export function expireCanonicalGuardianRequest(id: string): void {
   const now = new Date().toISOString();
 
   db.update(canonicalGuardianRequests)
-    .set({ status: 'expired', updatedAt: now })
+    .set({ status: "expired", updatedAt: now })
     .where(
       and(
         eq(canonicalGuardianRequests.id, id),
-        eq(canonicalGuardianRequests.status, 'pending'),
+        eq(canonicalGuardianRequests.status, "pending"),
       ),
     )
     .run();
 
   db.update(canonicalGuardianDeliveries)
-    .set({ status: 'expired', updatedAt: now })
+    .set({ status: "expired", updatedAt: now })
     .where(eq(canonicalGuardianDeliveries.requestId, id))
     .run();
 }
@@ -685,7 +750,8 @@ export function updateCanonicalGuardianDelivery(
 
   const setValues: Record<string, unknown> = { updatedAt: now };
   if (updates.status !== undefined) setValues.status = updates.status;
-  if (updates.destinationMessageId !== undefined) setValues.destinationMessageId = updates.destinationMessageId;
+  if (updates.destinationMessageId !== undefined)
+    setValues.destinationMessageId = updates.destinationMessageId;
 
   db.update(canonicalGuardianDeliveries)
     .set(setValues)

@@ -12,7 +12,10 @@ export interface ConflictPolicyConfig {
  * Returns true when the given memory item kind is eligible to participate
  * in conflict detection according to the current policy.
  */
-export function isConflictKindEligible(kind: string, config: ConflictPolicyConfig): boolean {
+export function isConflictKindEligible(
+  kind: string,
+  config: ConflictPolicyConfig,
+): boolean {
   return config.conflictableKinds.includes(kind);
 }
 
@@ -24,20 +27,25 @@ export function isConflictKindPairEligible(
   candidateKind: string,
   config: ConflictPolicyConfig,
 ): boolean {
-  return isConflictKindEligible(existingKind, config) && isConflictKindEligible(candidateKind, config);
+  return (
+    isConflictKindEligible(existingKind, config) &&
+    isConflictKindEligible(candidateKind, config)
+  );
 }
 
 // ── Transient statement classification ─────────────────────────────────
 
 const PR_URL_PATTERN = /github\.com\/[^/]+\/[^/]+\/pull\/\d+/i;
 const ISSUE_TICKET_PATTERN = /\b(?:issue|pr|ticket|pull request)\s*#?\d+/i;
-const TRACKING_LANGUAGE_PATTERN = /\b(?:this pr|that issue|while we wait|currently tracking)\b/i;
+const TRACKING_LANGUAGE_PATTERN =
+  /\b(?:this pr|that issue|while we wait|currently tracking)\b/i;
 
 // Statements about needing clarification are transient conversational artifacts
 // extracted from previous conflict-gate interactions — not durable facts.
 // Allowing them into the conflict pipeline creates self-reinforcing loops.
 // Patterns are kept narrow to avoid filtering legitimate durable instructions.
-const META_CLARIFICATION_PATTERN = /\b(?:needs? clarification\b|unclear which (?:version|value|setting)\b|user should (?:specify|clarify)\b|conflicting (?:notes|instructions)(?:\s*[:."]|\s+(?:about|regarding|for)\b))/i;
+const META_CLARIFICATION_PATTERN =
+  /\b(?:needs? clarification\b|unclear which (?:version|value|setting)\b|user should (?:specify|clarify)\b|conflicting (?:notes|instructions)(?:\s*[:."]|\s+(?:about|regarding|for)\b))/i;
 
 /**
  * Returns true when a statement looks like a transient tracking note
@@ -52,7 +60,8 @@ export function isTransientTrackingStatement(statement: string): boolean {
   return false;
 }
 
-const DURABLE_INSTRUCTION_CUES = /\b(?:always|never|default|every time|by default|style|format|tone|convention|standard)\b/i;
+const DURABLE_INSTRUCTION_CUES =
+  /\b(?:always|never|default|every time|by default|style|format|tone|convention|standard)\b/i;
 
 /**
  * Returns true when a statement contains strong durable instruction cues,
@@ -70,10 +79,14 @@ export function isDurableInstructionStatement(statement: string): boolean {
  * For instruction/style kinds: requires positive durable cues and no transient cues.
  * For other eligible kinds: rejects if transient tracking cues dominate.
  */
-export function isStatementConflictEligible(kind: string, statement: string, config?: ConflictPolicyConfig): boolean {
+export function isStatementConflictEligible(
+  kind: string,
+  statement: string,
+  config?: ConflictPolicyConfig,
+): boolean {
   if (config && !isConflictKindEligible(kind, config)) return false;
   if (isTransientTrackingStatement(statement)) return false;
-  if (kind === 'instruction' || kind === 'style') {
+  if (kind === "instruction" || kind === "style") {
     return isDurableInstructionStatement(statement);
   }
   return true;

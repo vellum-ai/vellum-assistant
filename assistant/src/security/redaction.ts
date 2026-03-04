@@ -5,7 +5,7 @@
  * preserving the overall structure for debugging and audit.
  */
 
-const REDACTION_PLACEHOLDER = '<redacted />';
+const REDACTION_PLACEHOLDER = "<redacted />";
 
 /**
  * Normalized stems that trigger redaction. Keys are normalized by lowercasing
@@ -18,26 +18,26 @@ const REDACTION_PLACEHOLDER = '<redacted />';
  */
 const SENSITIVE_STEMS = new Set(
   [
-    'value',
-    'password',
-    'passwd',
-    'token',
-    'access.token',
-    'refresh.token',
-    'bearer.token',
-    'id.token',
-    'api.key',
-    'authorization',
-    'secret',
-    'client.secret',
-    'credentials',
-    'private.key',
-    'cookie',
-    'session.id',
-    'ssn',
-    'credit.card',
-    'card.number',
-  ].map((s) => s.replace(/\./g, '')),
+    "value",
+    "password",
+    "passwd",
+    "token",
+    "access.token",
+    "refresh.token",
+    "bearer.token",
+    "id.token",
+    "api.key",
+    "authorization",
+    "secret",
+    "client.secret",
+    "credentials",
+    "private.key",
+    "cookie",
+    "session.id",
+    "ssn",
+    "credit.card",
+    "card.number",
+  ].map((s) => s.replace(/\./g, "")),
 );
 
 /**
@@ -50,7 +50,7 @@ const SENSITIVE_STEMS = new Set(
  *   "X_API_KEY"     → "xapikey"
  */
 function normalizeKey(key: string): string {
-  return key.replace(/[-_]/g, '').toLowerCase();
+  return key.replace(/[-_]/g, "").toLowerCase();
 }
 
 function isSensitiveKey(key: string): boolean {
@@ -74,11 +74,11 @@ export function redactSensitiveFields(
       result[key] = REDACTION_PLACEHOLDER;
     } else if (Array.isArray(val)) {
       result[key] = val.map((item) =>
-        item != null && typeof item === 'object' && !Array.isArray(item)
+        item != null && typeof item === "object" && !Array.isArray(item)
           ? redactSensitiveFields(item as Record<string, unknown>)
           : item,
       );
-    } else if (val != null && typeof val === 'object') {
+    } else if (val != null && typeof val === "object") {
       result[key] = redactSensitiveFields(val as Record<string, unknown>);
     } else {
       result[key] = val;

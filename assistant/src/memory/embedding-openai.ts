@@ -1,9 +1,12 @@
-import OpenAI from 'openai';
+import OpenAI from "openai";
 
-import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
+import type {
+  EmbeddingBackend,
+  EmbeddingRequestOptions,
+} from "./embedding-backend.js";
 
 export class OpenAIEmbeddingBackend implements EmbeddingBackend {
-  readonly provider = 'openai' as const;
+  readonly provider = "openai" as const;
   readonly model: string;
   private readonly client: OpenAI;
 
@@ -12,15 +15,21 @@ export class OpenAIEmbeddingBackend implements EmbeddingBackend {
     this.client = new OpenAI({ apiKey });
   }
 
-  async embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
+  async embed(
+    texts: string[],
+    options?: EmbeddingRequestOptions,
+  ): Promise<number[][]> {
     if (texts.length === 0) return [];
-    const response = await this.client.embeddings.create({
-      model: this.model,
-      input: texts,
-      encoding_format: 'float',
-    }, {
-      signal: options?.signal,
-    });
+    const response = await this.client.embeddings.create(
+      {
+        model: this.model,
+        input: texts,
+        encoding_format: "float",
+      },
+      {
+        signal: options?.signal,
+      },
+    );
     return response.data.map((item) => item.embedding);
   }
 }

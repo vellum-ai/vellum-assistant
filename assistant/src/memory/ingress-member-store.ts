@@ -1,23 +1,27 @@
 /**
+ * @deprecated Legacy store. All reads and writes now go through the contacts
+ * table. This file is retained only for type exports and test backward
+ * compatibility until tests are migrated.
+ *
  * CRUD store for assistant ingress members — external users who have been
  * granted (or denied) access to interact with the assistant via a specific
  * channel. Members are keyed by raw channel identity fields (sourceChannel +
  * externalUserId / externalChatId).
  */
 
-import { and, desc, eq, or } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, desc, eq, or } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { getDb } from './db.js';
-import { assistantIngressMembers } from './schema.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getDb } from "./db.js";
+import { assistantIngressMembers } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type MemberStatus = 'pending' | 'active' | 'revoked' | 'blocked';
-export type MemberPolicy = 'allow' | 'deny' | 'escalate';
+export type MemberStatus = "pending" | "active" | "revoked" | "blocked";
+export type MemberPolicy = "allow" | "deny" | "escalate";
 
 export interface IngressMember {
   id: string;
@@ -42,7 +46,9 @@ export interface IngressMember {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToMember(row: typeof assistantIngressMembers.$inferSelect): IngressMember {
+function rowToMember(
+  row: typeof assistantIngressMembers.$inferSelect,
+): IngressMember {
   return {
     id: row.id,
     assistantId: row.assistantId,
@@ -82,7 +88,9 @@ export function upsertMember(params: {
   const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
   if (!params.externalUserId && !params.externalChatId) {
-    throw new Error('At least one of externalUserId or externalChatId must be provided');
+    throw new Error(
+      "At least one of externalUserId or externalChatId must be provided",
+    );
   }
 
   const db = getDb();
@@ -113,20 +121,28 @@ export function upsertMember(params: {
   const existing = db
     .select()
     .from(assistantIngressMembers)
-    .where(matchConditions.length === 1 ? matchConditions[0] : or(...matchConditions))
+    .where(
+      matchConditions.length === 1
+        ? matchConditions[0]
+        : or(...matchConditions),
+    )
     .get();
 
   if (existing) {
     // Update the existing member
     const updates: Record<string, unknown> = { updatedAt: now };
-    if (params.externalUserId !== undefined) updates.externalUserId = params.externalUserId;
-    if (params.externalChatId !== undefined) updates.externalChatId = params.externalChatId;
-    if (params.displayName !== undefined) updates.displayName = params.displayName;
+    if (params.externalUserId !== undefined)
+      updates.externalUserId = params.externalUserId;
+    if (params.externalChatId !== undefined)
+      updates.externalChatId = params.externalChatId;
+    if (params.displayName !== undefined)
+      updates.displayName = params.displayName;
     if (params.username !== undefined) updates.username = params.username;
     if (params.policy !== undefined) updates.policy = params.policy;
     if (params.status !== undefined) updates.status = params.status;
     if (params.inviteId !== undefined) updates.inviteId = params.inviteId;
-    if (params.createdBySessionId !== undefined) updates.createdBySessionId = params.createdBySessionId;
+    if (params.createdBySessionId !== undefined)
+      updates.createdBySessionId = params.createdBySessionId;
 
     db.update(assistantIngressMembers)
       .set(updates)
@@ -153,8 +169,8 @@ export function upsertMember(params: {
     externalChatId: params.externalChatId ?? null,
     displayName: params.displayName ?? null,
     username: params.username ?? null,
-    status: params.status ?? 'pending',
-    policy: params.policy ?? 'allow',
+    status: params.status ?? "pending",
+    policy: params.policy ?? "allow",
     inviteId: params.inviteId ?? null,
     createdBySessionId: params.createdBySessionId ?? null,
     revokedReason: null,
@@ -186,7 +202,9 @@ export function listMembers(params?: {
 
   const conditions = [eq(assistantIngressMembers.assistantId, assistantId)];
   if (params?.sourceChannel) {
-    conditions.push(eq(assistantIngressMembers.sourceChannel, params.sourceChannel));
+    conditions.push(
+      eq(assistantIngressMembers.sourceChannel, params.sourceChannel),
+    );
   }
   if (params?.status) {
     conditions.push(eq(assistantIngressMembers.status, params.status));
@@ -216,7 +234,10 @@ export function listMembers(params?: {
 // revokeMember
 // ---------------------------------------------------------------------------
 
-export function revokeMember(memberId: string, reason?: string): IngressMember | null {
+export function revokeMember(
+  memberId: string,
+  reason?: string,
+): IngressMember | null {
   const db = getDb();
   const now = Date.now();
 
@@ -229,13 +250,13 @@ export function revokeMember(memberId: string, reason?: string): IngressMember |
   if (!existing) return null;
 
   // Only revoke from active or pending status
-  if (existing.status !== 'active' && existing.status !== 'pending') {
+  if (existing.status !== "active" && existing.status !== "pending") {
     return null;
   }
 
   db.update(assistantIngressMembers)
     .set({
-      status: 'revoked',
+      status: "revoked",
       revokedReason: reason ?? null,
       updatedAt: now,
     })
@@ -248,14 +269,18 @@ export function revokeMember(memberId: string, reason?: string): IngressMember |
     .where(eq(assistantIngressMembers.id, memberId))
     .get();
 
-  return updated ? rowToMember(updated) : null;
+  if (!updated) return null;
+  return rowToMember(updated);
 }
 
 // ---------------------------------------------------------------------------
 // blockMember
 // ---------------------------------------------------------------------------
 
-export function blockMember(memberId: string, reason?: string): IngressMember | null {
+export function blockMember(
+  memberId: string,
+  reason?: string,
+): IngressMember | null {
   const db = getDb();
   const now = Date.now();
 
@@ -268,13 +293,13 @@ export function blockMember(memberId: string, reason?: string): IngressMember | 
   if (!existing) return null;
 
   // Can block from any non-blocked status
-  if (existing.status === 'blocked') {
+  if (existing.status === "blocked") {
     return null;
   }
 
   db.update(assistantIngressMembers)
     .set({
-      status: 'blocked',
+      status: "blocked",
       blockedReason: reason ?? null,
       updatedAt: now,
     })
@@ -287,7 +312,8 @@ export function blockMember(memberId: string, reason?: string): IngressMember | 
     .where(eq(assistantIngressMembers.id, memberId))
     .get();
 
-  return updated ? rowToMember(updated) : null;
+  if (!updated) return null;
+  return rowToMember(updated);
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +357,11 @@ export function findMember(params: {
   const row = db
     .select()
     .from(assistantIngressMembers)
-    .where(matchConditions.length === 1 ? matchConditions[0] : or(...matchConditions))
+    .where(
+      matchConditions.length === 1
+        ? matchConditions[0]
+        : or(...matchConditions),
+    )
     .get();
 
   return row ? rowToMember(row) : null;

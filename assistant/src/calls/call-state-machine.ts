@@ -6,7 +6,7 @@
  * transitions are permitted once a call reaches one of these states.
  */
 
-import type { CallStatus } from './types.js';
+import type { CallStatus } from "./types.js";
 
 // ── Transition table ─────────────────────────────────────────────────
 
@@ -15,17 +15,44 @@ import type { CallStatus } from './types.js';
  * Terminal states map to an empty set.
  */
 const ALLOWED_TRANSITIONS: Record<CallStatus, Set<CallStatus>> = {
-  initiated: new Set<CallStatus>(['ringing', 'in_progress', 'waiting_on_user', 'completed', 'failed', 'cancelled']),
-  ringing: new Set<CallStatus>(['in_progress', 'waiting_on_user', 'completed', 'failed', 'cancelled']),
-  in_progress: new Set<CallStatus>(['waiting_on_user', 'completed', 'failed', 'cancelled']),
-  waiting_on_user: new Set<CallStatus>(['in_progress', 'completed', 'failed', 'cancelled']),
+  initiated: new Set<CallStatus>([
+    "ringing",
+    "in_progress",
+    "waiting_on_user",
+    "completed",
+    "failed",
+    "cancelled",
+  ]),
+  ringing: new Set<CallStatus>([
+    "in_progress",
+    "waiting_on_user",
+    "completed",
+    "failed",
+    "cancelled",
+  ]),
+  in_progress: new Set<CallStatus>([
+    "waiting_on_user",
+    "completed",
+    "failed",
+    "cancelled",
+  ]),
+  waiting_on_user: new Set<CallStatus>([
+    "in_progress",
+    "completed",
+    "failed",
+    "cancelled",
+  ]),
   // Terminal states — no further transitions allowed
   completed: new Set<CallStatus>(),
   failed: new Set<CallStatus>(),
   cancelled: new Set<CallStatus>(),
 };
 
-const TERMINAL_STATES: Set<CallStatus> = new Set(['completed', 'failed', 'cancelled']);
+const TERMINAL_STATES: Set<CallStatus> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+]);
 
 // ── Public API ───────────────────────────────────────────────────────
 
@@ -37,7 +64,10 @@ export interface TransitionResult {
 /**
  * Check whether a transition from `current` to `next` is allowed.
  */
-export function validateTransition(current: CallStatus, next: CallStatus): TransitionResult {
+export function validateTransition(
+  current: CallStatus,
+  next: CallStatus,
+): TransitionResult {
   if (current === next) {
     return { valid: true };
   }

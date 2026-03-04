@@ -1,4 +1,4 @@
-import { statSync } from 'node:fs';
+import { statSync } from "node:fs";
 
 /** Default maximum file size: 100 MB */
 export const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
@@ -19,7 +19,9 @@ export function checkFileSizeOnDisk(
 ): string | undefined {
   const stat = statSync(filePath);
   if (stat.size > limit) {
-    return `File size (${formatBytes(stat.size)}) exceeds the ${formatBytes(limit)} limit: ${filePath}`;
+    return `File size (${formatBytes(stat.size)}) exceeds the ${formatBytes(
+      limit,
+    )} limit: ${filePath}`;
   }
   return undefined;
 }
@@ -33,9 +35,11 @@ export function checkContentSize(
   filePath: string,
   limit: number = MAX_FILE_SIZE_BYTES,
 ): string | undefined {
-  const size = Buffer.byteLength(content, 'utf-8');
+  const size = Buffer.byteLength(content, "utf-8");
   if (size > limit) {
-    return `Content size (${formatBytes(size)}) exceeds the ${formatBytes(limit)} limit for: ${filePath}`;
+    return `Content size (${formatBytes(size)}) exceeds the ${formatBytes(
+      limit,
+    )} limit for: ${filePath}`;
   }
   return undefined;
 }

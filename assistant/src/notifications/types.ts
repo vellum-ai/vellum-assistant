@@ -5,18 +5,25 @@
  * depend on, plus the decision engine output contract.
  */
 
-import type { ChannelPolicies } from '../channels/config.js';
-import type { ChannelId } from '../channels/types.js';
+import type { ChannelPolicies } from "../channels/config.js";
+import type { ChannelId } from "../channels/types.js";
 
 /**
  * Derived from the channel policy registry: only channels whose
  * deliveryEnabled flag is true are valid notification channels.
  */
 export type NotificationChannel = {
-  [K in keyof ChannelPolicies]: ChannelPolicies[K]['notification']['deliveryEnabled'] extends true ? K : never;
-}[keyof ChannelPolicies] & ChannelId;
+  [K in keyof ChannelPolicies]: ChannelPolicies[K]["notification"]["deliveryEnabled"] extends true
+    ? K
+    : never;
+}[keyof ChannelPolicies] &
+  ChannelId;
 
-export type NotificationDeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped';
+export type NotificationDeliveryStatus =
+  | "pending"
+  | "sent"
+  | "failed"
+  | "skipped";
 
 /** Result of attempting to deliver a notification to a single channel. */
 export interface NotificationDeliveryResult {
@@ -64,7 +71,10 @@ export interface ChannelDeliveryPayload {
 /** Interface that each channel adapter must implement. */
 export interface ChannelAdapter {
   channel: NotificationChannel;
-  send(payload: ChannelDeliveryPayload, destination: ChannelDestination): Promise<DeliveryResult>;
+  send(
+    payload: ChannelDeliveryPayload,
+    destination: ChannelDestination,
+  ): Promise<DeliveryResult>;
 }
 
 // -- Decision engine output ---------------------------------------------------
@@ -83,18 +93,17 @@ export interface RenderedChannelCopy {
 
 /** Start a new conversation thread for the notification delivery. */
 export interface ThreadActionStartNew {
-  action: 'start_new';
+  action: "start_new";
 }
 
 /** Reuse an existing conversation thread identified by conversationId. */
 export interface ThreadActionReuseExisting {
-  action: 'reuse_existing';
+  action: "reuse_existing";
   conversationId: string;
 }
 
 /** Per-channel thread action — either start a new thread or reuse an existing one. */
 export type ThreadAction = ThreadActionStartNew | ThreadActionReuseExisting;
-
 
 /** Output produced by the notification decision engine for a given signal. */
 export interface NotificationDecision {

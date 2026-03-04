@@ -17,7 +17,7 @@ import type {
   SenderDigestResult,
   SendOptions,
   SendResult,
-} from './provider-types.js';
+} from "./provider-types.js";
 
 export interface MessagingProvider {
   /** Unique provider key (e.g. 'slack', 'gmail', 'discord'). */
@@ -30,18 +30,47 @@ export interface MessagingProvider {
   // ── Universal operations (every platform must implement) ──────────
 
   testConnection(token: string): Promise<ConnectionInfo>;
-  listConversations(token: string, options?: ListOptions): Promise<Conversation[]>;
-  getHistory(token: string, conversationId: string, options?: HistoryOptions): Promise<Message[]>;
-  search(token: string, query: string, options?: SearchOptions): Promise<SearchResult>;
-  sendMessage(token: string, conversationId: string, text: string, options?: SendOptions): Promise<SendResult>;
+  listConversations(
+    token: string,
+    options?: ListOptions,
+  ): Promise<Conversation[]>;
+  getHistory(
+    token: string,
+    conversationId: string,
+    options?: HistoryOptions,
+  ): Promise<Message[]>;
+  search(
+    token: string,
+    query: string,
+    options?: SearchOptions,
+  ): Promise<SearchResult>;
+  sendMessage(
+    token: string,
+    conversationId: string,
+    text: string,
+    options?: SendOptions,
+  ): Promise<SendResult>;
 
   // ── Optional operations (platforms implement what they support) ───
 
-  getThreadReplies?(token: string, conversationId: string, threadId: string, options?: HistoryOptions): Promise<Message[]>;
-  markRead?(token: string, conversationId: string, messageId?: string): Promise<void>;
+  getThreadReplies?(
+    token: string,
+    conversationId: string,
+    threadId: string,
+    options?: HistoryOptions,
+  ): Promise<Message[]>;
+  markRead?(
+    token: string,
+    conversationId: string,
+    messageId?: string,
+  ): Promise<void>;
 
   /** Scan messages and group by sender for bulk cleanup (e.g. newsletter decluttering). */
-  senderDigest?(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number; pageToken?: string }): Promise<SenderDigestResult>;
+  senderDigest?(
+    token: string,
+    query: string,
+    options?: { maxMessages?: number; maxSenders?: number; pageToken?: string },
+  ): Promise<SenderDigestResult>;
   /** Archive messages matching a search query. */
   archiveByQuery?(token: string, query: string): Promise<ArchiveResult>;
 

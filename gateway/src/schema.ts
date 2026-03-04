@@ -202,7 +202,10 @@ export function buildSchema(): Record<string, unknown> {
             required: true,
             content: {
               "application/x-www-form-urlencoded": {
-                schema: { type: "object", additionalProperties: { type: "string" } },
+                schema: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                },
               },
             },
           },
@@ -211,7 +214,8 @@ export function buildSchema(): Record<string, unknown> {
               description: "Webhook processed, runtime response forwarded",
             },
             "403": {
-              description: "Twilio signature validation failed or auth token not configured",
+              description:
+                "Twilio signature validation failed or auth token not configured",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -256,7 +260,10 @@ export function buildSchema(): Record<string, unknown> {
             required: true,
             content: {
               "application/x-www-form-urlencoded": {
-                schema: { type: "object", additionalProperties: { type: "string" } },
+                schema: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                },
               },
             },
           },
@@ -310,7 +317,10 @@ export function buildSchema(): Record<string, unknown> {
             required: true,
             content: {
               "application/x-www-form-urlencoded": {
-                schema: { type: "object", additionalProperties: { type: "string" } },
+                schema: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                },
               },
             },
           },
@@ -364,7 +374,10 @@ export function buildSchema(): Record<string, unknown> {
             required: true,
             content: {
               "application/x-www-form-urlencoded": {
-                schema: { type: "object", additionalProperties: { type: "string" } },
+                schema: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                },
               },
             },
           },
@@ -386,7 +399,8 @@ export function buildSchema(): Record<string, unknown> {
               },
             },
             "403": {
-              description: "Twilio signature validation failed or auth token not configured",
+              description:
+                "Twilio signature validation failed or auth token not configured",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -514,7 +528,8 @@ export function buildSchema(): Record<string, unknown> {
           ],
           responses: {
             "200": {
-              description: "Verification successful — challenge echoed as plain text",
+              description:
+                "Verification successful — challenge echoed as plain text",
               content: {
                 "text/plain": { schema: { type: "string" } },
               },
@@ -689,12 +704,14 @@ export function buildSchema(): Record<string, unknown> {
               in: "query",
               required: true,
               schema: { type: "string" },
-              description: "Call session identifier used to correlate the WebSocket connection with the runtime relay session.",
+              description:
+                "Call session identifier used to correlate the WebSocket connection with the runtime relay session.",
             },
           ],
           responses: {
             "101": {
-              description: "WebSocket upgrade successful — bidirectional frame proxying begins.",
+              description:
+                "WebSocket upgrade successful — bidirectional frame proxying begins.",
             },
             "400": {
               description: "Missing callSessionId query parameter",
@@ -727,21 +744,24 @@ export function buildSchema(): Record<string, unknown> {
               in: "query",
               required: true,
               schema: { type: "string" },
-              description: "Opaque state parameter used to correlate the callback with the original OAuth flow.",
+              description:
+                "Opaque state parameter used to correlate the callback with the original OAuth flow.",
             },
             {
               name: "code",
               in: "query",
               required: false,
               schema: { type: "string" },
-              description: "Authorization code returned by the OAuth provider on success.",
+              description:
+                "Authorization code returned by the OAuth provider on success.",
             },
             {
               name: "error",
               in: "query",
               required: false,
               schema: { type: "string" },
-              description: "Error code returned by the OAuth provider on failure.",
+              description:
+                "Error code returned by the OAuth provider on failure.",
             },
           ],
           responses: {
@@ -754,7 +774,8 @@ export function buildSchema(): Record<string, unknown> {
               },
             },
             "400": {
-              description: "Missing state parameter or authorization failed — HTML error page rendered",
+              description:
+                "Missing state parameter or authorization failed — HTML error page rendered",
               content: {
                 "text/html": {
                   schema: { type: "string" },
@@ -762,7 +783,8 @@ export function buildSchema(): Record<string, unknown> {
               },
             },
             "502": {
-              description: "Failed to forward callback to assistant runtime — HTML error page rendered",
+              description:
+                "Failed to forward callback to assistant runtime — HTML error page rendered",
               content: {
                 "text/html": {
                   schema: { type: "string" },
@@ -781,7 +803,9 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           responses: {
             "200": { description: "Telegram config returned" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -804,7 +828,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Telegram config updated" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -818,7 +844,9 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           responses: {
             "200": { description: "Telegram config cleared" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -843,7 +871,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Telegram commands updated" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -868,7 +898,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Telegram setup completed" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -884,7 +916,9 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           responses: {
             "200": { description: "Ingress members returned" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -907,7 +941,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Ingress member upserted" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -931,7 +967,9 @@ export function buildSchema(): Record<string, unknown> {
           ],
           responses: {
             "200": { description: "Ingress member revoked" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "404": { description: "Member not found" },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
@@ -964,7 +1002,9 @@ export function buildSchema(): Record<string, unknown> {
           },
           responses: {
             "200": { description: "Ingress member blocked" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "404": { description: "Member not found or already blocked" },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
@@ -981,7 +1021,9 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           responses: {
             "200": { description: "Ingress invites returned" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1004,7 +1046,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Ingress invite created" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1029,7 +1073,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Ingress invite redeemed" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "404": { description: "Invite not found" },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
@@ -1054,7 +1100,9 @@ export function buildSchema(): Record<string, unknown> {
           ],
           responses: {
             "200": { description: "Ingress invite revoked" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "404": { description: "Invite not found or already revoked" },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
@@ -1080,7 +1128,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Challenge created" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1105,7 +1155,9 @@ export function buildSchema(): Record<string, unknown> {
           ],
           responses: {
             "200": { description: "Guardian status returned" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1130,7 +1182,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Outbound verification started" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "429": { description: "Rate limited by verification policy" },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
@@ -1156,7 +1210,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Verification resent" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "429": { description: "Rate limited by verification policy" },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
@@ -1182,7 +1238,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Verification cancelled" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1198,7 +1256,9 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           responses: {
             "200": { description: "Twilio config returned" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1223,7 +1283,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Twilio credentials stored" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1237,7 +1299,9 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           responses: {
             "200": { description: "Twilio credentials cleared" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1253,7 +1317,9 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           responses: {
             "200": { description: "Twilio phone numbers returned" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1278,7 +1344,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Phone number provisioned" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1303,7 +1371,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Phone number assigned" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1328,7 +1398,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Phone number released" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1344,7 +1416,9 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           responses: {
             "200": { description: "SMS compliance status returned" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1369,7 +1443,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Toll-free verification submitted" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1402,7 +1478,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Toll-free verification updated" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1424,7 +1502,9 @@ export function buildSchema(): Record<string, unknown> {
           ],
           responses: {
             "200": { description: "Toll-free verification deleted" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "404": { description: "Verification not found" },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
@@ -1450,7 +1530,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "Test SMS sent" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1475,7 +1557,9 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "SMS doctor diagnostics returned" },
             "400": { description: "Invalid request payload" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1491,7 +1575,9 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           responses: {
             "200": { description: "Channel readiness status returned" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1515,7 +1601,9 @@ export function buildSchema(): Record<string, unknown> {
           },
           responses: {
             "200": { description: "Channel readiness refreshed" },
-            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
@@ -1534,7 +1622,9 @@ export function buildSchema(): Record<string, unknown> {
               description: "Integration status",
               content: {
                 "application/json": {
-                  schema: { $ref: "#/components/schemas/IntegrationsStatusResponse" },
+                  schema: {
+                    $ref: "#/components/schemas/IntegrationsStatusResponse",
+                  },
                 },
               },
             },
@@ -1639,7 +1729,8 @@ export function buildSchema(): Record<string, unknown> {
               },
             },
             "400": {
-              description: "Invalid JSON, missing required fields, or unsupported attachments",
+              description:
+                "Invalid JSON, missing required fields, or unsupported attachments",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -1694,8 +1785,7 @@ export function buildSchema(): Record<string, unknown> {
               in: "path",
               required: true,
               schema: { type: "string" },
-              description:
-                "Upstream path forwarded to the assistant runtime",
+              description: "Upstream path forwarded to the assistant runtime",
             },
           ],
           responses: {
@@ -1757,8 +1847,7 @@ export function buildSchema(): Record<string, unknown> {
               in: "path",
               required: true,
               schema: { type: "string" },
-              description:
-                "Upstream path forwarded to the assistant runtime",
+              description: "Upstream path forwarded to the assistant runtime",
             },
           ],
           requestBody: {
@@ -1847,13 +1936,35 @@ export function buildSchema(): Record<string, unknown> {
         },
         SmsDeliverRequest: {
           type: "object",
-          description: "Request to deliver an SMS message via Twilio. Provide either `to` or `chatId` (alias) as the recipient phone number. `text` is optional when `attachments` are present — a fallback text message is sent instead.",
+          description:
+            "Request to deliver an SMS message via Twilio. Provide either `to` or `chatId` (alias) as the recipient phone number. `text` is optional when `attachments` are present — a fallback text message is sent instead.",
           properties: {
-            to: { type: "string", description: "Recipient phone number in E.164 format" },
-            chatId: { type: "string", description: "Alias for `to` — recipient phone number in E.164 format. Used by the runtime channel callback payload." },
-            text: { type: "string", description: "Text content to send", minLength: 1 },
-            assistantId: { type: "string", description: "Optional assistant ID for per-assistant phone number resolution in multi-assistant setups" },
-            attachments: { type: "array", items: { type: "object" }, minItems: 1, description: "Media attachments. When text is empty but attachments are present, a fallback text message is sent instead." },
+            to: {
+              type: "string",
+              description: "Recipient phone number in E.164 format",
+            },
+            chatId: {
+              type: "string",
+              description:
+                "Alias for `to` — recipient phone number in E.164 format. Used by the runtime channel callback payload.",
+            },
+            text: {
+              type: "string",
+              description: "Text content to send",
+              minLength: 1,
+            },
+            assistantId: {
+              type: "string",
+              description:
+                "Optional assistant ID for per-assistant phone number resolution in multi-assistant setups",
+            },
+            attachments: {
+              type: "array",
+              items: { type: "object" },
+              minItems: 1,
+              description:
+                "Media attachments. When text is empty but attachments are present, a fallback text message is sent instead.",
+            },
           },
           allOf: [
             { anyOf: [{ required: ["to"] }, { required: ["chatId"] }] },
@@ -1959,17 +2070,35 @@ export function buildSchema(): Record<string, unknown> {
         },
         WhatsAppDeliverRequest: {
           type: "object",
-          description: "Request to deliver a WhatsApp text message. Accepts either `to` or `chatId` (alias).",
+          description:
+            "Request to deliver a WhatsApp text message. Accepts either `to` or `chatId` (alias).",
           properties: {
-            to: { type: "string", description: "Recipient WhatsApp phone number in E.164 format" },
-            chatId: { type: "string", description: "Alias for `to` — used by runtime channel callback payloads" },
-            text: { type: "string", description: "Text content to send", minLength: 1 },
-            assistantId: { type: "string", description: "Optional assistant ID" },
-            attachments: { type: "array", items: { type: "object" }, description: "Attachments (not yet supported — a fallback text is sent instead)" },
+            to: {
+              type: "string",
+              description: "Recipient WhatsApp phone number in E.164 format",
+            },
+            chatId: {
+              type: "string",
+              description:
+                "Alias for `to` — used by runtime channel callback payloads",
+            },
+            text: {
+              type: "string",
+              description: "Text content to send",
+              minLength: 1,
+            },
+            assistantId: {
+              type: "string",
+              description: "Optional assistant ID",
+            },
+            attachments: {
+              type: "array",
+              items: { type: "object" },
+              description:
+                "Attachments (not yet supported — a fallback text is sent instead)",
+            },
           },
-          allOf: [
-            { anyOf: [{ required: ["to"] }, { required: ["chatId"] }] },
-          ],
+          allOf: [{ anyOf: [{ required: ["to"] }, { required: ["chatId"] }] }],
         },
         TelegramDeliverRequest: {
           type: "object",
@@ -1977,17 +2106,30 @@ export function buildSchema(): Record<string, unknown> {
           description:
             "Request to deliver a message or chat action to a Telegram chat. At least one of `text`, `attachments`, or `chatAction` must be provided.",
           properties: {
-            chatId: { type: "string", description: "Telegram chat ID to deliver the message to" },
-            text: { type: "string", description: "Text content to send", minLength: 1 },
-            assistantId: { type: "string", description: "Assistant ID (optional — attachments are downloaded via the assistant-less endpoint when omitted)" },
+            chatId: {
+              type: "string",
+              description: "Telegram chat ID to deliver the message to",
+            },
+            text: {
+              type: "string",
+              description: "Text content to send",
+              minLength: 1,
+            },
+            assistantId: {
+              type: "string",
+              description:
+                "Assistant ID (optional — attachments are downloaded via the assistant-less endpoint when omitted)",
+            },
             chatAction: {
               type: "string",
               enum: ["typing"],
-              description: "Optional Telegram chat action to emit (currently only `typing`)",
+              description:
+                "Optional Telegram chat action to emit (currently only `typing`)",
             },
             attachments: {
               type: "array",
-              description: "Attachments to deliver (images sent via sendPhoto, others via sendDocument)",
+              description:
+                "Attachments to deliver (images sent via sendPhoto, others via sendDocument)",
               items: { $ref: "#/components/schemas/RuntimeAttachmentMeta" },
               minItems: 1,
             },
@@ -2001,7 +2143,8 @@ export function buildSchema(): Record<string, unknown> {
         RuntimeAttachmentMeta: {
           type: "object",
           required: ["id"],
-          description: "Attachment metadata. Only `id` is required; missing fields are hydrated from the downloaded attachment data.",
+          description:
+            "Attachment metadata. Only `id` is required; missing fields are hydrated from the downloaded attachment data.",
           properties: {
             id: { type: "string" },
             filename: { type: "string" },
@@ -2012,12 +2155,27 @@ export function buildSchema(): Record<string, unknown> {
         },
         SlackDeliverRequest: {
           type: "object",
-          description: "Request to deliver a message to a Slack channel. Accepts either `chatId` or `to` (alias) as the Slack channel ID.",
+          description:
+            "Request to deliver a message to a Slack channel. Accepts either `chatId` or `to` (alias) as the Slack channel ID.",
           properties: {
-            chatId: { type: "string", description: "Slack channel ID to deliver the message to" },
-            to: { type: "string", description: "Alias for `chatId` — used by runtime channel callback payloads" },
-            text: { type: "string", description: "Text content to send", minLength: 1 },
-            assistantId: { type: "string", description: "Optional assistant ID" },
+            chatId: {
+              type: "string",
+              description: "Slack channel ID to deliver the message to",
+            },
+            to: {
+              type: "string",
+              description:
+                "Alias for `chatId` — used by runtime channel callback payloads",
+            },
+            text: {
+              type: "string",
+              description: "Text content to send",
+              minLength: 1,
+            },
+            assistantId: {
+              type: "string",
+              description: "Optional assistant ID",
+            },
           },
           allOf: [
             { anyOf: [{ required: ["chatId"] }, { required: ["to"] }] },
@@ -2043,7 +2201,8 @@ export function buildSchema(): Record<string, unknown> {
               properties: {
                 address: {
                   type: ["string", "null"],
-                  description: "The assistant's email address, or null if not yet set up.",
+                  description:
+                    "The assistant's email address, or null if not yet set up.",
                 },
               },
             },
@@ -2064,13 +2223,15 @@ export function buildSchema(): Record<string, unknown> {
           type: "apiKey",
           in: "header",
           name: "X-Twilio-Signature",
-          description: "HMAC-SHA1 signature computed by Twilio over the request URL and form parameters.",
+          description:
+            "HMAC-SHA1 signature computed by Twilio over the request URL and form parameters.",
         },
         WhatsAppHubSignature: {
           type: "apiKey",
           in: "header",
           name: "X-Hub-Signature-256",
-          description: "HMAC-SHA256 signature computed by Meta over the raw request body using the app secret.",
+          description:
+            "HMAC-SHA256 signature computed by Meta over the raw request body using the app secret.",
         },
       },
     },

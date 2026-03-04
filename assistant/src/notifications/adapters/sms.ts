@@ -12,20 +12,20 @@
  * so the broadcaster continues delivering to other channels.
  */
 
-import { getGatewayInternalBaseUrl } from '../../config/env.js';
-import { mintDaemonDeliveryToken } from '../../runtime/auth/token-service.js';
-import { deliverChannelReply } from '../../runtime/gateway-client.js';
-import { getLogger } from '../../util/logger.js';
-import { nonEmpty } from '../copy-composer.js';
+import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
+import { deliverChannelReply } from "../../runtime/gateway-client.js";
+import { getLogger } from "../../util/logger.js";
+import { nonEmpty } from "../copy-composer.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
   NotificationChannel,
-} from '../types.js';
+} from "../types.js";
 
-const log = getLogger('notif-adapter-sms');
+const log = getLogger("notif-adapter-sms");
 
 function resolveSmsMessageText(payload: ChannelDeliveryPayload): string {
   const deliveryText = nonEmpty(payload.copy.deliveryText);
@@ -37,17 +37,26 @@ function resolveSmsMessageText(payload: ChannelDeliveryPayload): string {
   const title = nonEmpty(payload.copy.title);
   if (title) return title;
 
-  return payload.sourceEventName.replace(/[._]/g, ' ');
+  return payload.sourceEventName.replace(/[._]/g, " ");
 }
 
 export class SmsAdapter implements ChannelAdapter {
-  readonly channel: NotificationChannel = 'sms';
+  readonly channel: NotificationChannel = "sms";
 
-  async send(payload: ChannelDeliveryPayload, destination: ChannelDestination): Promise<DeliveryResult> {
+  async send(
+    payload: ChannelDeliveryPayload,
+    destination: ChannelDestination,
+  ): Promise<DeliveryResult> {
     const phoneNumber = destination.endpoint;
     if (!phoneNumber) {
-      log.warn({ sourceEventName: payload.sourceEventName }, 'SMS destination has no phone number — skipping');
-      return { success: false, error: 'No phone number configured for SMS destination' };
+      log.warn(
+        { sourceEventName: payload.sourceEventName },
+        "SMS destination has no phone number — skipping",
+      );
+      return {
+        success: false,
+        error: "No phone number configured for SMS destination",
+      };
     }
 
     const gatewayBase = getGatewayInternalBaseUrl();
@@ -58,13 +67,17 @@ export class SmsAdapter implements ChannelAdapter {
     try {
       await deliverChannelReply(
         deliverUrl,
-        { chatId: phoneNumber, text: messageText, assistantId: payload.assistantId },
+        {
+          chatId: phoneNumber,
+          text: messageText,
+          assistantId: payload.assistantId,
+        },
         mintDaemonDeliveryToken(),
       );
 
       log.info(
         { sourceEventName: payload.sourceEventName, phoneNumber },
-        'SMS notification delivered',
+        "SMS notification delivered",
       );
 
       return { success: true };
@@ -72,7 +85,7 @@ export class SmsAdapter implements ChannelAdapter {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
         { err, sourceEventName: payload.sourceEventName, phoneNumber },
-        'Failed to deliver SMS notification',
+        "Failed to deliver SMS notification",
       );
       return { success: false, error: message };
     }

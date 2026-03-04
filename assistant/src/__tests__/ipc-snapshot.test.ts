@@ -33,6 +33,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     selectedPattern: "bash:npm *",
     selectedScope: "/projects/my-app",
   },
+  contacts: {
+    type: "contacts",
+    action: "list",
+    role: "guardian",
+    limit: 50,
+  },
   session_list: {
     type: "session_list",
   },
@@ -792,6 +798,14 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     source: "inline_nl",
     causedByRequestId: "req-003",
     decisionText: "approve",
+  },
+  contacts_response: {
+    type: "contacts_response",
+    success: true,
+    contacts: [],
+  },
+  contacts_changed: {
+    type: "contacts_changed",
   },
   assistant_activity_state: {
     type: "assistant_activity_state",

@@ -26,7 +26,10 @@ function firstHeaderValue(value: string | null): string | undefined {
  * potential configuration drift between the ingress URL and the actual
  * webhook registration.
  */
-function buildSignatureUrlCandidates(req: Request, config: GatewayConfig): string[] {
+function buildSignatureUrlCandidates(
+  req: Request,
+  config: GatewayConfig,
+): string[] {
   const parsedUrl = new URL(req.url);
   const pathAndQuery = parsedUrl.pathname + parsedUrl.search;
   const candidates: string[] = [];
@@ -115,7 +118,9 @@ export async function validateTwilioWebhookRequest(
 
   // Fail-closed: reject if no auth token is configured
   if (!config.twilioAuthToken) {
-    log.error("Twilio auth token not configured — rejecting webhook (fail-closed)");
+    log.error(
+      "Twilio auth token not configured — rejecting webhook (fail-closed)",
+    );
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -128,7 +133,10 @@ export async function validateTwilioWebhookRequest(
 
   // Payload size guard (actual body size)
   if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
-    log.warn({ bodyLength: Buffer.byteLength(rawBody) }, "Twilio webhook payload too large");
+    log.warn(
+      { bodyLength: Buffer.byteLength(rawBody) },
+      "Twilio webhook payload too large",
+    );
     return Response.json({ error: "Payload too large" }, { status: 413 });
   }
 

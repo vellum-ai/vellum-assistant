@@ -5,7 +5,7 @@
  * actor/session identifiers in a colon-delimited string.
  */
 
-import type { PrincipalType } from './types.js';
+import type { PrincipalType } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -34,34 +34,40 @@ export type ParseSubResult =
  *   ipc:<assistantId>:<sessionId>
  */
 export function parseSub(sub: string): ParseSubResult {
-  if (!sub || typeof sub !== 'string') {
-    return { ok: false, reason: 'sub is empty or not a string' };
+  if (!sub || typeof sub !== "string") {
+    return { ok: false, reason: "sub is empty or not a string" };
   }
 
-  const parts = sub.split(':');
+  const parts = sub.split(":");
 
-  if (parts[0] === 'actor' && parts.length === 3) {
+  if (parts[0] === "actor" && parts.length === 3) {
     const [, assistantId, actorPrincipalId] = parts;
     if (!assistantId || !actorPrincipalId) {
-      return { ok: false, reason: 'actor sub has empty assistantId or actorPrincipalId' };
+      return {
+        ok: false,
+        reason: "actor sub has empty assistantId or actorPrincipalId",
+      };
     }
-    return { ok: true, principalType: 'actor', assistantId, actorPrincipalId };
+    return { ok: true, principalType: "actor", assistantId, actorPrincipalId };
   }
 
-  if (parts[0] === 'svc' && parts[1] === 'gateway' && parts.length === 3) {
+  if (parts[0] === "svc" && parts[1] === "gateway" && parts.length === 3) {
     const assistantId = parts[2];
     if (!assistantId) {
-      return { ok: false, reason: 'svc:gateway sub has empty assistantId' };
+      return { ok: false, reason: "svc:gateway sub has empty assistantId" };
     }
-    return { ok: true, principalType: 'svc_gateway', assistantId };
+    return { ok: true, principalType: "svc_gateway", assistantId };
   }
 
-  if (parts[0] === 'ipc' && parts.length === 3) {
+  if (parts[0] === "ipc" && parts.length === 3) {
     const [, assistantId, sessionId] = parts;
     if (!assistantId || !sessionId) {
-      return { ok: false, reason: 'ipc sub has empty assistantId or sessionId' };
+      return {
+        ok: false,
+        reason: "ipc sub has empty assistantId or sessionId",
+      };
     }
-    return { ok: true, principalType: 'ipc', assistantId, sessionId };
+    return { ok: true, principalType: "ipc", assistantId, sessionId };
   }
 
   return { ok: false, reason: `unrecognized sub pattern: ${sub}` };

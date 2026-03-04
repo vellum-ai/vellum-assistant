@@ -4,12 +4,12 @@
  * graph and dynamic profile.
  */
 
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull } from "drizzle-orm";
 
-import { getDb } from '../memory/db.js';
-import { memoryItems } from '../memory/schema.js';
-import type { Playbook } from './types.js';
-import { parsePlaybookStatement } from './types.js';
+import { getDb } from "../memory/db.js";
+import { memoryItems } from "../memory/schema.js";
+import type { Playbook } from "./types.js";
+import { parsePlaybookStatement } from "./types.js";
 
 export interface CompiledPlaybooks {
   /** Formatted text block ready for system prompt injection. */
@@ -30,8 +30,10 @@ interface PlaybookRow {
   statement: string;
 }
 
-export function compilePlaybooks(options?: CompilePlaybooksOptions): CompiledPlaybooks {
-  const scopeId = options?.scopeId ?? 'default';
+export function compilePlaybooks(
+  options?: CompilePlaybooksOptions,
+): CompiledPlaybooks {
+  const scopeId = options?.scopeId ?? "default";
   const db = getDb();
 
   const rows: PlaybookRow[] = db
@@ -41,17 +43,19 @@ export function compilePlaybooks(options?: CompilePlaybooksOptions): CompiledPla
       statement: memoryItems.statement,
     })
     .from(memoryItems)
-    .where(and(
-      eq(memoryItems.kind, 'playbook'),
-      eq(memoryItems.status, 'active'),
-      eq(memoryItems.scopeId, scopeId),
-      isNull(memoryItems.invalidAt),
-    ))
+    .where(
+      and(
+        eq(memoryItems.kind, "playbook"),
+        eq(memoryItems.status, "active"),
+        eq(memoryItems.scopeId, scopeId),
+        isNull(memoryItems.invalidAt),
+      ),
+    )
     .orderBy(desc(memoryItems.importance))
     .all();
 
   if (rows.length === 0) {
-    return { text: '', totalCount: 0, includedCount: 0 };
+    return { text: "", totalCount: 0, includedCount: 0 };
   }
 
   const parsed: Array<{ id: string; subject: string; playbook: Playbook }> = [];
@@ -63,28 +67,30 @@ export function compilePlaybooks(options?: CompilePlaybooksOptions): CompiledPla
   }
 
   if (parsed.length === 0) {
-    return { text: '', totalCount: rows.length, includedCount: 0 };
+    return { text: "", totalCount: rows.length, includedCount: 0 };
   }
 
   // Sort by priority descending so higher-priority rules appear first
   parsed.sort((a, b) => b.playbook.priority - a.playbook.priority);
 
-  const lines: string[] = ['<action-playbooks>'];
+  const lines: string[] = ["<action-playbooks>"];
   for (const { playbook } of parsed) {
-    const channelLabel = playbook.channel === '*' ? 'all channels' : playbook.channel;
-    const autonomyLabel = playbook.autonomyLevel === 'auto'
-      ? 'execute automatically'
-      : playbook.autonomyLevel === 'draft'
-        ? 'draft for review'
-        : 'notify only';
+    const channelLabel =
+      playbook.channel === "*" ? "all channels" : playbook.channel;
+    const autonomyLabel =
+      playbook.autonomyLevel === "auto"
+        ? "execute automatically"
+        : playbook.autonomyLevel === "draft"
+          ? "draft for review"
+          : "notify only";
     lines.push(
       `- WHEN "${playbook.trigger}" on ${channelLabel} → ${playbook.action} [${autonomyLabel}, priority=${playbook.priority}]`,
     );
   }
-  lines.push('</action-playbooks>');
+  lines.push("</action-playbooks>");
 
   return {
-    text: lines.join('\n'),
+    text: lines.join("\n"),
     totalCount: rows.length,
     includedCount: parsed.length,
   };

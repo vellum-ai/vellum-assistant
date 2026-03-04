@@ -5,10 +5,13 @@
  * directives, tool content blocks, and file reads.
  */
 
-import { readFileSync, statSync } from 'node:fs';
-import { basename } from 'node:path';
+import { readFileSync, statSync } from "node:fs";
+import { basename } from "node:path";
 
-import { hostPolicy,sandboxPolicy } from '../tools/shared/filesystem/path-policy.js';
+import {
+  hostPolicy,
+  sandboxPolicy,
+} from "../tools/shared/filesystem/path-policy.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -24,7 +27,7 @@ export const MAX_ASSISTANT_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 // Types
 // ---------------------------------------------------------------------------
 
-export type AttachmentSourceType = 'sandbox_file' | 'host_file' | 'tool_block';
+export type AttachmentSourceType = "sandbox_file" | "host_file" | "tool_block";
 
 export interface AssistantAttachmentDraft {
   sourceType: AttachmentSourceType;
@@ -32,7 +35,7 @@ export interface AssistantAttachmentDraft {
   mimeType: string;
   dataBase64: string;
   sizeBytes: number;
-  kind: 'image' | 'video' | 'document';
+  kind: "image" | "video" | "document";
 }
 
 // ---------------------------------------------------------------------------
@@ -44,8 +47,8 @@ export interface AssistantAttachmentDraft {
  * Accounts for trailing `=` padding characters.
  */
 export function estimateBase64Bytes(base64: string): number {
-  const trimmed = base64.replace(/\s/g, '');
-  const padding = trimmed.endsWith('==') ? 2 : trimmed.endsWith('=') ? 1 : 0;
+  const trimmed = base64.replace(/\s/g, "");
+  const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
 }
 
@@ -55,37 +58,37 @@ export function estimateBase64Bytes(base64: string): number {
 
 const EXTENSION_MIME_MAP: Record<string, string> = {
   // Images
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  gif: 'image/gif',
-  webp: 'image/webp',
-  svg: 'image/svg+xml',
-  ico: 'image/x-icon',
-  bmp: 'image/bmp',
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  ico: "image/x-icon",
+  bmp: "image/bmp",
 
   // Documents
-  pdf: 'application/pdf',
-  json: 'application/json',
-  xml: 'application/xml',
-  csv: 'text/csv',
-  txt: 'text/plain',
-  md: 'text/markdown',
-  html: 'text/html',
-  css: 'text/css',
-  js: 'text/javascript',
-  ts: 'text/typescript',
+  pdf: "application/pdf",
+  json: "application/json",
+  xml: "application/xml",
+  csv: "text/csv",
+  txt: "text/plain",
+  md: "text/markdown",
+  html: "text/html",
+  css: "text/css",
+  js: "text/javascript",
+  ts: "text/typescript",
 
   // Video
-  mp4: 'video/mp4',
-  webm: 'video/webm',
-  mov: 'video/quicktime',
-  mpeg: 'video/mpeg',
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  mpeg: "video/mpeg",
 
   // Archives
-  zip: 'application/zip',
-  gz: 'application/gzip',
-  tar: 'application/x-tar',
+  zip: "application/zip",
+  gz: "application/gzip",
+  tar: "application/x-tar",
 };
 
 /**
@@ -93,20 +96,20 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
  * Returns `application/octet-stream` when the extension is unrecognised.
  */
 export function inferMimeType(filename: string): string {
-  const dot = filename.lastIndexOf('.');
-  if (dot === -1) return 'application/octet-stream';
+  const dot = filename.lastIndexOf(".");
+  if (dot === -1) return "application/octet-stream";
   const ext = filename.slice(dot + 1).toLowerCase();
-  return EXTENSION_MIME_MAP[ext] ?? 'application/octet-stream';
+  return EXTENSION_MIME_MAP[ext] ?? "application/octet-stream";
 }
 
 // ---------------------------------------------------------------------------
 // Kind classification
 // ---------------------------------------------------------------------------
 
-export function classifyKind(mimeType: string): 'image' | 'video' | 'document' {
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  return 'document';
+export function classifyKind(mimeType: string): "image" | "video" | "document" {
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  return "document";
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +127,9 @@ export interface ValidatedDrafts {
  * - Rejects individual drafts that exceed `MAX_ASSISTANT_ATTACHMENT_BYTES`.
  * - Truncates the list at `MAX_ASSISTANT_ATTACHMENTS`.
  */
-export function validateDrafts(drafts: AssistantAttachmentDraft[]): ValidatedDrafts {
+export function validateDrafts(
+  drafts: AssistantAttachmentDraft[],
+): ValidatedDrafts {
   const accepted: AssistantAttachmentDraft[] = [];
   const warnings: string[] = [];
 
@@ -132,7 +137,9 @@ export function validateDrafts(drafts: AssistantAttachmentDraft[]): ValidatedDra
     if (draft.sizeBytes > MAX_ASSISTANT_ATTACHMENT_BYTES) {
       warnings.push(
         `Skipped attachment "${draft.filename}": ` +
-        `size ${formatBytes(draft.sizeBytes)} exceeds ${formatBytes(MAX_ASSISTANT_ATTACHMENT_BYTES)} limit.`,
+          `size ${formatBytes(draft.sizeBytes)} exceeds ${formatBytes(
+            MAX_ASSISTANT_ATTACHMENT_BYTES,
+          )} limit.`,
       );
       continue;
     }
@@ -140,7 +147,7 @@ export function validateDrafts(drafts: AssistantAttachmentDraft[]): ValidatedDra
     if (accepted.length >= MAX_ASSISTANT_ATTACHMENTS) {
       warnings.push(
         `Skipped attachment "${draft.filename}": ` +
-        `exceeded maximum of ${MAX_ASSISTANT_ATTACHMENTS} attachments per turn.`,
+          `exceeded maximum of ${MAX_ASSISTANT_ATTACHMENTS} attachments per turn.`,
       );
       continue;
     }
@@ -155,7 +162,7 @@ export function validateDrafts(drafts: AssistantAttachmentDraft[]): ValidatedDra
 // Directive parser
 // ---------------------------------------------------------------------------
 
-export type DirectiveSource = 'sandbox' | 'host';
+export type DirectiveSource = "sandbox" | "host";
 
 export interface DirectiveRequest {
   source: DirectiveSource;
@@ -214,13 +221,15 @@ export function parseDirectives(text: string): DirectiveParseResult {
   const cleanText = text.replace(DIRECTIVE_RE, (fullMatch, attrStr: string) => {
     const attrs = parseAttributes(attrStr);
 
-    if (!attrs['path']) {
-      parseWarnings.push('Ignored <vellum-attachment />: missing required "path" attribute.');
+    if (!attrs["path"]) {
+      parseWarnings.push(
+        'Ignored <vellum-attachment />: missing required "path" attribute.',
+      );
       return fullMatch;
     }
 
-    const sourceRaw = attrs['source'] ?? 'sandbox';
-    if (sourceRaw !== 'sandbox' && sourceRaw !== 'host') {
+    const sourceRaw = attrs["source"] ?? "sandbox";
+    if (sourceRaw !== "sandbox" && sourceRaw !== "host") {
       parseWarnings.push(
         `Ignored <vellum-attachment />: invalid source="${sourceRaw}". Must be "sandbox" or "host".`,
       );
@@ -229,18 +238,19 @@ export function parseDirectives(text: string): DirectiveParseResult {
 
     directiveRequests.push({
       source: sourceRaw,
-      path: attrs['path'],
-      filename: attrs['filename'] || undefined,
-      mimeType: attrs['mime_type'] || undefined,
+      path: attrs["path"],
+      filename: attrs["filename"] || undefined,
+      mimeType: attrs["mime_type"] || undefined,
     });
 
-    return '';
+    return "";
   });
 
   return {
-    cleanText: directiveRequests.length > 0
-      ? cleanText.replace(/\n{3,}/g, '\n\n').trim()
-      : cleanText,
+    cleanText:
+      directiveRequests.length > 0
+        ? cleanText.replace(/\n{3,}/g, "\n\n").trim()
+        : cleanText,
     directiveRequests,
     parseWarnings,
   };
@@ -255,7 +265,7 @@ export function parseDirectives(text: string): DirectiveParseResult {
  * - Incomplete directives are retained in `bufferedRemainder` until more
  *   text arrives.
  */
-const DIRECTIVE_TAG_PREFIX = '<vellum-attachment';
+const DIRECTIVE_TAG_PREFIX = "<vellum-attachment";
 
 /**
  * Check whether `text` ends with a prefix of `tag` (e.g. "<", "<v", "<ve", …).
@@ -270,18 +280,20 @@ function splitTrailingPrefix(
   // match would have been caught by indexOf above.
   const searchStart = Math.max(0, text.length - tag.length + 1);
   for (let i = text.length - 1; i >= searchStart; i--) {
-    if (text[i] === '<') {
+    if (text[i] === "<") {
       const candidate = text.slice(i);
       if (tag.startsWith(candidate)) {
         return { safe: text.slice(0, i), trailing: candidate };
       }
     }
   }
-  return { safe: text, trailing: '' };
+  return { safe: text, trailing: "" };
 }
 
-export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDrainResult {
-  let emitText = '';
+export function drainDirectiveDisplayBuffer(
+  buffer: string,
+): DirectiveDisplayDrainResult {
+  let emitText = "";
   let cursor = 0;
 
   while (cursor < buffer.length) {
@@ -297,7 +309,7 @@ export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDra
 
     emitText += buffer.slice(cursor, start);
 
-    const end = buffer.indexOf('/>', start);
+    const end = buffer.indexOf("/>", start);
     if (end === -1) {
       return {
         emitText,
@@ -321,9 +333,12 @@ export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDra
       // streaming mode more data may arrive in the next chunk — eagerly
       // trimming would merge words across the directive boundary.
       const nextChar = buffer[end + 2];
-      if (emitText.endsWith('\r\n') && nextChar === '\r') {
+      if (emitText.endsWith("\r\n") && nextChar === "\r") {
         emitText = emitText.slice(0, -2); // trim full \r\n
-      } else if (emitText.endsWith('\n') && (nextChar === '\n' || nextChar === '\r')) {
+      } else if (
+        emitText.endsWith("\n") &&
+        (nextChar === "\n" || nextChar === "\r")
+      ) {
         emitText = emitText.slice(0, -1); // trim \n
       }
     }
@@ -331,7 +346,7 @@ export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDra
     cursor = end + 2;
   }
 
-  return { emitText, bufferedRemainder: '' };
+  return { emitText, bufferedRemainder: "" };
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +383,7 @@ export function resolveSandboxDirective(
     stat = statSync(resolved);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
+    if (code === "ENOENT") {
       return {
         draft: null,
         warning: `Skipped sandbox attachment "${directive.path}": file not found.`,
@@ -376,7 +391,9 @@ export function resolveSandboxDirective(
     }
     return {
       draft: null,
-      warning: `Skipped sandbox attachment "${directive.path}": stat error: ${(err as Error).message}`,
+      warning: `Skipped sandbox attachment "${directive.path}": stat error: ${
+        (err as Error).message
+      }`,
     };
   }
 
@@ -390,7 +407,11 @@ export function resolveSandboxDirective(
   if (stat.size > MAX_ASSISTANT_ATTACHMENT_BYTES) {
     return {
       draft: null,
-      warning: `Skipped sandbox attachment "${directive.path}": size ${formatBytes(stat.size)} exceeds ${formatBytes(MAX_ASSISTANT_ATTACHMENT_BYTES)} limit.`,
+      warning: `Skipped sandbox attachment "${
+        directive.path
+      }": size ${formatBytes(stat.size)} exceeds ${formatBytes(
+        MAX_ASSISTANT_ATTACHMENT_BYTES,
+      )} limit.`,
     };
   }
 
@@ -400,17 +421,19 @@ export function resolveSandboxDirective(
   } catch (err) {
     return {
       draft: null,
-      warning: `Skipped sandbox attachment "${directive.path}": read error: ${(err as Error).message}`,
+      warning: `Skipped sandbox attachment "${directive.path}": read error: ${
+        (err as Error).message
+      }`,
     };
   }
 
   const filename = directive.filename ?? basename(resolved);
   const mimeType = directive.mimeType ?? inferMimeType(filename);
-  const dataBase64 = data.toString('base64');
+  const dataBase64 = data.toString("base64");
 
   return {
     draft: {
-      sourceType: 'sandbox_file',
+      sourceType: "sandbox_file",
       filename,
       mimeType,
       dataBase64,
@@ -474,7 +497,7 @@ export async function resolveHostDirective(
     stat = statSync(resolved);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
+    if (code === "ENOENT") {
       return {
         draft: null,
         warning: `Skipped host attachment "${directive.path}": file not found.`,
@@ -482,7 +505,9 @@ export async function resolveHostDirective(
     }
     return {
       draft: null,
-      warning: `Skipped host attachment "${directive.path}": stat error: ${(err as Error).message}`,
+      warning: `Skipped host attachment "${directive.path}": stat error: ${
+        (err as Error).message
+      }`,
     };
   }
 
@@ -496,7 +521,9 @@ export async function resolveHostDirective(
   if (stat.size > MAX_ASSISTANT_ATTACHMENT_BYTES) {
     return {
       draft: null,
-      warning: `Skipped host attachment "${directive.path}": size ${formatBytes(stat.size)} exceeds ${formatBytes(MAX_ASSISTANT_ATTACHMENT_BYTES)} limit.`,
+      warning: `Skipped host attachment "${directive.path}": size ${formatBytes(
+        stat.size,
+      )} exceeds ${formatBytes(MAX_ASSISTANT_ATTACHMENT_BYTES)} limit.`,
     };
   }
 
@@ -506,17 +533,19 @@ export async function resolveHostDirective(
   } catch (err) {
     return {
       draft: null,
-      warning: `Skipped host attachment "${directive.path}": read error: ${(err as Error).message}`,
+      warning: `Skipped host attachment "${directive.path}": read error: ${
+        (err as Error).message
+      }`,
     };
   }
 
   const filename = directive.filename ?? basename(resolved);
   const mimeType = directive.mimeType ?? inferMimeType(filename);
-  const dataBase64 = data.toString('base64');
+  const dataBase64 = data.toString("base64");
 
   return {
     draft: {
-      sourceType: 'host_file',
+      sourceType: "host_file",
       filename,
       mimeType,
       dataBase64,
@@ -546,9 +575,10 @@ export async function resolveDirectives(
   const warnings: string[] = [];
 
   for (const d of directives) {
-    const result = d.source === 'sandbox'
-      ? resolveSandboxDirective(d, workingDir)
-      : await resolveHostDirective(d, approveHostRead);
+    const result =
+      d.source === "sandbox"
+        ? resolveSandboxDirective(d, workingDir)
+        : await resolveHostDirective(d, approveHostRead);
     if (result.draft) drafts.push(result.draft);
     if (result.warning) warnings.push(result.warning);
   }
@@ -561,13 +591,18 @@ export async function resolveDirectives(
 // ---------------------------------------------------------------------------
 
 interface ImageBlock {
-  type: 'image';
-  source: { type: 'base64'; media_type: string; data: string };
+  type: "image";
+  source: { type: "base64"; media_type: string; data: string };
 }
 
 interface FileBlock {
-  type: 'file';
-  source: { type: 'base64'; media_type: string; data: string; filename: string };
+  type: "file";
+  source: {
+    type: "base64";
+    media_type: string;
+    data: string;
+    filename: string;
+  };
 }
 
 /**
@@ -581,26 +616,26 @@ export function contentBlocksToDrafts(
 
   for (const block of blocks) {
     const b = block as Record<string, unknown>;
-    if (b.type === 'image') {
-      const src = b.source as ImageBlock['source'];
+    if (b.type === "image") {
+      const src = b.source as ImageBlock["source"];
       const data = src.data;
       const mimeType = src.media_type;
-      const ext = mimeType.split('/')[1] ?? 'png';
+      const ext = mimeType.split("/")[1] ?? "png";
       drafts.push({
-        sourceType: 'tool_block',
+        sourceType: "tool_block",
         filename: `tool-output.${ext}`,
         mimeType,
         dataBase64: data,
         sizeBytes: estimateBase64Bytes(data),
-        kind: 'image',
+        kind: "image",
       });
-    } else if (b.type === 'file') {
-      const src = b.source as FileBlock['source'];
+    } else if (b.type === "file") {
+      const src = b.source as FileBlock["source"];
       const data = src.data;
       const mimeType = src.media_type;
       const filename = src.filename;
       drafts.push({
-        sourceType: 'tool_block',
+        sourceType: "tool_block",
         filename,
         mimeType,
         dataBase64: data,
@@ -621,9 +656,7 @@ export function contentBlocksToDrafts(
  * Parse directives from assistant content blocks, returning cleaned content
  * (tags stripped) and all accumulated directive requests + warnings.
  */
-export function cleanAssistantContent(
-  content: readonly unknown[],
-): {
+export function cleanAssistantContent(content: readonly unknown[]): {
   cleanedContent: unknown[];
   directives: DirectiveRequest[];
   warnings: string[];
@@ -633,12 +666,12 @@ export function cleanAssistantContent(
 
   const cleanedContent = content.map((block) => {
     const b = block as Record<string, unknown>;
-    if (b.type !== 'text') return block;
+    if (b.type !== "text") return block;
     const text = b.text as string;
     // Only run the directive parser when the text actually contains a
     // potential tag. This avoids unintentional whitespace normalisation
     // (parseDirectives trims and collapses blank lines) on plain messages.
-    if (!text.includes('<vellum-attachment')) return block;
+    if (!text.includes("<vellum-attachment")) return block;
     const result = parseDirectives(text);
     directives.push(...result.directiveRequests);
     warnings.push(...result.parseWarnings);
@@ -661,7 +694,9 @@ export function cleanAssistantContent(
  * data from being attached twice when it appears as both a directive tag
  * (user-chosen name) and an auto-converted tool block ("tool-output.png").
  */
-export function deduplicateDrafts(drafts: AssistantAttachmentDraft[]): AssistantAttachmentDraft[] {
+export function deduplicateDrafts(
+  drafts: AssistantAttachmentDraft[],
+): AssistantAttachmentDraft[] {
   const seenKeys = new Set<string>();
   const seenDirectiveHashes = new Set<string>();
   return drafts.filter((d) => {
@@ -673,10 +708,11 @@ export function deduplicateDrafts(drafts: AssistantAttachmentDraft[]): Assistant
 
     // Tool-block draft whose content was already attached via a directive:
     // drop the tool-block copy so the directive's user-chosen name wins.
-    if (d.sourceType === 'tool_block' && seenDirectiveHashes.has(hash)) return false;
+    if (d.sourceType === "tool_block" && seenDirectiveHashes.has(hash))
+      return false;
 
     seenKeys.add(key);
-    if (d.sourceType !== 'tool_block') seenDirectiveHashes.add(hash);
+    if (d.sourceType !== "tool_block") seenDirectiveHashes.add(hash);
     return true;
   });
 }

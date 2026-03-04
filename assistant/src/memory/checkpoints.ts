@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq } from "drizzle-orm";
 
-import { getDb } from './db.js';
-import { memoryCheckpoints } from './schema.js';
+import { getDb } from "./db.js";
+import { memoryCheckpoints } from "./schema.js";
 
 export interface MessageCursorCheckpoint {
   createdAt: number;
@@ -34,8 +34,9 @@ export function readMessageCursorCheckpoint(
   createdAtKey: string,
   messageIdKey: string,
 ): MessageCursorCheckpoint {
-  const createdAt = Number.parseInt(getMemoryCheckpoint(createdAtKey) ?? '0', 10) || 0;
-  const messageId = getMemoryCheckpoint(messageIdKey) ?? '';
+  const createdAt =
+    Number.parseInt(getMemoryCheckpoint(createdAtKey) ?? "0", 10) || 0;
+  const messageId = getMemoryCheckpoint(messageIdKey) ?? "";
   return { createdAt, messageId };
 }
 
@@ -48,6 +49,12 @@ export function writeMessageCursorCheckpoint(
   setMemoryCheckpoint(messageIdKey, checkpoint.messageId);
 }
 
-export function resetMessageCursorCheckpoint(createdAtKey: string, messageIdKey: string): void {
-  writeMessageCursorCheckpoint(createdAtKey, messageIdKey, { createdAt: 0, messageId: '' });
+export function resetMessageCursorCheckpoint(
+  createdAtKey: string,
+  messageIdKey: string,
+): void {
+  writeMessageCursorCheckpoint(createdAtKey, messageIdKey, {
+    createdAt: 0,
+    messageId: "",
+  });
 }

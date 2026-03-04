@@ -226,7 +226,9 @@ async function simulateNotifierPoll(params: {
     }
   }
 
-  const waitingText = `Waiting for ${guardianName ?? resolveUserReference()}'s approval...`;
+  const waitingText = `Waiting for ${
+    guardianName ?? resolveUserReference()
+  }'s approval...`;
 
   try {
     await deliverChannelReply(

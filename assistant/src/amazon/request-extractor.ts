@@ -6,19 +6,19 @@
  * Captured requests are saved to ~/.vellum/workspace/data/amazon/captured-requests.json
  */
 
-import { existsSync,mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-import type { SessionRecording } from '../tools/browser/network-recording-types.js';
-import { getDataDir } from '../util/platform.js';
+import type { SessionRecording } from "../tools/browser/network-recording-types.js";
+import { getDataDir } from "../util/platform.js";
 
 export type AmazonRequestKey =
-  | 'search'
-  | 'addToCart'
-  | 'addToCartFresh'
-  | 'viewCart'
-  | 'freshDeliveryWindows'
-  | 'placeOrder';
+  | "search"
+  | "addToCart"
+  | "addToCartFresh"
+  | "viewCart"
+  | "freshDeliveryWindows"
+  | "placeOrder";
 
 export interface CapturedRequest {
   key: AmazonRequestKey;
@@ -30,7 +30,7 @@ export interface CapturedRequest {
 }
 
 function getCapturedRequestsPath(): string {
-  return join(getDataDir(), 'amazon', 'captured-requests.json');
+  return join(getDataDir(), "amazon", "captured-requests.json");
 }
 
 /**
@@ -38,16 +38,29 @@ function getCapturedRequestsPath(): string {
  * Returns null if the URL doesn't match any known pattern.
  */
 function classifyUrl(url: string, method: string): AmazonRequestKey | null {
-  const withoutQuery = url.split('?')[0];
+  const withoutQuery = url.split("?")[0];
 
-  if (url.includes('/s?') || /\/s\/[^/]/.test(withoutQuery)) return 'search';
-  if (withoutQuery.includes('/alm/addtofreshcart') && method === 'POST') return 'addToCartFresh';
-  if (withoutQuery.includes('/gp/add-to-cart') || withoutQuery.includes('/cart/smart-add')) return 'addToCart';
+  if (url.includes("/s?") || /\/s\/[^/]/.test(withoutQuery)) return "search";
+  if (withoutQuery.includes("/alm/addtofreshcart") && method === "POST")
+    return "addToCartFresh";
+  if (
+    withoutQuery.includes("/gp/add-to-cart") ||
+    withoutQuery.includes("/cart/smart-add")
+  )
+    return "addToCart";
   // Prefer the lightweight JSON endpoint over the HTML cart page
-  if (withoutQuery.includes('/cart/add-to-cart/get-cart-items')) return 'viewCart';
-  if (withoutQuery.includes('/gp/cart/view') || withoutQuery.endsWith('/cart/') || withoutQuery.endsWith('/cart')) return 'viewCart';
-  if (withoutQuery.includes('/fresh/deliverywindows')) return 'freshDeliveryWindows';
-  if (withoutQuery.includes('/gp/buy/spc') && method === 'POST') return 'placeOrder';
+  if (withoutQuery.includes("/cart/add-to-cart/get-cart-items"))
+    return "viewCart";
+  if (
+    withoutQuery.includes("/gp/cart/view") ||
+    withoutQuery.endsWith("/cart/") ||
+    withoutQuery.endsWith("/cart")
+  )
+    return "viewCart";
+  if (withoutQuery.includes("/fresh/deliverywindows"))
+    return "freshDeliveryWindows";
+  if (withoutQuery.includes("/gp/buy/spc") && method === "POST")
+    return "placeOrder";
 
   return null;
 }
@@ -57,34 +70,36 @@ function classifyUrl(url: string, method: string): AmazonRequestKey | null {
  * Filters for amazon.com URLs, classifies them, deduplicates by key
  * (keeps last occurrence).
  */
-export function extractRequests(recording: SessionRecording): CapturedRequest[] {
+export function extractRequests(
+  recording: SessionRecording,
+): CapturedRequest[] {
   const byKey = new Map<AmazonRequestKey, CapturedRequest>();
 
   for (const entry of recording.networkEntries) {
     const url = entry.request.url;
-    if (!url.includes('amazon.com')) continue;
+    if (!url.includes("amazon.com")) continue;
 
-    const method = (entry.request.method ?? 'GET').toUpperCase();
+    const method = (entry.request.method ?? "GET").toUpperCase();
     const key = classifyUrl(url, method);
     if (!key) continue;
 
     // Use base URL (without query params) as the pattern
-    const urlPattern = url.split('?')[0];
+    const urlPattern = url.split("?")[0];
 
     // Extract field names from JSON POST bodies (values omitted — they're session-specific)
     let bodyFields: string[] | undefined;
     const postData = entry.request.postData;
-    if (postData && method === 'POST') {
+    if (postData && method === "POST") {
       try {
         const parsed = JSON.parse(postData);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           bodyFields = Object.keys(parsed);
         }
       } catch {
         // form-encoded body — extract field names
         bodyFields = postData
-          .split('&')
-          .map(p => decodeURIComponent(p.split('=')[0]))
+          .split("&")
+          .map((p) => decodeURIComponent(p.split("=")[0]))
           .filter(Boolean);
       }
     }
@@ -116,8 +131,8 @@ export function saveRequests(requests: CapturedRequest[]): string {
   }
 
   const filePath = getCapturedRequestsPath();
-  mkdirSync(join(filePath, '..'), { recursive: true });
-  writeFileSync(filePath, JSON.stringify(existing, null, 2), 'utf-8');
+  mkdirSync(join(filePath, ".."), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(existing, null, 2), "utf-8");
   return filePath;
 }
 
@@ -128,7 +143,7 @@ export function loadCapturedRequests(): Record<string, CapturedRequest> {
   const filePath = getCapturedRequestsPath();
   if (!existsSync(filePath)) return {};
   try {
-    const data = readFileSync(filePath, 'utf-8');
+    const data = readFileSync(filePath, "utf-8");
     return JSON.parse(data) as Record<string, CapturedRequest>;
   } catch {
     return {};

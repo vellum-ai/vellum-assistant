@@ -1,17 +1,41 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
 
-import { deleteSecureKey,getSecureKey, setSecureKey } from '../security/secure-keys.js';
-import { ConfigError } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
-import { ensureDataDir, getWorkspaceConfigPath, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
-import { AssistantConfigSchema } from './schema.js';
-import type { AssistantConfig } from './types.js';
+import {
+  deleteSecureKey,
+  getSecureKey,
+  setSecureKey,
+} from "../security/secure-keys.js";
+import { ConfigError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
+import {
+  ensureDataDir,
+  getWorkspaceConfigPath,
+  migrateToDataLayout,
+  migrateToWorkspaceLayout,
+} from "../util/platform.js";
+import { AssistantConfigSchema } from "./schema.js";
+import type { AssistantConfig } from "./types.js";
 
-const log = getLogger('config');
+const log = getLogger("config");
 
 // Providers that store API keys in secure storage (superset of VALID_PROVIDERS)
-export const API_KEY_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter', 'brave', 'perplexity'] as const;
+export const API_KEY_PROVIDERS = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "ollama",
+  "fireworks",
+  "openrouter",
+  "brave",
+  "perplexity",
+] as const;
 
 let cached: AssistantConfig | null = null;
 let loading = false;
@@ -30,7 +54,6 @@ function ensureMigratedDataDir(): void {
   migrateToWorkspaceLayout();
   ensureDataDir();
 }
-
 
 /**
  * Zod 4's .default({}) returns {} as output without running inner-schema
@@ -64,8 +87,12 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
 
   // Log each validation issue as a warning
   for (const issue of result.error.issues) {
-    const path = issue.path.join('.');
-    log.warn(`Invalid config${path ? ` at "${path}"` : ''}: ${issue.message}. Falling back to default.`);
+    const path = issue.path.join(".");
+    log.warn(
+      `Invalid config${path ? ` at "${path}"` : ""}: ${
+        issue.message
+      }. Falling back to default.`,
+    );
   }
 
   // Strip invalid fields by setting them to undefined so Zod defaults apply,
@@ -85,17 +112,20 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   }
 
   // If still failing, fall back to full defaults
-  log.warn('Config validation failed after cleanup. Using full defaults.');
+  log.warn("Config validation failed after cleanup. Using full defaults.");
   return cloneDefaultConfig();
 }
 
-function deleteNestedKey(obj: Record<string, unknown>, path: (string | number)[]): void {
+function deleteNestedKey(
+  obj: Record<string, unknown>,
+  path: (string | number)[],
+): void {
   let current: unknown = obj;
   for (let i = 0; i < path.length - 1; i++) {
-    if (current == null || typeof current !== 'object') return;
+    if (current == null || typeof current !== "object") return;
     current = (current as Record<string, unknown>)[String(path[i])];
   }
-  if (current != null && typeof current === 'object') {
+  if (current != null && typeof current === "object") {
     delete (current as Record<string, unknown>)[String(path[path.length - 1])];
   }
 }
@@ -119,15 +149,18 @@ export function loadConfig(): AssistantConfig {
       const mode = statSync(configPath).mode;
       if (mode & 0o077) {
         log.warn(
-          `Config file ${configPath} is readable by other users (mode ${(mode & 0o777).toString(8)}). ` +
-          `Run: chmod 600 ${configPath}`,
+          `Config file ${configPath} is readable by other users (mode ${(
+            mode & 0o777
+          ).toString(8)}). ` + `Run: chmod 600 ${configPath}`,
         );
       }
 
       try {
-        fileConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+        fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
       } catch (err) {
-        throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
+        throw new ConfigError(
+          `Failed to parse config at ${configPath}: ${err}`,
+        );
       }
     } else {
       configFileExisted = false;
@@ -136,17 +169,21 @@ export function loadConfig(): AssistantConfig {
     // Pre-validate apiKeys shape before migration (must be a plain object)
     if (
       fileConfig.apiKeys !== undefined &&
-      (typeof fileConfig.apiKeys !== 'object' || fileConfig.apiKeys == null || Array.isArray(fileConfig.apiKeys))
+      (typeof fileConfig.apiKeys !== "object" ||
+        fileConfig.apiKeys == null ||
+        Array.isArray(fileConfig.apiKeys))
     ) {
-      log.warn('Invalid apiKeys in config file: must be an object with string values. Ignoring.');
+      log.warn(
+        "Invalid apiKeys in config file: must be an object with string values. Ignoring.",
+      );
       delete fileConfig.apiKeys;
     }
 
     // Auto-migrate plaintext apiKeys from config.json to secure storage
-    if (fileConfig.apiKeys && typeof fileConfig.apiKeys === 'object') {
+    if (fileConfig.apiKeys && typeof fileConfig.apiKeys === "object") {
       const apiKeysObj = fileConfig.apiKeys as Record<string, unknown>;
       const plaintextKeys = Object.entries(apiKeysObj).filter(
-        ([, v]) => typeof v === 'string' && (v as string).length > 0,
+        ([, v]) => typeof v === "string" && (v as string).length > 0,
       );
       if (plaintextKeys.length > 0) {
         const migratedProviders: string[] = [];
@@ -154,23 +191,30 @@ export function loadConfig(): AssistantConfig {
           if (setSecureKey(provider, value as string)) {
             migratedProviders.push(provider);
           } else {
-            log.warn(`Failed to migrate API key for "${provider}" to secure storage`);
+            log.warn(
+              `Failed to migrate API key for "${provider}" to secure storage`,
+            );
           }
         }
         if (migratedProviders.length > 0) {
           // Rewrite config.json without successfully migrated apiKeys
           try {
-            const rawJson = JSON.parse(readFileSync(configPath, 'utf-8'));
+            const rawJson = JSON.parse(readFileSync(configPath, "utf-8"));
             for (const p of migratedProviders) {
               delete rawJson.apiKeys[p];
             }
             if (Object.keys(rawJson.apiKeys).length === 0) {
               delete rawJson.apiKeys;
             }
-            writeFileSync(configPath, JSON.stringify(rawJson, null, 2) + '\n');
-            log.info(`Migrated ${migratedProviders.length} API key(s) from config.json to secure storage`);
+            writeFileSync(configPath, JSON.stringify(rawJson, null, 2) + "\n");
+            log.info(
+              `Migrated ${migratedProviders.length} API key(s) from config.json to secure storage`,
+            );
           } catch (err) {
-            log.warn({ err }, 'Failed to remove migrated keys from config.json');
+            log.warn(
+              { err },
+              "Failed to remove migrated keys from config.json",
+            );
           }
         }
         // Clear only migrated keys from fileConfig so failed keys still flow into config
@@ -196,10 +240,10 @@ export function loadConfig(): AssistantConfig {
         }
         // Strip apiKeys (managed in secure storage) and dataDir (runtime-derived)
         const { apiKeys: _, dataDir: _d, ...persistable } = config;
-        writeFileSync(configPath, JSON.stringify(persistable, null, 2) + '\n');
-        log.info('Wrote default config to %s', configPath);
+        writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
+        log.info("Wrote default config to %s", configPath);
       } catch (err) {
-        log.warn({ err }, 'Failed to write default config file');
+        log.warn({ err }, "Failed to write default config file");
       }
     }
 
@@ -216,7 +260,7 @@ export function loadConfig(): AssistantConfig {
         }
       }
     } catch (err) {
-      log.debug({ err }, 'Failed to load keys from secure storage');
+      log.debug({ err }, "Failed to load keys from secure storage");
     }
 
     // Environment variables override everything
@@ -261,21 +305,23 @@ export function saveConfig(config: AssistantConfig): void {
 
   // Route apiKeys to secure storage, write config without them
   for (const [provider, value] of Object.entries(config.apiKeys)) {
-    if (typeof value === 'string' && value.length > 0) {
+    if (typeof value === "string" && value.length > 0) {
       if (!setSecureKey(provider, value)) {
-        throw new ConfigError(`Failed to save API key for "${provider}" to secure storage`);
+        throw new ConfigError(
+          `Failed to save API key for "${provider}" to secure storage`,
+        );
       }
     }
   }
   // Delete secure keys for providers no longer in apiKeys or with empty values
   for (const provider of API_KEY_PROVIDERS) {
     const value = config.apiKeys[provider];
-    if (!value || (typeof value === 'string' && value.length === 0)) {
+    if (!value || (typeof value === "string" && value.length === 0)) {
       deleteSecureKey(provider);
     }
   }
   const { apiKeys: _, ...rest } = config;
-  writeFileSync(configPath, JSON.stringify(rest, null, 2) + '\n');
+  writeFileSync(configPath, JSON.stringify(rest, null, 2) + "\n");
 
   cached = config;
 }
@@ -299,7 +345,7 @@ export function loadRawConfig(): Record<string, unknown> {
   let raw: Record<string, unknown> = {};
   if (existsSync(configPath)) {
     try {
-      raw = JSON.parse(readFileSync(configPath, 'utf-8'));
+      raw = JSON.parse(readFileSync(configPath, "utf-8"));
     } catch (err) {
       throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
     }
@@ -307,9 +353,12 @@ export function loadRawConfig(): Record<string, unknown> {
 
   // Merge secure keys into apiKeys so `config get apiKeys.*` works
   try {
-    const apiKeys = (raw.apiKeys && typeof raw.apiKeys === 'object' && !Array.isArray(raw.apiKeys))
-      ? { ...raw.apiKeys as Record<string, unknown> }
-      : {};
+    const apiKeys =
+      raw.apiKeys &&
+      typeof raw.apiKeys === "object" &&
+      !Array.isArray(raw.apiKeys)
+        ? { ...(raw.apiKeys as Record<string, unknown>) }
+        : {};
     for (const provider of API_KEY_PROVIDERS) {
       const value = getSecureKey(provider);
       if (value) apiKeys[provider] = value;
@@ -318,7 +367,7 @@ export function loadRawConfig(): Record<string, unknown> {
       raw.apiKeys = apiKeys;
     }
   } catch (err) {
-    log.debug({ err }, 'Failed to merge secure keys into raw config');
+    log.debug({ err }, "Failed to merge secure keys into raw config");
   }
 
   return raw;
@@ -330,31 +379,38 @@ export function saveRawConfig(config: Record<string, unknown>): void {
 
   // Route apiKeys to secure storage and strip from plaintext file
   const apiKeys = config.apiKeys;
-  if (apiKeys && typeof apiKeys === 'object' && !Array.isArray(apiKeys)) {
-    for (const [provider, value] of Object.entries(apiKeys as Record<string, unknown>)) {
-      if (typeof value === 'string' && value.length > 0) {
+  if (apiKeys && typeof apiKeys === "object" && !Array.isArray(apiKeys)) {
+    for (const [provider, value] of Object.entries(
+      apiKeys as Record<string, unknown>,
+    )) {
+      if (typeof value === "string" && value.length > 0) {
         if (!setSecureKey(provider, value)) {
-          throw new ConfigError(`Failed to save API key for "${provider}" to secure storage. Key not removed from config to prevent data loss.`);
+          throw new ConfigError(
+            `Failed to save API key for "${provider}" to secure storage. Key not removed from config to prevent data loss.`,
+          );
         }
-      } else if (value == null || value === '') {
+      } else if (value == null || value === "") {
         deleteSecureKey(provider);
       }
     }
     // Remove apiKeys from plaintext config
     const { apiKeys: _, ...rest } = config;
-    writeFileSync(configPath, JSON.stringify(rest, null, 2) + '\n');
+    writeFileSync(configPath, JSON.stringify(rest, null, 2) + "\n");
   } else {
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   }
 
   cached = null; // invalidate cache
 }
 
-export function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const keys = path.split('.');
+export function getNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+): unknown {
+  const keys = path.split(".");
   let current: unknown = obj;
   for (const key of keys) {
-    if (current == null || typeof current !== 'object') {
+    if (current == null || typeof current !== "object") {
       return undefined;
     }
     current = (current as Record<string, unknown>)[key];
@@ -362,12 +418,16 @@ export function getNestedValue(obj: Record<string, unknown>, path: string): unkn
   return current;
 }
 
-export function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const keys = path.split('.');
+export function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const keys = path.split(".");
   let current = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if (current[key] == null || typeof current[key] !== 'object') {
+    if (current[key] == null || typeof current[key] !== "object") {
       current[key] = {};
     }
     current = current[key] as Record<string, unknown>;

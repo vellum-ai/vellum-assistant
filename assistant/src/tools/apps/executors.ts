@@ -8,9 +8,9 @@
  * ToolDefinition or ToolContext types.
  */
 
-import { setHomeBaseAppLink } from '../../home-base/app-link-store.js';
-import type { AppDefinition } from '../../memory/app-store.js';
-import type { EditEngineResult } from '../../memory/app-store.js';
+import { setHomeBaseAppLink } from "../../home-base/app-link-store.js";
+import type { AppDefinition } from "../../memory/app-store.js";
+import type { EditEngineResult } from "../../memory/app-store.js";
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -43,11 +43,16 @@ export interface AppStoreWriter {
     schemaJson: string;
     htmlDefinition: string;
     pages?: Record<string, string>;
-    appType?: 'app' | 'site';
+    appType?: "app" | "site";
   }): AppDefinition;
   updateApp(
     id: string,
-    updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition' | 'pages'>>,
+    updates: Partial<
+      Pick<
+        AppDefinition,
+        "name" | "description" | "schemaJson" | "htmlDefinition" | "pages"
+      >
+    >,
   ): AppDefinition;
   deleteApp(id: string): void;
   writeAppFile(appId: string, path: string, content: string): void;
@@ -81,7 +86,7 @@ export interface AppCreateInput {
   schema_json?: string;
   html: string;
   pages?: Record<string, string>;
-  type?: 'app' | 'site';
+  type?: "app" | "site";
   auto_open?: boolean;
   set_as_home_base?: boolean;
   preview?: Record<string, unknown>;
@@ -94,55 +99,97 @@ export async function executeAppCreate(
 ): Promise<ExecutorResult> {
   const name = input.name;
   const description = input.description;
-  const schemaJson = input.schema_json ?? '{}';
+  const schemaJson = input.schema_json ?? "{}";
   const htmlDefinition = input.html;
   const pages = input.pages;
   const autoOpen = input.auto_open !== false; // default true
   const preview = input.preview;
-  const appType = input.type === 'site' ? 'site' as const : 'app' as const;
+  const appType = input.type === "site" ? ("site" as const) : ("app" as const);
 
   // Validate required fields — LLM input is not type-checked at runtime
-  if (typeof name !== 'string' || name.trim() === '') {
-    return { content: JSON.stringify({ error: 'name is required and must be a non-empty string' }), isError: true };
+  if (typeof name !== "string" || name.trim() === "") {
+    return {
+      content: JSON.stringify({
+        error: "name is required and must be a non-empty string",
+      }),
+      isError: true,
+    };
   }
-  if (typeof htmlDefinition !== 'string') {
-    return { content: JSON.stringify({ error: 'html is required and must be a string containing the HTML definition' }), isError: true };
+  if (typeof htmlDefinition !== "string") {
+    return {
+      content: JSON.stringify({
+        error:
+          "html is required and must be a string containing the HTML definition",
+      }),
+      isError: true,
+    };
   }
   if (pages) {
     for (const [filename, content] of Object.entries(pages)) {
-      if (typeof content !== 'string') {
-        return { content: JSON.stringify({ error: `pages["${filename}"] must be a string, got ${typeof content}` }), isError: true };
+      if (typeof content !== "string") {
+        return {
+          content: JSON.stringify({
+            error: `pages["${filename}"] must be a string, got ${typeof content}`,
+          }),
+          isError: true,
+        };
       }
     }
   }
 
-  const app = store.createApp({ name, description, schemaJson, htmlDefinition, pages, appType });
+  const app = store.createApp({
+    name,
+    description,
+    schemaJson,
+    htmlDefinition,
+    pages,
+    appType,
+  });
 
   if (input.set_as_home_base) {
-    setHomeBaseAppLink(app.id, 'personalized');
+    setHomeBaseAppLink(app.id, "personalized");
   }
 
   // Emit the inline preview card via the proxy without opening a workspace panel.
   // open_mode: "preview" signals to the client that this should be shown inline only.
   if (autoOpen && proxyToolResolver) {
-    const createPreview = { ...(preview ?? {}), context: 'app_create' as const };
-    const extraInput = { preview: createPreview, open_mode: 'preview' };
+    const createPreview = {
+      ...(preview ?? {}),
+      context: "app_create" as const,
+    };
+    const extraInput = { preview: createPreview, open_mode: "preview" };
     try {
-      const openResult = await proxyToolResolver('app_open', { app_id: app.id, ...extraInput });
+      const openResult = await proxyToolResolver("app_open", {
+        app_id: app.id,
+        ...extraInput,
+      });
       if (openResult.isError) {
         return {
-          content: JSON.stringify({ ...app, auto_opened: false, auto_open_error: openResult.content }),
+          content: JSON.stringify({
+            ...app,
+            auto_opened: false,
+            auto_open_error: openResult.content,
+          }),
           isError: false,
         };
       }
       return {
-        content: JSON.stringify({ ...app, auto_opened: true, open_result: openResult.content }),
+        content: JSON.stringify({
+          ...app,
+          auto_opened: true,
+          open_result: openResult.content,
+        }),
         isError: false,
       };
     } catch {
       // Preview emission failure is non-fatal — the app was created successfully.
       return {
-        content: JSON.stringify({ ...app, auto_opened: false, auto_open_error: 'Failed to auto-open app. Use app_open to open it manually.' }),
+        content: JSON.stringify({
+          ...app,
+          auto_opened: false,
+          auto_open_error:
+            "Failed to auto-open app. Use app_open to open it manually.",
+        }),
         isError: false,
       };
     }
@@ -198,12 +245,20 @@ export function executeAppUpdate(
   input: AppUpdateInput,
   store: AppStore,
 ): ExecutorResult {
-  const updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition' | 'pages'>> = {};
-  if (typeof input.name === 'string') updates.name = input.name;
-  if (typeof input.description === 'string') updates.description = input.description;
-  if (typeof input.schema_json === 'string') updates.schemaJson = input.schema_json;
-  if (typeof input.html === 'string') updates.htmlDefinition = input.html;
-  if (input.pages && typeof input.pages === 'object') updates.pages = input.pages;
+  const updates: Partial<
+    Pick<
+      AppDefinition,
+      "name" | "description" | "schemaJson" | "htmlDefinition" | "pages"
+    >
+  > = {};
+  if (typeof input.name === "string") updates.name = input.name;
+  if (typeof input.description === "string")
+    updates.description = input.description;
+  if (typeof input.schema_json === "string")
+    updates.schemaJson = input.schema_json;
+  if (typeof input.html === "string") updates.htmlDefinition = input.html;
+  if (input.pages && typeof input.pages === "object")
+    updates.pages = input.pages;
 
   const app = store.updateApp(input.app_id, updates);
   return { content: JSON.stringify(app), isError: false };
@@ -222,7 +277,10 @@ export function executeAppDelete(
   store: AppStore,
 ): ExecutorResult {
   store.deleteApp(input.app_id);
-  return { content: JSON.stringify({ deleted: true, appId: input.app_id }), isError: false };
+  return {
+    content: JSON.stringify({ deleted: true, appId: input.app_id }),
+    isError: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -260,16 +318,19 @@ export function executeAppFileRead(
   const limit = input.limit;
 
   const raw = store.readAppFile(input.app_id, input.path);
-  const allLines = raw.split('\n');
+  const allLines = raw.split("\n");
   const startIndex = Math.max(0, offset - 1);
-  const sliced = limit != null ? allLines.slice(startIndex, startIndex + limit) : allLines.slice(startIndex);
+  const sliced =
+    limit != null
+      ? allLines.slice(startIndex, startIndex + limit)
+      : allLines.slice(startIndex);
 
   const formatted = sliced
     .map((line, i) => {
       const lineNum = startIndex + i + 1;
       return `${String(lineNum).padStart(6)}\t${line}`;
     })
-    .join('\n');
+    .join("\n");
 
   return { content: formatted, isError: false };
 }
@@ -292,12 +353,25 @@ export function executeAppFileEdit(
   store: AppStore,
 ): ExecutorResult {
   if (!input.old_string) {
-    return { content: JSON.stringify({ error: 'old_string must not be empty' }), isError: true };
+    return {
+      content: JSON.stringify({ error: "old_string must not be empty" }),
+      isError: true,
+    };
   }
 
   const replaceAll = input.replace_all ?? false;
-  const result = store.editAppFile(input.app_id, input.path, input.old_string, input.new_string, replaceAll);
-  return { content: JSON.stringify(result), isError: false, status: input.status };
+  const result = store.editAppFile(
+    input.app_id,
+    input.path,
+    input.old_string,
+    input.new_string,
+    replaceAll,
+  );
+  return {
+    content: JSON.stringify(result),
+    isError: false,
+    status: input.status,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -317,9 +391,16 @@ export function executeAppFileWrite(
 ): ExecutorResult {
   const app = store.getApp(input.app_id);
   if (!app) {
-    return { content: JSON.stringify({ error: `App '${input.app_id}' not found` }), isError: true };
+    return {
+      content: JSON.stringify({ error: `App '${input.app_id}' not found` }),
+      isError: true,
+    };
   }
 
   store.writeAppFile(input.app_id, input.path, input.content);
-  return { content: JSON.stringify({ written: true, path: input.path }), isError: false, status: input.status };
+  return {
+    content: JSON.stringify({ written: true, path: input.path }),
+    isError: false,
+    status: input.status,
+  };
 }

@@ -1,20 +1,20 @@
-import { QdrantClient as QdrantRestClient } from '@qdrant/js-client-rest';
-import { v4 as uuid } from 'uuid';
+import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
+import { v4 as uuid } from "uuid";
 
-import { getLogger } from '../util/logger.js';
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('qdrant-client');
+const log = getLogger("qdrant-client");
 
 export interface QdrantClientConfig {
   url: string;
   collection: string;
   vectorSize: number;
   onDisk: boolean;
-  quantization: 'scalar' | 'none';
+  quantization: "scalar" | "none";
 }
 
 export interface QdrantPointPayload {
-  target_type: 'segment' | 'item' | 'summary';
+  target_type: "segment" | "item" | "summary";
   target_id: string;
   text: string;
   kind?: string;
@@ -39,12 +39,16 @@ let _instance: VellumQdrantClient | null = null;
 
 export function getQdrantClient(): VellumQdrantClient {
   if (!_instance) {
-    throw new Error('Qdrant client not initialized. Call initQdrantClient() first.');
+    throw new Error(
+      "Qdrant client not initialized. Call initQdrantClient() first.",
+    );
   }
   return _instance;
 }
 
-export function initQdrantClient(config: QdrantClientConfig): VellumQdrantClient {
+export function initQdrantClient(
+  config: QdrantClientConfig,
+): VellumQdrantClient {
   _instance = new VellumQdrantClient(config);
   return _instance;
 }
@@ -54,11 +58,14 @@ export class VellumQdrantClient {
   private readonly collection: string;
   private readonly vectorSize: number;
   private readonly onDisk: boolean;
-  private readonly quantization: 'scalar' | 'none';
+  private readonly quantization: "scalar" | "none";
   private collectionReady = false;
 
   constructor(config: QdrantClientConfig) {
-    this.client = new QdrantRestClient({ url: config.url, checkCompatibility: false });
+    this.client = new QdrantRestClient({
+      url: config.url,
+      checkCompatibility: false,
+    });
     this.collection = config.collection;
     this.vectorSize = config.vectorSize;
     this.onDisk = config.onDisk;
@@ -78,13 +85,16 @@ export class VellumQdrantClient {
       // Collection doesn't exist, create it
     }
 
-    log.info({ collection: this.collection, vectorSize: this.vectorSize }, 'Creating Qdrant collection');
+    log.info(
+      { collection: this.collection, vectorSize: this.vectorSize },
+      "Creating Qdrant collection",
+    );
 
     try {
       await this.client.createCollection(this.collection, {
         vectors: {
           size: this.vectorSize,
-          distance: 'Cosine',
+          distance: "Cosine",
           on_disk: this.onDisk,
         },
         hnsw_config: {
@@ -92,20 +102,25 @@ export class VellumQdrantClient {
           m: 16,
           ef_construct: 100,
         },
-        quantization_config: this.quantization === 'scalar'
-          ? {
-            scalar: {
-              type: 'int8',
-              quantile: 0.99,
-              always_ram: true,
-            },
-          }
-          : undefined,
+        quantization_config:
+          this.quantization === "scalar"
+            ? {
+                scalar: {
+                  type: "int8",
+                  quantile: 0.99,
+                  always_ram: true,
+                },
+              }
+            : undefined,
         on_disk_payload: this.onDisk,
       });
     } catch (err) {
       // 409 = collection was created by a concurrent caller — that's fine
-      if (err instanceof Error && 'status' in err && (err as { status: number }).status === 409) {
+      if (
+        err instanceof Error &&
+        "status" in err &&
+        (err as { status: number }).status === 409
+      ) {
         this.collectionReady = true;
         return;
       }
@@ -115,40 +130,43 @@ export class VellumQdrantClient {
     // Create payload indexes for efficient filtering
     await Promise.all([
       this.client.createPayloadIndex(this.collection, {
-        field_name: 'target_type',
-        field_schema: 'keyword',
+        field_name: "target_type",
+        field_schema: "keyword",
       }),
       this.client.createPayloadIndex(this.collection, {
-        field_name: 'target_id',
-        field_schema: 'keyword',
+        field_name: "target_id",
+        field_schema: "keyword",
       }),
       this.client.createPayloadIndex(this.collection, {
-        field_name: 'kind',
-        field_schema: 'keyword',
+        field_name: "kind",
+        field_schema: "keyword",
       }),
       this.client.createPayloadIndex(this.collection, {
-        field_name: 'status',
-        field_schema: 'keyword',
+        field_name: "status",
+        field_schema: "keyword",
       }),
       this.client.createPayloadIndex(this.collection, {
-        field_name: 'created_at',
-        field_schema: 'integer',
+        field_name: "created_at",
+        field_schema: "integer",
       }),
       this.client.createPayloadIndex(this.collection, {
-        field_name: 'conversation_id',
-        field_schema: 'keyword',
+        field_name: "conversation_id",
+        field_schema: "keyword",
       }),
     ]);
 
     this.collectionReady = true;
-    log.info({ collection: this.collection }, 'Qdrant collection created with payload indexes');
+    log.info(
+      { collection: this.collection },
+      "Qdrant collection created with payload indexes",
+    );
   }
 
   async upsert(
-    targetType: 'segment' | 'item' | 'summary',
+    targetType: "segment" | "item" | "summary",
     targetId: string,
     vector: number[],
-    payload: Omit<QdrantPointPayload, 'target_type' | 'target_id'>,
+    payload: Omit<QdrantPointPayload, "target_type" | "target_id">,
   ): Promise<string> {
     await this.ensureCollection();
 
@@ -211,7 +229,7 @@ export class VellumQdrantClient {
         limit,
         with_payload: true,
         score_threshold: 0.0,
-        filter: filter as Parameters<QdrantRestClient['search']>[1]['filter'],
+        filter: filter as Parameters<QdrantRestClient["search"]>[1]["filter"],
       });
     } catch (err) {
       if (this.isCollectionMissing(err)) {
@@ -222,7 +240,7 @@ export class VellumQdrantClient {
           limit,
           with_payload: true,
           score_threshold: 0.0,
-          filter: filter as Parameters<QdrantRestClient['search']>[1]['filter'],
+          filter: filter as Parameters<QdrantRestClient["search"]>[1]["filter"],
         });
       } else {
         throw err;
@@ -230,7 +248,7 @@ export class VellumQdrantClient {
     }
 
     return results.map((result) => ({
-      id: typeof result.id === 'string' ? result.id : String(result.id),
+      id: typeof result.id === "string" ? result.id : String(result.id),
       score: result.score,
       payload: result.payload as unknown as QdrantPointPayload,
     }));
@@ -239,12 +257,12 @@ export class VellumQdrantClient {
   async searchWithFilter(
     vector: number[],
     limit: number,
-    targetTypes: Array<'segment' | 'item' | 'summary'>,
+    targetTypes: Array<"segment" | "item" | "summary">,
     excludeMessageIds?: string[],
   ): Promise<QdrantSearchResult[]> {
     const mustConditions: Array<Record<string, unknown>> = [
       {
-        key: 'target_type',
+        key: "target_type",
         match: { any: targetTypes },
       },
     ];
@@ -255,11 +273,11 @@ export class VellumQdrantClient {
         should: [
           {
             must: [
-              { key: 'target_type', match: { value: 'item' } },
-              { key: 'status', match: { value: 'active' } },
+              { key: "target_type", match: { value: "item" } },
+              { key: "status", match: { value: "active" } },
             ],
           },
-          { key: 'target_type', match: { any: ['segment', 'summary'] } },
+          { key: "target_type", match: { any: ["segment", "summary"] } },
         ],
       });
     }
@@ -267,7 +285,7 @@ export class VellumQdrantClient {
     const mustNotConditions: Array<Record<string, unknown>> = [];
     if (excludeMessageIds && excludeMessageIds.length > 0) {
       mustNotConditions.push({
-        key: 'message_id',
+        key: "message_id",
         match: { any: excludeMessageIds },
       });
     }
@@ -285,15 +303,16 @@ export class VellumQdrantClient {
   async deleteByTarget(targetType: string, targetId: string): Promise<void> {
     await this.ensureCollection();
 
-    const doDelete = () => this.client.delete(this.collection, {
-      wait: true,
-      filter: {
-        must: [
-          { key: 'target_type', match: { value: targetType } },
-          { key: 'target_id', match: { value: targetId } },
-        ],
-      },
-    });
+    const doDelete = () =>
+      this.client.delete(this.collection, {
+        wait: true,
+        filter: {
+          must: [
+            { key: "target_type", match: { value: targetType } },
+            { key: "target_id", match: { value: targetId } },
+          ],
+        },
+      });
 
     try {
       await doDelete();
@@ -318,7 +337,9 @@ export class VellumQdrantClient {
       if (this.isCollectionMissing(err)) {
         this.collectionReady = false;
         await this.ensureCollection();
-        const result = await this.client.count(this.collection, { exact: false });
+        const result = await this.client.count(this.collection, {
+          exact: false,
+        });
         return result.count;
       }
       throw err;
@@ -333,7 +354,10 @@ export class VellumQdrantClient {
       this.collectionReady = false;
       return true;
     } catch (err) {
-      log.warn({ err, collection: this.collection }, 'Failed to delete Qdrant collection');
+      log.warn(
+        { err, collection: this.collection },
+        "Failed to delete Qdrant collection",
+      );
       return false;
     }
   }
@@ -344,20 +368,32 @@ export class VellumQdrantClient {
    * (e.g. `vellum sessions clear`).
    */
   private isCollectionMissing(err: unknown): boolean {
-    if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 404) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "status" in err &&
+      (err as { status: number }).status === 404
+    ) {
       return true;
     }
     const msg = err instanceof Error ? err.message : String(err);
-    return msg.includes('Not found') || msg.includes('doesn\'t exist') || msg.includes('not found');
+    return (
+      msg.includes("Not found") ||
+      msg.includes("doesn't exist") ||
+      msg.includes("not found")
+    );
   }
 
-  private async findByTarget(targetType: string, targetId: string): Promise<string | null> {
+  private async findByTarget(
+    targetType: string,
+    targetId: string,
+  ): Promise<string | null> {
     try {
       const results = await this.client.scroll(this.collection, {
         filter: {
           must: [
-            { key: 'target_type', match: { value: targetType } },
-            { key: 'target_id', match: { value: targetId } },
+            { key: "target_type", match: { value: targetType } },
+            { key: "target_id", match: { value: targetId } },
           ],
         },
         limit: 1,
@@ -366,7 +402,7 @@ export class VellumQdrantClient {
       });
       if (results.points.length > 0) {
         const id = results.points[0].id;
-        return typeof id === 'string' ? id : String(id);
+        return typeof id === "string" ? id : String(id);
       }
     } catch {
       // Not found

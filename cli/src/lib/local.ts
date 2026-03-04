@@ -1,7 +1,9 @@
 import { execFileSync, spawn } from "child_process";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
@@ -75,6 +77,18 @@ function findGatewaySourceFromCwd(): string | undefined {
       return undefined;
     }
     current = parent;
+  }
+}
+
+function isOutboundProxySourceDir(dir: string): boolean {
+  const pkgPath = join(dir, "package.json");
+  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "main.ts")))
+    return false;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.name === "@vellumai/outbound-proxy";
+  } catch {
+    return false;
   }
 }
 
@@ -153,6 +167,49 @@ function resolveDaemonMainPath(assistantIndex: string): string {
 }
 
 async function startDaemonFromSource(assistantIndex: string): Promise<void> {
+  const daemonMainPath = resolveDaemonMainPath(assistantIndex);
+
+  const vellumDir = join(homedir(), ".vellum");
+  mkdirSync(vellumDir, { recursive: true });
+
+  const pidFile = join(vellumDir, "vellum.pid");
+  const socketFile = join(vellumDir, "vellum.sock");
+
+  // --- Lifecycle guard: prevent split-brain daemon state ---
+  if (existsSync(pidFile)) {
+    try {
+      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      if (!isNaN(pid)) {
+        try {
+          process.kill(pid, 0);
+          console.log(`   Daemon already running (pid ${pid})\n`);
+          return;
+        } catch {
+          try {
+            unlinkSync(pidFile);
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  if (await isSocketResponsive(socketFile)) {
+    const ownerPid = findSocketOwnerPid(socketFile);
+    if (ownerPid) {
+      writeFileSync(pidFile, String(ownerPid), "utf-8");
+      console.log(
+        `   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+      );
+    } else {
+      console.log("   Daemon socket is responsive — skipping restart\n");
+    }
+    return;
+  }
+
+  try {
+    unlinkSync(socketFile);
+  } catch {}
+
   const env: Record<string, string | undefined> = {
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
@@ -163,28 +220,30 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
       process.env.VELLUM_DAEMON_TCP_ENABLED || "1";
   }
 
-  const child = spawn("bun", ["run", assistantIndex, "daemon", "start"], {
-    stdio: "inherit",
+  // Use fd inheritance instead of pipes so the daemon's stdout/stderr survive
+  // after the parent (hatch) exits. Bun does not ignore SIGPIPE, so piped
+  // stdio would kill the daemon on its first write after the parent closes.
+  const logFd = openLogFile("hatch.log");
+  const child = spawn("bun", ["run", daemonMainPath], {
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
     env,
   });
+  if (typeof logFd === "number") closeSync(logFd);
+  child.unref();
 
-  await new Promise<void>((resolve, reject) => {
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Daemon start exited with code ${code}`));
-      }
-    });
-    child.on("error", reject);
-  });
+  if (child.pid) {
+    writeFileSync(pidFile, String(child.pid), "utf-8");
+  }
 }
 
 // NOTE: startDaemonWatchFromSource() is the CLI-side watch-mode daemon
 // launcher. Its lifecycle guards should eventually converge with
 // assistant/src/daemon/daemon-control.ts::startDaemon which is the
 // assistant-side equivalent.
-async function startDaemonWatchFromSource(assistantIndex: string): Promise<void> {
+async function startDaemonWatchFromSource(
+  assistantIndex: string,
+): Promise<void> {
   const mainPath = resolveDaemonMainPath(assistantIndex);
   if (!existsSync(mainPath)) {
     throw new Error(`Daemon main.ts not found at ${mainPath}`);
@@ -208,7 +267,9 @@ async function startDaemonWatchFromSource(assistantIndex: string): Promise<void>
           return;
         } catch {
           // Process doesn't exist, clean up stale PID file
-          try { unlinkSync(pidFile); } catch {}
+          try {
+            unlinkSync(pidFile);
+          } catch {}
         }
       }
     } catch {}
@@ -230,7 +291,9 @@ async function startDaemonWatchFromSource(assistantIndex: string): Promise<void>
   }
 
   // Socket is unresponsive or missing — safe to clean up and start fresh.
-  try { unlinkSync(socketFile); } catch {}
+  try {
+    unlinkSync(socketFile);
+  } catch {}
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -289,6 +352,21 @@ function resolveGatewayDir(): string {
     throw new Error(
       "Gateway not found. Ensure @vellumai/vellum-gateway is installed, run from the source tree, or set VELLUM_GATEWAY_DIR.",
     );
+  }
+}
+
+function resolveOutboundProxyDir(): string | undefined {
+  // Compiled binary: outbound-proxy/ bundled adjacent to the CLI executable.
+  const binProxy = join(dirname(process.execPath), "outbound-proxy");
+  if (isOutboundProxySourceDir(binProxy)) {
+    return binProxy;
+  }
+
+  try {
+    const pkgPath = _require.resolve("@vellumai/outbound-proxy/package.json");
+    return dirname(pkgPath);
+  } catch {
+    return undefined;
   }
 }
 
@@ -664,15 +742,31 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       if (socketReady) {
         console.log("   Daemon socket ready\n");
       } else {
-        console.log("   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n");
+        console.log(
+          "   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n",
+        );
       }
     } else {
       await startDaemonFromSource(assistantIndex);
+
+      const vellumDir = join(homedir(), ".vellum");
+      const socketFile = join(vellumDir, "vellum.sock");
+      const socketReady = await waitForSocketFile(socketFile, 60000);
+      if (socketReady) {
+        console.log("   Daemon socket ready\n");
+      } else {
+        console.log(
+          "   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n",
+        );
+      }
     }
   }
 }
 
-export async function startGateway(assistantId?: string, watch: boolean = false): Promise<string> {
+export async function startGateway(
+  assistantId?: string,
+  watch: boolean = false,
+): Promise<string> {
   const publicUrl = await discoverPublicUrl();
   if (publicUrl) {
     console.log(`   Public URL: ${publicUrl}`);
@@ -856,10 +950,130 @@ export async function startGateway(assistantId?: string, watch: boolean = false)
   return gatewayUrl;
 }
 
+export async function startOutboundProxy(
+  watch: boolean = false,
+): Promise<void> {
+  const proxyDir = resolveOutboundProxyDir();
+  if (!proxyDir) {
+    console.log("   ⚠️  Outbound proxy not found — skipping");
+    return;
+  }
+
+  console.log("🔒 Starting outbound proxy...");
+
+  const vellumDir = join(homedir(), ".vellum");
+  mkdirSync(vellumDir, { recursive: true });
+
+  const pidFile = join(vellumDir, "outbound-proxy.pid");
+
+  // Check if already running
+  if (existsSync(pidFile)) {
+    try {
+      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      if (!isNaN(pid)) {
+        try {
+          process.kill(pid, 0);
+          console.log(`   Outbound proxy already running (pid ${pid})\n`);
+          return;
+        } catch {
+          try {
+            unlinkSync(pidFile);
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  const proxyEnv: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    PROXY_PORT: process.env.PROXY_PORT || "7829",
+    PROXY_HEALTH_PORT: process.env.PROXY_HEALTH_PORT || "7828",
+  };
+
+  const proxyLogFd = openLogFile("hatch.log");
+
+  let proxy;
+  if (process.env.VELLUM_DESKTOP_APP && !watch) {
+    const proxyBinary = join(
+      dirname(process.execPath),
+      "vellum-outbound-proxy",
+    );
+    if (!existsSync(proxyBinary)) {
+      console.log(
+        "   ⚠️  Outbound proxy binary not found — falling back to source",
+      );
+      const bunArgs = watch
+        ? ["--watch", "run", "src/main.ts"]
+        : ["run", "src/main.ts"];
+      proxy = spawn("bun", bunArgs, {
+        cwd: proxyDir,
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: proxyEnv,
+      });
+    } else {
+      proxy = spawn(proxyBinary, [], {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: proxyEnv,
+      });
+    }
+  } else {
+    const bunArgs = watch
+      ? ["--watch", "run", "src/main.ts"]
+      : ["run", "src/main.ts"];
+    proxy = spawn("bun", bunArgs, {
+      cwd: proxyDir,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: proxyEnv,
+    });
+  }
+
+  pipeToLogFile(proxy, proxyLogFd, "outbound-proxy");
+  proxy.unref();
+
+  if (proxy.pid) {
+    writeFileSync(pidFile, String(proxy.pid), "utf-8");
+  }
+
+  if (watch) {
+    console.log("   Outbound proxy started in watch mode (bun --watch)");
+  }
+
+  // Wait for the health endpoint to respond
+  const healthPort = Number(process.env.PROXY_HEALTH_PORT) || 7828;
+  const start = Date.now();
+  const timeoutMs = 15000;
+  let ready = false;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`http://localhost:${healthPort}/healthz`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        ready = true;
+        break;
+      }
+    } catch {
+      // Not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  if (!ready) {
+    console.warn(
+      "   ⚠️  Outbound proxy started but health check did not respond within 15s",
+    );
+  }
+
+  console.log("✅ Outbound proxy started\n");
+}
+
 /**
- * Stop any locally-running daemon and gateway processes and clean up
- * PID/socket files. Called when hatch fails partway through so we don't
- * leave orphaned processes with no lock file entry.
+ * Stop any locally-running daemon, gateway, and outbound-proxy processes
+ * and clean up PID/socket files. Called when hatch fails partway through
+ * so we don't leave orphaned processes with no lock file entry.
  */
 export async function stopLocalProcesses(): Promise<void> {
   const vellumDir = join(homedir(), ".vellum");
@@ -869,4 +1083,7 @@ export async function stopLocalProcesses(): Promise<void> {
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway");
+
+  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
+  await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
 }

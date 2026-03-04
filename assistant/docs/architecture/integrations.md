@@ -605,7 +605,6 @@ The proxy subsystem intercepts outbound HTTPS requests and injects stored creden
 | File | Role |
 |---|---|
 | `assistant/src/tools/network/script-proxy/server.ts` | Proxy server factory — HTTP forwarding, CONNECT handling, MITM dispatch |
-| `assistant/src/tools/network/script-proxy/router.ts` | Hybrid router — decides MITM vs tunnel per CONNECT target |
 | `assistant/src/tools/network/script-proxy/policy.ts` | Policy engine — evaluates requests against credential templates |
 | `assistant/src/tools/network/script-proxy/mitm-handler.ts` | MITM TLS interception — loopback TLS server, request rewrite, upstream forwarding |
 | `assistant/src/tools/network/script-proxy/connect-tunnel.ts` | Plain CONNECT tunnel — raw TCP bidirectional pipe |

@@ -1,11 +1,11 @@
-import { and, asc, eq, lte } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, asc, eq, lte } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { getDb, rawRun } from '../../memory/db.js';
-import { reminders } from '../../memory/schema.js';
-import { cast,createRowMapper, parseJson } from '../../util/row-mapper.js';
+import { getDb, rawRun } from "../../memory/db.js";
+import { reminders } from "../../memory/schema.js";
+import { cast, createRowMapper, parseJson } from "../../util/row-mapper.js";
 
-export type RoutingIntent = 'single_channel' | 'multi_channel' | 'all_channels';
+export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 
 export interface RoutingHints {
   [key: string]: unknown;
@@ -16,8 +16,8 @@ export interface ReminderRow {
   label: string;
   message: string;
   fireAt: number;
-  mode: 'notify' | 'execute';
-  status: 'pending' | 'firing' | 'fired' | 'cancelled';
+  mode: "notify" | "execute";
+  status: "pending" | "firing" | "fired" | "cancelled";
   firedAt: number | null;
   conversationId: string | null;
   routingIntent: RoutingIntent;
@@ -27,32 +27,35 @@ export interface ReminderRow {
 }
 
 const parseRow = createRowMapper<typeof reminders.$inferSelect, ReminderRow>({
-  id: 'id',
-  label: 'label',
-  message: 'message',
-  fireAt: 'fireAt',
-  mode: { from: 'mode', transform: cast<ReminderRow['mode']>() },
-  status: { from: 'status', transform: cast<ReminderRow['status']>() },
-  firedAt: 'firedAt',
-  conversationId: 'conversationId',
-  routingIntent: { from: 'routingIntent', transform: cast<RoutingIntent>() },
-  routingHints: { from: 'routingHintsJson', transform: parseJson<RoutingHints>({}) },
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
+  id: "id",
+  label: "label",
+  message: "message",
+  fireAt: "fireAt",
+  mode: { from: "mode", transform: cast<ReminderRow["mode"]>() },
+  status: { from: "status", transform: cast<ReminderRow["status"]>() },
+  firedAt: "firedAt",
+  conversationId: "conversationId",
+  routingIntent: { from: "routingIntent", transform: cast<RoutingIntent>() },
+  routingHints: {
+    from: "routingHintsJson",
+    transform: parseJson<RoutingHints>({}),
+  },
+  createdAt: "createdAt",
+  updatedAt: "updatedAt",
 });
 
 export function insertReminder(params: {
   label: string;
   message: string;
   fireAt: number;
-  mode: 'notify' | 'execute';
+  mode: "notify" | "execute";
   routingIntent?: RoutingIntent;
   routingHints?: RoutingHints;
 }): ReminderRow {
   const db = getDb();
   const id = uuid();
   const now = Date.now();
-  const routingIntent = params.routingIntent ?? 'all_channels';
+  const routingIntent = params.routingIntent ?? "all_channels";
   const routingHints = params.routingHints ?? {};
   const row = {
     id,
@@ -60,7 +63,7 @@ export function insertReminder(params: {
     message: params.message,
     fireAt: params.fireAt,
     mode: params.mode,
-    status: 'pending' as const,
+    status: "pending" as const,
     firedAt: null,
     conversationId: null,
     routingIntent,
@@ -75,7 +78,7 @@ export function insertReminder(params: {
     message: params.message,
     fireAt: params.fireAt,
     mode: params.mode,
-    status: 'pending',
+    status: "pending",
     firedAt: null,
     conversationId: null,
     routingIntent,
@@ -92,9 +95,13 @@ export function getReminder(id: string): ReminderRow | null {
   return parseRow(row);
 }
 
-export function listReminders(options?: { pendingOnly?: boolean }): ReminderRow[] {
+export function listReminders(options?: {
+  pendingOnly?: boolean;
+}): ReminderRow[] {
   const db = getDb();
-  const conditions = options?.pendingOnly ? eq(reminders.status, 'pending') : undefined;
+  const conditions = options?.pendingOnly
+    ? eq(reminders.status, "pending")
+    : undefined;
   const rows = db
     .select()
     .from(reminders)
@@ -106,10 +113,15 @@ export function listReminders(options?: { pendingOnly?: boolean }): ReminderRow[
 
 export function cancelReminder(id: string): boolean {
   const now = Date.now();
-  return rawRun(
-    'UPDATE reminders SET status = ?, updated_at = ? WHERE id = ? AND status = ?',
-    'cancelled', now, id, 'pending',
-  ) > 0;
+  return (
+    rawRun(
+      "UPDATE reminders SET status = ?, updated_at = ? WHERE id = ? AND status = ?",
+      "cancelled",
+      now,
+      id,
+      "pending",
+    ) > 0
+  );
 }
 
 /**
@@ -123,25 +135,31 @@ export function claimDueReminders(now: number): ReminderRow[] {
   const candidates = db
     .select()
     .from(reminders)
-    .where(and(eq(reminders.status, 'pending'), lte(reminders.fireAt, now)))
+    .where(and(eq(reminders.status, "pending"), lte(reminders.fireAt, now)))
     .orderBy(asc(reminders.fireAt))
     .all();
 
   const claimed: ReminderRow[] = [];
   for (const row of candidates) {
     const changed = rawRun(
-      'UPDATE reminders SET status = ?, fired_at = ?, updated_at = ? WHERE id = ? AND status = ?',
-      'firing', now, now, row.id, 'pending',
+      "UPDATE reminders SET status = ?, fired_at = ?, updated_at = ? WHERE id = ? AND status = ?",
+      "firing",
+      now,
+      now,
+      row.id,
+      "pending",
     );
 
     if (changed === 0) continue;
 
-    claimed.push(parseRow({
-      ...row,
-      status: 'firing',
-      firedAt: now,
-      updatedAt: now,
-    }));
+    claimed.push(
+      parseRow({
+        ...row,
+        status: "firing",
+        firedAt: now,
+        updatedAt: now,
+      }),
+    );
   }
   return claimed;
 }
@@ -150,8 +168,8 @@ export function claimDueReminders(now: number): ReminderRow[] {
 export function completeReminder(id: string): void {
   const db = getDb();
   db.update(reminders)
-    .set({ status: 'fired', updatedAt: Date.now() })
-    .where(and(eq(reminders.id, id), eq(reminders.status, 'firing')))
+    .set({ status: "fired", updatedAt: Date.now() })
+    .where(and(eq(reminders.id, id), eq(reminders.status, "firing")))
     .run();
 }
 
@@ -159,12 +177,15 @@ export function completeReminder(id: string): void {
 export function failReminder(id: string): void {
   const db = getDb();
   db.update(reminders)
-    .set({ status: 'pending', firedAt: null, updatedAt: Date.now() })
-    .where(and(eq(reminders.id, id), eq(reminders.status, 'firing')))
+    .set({ status: "pending", firedAt: null, updatedAt: Date.now() })
+    .where(and(eq(reminders.id, id), eq(reminders.status, "firing")))
     .run();
 }
 
-export function setReminderConversationId(id: string, conversationId: string): void {
+export function setReminderConversationId(
+  id: string,
+  conversationId: string,
+): void {
   const db = getDb();
   db.update(reminders)
     .set({ conversationId, updatedAt: Date.now() })

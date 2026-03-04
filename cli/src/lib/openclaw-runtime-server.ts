@@ -5,7 +5,9 @@
 
 export async function buildOpenclawRuntimeServer(): Promise<string> {
   try {
-    const serverSource = await Bun.file(import.meta.dir + "/../adapters/openclaw-http-server.ts").text();
+    const serverSource = await Bun.file(
+      import.meta.dir + "/../adapters/openclaw-http-server.ts",
+    ).text();
 
     return `
 cat > /opt/openclaw-runtime-server.ts << 'RUNTIME_SERVER_EOF'
@@ -17,7 +19,10 @@ nohup bun run /opt/openclaw-runtime-server.ts >> "\$HOME/.vellum/http-gateway.lo
 echo "OpenClaw runtime server started (PID: \$!)"
 `;
   } catch (err) {
-    console.warn("⚠️  Could not embed openclaw runtime server (expected in compiled binary without --embed):", (err as Error).message);
+    console.warn(
+      "⚠️  Could not embed openclaw runtime server (expected in compiled binary without --embed):",
+      (err as Error).message,
+    );
     return "# openclaw-runtime-server: skipped (source files not available in compiled binary)";
   }
 }

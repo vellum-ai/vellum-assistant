@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Add composite index on canonical_guardian_deliveries(destination_channel, destination_chat_id).
@@ -8,7 +8,9 @@ import type { DrizzleDb } from '../db-connection.js';
  * guardian replies back to canonical requests. Without an index these
  * degrade to full table scans as delivery history grows.
  */
-export function migrateCanonicalGuardianDeliveriesDestinationIndex(database: DrizzleDb): void {
+export function migrateCanonicalGuardianDeliveriesDestinationIndex(
+  database: DrizzleDb,
+): void {
   database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_canonical_guardian_deliveries_destination ON canonical_guardian_deliveries(destination_channel, destination_chat_id)`,
   );

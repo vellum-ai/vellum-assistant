@@ -4,9 +4,16 @@ import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
-import { resolveAssistant, resolveAssistantByPhoneNumber, isRejection } from "../../routing/resolve-assistant.js";
+import {
+  resolveAssistant,
+  resolveAssistantByPhoneNumber,
+  isRejection,
+} from "../../routing/resolve-assistant.js";
 import type { RouteResult } from "../../routing/types.js";
-import { CircuitBreakerOpenError, resetConversation } from "../../runtime/client.js";
+import {
+  CircuitBreakerOpenError,
+  resetConversation,
+} from "../../runtime/client.js";
 import { sendSmsReply } from "../../twilio/send-sms.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
 import type { GatewayInboundEvent } from "../../types.js";
@@ -86,8 +93,9 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
     // Phone-number routing takes priority, then fall through to standard routing.
     // We resolve once so gateway-originated replies (/new + MMS notices) can use
     // the correct assistant-scoped Twilio sender number.
-    const routing = resolveAssistantByPhoneNumber(config, params.To || "")
-      ?? resolveAssistant(config, params.From || "", params.From || "");
+    const routing =
+      resolveAssistantByPhoneNumber(config, params.To || "") ??
+      resolveAssistant(config, params.From || "", params.From || "");
 
     // --- MMS intercept: detect media attachments and reply with unsupported notice ---
     // Treat as MMS when NumMedia > 0, or when any MediaUrl/MediaContentType
@@ -100,14 +108,20 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         (/^MediaContentType\d+$/.test(key) && params[key] !== ""),
     );
     if (numMedia > 0 || hasMediaFields) {
-      tlog.info({ messageSid, numMedia, hasMediaFields }, "MMS payload detected, replying with unsupported notice");
+      tlog.info(
+        { messageSid, numMedia, hasMediaFields },
+        "MMS payload detected, replying with unsupported notice",
+      );
       sendSmsReply(
         config,
         params.From,
         "MMS (images, video, and other media) is not supported yet. Please send a text-only message.",
         isRejection(routing) ? undefined : routing.assistantId,
       ).catch((err) => {
-        tlog.error({ err, to: params.From }, "Failed to send MMS unsupported notice");
+        tlog.error(
+          { err, to: params.From },
+          "Failed to send MMS unsupported notice",
+        );
       });
 
       // If the MMS has no text body, we're done — nothing to forward.
@@ -135,7 +149,10 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           params.From,
           "This message could not be routed to an assistant. Please check your gateway routing configuration.",
         ).catch((err) => {
-          tlog.error({ err, to: params.From }, "Failed to send /new routing rejection notice");
+          tlog.error(
+            { err, to: params.From },
+            "Failed to send /new routing rejection notice",
+          );
         });
       } else {
         try {
@@ -144,15 +161,24 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
             normalized.sourceChannel,
             normalized.message.conversationExternalId,
           );
-          sendSmsReply(config, params.From, "Starting a new conversation!", routing.assistantId).catch((err) => {
+          sendSmsReply(
+            config,
+            params.From,
+            "Starting a new conversation!",
+            routing.assistantId,
+          ).catch((err) => {
             tlog.error({ err }, "Failed to send /new confirmation");
           });
         } catch (err) {
           tlog.error({ err }, "Failed to reset conversation");
-          sendSmsReply(config, params.From, "Failed to reset conversation. Please try again.", routing.assistantId)
-            .catch((replyErr) => {
-              tlog.error({ err: replyErr }, "Failed to send /new error reply");
-            });
+          sendSmsReply(
+            config,
+            params.From,
+            "Failed to reset conversation. Please try again.",
+            routing.assistantId,
+          ).catch((replyErr) => {
+            tlog.error({ err: replyErr }, "Failed to send /new error reply");
+          });
         }
       }
 
@@ -171,7 +197,10 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           params.From,
           "This message could not be routed to an assistant. Please check your gateway routing configuration.",
         ).catch((err) => {
-          tlog.error({ err, to: params.From }, "Failed to send routing rejection notice");
+          tlog.error(
+            { err, to: params.From },
+            "Failed to send routing rejection notice",
+          );
         });
       }
       dedupCache.mark(messageSid);
@@ -197,7 +226,10 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
             params.From,
             "This message could not be routed to an assistant. Please check your gateway routing configuration.",
           ).catch((err) => {
-            tlog.error({ err, to: params.From }, "Failed to send routing rejection notice");
+            tlog.error(
+              { err, to: params.From },
+              "Failed to send routing rejection notice",
+            );
           });
         }
         dedupCache.mark(messageSid);
@@ -212,14 +244,23 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
 
       // Mark as seen only after successful forwarding
       dedupCache.mark(messageSid);
-      tlog.info({ status: "forwarded", messageSid }, "SMS forwarded to runtime");
+      tlog.info(
+        { status: "forwarded", messageSid },
+        "SMS forwarded to runtime",
+      );
     } catch (err) {
       if (err instanceof CircuitBreakerOpenError) {
-        tlog.warn({ retryAfterSecs: err.retryAfterSecs }, "Circuit breaker open — returning 503");
+        tlog.warn(
+          { retryAfterSecs: err.retryAfterSecs },
+          "Circuit breaker open — returning 503",
+        );
         dedupCache.unreserve(messageSid);
         return Response.json(
           { error: "Service temporarily unavailable" },
-          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+          {
+            status: 503,
+            headers: { "Retry-After": String(err.retryAfterSecs) },
+          },
         );
       }
       tlog.error({ err, messageSid }, "Failed to process inbound SMS");

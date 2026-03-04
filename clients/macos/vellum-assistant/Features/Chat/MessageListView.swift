@@ -82,6 +82,23 @@ struct MessageListView: View {
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
     /// resign first responder exactly once per new confirmation appearance.
     @State private var lastAutoFocusedRequestId: String?
+    /// Whether the scroll-bottom-anchor is physically within the scroll view's
+    /// visible viewport. Used alongside `isNearBottom` to suppress the "Scroll
+    /// to latest" button when all content fits on screen.
+    @State private var anchorIsVisible: Bool = true
+    /// The scroll view's viewport height, captured via preference key. Used by
+    /// the anchor GeometryReader to determine if the anchor is within bounds.
+    @State private var scrollViewportHeight: CGFloat = .infinity
+    /// Last known anchor Y position, stored so `anchorIsVisible` can be
+    /// recalculated when the viewport height changes (e.g., window resize).
+    @State private var lastAnchorMinY: CGFloat = .infinity
+    /// Timestamp when anchorMessageId was set. Used together with pagination
+    /// exhaustion to decide when a stale anchor should be cleared.
+    @State private var anchorSetTime: Date?
+    /// Independent timer task that clears a stale anchor after 10 seconds,
+    /// regardless of whether messages.count changes. This covers the edge
+    /// case where pagination stalls without adding/removing messages.
+    @State private var anchorTimeoutTask: Task<Void, Never>?
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -446,6 +463,14 @@ struct MessageListView: View {
                         .onAppear {
                             isNearBottom = true
                         }
+                        .background {
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: AnchorMinYKey.self,
+                                    value: geo.frame(in: .named("chatScrollView")).minY
+                                )
+                            }
+                        }
                 }
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
@@ -454,11 +479,15 @@ struct MessageListView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
+            .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             .onHover { hovering in
                 handleThreadContentHover(hovering)
             }
             .background {
+                GeometryReader { geo in
+                    Color.clear.preference(key: ScrollViewportHeightKey.self, value: geo.size.height)
+                }
                 ScrollWheelDetector(
                     onScrollUp: {
                         scrollDebounceTask?.cancel()
@@ -469,8 +498,16 @@ struct MessageListView: View {
                 )
                 ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
+            .onPreferenceChange(ScrollViewportHeightKey.self) {
+                scrollViewportHeight = $0
+                anchorIsVisible = lastAnchorMinY >= -20 && lastAnchorMinY <= $0 + 20
+            }
+            .onPreferenceChange(AnchorMinYKey.self) { minY in
+                lastAnchorMinY = minY
+                anchorIsVisible = minY >= -20 && minY <= scrollViewportHeight + 20
+            }
             .overlay(alignment: .bottom) {
-                if !isNearBottom {
+                if !isNearBottom && !anchorIsVisible {
                     Button(action: {
                         isNearBottom = true
                         withAnimation(VAnimation.fast) {
@@ -502,7 +539,35 @@ struct MessageListView: View {
                     // scroll to it immediately instead of falling through to bottom.
                     proxy.scrollTo(id, anchor: .center)
                     anchorMessageId = nil
-                } else if anchorMessageId == nil {
+                    anchorSetTime = nil
+                } else if anchorMessageId != nil {
+                    // Anchor is set but the target message isn't loaded yet.
+                    // Record the timestamp so the elapsed-time guard starts
+                    // counting from view appearance (onChange may not fire for
+                    // the initial value).
+                    if anchorSetTime == nil { anchorSetTime = Date() }
+                    // Start the independent timeout if not already running
+                    // (onChange(of: anchorMessageId) may not fire for the
+                    // initial value when the view first appears).
+                    if anchorTimeoutTask == nil {
+                        anchorTimeoutTask = Task { @MainActor in
+                            do {
+                                try await Task.sleep(nanoseconds: 10_000_000_000)
+                            } catch {
+                                return
+                            }
+                            guard !Task.isCancelled, anchorMessageId != nil else { return }
+                            log.debug("Anchor message not found (timed out) — clearing stale anchor")
+                            anchorMessageId = nil
+                            anchorSetTime = nil
+                            anchorTimeoutTask = nil
+                            isNearBottom = true
+                            withAnimation(VAnimation.fast) {
+                                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                            }
+                        }
+                    }
+                } else {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
                 // When anchorMessageId is set but the target message isn't loaded
@@ -514,6 +579,8 @@ struct MessageListView: View {
                 hoverExitDebounceTask = nil
                 threadSwitchSuppressionTask?.cancel()
                 threadSwitchSuppressionTask = nil
+                anchorTimeoutTask?.cancel()
+                anchorTimeoutTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -564,7 +631,33 @@ struct MessageListView: View {
                         proxy.scrollTo(id, anchor: .center)
                     }
                     anchorMessageId = nil
+                    anchorSetTime = nil
+                    anchorTimeoutTask?.cancel()
+                    anchorTimeoutTask = nil
                     return
+                }
+                // If anchor is set but the target message still hasn't appeared,
+                // check pagination exhaustion with a minimum elapsed time guard.
+                // The guard prevents premature clearing when hasMoreMessages is
+                // still at its default `false` before the daemon history response
+                // arrives (e.g., a streaming message changes messages.count before
+                // history loads). The independent anchorTimeoutTask handles the
+                // time-based fallback separately.
+                if anchorMessageId != nil {
+                    let paginationExhausted = !hasMoreMessages
+                    let minWaitElapsed = anchorSetTime.map { Date().timeIntervalSince($0) > 2 } ?? false
+                    if paginationExhausted && minWaitElapsed {
+                        log.debug("Anchor message not found (pagination exhausted) — clearing stale anchor")
+                        anchorMessageId = nil
+                        anchorSetTime = nil
+                        anchorTimeoutTask?.cancel()
+                        anchorTimeoutTask = nil
+                        isNearBottom = true
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                        return
+                    }
                 }
                 if isNearBottom && !isSuppressingBottomScroll && anchorMessageId == nil {
                     withAnimation(VAnimation.fast) {
@@ -589,8 +682,11 @@ struct MessageListView: View {
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
+                anchorIsVisible = true
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
+                anchorTimeoutTask?.cancel()
+                anchorTimeoutTask = nil
                 threadSwitchSuppressionTask?.cancel()
                 suppressScrollbarDuringThreadSwitch = true
                 threadSwitchSuppressionTask = Task { @MainActor in
@@ -618,6 +714,12 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: anchorMessageId) {
+                // Record the timestamp when a new anchor is set so the
+                // pagination-exhaustion guard can measure elapsed time.
+                anchorSetTime = anchorMessageId != nil ? Date() : nil
+                // Cancel any previous timeout task.
+                anchorTimeoutTask?.cancel()
+                anchorTimeoutTask = nil
                 guard let id = anchorMessageId else { return }
                 // Only scroll and clear if the target message is already loaded;
                 // otherwise leave the anchor set so the messages-change handler
@@ -627,6 +729,27 @@ struct MessageListView: View {
                         proxy.scrollTo(id, anchor: .center)
                     }
                     anchorMessageId = nil
+                    anchorSetTime = nil
+                } else {
+                    // Start an independent 10-second timeout that clears the
+                    // anchor even if messages.count never changes (e.g., pagination
+                    // stalls or the daemon never responds with more history).
+                    anchorTimeoutTask = Task { @MainActor in
+                        do {
+                            try await Task.sleep(nanoseconds: 10_000_000_000)
+                        } catch {
+                            return
+                        }
+                        guard !Task.isCancelled, anchorMessageId != nil else { return }
+                        log.debug("Anchor message not found (timed out) — clearing stale anchor")
+                        anchorMessageId = nil
+                        anchorSetTime = nil
+                        anchorTimeoutTask = nil
+                        isNearBottom = true
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                    }
                 }
             }
             .onChange(of: currentPendingRequestId) {
@@ -750,5 +873,28 @@ private struct ThreadScrollbarVisibilityController: NSViewRepresentable {
             }
             return nil
         }
+    }
+}
+
+/// Preference key used to propagate the scroll view's viewport height from a
+/// background GeometryReader up to the MessageListView so the anchor-visibility
+/// check can compare the anchor's Y position against the viewport bounds.
+private struct ScrollViewportHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        // Use max so sibling views in the same .background block (which report
+        // the default value of 0) don't overwrite the real viewport height.
+        value = max(value, nextValue())
+    }
+}
+
+/// Preference key that propagates the anchor's Y position (in the chatScrollView
+/// coordinate space) from the GeometryReader up to the MessageListView.
+private struct AnchorMinYKey: PreferenceKey {
+    static var defaultValue: CGFloat = .infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        // Use min so sibling views in the LazyVStack (which report the default
+        // value of .infinity) don't overwrite the anchor's actual Y position.
+        value = min(value, nextValue())
     }
 }

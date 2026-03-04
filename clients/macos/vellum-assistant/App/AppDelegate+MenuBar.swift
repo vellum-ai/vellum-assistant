@@ -65,6 +65,16 @@ extension AppDelegate {
         markAllSeenItem.target = self
         fileMenu.addItem(markAllSeenItem)
 
+        fileMenu.addItem(NSMenuItem.separator())
+
+        let exportLogsItem = NSMenuItem(
+            title: "Export Logs...",
+            action: #selector(exportAssistantLogs),
+            keyEquivalent: ""
+        )
+        exportLogsItem.target = self
+        fileMenu.addItem(exportLogsItem)
+
         let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
         mainMenu.insertItem(fileMenuItem, at: 1)
@@ -462,6 +472,11 @@ extension AppDelegate {
         menu.addItem(galleryItem)
         #endif
 
+        let exportLogsItem = NSMenuItem(title: "Export Logs...", action: #selector(exportAssistantLogs), keyEquivalent: "")
+        exportLogsItem.target = self
+        exportLogsItem.image = NSImage(systemSymbolName: "doc.zipper", accessibilityDescription: nil)
+        menu.addItem(exportLogsItem)
+
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
         restartItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
@@ -648,6 +663,10 @@ extension AppDelegate {
                 }
             }
         }
+    }
+
+    @objc func exportAssistantLogs() {
+        LogExporter.exportLogs()
     }
 
     func refreshSkillsCache() {

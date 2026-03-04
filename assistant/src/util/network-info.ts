@@ -1,4 +1,4 @@
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces } from "node:os";
 
 /**
  * Returns the local IPv4 address most likely to be reachable from other
@@ -16,13 +16,17 @@ export function getLocalIPv4(): string | null {
   const ifaces = networkInterfaces();
 
   // Priority interfaces in order
-  const priorityInterfaces = ['en0', 'en1'];
+  const priorityInterfaces = ["en0", "en1"];
 
   for (const ifName of priorityInterfaces) {
     const addrs = ifaces[ifName];
     if (!addrs) continue;
     for (const addr of addrs) {
-      if (addr.family === 'IPv4' && !addr.internal && !isLinkLocal(addr.address)) {
+      if (
+        addr.family === "IPv4" &&
+        !addr.internal &&
+        !isLinkLocal(addr.address)
+      ) {
         return addr.address;
       }
     }
@@ -32,7 +36,11 @@ export function getLocalIPv4(): string | null {
   for (const [, addrs] of Object.entries(ifaces)) {
     if (!addrs) continue;
     for (const addr of addrs) {
-      if (addr.family === 'IPv4' && !addr.internal && !isLinkLocal(addr.address)) {
+      if (
+        addr.family === "IPv4" &&
+        !addr.internal &&
+        !isLinkLocal(addr.address)
+      ) {
         return addr.address;
       }
     }
@@ -43,5 +51,5 @@ export function getLocalIPv4(): string | null {
 
 /** Returns true for IPv4 link-local addresses (169.254.x.x). */
 function isLinkLocal(address: string): boolean {
-  return address.startsWith('169.254.');
+  return address.startsWith("169.254.");
 }

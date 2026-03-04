@@ -1,5 +1,5 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
-import { computeMemoryFingerprint } from '../fingerprint.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import { computeMemoryFingerprint } from "../fingerprint.js";
 
 /**
  * One-shot migration: recompute fingerprints for existing memory items to
@@ -11,12 +11,14 @@ import { computeMemoryFingerprint } from '../fingerprint.js';
  * Without this migration, pre-upgrade items would never match on re-extraction,
  * causing duplicates and broken deduplication.
  */
-export function migrateMemoryItemsScopeSaltedFingerprints(database: DrizzleDb): void {
+export function migrateMemoryItemsScopeSaltedFingerprints(
+  database: DrizzleDb,
+): void {
   const raw = getSqliteFrom(database);
-  const checkpointKey = 'migration_memory_items_scope_salted_fingerprints_v1';
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey);
+  const checkpointKey = "migration_memory_items_scope_salted_fingerprints_v1";
+  const checkpoint = raw
+    .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey);
   if (checkpoint) return;
 
   interface ItemRow {
@@ -27,36 +29,49 @@ export function migrateMemoryItemsScopeSaltedFingerprints(database: DrizzleDb): 
     scope_id: string;
   }
 
-  const items = raw.query(
-    `SELECT id, kind, subject, statement, scope_id FROM memory_items`,
-  ).all() as ItemRow[];
+  const items = raw
+    .query(`SELECT id, kind, subject, statement, scope_id FROM memory_items`)
+    .all() as ItemRow[];
 
   if (items.length === 0) {
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
     return;
   }
 
   try {
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
 
     const updateStmt = raw.prepare(
       `UPDATE memory_items SET fingerprint = ? WHERE id = ?`,
     );
 
     for (const item of items) {
-      const fingerprint = computeMemoryFingerprint(item.scope_id, item.kind, item.subject, item.statement);
+      const fingerprint = computeMemoryFingerprint(
+        item.scope_id,
+        item.kind,
+        item.subject,
+        item.statement,
+      );
       updateStmt.run(fingerprint, item.id);
     }
 
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
 
-    raw.exec('COMMIT');
+    raw.exec("COMMIT");
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   }
 }

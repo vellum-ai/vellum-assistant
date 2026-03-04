@@ -4,7 +4,11 @@ import { join } from "path";
 
 import { loadAllAssistants } from "../lib/assistant-config";
 import { isProcessAlive } from "../lib/process";
-import { startLocalDaemon, startGateway } from "../lib/local";
+import {
+  startLocalDaemon,
+  startGateway,
+  startOutboundProxy,
+} from "../lib/local";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -18,7 +22,9 @@ export async function wake(): Promise<void> {
   const assistants = loadAllAssistants();
   const hasLocal = assistants.some((a) => a.cloud === "local");
   if (!hasLocal) {
-    console.error("Error: No local assistant found in lock file. Run 'vellum hatch local' first.");
+    console.error(
+      "Error: No local assistant found in lock file. Run 'vellum hatch local' first.",
+    );
     process.exit(1);
   }
 
@@ -55,6 +61,9 @@ export async function wake(): Promise<void> {
       await startGateway();
     }
   }
+
+  // Start outbound proxy
+  await startOutboundProxy();
 
   console.log("✅ Wake complete.");
 }

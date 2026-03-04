@@ -6,8 +6,12 @@
 // preambles before loading the skill.
 
 export type GuardianVerificationIntentResult =
-  | { kind: 'none' }
-  | { kind: 'direct_setup'; rewrittenContent: string; channelHint?: 'voice' | 'telegram' };
+  | { kind: "none" }
+  | {
+      kind: "direct_setup";
+      rewrittenContent: string;
+      channelHint?: "voice" | "telegram";
+    };
 
 // ── Direct setup patterns ────────────────────────────────────────────────
 // These capture imperative requests to start guardian verification.
@@ -42,9 +46,12 @@ const CONCEPTUAL_PATTERNS: RegExp[] = [
 
 // ── Channel hint extraction ──────────────────────────────────────────────
 
-const CHANNEL_HINT_PATTERNS: Array<{ pattern: RegExp; channel: 'voice' | 'telegram' }> = [
-  { pattern: /\b(?:voice|call|phone\s*call|by\s+phone)\b/i, channel: 'voice' },
-  { pattern: /\btelegram\b/i, channel: 'telegram' },
+const CHANNEL_HINT_PATTERNS: Array<{
+  pattern: RegExp;
+  channel: "voice" | "telegram";
+}> = [
+  { pattern: /\b(?:voice|call|phone\s*call|by\s+phone)\b/i, channel: "voice" },
+  { pattern: /\btelegram\b/i, channel: "telegram" },
 ];
 
 /** Common polite/filler words stripped before checking intent-only status. */
@@ -54,7 +61,7 @@ const FILLER_PATTERN =
 // ── Internal helpers ─────────────────────────────────────────────────────
 
 function isConceptualQuestion(text: string): boolean {
-  const cleaned = text.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, '');
+  const cleaned = text.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, "");
   return CONCEPTUAL_PATTERNS.some((p) => p.test(cleaned));
 }
 
@@ -62,7 +69,7 @@ function isDirectSetupIntent(text: string): boolean {
   return DIRECT_SETUP_PATTERNS.some((p) => p.test(text));
 }
 
-function extractChannelHint(text: string): 'voice' | 'telegram' | undefined {
+function extractChannelHint(text: string): "voice" | "telegram" | undefined {
   for (const { pattern, channel } of CHANNEL_HINT_PATTERNS) {
     if (pattern.test(text)) return channel;
   }
@@ -80,40 +87,47 @@ function extractChannelHint(text: string): 'voice' | 'telegram' | undefined {
  * 3. Detect direct setup patterns
  * 4. On match, build a deterministic model instruction to load guardian-verify-setup
  */
-export function resolveGuardianVerificationIntent(text: string): GuardianVerificationIntentResult {
+export function resolveGuardianVerificationIntent(
+  text: string,
+): GuardianVerificationIntentResult {
   const trimmed = text.trim();
 
   // Never intercept slash commands
-  if (trimmed.startsWith('/')) {
-    return { kind: 'none' };
+  if (trimmed.startsWith("/")) {
+    return { kind: "none" };
   }
 
   // Conceptual questions pass through to normal agent processing
   if (isConceptualQuestion(trimmed)) {
-    return { kind: 'none' };
+    return { kind: "none" };
   }
 
   // Strip fillers for pattern matching but keep original for context
-  const withoutFillers = trimmed.replace(FILLER_PATTERN, '').replace(/\s{2,}/g, ' ').trim();
+  const withoutFillers = trimmed
+    .replace(FILLER_PATTERN, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
   if (!isDirectSetupIntent(withoutFillers)) {
-    return { kind: 'none' };
+    return { kind: "none" };
   }
 
   const channelHint = extractChannelHint(trimmed);
 
   // Build the rewritten content that deterministically loads the skill
   const lines = [
-    'The user wants to verify themselves as the trusted guardian.',
+    "The user wants to verify themselves as the trusted guardian.",
     'Please invoke the "Guardian Verify Setup" skill (ID: guardian-verify-setup) immediately using skill_load.',
   ];
   if (channelHint) {
-    lines.push(`The user specified the ${channelHint} channel. Pass this context when starting the verification flow.`);
+    lines.push(
+      `The user specified the ${channelHint} channel. Pass this context when starting the verification flow.`,
+    );
   }
 
   return {
-    kind: 'direct_setup',
-    rewrittenContent: lines.join('\n'),
+    kind: "direct_setup",
+    rewrittenContent: lines.join("\n"),
     channelHint,
   };
 }

@@ -55,10 +55,7 @@ async function apiGet(path: string): Promise<unknown> {
   return response.json();
 }
 
-async function apiPost(
-  path: string,
-  body: unknown,
-): Promise<unknown> {
+async function apiPost(path: string, body: unknown): Promise<unknown> {
   const url = `${getGatewayUrl()}/v1/${path}`;
   const response = await fetch(url, {
     method: "POST",

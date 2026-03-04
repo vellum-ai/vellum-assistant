@@ -298,12 +298,19 @@ export function completeMigration(
 }
 
 /**
- * Navigate back to the transfer step.
+ * Navigate back to the transfer step and reset the rebind checklist.
+ *
+ * Returns both the rewound wizard state and a fresh completion state so
+ * callers clear stale task progress from a previous transfer attempt.
  */
-export function goBackToTransfer(
-  state: MigrationWizardState,
-): MigrationWizardState {
-  return goBackTo(state, "transfer");
+export function goBackToTransfer(state: MigrationWizardState): {
+  wizardState: MigrationWizardState;
+  completionState: RebindTaskCompletionState;
+} {
+  return {
+    wizardState: goBackTo(state, "transfer"),
+    completionState: createTaskCompletionState(),
+  };
 }
 
 // ---------------------------------------------------------------------------

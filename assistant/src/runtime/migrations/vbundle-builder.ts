@@ -243,6 +243,13 @@ export interface BuildExportVBundleOptions {
   source?: string;
   /** Human-readable description. */
   description?: string;
+  /**
+   * Optional callback to checkpoint the WAL before reading the database file.
+   * In WAL mode, committed rows may live in the -wal file and not yet be
+   * flushed to the main .db file. Callers should pass a function that runs
+   * PRAGMA wal_checkpoint(TRUNCATE) on the live database connection.
+   */
+  checkpoint?: () => void;
 }
 
 /**
@@ -259,11 +266,15 @@ export interface BuildExportVBundleOptions {
 export function buildExportVBundle(
   options: BuildExportVBundleOptions,
 ): BuildVBundleResult {
-  const { dbPath, configPath, source, description } = options;
+  const { dbPath, configPath, source, description, checkpoint } = options;
 
-  // Read the actual SQLite database file. The database contains all
-  // conversation history, messages, memory segments, embeddings, and
-  // other persistent assistant state in a single file.
+  // Flush WAL to the main database file before reading so the export
+  // captures all committed rows (SQLite WAL mode keeps recent writes
+  // in a separate -wal file until checkpoint).
+  if (checkpoint) {
+    checkpoint();
+  }
+
   const dbData = existsSync(dbPath)
     ? new Uint8Array(readFileSync(dbPath))
     : new Uint8Array(0);

@@ -7,8 +7,8 @@
  *   - waitForExtension — poll until the extension connects
  */
 
-import type { CookieSpec } from './protocol.js';
-import { extensionRelayServer } from './server.js';
+import type { CookieSpec } from "./protocol.js";
+import { extensionRelayServer } from "./server.js";
 
 const WAIT_POLL_INTERVAL_MS = 250;
 
@@ -27,11 +27,13 @@ export async function relayEval(
 ): Promise<unknown> {
   // Find the tab first
   const findResp = await extensionRelayServer.sendCommand(
-    { action: 'find_tab', url: urlPattern },
+    { action: "find_tab", url: urlPattern },
     timeoutMs,
   );
   if (!findResp.success) {
-    throw new Error(`relayEval: find_tab failed — ${findResp.error ?? 'unknown error'}`);
+    throw new Error(
+      `relayEval: find_tab failed — ${findResp.error ?? "unknown error"}`,
+    );
   }
   const tabId = findResp.tabId;
   if (tabId === undefined) {
@@ -39,11 +41,13 @@ export async function relayEval(
   }
 
   const evalResp = await extensionRelayServer.sendCommand(
-    { action: 'evaluate', tabId, code: script },
+    { action: "evaluate", tabId, code: script },
     timeoutMs,
   );
   if (!evalResp.success) {
-    throw new Error(`relayEval: evaluate failed — ${evalResp.error ?? 'unknown error'}`);
+    throw new Error(
+      `relayEval: evaluate failed — ${evalResp.error ?? "unknown error"}`,
+    );
   }
   return evalResp.result;
 }
@@ -55,9 +59,12 @@ export async function relayEval(
  * @returns       Array of cookie objects returned by the extension.
  */
 export async function relayCookies(domain: string): Promise<unknown[]> {
-  const resp = await extensionRelayServer.sendCommand({ action: 'get_cookies', domain });
+  const resp = await extensionRelayServer.sendCommand({
+    action: "get_cookies",
+    domain,
+  });
   if (!resp.success) {
-    throw new Error(`relayCookies: failed — ${resp.error ?? 'unknown error'}`);
+    throw new Error(`relayCookies: failed — ${resp.error ?? "unknown error"}`);
   }
   return Array.isArray(resp.result) ? resp.result : [];
 }
@@ -66,19 +73,31 @@ export async function relayCookies(domain: string): Promise<unknown[]> {
  * Set a cookie via the extension.
  */
 export async function relaySetCookie(cookie: CookieSpec): Promise<void> {
-  const resp = await extensionRelayServer.sendCommand({ action: 'set_cookie', cookie });
+  const resp = await extensionRelayServer.sendCommand({
+    action: "set_cookie",
+    cookie,
+  });
   if (!resp.success) {
-    throw new Error(`relaySetCookie: failed — ${resp.error ?? 'unknown error'}`);
+    throw new Error(
+      `relaySetCookie: failed — ${resp.error ?? "unknown error"}`,
+    );
   }
 }
 
 /**
  * Navigate a tab (or open a new one) to a URL.
  */
-export async function relayNavigate(url: string, tabId?: number): Promise<number> {
-  const resp = await extensionRelayServer.sendCommand({ action: 'navigate', url, tabId });
+export async function relayNavigate(
+  url: string,
+  tabId?: number,
+): Promise<number> {
+  const resp = await extensionRelayServer.sendCommand({
+    action: "navigate",
+    url,
+    tabId,
+  });
   if (!resp.success) {
-    throw new Error(`relayNavigate: failed — ${resp.error ?? 'unknown error'}`);
+    throw new Error(`relayNavigate: failed — ${resp.error ?? "unknown error"}`);
   }
   return resp.tabId!;
 }
@@ -87,9 +106,12 @@ export async function relayNavigate(url: string, tabId?: number): Promise<number
  * Open a new tab and navigate to a URL.
  */
 export async function relayNewTab(url: string): Promise<number> {
-  const resp = await extensionRelayServer.sendCommand({ action: 'new_tab', url });
+  const resp = await extensionRelayServer.sendCommand({
+    action: "new_tab",
+    url,
+  });
   if (!resp.success) {
-    throw new Error(`relayNewTab: failed — ${resp.error ?? 'unknown error'}`);
+    throw new Error(`relayNewTab: failed — ${resp.error ?? "unknown error"}`);
   }
   return resp.tabId!;
 }
@@ -101,9 +123,14 @@ export async function relayNewTab(url: string): Promise<number> {
  * @returns      Base64-encoded PNG data URL.
  */
 export async function relayScreenshot(tabId?: number): Promise<string> {
-  const resp = await extensionRelayServer.sendCommand({ action: 'screenshot', tabId });
+  const resp = await extensionRelayServer.sendCommand({
+    action: "screenshot",
+    tabId,
+  });
   if (!resp.success) {
-    throw new Error(`relayScreenshot: failed — ${resp.error ?? 'unknown error'}`);
+    throw new Error(
+      `relayScreenshot: failed — ${resp.error ?? "unknown error"}`,
+    );
   }
   return resp.result as string;
 }
@@ -118,7 +145,11 @@ export async function waitForExtension(timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (extensionRelayServer.getStatus().connected) return;
-    await new Promise<void>((resolve) => setTimeout(resolve, WAIT_POLL_INTERVAL_MS));
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, WAIT_POLL_INTERVAL_MS),
+    );
   }
-  throw new Error(`waitForExtension: Chrome extension did not connect within ${timeoutMs}ms`);
+  throw new Error(
+    `waitForExtension: Chrome extension did not connect within ${timeoutMs}ms`,
+  );
 }

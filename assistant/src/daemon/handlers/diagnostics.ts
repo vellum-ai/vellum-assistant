@@ -1,17 +1,22 @@
-import { randomBytes } from 'node:crypto';
-import { createWriteStream,mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import * as net from 'node:net';
-import { homedir } from 'node:os';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { randomBytes } from "node:crypto";
+import { createWriteStream, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import * as net from "node:net";
+import { homedir } from "node:os";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import archiver from 'archiver';
-import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import archiver from "archiver";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 
-import { getDb } from '../../memory/db.js';
-import { llmRequestLogs,llmUsageEvents, messages, toolInvocations } from '../../memory/schema.js';
-import type { DiagnosticsExportRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+import { getDb } from "../../memory/db.js";
+import {
+  llmRequestLogs,
+  llmUsageEvents,
+  messages,
+  toolInvocations,
+} from "../../memory/schema.js";
+import type { DiagnosticsExportRequest } from "../ipc-protocol.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 const MAX_CONTENT_LENGTH = 500;
 
@@ -35,24 +40,31 @@ const REDACT_PATTERNS = [
 function redact(text: string): string {
   let result = text;
   for (const pattern of REDACT_PATTERNS) {
-    result = result.replace(pattern, '[REDACTED]');
+    result = result.replace(pattern, "[REDACTED]");
   }
   return result;
 }
 
 function truncateAndRedact(text: string): string {
-  const truncated = text.length > MAX_CONTENT_LENGTH
-    ? text.slice(0, MAX_CONTENT_LENGTH) + '...[truncated]'
-    : text;
+  const truncated =
+    text.length > MAX_CONTENT_LENGTH
+      ? text.slice(0, MAX_CONTENT_LENGTH) + "...[truncated]"
+      : text;
   return redact(truncated);
 }
 
 /** Keys whose values should always be fully redacted in LLM request/response payloads. */
 const SENSITIVE_KEYS = new Set([
-  'api_key', 'apikey', 'api-key',
-  'authorization', 'x-api-key',
-  'secret', 'password', 'token',
-  'credential', 'credentials',
+  "api_key",
+  "apikey",
+  "api-key",
+  "authorization",
+  "x-api-key",
+  "secret",
+  "password",
+  "token",
+  "credential",
+  "credentials",
 ]);
 
 /**
@@ -61,13 +73,13 @@ const SENSITIVE_KEYS = new Set([
  * entire value replaced with '[REDACTED]'.
  */
 function redactDeep(value: unknown): unknown {
-  if (typeof value === 'string') return redact(value);
+  if (typeof value === "string") return redact(value);
   if (Array.isArray(value)) return value.map(redactDeep);
-  if (value != null && typeof value === 'object') {
+  if (value != null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (SENSITIVE_KEYS.has(k.toLowerCase())) {
-        out[k] = '[REDACTED]';
+        out[k] = "[REDACTED]";
       } else {
         out[k] = redactDeep(v);
       }
@@ -107,7 +119,7 @@ export async function handleDiagnosticsExport(
         .where(
           and(
             eq(messages.conversationId, conversationId),
-            eq(messages.role, 'assistant'),
+            eq(messages.role, "assistant"),
           ),
         )
         .orderBy(desc(messages.createdAt))
@@ -117,9 +129,9 @@ export async function handleDiagnosticsExport(
 
     if (!anchorMessage) {
       ctx.send(socket, {
-        type: 'diagnostics_export_response',
+        type: "diagnostics_export_response",
         success: false,
-        error: 'Anchor message not found',
+        error: "Anchor message not found",
       });
       return;
     }
@@ -131,7 +143,7 @@ export async function handleDiagnosticsExport(
       .where(
         and(
           eq(messages.conversationId, conversationId),
-          eq(messages.role, 'user'),
+          eq(messages.role, "user"),
           lte(messages.createdAt, anchorMessage.createdAt),
         ),
       )
@@ -144,7 +156,8 @@ export async function handleDiagnosticsExport(
     // Request logs are recorded during the usage event before the assistant
     // message is persisted, so same-turn logs can have timestamps slightly
     // earlier than the anchor.
-    const rangeStart = precedingUserMessage?.createdAt ?? (anchorMessage.createdAt - 2000);
+    const rangeStart =
+      precedingUserMessage?.createdAt ?? anchorMessage.createdAt - 2000;
     const rangeEnd = anchorMessage.createdAt;
     // Usage events are recorded asynchronously after the assistant message
     // is persisted, so their createdAt can be slightly later. Use a separate
@@ -209,19 +222,22 @@ export async function handleDiagnosticsExport(
       .all();
 
     // 6. Write export files to a temp directory
-    const exportId = `diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}`;
+    const exportId = `diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(4).toString("hex")}`;
     const tempDir = join(tmpdir(), exportId);
     mkdirSync(tempDir, { recursive: true });
 
     try {
       // manifest.json
       const manifest = {
-        version: '1.1',
+        version: "1.1",
         exportedAt: new Date().toISOString(),
         conversationId,
         messageId: anchorMessage.id,
       };
-      writeFileSync(join(tempDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+      writeFileSync(
+        join(tempDir, "manifest.json"),
+        JSON.stringify(manifest, null, 2),
+      );
 
       // messages.jsonl
       const messagesLines = rangeMessages.map((m) =>
@@ -233,7 +249,10 @@ export async function handleDiagnosticsExport(
           createdAt: m.createdAt,
         }),
       );
-      writeFileSync(join(tempDir, 'messages.jsonl'), messagesLines.join('\n') + (messagesLines.length > 0 ? '\n' : ''));
+      writeFileSync(
+        join(tempDir, "messages.jsonl"),
+        messagesLines.join("\n") + (messagesLines.length > 0 ? "\n" : ""),
+      );
 
       // tool_invocations.jsonl
       const toolLines = rangeToolInvocations.map((t) =>
@@ -249,7 +268,10 @@ export async function handleDiagnosticsExport(
           createdAt: t.createdAt,
         }),
       );
-      writeFileSync(join(tempDir, 'tool_invocations.jsonl'), toolLines.join('\n') + (toolLines.length > 0 ? '\n' : ''));
+      writeFileSync(
+        join(tempDir, "tool_invocations.jsonl"),
+        toolLines.join("\n") + (toolLines.length > 0 ? "\n" : ""),
+      );
 
       // usage.jsonl
       const usageLines = rangeUsageEvents.map((u) =>
@@ -268,14 +290,25 @@ export async function handleDiagnosticsExport(
           createdAt: u.createdAt,
         }),
       );
-      writeFileSync(join(tempDir, 'usage.jsonl'), usageLines.join('\n') + (usageLines.length > 0 ? '\n' : ''));
+      writeFileSync(
+        join(tempDir, "usage.jsonl"),
+        usageLines.join("\n") + (usageLines.length > 0 ? "\n" : ""),
+      );
 
       // llm_requests.jsonl — raw request/response payloads sent to the LLM provider
       const requestLogLines = rangeRequestLogs.map((r) => {
         let request: unknown;
         let response: unknown;
-        try { request = JSON.parse(r.requestPayload); } catch { request = r.requestPayload; }
-        try { response = JSON.parse(r.responsePayload); } catch { response = r.responsePayload; }
+        try {
+          request = JSON.parse(r.requestPayload);
+        } catch {
+          request = r.requestPayload;
+        }
+        try {
+          response = JSON.parse(r.responsePayload);
+        } catch {
+          response = r.responsePayload;
+        }
         return JSON.stringify({
           id: r.id,
           conversationId: r.conversationId,
@@ -284,23 +317,26 @@ export async function handleDiagnosticsExport(
           createdAt: r.createdAt,
         });
       });
-      writeFileSync(join(tempDir, 'llm_requests.jsonl'), requestLogLines.join('\n') + (requestLogLines.length > 0 ? '\n' : ''));
+      writeFileSync(
+        join(tempDir, "llm_requests.jsonl"),
+        requestLogLines.join("\n") + (requestLogLines.length > 0 ? "\n" : ""),
+      );
 
       // 7. Zip the temp directory
-      const downloadsDir = join(homedir(), 'Downloads');
+      const downloadsDir = join(homedir(), "Downloads");
       mkdirSync(downloadsDir, { recursive: true });
       const zipFilename = `${exportId}.zip`;
       const zipPath = join(downloadsDir, zipFilename);
 
       await new Promise<void>((resolve, reject) => {
         const output = createWriteStream(zipPath);
-        const archive = archiver('zip', { zlib: { level: 9 } });
+        const archive = archiver("zip", { zlib: { level: 9 } });
 
-        output.on('close', () => resolve());
-        output.on('error', (err: Error) => reject(err));
-        archive.on('error', (err: Error) => reject(err));
-        archive.on('warning', (err: Error) => {
-          log.warn({ err }, 'Archiver warning during diagnostics export');
+        output.on("close", () => resolve());
+        output.on("error", (err: Error) => reject(err));
+        archive.on("error", (err: Error) => reject(err));
+        archive.on("warning", (err: Error) => {
+          log.warn({ err }, "Archiver warning during diagnostics export");
         });
 
         archive.pipe(output);
@@ -310,12 +346,15 @@ export async function handleDiagnosticsExport(
 
       // 8. Send success response
       ctx.send(socket, {
-        type: 'diagnostics_export_response',
+        type: "diagnostics_export_response",
         success: true,
         filePath: zipPath,
       });
 
-      log.info({ conversationId, zipPath, messageCount: rangeMessages.length }, 'Diagnostics export completed');
+      log.info(
+        { conversationId, zipPath, messageCount: rangeMessages.length },
+        "Diagnostics export completed",
+      );
     } finally {
       // Clean up temp directory
       try {
@@ -326,9 +365,12 @@ export async function handleDiagnosticsExport(
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    log.error({ err, conversationId: msg.conversationId }, 'Failed to export diagnostics');
+    log.error(
+      { err, conversationId: msg.conversationId },
+      "Failed to export diagnostics",
+    );
     ctx.send(socket, {
-      type: 'diagnostics_export_response',
+      type: "diagnostics_export_response",
       success: false,
       error: `Failed to export diagnostics: ${errorMessage}`,
     });

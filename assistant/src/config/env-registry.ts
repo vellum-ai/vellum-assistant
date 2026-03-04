@@ -21,13 +21,13 @@ function str(name: string): string | undefined {
 
 function flag(name: string): boolean {
   const raw = str(name);
-  return raw === 'true' || raw === '1';
+  return raw === "true" || raw === "1";
 }
 
 function flagTriState(name: string): boolean | undefined {
   const raw = str(name);
-  if (raw === 'true' || raw === '1') return true;
-  if (raw === 'false' || raw === '0') return false;
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
   return undefined;
 }
 
@@ -40,7 +40,7 @@ function flagTriState(name: string): boolean | undefined {
  * Primarily used in tests to isolate filesystem state.
  */
 export function getBaseDataDir(): string | undefined {
-  return str('BASE_DATA_DIR');
+  return str("BASE_DATA_DIR");
 }
 
 /**
@@ -49,7 +49,7 @@ export function getBaseDataDir(): string | undefined {
  * Supports ~ expansion.
  */
 export function getDaemonSocket(): string | undefined {
-  return str('VELLUM_DAEMON_SOCKET');
+  return str("VELLUM_DAEMON_SOCKET");
 }
 
 /**
@@ -57,7 +57,7 @@ export function getDaemonSocket(): string | undefined {
  * TCP port for the daemon's TCP listener (used by iOS clients).
  */
 export function getDaemonTcpPort(): number {
-  const raw = str('VELLUM_DAEMON_TCP_PORT');
+  const raw = str("VELLUM_DAEMON_TCP_PORT");
   if (raw) {
     const port = parseInt(raw, 10);
     if (!isNaN(port) && port > 0 && port <= 65535) return port;
@@ -71,7 +71,7 @@ export function getDaemonTcpPort(): number {
  * 'true'/'1' → on, 'false'/'0' → off, unset → check flag file.
  */
 export function getDaemonTcpEnabled(): boolean | undefined {
-  return flagTriState('VELLUM_DAEMON_TCP_ENABLED');
+  return flagTriState("VELLUM_DAEMON_TCP_ENABLED");
 }
 
 /**
@@ -80,7 +80,7 @@ export function getDaemonTcpEnabled(): boolean | undefined {
  * based on whether iOS pairing is enabled.
  */
 export function getDaemonTcpHost(): string | undefined {
-  return str('VELLUM_DAEMON_TCP_HOST');
+  return str("VELLUM_DAEMON_TCP_HOST");
 }
 
 /**
@@ -89,7 +89,7 @@ export function getDaemonTcpHost(): string | undefined {
  * 'true'/'1' → on, 'false'/'0' → off, unset → check flag file.
  */
 export function getDaemonIosPairing(): boolean | undefined {
-  return flagTriState('VELLUM_DAEMON_IOS_PAIRING');
+  return flagTriState("VELLUM_DAEMON_IOS_PAIRING");
 }
 
 /**
@@ -97,7 +97,7 @@ export function getDaemonIosPairing(): boolean | undefined {
  * Enables debug-level logging and verbose output.
  */
 export function getDebugMode(): boolean {
-  return flag('VELLUM_DEBUG');
+  return flag("VELLUM_DEBUG");
 }
 
 /**
@@ -105,7 +105,7 @@ export function getDebugMode(): boolean {
  * Forces logger output to stderr instead of log files.
  */
 export function getLogStderr(): boolean {
-  return flag('VELLUM_LOG_STDERR');
+  return flag("VELLUM_LOG_STDERR");
 }
 
 /**
@@ -113,7 +113,7 @@ export function getLogStderr(): boolean {
  * Enables additional log output to stdout (alongside file logging).
  */
 export function getDebugStdoutLogs(): boolean {
-  return flag('DEBUG_STDOUT_LOGS');
+  return flag("DEBUG_STDOUT_LOGS");
 }
 
 /**
@@ -121,7 +121,7 @@ export function getDebugStdoutLogs(): boolean {
  * Enables monitoring/telemetry (Logfire, etc.).
  */
 export function getEnableMonitoring(): boolean {
-  return flag('VELLUM_ENABLE_MONITORING');
+  return flag("VELLUM_ENABLE_MONITORING");
 }
 
 /**
@@ -131,7 +131,7 @@ export function getEnableMonitoring(): boolean {
  * which is mapped to a persistent volume.
  */
 export function getIsContainerized(): boolean {
-  return flag('IS_CONTAINERIZED');
+  return flag("IS_CONTAINERIZED");
 }
 
 // ── Known env var names ──────────────────────────────────────────────────────
@@ -141,24 +141,24 @@ export function getIsContainerized(): boolean {
  * to warn about typos or unrecognized variables.
  */
 const KNOWN_VELLUM_VARS = new Set([
-  'VELLUM_DAEMON_SOCKET',
-  'VELLUM_DAEMON_TCP_PORT',
-  'VELLUM_DAEMON_TCP_ENABLED',
-  'VELLUM_DAEMON_TCP_HOST',
-  'VELLUM_DAEMON_IOS_PAIRING',
-  'VELLUM_DAEMON_NOAUTH',
-  'VELLUM_DAEMON_AUTOSTART',
-  'VELLUM_DEBUG',
-  'VELLUM_LOG_STDERR',
-  'VELLUM_ENABLE_MONITORING',
-  'VELLUM_HOOK_EVENT',
-  'VELLUM_HOOK_NAME',
-  'VELLUM_HOOK_SETTINGS',
-  'VELLUM_ROOT_DIR',
-  'VELLUM_WORKSPACE_DIR',
-  'VELLUM_CLAUDE_CODE_DEPTH',
-  'VELLUM_ASSISTANT_PLATFORM_URL',
-  'VELLUM_UNSAFE_AUTH_BYPASS',
+  "VELLUM_DAEMON_SOCKET",
+  "VELLUM_DAEMON_TCP_PORT",
+  "VELLUM_DAEMON_TCP_ENABLED",
+  "VELLUM_DAEMON_TCP_HOST",
+  "VELLUM_DAEMON_IOS_PAIRING",
+  "VELLUM_DAEMON_NOAUTH",
+  "VELLUM_DAEMON_AUTOSTART",
+  "VELLUM_DEBUG",
+  "VELLUM_LOG_STDERR",
+  "VELLUM_ENABLE_MONITORING",
+  "VELLUM_HOOK_EVENT",
+  "VELLUM_HOOK_NAME",
+  "VELLUM_HOOK_SETTINGS",
+  "VELLUM_ROOT_DIR",
+  "VELLUM_WORKSPACE_DIR",
+  "VELLUM_CLAUDE_CODE_DEPTH",
+  "VELLUM_ASSISTANT_PLATFORM_URL",
+  "VELLUM_UNSAFE_AUTH_BYPASS",
 ]);
 
 /**
@@ -172,7 +172,7 @@ const KNOWN_VELLUM_VARS = new Set([
 export function checkUnrecognizedEnvVars(): string[] {
   const warnings: string[] = [];
   for (const key of Object.keys(process.env)) {
-    if (key.startsWith('VELLUM_') && !KNOWN_VELLUM_VARS.has(key)) {
+    if (key.startsWith("VELLUM_") && !KNOWN_VELLUM_VARS.has(key)) {
       warnings.push(`Unrecognized environment variable: ${key}`);
     }
   }

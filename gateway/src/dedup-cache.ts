@@ -271,7 +271,10 @@ export class StringDedupCache {
   /** Start a periodic background sweep of expired entries. */
   startCleanup(intervalMs = 60_000): void {
     this.stopCleanup();
-    this.cleanupTimer = setInterval(() => this.evictExpired(Date.now()), intervalMs);
+    this.cleanupTimer = setInterval(
+      () => this.evictExpired(Date.now()),
+      intervalMs,
+    );
   }
 
   /** Stop the periodic background sweep. */

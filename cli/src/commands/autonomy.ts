@@ -29,26 +29,20 @@ const DEFAULT_AUTONOMY_CONFIG: AutonomyConfig = {
 // ---------------------------------------------------------------------------
 
 function getConfigPath(): string {
-  const root = join(
-    process.env.BASE_DATA_DIR?.trim() || homedir(),
-    ".vellum",
-  );
+  const root = join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum");
   return join(root, "workspace", "autonomy.json");
 }
 
 function isValidTier(value: unknown): value is AutonomyTier {
   return (
-    typeof value === "string" &&
-    AUTONOMY_TIERS.includes(value as AutonomyTier)
+    typeof value === "string" && AUTONOMY_TIERS.includes(value as AutonomyTier)
   );
 }
 
 function validateTierRecord(raw: unknown): Record<string, AutonomyTier> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result: Record<string, AutonomyTier> = {};
-  for (const [key, value] of Object.entries(
-    raw as Record<string, unknown>,
-  )) {
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (isValidTier(value)) {
       result[key] = value;
     }
@@ -186,7 +180,9 @@ function printUsage(): void {
   console.log("Usage: vellum autonomy <subcommand> [options]");
   console.log("");
   console.log("Subcommands:");
-  console.log("  get                              Show current autonomy configuration");
+  console.log(
+    "  get                              Show current autonomy configuration",
+  );
   console.log("  set --default <tier>             Set the global default tier");
   console.log("  set --channel <ch> --tier <t>    Set tier for a channel");
   console.log("  set --category <cat> --tier <t>  Set tier for a category");
@@ -254,7 +250,10 @@ export function autonomy(): void {
 
       if (!tier) {
         output(
-          { ok: false, error: "Missing --tier. Use --tier <auto|draft|notify>." },
+          {
+            ok: false,
+            error: "Missing --tier. Use --tier <auto|draft|notify>.",
+          },
           true,
         );
         process.exitCode = 1;

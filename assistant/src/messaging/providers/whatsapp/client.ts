@@ -13,7 +13,7 @@ export class WhatsAppApiError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'WhatsAppApiError';
+    this.name = "WhatsAppApiError";
   }
 }
 
@@ -46,9 +46,9 @@ export async function sendMessage(
 
   const url = `${gatewayUrl}/deliver/whatsapp`;
   const resp = await fetch(url, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${bearerToken}`,
     },
     body: JSON.stringify(payload),
@@ -56,7 +56,7 @@ export async function sendMessage(
   });
 
   if (!resp.ok) {
-    const body = await resp.text().catch(() => '<unreadable>');
+    const body = await resp.text().catch(() => "<unreadable>");
     throw new WhatsAppApiError(
       resp.status,
       `Gateway /deliver/whatsapp failed (${resp.status}): ${body}`,

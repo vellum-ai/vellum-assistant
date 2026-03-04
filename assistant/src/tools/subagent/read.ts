@@ -1,6 +1,6 @@
-import { getMessages } from '../../memory/conversation-store.js';
-import { getSubagentManager, TERMINAL_STATUSES } from '../../subagent/index.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { getMessages } from "../../memory/conversation-store.js";
+import { getSubagentManager, TERMINAL_STATUSES } from "../../subagent/index.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeSubagentRead(
   input: Record<string, unknown>,
@@ -14,12 +14,18 @@ export async function executeSubagentRead(
   const manager = getSubagentManager();
   const state = manager.getState(subagentId);
   if (!state) {
-    return { content: `No subagent found with ID "${subagentId}".`, isError: true };
+    return {
+      content: `No subagent found with ID "${subagentId}".`,
+      isError: true,
+    };
   }
 
   // Ownership check: only the parent session can read a subagent's output.
   if (state.config.parentSessionId !== context.sessionId) {
-    return { content: `No subagent found with ID "${subagentId}".`, isError: true };
+    return {
+      content: `No subagent found with ID "${subagentId}".`,
+      isError: true,
+    };
   }
 
   if (!TERMINAL_STATUSES.has(state.status)) {
@@ -32,22 +38,25 @@ export async function executeSubagentRead(
   // Read the subagent's conversation messages from DB.
   const dbMessages = getMessages(state.conversationId);
   if (!dbMessages || dbMessages.length === 0) {
-    return { content: 'No messages found in subagent conversation.', isError: true };
+    return {
+      content: "No messages found in subagent conversation.",
+      isError: true,
+    };
   }
 
   // Extract assistant messages only — that's the subagent's output.
   const output: string[] = [];
   for (const msg of dbMessages) {
-    if (msg.role !== 'assistant') continue;
+    if (msg.role !== "assistant") continue;
     try {
       const content = JSON.parse(msg.content);
       if (Array.isArray(content)) {
         for (const block of content) {
-          if (block.type === 'text' && typeof block.text === 'string') {
+          if (block.type === "text" && typeof block.text === "string") {
             output.push(block.text);
           }
         }
-      } else if (typeof content === 'string') {
+      } else if (typeof content === "string") {
         output.push(content);
       }
     } catch {
@@ -57,11 +66,11 @@ export async function executeSubagentRead(
   }
 
   if (output.length === 0) {
-    return { content: 'Subagent produced no text output.', isError: false };
+    return { content: "Subagent produced no text output.", isError: false };
   }
 
   return {
-    content: output.join('\n\n'),
+    content: output.join("\n\n"),
     isError: false,
   };
 }

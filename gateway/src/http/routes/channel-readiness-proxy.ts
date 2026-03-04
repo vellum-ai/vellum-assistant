@@ -36,7 +36,12 @@ export function createChannelReadinessProxyHandler(config: GatewayConfig) {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+      controller.abort(
+        new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        ),
+      );
     }, config.runtimeTimeoutMs);
 
     let response: Response;
@@ -52,10 +57,16 @@ export function createChannelReadinessProxyHandler(config: GatewayConfig) {
       clearTimeout(timeoutId);
       const duration = Math.round(performance.now() - start);
       if (err instanceof DOMException && err.name === "TimeoutError") {
-        log.error({ path: upstreamPath, duration }, "Channel readiness proxy upstream timed out");
+        log.error(
+          { path: upstreamPath, duration },
+          "Channel readiness proxy upstream timed out",
+        );
         return Response.json({ error: "Gateway Timeout" }, { status: 504 });
       }
-      log.error({ err, path: upstreamPath, duration }, "Channel readiness proxy upstream connection failed");
+      log.error(
+        { err, path: upstreamPath, duration },
+        "Channel readiness proxy upstream connection failed",
+      );
       return Response.json({ error: "Bad Gateway" }, { status: 502 });
     }
 
@@ -68,14 +79,20 @@ export function createChannelReadinessProxyHandler(config: GatewayConfig) {
         { path: upstreamPath, status: response.status, duration },
         "Channel readiness proxy upstream error",
       );
-      return new Response(body, { status: response.status, headers: resHeaders });
+      return new Response(body, {
+        status: response.status,
+        headers: resHeaders,
+      });
     }
 
     log.info(
       { path: upstreamPath, status: response.status, duration },
       "Channel readiness proxy completed",
     );
-    return new Response(response.body, { status: response.status, headers: resHeaders });
+    return new Response(response.body, {
+      status: response.status,
+      headers: resHeaders,
+    });
   }
 
   return {

@@ -1,19 +1,36 @@
-import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import { dirname, resolve } from "node:path";
 
-import { getConfig } from '../config/loader.js';
-import { resolveSkillSelector } from '../config/skills.js';
-import { isSkillSourcePath,normalizeFilePath } from '../skills/path-classifier.js';
-import { computeSkillVersionHash } from '../skills/version-hash.js';
-import type { ManifestOverride } from '../tools/execution-target.js';
-import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
-import { getTool } from '../tools/registry.js';
-import { getLogger } from '../util/logger.js';
-import { buildShellAllowlistOptions, buildShellCommandCandidates, cachedParse, type ParsedCommand } from './shell-identity.js';
-import { findHighestPriorityRule, onRulesChanged } from './trust-store.js';
-import { type AllowlistOption, type PermissionCheckResult, type PolicyContext,RiskLevel, type ScopeOption } from './types.js';
-import { isWorkspaceScopedInvocation } from './workspace-policy.js';
+import { getConfig } from "../config/loader.js";
+import { resolveSkillSelector } from "../config/skills.js";
+import {
+  isSkillSourcePath,
+  normalizeFilePath,
+} from "../skills/path-classifier.js";
+import { computeSkillVersionHash } from "../skills/version-hash.js";
+import type { ManifestOverride } from "../tools/execution-target.js";
+import {
+  looksLikeHostPortShorthand,
+  looksLikePathOnlyInput,
+} from "../tools/network/url-safety.js";
+import { getTool } from "../tools/registry.js";
+import { getLogger } from "../util/logger.js";
+import {
+  buildShellAllowlistOptions,
+  buildShellCommandCandidates,
+  cachedParse,
+  type ParsedCommand,
+} from "./shell-identity.js";
+import { findHighestPriorityRule, onRulesChanged } from "./trust-store.js";
+import {
+  type AllowlistOption,
+  type PermissionCheckResult,
+  type PolicyContext,
+  RiskLevel,
+  type ScopeOption,
+} from "./types.js";
+import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
 // classifyRisk() is called on every permission check and can invoke WASM
@@ -25,15 +42,20 @@ import { isWorkspaceScopedInvocation } from './workspace-policy.js';
 const RISK_CACHE_MAX = 256;
 const riskCache = new Map<string, RiskLevel>();
 
-function riskCacheKey(toolName: string, input: Record<string, unknown>, workingDir?: string, manifestOverride?: ManifestOverride): string {
+function riskCacheKey(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir?: string,
+  manifestOverride?: ManifestOverride,
+): string {
   const inputJson = JSON.stringify(input);
-  const hash = createHash('sha256')
+  const hash = createHash("sha256")
     .update(inputJson)
-    .update('\0')
-    .update(workingDir ?? '')
-    .update('\0')
-    .update(manifestOverride ? JSON.stringify(manifestOverride) : '')
-    .digest('hex');
+    .update("\0")
+    .update(workingDir ?? "")
+    .update("\0")
+    .update(manifestOverride ? JSON.stringify(manifestOverride) : "")
+    .digest("hex");
   return `${toolName}\0${hash}`;
 }
 
@@ -56,61 +78,156 @@ export function _resetLegacyDeprecationWarning(): void {
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
-  'ls', 'cat', 'head', 'tail', 'less', 'more', 'wc', 'file', 'stat',
-  'grep', 'rg', 'ag', 'ack', 'find', 'fd', 'which', 'where', 'whereis', 'type',
-  'echo', 'printf', 'date', 'cal', 'uptime', 'whoami', 'hostname', 'uname',
-  'pwd', 'realpath', 'dirname', 'basename',
-  'git', 'node', 'bun', 'deno', 'npm', 'npx', 'yarn', 'pnpm',
-  'python', 'python3', 'pip', 'pip3',
-  'man', 'help', 'info',
-  'env', 'printenv', 'set',
-  'diff', 'sort', 'uniq', 'cut', 'tr', 'tee', 'xargs',
-  'jq', 'yq',
-  'http', 'dig', 'nslookup', 'ping',
-  'tree', 'du', 'df',
+  "ls",
+  "cat",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "wc",
+  "file",
+  "stat",
+  "grep",
+  "rg",
+  "ag",
+  "ack",
+  "find",
+  "fd",
+  "which",
+  "where",
+  "whereis",
+  "type",
+  "echo",
+  "printf",
+  "date",
+  "cal",
+  "uptime",
+  "whoami",
+  "hostname",
+  "uname",
+  "pwd",
+  "realpath",
+  "dirname",
+  "basename",
+  "git",
+  "node",
+  "bun",
+  "deno",
+  "npm",
+  "npx",
+  "yarn",
+  "pnpm",
+  "python",
+  "python3",
+  "pip",
+  "pip3",
+  "man",
+  "help",
+  "info",
+  "env",
+  "printenv",
+  "set",
+  "diff",
+  "sort",
+  "uniq",
+  "cut",
+  "tr",
+  "tee",
+  "xargs",
+  "jq",
+  "yq",
+  "http",
+  "dig",
+  "nslookup",
+  "ping",
+  "tree",
+  "du",
+  "df",
 ]);
 
 // High-risk shell programs / patterns
 const HIGH_RISK_PROGRAMS = new Set([
-  'sudo', 'su', 'doas',
-  'dd', 'mkfs', 'fdisk', 'parted', 'mount', 'umount',
-  'systemctl', 'service', 'launchctl',
-  'useradd', 'userdel', 'usermod', 'groupadd', 'groupdel',
-  'iptables', 'ufw', 'firewall-cmd',
-  'reboot', 'shutdown', 'halt', 'poweroff',
-  'kill', 'killall', 'pkill',
+  "sudo",
+  "su",
+  "doas",
+  "dd",
+  "mkfs",
+  "fdisk",
+  "parted",
+  "mount",
+  "umount",
+  "systemctl",
+  "service",
+  "launchctl",
+  "useradd",
+  "userdel",
+  "usermod",
+  "groupadd",
+  "groupdel",
+  "iptables",
+  "ufw",
+  "firewall-cmd",
+  "reboot",
+  "shutdown",
+  "halt",
+  "poweroff",
+  "kill",
+  "killall",
+  "pkill",
 ]);
 
 // Git subcommands that are low-risk (read-only)
 const LOW_RISK_GIT_SUBCOMMANDS = new Set([
-  'status', 'log', 'diff', 'show', 'branch', 'tag', 'remote', 'stash',
-  'blame', 'shortlog', 'describe', 'rev-parse', 'ls-files', 'ls-tree',
-  'cat-file', 'reflog',
+  "status",
+  "log",
+  "diff",
+  "show",
+  "branch",
+  "tag",
+  "remote",
+  "stash",
+  "blame",
+  "shortlog",
+  "describe",
+  "rev-parse",
+  "ls-files",
+  "ls-tree",
+  "cat-file",
+  "reflog",
 ]);
 
 // Commands that wrap another program — the real program appears as the first
 // non-flag argument.  When one of these is the segment program we look through
 // its args to find the effective program (e.g. `env curl …` → curl).
 const WRAPPER_PROGRAMS = new Set([
-  'env', 'nice', 'nohup', 'time', 'command', 'exec',
-  'strace', 'ltrace', 'ionice', 'taskset', 'timeout',
+  "env",
+  "nice",
+  "nohup",
+  "time",
+  "command",
+  "exec",
+  "strace",
+  "ltrace",
+  "ionice",
+  "taskset",
+  "timeout",
 ]);
 
 // `env` flags that consume the next positional argument as their value.
 // Without this, `env -u curl echo` would incorrectly identify `curl` (the
 // value of -u) as the wrapped program instead of `echo`.
-const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir']);
+const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir"]);
 
 // Bare filenames that `rm` is allowed to delete at Medium risk (instead of
 // High) so workspace-scoped allow rules can approve them without the
 // dangerous `allowHighRisk` flag. Only matches when the args contain no
 // flags and exactly one of these filenames.
-const RM_SAFE_BARE_FILES = new Set(['BOOTSTRAP.md', 'UPDATES.md']);
+const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
 
 function isRmOfKnownSafeFile(args: string[]): boolean {
   if (args.length !== 1) return false;
   const target = args[0];
-  if (target.startsWith('-') || target.includes('/')) return false;
+  if (target.startsWith("-") || target.includes("/")) return false;
   return RM_SAFE_BARE_FILES.has(target);
 }
 
@@ -122,26 +239,32 @@ function isRmOfKnownSafeFile(args: string[]): boolean {
  * Handles `env` specially: skips `VAR=value` pairs and value-taking flags
  * like `-u NAME` and `-C DIR`.
  */
-function getWrappedProgram(seg: { program: string; args: string[] }): string | undefined {
-  const isEnv = seg.program === 'env';
+function getWrappedProgram(seg: {
+  program: string;
+  args: string[];
+}): string | undefined {
+  const isEnv = seg.program === "env";
   for (let i = 0; i < seg.args.length; i++) {
     const arg = seg.args[i];
-    if (arg.startsWith('-')) {
+    if (arg.startsWith("-")) {
       if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++; // skip the value argument
       continue;
     }
-    if (isEnv && arg.includes('=')) continue;     // skip env VAR=value pairs
+    if (isEnv && arg.includes("=")) continue; // skip env VAR=value pairs
     return arg;
   }
   return undefined;
 }
 
-function getStringField(input: Record<string, unknown>, ...keys: string[]): string {
+function getStringField(
+  input: Record<string, unknown>,
+  ...keys: string[]
+): string {
   for (const key of keys) {
     const value = input[key];
-    if (typeof value === 'string') return value;
+    if (typeof value === "string") return value;
   }
-  return '';
+  return "";
 }
 
 /**
@@ -149,7 +272,9 @@ function getStringField(input: Record<string, unknown>, ...keys: string[]): stri
  * is always computed from disk so that untrusted input cannot spoof a
  * pre-approved hash. If disk computation fails, only the bare id is returned.
  */
-function resolveSkillIdAndHash(selector: string): { id: string; versionHash?: string } | null {
+function resolveSkillIdAndHash(
+  selector: string,
+): { id: string; versionHash?: string } | null {
   const resolved = resolveSkillSelector(selector);
   if (!resolved.skill) return null;
 
@@ -162,9 +287,9 @@ function resolveSkillIdAndHash(selector: string): { id: string; versionHash?: st
 }
 
 function canonicalizeWebFetchUrl(parsed: URL): URL {
-  parsed.hash = '';
-  parsed.username = '';
-  parsed.password = '';
+  parsed.hash = "";
+  parsed.username = "";
+  parsed.password = "";
 
   try {
     // Normalize equivalent escaped paths (for example, "/%70rivate" -> "/private")
@@ -174,8 +299,8 @@ function canonicalizeWebFetchUrl(parsed: URL): URL {
     // Keep URL parser canonical form when decoding fails.
   }
 
-  if (parsed.hostname.endsWith('.')) {
-    parsed.hostname = parsed.hostname.replace(/\.+$/, '');
+  if (parsed.hostname.endsWith(".")) {
+    parsed.hostname = parsed.hostname.replace(/\.+$/, "");
   }
 
   return parsed;
@@ -195,7 +320,7 @@ export function normalizeWebFetchUrl(rawUrl: string): URL | null {
 
   try {
     const parsed = new URL(trimmed);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
       return canonicalizeWebFetchUrl(parsed);
     }
     return null;
@@ -219,19 +344,27 @@ export function normalizeWebFetchUrl(rawUrl: string): URL | null {
 }
 
 function escapeMinimatchLiteral(value: string): string {
-  return value.replace(/([\\*?[\]{}()!+@|])/g, '\\$1');
+  return value.replace(/([\\*?[\]{}()!+@|])/g, "\\$1");
 }
 
-async function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string, preParsed?: ParsedCommand): Promise<string[]> {
-  if (toolName === 'bash' || toolName === 'host_bash') {
-    return buildShellCommandCandidates(getStringField(input, 'command'), preParsed);
+async function buildCommandCandidates(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir: string,
+  preParsed?: ParsedCommand,
+): Promise<string[]> {
+  if (toolName === "bash" || toolName === "host_bash") {
+    return buildShellCommandCandidates(
+      getStringField(input, "command"),
+      preParsed,
+    );
   }
 
-  if (toolName === 'skill_load') {
-    const rawSelector = getStringField(input, 'skill').trim();
+  if (toolName === "skill_load") {
+    const rawSelector = getStringField(input, "skill").trim();
     const targets: string[] = [];
     if (!rawSelector) {
-      targets.push('');
+      targets.push("");
     } else {
       const resolved = resolveSkillIdAndHash(rawSelector);
       if (resolved) {
@@ -247,13 +380,20 @@ async function buildCommandCandidates(toolName: string, input: Record<string, un
     return [...new Set(targets)].map((target) => `${toolName}:${target}`);
   }
 
-  if (toolName === 'scaffold_managed_skill' || toolName === 'delete_managed_skill') {
-    const skillId = getStringField(input, 'skill_id').trim();
+  if (
+    toolName === "scaffold_managed_skill" ||
+    toolName === "delete_managed_skill"
+  ) {
+    const skillId = getStringField(input, "skill_id").trim();
     return [`${toolName}:${skillId}`];
   }
 
-  if (toolName === 'web_fetch' || toolName === 'browser_navigate' || toolName === 'network_request') {
-    const rawUrl = getStringField(input, 'url').trim();
+  if (
+    toolName === "web_fetch" ||
+    toolName === "browser_navigate" ||
+    toolName === "network_request"
+  ) {
+    const rawUrl = getStringField(input, "url").trim();
     const candidates: string[] = [];
 
     if (rawUrl) {
@@ -273,10 +413,17 @@ async function buildCommandCandidates(toolName: string, input: Record<string, un
     return [...new Set(candidates)];
   }
 
-  const fileTarget = getStringField(input, 'path', 'file_path');
-  if (toolName === 'host_file_read' || toolName === 'host_file_write' || toolName === 'host_file_edit') {
+  const fileTarget = getStringField(input, "path", "file_path");
+  if (
+    toolName === "host_file_read" ||
+    toolName === "host_file_write" ||
+    toolName === "host_file_edit"
+  ) {
     const resolved = fileTarget ? resolve(fileTarget) : fileTarget;
-    const normalized = resolved && process.platform === 'win32' ? resolved.replaceAll('\\', '/') : resolved;
+    const normalized =
+      resolved && process.platform === "win32"
+        ? resolved.replaceAll("\\", "/")
+        : resolved;
     const candidates = [`${toolName}:${normalized}`];
     if (normalized !== fileTarget) {
       candidates.push(`${toolName}:${fileTarget}`);
@@ -293,7 +440,10 @@ async function buildCommandCandidates(toolName: string, input: Record<string, un
   }
 
   const rawResolved = fileTarget ? resolve(workingDir, fileTarget) : fileTarget;
-  const resolved = rawResolved && process.platform === 'win32' ? rawResolved.replaceAll('\\', '/') : rawResolved;
+  const resolved =
+    rawResolved && process.platform === "win32"
+      ? rawResolved.replaceAll("\\", "/")
+      : rawResolved;
   const candidates = [`${toolName}:${resolved}`];
   // Also include the raw path if it differs, so user-created rules with
   // raw paths still match.
@@ -312,12 +462,21 @@ async function buildCommandCandidates(toolName: string, input: Record<string, un
   return [...new Set(candidates)];
 }
 
-export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand, manifestOverride?: ManifestOverride, signal?: AbortSignal): Promise<RiskLevel> {
+export async function classifyRisk(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir?: string,
+  preParsed?: ParsedCommand,
+  manifestOverride?: ManifestOverride,
+  signal?: AbortSignal,
+): Promise<RiskLevel> {
   signal?.throwIfAborted();
 
   // Check cache first (skip when preParsed is provided since caller already
   // parsed and we'd just be duplicating the key computation cost).
-  const cacheKey = preParsed ? null : riskCacheKey(toolName, input, workingDir, manifestOverride);
+  const cacheKey = preParsed
+    ? null
+    : riskCacheKey(toolName, input, workingDir, manifestOverride);
   if (cacheKey) {
     const cached = riskCache.get(cacheKey);
     if (cached !== undefined) {
@@ -328,7 +487,13 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
     }
   }
 
-  const result = await classifyRiskUncached(toolName, input, workingDir, preParsed, manifestOverride);
+  const result = await classifyRiskUncached(
+    toolName,
+    input,
+    workingDir,
+    preParsed,
+    manifestOverride,
+  );
 
   if (cacheKey) {
     if (riskCache.size >= RISK_CACHE_MAX) {
@@ -341,47 +506,66 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   return result;
 }
 
-async function classifyRiskUncached(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand, manifestOverride?: ManifestOverride): Promise<RiskLevel> {
-  if (toolName === 'file_read') return RiskLevel.Low;
-  if (toolName === 'file_write' || toolName === 'file_edit') {
-    const filePath = getStringField(input, 'path', 'file_path');
-    if (filePath && isSkillSourcePath(resolve(workingDir ?? process.cwd(), filePath), getConfig().skills.load.extraDirs)) {
+async function classifyRiskUncached(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir?: string,
+  preParsed?: ParsedCommand,
+  manifestOverride?: ManifestOverride,
+): Promise<RiskLevel> {
+  if (toolName === "file_read") return RiskLevel.Low;
+  if (toolName === "file_write" || toolName === "file_edit") {
+    const filePath = getStringField(input, "path", "file_path");
+    if (
+      filePath &&
+      isSkillSourcePath(
+        resolve(workingDir ?? process.cwd(), filePath),
+        getConfig().skills.load.extraDirs,
+      )
+    ) {
       return RiskLevel.High;
     }
     return RiskLevel.Medium;
   }
-  if (toolName === 'web_search') return RiskLevel.Low;
-  if (toolName === 'web_fetch') {
+  if (toolName === "web_search") return RiskLevel.Low;
+  if (toolName === "web_fetch") {
     // Private-network fetches are High risk so that blanket allow rules
     // (including the starter bundle) cannot silently bypass the prompt.
-    return input.allow_private_network === true ? RiskLevel.High : RiskLevel.Low;
+    return input.allow_private_network === true
+      ? RiskLevel.High
+      : RiskLevel.Low;
   }
-  if (toolName === 'browser_navigate') {
-    return input.allow_private_network === true ? RiskLevel.High : RiskLevel.Low;
+  if (toolName === "browser_navigate") {
+    return input.allow_private_network === true
+      ? RiskLevel.High
+      : RiskLevel.Low;
   }
   // All other browser tools are low risk — the browser is sandboxed and user-visible.
-  if (toolName.startsWith('browser_')) return RiskLevel.Low;
+  if (toolName.startsWith("browser_")) return RiskLevel.Low;
   // Proxy-authenticated network requests are Medium risk — they carry injected
   // credentials and the user should approve the target host/origin.
-  if (toolName === 'network_request') return RiskLevel.Medium;
-  if (toolName === 'skill_load') return RiskLevel.Low;
+  if (toolName === "network_request") return RiskLevel.Medium;
+  if (toolName === "skill_load") return RiskLevel.Low;
 
   // Escalate host file mutations targeting skill source paths to High risk.
   // The host variants fall through to the tool registry (Medium) by default,
   // but writing to skill source code is a privilege-escalation vector.
-  if (toolName === 'host_file_write' || toolName === 'host_file_edit') {
-    const filePath = getStringField(input, 'path', 'file_path');
-    if (filePath && isSkillSourcePath(resolve(filePath), getConfig().skills.load.extraDirs)) {
+  if (toolName === "host_file_write" || toolName === "host_file_edit") {
+    const filePath = getStringField(input, "path", "file_path");
+    if (
+      filePath &&
+      isSkillSourcePath(resolve(filePath), getConfig().skills.load.extraDirs)
+    ) {
       return RiskLevel.High;
     }
     // Fall through to the tool registry default (Medium) below.
   }
 
-  if (toolName === 'bash' || toolName === 'host_bash') {
-    const command = (input.command as string) ?? '';
+  if (toolName === "bash" || toolName === "host_bash") {
+    const command = (input.command as string) ?? "";
     if (!command.trim()) return RiskLevel.Low;
 
-    const parsed = preParsed ?? await cachedParse(command);
+    const parsed = preParsed ?? (await cachedParse(command));
 
     // Dangerous patterns → High
     if (parsed.dangerousPatterns.length > 0) return RiskLevel.High;
@@ -397,26 +581,31 @@ async function classifyRiskUncached(toolName: string, input: Record<string, unkn
 
       if (HIGH_RISK_PROGRAMS.has(prog)) return RiskLevel.High;
 
-      if (prog === 'rm') {
+      if (prog === "rm") {
         // Only downgrade rm of known safe workspace files for sandboxed bash.
         // host_bash has a global allow rule that would auto-approve Medium-risk
         // commands, so rm on the host must always require explicit approval.
-        if (toolName === 'bash' && isRmOfKnownSafeFile(seg.args)) {
+        if (toolName === "bash" && isRmOfKnownSafeFile(seg.args)) {
           maxRisk = RiskLevel.Medium;
           continue;
         }
         return RiskLevel.High;
       }
 
-      if (prog === 'chmod' || prog === 'chown' || prog === 'chgrp'
-        || prog === 'sed' || prog === 'awk') {
+      if (
+        prog === "chmod" ||
+        prog === "chown" ||
+        prog === "chgrp" ||
+        prog === "sed" ||
+        prog === "awk"
+      ) {
         maxRisk = RiskLevel.Medium;
         continue;
       }
 
       // curl/wget can download and execute arbitrary code from the internet.
       // Also catch wrapped invocations like `env curl …` or `nice wget …`.
-      if (prog === 'curl' || prog === 'wget') {
+      if (prog === "curl" || prog === "wget") {
         maxRisk = RiskLevel.Medium;
         continue;
       }
@@ -424,19 +613,23 @@ async function classifyRiskUncached(toolName: string, input: Record<string, unkn
       if (WRAPPER_PROGRAMS.has(prog)) {
         // `command -v` and `command -V` are read-only lookups (print where
         // a command lives) — don't escalate to high risk for those.
-        if (prog === 'command' && seg.args.length > 0 && (seg.args[0] === '-v' || seg.args[0] === '-V')) {
+        if (
+          prog === "command" &&
+          seg.args.length > 0 &&
+          (seg.args[0] === "-v" || seg.args[0] === "-V")
+        ) {
           continue;
         }
         const wrapped = getWrappedProgram(seg);
-        if (wrapped === 'rm') return RiskLevel.High;
+        if (wrapped === "rm") return RiskLevel.High;
         if (wrapped && HIGH_RISK_PROGRAMS.has(wrapped)) return RiskLevel.High;
-        if (wrapped === 'curl' || wrapped === 'wget') {
+        if (wrapped === "curl" || wrapped === "wget") {
           maxRisk = RiskLevel.Medium;
           continue;
         }
       }
 
-      if (prog === 'git') {
+      if (prog === "git") {
         const subcommand = seg.args[0];
         if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
           // Stay at current risk
@@ -470,7 +663,11 @@ async function classifyRiskUncached(toolName: string, input: Record<string, unkn
   // Use manifest metadata for unregistered skill tools so the Permission
   // Simulator shows accurate risk levels instead of defaulting to Medium.
   if (manifestOverride) {
-    const riskMap: Record<string, RiskLevel> = { low: RiskLevel.Low, medium: RiskLevel.Medium, high: RiskLevel.High };
+    const riskMap: Record<string, RiskLevel> = {
+      low: RiskLevel.Low,
+      medium: RiskLevel.Medium,
+      high: RiskLevel.High,
+    };
     return riskMap[manifestOverride.risk] ?? RiskLevel.Medium;
   }
 
@@ -490,49 +687,73 @@ export async function check(
 
   // For shell tools, parse once and share the result to avoid duplicate tree-sitter work.
   let shellParsed: ParsedCommand | undefined;
-  if (toolName === 'bash' || toolName === 'host_bash') {
-    const command = ((input.command as string) ?? '').trim();
+  if (toolName === "bash" || toolName === "host_bash") {
+    const command = ((input.command as string) ?? "").trim();
     if (command) {
       shellParsed = await cachedParse(command);
     }
   }
 
-  const risk = await classifyRisk(toolName, input, workingDir, shellParsed, manifestOverride, signal);
+  const risk = await classifyRisk(
+    toolName,
+    input,
+    workingDir,
+    shellParsed,
+    manifestOverride,
+    signal,
+  );
 
   // Build command string candidates for rule matching
-  const commandCandidates = await buildCommandCandidates(toolName, input, workingDir, shellParsed);
+  const commandCandidates = await buildCommandCandidates(
+    toolName,
+    input,
+    workingDir,
+    shellParsed,
+  );
 
   // Find the highest-priority matching rule across all candidates
-  const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir, policyContext);
+  const matchedRule = findHighestPriorityRule(
+    toolName,
+    commandCandidates,
+    workingDir,
+    policyContext,
+  );
 
   // Deny rules apply at ALL risk levels — including proxied network mode.
   // Evaluate them first so hard blocks are never downgraded to a prompt.
-  if (matchedRule && matchedRule.decision === 'deny') {
-    return { decision: 'deny', reason: `Blocked by deny rule: ${matchedRule.pattern}`, matchedRule };
-  }
-
-  // Proxied network mode requires explicit user approval for every
-  // invocation because the command routes through an authenticated
-  // proxy with injected credentials. This runs after deny rules but
-  // before allow/ask rules so that trust rules cannot auto-approve
-  // proxied commands.
-  if (toolName === 'bash' && input.network_mode === 'proxied') {
-    return { decision: 'prompt', reason: 'Proxied network mode requires explicit approval for each invocation.' };
+  if (matchedRule && matchedRule.decision === "deny") {
+    return {
+      decision: "deny",
+      reason: `Blocked by deny rule: ${matchedRule.pattern}`,
+      matchedRule,
+    };
   }
 
   if (matchedRule) {
-    if (matchedRule.decision === 'ask') {
+    if (matchedRule.decision === "ask") {
       // Ask rules always prompt — never auto-allow or auto-deny
-      return { decision: 'prompt', reason: `Matched ask rule: ${matchedRule.pattern}`, matchedRule };
+      return {
+        decision: "prompt",
+        reason: `Matched ask rule: ${matchedRule.pattern}`,
+        matchedRule,
+      };
     }
 
     // Allow rule: auto-allow for non-High risk
     if (risk !== RiskLevel.High) {
-      return { decision: 'allow', reason: `Matched trust rule: ${matchedRule.pattern}`, matchedRule };
+      return {
+        decision: "allow",
+        reason: `Matched trust rule: ${matchedRule.pattern}`,
+        matchedRule,
+      };
     }
     // High risk with allow rule that explicitly permits high-risk → auto-allow
     if (matchedRule.allowHighRisk === true) {
-      return { decision: 'allow', reason: `Matched high-risk trust rule: ${matchedRule.pattern}`, matchedRule };
+      return {
+        decision: "allow",
+        reason: `Matched high-risk trust rule: ${matchedRule.pattern}`,
+        matchedRule,
+      };
     }
     // High risk with allow rule (without allowHighRisk) → fall through to prompt
   }
@@ -546,11 +767,17 @@ export async function check(
   // but isn't registered — treat it as a third-party skill tool.
   if (!matchedRule) {
     const tool = getTool(toolName);
-    if (tool?.origin === 'skill' && !tool.ownerSkillBundled) {
-      return { decision: 'prompt', reason: 'Skill tool: requires approval by default' };
+    if (tool?.origin === "skill" && !tool.ownerSkillBundled) {
+      return {
+        decision: "prompt",
+        reason: "Skill tool: requires approval by default",
+      };
     }
     if (!tool && manifestOverride) {
-      return { decision: 'prompt', reason: 'Skill tool: requires approval by default' };
+      return {
+        decision: "prompt",
+        reason: "Skill tool: requires approval by default",
+      };
     }
   }
 
@@ -561,24 +788,32 @@ export async function check(
   // skill load via an exact-version or wildcard trust rule.
   const permissionsMode = getConfig().permissions.mode;
 
-  if (permissionsMode === 'legacy' && !_legacyDeprecationWarned) {
+  if (permissionsMode === "legacy" && !_legacyDeprecationWarned) {
     _legacyDeprecationWarned = true;
-    getLogger('checker').warn('Permissions mode "legacy" is deprecated and will be removed in a future release. Switch to "workspace" (default) or "strict".');
+    getLogger("checker").warn(
+      'Permissions mode "legacy" is deprecated and will be removed in a future release. Switch to "workspace" (default) or "strict".',
+    );
   }
 
-  if (permissionsMode === 'strict' && !matchedRule) {
-    return { decision: 'prompt', reason: `Strict mode: no matching rule, requires approval` };
+  if (permissionsMode === "strict" && !matchedRule) {
+    return {
+      decision: "prompt",
+      reason: `Strict mode: no matching rule, requires approval`,
+    };
   }
 
   // Workspace mode: auto-allow workspace-scoped operations that don't have
   // an explicit rule. Non-workspace operations fall through to risk-based policy.
-  if (permissionsMode === 'workspace' && !matchedRule) {
+  if (permissionsMode === "workspace" && !matchedRule) {
     // When sandbox is disabled, bash runs on the host — don't auto-allow
     const sandboxEnabled = getConfig().sandbox.enabled;
-    if (toolName === 'bash' && !sandboxEnabled) {
+    if (toolName === "bash" && !sandboxEnabled) {
       // Fall through to risk-based policy below
     } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
-      return { decision: 'allow', reason: 'Workspace mode: workspace-scoped operation auto-allowed' };
+      return {
+        decision: "allow",
+        reason: "Workspace mode: workspace-scoped operation auto-allowed",
+      };
     }
   }
 
@@ -590,41 +825,47 @@ export async function check(
   // still prompts for bundled skill tools without explicit rules.
   if (!matchedRule && risk === RiskLevel.Low) {
     const tool = getTool(toolName);
-    if (tool?.origin === 'skill' && tool.ownerSkillBundled) {
-      return { decision: 'allow', reason: 'Bundled skill tool: low risk, auto-allowed' };
+    if (tool?.origin === "skill" && tool.ownerSkillBundled) {
+      return {
+        decision: "allow",
+        reason: "Bundled skill tool: low risk, auto-allowed",
+      };
     }
   }
 
   if (risk === RiskLevel.High) {
-    return { decision: 'prompt', reason: `High risk: always requires approval` };
+    return {
+      decision: "prompt",
+      reason: `High risk: always requires approval`,
+    };
   }
 
   if (risk === RiskLevel.Low) {
-    return { decision: 'allow', reason: 'Low risk: auto-allowed' };
+    return { decision: "allow", reason: "Low risk: auto-allowed" };
   }
 
-  return { decision: 'prompt', reason: `${risk} risk: requires approval` };
+  return { decision: "prompt", reason: `${risk} risk: requires approval` };
 }
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
-  file_read: 'file reads',
-  file_write: 'file writes',
-  file_edit: 'file edits',
-  host_file_read: 'host file reads',
-  host_file_write: 'host file writes',
-  host_file_edit: 'host file edits',
-  web_fetch: 'URL fetches',
-  browser_navigate: 'browser navigations',
-  network_request: 'network requests',
+  file_read: "file reads",
+  file_write: "file writes",
+  file_edit: "file edits",
+  host_file_read: "host file reads",
+  host_file_write: "host file writes",
+  host_file_edit: "host file edits",
+  web_fetch: "URL fetches",
+  browser_navigate: "browser navigations",
+  network_request: "network requests",
 };
 
 function friendlyBasename(filePath: string): string {
-  const parts = filePath.split('/');
+  const parts = filePath.split("/");
   return parts[parts.length - 1] || filePath;
 }
 
 function friendlyHostname(url: URL): string {
-  return url.hostname.replace(/^www\./, '');
+  return url.hostname.replace(/^www\./, "");
 }
 
 // ── Per-tool allowlist option strategies ─────────────────────────────────────
@@ -632,29 +873,46 @@ function friendlyHostname(url: URL): string {
 // options. Adding support for a new tool type means adding a function here
 // and registering it in ALLOWLIST_STRATEGIES below.
 
-type AllowlistStrategy = (toolName: string, input: Record<string, unknown>) => Promise<AllowlistOption[]> | AllowlistOption[];
+type AllowlistStrategy = (
+  toolName: string,
+  input: Record<string, unknown>,
+) => Promise<AllowlistOption[]> | AllowlistOption[];
 
-function shellAllowlistStrategy(_toolName: string, input: Record<string, unknown>): Promise<AllowlistOption[]> {
-  const command = ((input.command as string) ?? '').trim();
+function shellAllowlistStrategy(
+  _toolName: string,
+  input: Record<string, unknown>,
+): Promise<AllowlistOption[]> {
+  const command = ((input.command as string) ?? "").trim();
   return buildShellAllowlistOptions(command);
 }
 
-function fileAllowlistStrategy(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
-  const filePath = (input.path as string) ?? (input.file_path as string) ?? '';
+function fileAllowlistStrategy(
+  toolName: string,
+  input: Record<string, unknown>,
+): AllowlistOption[] {
+  const filePath = (input.path as string) ?? (input.file_path as string) ?? "";
   const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
   const options: AllowlistOption[] = [];
 
   // Patterns must match the "tool:path" format used by check()
-  options.push({ label: filePath, description: `This file only`, pattern: `${toolName}:${filePath}` });
+  options.push({
+    label: filePath,
+    description: `This file only`,
+    pattern: `${toolName}:${filePath}`,
+  });
 
   // Ancestor directory wildcards — walk up from immediate parent, stop at home dir or /
   const home = homedir();
   let dir = dirname(filePath);
   const maxLevels = 3;
   let levels = 0;
-  while (dir && dir !== '/' && dir !== '.' && levels < maxLevels) {
+  while (dir && dir !== "/" && dir !== "." && levels < maxLevels) {
     const dirName = friendlyBasename(dir);
-    options.push({ label: `${dir}/**`, description: `Anything in ${dirName}/`, pattern: `${toolName}:${dir}/**` });
+    options.push({
+      label: `${dir}/**`,
+      description: `Anything in ${dirName}/`,
+      pattern: `${toolName}:${dir}/**`,
+    });
     if (dir === home) break;
     const parent = dirname(dir);
     if (parent === dir) break;
@@ -662,18 +920,29 @@ function fileAllowlistStrategy(toolName: string, input: Record<string, unknown>)
     levels++;
   }
 
-  options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `${toolName}:*` });
+  options.push({
+    label: `${toolName}:*`,
+    description: `All ${toolLabel}`,
+    pattern: `${toolName}:*`,
+  });
   return options;
 }
 
-function urlAllowlistStrategy(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
-  const rawUrl = getStringField(input, 'url').trim();
+function urlAllowlistStrategy(
+  toolName: string,
+  input: Record<string, unknown>,
+): AllowlistOption[] {
+  const rawUrl = getStringField(input, "url").trim();
   const normalized = normalizeWebFetchUrl(rawUrl);
   const exact = normalized?.href ?? rawUrl;
 
   const options: AllowlistOption[] = [];
   if (exact) {
-    options.push({ label: exact, description: 'This exact URL', pattern: `${toolName}:${escapeMinimatchLiteral(exact)}` });
+    options.push({
+      label: exact,
+      description: "This exact URL",
+      pattern: `${toolName}:${escapeMinimatchLiteral(exact)}`,
+    });
   }
   if (normalized) {
     const host = friendlyHostname(normalized);
@@ -687,7 +956,11 @@ function urlAllowlistStrategy(toolName: string, input: Record<string, unknown>):
   // Use standalone "**" globstar — minimatch only treats ** as globstar when
   // it is its own path segment, so "${toolName}:*" would fail to match URL
   // candidates containing "/".  The tool field is already filtered separately.
-  options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `**` });
+  options.push({
+    label: `${toolName}:*`,
+    description: `All ${toolLabel}`,
+    pattern: `**`,
+  });
 
   const seen = new Set<string>();
   return options.filter((o) => {
@@ -697,9 +970,13 @@ function urlAllowlistStrategy(toolName: string, input: Record<string, unknown>):
   });
 }
 
-function managedSkillAllowlistStrategy(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
-  const skillId = getStringField(input, 'skill_id').trim();
-  const toolLabel = toolName === 'scaffold_managed_skill' ? 'scaffold' : 'delete';
+function managedSkillAllowlistStrategy(
+  toolName: string,
+  input: Record<string, unknown>,
+): AllowlistOption[] {
+  const skillId = getStringField(input, "skill_id").trim();
+  const toolLabel =
+    toolName === "scaffold_managed_skill" ? "scaffold" : "delete";
   const options: AllowlistOption[] = [];
   if (skillId) {
     options.push({
@@ -716,8 +993,11 @@ function managedSkillAllowlistStrategy(toolName: string, input: Record<string, u
   return options;
 }
 
-function skillLoadAllowlistStrategy(_toolName: string, input: Record<string, unknown>): AllowlistOption[] {
-  const rawSelector = getStringField(input, 'skill').trim();
+function skillLoadAllowlistStrategy(
+  _toolName: string,
+  input: Record<string, unknown>,
+): AllowlistOption[] {
+  const rawSelector = getStringField(input, "skill").trim();
 
   if (rawSelector) {
     const resolved = resolveSkillIdAndHash(rawSelector);
@@ -725,7 +1005,7 @@ function skillLoadAllowlistStrategy(_toolName: string, input: Record<string, unk
       return [
         {
           label: `${resolved.id}@${resolved.versionHash}`,
-          description: 'This exact version',
+          description: "This exact version",
           pattern: `skill_load:${resolved.id}@${resolved.versionHash}`,
         },
       ];
@@ -734,7 +1014,7 @@ function skillLoadAllowlistStrategy(_toolName: string, input: Record<string, unk
     return [
       {
         label: id,
-        description: 'This skill',
+        description: "This skill",
         pattern: `skill_load:${id}`,
       },
     ];
@@ -742,9 +1022,9 @@ function skillLoadAllowlistStrategy(_toolName: string, input: Record<string, unk
 
   return [
     {
-      label: 'skill_load:*',
-      description: 'All skill loads',
-      pattern: 'skill_load:*',
+      label: "skill_load:*",
+      description: "All skill loads",
+      pattern: "skill_load:*",
     },
   ];
 }
@@ -766,25 +1046,37 @@ const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
   skill_load: skillLoadAllowlistStrategy,
 };
 
-export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<AllowlistOption[]> {
+export async function generateAllowlistOptions(
+  toolName: string,
+  input: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<AllowlistOption[]> {
   signal?.throwIfAborted();
 
   if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
     return ALLOWLIST_STRATEGIES[toolName](toolName, input);
   }
 
-  return [{ label: '*', description: 'Everything', pattern: '*' }];
+  return [{ label: "*", description: "Everything", pattern: "*" }];
 }
 
 // Directory-based scope only applies to filesystem and shell tools.
 // All other tools auto-use "everywhere" (the client handles this).
 export const SCOPE_AWARE_TOOLS = new Set([
-  'bash', 'host_bash',
-  'file_read', 'file_write', 'file_edit',
-  'host_file_read', 'host_file_write', 'host_file_edit',
+  "bash",
+  "host_bash",
+  "file_read",
+  "file_write",
+  "file_edit",
+  "host_file_read",
+  "host_file_write",
+  "host_file_edit",
 ]);
 
-export function generateScopeOptions(workingDir: string, toolName?: string): ScopeOption[] {
+export function generateScopeOptions(
+  workingDir: string,
+  toolName?: string,
+): ScopeOption[] {
   if (toolName && !SCOPE_AWARE_TOOLS.has(toolName)) {
     return [];
   }
@@ -794,7 +1086,7 @@ export function generateScopeOptions(workingDir: string, toolName?: string): Sco
 
   // Project directory
   const displayDir = workingDir.startsWith(home)
-    ? '~' + workingDir.slice(home.length)
+    ? "~" + workingDir.slice(home.length)
     : workingDir;
   options.push({ label: displayDir, scope: workingDir });
 
@@ -802,13 +1094,13 @@ export function generateScopeOptions(workingDir: string, toolName?: string): Sco
   const parentDir = dirname(workingDir);
   if (parentDir !== workingDir) {
     const displayParent = parentDir.startsWith(home)
-      ? '~' + parentDir.slice(home.length)
+      ? "~" + parentDir.slice(home.length)
       : parentDir;
     options.push({ label: `${displayParent}/*`, scope: parentDir });
   }
 
   // Everywhere
-  options.push({ label: 'everywhere', scope: 'everywhere' });
+  options.push({ label: "everywhere", scope: "everywhere" });
 
   return options;
 }

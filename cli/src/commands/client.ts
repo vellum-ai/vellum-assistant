@@ -1,7 +1,10 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 
-import { findAssistantByName, loadLatestAssistant } from "../lib/assistant-config";
+import {
+  findAssistantByName,
+  loadLatestAssistant,
+} from "../lib/assistant-config";
 import { GATEWAY_PORT, type Species } from "../lib/constants";
 
 const ANSI = {
@@ -33,7 +36,10 @@ function parseArgs(): ParsedArgs {
       printUsage();
       process.exit(0);
     } else if (
-      (arg === "--url" || arg === "-u" || arg === "--assistant-id" || arg === "-a") &&
+      (arg === "--url" ||
+        arg === "-u" ||
+        arg === "--assistant-id" ||
+        arg === "-a") &&
       args[i + 1]
     ) {
       flagArgs.push(arg, args[++i]);
@@ -42,20 +48,26 @@ function parseArgs(): ParsedArgs {
     }
   }
 
-  const entry = positionalName ? findAssistantByName(positionalName) : loadLatestAssistant();
+  const entry = positionalName
+    ? findAssistantByName(positionalName)
+    : loadLatestAssistant();
   if (positionalName && !entry) {
     console.error(`No assistant instance found with name '${positionalName}'.`);
     process.exit(1);
   }
 
-  let runtimeUrl = process.env.RUNTIME_URL || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
-  let assistantId = process.env.ASSISTANT_ID || entry?.assistantId || FALLBACK_ASSISTANT_ID;
-  let bearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN || entry?.bearerToken || undefined;
+  let runtimeUrl =
+    process.env.RUNTIME_URL || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
+  let assistantId =
+    process.env.ASSISTANT_ID || entry?.assistantId || FALLBACK_ASSISTANT_ID;
+  let bearerToken =
+    process.env.RUNTIME_PROXY_BEARER_TOKEN || entry?.bearerToken || undefined;
 
   // For local assistants, read the daemon's http-token file as a fallback
   // when the lockfile doesn't include a bearer token.
   if (!bearerToken && entry?.cloud === "local") {
-    const tokenDir = entry.baseDataDir ?? join(process.env.HOME ?? "", ".vellum");
+    const tokenDir =
+      entry.baseDataDir ?? join(process.env.HOME ?? "", ".vellum");
     try {
       const token = readFileSync(join(tokenDir, "http-token"), "utf-8").trim();
       if (token) bearerToken = token;
@@ -69,7 +81,10 @@ function parseArgs(): ParsedArgs {
     const flag = flagArgs[i];
     if ((flag === "--url" || flag === "-u") && flagArgs[i + 1]) {
       runtimeUrl = flagArgs[++i];
-    } else if ((flag === "--assistant-id" || flag === "-a") && flagArgs[i + 1]) {
+    } else if (
+      (flag === "--assistant-id" || flag === "-a") &&
+      flagArgs[i + 1]
+    ) {
       assistantId = flagArgs[++i];
     }
   }
@@ -111,7 +126,8 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
 }
 
 export async function client(): Promise<void> {
-  const { runtimeUrl, assistantId, species, bearerToken, project, zone } = parseArgs();
+  const { runtimeUrl, assistantId, species, bearerToken, project, zone } =
+    parseArgs();
 
   const { renderChatApp } = await import("../components/DefaultMainScreen");
 

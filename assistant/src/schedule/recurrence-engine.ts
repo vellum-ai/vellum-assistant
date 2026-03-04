@@ -1,7 +1,7 @@
-import { Cron } from 'croner';
-import { RRuleSet,rrulestr } from 'rrule';
+import { Cron } from "croner";
+import { RRuleSet, rrulestr } from "rrule";
 
-import type { ScheduleSyntax } from './recurrence-types.js';
+import type { ScheduleSyntax } from "./recurrence-types.js";
 
 export interface ScheduleSpec {
   syntax: ScheduleSyntax;
@@ -9,7 +9,13 @@ export interface ScheduleSpec {
   timezone?: string | null;
 }
 
-const SUPPORTED_RRULE_PREFIXES = ['DTSTART', 'RRULE:', 'RDATE', 'EXDATE', 'EXRULE'];
+const SUPPORTED_RRULE_PREFIXES = [
+  "DTSTART",
+  "RRULE:",
+  "RDATE",
+  "EXDATE",
+  "EXRULE",
+];
 
 function normalizeRruleExpression(expression: string): string {
   // Handle escaped newlines from JSON transport, then uppercase property name
@@ -18,24 +24,27 @@ function normalizeRruleExpression(expression: string): string {
   // stop at the earliest delimiter to preserve case-sensitive parameter values
   // such as timezone names in DTSTART;TZID=America/New_York:...
   return expression
-    .replace(/\\n/g, '\n')
+    .replace(/\\n/g, "\n")
     .trim()
     .split(/\r?\n/)
-    .map(line => {
-      const colonIdx = line.indexOf(':');
-      const semiIdx = line.indexOf(';');
+    .map((line) => {
+      const colonIdx = line.indexOf(":");
+      const semiIdx = line.indexOf(";");
       if (colonIdx === -1 && semiIdx === -1) return line;
       // Uppercase only the property name (before the first ';' or ':')
-      const nameEnd = semiIdx !== -1 && (colonIdx === -1 || semiIdx < colonIdx) ? semiIdx : colonIdx;
+      const nameEnd =
+        semiIdx !== -1 && (colonIdx === -1 || semiIdx < colonIdx)
+          ? semiIdx
+          : colonIdx;
       return line.slice(0, nameEnd).toUpperCase() + line.slice(nameEnd);
     })
-    .join('\n');
+    .join("\n");
 }
 
 function parseRruleLines(expression: string): string[] {
   return normalizeRruleExpression(expression)
     .split(/\r?\n/)
-    .map(l => l.trim())
+    .map((l) => l.trim())
     .filter(Boolean);
 }
 
@@ -45,15 +54,18 @@ function validateRruleLines(lines: string[]): string | null {
 
   for (const line of lines) {
     const upper = line.toUpperCase();
-    if (!SUPPORTED_RRULE_PREFIXES.some(p => upper.startsWith(p))) {
+    if (!SUPPORTED_RRULE_PREFIXES.some((p) => upper.startsWith(p))) {
       return `Unsupported recurrence line: ${line}`;
     }
-    if (upper.startsWith('DTSTART')) hasDtstart = true;
-    if (upper.startsWith('RRULE:') || upper.startsWith('RDATE')) hasInclusion = true;
+    if (upper.startsWith("DTSTART")) hasDtstart = true;
+    if (upper.startsWith("RRULE:") || upper.startsWith("RDATE"))
+      hasInclusion = true;
   }
 
-  if (!hasDtstart) return 'RRULE expression must include DTSTART for deterministic scheduling';
-  if (!hasInclusion) return 'RRULE expression must include at least one RRULE or RDATE';
+  if (!hasDtstart)
+    return "RRULE expression must include DTSTART for deterministic scheduling";
+  if (!hasInclusion)
+    return "RRULE expression must include at least one RRULE or RDATE";
   return null;
 }
 
@@ -66,8 +78,13 @@ export function hasSetConstructs(expression: string): boolean {
   let rruleCount = 0;
   for (const line of lines) {
     const upper = line.toUpperCase();
-    if (upper.startsWith('RDATE') || upper.startsWith('EXDATE') || upper.startsWith('EXRULE')) return true;
-    if (upper.startsWith('RRULE:')) rruleCount++;
+    if (
+      upper.startsWith("RDATE") ||
+      upper.startsWith("EXDATE") ||
+      upper.startsWith("EXRULE")
+    )
+      return true;
+    if (upper.startsWith("RRULE:")) rruleCount++;
   }
   return rruleCount > 1;
 }
@@ -89,12 +106,12 @@ export function validateRruleSetLines(expression: string): string | null {
  */
 export function isValidScheduleExpression(spec: ScheduleSpec): boolean {
   try {
-    if (spec.syntax === 'cron') {
+    if (spec.syntax === "cron") {
       new Cron(spec.expression, { maxRuns: 0 });
       return true;
     }
 
-    if (spec.syntax === 'rrule') {
+    if (spec.syntax === "rrule") {
       const lines = parseRruleLines(spec.expression);
       const error = validateRruleLines(lines);
       if (error) return false;
@@ -122,18 +139,20 @@ export function isValidScheduleExpression(spec: ScheduleSpec): boolean {
 export function computeNextRunAt(spec: ScheduleSpec, nowMs?: number): number {
   const now = nowMs ?? Date.now();
 
-  if (spec.syntax === 'cron') {
+  if (spec.syntax === "cron") {
     const cron = new Cron(spec.expression, {
       timezone: spec.timezone ?? undefined,
     });
     const next = cron.nextRun(new Date(now));
     if (!next) {
-      throw new Error(`Cron expression "${spec.expression}" has no upcoming runs`);
+      throw new Error(
+        `Cron expression "${spec.expression}" has no upcoming runs`,
+      );
     }
     return next.getTime();
   }
 
-  if (spec.syntax === 'rrule') {
+  if (spec.syntax === "rrule") {
     const normalized = normalizeRruleExpression(spec.expression);
     const lines = parseRruleLines(normalized);
     const error = validateRruleLines(lines);
@@ -154,7 +173,11 @@ export function computeNextRunAt(spec: ScheduleSpec, nowMs?: number): number {
       if (exactMatch && exactMatch.getTime() === now) {
         return now;
       }
-      throw new Error(`RRULE expression has no upcoming runs after ${new Date(now).toISOString()}`);
+      throw new Error(
+        `RRULE expression has no upcoming runs after ${new Date(
+          now,
+        ).toISOString()}`,
+      );
     }
     return next.getTime();
   }

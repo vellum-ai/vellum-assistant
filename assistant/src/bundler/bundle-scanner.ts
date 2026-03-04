@@ -52,16 +52,17 @@ const REQUIRED_MANIFEST_FIELDS = [
 ] as const;
 
 // Magic byte signatures for image validation
-const IMAGE_SIGNATURES: Record<string, { bytes: number[]; offset?: number }[]> = {
-  ".png": [{ bytes: [0x89, 0x50, 0x4e, 0x47] }], // \x89PNG
-  ".jpg": [{ bytes: [0xff, 0xd8, 0xff] }],
-  ".jpeg": [{ bytes: [0xff, 0xd8, 0xff] }],
-  ".gif": [{ bytes: [0x47, 0x49, 0x46, 0x38] }], // GIF8
-  ".webp": [
-    { bytes: [0x52, 0x49, 0x46, 0x46] }, // RIFF at offset 0
-    // bytes 8-11 should be WEBP — checked separately
-  ],
-};
+const IMAGE_SIGNATURES: Record<string, { bytes: number[]; offset?: number }[]> =
+  {
+    ".png": [{ bytes: [0x89, 0x50, 0x4e, 0x47] }], // \x89PNG
+    ".jpg": [{ bytes: [0xff, 0xd8, 0xff] }],
+    ".jpeg": [{ bytes: [0xff, 0xd8, 0xff] }],
+    ".gif": [{ bytes: [0x47, 0x49, 0x46, 0x38] }], // GIF8
+    ".webp": [
+      { bytes: [0x52, 0x49, 0x46, 0x46] }, // RIFF at offset 0
+      // bytes 8-11 should be WEBP — checked separately
+    ],
+  };
 
 // ---------------------------------------------------------------------------
 // Main entry point
@@ -85,11 +86,17 @@ export async function scanBundle(zipPath: string): Promise<ScanResult> {
   }
 
   // Run all scan phases
-  const manifest = await scanArchiveStructure(zip, fileData.byteLength, findings);
+  const manifest = await scanArchiveStructure(
+    zip,
+    fileData.byteLength,
+    findings,
+  );
   if (manifest) {
     await scanHtmlEntry(zip, manifest.entry as string, findings);
   }
-  const entryName = manifest ? (manifest.entry as string | undefined) : undefined;
+  const entryName = manifest
+    ? (manifest.entry as string | undefined)
+    : undefined;
   await scanAssets(zip, findings, entryName);
 
   const passed = !findings.some((f) => f.level === "block");
@@ -151,23 +158,36 @@ async function scanArchiveStructure(
     const data = await entry.async("uint8array");
     totalDecompressed += data.byteLength;
     if (totalDecompressed > MAX_DECOMPRESSED_SIZE) break;
-    if (compressedSize > 0 && totalDecompressed / compressedSize > MAX_COMPRESSION_RATIO) break;
+    if (
+      compressedSize > 0 &&
+      totalDecompressed / compressedSize > MAX_COMPRESSION_RATIO
+    )
+      break;
   }
 
   if (totalDecompressed > MAX_DECOMPRESSED_SIZE) {
     findings.push({
       category: "archive",
       code: "too_large",
-      message: `Total decompressed size ${(totalDecompressed / 1024 / 1024).toFixed(1)} MB exceeds ${MAX_DECOMPRESSED_SIZE / 1024 / 1024} MB limit`,
+      message: `Total decompressed size ${(
+        totalDecompressed /
+        1024 /
+        1024
+      ).toFixed(1)} MB exceeds ${MAX_DECOMPRESSED_SIZE / 1024 / 1024} MB limit`,
       level: "block",
     });
   }
 
-  if (compressedSize > 0 && totalDecompressed / compressedSize > MAX_COMPRESSION_RATIO) {
+  if (
+    compressedSize > 0 &&
+    totalDecompressed / compressedSize > MAX_COMPRESSION_RATIO
+  ) {
     findings.push({
       category: "archive",
       code: "zip_bomb",
-      message: `Compression ratio ${(totalDecompressed / compressedSize).toFixed(0)}:1 exceeds ${MAX_COMPRESSION_RATIO}:1 limit`,
+      message: `Compression ratio ${(
+        totalDecompressed / compressedSize
+      ).toFixed(0)}:1 exceeds ${MAX_COMPRESSION_RATIO}:1 limit`,
       level: "block",
     });
   }
@@ -282,7 +302,8 @@ async function scanHtmlEntry(
   }
 
   // <meta http-equiv="refresh"> with external URL
-  const metaRefreshRe = /<meta[^>]+http-equiv\s*=\s*["']refresh["'][^>]+content\s*=\s*["'][^"']*url\s*=\s*([^"'\s;]+)/gi;
+  const metaRefreshRe =
+    /<meta[^>]+http-equiv\s*=\s*["']refresh["'][^>]+content\s*=\s*["'][^"']*url\s*=\s*([^"'\s;]+)/gi;
   for (const m of html.matchAll(metaRefreshRe)) {
     if (isExternalUrl(m[1])) {
       findings.push({
@@ -309,7 +330,8 @@ async function scanHtmlEntry(
     findings.push({
       category: "html",
       code: "formaction_external",
-      message: "formaction attribute with external URL bypasses form restrictions",
+      message:
+        "formaction attribute with external URL bypasses form restrictions",
       level: "block",
     });
   }
@@ -317,43 +339,88 @@ async function scanHtmlEntry(
   // --- Warn-level: suspicious JS patterns ---
 
   const warnPatterns: { pattern: RegExp; code: string; message: string }[] = [
-    { pattern: /\bfetch\s*\(/g, code: "network_fetch", message: "Uses fetch() for network requests \u2014 could send or receive data from external servers" },
-    { pattern: /\bXMLHttpRequest\b/g, code: "network_xhr", message: "Uses XMLHttpRequest for network requests \u2014 could send or receive data from external servers" },
-    { pattern: /\bnew\s+WebSocket\b/g, code: "network_websocket", message: "Uses WebSocket connections \u2014 could maintain persistent communication with a server" },
-    { pattern: /\bEventSource\b/g, code: "network_eventsource", message: "Uses server-sent events \u2014 could receive live data from a server" },
-    { pattern: /\bdocument\.cookie\b/g, code: "cookie_access", message: "Accesses browser cookies \u2014 could read or store tracking data" },
-    { pattern: /\beval\s*\(/g, code: "eval_usage", message: "Uses eval() for dynamic code execution \u2014 could run code not visible in the source" },
-    { pattern: /\bFunction\s*\(/g, code: "function_constructor", message: "Uses Function() constructor for dynamic code execution \u2014 could run code not visible in the source" },
+    {
+      pattern: /\bfetch\s*\(/g,
+      code: "network_fetch",
+      message:
+        "Uses fetch() for network requests \u2014 could send or receive data from external servers",
+    },
+    {
+      pattern: /\bXMLHttpRequest\b/g,
+      code: "network_xhr",
+      message:
+        "Uses XMLHttpRequest for network requests \u2014 could send or receive data from external servers",
+    },
+    {
+      pattern: /\bnew\s+WebSocket\b/g,
+      code: "network_websocket",
+      message:
+        "Uses WebSocket connections \u2014 could maintain persistent communication with a server",
+    },
+    {
+      pattern: /\bEventSource\b/g,
+      code: "network_eventsource",
+      message:
+        "Uses server-sent events \u2014 could receive live data from a server",
+    },
+    {
+      pattern: /\bdocument\.cookie\b/g,
+      code: "cookie_access",
+      message:
+        "Accesses browser cookies \u2014 could read or store tracking data",
+    },
+    {
+      pattern: /\beval\s*\(/g,
+      code: "eval_usage",
+      message:
+        "Uses eval() for dynamic code execution \u2014 could run code not visible in the source",
+    },
+    {
+      pattern: /\bFunction\s*\(/g,
+      code: "function_constructor",
+      message:
+        "Uses Function() constructor for dynamic code execution \u2014 could run code not visible in the source",
+    },
     {
       pattern: /\bsetTimeout\s*\(\s*["'`]/g,
       code: "settimeout_string",
-      message: "Uses setTimeout() with string for code execution \u2014 could run code not visible in the source",
+      message:
+        "Uses setTimeout() with string for code execution \u2014 could run code not visible in the source",
     },
     {
       pattern: /\bsetInterval\s*\(\s*["'`]/g,
       code: "setinterval_string",
-      message: "Uses setInterval() with string for code execution \u2014 could run code not visible in the source",
+      message:
+        "Uses setInterval() with string for code execution \u2014 could run code not visible in the source",
     },
-    { pattern: /\bwindow\.open\s*\(/g, code: "window_open", message: "Opens new windows \u2014 could navigate to external sites" },
+    {
+      pattern: /\bwindow\.open\s*\(/g,
+      code: "window_open",
+      message: "Opens new windows \u2014 could navigate to external sites",
+    },
     {
       pattern: /\bwindow\.location\s*=/g,
       code: "window_location_assign",
       message: "Redirects the page \u2014 could navigate away from the app",
     },
     {
-      pattern: /\bon(?:error|load|focus|blur|mouseover|mouseout|click|dblclick|submit|input|change|keydown|keyup|keypress)\s*=/g,
+      pattern:
+        /\bon(?:error|load|focus|blur|mouseover|mouseout|click|dblclick|submit|input|change|keydown|keyup|keypress)\s*=/g,
       code: "html_event_handler",
-      message: "Uses inline event handlers \u2014 standard for interactive apps",
+      message:
+        "Uses inline event handlers \u2014 standard for interactive apps",
     },
     {
       pattern: /@import\s+(?:url\s*\(|['"]https?:\/\/)/g,
       code: "css_import",
-      message: "Loads external stylesheet \u2014 could connect to an external server",
+      message:
+        "Loads external stylesheet \u2014 could connect to an external server",
     },
     {
       pattern: /url\s*\(\s*['"]?https?:\/\//g,
       code: "css_external_url",
-      message: "References external URL in CSS \u2014 could load resources from an external server",
+      message:
+        "References external URL in CSS \u2014 could load resources from an external server",
     },
     {
       pattern: /(?:src|href)\s*=\s*["']data:/g,
@@ -381,7 +448,9 @@ async function scanHtmlEntry(
       findings.push({
         category: "html",
         code: "obfuscated_js",
-        message: `Possible obfuscated JS: line ${i + 1} is ${(line.length / 1024).toFixed(1)} KB`,
+        message: `Possible obfuscated JS: line ${i + 1} is ${(
+          line.length / 1024
+        ).toFixed(1)} KB`,
         level: "warn",
       });
       break; // one finding is enough
@@ -389,7 +458,9 @@ async function scanHtmlEntry(
   }
 
   // High density of hex/unicode escapes
-  const escapeMatches = html.match(/\\x[0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}|\\u\{[0-9a-fA-F]+\}/g);
+  const escapeMatches = html.match(
+    /\\x[0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}|\\u\{[0-9a-fA-F]+\}/g,
+  );
   if (escapeMatches && escapeMatches.length > 50) {
     findings.push({
       category: "html",
@@ -402,15 +473,27 @@ async function scanHtmlEntry(
 
 function isExternalUrl(url: string): boolean {
   const lower = url.toLowerCase();
-  return lower.startsWith("http://") || lower.startsWith("https://") || url.startsWith("//");
+  return (
+    lower.startsWith("http://") ||
+    lower.startsWith("https://") ||
+    url.startsWith("//")
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Phase 3: Asset scan
 // ---------------------------------------------------------------------------
 
-async function scanAssets(zip: JSZip, findings: ScanFinding[], manifestEntry?: string): Promise<void> {
-  const allowedRootFiles = new Set(["index.html", "manifest.json", "signature.json"]);
+async function scanAssets(
+  zip: JSZip,
+  findings: ScanFinding[],
+  manifestEntry?: string,
+): Promise<void> {
+  const allowedRootFiles = new Set([
+    "index.html",
+    "manifest.json",
+    "signature.json",
+  ]);
   if (manifestEntry) {
     allowedRootFiles.add(manifestEntry);
   }
@@ -426,13 +509,34 @@ async function scanAssets(zip: JSZip, findings: ScanFinding[], manifestEntry?: s
     const dotParts = basename.split(".");
     if (dotParts.length > 2) {
       const suspiciousInnerExts = new Set([
-        "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico",
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-        "html", "htm", "txt", "rtf", "zip", "tar", "gz",
+        "jpg",
+        "jpeg",
+        "png",
+        "gif",
+        "webp",
+        "svg",
+        "bmp",
+        "ico",
+        "pdf",
+        "doc",
+        "docx",
+        "xls",
+        "xlsx",
+        "ppt",
+        "pptx",
+        "html",
+        "htm",
+        "txt",
+        "rtf",
+        "zip",
+        "tar",
+        "gz",
       ]);
       // Check if any non-final extension segment is a known content type
       const innerParts = dotParts.slice(1, -1); // extensions between first dot and last dot
-      const hasSuspiciousInner = innerParts.some((p) => suspiciousInnerExts.has(p.toLowerCase()));
+      const hasSuspiciousInner = innerParts.some((p) =>
+        suspiciousInnerExts.has(p.toLowerCase()),
+      );
       if (hasSuspiciousInner) {
         findings.push({
           category: "asset",

@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * One-shot migration: normalize all assistant_id values in assistant-scoped tables
@@ -29,10 +29,10 @@ import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
  */
 export function migrateAssistantIdToSelf(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
-  const checkpointKey = 'migration_normalize_assistant_id_to_self_v1';
-  const checkpoint = raw.query(
-    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
-  ).get(checkpointKey);
+  const checkpointKey = "migration_normalize_assistant_id_to_self_v1";
+  const checkpoint = raw
+    .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
+    .get(checkpointKey);
   if (checkpoint) return;
 
   // On fresh installs the tables are created without assistant_id (PR 7+). Skip the
@@ -40,37 +40,44 @@ export function migrateAssistantIdToSelf(database: DrizzleDb): void {
   // checkpoint so subsequent startups are also skipped. Checking all four (not just
   // conversation_keys) avoids a false negative on very old installs where
   // conversation_keys may not exist yet but other tables still carry assistant_id data.
-  const affectedTables = ['conversation_keys', 'attachments', 'channel_inbound_events', 'message_runs'];
+  const affectedTables = [
+    "conversation_keys",
+    "attachments",
+    "channel_inbound_events",
+    "message_runs",
+  ];
   const anyHasAssistantId = affectedTables.some((tbl) => {
-    const ddl = raw.query(
-      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
-    ).get(tbl) as { sql: string } | null;
-    return ddl?.sql.includes('assistant_id') ?? false;
+    const ddl = raw
+      .query(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(tbl) as { sql: string } | null;
+    return ddl?.sql.includes("assistant_id") ?? false;
   });
   if (!anyHasAssistantId) {
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
     return;
   }
 
   // Helper: returns true if the given table's current DDL contains 'assistant_id'.
   const tableHasAssistantId = (tbl: string): boolean => {
-    const ddl = raw.query(
-      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
-    ).get(tbl) as { sql: string } | null;
-    return ddl?.sql.includes('assistant_id') ?? false;
+    const ddl = raw
+      .query(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(tbl) as { sql: string } | null;
+    return ddl?.sql.includes("assistant_id") ?? false;
   };
 
   try {
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
 
     // Each section is guarded so that SQL referencing assistant_id is only executed
     // when the column still exists in that table. This handles mixed-schema states
     // (e.g., very old installs where some tables may already lack the column).
 
     // conversation_keys: UNIQUE (assistant_id, conversation_key)
-    if (tableHasAssistantId('conversation_keys')) {
+    if (tableHasAssistantId("conversation_keys")) {
       // Step 1: Among non-self rows, keep only one per conversation_key so the
       //         bulk UPDATE cannot hit a (non-self-A, key) + (non-self-B, key) collision.
       raw.exec(/*sql*/ `
@@ -126,7 +133,7 @@ export function migrateAssistantIdToSelf(database: DrizzleDb): void {
     // message_attachments rows reference attachment IDs with ON DELETE CASCADE, so we
     // must remap links to the surviving row BEFORE deleting duplicates to avoid
     // silently dropping attachment metadata from messages.
-    if (tableHasAssistantId('attachments')) {
+    if (tableHasAssistantId("attachments")) {
       // Step 1: Remap message_attachments from non-self duplicates to their survivor
       //         (MIN rowid per content_hash group), then delete the duplicates.
       raw.exec(/*sql*/ `
@@ -206,7 +213,7 @@ export function migrateAssistantIdToSelf(database: DrizzleDb): void {
     }
 
     // channel_inbound_events: UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
-    if (tableHasAssistantId('channel_inbound_events')) {
+    if (tableHasAssistantId("channel_inbound_events")) {
       // Step 1: Dedup non-self rows sharing the same (source_channel, external_chat_id, external_message_id).
       raw.exec(/*sql*/ `
         DELETE FROM channel_inbound_events
@@ -236,19 +243,25 @@ export function migrateAssistantIdToSelf(database: DrizzleDb): void {
     }
 
     // message_runs: no unique constraint on assistant_id — simple bulk update
-    if (tableHasAssistantId('message_runs')) {
+    if (tableHasAssistantId("message_runs")) {
       raw.exec(/*sql*/ `
         UPDATE message_runs SET assistant_id = 'self' WHERE assistant_id != 'self'
       `);
     }
 
-    raw.query(
-      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
-    ).run(checkpointKey, Date.now());
+    raw
+      .query(
+        `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+      )
+      .run(checkpointKey, Date.now());
 
-    raw.exec('COMMIT');
+    raw.exec("COMMIT");
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   }
 }

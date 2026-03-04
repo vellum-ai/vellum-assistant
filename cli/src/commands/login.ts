@@ -48,7 +48,9 @@ export async function login(): Promise<void> {
     savePlatformToken(token);
     console.log(`✅ Logged in as ${user.email}`);
   } catch (error) {
-    console.error(`❌ Login failed: ${error instanceof Error ? error.message : error}`);
+    console.error(
+      `❌ Login failed: ${error instanceof Error ? error.message : error}`,
+    );
     process.exit(1);
   }
 }
@@ -58,7 +60,9 @@ export async function logout(): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum logout");
     console.log("");
-    console.log("Log out of the Vellum platform and remove the stored session token.");
+    console.log(
+      "Log out of the Vellum platform and remove the stored session token.",
+    );
     process.exit(0);
   }
 

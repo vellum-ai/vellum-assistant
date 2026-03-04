@@ -1,15 +1,19 @@
-import { getLogfireToken, isMonitoringEnabled } from './config/env.js';
-import type { Message, Provider, ProviderResponse, SendMessageOptions, ToolDefinition } from './providers/types.js';
-import { getLogger } from './util/logger.js';
-import { APP_VERSION } from './version.js';
+import { getLogfireToken, isMonitoringEnabled } from "./config/env.js";
+import type {
+  Message,
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+  ToolDefinition,
+} from "./providers/types.js";
+import { getLogger } from "./util/logger.js";
+import { APP_VERSION } from "./version.js";
 
-const log = getLogger('logfire');
+const log = getLogger("logfire");
 
-type LogfireModule = typeof import('@pydantic/logfire-node');
+type LogfireModule = typeof import("@pydantic/logfire-node");
 
-const LOGFIRE_ENABLED: boolean =
-  !!getLogfireToken() &&
-  isMonitoringEnabled();
+const LOGFIRE_ENABLED: boolean = !!getLogfireToken() && isMonitoringEnabled();
 
 let logfireInstance: LogfireModule | null = null;
 
@@ -22,16 +26,19 @@ export async function initLogfire(): Promise<void> {
   if (!LOGFIRE_ENABLED) return;
 
   try {
-    const logfire = await import('@pydantic/logfire-node');
+    const logfire = await import("@pydantic/logfire-node");
     logfire.configure({
       token: getLogfireToken(),
-      serviceName: 'vellum-assistant',
+      serviceName: "vellum-assistant",
       serviceVersion: APP_VERSION,
     });
     logfireInstance = logfire;
-    log.info('Logfire initialized');
+    log.info("Logfire initialized");
   } catch (err) {
-    log.warn({ err }, 'Failed to initialize Logfire — LLM observability disabled');
+    log.warn(
+      { err },
+      "Failed to initialize Logfire — LLM observability disabled",
+    );
   }
 }
 
@@ -67,33 +74,51 @@ class LogfireProvider implements Provider {
 
     const start = Date.now();
 
-    return logfireInstance.span(`llm.${this.name}`, { 'llm.provider': this.name, 'llm.message_count': messages.length, 'llm.tool_count': tools?.length ?? 0 }, {}, async (span) => {
-      try {
-        const response = await this.inner.sendMessage(messages, tools, systemPrompt, options);
-        const durationMs = Date.now() - start;
+    return logfireInstance.span(
+      `llm.${this.name}`,
+      {
+        "llm.provider": this.name,
+        "llm.message_count": messages.length,
+        "llm.tool_count": tools?.length ?? 0,
+      },
+      {},
+      async (span) => {
+        try {
+          const response = await this.inner.sendMessage(
+            messages,
+            tools,
+            systemPrompt,
+            options,
+          );
+          const durationMs = Date.now() - start;
 
-        span.setAttributes({
-          'llm.model': response.model,
-          'llm.stop_reason': response.stopReason,
-          'llm.usage.input_tokens': response.usage.inputTokens,
-          'llm.usage.output_tokens': response.usage.outputTokens,
-          'llm.usage.cache_creation_input_tokens': response.usage.cacheCreationInputTokens ?? 0,
-          'llm.usage.cache_read_input_tokens': response.usage.cacheReadInputTokens ?? 0,
-          'llm.duration_ms': durationMs,
-          'llm.success': true,
-        });
+          span.setAttributes({
+            "llm.model": response.model,
+            "llm.stop_reason": response.stopReason,
+            "llm.usage.input_tokens": response.usage.inputTokens,
+            "llm.usage.output_tokens": response.usage.outputTokens,
+            "llm.usage.cache_creation_input_tokens":
+              response.usage.cacheCreationInputTokens ?? 0,
+            "llm.usage.cache_read_input_tokens":
+              response.usage.cacheReadInputTokens ?? 0,
+            "llm.duration_ms": durationMs,
+            "llm.success": true,
+          });
 
-        return response;
-      } catch (error) {
-        const durationMs = Date.now() - start;
-        span.setAttributes({
-          'llm.duration_ms': durationMs,
-          'llm.success': false,
-          'llm.error.type': error instanceof Error ? error.constructor.name : 'Unknown',
-          'llm.error.message': error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
-    });
+          return response;
+        } catch (error) {
+          const durationMs = Date.now() - start;
+          span.setAttributes({
+            "llm.duration_ms": durationMs,
+            "llm.success": false,
+            "llm.error.type":
+              error instanceof Error ? error.constructor.name : "Unknown",
+            "llm.error.message":
+              error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+      },
+    );
   }
 }

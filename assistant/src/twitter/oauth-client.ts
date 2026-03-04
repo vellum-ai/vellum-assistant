@@ -7,14 +7,14 @@
  * browser-based CDP client.
  */
 
-import { getSecureKey } from '../security/secure-keys.js';
-import { withValidToken } from '../security/token-manager.js';
+import { getSecureKey } from "../security/secure-keys.js";
+import { withValidToken } from "../security/token-manager.js";
 
-const TWITTER_API_BASE = 'https://api.x.com/2';
-const SERVICE = 'integration:twitter';
+const TWITTER_API_BASE = "https://api.x.com/2";
+const SERVICE = "integration:twitter";
 
 /** Operations that the OAuth client can handle natively. */
-const SUPPORTED_OPERATIONS = new Set(['post', 'reply']);
+const SUPPORTED_OPERATIONS = new Set(["post", "reply"]);
 
 export interface OAuthPostResult {
   tweetId: string;
@@ -25,17 +25,19 @@ export interface OAuthPostResult {
 export interface OAuthOperationError {
   message: string;
   suggestFallback: boolean;
-  fallbackPath: 'browser';
+  fallbackPath: "browser";
   operation: string;
 }
 
 export class UnsupportedOAuthOperationError extends Error {
   public readonly suggestFallback = true;
-  public readonly fallbackPath = 'browser' as const;
+  public readonly fallbackPath = "browser" as const;
   public readonly operation: string;
   constructor(operation: string) {
-    super(`The "${operation}" operation is not available via the OAuth API. Use the browser path instead.`);
-    this.name = 'UnsupportedOAuthOperationError';
+    super(
+      `The "${operation}" operation is not available via the OAuth API. Use the browser path instead.`,
+    );
+    this.name = "UnsupportedOAuthOperationError";
     this.operation = operation;
   }
 }
@@ -57,16 +59,16 @@ export async function oauthPostTweet(
     }
 
     const res = await fetch(`${TWITTER_API_BASE}/tweets`, {
-      method: 'POST',
+      method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
     });
 
     if (!res.ok) {
-      const errorBody = await res.text().catch(() => '');
+      const errorBody = await res.text().catch(() => "");
       const err = new Error(
         `Twitter API error (${res.status}): ${errorBody.slice(0, 500)}`,
       );
@@ -89,7 +91,9 @@ export async function oauthPostTweet(
  * handle refresh if it's expired).
  */
 export function oauthIsAvailable(): boolean {
-  return getSecureKey('credential:integration:twitter:access_token') !== undefined;
+  return (
+    getSecureKey("credential:integration:twitter:access_token") !== undefined
+  );
 }
 
 /**

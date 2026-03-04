@@ -1,22 +1,24 @@
-import { getConfig } from '../config/loader.js';
-import { estimatePromptTokens } from '../context/token-estimator.js';
-import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
-import { compileDynamicProfile } from '../memory/profile-compiler.js';
-import { buildMemoryQuery } from '../memory/query-builder.js';
-import { computeRecallBudget } from '../memory/retrieval-budget.js';
+import { getConfig } from "../config/loader.js";
+import { estimatePromptTokens } from "../context/token-estimator.js";
+import { getMemoryConflictAndCleanupStats } from "../memory/admin.js";
+import { compileDynamicProfile } from "../memory/profile-compiler.js";
+import { buildMemoryQuery } from "../memory/query-builder.js";
+import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import {
   buildMemoryRecall,
   injectMemoryRecallAsSeparateMessage,
   injectMemoryRecallIntoUserMessage,
-} from '../memory/retriever.js';
-import type { ScopePolicyOverride } from '../memory/search/types.js';
-import type { Message } from '../providers/types.js';
-import type { Provider } from '../providers/types.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import type { ConflictGate } from './session-conflict-gate.js';
-import { injectDynamicProfileIntoUserMessage } from './session-dynamic-profile.js';
+} from "../memory/retriever.js";
+import type { ScopePolicyOverride } from "../memory/search/types.js";
+import type { Message } from "../providers/types.js";
+import type { Provider } from "../providers/types.js";
+import type { ServerMessage } from "./ipc-protocol.js";
+import type { ConflictGate } from "./session-conflict-gate.js";
+import { injectDynamicProfileIntoUserMessage } from "./session-dynamic-profile.js";
 
-export type RecallInjectionStrategy = 'prepend_user_block' | 'separate_context_message';
+export type RecallInjectionStrategy =
+  | "prepend_user_block"
+  | "separate_context_message";
 
 export interface MemoryRecallResult {
   runMessages: Message[];
@@ -34,7 +36,7 @@ export interface MemoryPrepareContext {
   conflictGate: ConflictGate;
   scopeId: string;
   includeDefaultFallback: boolean;
-  trustClass: 'guardian' | 'trusted_contact' | 'unknown';
+  trustClass: "guardian" | "trusted_contact" | "unknown";
   /** When false (e.g. scheduled tasks), skip conflict clarification prompts. */
   isInteractive?: boolean;
 }
@@ -44,9 +46,11 @@ export interface MemoryPrepareContext {
  * message (no user-authored text/image content).
  */
 function isToolResultOnlyUserTurn(message: Message | undefined): boolean {
-  return message?.role === 'user'
-    && message.content.length > 0
-    && message.content.every((block) => block.type === 'tool_result');
+  return (
+    message?.role === "user" &&
+    message.content.length > 0 &&
+    message.content.every((block) => block.type === "tool_result")
+  );
 }
 
 /**
@@ -64,7 +68,7 @@ export async function prepareMemoryContext(
   // Provenance-based trust gating: untrusted actors skip all memory operations
   // (recall, dynamic profile, conflict gate) to prevent untrusted content from
   // influencing memory-augmented responses.
-  const isTrustedActor = ctx.trustClass === 'guardian';
+  const isTrustedActor = ctx.trustClass === "guardian";
 
   if (!isTrustedActor) {
     return {
@@ -72,7 +76,7 @@ export async function prepareMemoryContext(
       recall: {
         enabled: false,
         degraded: false,
-        injectedText: '',
+        injectedText: "",
         lexicalHits: 0,
         semanticHits: 0,
         recencyHits: 0,
@@ -89,9 +93,9 @@ export async function prepareMemoryContext(
         latencyMs: 0,
         topCandidates: [],
       } as Awaited<ReturnType<typeof buildMemoryRecall>>,
-      dynamicProfile: { text: '' },
+      dynamicProfile: { text: "" },
       softConflictInstruction: null,
-      recallInjectionStrategy: 'prepend_user_block',
+      recallInjectionStrategy: "prepend_user_block",
       conflictClarification: null,
     };
   }
@@ -107,7 +111,7 @@ export async function prepareMemoryContext(
       recall: {
         enabled: false,
         degraded: false,
-        injectedText: '',
+        injectedText: "",
         lexicalHits: 0,
         semanticHits: 0,
         recencyHits: 0,
@@ -124,9 +128,9 @@ export async function prepareMemoryContext(
         latencyMs: 0,
         topCandidates: [],
       } as Awaited<ReturnType<typeof buildMemoryRecall>>,
-      dynamicProfile: { text: '' },
+      dynamicProfile: { text: "" },
       softConflictInstruction: null,
-      recallInjectionStrategy: 'prepend_user_block',
+      recallInjectionStrategy: "prepend_user_block",
       conflictClarification: null,
     };
   }
@@ -137,7 +141,10 @@ export async function prepareMemoryContext(
   // Conflict gate — skip entirely for non-interactive sessions (scheduled tasks,
   // work items) since there is no human to answer the clarification question.
   const isInteractive = ctx.isInteractive !== false;
-  const conflictConfig = memoryEnabled && isInteractive ? runtimeConfig.memory?.conflicts : undefined;
+  const conflictConfig =
+    memoryEnabled && isInteractive
+      ? runtimeConfig.memory?.conflicts
+      : undefined;
   const conflictGateResult = conflictConfig
     ? await ctx.conflictGate.evaluate(content, conflictConfig, ctx.scopeId)
     : null;
@@ -148,7 +155,7 @@ export async function prepareMemoryContext(
       recall: {
         enabled: false,
         degraded: false,
-        injectedText: '',
+        injectedText: "",
         lexicalHits: 0,
         semanticHits: 0,
         recencyHits: 0,
@@ -165,34 +172,40 @@ export async function prepareMemoryContext(
         latencyMs: 0,
         topCandidates: [],
       } as Awaited<ReturnType<typeof buildMemoryRecall>>,
-      dynamicProfile: { text: '' },
+      dynamicProfile: { text: "" },
       softConflictInstruction: null,
-      recallInjectionStrategy: 'prepend_user_block',
+      recallInjectionStrategy: "prepend_user_block",
       conflictClarification: [
         conflictGateResult.question,
-        '',
-        'I need this clarification before I can give guidance that depends on that preference.',
-      ].join('\n'),
+        "",
+        "I need this clarification before I can give guidance that depends on that preference.",
+      ].join("\n"),
     };
   }
 
-  const softConflictInstruction = conflictGateResult && !conflictGateResult.relevant
-    ? conflictGateResult.question
-    : null;
+  const softConflictInstruction =
+    conflictGateResult && !conflictGateResult.relevant
+      ? conflictGateResult.question
+      : null;
 
   // Dynamic profile
-  const profileConfig = memoryEnabled ? runtimeConfig.memory?.profile : undefined;
+  const profileConfig = memoryEnabled
+    ? runtimeConfig.memory?.profile
+    : undefined;
   const dynamicProfile = profileConfig?.enabled
     ? compileDynamicProfile({
         scopeId: ctx.scopeId,
         includeDefaultFallback: ctx.includeDefaultFallback,
         maxInjectTokensOverride: profileConfig.maxInjectTokens,
       })
-    : { text: '' };
+    : { text: "" };
 
   // Memory recall
   const recallQuery = buildMemoryQuery(content, ctx.messages);
-  const recallInjectionStrategy: RecallInjectionStrategy = (runtimeConfig.memory?.retrieval?.injectionStrategy as RecallInjectionStrategy | undefined) ?? 'prepend_user_block';
+  const recallInjectionStrategy: RecallInjectionStrategy =
+    (runtimeConfig.memory?.retrieval?.injectionStrategy as
+      | RecallInjectionStrategy
+      | undefined) ?? "prepend_user_block";
   const dynamicBudgetConfig = runtimeConfig.memory?.retrieval?.dynamicBudget;
   const recallBudget = dynamicBudgetConfig?.enabled
     ? computeRecallBudget({
@@ -210,21 +223,26 @@ export async function prepareMemoryContext(
   // Build scope policy override for non-default scopes so retrieval
   // honours the session's memory policy regardless of the global config.
   const scopePolicyOverride: ScopePolicyOverride | undefined =
-    ctx.scopeId !== 'default'
+    ctx.scopeId !== "default"
       ? { scopeId: ctx.scopeId, fallbackToDefault: ctx.includeDefaultFallback }
       : undefined;
 
-  const recall = await buildMemoryRecall(recallQuery, ctx.conversationId, runtimeConfig, {
-    excludeMessageIds: [userMessageId],
-    signal: abortSignal,
-    maxInjectTokensOverride: recallBudget,
-    scopeId: ctx.scopeId,
-    scopePolicyOverride,
-  });
+  const recall = await buildMemoryRecall(
+    recallQuery,
+    ctx.conversationId,
+    runtimeConfig,
+    {
+      excludeMessageIds: [userMessageId],
+      signal: abortSignal,
+      maxInjectTokensOverride: recallBudget,
+      scopeId: ctx.scopeId,
+      scopePolicyOverride,
+    },
+  );
   const memoryStatus = getMemoryConflictAndCleanupStats();
 
   onEvent({
-    type: 'memory_status',
+    type: "memory_status",
     enabled: recall.enabled,
     degraded: recall.degraded,
     reason: recall.reason,
@@ -236,16 +254,20 @@ export async function prepareMemoryContext(
     cleanupResolvedJobsPending: memoryStatus.cleanup.resolvedBacklog,
     cleanupSupersededJobsPending: memoryStatus.cleanup.supersededBacklog,
     cleanupResolvedJobsCompleted24h: memoryStatus.cleanup.resolvedCompleted24h,
-    cleanupSupersededJobsCompleted24h: memoryStatus.cleanup.supersededCompleted24h,
+    cleanupSupersededJobsCompleted24h:
+      memoryStatus.cleanup.supersededCompleted24h,
   });
 
   // Inject recall into messages
   let runMessages = ctx.messages;
   if (recall.injectedText.length > 0) {
     const userTail = ctx.messages[ctx.messages.length - 1];
-    if (userTail && userTail.role === 'user') {
-      if (recallInjectionStrategy === 'separate_context_message') {
-        runMessages = injectMemoryRecallAsSeparateMessage(ctx.messages, recall.injectedText);
+    if (userTail && userTail.role === "user") {
+      if (recallInjectionStrategy === "separate_context_message") {
+        runMessages = injectMemoryRecallAsSeparateMessage(
+          ctx.messages,
+          recall.injectedText,
+        );
       } else {
         runMessages = [
           ...ctx.messages.slice(0, -1),
@@ -253,9 +275,9 @@ export async function prepareMemoryContext(
         ];
       }
       onEvent({
-        type: 'memory_recalled',
-        provider: recall.provider ?? 'unknown',
-        model: recall.model ?? 'unknown',
+        type: "memory_recalled",
+        provider: recall.provider ?? "unknown",
+        model: recall.model ?? "unknown",
         lexicalHits: recall.lexicalHits,
         semanticHits: recall.semanticHits,
         recencyHits: recall.recencyHits,
@@ -278,7 +300,7 @@ export async function prepareMemoryContext(
   // Inject dynamic profile
   if (dynamicProfile.text.length > 0) {
     const userTail = runMessages[runMessages.length - 1];
-    if (userTail && userTail.role === 'user') {
+    if (userTail && userTail.role === "user") {
       runMessages = [
         ...runMessages.slice(0, -1),
         injectDynamicProfileIntoUserMessage(userTail, dynamicProfile.text),

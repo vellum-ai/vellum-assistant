@@ -96,8 +96,8 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
-import { createBinding } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { createBinding } from "../memory/guardian-bindings.js";
 import { findMember, upsertMember } from "../memory/ingress-member-store.js";
 import {
   createOutboundSession,
@@ -132,6 +132,8 @@ function resetState(): void {
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM assistant_ingress_members");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
   notifyGuardianCalls.length = 0;
   deliverReplyCalls.length = 0;

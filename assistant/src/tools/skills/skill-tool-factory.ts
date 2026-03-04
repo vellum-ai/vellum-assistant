@@ -1,10 +1,15 @@
-import type { SkillToolEntry } from '../../config/skills.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import type { ExecutionTarget, Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import { runSkillToolScript } from './skill-script-runner.js';
+import type { SkillToolEntry } from "../../config/skills.js";
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import type {
+  ExecutionTarget,
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../types.js";
+import { runSkillToolScript } from "./skill-script-runner.js";
 
-const riskMap: Record<SkillToolEntry['risk'], RiskLevel> = {
+const riskMap: Record<SkillToolEntry["risk"], RiskLevel> = {
   low: RiskLevel.Low,
   medium: RiskLevel.Medium,
   high: RiskLevel.High,
@@ -27,7 +32,7 @@ export function createSkillTool(
     description: entry.description,
     category: entry.category,
     defaultRiskLevel: riskMap[entry.risk],
-    origin: 'skill',
+    origin: "skill",
     ownerSkillId: skillId,
     executionTarget: entry.execution_target as ExecutionTarget,
     ownerSkillVersionHash: versionHash,
@@ -37,11 +42,14 @@ export function createSkillTool(
       return {
         name: entry.name,
         description: entry.description,
-        input_schema: entry.input_schema as ToolDefinition['input_schema'],
+        input_schema: entry.input_schema as ToolDefinition["input_schema"],
       };
     },
 
-    async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    async execute(
+      input: Record<string, unknown>,
+      context: ToolContext,
+    ): Promise<ToolExecutionResult> {
       return runSkillToolScript(skillDir, entry.executor, input, context, {
         target: entry.execution_target,
         expectedSkillVersionHash: versionHash,
@@ -61,5 +69,7 @@ export function createSkillToolsFromManifest(
   versionHash: string,
   bundled?: boolean,
 ): Tool[] {
-  return entries.map(entry => createSkillTool(entry, skillId, skillDir, versionHash, bundled));
+  return entries.map((entry) =>
+    createSkillTool(entry, skillId, skillDir, versionHash, bundled),
+  );
 }

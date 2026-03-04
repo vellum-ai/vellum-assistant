@@ -13,12 +13,12 @@
  * - Fire-and-forget: enqueue() never blocks or throws
  */
 
-import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
-import type { CommitContext } from './commit-message-provider.js';
-import type { WorkspaceGitService } from './git-service.js';
+import { getConfig } from "../config/loader.js";
+import { getLogger } from "../util/logger.js";
+import type { CommitContext } from "./commit-message-provider.js";
+import type { WorkspaceGitService } from "./git-service.js";
 
-const log = getLogger('enrichment-queue');
+const log = getLogger("enrichment-queue");
 
 export interface EnrichmentJob {
   workspaceDir: string;
@@ -62,10 +62,14 @@ export class CommitEnrichmentService {
   constructor(options?: EnrichmentServiceOptions) {
     const config = getConfig();
     const gitConfig = config.workspaceGit;
-    this.maxQueueSize = options?.maxQueueSize ?? gitConfig?.enrichmentQueueSize ?? 50;
-    this.maxConcurrency = options?.maxConcurrency ?? gitConfig?.enrichmentConcurrency ?? 1;
-    this.jobTimeoutMs = options?.jobTimeoutMs ?? gitConfig?.enrichmentJobTimeoutMs ?? 30000;
-    this.maxRetries = options?.maxRetries ?? gitConfig?.enrichmentMaxRetries ?? 2;
+    this.maxQueueSize =
+      options?.maxQueueSize ?? gitConfig?.enrichmentQueueSize ?? 50;
+    this.maxConcurrency =
+      options?.maxConcurrency ?? gitConfig?.enrichmentConcurrency ?? 1;
+    this.jobTimeoutMs =
+      options?.jobTimeoutMs ?? gitConfig?.enrichmentJobTimeoutMs ?? 30000;
+    this.maxRetries =
+      options?.maxRetries ?? gitConfig?.enrichmentMaxRetries ?? 2;
   }
 
   /**
@@ -73,7 +77,10 @@ export class CommitEnrichmentService {
    */
   enqueue(job: EnrichmentJob): void {
     if (this.shuttingDown) {
-      log.debug({ commitHash: job.commitHash }, 'Enrichment queue shutting down, discarding job');
+      log.debug(
+        { commitHash: job.commitHash },
+        "Enrichment queue shutting down, discarding job",
+      );
       return;
     }
 
@@ -84,15 +91,19 @@ export class CommitEnrichmentService {
       const dropped = this.queue.shift()!;
       this.droppedCount++;
       log.warn(
-        { droppedHash: dropped.commitHash, queueSize: this.queue.length, droppedCount: this.droppedCount },
-        'Enrichment queue full, dropping oldest job',
+        {
+          droppedHash: dropped.commitHash,
+          queueSize: this.queue.length,
+          droppedCount: this.droppedCount,
+        },
+        "Enrichment queue full, dropping oldest job",
       );
     }
 
     this.queue.push(internalJob);
     log.debug(
       { commitHash: job.commitHash, queueSize: this.queue.length },
-      'Enrichment job enqueued',
+      "Enrichment job enqueued",
     );
 
     this.processNext();
@@ -113,18 +124,28 @@ export class CommitEnrichmentService {
       const pendingCount = this.queue.length;
       this.droppedCount += pendingCount;
       this.queue = [];
-      log.info({ discarded: pendingCount, droppedCount: this.droppedCount }, 'Enrichment queue shutting down, discarded pending jobs');
+      log.info(
+        { discarded: pendingCount, droppedCount: this.droppedCount },
+        "Enrichment queue shutting down, discarded pending jobs",
+      );
     }
 
     // Wait for any in-flight workers to finish
     if (this.inFlightPromises.size > 0) {
-      log.debug({ inFlight: this.inFlightPromises.size }, 'Waiting for in-flight enrichment jobs');
+      log.debug(
+        { inFlight: this.inFlightPromises.size },
+        "Waiting for in-flight enrichment jobs",
+      );
       await Promise.all(this.inFlightPromises);
     }
 
     log.info(
-      { succeeded: this.succeededCount, failed: this.failedCount, dropped: this.droppedCount },
-      'Enrichment queue shut down',
+      {
+        succeeded: this.succeededCount,
+        failed: this.failedCount,
+        dropped: this.droppedCount,
+      },
+      "Enrichment queue shut down",
     );
   }
 
@@ -191,24 +212,33 @@ export class CommitEnrichmentService {
         new Promise<never>((_, reject) => {
           timeoutHandle = setTimeout(() => {
             controller.abort();
-            reject(new Error('Enrichment job timed out'));
+            reject(new Error("Enrichment job timed out"));
           }, this.jobTimeoutMs);
         }),
       ]);
       this.succeededCount++;
       log.debug(
         { commitHash: job.commitHash, attempts: job.attempts },
-        'Enrichment job completed',
+        "Enrichment job completed",
       );
     } catch (err) {
       controller.abort();
-      const isTimeout = err instanceof Error && err.message === 'Enrichment job timed out';
+      const isTimeout =
+        err instanceof Error && err.message === "Enrichment job timed out";
       if (job.attempts <= this.maxRetries) {
         // Exponential backoff: 1s, 2s, 4s, ...
         const backoffMs = 1000 * Math.pow(2, job.attempts - 1);
         log.debug(
-          { commitHash: job.commitHash, attempts: job.attempts, backoffMs, timedOut: isTimeout, err },
-          isTimeout ? 'Enrichment job timed out, scheduling retry' : 'Enrichment job failed, scheduling retry',
+          {
+            commitHash: job.commitHash,
+            attempts: job.attempts,
+            backoffMs,
+            timedOut: isTimeout,
+            err,
+          },
+          isTimeout
+            ? "Enrichment job timed out, scheduling retry"
+            : "Enrichment job failed, scheduling retry",
         );
         await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
 
@@ -225,8 +255,15 @@ export class CommitEnrichmentService {
 
       this.failedCount++;
       log.warn(
-        { commitHash: job.commitHash, attempts: job.attempts, timedOut: isTimeout, err },
-        isTimeout ? 'Enrichment job timed out after max retries' : 'Enrichment job failed after max retries',
+        {
+          commitHash: job.commitHash,
+          attempts: job.attempts,
+          timedOut: isTimeout,
+          err,
+        },
+        isTimeout
+          ? "Enrichment job timed out after max retries"
+          : "Enrichment job failed after max retries",
       );
     } finally {
       if (timeoutHandle !== undefined) {
@@ -245,7 +282,10 @@ export class CommitEnrichmentService {
    * Accepts an AbortSignal so callers (e.g. timeout) can cancel
    * in-progress work and prevent zombie enrichment jobs.
    */
-  private async doEnrichment(job: InternalJob, signal?: AbortSignal): Promise<void> {
+  private async doEnrichment(
+    job: InternalJob,
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (signal?.aborted) return;
 
     const note = JSON.stringify({

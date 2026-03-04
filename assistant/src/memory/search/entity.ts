@@ -1,18 +1,27 @@
-import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 
-import type { MemoryEntityConfig } from '../../config/types.js';
-import { getLogger } from '../../util/logger.js';
-import { getDb, rawAll } from '../db.js';
+import type { MemoryEntityConfig } from "../../config/types.js";
+import { getLogger } from "../../util/logger.js";
+import { getDb, rawAll } from "../db.js";
 import {
   memoryEntityRelations,
   memoryItemEntities,
   memoryItems,
   memoryItemSources,
-} from '../schema.js';
-import { computeRecencyScore } from './ranking.js';
-import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, MatchedEntityRow, TraversalOptions, TraversalResult, TraversalStep } from './types.js';
+} from "../schema.js";
+import { computeRecencyScore } from "./ranking.js";
+import type {
+  Candidate,
+  CandidateSource,
+  CandidateType,
+  EntitySearchResult,
+  MatchedEntityRow,
+  TraversalOptions,
+  TraversalResult,
+  TraversalStep,
+} from "./types.js";
 
-const log = getLogger('memory-retriever');
+const log = getLogger("memory-retriever");
 
 /**
  * Entity-based retrieval: match seed entities from query text, fetch directly
@@ -38,7 +47,7 @@ export function entitySearch(
   const directCandidates = getEntityLinkedItemCandidates(seedEntityIds, {
     scopeIds,
     excludedMessageIds,
-    source: 'entity_direct',
+    source: "entity_direct",
   });
 
   if (!relationConfig.enabled) {
@@ -63,11 +72,13 @@ export function entitySearch(
     maxDepth: relationConfig.maxDepth,
   });
   const relationNeighborEntityCount = neighborEntityIds.length;
-  const directItemIds = new Set(directCandidates.map((candidate) => candidate.id));
+  const directItemIds = new Set(
+    directCandidates.map((candidate) => candidate.id),
+  );
   const relationCandidates = getEntityLinkedItemCandidates(neighborEntityIds, {
     scopeIds,
     excludedMessageIds,
-    source: 'entity_relation',
+    source: "entity_relation",
     excludeItemIds: directItemIds,
   });
   const relationExpandedItemCount = relationCandidates.length;
@@ -127,7 +138,10 @@ export function emptyEntitySearchResult(): EntitySearchResult {
   };
 }
 
-export function findMatchedEntities(query: string, maxMatches: number): MatchedEntityRow[] {
+export function findMatchedEntities(
+  query: string,
+  maxMatches: number,
+): MatchedEntityRow[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) return [];
 
@@ -146,7 +160,7 @@ export function findMatchedEntities(query: string, maxMatches: number): MatchedE
   let entityQuery: string;
   let queryParams: string[];
   if (tokens.length > 0) {
-    const namePlaceholders = tokens.map(() => '?').join(',');
+    const namePlaceholders = tokens.map(() => "?").join(",");
     entityQuery = `
       SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
       FROM memory_entities me
@@ -175,7 +189,7 @@ export function findMatchedEntities(query: string, maxMatches: number): MatchedE
   try {
     return rawAll<MatchedEntityRow>(entityQuery, ...queryParams);
   } catch (err) {
-    log.warn({ err }, 'Entity search query failed');
+    log.warn({ err }, "Entity search query failed");
     return [];
   }
 }
@@ -188,9 +202,25 @@ export function findNeighborEntities(
   seedEntityIds: string[],
   opts: TraversalOptions,
 ): TraversalResult {
-  const { maxEdges, maxNeighborEntities, maxDepth = 3, relationTypes, entityTypes, directed } = opts;
-  if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0 || maxDepth <= 0) {
-    return { neighborEntityIds: [], traversedEdgeCount: 0, neighborDepths: new Map() };
+  const {
+    maxEdges,
+    maxNeighborEntities,
+    maxDepth = 3,
+    relationTypes,
+    entityTypes,
+    directed,
+  } = opts;
+  if (
+    seedEntityIds.length === 0 ||
+    maxEdges <= 0 ||
+    maxNeighborEntities <= 0 ||
+    maxDepth <= 0
+  ) {
+    return {
+      neighborEntityIds: [],
+      traversedEdgeCount: 0,
+      neighborDepths: new Map(),
+    };
   }
 
   const db = getDb();
@@ -215,14 +245,18 @@ export function findNeighborEntities(
       // When filtering by entity type, JOIN with memoryEntities on the neighbor
       // side so non-matching edges are excluded at the SQL level and don't
       // consume the edge budget.
-      const relationTypeCondition = relationTypes && relationTypes.length > 0
-        ? `AND r.relation IN (${relationTypes.map(() => '?').join(',')})`
-        : '';
-      const entityTypeFilter = `AND me.type IN (${entityTypes.map(() => '?').join(',')})`;
-      const frontierPlaceholders = frontier.map(() => '?').join(',');
+      const relationTypeCondition =
+        relationTypes && relationTypes.length > 0
+          ? `AND r.relation IN (${relationTypes.map(() => "?").join(",")})`
+          : "";
+      const entityTypeFilter = `AND me.type IN (${entityTypes
+        .map(() => "?")
+        .join(",")})`;
+      const frontierPlaceholders = frontier.map(() => "?").join(",");
       const limit = Math.max(1, edgeBudget);
 
-      const relationParams = relationTypes && relationTypes.length > 0 ? relationTypes : [];
+      const relationParams =
+        relationTypes && relationTypes.length > 0 ? relationTypes : [];
 
       type EdgeRow = { sourceEntityId: string; targetEntityId: string };
 
@@ -238,7 +272,13 @@ export function findNeighborEntities(
           ORDER BY MAX(r.last_seen_at) DESC
           LIMIT ?
         `;
-        rows = rawAll<EdgeRow>(q1, ...frontier, ...relationParams, ...entityTypes, limit);
+        rows = rawAll<EdgeRow>(
+          q1,
+          ...frontier,
+          ...relationParams,
+          ...entityTypes,
+          limit,
+        );
       } else {
         // Combine both directions in a single query with global recency
         // ordering so the edge budget isn't direction-biased.
@@ -262,8 +302,12 @@ export function findNeighborEntities(
         `;
         rows = rawAll<EdgeRow>(
           q,
-          ...frontier, ...relationParams, ...entityTypes,
-          ...frontier, ...relationParams, ...entityTypes,
+          ...frontier,
+          ...relationParams,
+          ...entityTypes,
+          ...frontier,
+          ...relationParams,
+          ...entityTypes,
           limit,
         );
       }
@@ -274,9 +318,13 @@ export function findNeighborEntities(
             inArray(memoryEntityRelations.sourceEntityId, frontier),
             inArray(memoryEntityRelations.targetEntityId, frontier),
           );
-      const whereCondition = relationTypes && relationTypes.length > 0
-        ? and(frontierCondition, inArray(memoryEntityRelations.relation, relationTypes))
-        : frontierCondition;
+      const whereCondition =
+        relationTypes && relationTypes.length > 0
+          ? and(
+              frontierCondition,
+              inArray(memoryEntityRelations.relation, relationTypes),
+            )
+          : frontierCondition;
 
       rows = db
         .select({
@@ -297,7 +345,10 @@ export function findNeighborEntities(
     for (const row of rows) {
       if (neighbors.length >= maxNeighborEntities) break;
       // In directed mode, only follow source→target (frontier is always on source side)
-      if (frontierSet.has(row.sourceEntityId) && !visited.has(row.targetEntityId)) {
+      if (
+        frontierSet.has(row.sourceEntityId) &&
+        !visited.has(row.targetEntityId)
+      ) {
         visited.add(row.targetEntityId);
         neighbors.push(row.targetEntityId);
         nextFrontier.push(row.targetEntityId);
@@ -305,7 +356,10 @@ export function findNeighborEntities(
       }
       if (directed) continue;
       if (neighbors.length >= maxNeighborEntities) break;
-      if (frontierSet.has(row.targetEntityId) && !visited.has(row.sourceEntityId)) {
+      if (
+        frontierSet.has(row.targetEntityId) &&
+        !visited.has(row.sourceEntityId)
+      ) {
         visited.add(row.sourceEntityId);
         neighbors.push(row.sourceEntityId);
         nextFrontier.push(row.sourceEntityId);
@@ -346,13 +400,14 @@ export function getEntityLinkedItemCandidates(
 
   if (linkedRows.length === 0) return [];
 
-  const itemIds = [...new Set(linkedRows.map((row) => row.memoryItemId))]
-    .filter((itemId) => !opts.excludeItemIds?.has(itemId));
+  const itemIds = [
+    ...new Set(linkedRows.map((row) => row.memoryItemId)),
+  ].filter((itemId) => !opts.excludeItemIds?.has(itemId));
   if (itemIds.length === 0) return [];
 
   const itemConditions = [
     inArray(memoryItems.id, itemIds),
-    eq(memoryItems.status, 'active'),
+    eq(memoryItems.status, "active"),
     isNull(memoryItems.invalidAt),
   ];
   if (opts.scopeIds && opts.scopeIds.length > 0) {
@@ -373,7 +428,12 @@ export function getEntityLinkedItemCandidates(
         messageId: memoryItemSources.messageId,
       })
       .from(memoryItemSources)
-      .where(inArray(memoryItemSources.memoryItemId, items.map((item) => item.id)))
+      .where(
+        inArray(
+          memoryItemSources.memoryItemId,
+          items.map((item) => item.id),
+        ),
+      )
       .all();
     const hasAnySource = new Set<string>();
     const hasNonExcludedSource = new Set<string>();
@@ -383,13 +443,15 @@ export function getEntityLinkedItemCandidates(
         hasNonExcludedSource.add(source.memoryItemId);
       }
     }
-    items = items.filter((item) => !hasAnySource.has(item.id) || hasNonExcludedSource.has(item.id));
+    items = items.filter(
+      (item) => !hasAnySource.has(item.id) || hasNonExcludedSource.has(item.id),
+    );
   }
   if (items.length === 0) return [];
 
   return items.map((item) => ({
     key: `item:${item.id}`,
-    type: 'item' as CandidateType,
+    type: "item" as CandidateType,
     id: item.id,
     source: opts.source,
     text: `${item.subject}: ${item.statement}`,
@@ -465,8 +527,8 @@ export function intersectReachable(
   if (resultSets.length === 0) return [];
 
   // Intersect all sets: keep only entities present in ALL sets
-  const intersection = [...resultSets[0]].filter(id =>
-    resultSets.every(set => set.has(id)),
+  const intersection = [...resultSets[0]].filter((id) =>
+    resultSets.every((set) => set.has(id)),
   );
 
   return intersection;

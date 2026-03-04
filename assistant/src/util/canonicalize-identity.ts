@@ -10,11 +10,15 @@
  * pass through the platform-stable ID as-is after whitespace trimming.
  */
 
-import type { ChannelId } from '../channels/types.js';
-import { normalizePhoneNumber } from './phone.js';
+import type { ChannelId } from "../channels/types.js";
+import { normalizePhoneNumber } from "./phone.js";
 
 /** Channels whose raw sender IDs are phone numbers. */
-const PHONE_CHANNELS: ReadonlySet<ChannelId> = new Set(['sms', 'voice', 'whatsapp']);
+const PHONE_CHANNELS: ReadonlySet<ChannelId> = new Set([
+  "sms",
+  "voice",
+  "whatsapp",
+]);
 
 /**
  * Canonicalize a raw inbound sender identity for the given channel.
@@ -28,7 +32,10 @@ const PHONE_CHANNELS: ReadonlySet<ChannelId> = new Set(['sms', 'voice', 'whatsap
  *
  * Returns `null` only when `rawId` is empty/whitespace-only.
  */
-export function canonicalizeInboundIdentity(channel: ChannelId, rawId: string): string | null {
+export function canonicalizeInboundIdentity(
+  channel: ChannelId,
+  rawId: string,
+): string | null {
   const trimmed = rawId.trim();
   if (trimmed.length === 0) return null;
 

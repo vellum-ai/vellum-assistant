@@ -1,50 +1,65 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql } from "drizzle-orm";
 
-import type { MemoryEntityConfig } from '../config/types.js';
-import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
-import { getLogger } from '../util/logger.js';
-import { truncate } from '../util/truncate.js';
-import { getDb, rawAll } from './db.js';
-import { memoryEntities, memoryEntityRelations, memoryItemEntities } from './schema.js';
+import type { MemoryEntityConfig } from "../config/types.js";
+import {
+  createTimeout,
+  extractToolUse,
+  getConfiguredProvider,
+  userMessage,
+} from "../providers/provider-send-message.js";
+import { getLogger } from "../util/logger.js";
+import { truncate } from "../util/truncate.js";
+import { getDb, rawAll } from "./db.js";
+import {
+  memoryEntities,
+  memoryEntityRelations,
+  memoryItemEntities,
+} from "./schema.js";
 
-const log = getLogger('memory-entity-extractor');
+const log = getLogger("memory-entity-extractor");
 
 const ENTITY_EXTRACTION_TIMEOUT_MS = 15_000;
 
 export type EntityType =
-  | 'person'
-  | 'project'
-  | 'tool'
-  | 'company'
-  | 'concept'
-  | 'location'
-  | 'organization';
+  | "person"
+  | "project"
+  | "tool"
+  | "company"
+  | "concept"
+  | "location"
+  | "organization";
 
 export type EntityRelationType =
-  | 'works_on'
-  | 'uses'
-  | 'owns'
-  | 'member_of'
-  | 'located_in'
-  | 'depends_on'
-  | 'collaborates_with'
-  | 'reports_to'
-  | 'related_to';
+  | "works_on"
+  | "uses"
+  | "owns"
+  | "member_of"
+  | "located_in"
+  | "depends_on"
+  | "collaborates_with"
+  | "reports_to"
+  | "related_to";
 
 const VALID_ENTITY_TYPES = new Set<string>([
-  'person', 'project', 'tool', 'company', 'concept', 'location', 'organization',
+  "person",
+  "project",
+  "tool",
+  "company",
+  "concept",
+  "location",
+  "organization",
 ]);
 
 const VALID_RELATION_TYPES = new Set<string>([
-  'works_on',
-  'uses',
-  'owns',
-  'member_of',
-  'located_in',
-  'depends_on',
-  'collaborates_with',
-  'reports_to',
-  'related_to',
+  "works_on",
+  "uses",
+  "owns",
+  "member_of",
+  "located_in",
+  "depends_on",
+  "collaborates_with",
+  "reports_to",
+  "related_to",
 ]);
 
 export interface ExtractedEntity {
@@ -125,7 +140,7 @@ export async function extractEntitiesWithLLM(
 ): Promise<ExtractedEntityGraph> {
   const provider = getConfiguredProvider();
   if (!provider) {
-    log.debug('Configured provider unavailable for entity extraction');
+    log.debug("Configured provider unavailable for entity extraction");
     return { entities: [], relations: [] };
   }
 
@@ -136,17 +151,19 @@ export async function extractEntitiesWithLLM(
     try {
       const response = await provider.sendMessage(
         [userMessage(text)],
-        [{
-          name: 'store_entities',
-          description: 'Store extracted entities from the text',
-          input_schema: buildToolInputSchema(extractRelations),
-        }],
+        [
+          {
+            name: "store_entities",
+            description: "Store extracted entities from the text",
+            input_schema: buildToolInputSchema(extractRelations),
+          },
+        ],
         ENTITY_EXTRACTION_SYSTEM_PROMPT,
         {
           config: {
             modelIntent: entityConfig.modelIntent,
             max_tokens: 1024,
-            tool_choice: { type: 'tool' as const, name: 'store_entities' },
+            tool_choice: { type: "tool" as const, name: "store_entities" },
           },
           signal,
         },
@@ -155,18 +172,23 @@ export async function extractEntitiesWithLLM(
 
       const toolBlock = extractToolUse(response);
       if (!toolBlock) {
-        log.warn('No tool_use block in entity extraction response');
+        log.warn("No tool_use block in entity extraction response");
         return { entities: [], relations: [] };
       }
 
-      const input = toolBlock.input as { entities?: LLMExtractedEntity[]; relations?: LLMExtractedRelation[] };
+      const input = toolBlock.input as {
+        entities?: LLMExtractedEntity[];
+        relations?: LLMExtractedRelation[];
+      };
       if (!Array.isArray(input.entities)) {
-        log.warn('Invalid entities in entity extraction response');
+        log.warn("Invalid entities in entity extraction response");
         return { entities: [], relations: [] };
       }
 
       const entities = parseExtractedEntities(input.entities);
-      const relations = extractRelations ? parseExtractedRelations(input.relations) : [];
+      const relations = extractRelations
+        ? parseExtractedRelations(input.relations)
+        : [];
 
       return { entities, relations };
     } finally {
@@ -174,7 +196,7 @@ export async function extractEntitiesWithLLM(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.warn({ err: message }, 'Entity extraction LLM call failed');
+    log.warn({ err: message }, "Entity extraction LLM call failed");
     return { entities: [], relations: [] };
   }
 }
@@ -186,14 +208,18 @@ export async function extractEntitiesWithLLM(
 export function resolveEntity(entity: ExtractedEntity): string | null {
   const candidates = findEntityCandidates(entity.name);
   if (candidates.length > 0) {
-    const sameType = candidates.find((candidate) => candidate.type === entity.type);
+    const sameType = candidates.find(
+      (candidate) => candidate.type === entity.type,
+    );
     return sameType?.id ?? candidates[0].id;
   }
 
   for (const alias of entity.aliases) {
     const aliasCandidates = findEntityCandidates(alias);
     if (aliasCandidates.length > 0) {
-      const sameType = aliasCandidates.find((candidate) => candidate.type === entity.type);
+      const sameType = aliasCandidates.find(
+        (candidate) => candidate.type === entity.type,
+      );
       return sameType?.id ?? aliasCandidates[0].id;
     }
   }
@@ -209,7 +235,9 @@ export function resolveEntityName(entityName: string): string | null {
   const candidates = findEntityCandidates(entityName);
   if (candidates.length === 0) return null;
   const nameLower = entityName.trim().toLowerCase();
-  const exactNameMatch = candidates.find((c) => c.name.toLowerCase() === nameLower);
+  const exactNameMatch = candidates.find(
+    (c) => c.name.toLowerCase() === nameLower,
+  );
   return exactNameMatch?.id ?? candidates[0].id;
 }
 
@@ -234,13 +262,18 @@ export function upsertEntity(entity: ExtractedEntity): string {
       const existingAliases: string[] = existing.aliases
         ? (JSON.parse(existing.aliases) as string[])
         : [];
-      const mergedAliases = mergeAliases(existingAliases, entity.aliases, existing.name);
+      const mergedAliases = mergeAliases(
+        existingAliases,
+        entity.aliases,
+        existing.name,
+      );
 
       db.update(memoryEntities)
         .set({
           lastSeenAt: now,
           mentionCount: sql`${memoryEntities.mentionCount} + 1`,
-          aliases: mergedAliases.length > 0 ? JSON.stringify(mergedAliases) : null,
+          aliases:
+            mergedAliases.length > 0 ? JSON.stringify(mergedAliases) : null,
         })
         .where(eq(memoryEntities.id, existingId))
         .run();
@@ -250,16 +283,19 @@ export function upsertEntity(entity: ExtractedEntity): string {
   }
 
   const id = crypto.randomUUID();
-  db.insert(memoryEntities).values({
-    id,
-    name: entity.name,
-    type: entity.type,
-    aliases: entity.aliases.length > 0 ? JSON.stringify(entity.aliases) : null,
-    description: null,
-    firstSeenAt: now,
-    lastSeenAt: now,
-    mentionCount: 1,
-  }).run();
+  db.insert(memoryEntities)
+    .values({
+      id,
+      name: entity.name,
+      type: entity.type,
+      aliases:
+        entity.aliases.length > 0 ? JSON.stringify(entity.aliases) : null,
+      description: null,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      mentionCount: 1,
+    })
+    .run();
 
   return id;
 }
@@ -274,46 +310,56 @@ export function upsertEntityRelation(input: UpsertEntityRelationInput): void {
   const seenAt = input.seenAt ?? Date.now();
   const normalizedEvidence = normalizeEvidence(input.evidence);
 
-  db.insert(memoryEntityRelations).values({
-    id: crypto.randomUUID(),
-    sourceEntityId: input.sourceEntityId,
-    targetEntityId: input.targetEntityId,
-    relation: input.relation,
-    evidence: normalizedEvidence,
-    firstSeenAt: seenAt,
-    lastSeenAt: seenAt,
-  }).onConflictDoUpdate({
-    target: [
-      memoryEntityRelations.sourceEntityId,
-      memoryEntityRelations.targetEntityId,
-      memoryEntityRelations.relation,
-    ],
-    set: normalizedEvidence === undefined
-      ? {
-        firstSeenAt: sql`MIN(${memoryEntityRelations.firstSeenAt}, ${seenAt})`,
-        lastSeenAt: sql`MAX(${memoryEntityRelations.lastSeenAt}, ${seenAt})`,
-      }
-      : {
-        firstSeenAt: sql`MIN(${memoryEntityRelations.firstSeenAt}, ${seenAt})`,
-        lastSeenAt: sql`MAX(${memoryEntityRelations.lastSeenAt}, ${seenAt})`,
-        evidence: normalizedEvidence,
-      },
-  }).run();
+  db.insert(memoryEntityRelations)
+    .values({
+      id: crypto.randomUUID(),
+      sourceEntityId: input.sourceEntityId,
+      targetEntityId: input.targetEntityId,
+      relation: input.relation,
+      evidence: normalizedEvidence,
+      firstSeenAt: seenAt,
+      lastSeenAt: seenAt,
+    })
+    .onConflictDoUpdate({
+      target: [
+        memoryEntityRelations.sourceEntityId,
+        memoryEntityRelations.targetEntityId,
+        memoryEntityRelations.relation,
+      ],
+      set:
+        normalizedEvidence === undefined
+          ? {
+              firstSeenAt: sql`MIN(${memoryEntityRelations.firstSeenAt}, ${seenAt})`,
+              lastSeenAt: sql`MAX(${memoryEntityRelations.lastSeenAt}, ${seenAt})`,
+            }
+          : {
+              firstSeenAt: sql`MIN(${memoryEntityRelations.firstSeenAt}, ${seenAt})`,
+              lastSeenAt: sql`MAX(${memoryEntityRelations.lastSeenAt}, ${seenAt})`,
+              evidence: normalizedEvidence,
+            },
+    })
+    .run();
 }
 
 /**
  * Link a memory item to an entity via the join table.
  */
-export function linkMemoryItemToEntity(memoryItemId: string, entityId: string): void {
+export function linkMemoryItemToEntity(
+  memoryItemId: string,
+  entityId: string,
+): void {
   const db = getDb();
-  db.insert(memoryItemEntities).values({
-    memoryItemId,
-    entityId,
-  }).onConflictDoNothing().run();
+  db.insert(memoryItemEntities)
+    .values({
+      memoryItemId,
+      entityId,
+    })
+    .onConflictDoNothing()
+    .run();
 }
 
 type ToolInputSchema = Record<string, unknown> & {
-  type: 'object';
+  type: "object";
   properties: Record<string, unknown>;
   required: string[];
 };
@@ -321,60 +367,62 @@ type ToolInputSchema = Record<string, unknown> & {
 function buildToolInputSchema(includeRelations: boolean): ToolInputSchema {
   const properties: Record<string, unknown> = {
     entities: {
-      type: 'array',
+      type: "array",
       items: {
-        type: 'object',
+        type: "object",
         properties: {
           name: {
-            type: 'string',
-            description: 'Canonical name of the entity',
+            type: "string",
+            description: "Canonical name of the entity",
           },
           type: {
-            type: 'string',
+            type: "string",
             enum: [...VALID_ENTITY_TYPES],
-            description: 'Category of the entity',
+            description: "Category of the entity",
           },
           aliases: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Alternate names or abbreviations',
+            type: "array",
+            items: { type: "string" },
+            description: "Alternate names or abbreviations",
           },
         },
-        required: ['name', 'type', 'aliases'],
+        required: ["name", "type", "aliases"],
       },
     },
   };
 
-  const required: string[] = ['entities'];
+  const required: string[] = ["entities"];
 
   if (includeRelations) {
     properties.relations = {
-      type: 'array',
+      type: "array",
       items: {
-        type: 'object',
+        type: "object",
         properties: {
-          sourceEntityName: { type: 'string' },
-          targetEntityName: { type: 'string' },
+          sourceEntityName: { type: "string" },
+          targetEntityName: { type: "string" },
           relation: {
-            type: 'string',
+            type: "string",
             enum: [...VALID_RELATION_TYPES],
           },
-          evidence: { type: 'string' },
+          evidence: { type: "string" },
         },
-        required: ['sourceEntityName', 'targetEntityName', 'relation'],
+        required: ["sourceEntityName", "targetEntityName", "relation"],
       },
     };
-    required.push('relations');
+    required.push("relations");
   }
 
   return {
-    type: 'object',
+    type: "object",
     properties,
     required,
   };
 }
 
-function parseExtractedEntities(rawEntities: LLMExtractedEntity[]): ExtractedEntity[] {
+function parseExtractedEntities(
+  rawEntities: LLMExtractedEntity[],
+): ExtractedEntity[] {
   const entities: ExtractedEntity[] = [];
   const seen = new Set<string>();
   for (const raw of rawEntities) {
@@ -408,7 +456,8 @@ function parseExtractedRelations(
     const sourceEntityName = normalizeEntityName(raw.sourceEntityName);
     const targetEntityName = normalizeEntityName(raw.targetEntityName);
     if (!sourceEntityName || !targetEntityName) continue;
-    if (sourceEntityName.toLowerCase() === targetEntityName.toLowerCase()) continue;
+    if (sourceEntityName.toLowerCase() === targetEntityName.toLowerCase())
+      continue;
     const relation = raw.relation as EntityRelationType;
     const dedupeKey = `${sourceEntityName.toLowerCase()}|${targetEntityName.toLowerCase()}|${relation}`;
     if (seen.has(dedupeKey)) continue;
@@ -423,24 +472,34 @@ function parseExtractedRelations(
   return relations;
 }
 
-function findEntityCandidates(nameOrAlias: string): Array<typeof memoryEntities.$inferSelect> {
+function findEntityCandidates(
+  nameOrAlias: string,
+): Array<typeof memoryEntities.$inferSelect> {
   const normalized = normalizeEntityName(nameOrAlias);
   if (!normalized) return [];
   const nameLower = normalized.toLowerCase();
 
-  return rawAll<typeof memoryEntities.$inferSelect>(`
+  return rawAll<typeof memoryEntities.$inferSelect>(
+    `
     SELECT DISTINCT me.* FROM memory_entities me
     WHERE LOWER(me.name) = ?
     UNION
     SELECT DISTINCT me.* FROM memory_entities me, json_each(me.aliases) je
     WHERE me.aliases IS NOT NULL AND LOWER(je.value) = ?
-  `, nameLower, nameLower);
+  `,
+    nameLower,
+    nameLower,
+  );
 }
 
 /**
  * Merge alias lists, deduplicating and excluding the canonical name.
  */
-function mergeAliases(existing: string[], incoming: string[], canonicalName: string): string[] {
+function mergeAliases(
+  existing: string[],
+  incoming: string[],
+  canonicalName: string,
+): string[] {
   const seen = new Set<string>();
   const canonicalLower = canonicalName.toLowerCase();
   const merged: string[] = [];
@@ -456,18 +515,21 @@ function mergeAliases(existing: string[], incoming: string[], canonicalName: str
   return merged;
 }
 
-function dedupeAliasList(rawAliases: string[], canonicalName: string): string[] {
+function dedupeAliasList(
+  rawAliases: string[],
+  canonicalName: string,
+): string[] {
   return mergeAliases([], rawAliases, canonicalName);
 }
 
 function normalizeEntityName(value: string | null | undefined): string | null {
   if (!value) return null;
-  const normalized = truncate(String(value).trim(), 200, '');
+  const normalized = truncate(String(value).trim(), 200, "");
   return normalized.length > 0 ? normalized : null;
 }
 
 function normalizeEvidence(value: string | null | undefined): string | null {
   if (!value) return null;
-  const normalized = truncate(String(value).trim(), 500, '');
+  const normalized = truncate(String(value).trim(), 500, "");
   return normalized.length > 0 ? normalized : null;
 }

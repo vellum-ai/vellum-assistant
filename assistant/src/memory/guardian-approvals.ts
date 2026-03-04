@@ -6,18 +6,23 @@
  * channel requester.
  */
 
-import { and, count, desc, eq, gt, lte } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { and, count, desc, eq, gt, lte } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { getDb } from './db.js';
-import { channelGuardianApprovalRequests } from './schema.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getDb } from "./db.js";
+import { channelGuardianApprovalRequests } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ApprovalRequestStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled';
+export type ApprovalRequestStatus =
+  | "pending"
+  | "approved"
+  | "denied"
+  | "expired"
+  | "cancelled";
 
 export interface GuardianApprovalRequest {
   id: string;
@@ -44,7 +49,9 @@ export interface GuardianApprovalRequest {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToApprovalRequest(row: typeof channelGuardianApprovalRequests.$inferSelect): GuardianApprovalRequest {
+function rowToApprovalRequest(
+  row: typeof channelGuardianApprovalRequests.$inferSelect,
+): GuardianApprovalRequest {
   return {
     id: row.id,
     runId: row.runId,
@@ -110,7 +117,7 @@ export function createApprovalRequest(params: {
     toolName: params.toolName,
     riskLevel: params.riskLevel ?? null,
     reason: params.reason ?? null,
-    status: 'pending' as const,
+    status: "pending" as const,
     decidedByExternalUserId: null,
     expiresAt: params.expiresAt,
     createdAt: now,
@@ -122,7 +129,9 @@ export function createApprovalRequest(params: {
   return rowToApprovalRequest(row);
 }
 
-export function getPendingApprovalForRun(runId: string): GuardianApprovalRequest | null {
+export function getPendingApprovalForRun(
+  runId: string,
+): GuardianApprovalRequest | null {
   const db = getDb();
   const now = Date.now();
 
@@ -132,7 +141,7 @@ export function getPendingApprovalForRun(runId: string): GuardianApprovalRequest
     .where(
       and(
         eq(channelGuardianApprovalRequests.runId, runId),
-        eq(channelGuardianApprovalRequests.status, 'pending'),
+        eq(channelGuardianApprovalRequests.status, "pending"),
         gt(channelGuardianApprovalRequests.expiresAt, now),
       ),
     )
@@ -141,7 +150,9 @@ export function getPendingApprovalForRun(runId: string): GuardianApprovalRequest
   return row ? rowToApprovalRequest(row) : null;
 }
 
-export function getPendingApprovalForRequest(requestId: string): GuardianApprovalRequest | null {
+export function getPendingApprovalForRequest(
+  requestId: string,
+): GuardianApprovalRequest | null {
   const db = getDb();
   const now = Date.now();
 
@@ -151,7 +162,7 @@ export function getPendingApprovalForRequest(requestId: string): GuardianApprova
     .where(
       and(
         eq(channelGuardianApprovalRequests.requestId, requestId),
-        eq(channelGuardianApprovalRequests.status, 'pending'),
+        eq(channelGuardianApprovalRequests.status, "pending"),
         gt(channelGuardianApprovalRequests.expiresAt, now),
       ),
     )
@@ -166,7 +177,9 @@ export function getPendingApprovalForRequest(requestId: string): GuardianApprova
  * detect expired-but-unresolved approvals that should still block the
  * requester from self-approving.
  */
-export function getUnresolvedApprovalForRun(runId: string): GuardianApprovalRequest | null {
+export function getUnresolvedApprovalForRun(
+  runId: string,
+): GuardianApprovalRequest | null {
   const db = getDb();
 
   const row = db
@@ -175,7 +188,7 @@ export function getUnresolvedApprovalForRun(runId: string): GuardianApprovalRequ
     .where(
       and(
         eq(channelGuardianApprovalRequests.runId, runId),
-        eq(channelGuardianApprovalRequests.status, 'pending'),
+        eq(channelGuardianApprovalRequests.status, "pending"),
       ),
     )
     .get();
@@ -183,7 +196,9 @@ export function getUnresolvedApprovalForRun(runId: string): GuardianApprovalRequ
   return row ? rowToApprovalRequest(row) : null;
 }
 
-export function getUnresolvedApprovalForRequest(requestId: string): GuardianApprovalRequest | null {
+export function getUnresolvedApprovalForRequest(
+  requestId: string,
+): GuardianApprovalRequest | null {
   const db = getDb();
 
   const row = db
@@ -192,7 +207,7 @@ export function getUnresolvedApprovalForRequest(requestId: string): GuardianAppr
     .where(
       and(
         eq(channelGuardianApprovalRequests.requestId, requestId),
-        eq(channelGuardianApprovalRequests.status, 'pending'),
+        eq(channelGuardianApprovalRequests.status, "pending"),
       ),
     )
     .get();
@@ -218,11 +233,13 @@ export function getPendingApprovalByGuardianChat(
   const conditions = [
     eq(channelGuardianApprovalRequests.channel, channel),
     eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-    eq(channelGuardianApprovalRequests.status, 'pending'),
+    eq(channelGuardianApprovalRequests.status, "pending"),
     gt(channelGuardianApprovalRequests.expiresAt, now),
   ];
   if (assistantId) {
-    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+    conditions.push(
+      eq(channelGuardianApprovalRequests.assistantId, assistantId),
+    );
   }
 
   const row = db
@@ -257,11 +274,13 @@ export function getPendingApprovalByRunAndGuardianChat(
     eq(channelGuardianApprovalRequests.runId, runId),
     eq(channelGuardianApprovalRequests.channel, channel),
     eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-    eq(channelGuardianApprovalRequests.status, 'pending'),
+    eq(channelGuardianApprovalRequests.status, "pending"),
     gt(channelGuardianApprovalRequests.expiresAt, now),
   ];
   if (assistantId) {
-    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+    conditions.push(
+      eq(channelGuardianApprovalRequests.assistantId, assistantId),
+    );
   }
 
   const row = db
@@ -292,11 +311,13 @@ export function getPendingApprovalByRequestAndGuardianChat(
     eq(channelGuardianApprovalRequests.requestId, requestId),
     eq(channelGuardianApprovalRequests.channel, channel),
     eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-    eq(channelGuardianApprovalRequests.status, 'pending'),
+    eq(channelGuardianApprovalRequests.status, "pending"),
     gt(channelGuardianApprovalRequests.expiresAt, now),
   ];
   if (assistantId) {
-    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+    conditions.push(
+      eq(channelGuardianApprovalRequests.assistantId, assistantId),
+    );
   }
 
   const row = db
@@ -327,11 +348,13 @@ export function getAllPendingApprovalsByGuardianChat(
   const conditions = [
     eq(channelGuardianApprovalRequests.channel, channel),
     eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-    eq(channelGuardianApprovalRequests.status, 'pending'),
+    eq(channelGuardianApprovalRequests.status, "pending"),
     gt(channelGuardianApprovalRequests.expiresAt, now),
   ];
   if (assistantId) {
-    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+    conditions.push(
+      eq(channelGuardianApprovalRequests.assistantId, assistantId),
+    );
   }
 
   const rows = db
@@ -358,7 +381,7 @@ export function getExpiredPendingApprovals(): GuardianApprovalRequest[] {
     .from(channelGuardianApprovalRequests)
     .where(
       and(
-        eq(channelGuardianApprovalRequests.status, 'pending'),
+        eq(channelGuardianApprovalRequests.status, "pending"),
         lte(channelGuardianApprovalRequests.expiresAt, now),
       ),
     )
@@ -403,16 +426,23 @@ export function listPendingApprovalRequests(params: {
   const db = getDb();
 
   const conditions = [
-    eq(channelGuardianApprovalRequests.assistantId, params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID),
+    eq(
+      channelGuardianApprovalRequests.assistantId,
+      params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    ),
   ];
   if (params.channel) {
-    conditions.push(eq(channelGuardianApprovalRequests.channel, params.channel));
+    conditions.push(
+      eq(channelGuardianApprovalRequests.channel, params.channel),
+    );
   }
   if (params.conversationId) {
-    conditions.push(eq(channelGuardianApprovalRequests.conversationId, params.conversationId));
+    conditions.push(
+      eq(channelGuardianApprovalRequests.conversationId, params.conversationId),
+    );
   }
   conditions.push(
-    eq(channelGuardianApprovalRequests.status, params.status ?? 'pending'),
+    eq(channelGuardianApprovalRequests.status, params.status ?? "pending"),
   );
 
   let query = db
@@ -434,7 +464,9 @@ export function listPendingApprovalRequests(params: {
 /**
  * Fetch a single approval request by its primary key.
  */
-export function getApprovalRequestById(id: string): GuardianApprovalRequest | null {
+export function getApprovalRequestById(
+  id: string,
+): GuardianApprovalRequest | null {
   const db = getDb();
 
   const row = db
@@ -450,7 +482,9 @@ export function getApprovalRequestById(id: string): GuardianApprovalRequest | nu
  * Fetch a single approval request by run ID (any status).
  * Useful for checking whether a run has an associated approval request.
  */
-export function getApprovalRequestByRunId(runId: string): GuardianApprovalRequest | null {
+export function getApprovalRequestByRunId(
+  runId: string,
+): GuardianApprovalRequest | null {
   const db = getDb();
 
   const row = db
@@ -472,7 +506,7 @@ export function getApprovalRequestByRunId(runId: string): GuardianApprovalReques
  */
 export function resolveApprovalRequest(
   id: string,
-  decision: 'approved' | 'denied',
+  decision: "approved" | "denied",
   decidedByExternalUserId?: string,
 ): GuardianApprovalRequest | null {
   const db = getDb();
@@ -491,7 +525,7 @@ export function resolveApprovalRequest(
   }
 
   // Only resolve if currently pending
-  if (existing.status !== 'pending') {
+  if (existing.status !== "pending") {
     return null;
   }
 
@@ -526,10 +560,12 @@ export function countPendingByConversation(
 
   const conditions = [
     eq(channelGuardianApprovalRequests.conversationId, conversationId),
-    eq(channelGuardianApprovalRequests.status, 'pending'),
+    eq(channelGuardianApprovalRequests.status, "pending"),
   ];
   if (assistantId) {
-    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+    conditions.push(
+      eq(channelGuardianApprovalRequests.assistantId, assistantId),
+    );
   }
 
   const result = db
@@ -562,9 +598,12 @@ export function findPendingAccessRequestForRequester(
       and(
         eq(channelGuardianApprovalRequests.assistantId, assistantId),
         eq(channelGuardianApprovalRequests.channel, channel),
-        eq(channelGuardianApprovalRequests.requesterExternalUserId, requesterExternalUserId),
+        eq(
+          channelGuardianApprovalRequests.requesterExternalUserId,
+          requesterExternalUserId,
+        ),
         eq(channelGuardianApprovalRequests.toolName, toolName),
-        eq(channelGuardianApprovalRequests.status, 'pending'),
+        eq(channelGuardianApprovalRequests.status, "pending"),
         gt(channelGuardianApprovalRequests.expiresAt, now),
       ),
     )

@@ -184,7 +184,9 @@ async function executeBatchCall(
   messages: Array<{ index: number; msg: GmailMessage }>;
   failedIds: Array<{ index: number; id: string }>;
 }> {
-  const boundary = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const boundary = `batch_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
 
   // Build query string once (shared by all sub-requests)
   const params = new URLSearchParams({ format });

@@ -10,13 +10,16 @@
  * Subscribers receive all assistant events scoped to the given conversation.
  */
 
-import { getOrCreateConversation } from '../../memory/conversation-key-store.js';
-import { formatSseFrame, formatSseHeartbeat } from '../assistant-event.js';
-import type { AssistantEventSubscription } from '../assistant-event-hub.js';
-import { AssistantEventHub,assistantEventHub } from '../assistant-event-hub.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
-import type { AuthContext } from '../auth/types.js';
-import { httpError } from '../http-errors.js';
+import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
+import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
+import type { AssistantEventSubscription } from "../assistant-event-hub.js";
+import {
+  AssistantEventHub,
+  assistantEventHub,
+} from "../assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import type { AuthContext } from "../auth/types.js";
+import { httpError } from "../http-errors.js";
 
 /** Keep-alive comment sent to idle clients every 30 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -35,21 +38,30 @@ export function handleSubscribeAssistantEvents(
   req: Request,
   url: URL,
   options?:
-    | { hub?: AssistantEventHub; heartbeatIntervalMs?: number; authContext: AuthContext }
-    | { hub?: AssistantEventHub; heartbeatIntervalMs?: number; skipActorVerification: true },
+    | {
+        hub?: AssistantEventHub;
+        heartbeatIntervalMs?: number;
+        authContext: AuthContext;
+      }
+    | {
+        hub?: AssistantEventHub;
+        heartbeatIntervalMs?: number;
+        skipActorVerification: true;
+      },
 ): Response {
   // Auth is already verified upstream by JWT middleware. The AuthContext
   // is available via options.authContext but we don't need to check it
   // further here -- the route policy in http-server.ts already enforced
   // scope and principal type requirements.
 
-  const conversationKey = url.searchParams.get('conversationKey');
+  const conversationKey = url.searchParams.get("conversationKey");
   if (!conversationKey) {
-    return httpError('BAD_REQUEST', 'conversationKey is required', 400);
+    return httpError("BAD_REQUEST", "conversationKey is required", 400);
   }
 
   const hub = options?.hub ?? assistantEventHub;
-  const heartbeatIntervalMs = options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+  const heartbeatIntervalMs =
+    options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
 
   const mapping = getOrCreateConversation(conversationKey);
   const encoder = new TextEncoder();
@@ -64,13 +76,23 @@ export function handleSubscribeAssistantEvents(
   let sub!: AssistantEventSubscription;
 
   function cleanup() {
-    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-    try { controllerRef?.close(); } catch { /* already closed */ }
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    try {
+      controllerRef?.close();
+    } catch {
+      /* already closed */
+    }
   }
 
   try {
     sub = hub.subscribe(
-      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID, sessionId: mapping.conversationId },
+      {
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+        sessionId: mapping.conversationId,
+      },
       (event) => {
         const controller = controllerRef;
         if (!controller) return;
@@ -96,7 +118,11 @@ export function handleSubscribeAssistantEvents(
     );
   } catch (err) {
     if (err instanceof RangeError) {
-      return httpError('SERVICE_UNAVAILABLE', 'Too many concurrent connections', 503);
+      return httpError(
+        "SERVICE_UNAVAILABLE",
+        "Too many concurrent connections",
+        503,
+      );
     }
     throw err;
   }
@@ -104,60 +130,67 @@ export function handleSubscribeAssistantEvents(
   // Allow up to 16 queued frames before treating the consumer as stalled.
   // This absorbs normal token-stream bursts without prematurely closing the
   // connection, while still shedding genuinely slow clients.
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controllerRef = controller;
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      start(controller) {
+        controllerRef = controller;
 
-      // If the client already disconnected before start() ran, clean up
-      // immediately -- the abort event fires once and won't be re-dispatched.
-      if (req.signal.aborted) {
-        sub.dispose();
-        cleanup();
-        return;
-      }
-
-      // Immediately enqueue a heartbeat comment so the HTTP status line and
-      // headers are flushed to the client without waiting for a real event.
-      // Without this, Bun may buffer the headers until the first data chunk
-      // arrives, causing clients (e.g. Python `requests`) to hang until the
-      // periodic heartbeat fires or an event is published.
-      controller.enqueue(encoder.encode(formatSseHeartbeat()));
-
-      // Send a keep-alive comment on each interval to prevent proxies and
-      // load-balancers from treating idle connections as timed out.
-      heartbeatTimer = setInterval(() => {
-        try {
-          // Apply the same slow-consumer guard as the event path: stop
-          // feeding heartbeats into a queue the client is not draining.
-          if (controller.desiredSize != null && controller.desiredSize <= 0) {
-            sub.dispose();
-            cleanup();
-            return;
-          }
-          controller.enqueue(encoder.encode(formatSseHeartbeat()));
-        } catch {
-          // Controller already closed (e.g. client disconnected).
+        // If the client already disconnected before start() ran, clean up
+        // immediately -- the abort event fires once and won't be re-dispatched.
+        if (req.signal.aborted) {
           sub.dispose();
           cleanup();
+          return;
         }
-      }, heartbeatIntervalMs);
 
-      req.signal.addEventListener('abort', () => {
+        // Immediately enqueue a heartbeat comment so the HTTP status line and
+        // headers are flushed to the client without waiting for a real event.
+        // Without this, Bun may buffer the headers until the first data chunk
+        // arrives, causing clients (e.g. Python `requests`) to hang until the
+        // periodic heartbeat fires or an event is published.
+        controller.enqueue(encoder.encode(formatSseHeartbeat()));
+
+        // Send a keep-alive comment on each interval to prevent proxies and
+        // load-balancers from treating idle connections as timed out.
+        heartbeatTimer = setInterval(() => {
+          try {
+            // Apply the same slow-consumer guard as the event path: stop
+            // feeding heartbeats into a queue the client is not draining.
+            if (controller.desiredSize != null && controller.desiredSize <= 0) {
+              sub.dispose();
+              cleanup();
+              return;
+            }
+            controller.enqueue(encoder.encode(formatSseHeartbeat()));
+          } catch {
+            // Controller already closed (e.g. client disconnected).
+            sub.dispose();
+            cleanup();
+          }
+        }, heartbeatIntervalMs);
+
+        req.signal.addEventListener(
+          "abort",
+          () => {
+            sub.dispose();
+            cleanup();
+          },
+          { once: true },
+        );
+      },
+      cancel() {
         sub.dispose();
         cleanup();
-      }, { once: true });
+      },
     },
-    cancel() {
-      sub.dispose();
-      cleanup();
-    },
-  }, new CountQueuingStrategy({ highWaterMark: 16 }));
+    new CountQueuingStrategy({ highWaterMark: 16 }),
+  );
 
   return new Response(stream, {
     headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     },
   });
 }

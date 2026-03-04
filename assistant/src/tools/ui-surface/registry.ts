@@ -4,8 +4,8 @@
  * Called once at daemon startup via initializeTools().
  */
 
-import { registerTool } from '../registry.js';
-import { allUiSurfaceTools } from './definitions.js';
+import { registerTool } from "../registry.js";
+import { allUiSurfaceTools } from "./definitions.js";
 
 export function registerUiSurfaceTools(): void {
   for (const tool of allUiSurfaceTools) {

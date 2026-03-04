@@ -18,23 +18,23 @@
  * SMS channels) and session-process (mac/IPC channel) use it.
  */
 
-import { startCall } from '../calls/call-domain.js';
-import { getCallSession } from '../calls/call-store.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import { startCall } from "../calls/call-domain.js";
+import { getCallSession } from "../calls/call-store.js";
+import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import {
   finalizeFollowup,
   type FollowupAction,
   getGuardianActionRequest,
   type GuardianActionRequest,
-} from '../memory/guardian-action-store.js';
-import { getLogger } from '../util/logger.js';
-import { mintDaemonDeliveryToken } from './auth/token-service.js';
-import { deliverChannelReply } from './gateway-client.js';
-import { composeGuardianActionMessageGenerative } from './guardian-action-message-composer.js';
-import type { GuardianActionCopyGenerator } from './http-types.js';
+} from "../memory/guardian-action-store.js";
+import { getLogger } from "../util/logger.js";
+import { mintDaemonDeliveryToken } from "./auth/token-service.js";
+import { deliverChannelReply } from "./gateway-client.js";
+import { composeGuardianActionMessageGenerative } from "./guardian-action-message-composer.js";
+import type { GuardianActionCopyGenerator } from "./http-types.js";
 
-const log = getLogger('guardian-action-followup-executor');
+const log = getLogger("guardian-action-followup-executor");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,7 +48,12 @@ export interface CounterpartyInfo {
 
 export type FollowupExecutionResult =
   | { ok: true; action: FollowupAction; guardianReplyText: string }
-  | { ok: false; action: FollowupAction; guardianReplyText: string; error: string };
+  | {
+      ok: false;
+      action: FollowupAction;
+      guardianReplyText: string;
+      error: string;
+    };
 
 // ---------------------------------------------------------------------------
 // Counterparty resolution
@@ -64,10 +69,15 @@ export type FollowupExecutionResult =
  *   placed the call so `fromNumber` is the assistant's number and `toNumber`
  *   is the external callee.
  */
-export function resolveCounterparty(callSessionId: string): CounterpartyInfo | null {
+export function resolveCounterparty(
+  callSessionId: string,
+): CounterpartyInfo | null {
   const session = getCallSession(callSessionId);
   if (!session) {
-    log.warn({ callSessionId }, 'Cannot resolve counterparty: call session not found');
+    log.warn(
+      { callSessionId },
+      "Cannot resolve counterparty: call session not found",
+    );
     return null;
   }
 
@@ -77,7 +87,10 @@ export function resolveCounterparty(callSessionId: string): CounterpartyInfo | n
   const phoneNumber = isOutbound ? session.toNumber : session.fromNumber;
 
   if (!phoneNumber) {
-    log.warn({ callSessionId, isOutbound }, 'Cannot resolve counterparty: no phone number on call session');
+    log.warn(
+      { callSessionId, isOutbound },
+      "Cannot resolve counterparty: no phone number on call session",
+    );
     return null;
   }
 
@@ -104,7 +117,7 @@ async function executeMessageBack(
     // Generate the outbound SMS text using the composer
     const messageText = await composeGuardianActionMessageGenerative(
       {
-        scenario: 'outbound_message_copy',
+        scenario: "outbound_message_copy",
         questionText: request.questionText,
         lateAnswerText: request.lateAnswerText ?? undefined,
         callerIdentifier: counterparty.displayIdentifier,
@@ -129,15 +142,19 @@ async function executeMessageBack(
 
     log.info(
       { requestId: request.id, counterpartyPhone: counterparty.phoneNumber },
-      'Follow-up message_back SMS sent successfully',
+      "Follow-up message_back SMS sent successfully",
     );
 
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(
-      { err, requestId: request.id, counterpartyPhone: counterparty.phoneNumber },
-      'Failed to send follow-up message_back SMS',
+      {
+        err,
+        requestId: request.id,
+        counterpartyPhone: counterparty.phoneNumber,
+      },
+      "Failed to send follow-up message_back SMS",
     );
     return { ok: false, error: message };
   }
@@ -158,9 +175,13 @@ async function executeCallBack(
 
     const callbackContext = [
       `This is a follow-up callback. The person called earlier and asked: "${request.questionText}".`,
-      request.lateAnswerText ? `The guardian's answer is: "${request.lateAnswerText}".` : null,
-      'Relay this information naturally and ask if they need anything else.',
-    ].filter(Boolean).join(' ');
+      request.lateAnswerText
+        ? `The guardian's answer is: "${request.lateAnswerText}".`
+        : null,
+      "Relay this information naturally and ask if they need anything else.",
+    ]
+      .filter(Boolean)
+      .join(" ");
 
     // Create a conversation for the callback call
     const convKey = `followup-callback:${request.id}`;
@@ -177,22 +198,30 @@ async function executeCallBack(
     if (!result.ok) {
       log.warn(
         { requestId: request.id, error: result.error },
-        'Failed to start follow-up callback call',
+        "Failed to start follow-up callback call",
       );
       return { ok: false, error: result.error };
     }
 
     log.info(
-      { requestId: request.id, callSessionId: result.session.id, counterpartyPhone: counterparty.phoneNumber },
-      'Follow-up call_back initiated successfully',
+      {
+        requestId: request.id,
+        callSessionId: result.session.id,
+        counterpartyPhone: counterparty.phoneNumber,
+      },
+      "Follow-up call_back initiated successfully",
     );
 
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(
-      { err, requestId: request.id, counterpartyPhone: counterparty.phoneNumber },
-      'Failed to start follow-up callback call',
+      {
+        err,
+        requestId: request.id,
+        counterpartyPhone: counterparty.phoneNumber,
+      },
+      "Failed to start follow-up callback call",
     );
     return { ok: false, error: message };
   }
@@ -221,56 +250,92 @@ export async function executeFollowupAction(
   const request = getGuardianActionRequest(requestId);
   if (!request) {
     const errorText = await composeGuardianActionMessageGenerative(
-      { scenario: 'followup_action_failed', failureReason: 'The follow-up request could not be found.' },
+      {
+        scenario: "followup_action_failed",
+        failureReason: "The follow-up request could not be found.",
+      },
       {},
       generator,
     );
-    return { ok: false, action, guardianReplyText: errorText, error: 'Request not found' };
+    return {
+      ok: false,
+      action,
+      guardianReplyText: errorText,
+      error: "Request not found",
+    };
   }
 
-  if (request.followupState !== 'dispatching') {
+  if (request.followupState !== "dispatching") {
     const errorText = await composeGuardianActionMessageGenerative(
-      { scenario: 'followup_action_failed', failureReason: 'This follow-up is no longer in a valid state for execution.' },
+      {
+        scenario: "followup_action_failed",
+        failureReason:
+          "This follow-up is no longer in a valid state for execution.",
+      },
       {},
       generator,
     );
-    return { ok: false, action, guardianReplyText: errorText, error: `Invalid followup state: ${request.followupState}` };
+    return {
+      ok: false,
+      action,
+      guardianReplyText: errorText,
+      error: `Invalid followup state: ${request.followupState}`,
+    };
   }
 
   // Resolve the counterparty from the original call session
   const counterparty = resolveCounterparty(request.callSessionId);
   if (!counterparty) {
-    finalizeFollowup(requestId, 'failed');
+    finalizeFollowup(requestId, "failed");
     const errorText = await composeGuardianActionMessageGenerative(
-      { scenario: 'followup_action_failed', failureReason: "I couldn't find the caller's contact information." },
+      {
+        scenario: "followup_action_failed",
+        failureReason: "I couldn't find the caller's contact information.",
+      },
       {},
       generator,
     );
-    return { ok: false, action, guardianReplyText: errorText, error: 'Counterparty not found' };
+    return {
+      ok: false,
+      action,
+      guardianReplyText: errorText,
+      error: "Counterparty not found",
+    };
   }
 
   // Execute the action
   let actionResult: { ok: true } | { ok: false; error: string };
 
-  if (action === 'message_back') {
+  if (action === "message_back") {
     actionResult = await executeMessageBack(request, counterparty, generator);
-  } else if (action === 'call_back') {
+  } else if (action === "call_back") {
     actionResult = await executeCallBack(request, counterparty);
   } else {
     // decline is already handled in M5 — should not reach the executor
-    finalizeFollowup(requestId, 'failed');
+    finalizeFollowup(requestId, "failed");
     const errorText = await composeGuardianActionMessageGenerative(
-      { scenario: 'followup_action_failed', failureReason: 'An unexpected action was requested.' },
+      {
+        scenario: "followup_action_failed",
+        failureReason: "An unexpected action was requested.",
+      },
       {},
       generator,
     );
-    return { ok: false, action, guardianReplyText: errorText, error: `Unsupported action: ${action}` };
+    return {
+      ok: false,
+      action,
+      guardianReplyText: errorText,
+      error: `Unsupported action: ${action}`,
+    };
   }
 
   if (actionResult.ok) {
-    finalizeFollowup(requestId, 'completed');
+    finalizeFollowup(requestId, "completed");
 
-    const scenario = action === 'message_back' ? 'followup_message_sent' as const : 'followup_call_started' as const;
+    const scenario =
+      action === "message_back"
+        ? ("followup_message_sent" as const)
+        : ("followup_call_started" as const);
     const confirmText = await composeGuardianActionMessageGenerative(
       {
         scenario,
@@ -286,10 +351,10 @@ export async function executeFollowupAction(
   }
 
   // Action failed
-  finalizeFollowup(requestId, 'failed');
+  finalizeFollowup(requestId, "failed");
   const errorText = await composeGuardianActionMessageGenerative(
     {
-      scenario: 'followup_action_failed',
+      scenario: "followup_action_failed",
       failureReason: actionResult.error,
       counterpartyPhone: counterparty.phoneNumber,
     },
@@ -297,5 +362,10 @@ export async function executeFollowupAction(
     generator,
   );
 
-  return { ok: false, action, guardianReplyText: errorText, error: actionResult.error };
+  return {
+    ok: false,
+    action,
+    guardianReplyText: errorText,
+    error: actionResult.error,
+  };
 }

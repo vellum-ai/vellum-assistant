@@ -30,6 +30,15 @@ exports[`IPC message snapshots ClientMessage types confirmation_response seriali
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types contacts serializes to expected JSON 1`] = `
+{
+  "action": "list",
+  "limit": 50,
+  "role": "guardian",
+  "type": "contacts",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types session_list serializes to expected JSON 1`] = `
 {
   "type": "session_list",
@@ -1274,6 +1283,20 @@ exports[`IPC message snapshots ServerMessage types confirmation_state_changed se
   "source": "inline_nl",
   "state": "approved",
   "type": "confirmation_state_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types contacts_response serializes to expected JSON 1`] = `
+{
+  "contacts": [],
+  "success": true,
+  "type": "contacts_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types contacts_changed serializes to expected JSON 1`] = `
+{
+  "type": "contacts_changed",
 }
 `;
 

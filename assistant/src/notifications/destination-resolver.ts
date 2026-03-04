@@ -1,19 +1,23 @@
 /**
  * Resolves per-channel destination endpoints for notification delivery.
  *
+ * Reads guardian delivery info from the contacts table.
+ *
  * - Vellum: no external endpoint needed — delivery goes through the IPC
  *   broadcast mechanism to connected desktop/mobile clients. The
- *   guardianPrincipalId from the vellum binding is included in metadata
- *   so downstream adapters can scope guardian-sensitive notifications to
- *   bound guardian devices only.
+ *   guardianPrincipalId is included in metadata so downstream adapters
+ *   can scope guardian-sensitive notifications to bound guardian devices.
  * - Binding-based channels (telegram, sms): require a chat/delivery ID
- *   sourced from the guardian binding for the assistant.
+ *   sourced from the guardian contact's channel record.
  */
 
-import { isNotificationDeliverable } from '../channels/config.js';
-import type { ChannelId } from '../channels/types.js';
-import { getActiveBinding } from '../memory/channel-guardian-store.js';
-import type { ChannelDestination, NotificationChannel } from './types.js';
+import { isNotificationDeliverable } from "../channels/config.js";
+import type { ChannelId } from "../channels/types.js";
+import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { getLogger } from "../util/logger.js";
+import type { ChannelDestination, NotificationChannel } from "./types.js";
+
+const log = getLogger("destination-resolver");
 
 /**
  * Resolve destination information for each requested channel.
@@ -36,35 +40,49 @@ export function resolveDestinations(
     // NotificationChannel — TypeScript cannot infer this from the runtime
     // guard, so we narrow with a switch over known deliverable values.
     switch (channel as NotificationChannel) {
-      case 'vellum': {
+      case "vellum": {
         // Vellum delivery is local IPC — no external endpoint required.
-        // Include the guardianPrincipalId from the vellum binding so the
-        // adapter can annotate guardian-sensitive notifications for scoped
-        // delivery to bound guardian devices.
-        const vellumBinding = getActiveBinding(assistantId, 'vellum');
+        // Include the guardianPrincipalId so the adapter can annotate
+        // guardian-sensitive notifications for scoped delivery.
+        const guardianResult = findGuardianForChannel("vellum");
         const metadata: Record<string, unknown> = {};
-        if (vellumBinding) {
-          metadata.guardianPrincipalId = vellumBinding.guardianExternalUserId;
+        if (guardianResult) {
+          metadata.guardianPrincipalId = guardianResult.contact.principalId;
         }
-        result.set('vellum', {
-          channel: 'vellum',
+        result.set("vellum", {
+          channel: "vellum",
           metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         });
+        log.debug(
+          {
+            channel: "vellum",
+            source: "contacts",
+            hasEndpoint: false,
+          },
+          "destination resolved",
+        );
         break;
       }
-      case 'telegram':
-      case 'sms': {
-        const binding = getActiveBinding(assistantId, channel);
-        if (binding) {
+      case "telegram":
+      case "sms": {
+        const guardianResult = findGuardianForChannel(channel);
+        if (guardianResult && guardianResult.channel.externalChatId) {
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
-            endpoint: binding.guardianDeliveryChatId,
+            endpoint: guardianResult.channel.externalChatId ?? undefined,
             metadata: {
-              externalUserId: binding.guardianExternalUserId,
+              externalUserId: guardianResult.channel.externalUserId,
             },
           });
         }
-        // If no binding exists, skip — the channel is not configured.
+        log.debug(
+          {
+            channel,
+            source: "contacts",
+            hasEndpoint: !!guardianResult?.channel.externalChatId,
+          },
+          "destination resolved",
+        );
         break;
       }
       default: {

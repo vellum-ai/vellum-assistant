@@ -24,7 +24,9 @@ export function matchIngressControlPlaneRoute(
     return null;
   }
 
-  const memberBlockMatch = pathname.match(/^\/v1\/ingress\/members\/([^/]+)\/block$/);
+  const memberBlockMatch = pathname.match(
+    /^\/v1\/ingress\/members\/([^/]+)\/block$/,
+  );
   if (memberBlockMatch && method === "POST") {
     return { kind: "blockMember", memberId: memberBlockMatch[1] };
   }

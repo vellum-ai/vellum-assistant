@@ -1,5 +1,8 @@
-import { executeBrowserFillCredential } from '../../../../tools/browser/browser-execution.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { executeBrowserFillCredential } from "../../../../tools/browser/browser-execution.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,

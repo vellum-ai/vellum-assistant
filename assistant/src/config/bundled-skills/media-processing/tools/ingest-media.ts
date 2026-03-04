@@ -1,16 +1,23 @@
-import { access } from 'node:fs/promises';
-import { basename, extname } from 'node:path';
+import { access } from "node:fs/promises";
+import { basename, extname } from "node:path";
 
-import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
+import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
 import {
-  computeFileHash,
+  computeFileHashStreaming,
   createProcessingStage,
   getMediaAssetByHash,
   type MediaType,
   registerMediaAsset,
   updateMediaAssetStatus,
-} from '../../../../memory/media-store.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+} from "../../../../memory/media-store.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import {
+  FFPROBE_TIMEOUT_MS,
+  spawnWithTimeout,
+} from "../../../../util/spawn.js";
 
 // ---------------------------------------------------------------------------
 // MIME detection
@@ -18,18 +25,36 @@ import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.j
 
 const MIME_MAP: Record<string, string> = {
   // Video
-  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.avi': 'video/x-msvideo',
-  '.mkv': 'video/x-matroska', '.webm': 'video/webm', '.m4v': 'video/x-m4v',
-  '.mpeg': 'video/mpeg', '.mpg': 'video/mpeg', '.ts': 'video/mp2t',
-  '.flv': 'video/x-flv', '.wmv': 'video/x-ms-wmv',
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".avi": "video/x-msvideo",
+  ".mkv": "video/x-matroska",
+  ".webm": "video/webm",
+  ".m4v": "video/x-m4v",
+  ".mpeg": "video/mpeg",
+  ".mpg": "video/mpeg",
+  ".ts": "video/mp2t",
+  ".flv": "video/x-flv",
+  ".wmv": "video/x-ms-wmv",
   // Audio
-  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/x-m4a',
-  '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac',
-  '.aiff': 'audio/aiff', '.wma': 'audio/x-ms-wma',
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".m4a": "audio/x-m4a",
+  ".aac": "audio/aac",
+  ".ogg": "audio/ogg",
+  ".flac": "audio/flac",
+  ".aiff": "audio/aiff",
+  ".wma": "audio/x-ms-wma",
   // Image
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
-  '.tiff': 'image/tiff', '.svg': 'image/svg+xml', '.heic': 'image/heic',
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".tiff": "image/tiff",
+  ".svg": "image/svg+xml",
+  ".heic": "image/heic",
 };
 
 function detectMimeType(filePath: string): string | null {
@@ -38,9 +63,9 @@ function detectMimeType(filePath: string): string | null {
 }
 
 function classifyMediaType(mimeType: string): MediaType | null {
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (mimeType.startsWith("image/")) return "image";
   return null;
 }
 
@@ -48,33 +73,21 @@ function classifyMediaType(mimeType: string): MediaType | null {
 // ffprobe duration extraction
 // ---------------------------------------------------------------------------
 
-function spawnWithTimeout(
-  cmd: string[],
-  timeoutMs: number,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
-    const timer = setTimeout(() => {
-      proc.kill();
-      reject(new Error(`Process timed out after ${timeoutMs}ms: ${cmd[0]}`));
-    }, timeoutMs);
-    proc.exited.then(async (exitCode) => {
-      clearTimeout(timer);
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      resolve({ exitCode, stdout, stderr });
-    });
-  });
-}
-
 async function extractDuration(filePath: string): Promise<number | null> {
   try {
-    const result = await spawnWithTimeout([
-      'ffprobe', '-v', 'error',
-      '-show_entries', 'format=duration',
-      '-of', 'csv=p=0',
-      filePath,
-    ], 15_000);
+    const result = await spawnWithTimeout(
+      [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "csv=p=0",
+        filePath,
+      ],
+      FFPROBE_TIMEOUT_MS,
+    );
     if (result.exitCode !== 0) return null;
     const duration = parseFloat(result.stdout.trim());
     return Number.isFinite(duration) ? duration : null;
@@ -94,7 +107,11 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const filePath = input.file_path as string | undefined;
   if (!filePath) {
-    return { content: 'file_path is required. Provide an absolute path to a local media file.', isError: true };
+    return {
+      content:
+        "file_path is required. Provide an absolute path to a local media file.",
+      isError: true,
+    };
   }
 
   // Validate file exists
@@ -115,32 +132,39 @@ export async function run(
 
   const mediaType = classifyMediaType(mimeType);
   if (!mediaType) {
-    return { content: `Could not classify media type for MIME: ${mimeType}`, isError: true };
+    return {
+      content: `Could not classify media type for MIME: ${mimeType}`,
+      isError: true,
+    };
   }
 
-  // Compute content hash for dedup – uses the same Bun.hash (wyhash) as
-  // media-store.ts so that hashes are consistent across ingest and lookup.
-  context.onOutput?.('Computing content hash...\n');
-  const fileBytes = await Bun.file(filePath).arrayBuffer();
-  const fileHash = computeFileHash(new Uint8Array(fileBytes));
+  // Compute content hash for dedup – streams the file in chunks so that
+  // multi-GB video files don't cause OOM.
+  context.onOutput?.("Computing content hash...\n");
+  const fileHash = await computeFileHashStreaming(filePath);
 
   // Check for existing asset with same hash
   const existingAsset = getMediaAssetByHash(fileHash);
   if (existingAsset) {
     return {
-      content: JSON.stringify({
-        message: 'Media asset already registered (duplicate detected by content hash)',
-        asset: existingAsset,
-        deduplicated: true,
-      }, null, 2),
+      content: JSON.stringify(
+        {
+          message:
+            "Media asset already registered (duplicate detected by content hash)",
+          asset: existingAsset,
+          deduplicated: true,
+        },
+        null,
+        2,
+      ),
       isError: false,
     };
   }
 
   // Extract duration for video/audio
   let durationSeconds: number | null = null;
-  if (mediaType === 'video' || mediaType === 'audio') {
-    context.onOutput?.('Extracting duration via ffprobe...\n');
+  if (mediaType === "video" || mediaType === "audio") {
+    context.onOutput?.("Extracting duration via ffprobe...\n");
     durationSeconds = await extractDuration(filePath);
   }
 
@@ -149,7 +173,7 @@ export async function run(
 
   // Parse optional metadata
   let metadata: Record<string, unknown> | undefined;
-  if (input.metadata && typeof input.metadata === 'object') {
+  if (input.metadata && typeof input.metadata === "object") {
     metadata = input.metadata as Record<string, unknown>;
   }
 
@@ -167,16 +191,16 @@ export async function run(
   // Create an initial processing stage
   createProcessingStage({
     assetId: asset.id,
-    stage: 'ingest',
+    stage: "ingest",
   });
 
   // Update status to processing
-  updateMediaAssetStatus(asset.id, 'processing');
+  updateMediaAssetStatus(asset.id, "processing");
 
   // Enqueue a processing job via the existing jobs framework
-  enqueueMemoryJob('media_processing', {
+  enqueueMemoryJob("media_processing", {
     mediaAssetId: asset.id,
-    stage: 'ingest',
+    stage: "ingest",
     filePath,
     mimeType,
     mediaType,
@@ -185,14 +209,18 @@ export async function run(
   context.onOutput?.(`Registered media asset: ${asset.id}\n`);
 
   return {
-    content: JSON.stringify({
-      message: 'Media asset registered and processing enqueued',
-      asset: {
-        ...asset,
-        status: 'processing',
+    content: JSON.stringify(
+      {
+        message: "Media asset registered and processing enqueued",
+        asset: {
+          ...asset,
+          status: "processing",
+        },
+        deduplicated: false,
       },
-      deduplicated: false,
-    }, null, 2),
+      null,
+      2,
+    ),
     isError: false,
   };
 }

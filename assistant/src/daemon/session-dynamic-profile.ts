@@ -5,26 +5,29 @@
  * messages at runtime and strip it back out before persistence.
  */
 
-import type { Message } from '../providers/types.js';
+import type { Message } from "../providers/types.js";
 
-export function injectDynamicProfileIntoUserMessage(message: Message, profileText: string): Message {
+export function injectDynamicProfileIntoUserMessage(
+  message: Message,
+  profileText: string,
+): Message {
   const trimmedProfile = profileText.trim();
   if (trimmedProfile.length === 0) return message;
   const block = [
-    '<dynamic-profile-context>',
+    "<dynamic-profile-context>",
     trimmedProfile,
-    '</dynamic-profile-context>',
-  ].join('\n');
+    "</dynamic-profile-context>",
+  ].join("\n");
   return {
     ...message,
-    content: [
-      ...message.content,
-      { type: 'text', text: `\n\n${block}` },
-    ],
+    content: [...message.content, { type: "text", text: `\n\n${block}` }],
   };
 }
 
-export function stripDynamicProfileMessages(messages: Message[], profileText: string): Message[] {
+export function stripDynamicProfileMessages(
+  messages: Message[],
+  profileText: string,
+): Message[] {
   const trimmedProfile = profileText.trim();
   if (trimmedProfile.length === 0) return messages;
   const injectedBlock = `\n\n<dynamic-profile-context>\n${trimmedProfile}\n</dynamic-profile-context>`;
@@ -34,26 +37,37 @@ export function stripDynamicProfileMessages(messages: Message[], profileText: st
   // we injected the profile into.
   let lastUserIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'user' && messages[i].content.some(
-      (b) => b.type === 'text' && b.text.includes(injectedBlock),
-    )) { lastUserIdx = i; break; }
+    if (
+      messages[i].role === "user" &&
+      messages[i].content.some(
+        (b) => b.type === "text" && b.text.includes(injectedBlock),
+      )
+    ) {
+      lastUserIdx = i;
+      break;
+    }
   }
   if (lastUserIdx === -1) return messages;
   const message = messages[lastUserIdx];
   let changed = false;
-  const nextContent = message.content.map((block) => {
-    if (block.type !== 'text') return block;
-    const nextText = block.text.split(injectedBlock).join('');
-    if (nextText === block.text) return block;
-    changed = true;
-    const stripped = nextText.replace(/\n{3,}/g, '\n\n').trimEnd();
-    return stripped.length > 0 ? { ...block, text: stripped } : null;
-  }).filter((block): block is NonNullable<typeof block> => block != null);
+  const nextContent = message.content
+    .map((block) => {
+      if (block.type !== "text") return block;
+      const nextText = block.text.split(injectedBlock).join("");
+      if (nextText === block.text) return block;
+      changed = true;
+      const stripped = nextText.replace(/\n{3,}/g, "\n\n").trimEnd();
+      return stripped.length > 0 ? { ...block, text: stripped } : null;
+    })
+    .filter((block): block is NonNullable<typeof block> => block != null);
   if (!changed) return messages;
   // If stripping removed all content blocks, drop the message entirely
   // to avoid sending an empty content array to the provider.
   if (nextContent.length === 0) {
-    return [...messages.slice(0, lastUserIdx), ...messages.slice(lastUserIdx + 1)];
+    return [
+      ...messages.slice(0, lastUserIdx),
+      ...messages.slice(lastUserIdx + 1),
+    ];
   }
   return [
     ...messages.slice(0, lastUserIdx),

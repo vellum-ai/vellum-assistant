@@ -13,7 +13,9 @@ interface StoredMessage {
 
 const messages: Record<string, StoredMessage[]> = {};
 
-function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+function parseBody(
+  req: http.IncomingMessage,
+): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let body = "";
     req.on("data", (chunk: Buffer) => (body += chunk.toString()));
@@ -58,7 +60,8 @@ const server = http.createServer(async (req, res) => {
       child.unref();
       const responseBody = JSON.stringify({
         status: "success",
-        message: "HTTPS adapter installed and started. HTTP adapter shutting down.",
+        message:
+          "HTTPS adapter installed and started. HTTP adapter shutting down.",
       });
       res.writeHead(200);
       res.end(responseBody, () => {
@@ -96,7 +99,10 @@ const server = http.createServer(async (req, res) => {
       };
 
       const healthStr = JSON.stringify(health);
-      if (healthStr.includes("1006") || healthStr.includes("abnormal closure")) {
+      if (
+        healthStr.includes("1006") ||
+        healthStr.includes("abnormal closure")
+      ) {
         try {
           const gatewayOutput = execSync("openclaw gateway status", {
             encoding: "utf-8",
@@ -106,7 +112,9 @@ const server = http.createServer(async (req, res) => {
           result.message = `${result.message}\n\nGateway Status:\n${gatewayOutput.trim()}`;
         } catch (gatewayErr) {
           const gatewayErrMsg =
-            gatewayErr instanceof Error ? gatewayErr.message : String(gatewayErr);
+            gatewayErr instanceof Error
+              ? gatewayErr.message
+              : String(gatewayErr);
           result.message = `${result.message}\n\nGateway Status Error:\n${gatewayErrMsg}`;
         }
       }
@@ -121,7 +129,10 @@ const server = http.createServer(async (req, res) => {
         message: errorMessage,
       };
 
-      if (errorMessage.includes("1006") || errorMessage.includes("abnormal closure")) {
+      if (
+        errorMessage.includes("1006") ||
+        errorMessage.includes("abnormal closure")
+      ) {
         try {
           const gatewayOutput = execSync("openclaw gateway status", {
             encoding: "utf-8",
@@ -131,7 +142,9 @@ const server = http.createServer(async (req, res) => {
           result.message = `${result.message}\n\nGateway Status:\n${gatewayOutput.trim()}`;
         } catch (gatewayErr) {
           const gatewayErrMsg =
-            gatewayErr instanceof Error ? gatewayErr.message : String(gatewayErr);
+            gatewayErr instanceof Error
+              ? gatewayErr.message
+              : String(gatewayErr);
           result.message = `${result.message}\n\nGateway Status Error:\n${gatewayErrMsg}`;
         }
       }
@@ -144,7 +157,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const messagesMatch = url.pathname.match(/^\/v1\/assistants\/([^/]+)\/messages$/);
+  const messagesMatch = url.pathname.match(
+    /^\/v1\/assistants\/([^/]+)\/messages$/,
+  );
   if (messagesMatch) {
     const assistantId = messagesMatch[1];
 

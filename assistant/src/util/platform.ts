@@ -1,6 +1,14 @@
-import { chmodSync,existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import {
   getBaseDataDir,
@@ -9,18 +17,18 @@ import {
   getDaemonTcpEnabled,
   getDaemonTcpHost,
   getDaemonTcpPort,
-} from '../config/env-registry.js';
+} from "../config/env-registry.js";
 
 export function isMacOS(): boolean {
-  return process.platform === 'darwin';
+  return process.platform === "darwin";
 }
 
 export function isLinux(): boolean {
-  return process.platform === 'linux';
+  return process.platform === "linux";
 }
 
 export function isWindows(): boolean {
-  return process.platform === 'win32';
+  return process.platform === "win32";
 }
 
 /**
@@ -37,8 +45,8 @@ export function getPlatformName(): string {
  * clipboard access is not supported on the current platform.
  */
 export function getClipboardCommand(): string | null {
-  if (isMacOS()) return 'pbcopy';
-  if (isLinux()) return 'xclip -selection clipboard';
+  if (isMacOS()) return "pbcopy";
+  if (isLinux()) return "xclip -selection clipboard";
   return null;
 }
 
@@ -51,14 +59,14 @@ export function getClipboardCommand(): string | null {
 export function readLockfile(): Record<string, unknown> | null {
   const base = getBaseDataDir() || homedir();
   const candidates = [
-    join(base, '.vellum.lock.json'),
-    join(base, '.vellum.lockfile.json'),
+    join(base, ".vellum.lock.json"),
+    join(base, ".vellum.lockfile.json"),
   ];
   for (const lockPath of candidates) {
     if (!existsSync(lockPath)) continue;
     try {
-      const raw = JSON.parse(readFileSync(lockPath, 'utf-8'));
-      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
         return raw as Record<string, unknown>;
       }
     } catch {
@@ -79,14 +87,16 @@ export function readLockfile(): Record<string, unknown> | null {
  * so both sides use a consistent DB key.
  */
 export function normalizeAssistantId(assistantId: string): string {
-  if (assistantId === 'self') return 'self';
+  if (assistantId === "self") return "self";
 
   try {
     const lockData = readLockfile();
-    const assistants = lockData?.assistants as Array<Record<string, unknown>> | undefined;
+    const assistants = lockData?.assistants as
+      | Array<Record<string, unknown>>
+      | undefined;
     if (assistants) {
       for (const entry of assistants) {
-        if (entry.assistantId === assistantId) return 'self';
+        if (entry.assistantId === assistantId) return "self";
       }
     }
   } catch {
@@ -102,7 +112,10 @@ export function normalizeAssistantId(assistantId: string): string {
  */
 export function writeLockfile(data: Record<string, unknown>): void {
   const base = getBaseDataDir() || homedir();
-  writeFileSync(join(base, '.vellum.lock.json'), JSON.stringify(data, null, 2) + '\n');
+  writeFileSync(
+    join(base, ".vellum.lock.json"),
+    JSON.stringify(data, null, 2) + "\n",
+  );
 }
 
 /**
@@ -110,7 +123,7 @@ export function writeLockfile(data: Record<string, unknown>): void {
  * files, skills) and runtime files (socket, PID) live here.
  */
 export function getRootDir(): string {
-  return join(getBaseDataDir() || homedir(), '.vellum');
+  return join(getBaseDataDir() || homedir(), ".vellum");
 }
 
 /**
@@ -118,7 +131,7 @@ export function getRootDir(): string {
  * databases, logs, memory indices, and other internal state live here.
  */
 export function getDataDir(): string {
-  return join(getWorkspaceDir(), 'data');
+  return join(getWorkspaceDir(), "data");
 }
 
 /**
@@ -127,7 +140,7 @@ export function getDataDir(): string {
  * is stored here, downloaded post-hatch rather than shipped with the app.
  */
 export function getEmbeddingModelsDir(): string {
-  return join(getWorkspaceDir(), 'embedding-models');
+  return join(getWorkspaceDir(), "embedding-models");
 }
 
 /**
@@ -135,7 +148,7 @@ export function getEmbeddingModelsDir(): string {
  * Temporary blob files for zero-copy IPC payloads live here.
  */
 export function getIpcBlobDir(): string {
-  return join(getDataDir(), 'ipc-blobs');
+  return join(getDataDir(), "ipc-blobs");
 }
 
 /**
@@ -143,7 +156,7 @@ export function getIpcBlobDir(): string {
  * Global sandbox state lives under this directory.
  */
 export function getSandboxRootDir(): string {
-  return join(getDataDir(), 'sandbox');
+  return join(getDataDir(), "sandbox");
 }
 
 /**
@@ -156,7 +169,7 @@ export function getSandboxWorkingDir(): string {
 }
 
 export function getInterfacesDir(): string {
-  return join(getDataDir(), 'interfaces');
+  return join(getDataDir(), "interfaces");
 }
 
 export function getSocketPath(): string {
@@ -164,11 +177,11 @@ export function getSocketPath(): string {
   if (override) {
     return expandHomePath(override);
   }
-  return join(getRootDir(), 'vellum.sock');
+  return join(getRootDir(), "vellum.sock");
 }
 
 export function getSessionTokenPath(): string {
-  return join(getRootDir(), 'session-token');
+  return join(getRootDir(), "session-token");
 }
 
 /**
@@ -193,7 +206,7 @@ export function getTCPPort(): number {
 export function isTCPEnabled(): boolean {
   const envValue = getDaemonTcpEnabled();
   if (envValue !== undefined) return envValue;
-  return existsSync(join(getRootDir(), 'tcp-enabled'));
+  return existsSync(join(getRootDir(), "tcp-enabled"));
 }
 
 /**
@@ -206,8 +219,8 @@ export function isTCPEnabled(): boolean {
 export function getTCPHost(): string {
   const override = getDaemonTcpHost();
   if (override) return override;
-  if (isIOSPairingEnabled()) return '0.0.0.0';
-  return '127.0.0.1';
+  if (isIOSPairingEnabled()) return "0.0.0.0";
+  return "127.0.0.1";
 }
 
 /**
@@ -227,11 +240,11 @@ export function getTCPHost(): string {
 export function isIOSPairingEnabled(): boolean {
   const envValue = getDaemonIosPairing();
   if (envValue !== undefined) return envValue;
-  return existsSync(join(getRootDir(), 'ios-pairing-enabled'));
+  return existsSync(join(getRootDir(), "ios-pairing-enabled"));
 }
 
 export function getHttpTokenPath(): string {
-  return join(getRootDir(), 'http-token');
+  return join(getRootDir(), "http-token");
 }
 
 /**
@@ -240,7 +253,7 @@ export function getHttpTokenPath(): string {
  * Platform API (e.g. assistant.vellum.ai).
  */
 export function getPlatformTokenPath(): string {
-  return join(getRootDir(), 'platform-token');
+  return join(getRootDir(), "platform-token");
 }
 
 /**
@@ -249,7 +262,7 @@ export function getPlatformTokenPath(): string {
  */
 export function readPlatformToken(): string | null {
   try {
-    return readFileSync(getPlatformTokenPath(), 'utf-8').trim();
+    return readFileSync(getPlatformTokenPath(), "utf-8").trim();
   } catch {
     return null;
   }
@@ -261,15 +274,15 @@ export function readPlatformToken(): string | null {
  */
 export function readSessionToken(): string | null {
   try {
-    return readFileSync(getSessionTokenPath(), 'utf-8').trim();
+    return readFileSync(getSessionTokenPath(), "utf-8").trim();
   } catch {
     return null;
   }
 }
 
 function expandHomePath(p: string): string {
-  if (p === '~') return homedir();
-  if (p.startsWith('~/')) return join(homedir(), p.slice(2));
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
   return p;
 }
 
@@ -283,26 +296,32 @@ export function removeSocketFile(socketPath: string): void {
   const stat = statSync(socketPath);
   if (!stat.isSocket()) {
     throw new Error(
-      `Refusing to remove ${socketPath}: not a Unix socket (found ${stat.isFile() ? 'regular file' : stat.isDirectory() ? 'directory' : 'non-socket'})`,
+      `Refusing to remove ${socketPath}: not a Unix socket (found ${
+        stat.isFile()
+          ? "regular file"
+          : stat.isDirectory()
+            ? "directory"
+            : "non-socket"
+      })`,
     );
   }
   unlinkSync(socketPath);
 }
 
 export function getPidPath(): string {
-  return join(getRootDir(), 'vellum.pid');
+  return join(getRootDir(), "vellum.pid");
 }
 
 export function getDbPath(): string {
-  return join(getDataDir(), 'db', 'assistant.db');
+  return join(getDataDir(), "db", "assistant.db");
 }
 
 export function getLogPath(): string {
-  return join(getDataDir(), 'logs', 'vellum.log');
+  return join(getDataDir(), "logs", "vellum.log");
 }
 
 export function getHistoryPath(): string {
-  return join(getDataDir(), 'history');
+  return join(getDataDir(), "history");
 }
 
 export function getHooksDir(): string {
@@ -315,22 +334,22 @@ export function getHooksDir(): string {
 
 /** Returns ~/.vellum/workspace — the workspace root for user-facing state. */
 export function getWorkspaceDir(): string {
-  return join(getRootDir(), 'workspace');
+  return join(getRootDir(), "workspace");
 }
 
 /** Returns ~/.vellum/workspace/config.json */
 export function getWorkspaceConfigPath(): string {
-  return join(getWorkspaceDir(), 'config.json');
+  return join(getWorkspaceDir(), "config.json");
 }
 
 /** Returns ~/.vellum/workspace/skills */
 export function getWorkspaceSkillsDir(): string {
-  return join(getWorkspaceDir(), 'skills');
+  return join(getWorkspaceDir(), "skills");
 }
 
 /** Returns ~/.vellum/workspace/hooks */
 export function getWorkspaceHooksDir(): string {
-  return join(getWorkspaceDir(), 'hooks');
+  return join(getWorkspaceDir(), "hooks");
 }
 
 /** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md, USER.md). */
@@ -339,31 +358,34 @@ export function getWorkspacePromptPath(file: string): string {
 }
 
 // Re-export migration functions so existing consumers don't break.
-export { migrateToDataLayout } from '../migrations/data-layout.js';
-export { migratePath, migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
+export { migrateToDataLayout } from "../migrations/data-layout.js";
+export {
+  migratePath,
+  migrateToWorkspaceLayout,
+} from "../migrations/workspace-layout.js";
 
 export function ensureDataDir(): void {
   const root = getRootDir();
   const workspace = getWorkspaceDir();
-  const wsData = join(workspace, 'data');
+  const wsData = join(workspace, "data");
   const dirs = [
     // Root-level dirs (runtime / protected)
     root,
-    join(root, 'protected'),
+    join(root, "protected"),
     // Workspace dirs
     workspace,
-    join(workspace, 'hooks'),
-    join(workspace, 'skills'),
-    join(workspace, 'embedding-models'),
+    join(workspace, "hooks"),
+    join(workspace, "skills"),
+    join(workspace, "embedding-models"),
     // Data sub-dirs under workspace
     wsData,
-    join(wsData, 'db'),
-    join(wsData, 'qdrant'),
-    join(wsData, 'logs'),
-    join(wsData, 'memory'),
-    join(wsData, 'memory', 'knowledge'),
-    join(wsData, 'apps'),
-    join(wsData, 'interfaces'),
+    join(wsData, "db"),
+    join(wsData, "qdrant"),
+    join(wsData, "logs"),
+    join(wsData, "memory"),
+    join(wsData, "memory", "knowledge"),
+    join(wsData, "apps"),
+    join(wsData, "interfaces"),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {

@@ -2,9 +2,14 @@
  * Swarm runtime types for multi-worker task orchestration.
  */
 
-export type SwarmRole = 'router' | 'researcher' | 'coder' | 'reviewer';
+export type SwarmRole = "router" | "researcher" | "coder" | "reviewer";
 
-export const VALID_SWARM_ROLES: readonly SwarmRole[] = ['router', 'researcher', 'coder', 'reviewer'] as const;
+export const VALID_SWARM_ROLES: readonly SwarmRole[] = [
+  "router",
+  "researcher",
+  "coder",
+  "reviewer",
+] as const;
 
 export interface SwarmTaskNode {
   /** Unique identifier within the plan. */
@@ -24,11 +29,16 @@ export interface SwarmPlan {
   tasks: SwarmTaskNode[];
 }
 
-export type SwarmTaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked';
+export type SwarmTaskStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "blocked";
 
 export interface SwarmTaskResult {
   taskId: string;
-  status: 'completed' | 'failed';
+  status: "completed" | "failed";
   /** Structured summary from the worker. */
   summary: string;
   /** Artifacts produced (file paths, code snippets, etc.). */

@@ -6,19 +6,27 @@
  * delivery tracking.
  */
 
-import { and, count, desc, eq, gt, gte, inArray, or } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
 
-import { getDb } from './db.js';
-import { channelGuardianVerificationChallenges } from './schema.js';
+import { getDb } from "./db.js";
+import { channelGuardianVerificationChallenges } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ChallengeStatus = 'pending' | 'consumed' | 'expired' | 'revoked';
-export type SessionStatus = 'pending' | 'consumed' | 'pending_bootstrap' | 'awaiting_response' | 'verified' | 'expired' | 'revoked' | 'locked';
-export type IdentityBindingStatus = 'pending_bootstrap' | 'bound';
-export type VerificationPurpose = 'guardian' | 'trusted_contact';
+export type ChallengeStatus = "pending" | "consumed" | "expired" | "revoked";
+export type SessionStatus =
+  | "pending"
+  | "consumed"
+  | "pending_bootstrap"
+  | "awaiting_response"
+  | "verified"
+  | "expired"
+  | "revoked"
+  | "locked";
+export type IdentityBindingStatus = "pending_bootstrap" | "bound";
+export type VerificationPurpose = "guardian" | "trusted_contact";
 
 export interface VerificationChallenge {
   id: string;
@@ -55,7 +63,9 @@ export interface VerificationChallenge {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToChallenge(row: typeof channelGuardianVerificationChallenges.$inferSelect): VerificationChallenge {
+function rowToChallenge(
+  row: typeof channelGuardianVerificationChallenges.$inferSelect,
+): VerificationChallenge {
   return {
     id: row.id,
     assistantId: row.assistantId,
@@ -69,14 +79,16 @@ function rowToChallenge(row: typeof channelGuardianVerificationChallenges.$infer
     expectedExternalUserId: row.expectedExternalUserId ?? null,
     expectedChatId: row.expectedChatId ?? null,
     expectedPhoneE164: row.expectedPhoneE164 ?? null,
-    identityBindingStatus: (row.identityBindingStatus as IdentityBindingStatus) ?? null,
+    identityBindingStatus:
+      (row.identityBindingStatus as IdentityBindingStatus) ?? null,
     destinationAddress: row.destinationAddress ?? null,
     lastSentAt: row.lastSentAt ?? null,
     sendCount: row.sendCount ?? 0,
     nextResendAt: row.nextResendAt ?? null,
     codeDigits: row.codeDigits ?? 6,
     maxAttempts: row.maxAttempts ?? 3,
-    verificationPurpose: (row.verificationPurpose as VerificationPurpose) ?? 'guardian',
+    verificationPurpose:
+      (row.verificationPurpose as VerificationPurpose) ?? "guardian",
     bootstrapTokenHash: row.bootstrapTokenHash ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -101,12 +113,15 @@ export function createChallenge(params: {
   // Revoke any prior pending challenges for the same (assistantId, channel)
   // to close the replay window — only the latest challenge should be valid.
   db.update(channelGuardianVerificationChallenges)
-    .set({ status: 'revoked', updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.assistantId, params.assistantId),
+        eq(
+          channelGuardianVerificationChallenges.assistantId,
+          params.assistantId,
+        ),
         eq(channelGuardianVerificationChallenges.channel, params.channel),
-        eq(channelGuardianVerificationChallenges.status, 'pending'),
+        eq(channelGuardianVerificationChallenges.status, "pending"),
       ),
     )
     .run();
@@ -117,21 +132,21 @@ export function createChallenge(params: {
     channel: params.channel,
     challengeHash: params.challengeHash,
     expiresAt: params.expiresAt,
-    status: 'pending' as const,
+    status: "pending" as const,
     createdBySessionId: params.createdBySessionId ?? null,
     consumedByExternalUserId: null,
     consumedByChatId: null,
     expectedExternalUserId: null,
     expectedChatId: null,
     expectedPhoneE164: null,
-    identityBindingStatus: 'bound' as const,
+    identityBindingStatus: "bound" as const,
     destinationAddress: null,
     lastSentAt: null,
     sendCount: 0,
     nextResendAt: null,
     codeDigits: 6,
     maxAttempts: 3,
-    verificationPurpose: 'guardian' as const,
+    verificationPurpose: "guardian" as const,
     bootstrapTokenHash: null,
     createdAt: now,
     updatedAt: now,
@@ -142,15 +157,18 @@ export function createChallenge(params: {
   return rowToChallenge(row);
 }
 
-export function revokePendingChallenges(assistantId: string, channel: string): void {
+export function revokePendingChallenges(
+  assistantId: string,
+  channel: string,
+): void {
   const db = getDb();
   db.update(channelGuardianVerificationChallenges)
-    .set({ status: 'revoked', updatedAt: Date.now() })
+    .set({ status: "revoked", updatedAt: Date.now() })
     .where(
       and(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(channelGuardianVerificationChallenges.status, 'pending'),
+        eq(channelGuardianVerificationChallenges.status, "pending"),
       ),
     )
     .run();
@@ -173,7 +191,11 @@ export function findPendingChallengeByHash(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.challengeHash, challengeHash),
-        inArray(channelGuardianVerificationChallenges.status, ['pending', 'pending_bootstrap', 'awaiting_response']),
+        inArray(channelGuardianVerificationChallenges.status, [
+          "pending",
+          "pending_bootstrap",
+          "awaiting_response",
+        ]),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
       ),
     )
@@ -204,7 +226,7 @@ export function findPendingChallengeForChannel(
       and(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(channelGuardianVerificationChallenges.status, 'pending'),
+        eq(channelGuardianVerificationChallenges.status, "pending"),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
       ),
     )
@@ -223,7 +245,7 @@ export function consumeChallenge(
 
   db.update(channelGuardianVerificationChallenges)
     .set({
-      status: 'consumed',
+      status: "consumed",
       consumedByExternalUserId,
       consumedByChatId,
       updatedAt: now,
@@ -264,12 +286,19 @@ export function createVerificationSession(params: {
 
   // Revoke any prior pending/awaiting_response sessions for the same (assistantId, channel)
   db.update(channelGuardianVerificationChallenges)
-    .set({ status: 'revoked', updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.assistantId, params.assistantId),
+        eq(
+          channelGuardianVerificationChallenges.assistantId,
+          params.assistantId,
+        ),
         eq(channelGuardianVerificationChallenges.channel, params.channel),
-        inArray(channelGuardianVerificationChallenges.status, ['pending', 'pending_bootstrap', 'awaiting_response']),
+        inArray(channelGuardianVerificationChallenges.status, [
+          "pending",
+          "pending_bootstrap",
+          "awaiting_response",
+        ]),
       ),
     )
     .run();
@@ -287,14 +316,14 @@ export function createVerificationSession(params: {
     expectedExternalUserId: params.expectedExternalUserId ?? null,
     expectedChatId: params.expectedChatId ?? null,
     expectedPhoneE164: params.expectedPhoneE164 ?? null,
-    identityBindingStatus: params.identityBindingStatus ?? 'bound',
+    identityBindingStatus: params.identityBindingStatus ?? "bound",
     destinationAddress: params.destinationAddress ?? null,
     lastSentAt: null,
     sendCount: 0,
     nextResendAt: null,
     codeDigits: params.codeDigits ?? 6,
     maxAttempts: params.maxAttempts ?? 3,
-    verificationPurpose: params.verificationPurpose ?? 'guardian',
+    verificationPurpose: params.verificationPurpose ?? "guardian",
     bootstrapTokenHash: params.bootstrapTokenHash ?? null,
     createdAt: now,
     updatedAt: now,
@@ -323,7 +352,10 @@ export function findActiveSession(
       and(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
-        inArray(channelGuardianVerificationChallenges.status, ['pending_bootstrap', 'awaiting_response']),
+        inArray(channelGuardianVerificationChallenges.status, [
+          "pending_bootstrap",
+          "awaiting_response",
+        ]),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
       ),
     )
@@ -353,7 +385,7 @@ export function findSessionByBootstrapTokenHash(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.bootstrapTokenHash, tokenHash),
-        eq(channelGuardianVerificationChallenges.status, 'pending_bootstrap'),
+        eq(channelGuardianVerificationChallenges.status, "pending_bootstrap"),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
       ),
     )
@@ -385,20 +417,32 @@ export function findSessionByIdentity(
   const conditions = [
     eq(channelGuardianVerificationChallenges.assistantId, assistantId),
     eq(channelGuardianVerificationChallenges.channel, channel),
-    inArray(channelGuardianVerificationChallenges.status, ['pending_bootstrap', 'awaiting_response']),
+    inArray(channelGuardianVerificationChallenges.status, [
+      "pending_bootstrap",
+      "awaiting_response",
+    ]),
     gt(channelGuardianVerificationChallenges.expiresAt, now),
   ];
 
   // Build identity match conditions
   const identityConditions = [];
   if (externalUserId) {
-    identityConditions.push(eq(channelGuardianVerificationChallenges.expectedExternalUserId, externalUserId));
+    identityConditions.push(
+      eq(
+        channelGuardianVerificationChallenges.expectedExternalUserId,
+        externalUserId,
+      ),
+    );
   }
   if (chatId) {
-    identityConditions.push(eq(channelGuardianVerificationChallenges.expectedChatId, chatId));
+    identityConditions.push(
+      eq(channelGuardianVerificationChallenges.expectedChatId, chatId),
+    );
   }
   if (phoneE164) {
-    identityConditions.push(eq(channelGuardianVerificationChallenges.expectedPhoneE164, phoneE164));
+    identityConditions.push(
+      eq(channelGuardianVerificationChallenges.expectedPhoneE164, phoneE164),
+    );
   }
 
   if (identityConditions.length > 0) {
@@ -488,7 +532,10 @@ export function countRecentSendsToDestination(
     .where(
       and(
         eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(channelGuardianVerificationChallenges.destinationAddress, destinationAddress),
+        eq(
+          channelGuardianVerificationChallenges.destinationAddress,
+          destinationAddress,
+        ),
         gte(channelGuardianVerificationChallenges.lastSentAt, cutoff),
       ),
     )
@@ -513,7 +560,7 @@ export function bindSessionIdentity(
     .set({
       expectedExternalUserId: externalUserId,
       expectedChatId: chatId,
-      identityBindingStatus: 'bound',
+      identityBindingStatus: "bound",
       updatedAt: now,
     })
     .where(eq(channelGuardianVerificationChallenges.id, id))

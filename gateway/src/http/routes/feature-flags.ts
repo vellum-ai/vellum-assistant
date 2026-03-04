@@ -1,8 +1,17 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  renameSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { getRootDir } from "../../credential-reader.js";
-import { loadFeatureFlagDefaults, isFlagDeclared } from "../../feature-flag-defaults.js";
+import {
+  loadFeatureFlagDefaults,
+  isFlagDeclared,
+} from "../../feature-flag-defaults.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("feature-flags");
@@ -37,7 +46,11 @@ function readConfigFile(): ConfigReadResult {
     const raw = readFileSync(cfgPath, "utf-8");
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, reason: "malformed", detail: "Config file is not a JSON object" };
+      return {
+        ok: false,
+        reason: "malformed",
+        detail: "Config file is not a JSON object",
+      };
     }
     return { ok: true, data: parsed };
   } catch (err) {
@@ -65,7 +78,9 @@ function writeConfigFileAtomic(data: Record<string, unknown>): void {
  * Read persisted flag values from the canonical config section.
  * Returns a map of canonical key -> boolean value.
  */
-function readPersistedFlags(config: Record<string, unknown>): Map<string, boolean> {
+function readPersistedFlags(
+  config: Record<string, unknown>,
+): Map<string, boolean> {
   const result = new Map<string, boolean>();
 
   // Read `assistantFeatureFlagValues` section
@@ -106,7 +121,8 @@ export function createFeatureFlagsGetHandler() {
         entries.push({
           key,
           label: def.label,
-          enabled: persistedValue !== undefined ? persistedValue : def.defaultEnabled,
+          enabled:
+            persistedValue !== undefined ? persistedValue : def.defaultEnabled,
           defaultEnabled: def.defaultEnabled,
           description: def.description,
         });
@@ -132,7 +148,10 @@ export function createFeatureFlagsPatchHandler() {
 
     if (!ALLOWED_KEY_RE.test(flagKey)) {
       return Response.json(
-        { error: "Invalid flag key format. Must match: feature_flags.<flagId>.enabled" },
+        {
+          error:
+            "Invalid flag key format. Must match: feature_flags.<flagId>.enabled",
+        },
         { status: 400 },
       );
     }
@@ -140,7 +159,9 @@ export function createFeatureFlagsPatchHandler() {
     // Validate that the flag key exists in the defaults registry
     if (!isFlagDeclared(flagKey)) {
       return Response.json(
-        { error: `Unknown flag key: "${flagKey}" is not declared in the defaults registry` },
+        {
+          error: `Unknown flag key: "${flagKey}" is not declared in the defaults registry`,
+        },
         { status: 400 },
       );
     }
@@ -165,7 +186,7 @@ export function createFeatureFlagsPatchHandler() {
     const { enabled } = body as { enabled?: unknown };
     if (typeof enabled !== "boolean") {
       return Response.json(
-        { error: "\"enabled\" must be a boolean" },
+        { error: '"enabled" must be a boolean' },
         { status: 400 },
       );
     }
@@ -176,11 +197,16 @@ export function createFeatureFlagsPatchHandler() {
         try {
           const result = readConfigFile();
           if (!result.ok) {
-            log.error({ reason: result.reason, detail: result.detail }, "Config file is malformed, refusing to overwrite");
-            resolve(Response.json(
-              { error: "Config file is malformed, cannot safely write" },
-              { status: 500 },
-            ));
+            log.error(
+              { reason: result.reason, detail: result.detail },
+              "Config file is malformed, refusing to overwrite",
+            );
+            resolve(
+              Response.json(
+                { error: "Config file is malformed, cannot safely write" },
+                { status: 500 },
+              ),
+            );
             return;
           }
 
@@ -188,11 +214,16 @@ export function createFeatureFlagsPatchHandler() {
 
           // Write to the `assistantFeatureFlagValues` section
           const existingNewFlags =
-            config.assistantFeatureFlagValues && typeof config.assistantFeatureFlagValues === "object" && !Array.isArray(config.assistantFeatureFlagValues)
+            config.assistantFeatureFlagValues &&
+            typeof config.assistantFeatureFlagValues === "object" &&
+            !Array.isArray(config.assistantFeatureFlagValues)
               ? (config.assistantFeatureFlagValues as Record<string, unknown>)
               : {};
 
-          config.assistantFeatureFlagValues = { ...existingNewFlags, [flagKey]: enabled };
+          config.assistantFeatureFlagValues = {
+            ...existingNewFlags,
+            [flagKey]: enabled,
+          };
 
           writeConfigFileAtomic(config);
 
@@ -201,7 +232,9 @@ export function createFeatureFlagsPatchHandler() {
           resolve(Response.json({ key: flagKey, enabled }));
         } catch (err) {
           log.error({ err, flagKey }, "Failed to update feature flag");
-          resolve(Response.json({ error: "Internal server error" }, { status: 500 }));
+          resolve(
+            Response.json({ error: "Internal server error" }, { status: 500 }),
+          );
         }
       });
     });

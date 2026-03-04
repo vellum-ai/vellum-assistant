@@ -5,8 +5,14 @@ import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
-import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
-import { CircuitBreakerOpenError, resetConversation } from "../../runtime/client.js";
+import {
+  resolveAssistant,
+  isRejection,
+} from "../../routing/resolve-assistant.js";
+import {
+  CircuitBreakerOpenError,
+  resetConversation,
+} from "../../runtime/client.js";
 import { markWhatsAppMessageRead } from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
@@ -52,7 +58,10 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
 
     // Payload size guard
     const contentLength = req.headers.get("content-length");
-    if (contentLength && Number(contentLength) > config.maxWebhookPayloadBytes) {
+    if (
+      contentLength &&
+      Number(contentLength) > config.maxWebhookPayloadBytes
+    ) {
       tlog.warn({ contentLength }, "WhatsApp webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
@@ -65,7 +74,10 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
     }
 
     if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
-      tlog.warn({ bodyLength: Buffer.byteLength(rawBody) }, "WhatsApp webhook payload too large");
+      tlog.warn(
+        { bodyLength: Buffer.byteLength(rawBody) },
+        "WhatsApp webhook payload too large",
+      );
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
@@ -73,10 +85,19 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
     // rather than silently accepting unauthenticated payloads (fail-closed).
     if (!config.whatsappAppSecret) {
       tlog.warn("WhatsApp app secret is not configured — rejecting request");
-      return Response.json({ error: "Webhook signature validation not configured" }, { status: 500 });
+      return Response.json(
+        { error: "Webhook signature validation not configured" },
+        { status: 500 },
+      );
     }
 
-    if (!verifyWhatsAppWebhookSignature(req.headers, rawBody, config.whatsappAppSecret)) {
+    if (
+      !verifyWhatsAppWebhookSignature(
+        req.headers,
+        rawBody,
+        config.whatsappAppSecret,
+      )
+    ) {
       tlog.warn("WhatsApp webhook signature verification failed");
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -106,7 +127,10 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       // Dedup by WhatsApp message ID — atomically reserve so concurrent retries
       // are blocked while the first request is still processing.
       if (!dedupCache.reserve(whatsappMessageId)) {
-        tlog.info({ whatsappMessageId }, "Duplicate WhatsApp message ID, ignoring");
+        tlog.info(
+          { whatsappMessageId },
+          "Duplicate WhatsApp message ID, ignoring",
+        );
         continue;
       }
 
@@ -122,14 +146,21 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
 
       if (mediaType) {
         tlog.warn(
-          { whatsappMessageId, mediaType, hasCaption: event.message.content.length > 0 },
+          {
+            whatsappMessageId,
+            mediaType,
+            hasCaption: event.message.content.length > 0,
+          },
           "WhatsApp media attachment not processed — media download not yet supported",
         );
 
         // No caption and no text — nothing to forward to the assistant
         if (event.message.content.length === 0) {
           markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
-            tlog.debug({ err, messageId: whatsappMessageId }, "Failed to mark WhatsApp message as read");
+            tlog.debug(
+              { err, messageId: whatsappMessageId },
+              "Failed to mark WhatsApp message as read",
+            );
           });
           dedupCache.mark(whatsappMessageId);
           continue;
@@ -138,7 +169,10 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
 
       // Mark message as read (best-effort, do not await)
       markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
-        tlog.debug({ err, messageId: whatsappMessageId }, "Failed to mark WhatsApp message as read");
+        tlog.debug(
+          { err, messageId: whatsappMessageId },
+          "Failed to mark WhatsApp message as read",
+        );
       });
 
       // Resolve routing once so we can gate further operations on it
@@ -147,13 +181,19 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       // Handle /new command — reset conversation before it reaches the runtime
       if (event.message.content.trim().toLowerCase() === "/new") {
         if (isRejection(routing)) {
-          tlog.warn({ from, reason: routing.reason }, "Routing rejected /new command");
+          tlog.warn(
+            { from, reason: routing.reason },
+            "Routing rejected /new command",
+          );
           sendWhatsAppReply(
             config,
             from,
             "This message could not be routed to an assistant. Please check your gateway routing configuration.",
           ).catch((err) => {
-            tlog.error({ err, to: from }, "Failed to send /new routing rejection notice");
+            tlog.error(
+              { err, to: from },
+              "Failed to send /new routing rejection notice",
+            );
           });
         } else {
           try {
@@ -162,16 +202,22 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
               event.sourceChannel,
               event.message.conversationExternalId,
             );
-            sendWhatsAppReply(config, from, "Starting a new conversation!").catch((err) => {
+            sendWhatsAppReply(
+              config,
+              from,
+              "Starting a new conversation!",
+            ).catch((err) => {
               tlog.error({ err }, "Failed to send /new confirmation");
             });
           } catch (err) {
             tlog.error({ err }, "Failed to reset conversation");
-            sendWhatsAppReply(config, from, "Failed to reset conversation. Please try again.").catch(
-              (replyErr) => {
-                tlog.error({ err: replyErr }, "Failed to send /new error reply");
-              },
-            );
+            sendWhatsAppReply(
+              config,
+              from,
+              "Failed to reset conversation. Please try again.",
+            ).catch((replyErr) => {
+              tlog.error({ err: replyErr }, "Failed to send /new error reply");
+            });
           }
         }
 
@@ -180,14 +226,20 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       }
 
       if (isRejection(routing)) {
-        tlog.warn({ from, reason: routing.reason }, "Routing rejected inbound WhatsApp message");
+        tlog.warn(
+          { from, reason: routing.reason },
+          "Routing rejected inbound WhatsApp message",
+        );
         if (rejectionLimiter.shouldSend(from)) {
           sendWhatsAppReply(
             config,
             from,
             "This message could not be routed to an assistant. Please check your gateway routing configuration.",
           ).catch((err) => {
-            tlog.error({ err, to: from }, "Failed to send routing rejection notice");
+            tlog.error(
+              { err, to: from },
+              "Failed to send routing rejection notice",
+            );
           });
         }
         dedupCache.mark(whatsappMessageId);
@@ -203,14 +255,20 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
         });
 
         if (result.rejected) {
-          tlog.warn({ from, reason: result.rejectionReason }, "Routing rejected inbound WhatsApp message");
+          tlog.warn(
+            { from, reason: result.rejectionReason },
+            "Routing rejected inbound WhatsApp message",
+          );
           if (rejectionLimiter.shouldSend(from)) {
             sendWhatsAppReply(
               config,
               from,
               "This message could not be routed to an assistant. Please check your gateway routing configuration.",
             ).catch((err) => {
-              tlog.error({ err, to: from }, "Failed to send routing rejection notice");
+              tlog.error(
+                { err, to: from },
+                "Failed to send routing rejection notice",
+              );
             });
           }
           dedupCache.mark(whatsappMessageId);
@@ -218,24 +276,39 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
         }
 
         if (!result.forwarded) {
-          tlog.error({ whatsappMessageId }, "Failed to forward WhatsApp message to runtime");
+          tlog.error(
+            { whatsappMessageId },
+            "Failed to forward WhatsApp message to runtime",
+          );
           dedupCache.unreserve(whatsappMessageId);
           hasFailure = true;
           continue;
         }
 
         dedupCache.mark(whatsappMessageId);
-        tlog.info({ status: "forwarded", whatsappMessageId }, "WhatsApp message forwarded to runtime");
+        tlog.info(
+          { status: "forwarded", whatsappMessageId },
+          "WhatsApp message forwarded to runtime",
+        );
       } catch (err) {
         if (err instanceof CircuitBreakerOpenError) {
-          tlog.warn({ retryAfterSecs: err.retryAfterSecs }, "Circuit breaker open — returning 503");
+          tlog.warn(
+            { retryAfterSecs: err.retryAfterSecs },
+            "Circuit breaker open — returning 503",
+          );
           dedupCache.unreserve(whatsappMessageId);
           return Response.json(
             { error: "Service temporarily unavailable" },
-            { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+            {
+              status: 503,
+              headers: { "Retry-After": String(err.retryAfterSecs) },
+            },
           );
         }
-        tlog.error({ err, whatsappMessageId }, "Failed to process inbound WhatsApp message");
+        tlog.error(
+          { err, whatsappMessageId },
+          "Failed to process inbound WhatsApp message",
+        );
         dedupCache.unreserve(whatsappMessageId);
         hasFailure = true;
       }

@@ -1,20 +1,34 @@
-import { getLogger } from '../../util/logger.js';
-import { buildTaskTemplateMismatchError, identifyEntityById, resolveWorkItem, updateWorkItem, type WorkItemStatus } from '../../work-items/work-item-store.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
+import { getLogger } from "../../util/logger.js";
+import {
+  buildTaskTemplateMismatchError,
+  identifyEntityById,
+  resolveWorkItem,
+  updateWorkItem,
+  type WorkItemStatus,
+} from "../../work-items/work-item-store.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const log = getLogger('task-list-update');
+const log = getLogger("task-list-update");
 
 const PRIORITY_LABELS: Record<number, string> = {
-  0: 'high',
-  1: 'medium',
-  2: 'low',
+  0: "high",
+  1: "medium",
+  2: "low",
 };
 
 export async function executeTaskListUpdate(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const selectorType = input.work_item_id ? 'work_item_id' : input.task_id ? 'task_id' : input.task_name ? 'task_name' : input.title ? 'title' : 'none';
+  const selectorType = input.work_item_id
+    ? "work_item_id"
+    : input.task_id
+      ? "task_id"
+      : input.task_name
+        ? "task_name"
+        : input.title
+          ? "title"
+          : "none";
 
   try {
     // Build selector from whichever identifier was provided
@@ -30,39 +44,62 @@ export async function executeTaskListUpdate(
     // Resolve the target work item
     const result = resolveWorkItem(selector);
 
-    if (result.status === 'not_found') {
+    if (result.status === "not_found") {
       // When the model passes an ID directly, check if it's a task template
       if (selector.workItemId) {
         const entity = identifyEntityById(selector.workItemId);
-        if (entity.type === 'task_template') {
-          log.warn({ selectorType, inputId: selector.workItemId }, 'task template ID passed as work_item_id');
+        if (entity.type === "task_template") {
+          log.warn(
+            { selectorType, inputId: selector.workItemId },
+            "task template ID passed as work_item_id",
+          );
           return {
-            content: `Error: ${buildTaskTemplateMismatchError(selector.workItemId, entity.title!, 'task_delete to remove task templates, or task_list to view them')}`,
+            content: `Error: ${buildTaskTemplateMismatchError(selector.workItemId, entity.title!, "task_delete to remove task templates, or task_list to view them")}`,
             isError: true,
           };
         }
       }
-      log.warn({ selectorType, error: result.message }, 'work item not found for update');
+      log.warn(
+        { selectorType, error: result.message },
+        "work item not found for update",
+      );
       return { content: `Error: ${result.message}`, isError: true };
     }
 
-    if (result.status === 'ambiguous') {
-      log.warn({ selectorType, matchCount: result.matches.length }, 'ambiguous selector for update');
+    if (result.status === "ambiguous") {
+      log.warn(
+        { selectorType, matchCount: result.matches.length },
+        "ambiguous selector for update",
+      );
       return { content: `Error: ${result.message}`, isError: true };
     }
 
     const item = result.workItem;
 
     // Allow direct transitions to 'done' only from 'awaiting_review'
-    if (input.status === 'done' && item.status !== 'awaiting_review') {
-      log.warn({ selectorType, resolvedWorkItemId: item.id, currentStatus: item.status }, 'rejected attempt to set status to done from non-review state');
+    if (input.status === "done" && item.status !== "awaiting_review") {
+      log.warn(
+        {
+          selectorType,
+          resolvedWorkItemId: item.id,
+          currentStatus: item.status,
+        },
+        "rejected attempt to set status to done from non-review state",
+      );
       return {
         content: `Error: Cannot mark as done from '${item.status}'. Tasks must reach 'awaiting_review' status first (typically after a task run completes). You can set the status to 'awaiting_review' if the task is ready to be completed.`,
         isError: true,
       };
     }
 
-    log.info({ selectorType, selectorValue: input[selectorType], resolvedWorkItemId: item.id }, 'resolved work item for update');
+    log.info(
+      {
+        selectorType,
+        selectorValue: input[selectorType],
+        resolvedWorkItemId: item.id,
+      },
+      "resolved work item for update",
+    );
 
     // Build updates from provided fields
     const updates: Partial<{
@@ -71,43 +108,59 @@ export async function executeTaskListUpdate(
       status: WorkItemStatus;
       sortIndex: number;
     }> = {};
-    if (input.priority_tier !== undefined) updates.priorityTier = input.priority_tier as number;
+    if (input.priority_tier !== undefined)
+      updates.priorityTier = input.priority_tier as number;
     if (input.notes !== undefined) updates.notes = input.notes as string;
-    if (input.status !== undefined) updates.status = input.status as WorkItemStatus;
-    if (input.sort_index !== undefined) updates.sortIndex = input.sort_index as number;
+    if (input.status !== undefined)
+      updates.status = input.status as WorkItemStatus;
+    if (input.sort_index !== undefined)
+      updates.sortIndex = input.sort_index as number;
 
     if (Object.keys(updates).length === 0) {
-      log.warn({ selectorType, resolvedWorkItemId: item.id }, 'update called with no fields to update');
+      log.warn(
+        { selectorType, resolvedWorkItemId: item.id },
+        "update called with no fields to update",
+      );
       return {
-        content: 'No updates specified. Provide at least one field to update (priority_tier, notes, status, sort_index).',
+        content:
+          "No updates specified. Provide at least one field to update (priority_tier, notes, status, sort_index).",
         isError: true,
       };
     }
 
     const updated = updateWorkItem(item.id, updates);
     if (!updated) {
-      log.error({ selectorType, resolvedWorkItemId: item.id, updates }, 'updateWorkItem returned null');
+      log.error(
+        { selectorType, resolvedWorkItemId: item.id, updates },
+        "updateWorkItem returned null",
+      );
       return {
         content: `Error: Failed to update work item "${item.title}".`,
         isError: true,
       };
     }
 
-    log.info({ resolvedWorkItemId: item.id, updatedFields: Object.keys(updates) }, 'work item updated');
+    log.info(
+      { resolvedWorkItemId: item.id, updatedFields: Object.keys(updates) },
+      "work item updated",
+    );
 
     // Build confirmation message
     const parts: string[] = [`Updated "${updated.title}"`];
     if (input.priority_tier !== undefined) {
-      parts.push(`priority → ${PRIORITY_LABELS[updated.priorityTier] ?? updated.priorityTier}`);
+      parts.push(
+        `priority → ${PRIORITY_LABELS[updated.priorityTier] ?? updated.priorityTier}`,
+      );
     }
-    if (input.notes !== undefined) parts.push('notes updated');
+    if (input.notes !== undefined) parts.push("notes updated");
     if (input.status !== undefined) parts.push(`status → ${updated.status}`);
-    if (input.sort_index !== undefined) parts.push(`sort index → ${updated.sortIndex}`);
+    if (input.sort_index !== undefined)
+      parts.push(`sort index → ${updated.sortIndex}`);
 
-    return { content: parts.join(', ') + '.', isError: false };
+    return { content: parts.join(", ") + ".", isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ selectorType, error: msg }, 'update failed');
+    log.error({ selectorType, error: msg }, "update failed");
     return { content: `Error: ${msg}`, isError: true };
   }
 }

@@ -1,13 +1,16 @@
-import { getApp } from '../memory/app-store.js';
-import { getLogger } from '../util/logger.js';
+import { getApp } from "../memory/app-store.js";
+import { getLogger } from "../util/logger.js";
 import {
   getHomeBaseAppLink,
   type HomeBaseAppLink,
   setHomeBaseAppLink,
-} from './app-link-store.js';
-import { ensurePrebuiltHomeBaseSeeded, findSeededHomeBaseApp } from './prebuilt/seed.js';
+} from "./app-link-store.js";
+import {
+  ensurePrebuiltHomeBaseSeeded,
+  findSeededHomeBaseApp,
+} from "./prebuilt/seed.js";
 
-const log = getLogger('home-base-bootstrap');
+const log = getLogger("home-base-bootstrap");
 
 function resolveExistingLink(): HomeBaseAppLink | null {
   const link = getHomeBaseAppLink();
@@ -36,7 +39,7 @@ export function bootstrapHomeBaseAppLink(): HomeBaseBootstrapResult | null {
 
   const discovered = findSeededHomeBaseApp();
   if (discovered) {
-    const next = setHomeBaseAppLink(discovered.id, 'prebuilt_seed');
+    const next = setHomeBaseAppLink(discovered.id, "prebuilt_seed");
     return {
       appId: next.appId,
       source: next.source,
@@ -48,8 +51,11 @@ export function bootstrapHomeBaseAppLink(): HomeBaseBootstrapResult | null {
   const seeded = ensurePrebuiltHomeBaseSeeded();
   if (!seeded) return null;
 
-  const next = setHomeBaseAppLink(seeded.appId, 'prebuilt_seed');
-  log.info({ appId: next.appId, created: seeded.created }, 'Bootstrapped Home Base app link');
+  const next = setHomeBaseAppLink(seeded.appId, "prebuilt_seed");
+  log.info(
+    { appId: next.appId, created: seeded.created },
+    "Bootstrapped Home Base app link",
+  );
 
   return {
     appId: next.appId,

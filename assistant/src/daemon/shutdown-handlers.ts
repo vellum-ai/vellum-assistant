@@ -1,18 +1,18 @@
-import * as Sentry from '@sentry/node';
+import * as Sentry from "@sentry/node";
 
-import type { HeartbeatService } from '../heartbeat/heartbeat-service.js';
-import type { HookManager } from '../hooks/manager.js';
-import type { McpServerManager } from '../mcp/manager.js';
-import { getSqlite, resetDb } from '../memory/db.js';
-import type { QdrantManager } from '../memory/qdrant-manager.js';
-import type { RuntimeHttpServer } from '../runtime/http-server.js';
-import { browserManager } from '../tools/browser/browser-manager.js';
-import { getLogger } from '../util/logger.js';
-import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
-import type { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
-import type { DaemonServer } from './server.js';
+import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import type { HookManager } from "../hooks/manager.js";
+import type { McpServerManager } from "../mcp/manager.js";
+import { getSqlite, resetDb } from "../memory/db.js";
+import type { QdrantManager } from "../memory/qdrant-manager.js";
+import type { RuntimeHttpServer } from "../runtime/http-server.js";
+import { browserManager } from "../tools/browser/browser-manager.js";
+import { getLogger } from "../util/logger.js";
+import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
+import type { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import type { DaemonServer } from "./server.js";
 
-const log = getLogger('lifecycle');
+const log = getLogger("lifecycle");
 
 export interface ShutdownDeps {
   server: DaemonServer;
@@ -33,7 +33,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log.info('Shutting down daemon...');
+    log.info("Shutting down daemon...");
 
     deps.hookManager.stopWatching();
 
@@ -41,7 +41,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // Set this BEFORE awaiting heartbeat stop and triggering daemon-stop hooks
     // so it covers all potentially-blocking async shutdown work.
     const forceTimer = setTimeout(() => {
-      log.warn('Graceful shutdown timed out, forcing exit');
+      log.warn("Graceful shutdown timed out, forcing exit");
       deps.cleanupPidFile();
       process.exit(1);
     }, 10_000);
@@ -51,7 +51,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     await deps.heartbeat.stop();
 
     try {
-      await deps.hookManager.trigger('daemon-stop', { pid: process.pid });
+      await deps.hookManager.trigger("daemon-stop", { pid: process.pid });
     } catch {
       // Don't let hook failures block shutdown
     }
@@ -59,10 +59,10 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // Commit any uncommitted workspace changes before stopping the server.
     // This ensures no workspace state is lost during graceful shutdown.
     try {
-      log.info({ phase: 'pre_stop' }, 'Committing pending workspace changes');
+      log.info({ phase: "pre_stop" }, "Committing pending workspace changes");
       await deps.workspaceHeartbeat.commitAllPending();
     } catch (err) {
-      log.warn({ err, phase: 'pre_stop' }, 'Shutdown workspace commit failed');
+      log.warn({ err, phase: "pre_stop" }, "Shutdown workspace commit failed");
     }
 
     await deps.server.stop();
@@ -70,10 +70,13 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // Final commit sweep: catch any writes that occurred during server.stop()
     // (e.g. in-flight tool executions completing during drain).
     try {
-      log.info({ phase: 'post_stop' }, 'Final workspace commit sweep');
+      log.info({ phase: "post_stop" }, "Final workspace commit sweep");
       await deps.workspaceHeartbeat.commitAllPending();
     } catch (err) {
-      log.warn({ err, phase: 'post_stop' }, 'Post-stop workspace commit failed');
+      log.warn(
+        { err, phase: "post_stop" },
+        "Post-stop workspace commit failed",
+      );
     }
 
     // Flush in-flight enrichment jobs so shutdown commit notes are not dropped.
@@ -81,7 +84,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     try {
       await getEnrichmentService().shutdown();
     } catch (err) {
-      log.warn({ err }, 'Enrichment service shutdown failed (non-fatal)');
+      log.warn({ err }, "Enrichment service shutdown failed (non-fatal)");
     }
 
     if (deps.runtimeHttp) await deps.runtimeHttp.stop();
@@ -93,7 +96,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       try {
         await deps.mcpManager.stop();
       } catch (err) {
-        log.warn({ err }, 'MCP server manager shutdown failed (non-fatal)');
+        log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
       }
     }
 
@@ -103,14 +106,14 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // Checkpoint and close are in separate try blocks so that close()
     // always runs even if checkpointing throws (e.g. SQLITE_BUSY).
     try {
-      getSqlite().exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)");
     } catch (err) {
-      log.warn({ err }, 'WAL checkpoint failed (non-fatal)');
+      log.warn({ err }, "WAL checkpoint failed (non-fatal)");
     }
     try {
       resetDb();
     } catch (err) {
-      log.warn({ err }, 'Database close failed (non-fatal)');
+      log.warn({ err }, "Database close failed (non-fatal)");
     }
 
     await Sentry.flush(2000);
@@ -119,16 +122,16 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     process.exit(0);
   };
 
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 
-  process.on('unhandledRejection', (reason) => {
-    log.error({ err: reason }, 'Unhandled promise rejection');
+  process.on("unhandledRejection", (reason) => {
+    log.error({ err: reason }, "Unhandled promise rejection");
     Sentry.captureException(reason);
   });
 
-  process.on('uncaughtException', (err) => {
-    log.error({ err }, 'Uncaught exception');
+  process.on("uncaughtException", (err) => {
+    log.error({ err }, "Uncaught exception");
     Sentry.captureException(err);
   });
 }

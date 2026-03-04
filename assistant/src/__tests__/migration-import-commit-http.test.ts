@@ -665,8 +665,11 @@ describe("commitImport", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok && result.reason === "validation_failed") {
-      expect(result.errors.length).toBeGreaterThan(0);
+    if (!result.ok) {
+      expect(result.reason).toBe("validation_failed");
+      if (result.reason === "validation_failed") {
+        expect(result.errors.length).toBeGreaterThan(0);
+      }
     }
   });
 

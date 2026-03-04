@@ -6,7 +6,7 @@
  * "notexample.com" or "example.co.uk".
  */
 
-import { normalizeDomain } from '../network/domain-normalize.js';
+import { normalizeDomain } from "../network/domain-normalize.js";
 
 /**
  * Check whether a request host is allowed by the credential's domain policy.
@@ -21,7 +21,10 @@ import { normalizeDomain } from '../network/domain-normalize.js';
  * 3. Deny if requestHost is missing, invalid, IP, or localhost
  * 4. Deny if allowedDomains is empty or undefined (fail-closed)
  */
-export function isDomainAllowed(requestHost: string, allowedDomains: string[]): boolean {
+export function isDomainAllowed(
+  requestHost: string,
+  allowedDomains: string[],
+): boolean {
   if (!allowedDomains || allowedDomains.length === 0) return false;
 
   const requestInfo = normalizeDomain(requestHost);

@@ -191,7 +191,7 @@ describe("tool_permission_simulate handler", () => {
     expect(res.promptPayload!.persistentDecisionsAllowed).toBe(true);
   });
 
-  test("proxied bash disables persistent decisions", async () => {
+  test("proxied bash is not special-cased (follows normal rules)", async () => {
     const { ctx, sent } = createTestContext();
     const msg: ToolPermissionSimulateRequest = {
       type: "tool_permission_simulate",
@@ -202,9 +202,9 @@ describe("tool_permission_simulate handler", () => {
 
     const res = getResponse(sent);
     expect(res.success).toBe(true);
-    expect(res.decision).toBe("prompt");
-    expect(res.promptPayload).toBeDefined();
-    expect(res.promptPayload!.persistentDecisionsAllowed).toBe(false);
+    // Proxied bash now follows normal permission rules — the default
+    // allow-bash rule auto-allows low-risk commands just like non-proxied bash.
+    expect(res.decision).toBe("allow");
   });
 
   test("forcePromptSideEffects promotes allow to prompt for side-effect tools", async () => {

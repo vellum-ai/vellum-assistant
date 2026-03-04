@@ -112,7 +112,11 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
       // 5xx are server errors. Both are safe to retry.
       // Other 4xx (400/404/422) are deterministic rejections — keep state
       // consumed to prevent replay/spam.
-      if (response.status >= 500 || response.status === 401 || response.status === 403) {
+      if (
+        response.status >= 500 ||
+        response.status === 401 ||
+        response.status === 403
+      ) {
         rollBackConsumedState(state);
       }
       return new Response(
@@ -136,7 +140,12 @@ function renderSuccessPage(): string {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function renderErrorPage(message: string): string {

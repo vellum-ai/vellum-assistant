@@ -1,14 +1,14 @@
-import { execSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync,writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { ToolError } from '../../../util/errors.js';
-import { getLogger } from '../../../util/logger.js';
-import { isLinux,isMacOS } from '../../../util/platform.js';
-import type { SandboxBackend, SandboxResult, WrapOptions } from './types.js';
+import { ToolError } from "../../../util/errors.js";
+import { getLogger } from "../../../util/logger.js";
+import { isLinux, isMacOS } from "../../../util/platform.js";
+import type { SandboxBackend, SandboxResult, WrapOptions } from "./types.js";
 
-const log = getLogger('sandbox');
+const log = getLogger("sandbox");
 
 const HASH_DISPLAY_LENGTH = 12;
 
@@ -27,8 +27,8 @@ const HASH_DISPLAY_LENGTH = 12;
  */
 function buildSandboxProfile(allowNetwork: boolean): string {
   const networkRule = allowNetwork
-    ? ';; Allow network access (proxied mode — needed to reach the credential proxy)\n(allow network*)'
-    : ';; Block network access\n(deny network*)';
+    ? ";; Allow network access (proxied mode — needed to reach the credential proxy)\n(allow network*)"
+    : ";; Block network access\n(deny network*)";
 
   return `
 (version 1)
@@ -76,8 +76,8 @@ ${networkRule}
 function escapeSBPL(path: string): string {
   if (/[\n\r]/.test(path)) {
     throw new ToolError(
-      'Working directory path contains newline characters, which cannot be used in a sandbox profile.',
-      'bash',
+      "Working directory path contains newline characters, which cannot be used in a sandbox profile.",
+      "bash",
     );
   }
   return path.replace(/[\\";()]/g, (ch) => `\\${ch}`);
@@ -91,18 +91,24 @@ function escapeSBPL(path: string): string {
  * use different working directories.
  */
 function getProfilePath(workingDir: string, allowNetwork: boolean): string {
-  const dir = join(process.env.HOME ?? '/tmp', '.vellum');
+  const dir = join(process.env.HOME ?? "/tmp", ".vellum");
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
   // Include the network flag in the hash so proxied and non-proxied profiles
   // for the same directory don't collide.
   const hashInput = allowNetwork ? `${workingDir}:proxied` : workingDir;
-  const hash = createHash('sha256').update(hashInput).digest('hex').slice(0, HASH_DISPLAY_LENGTH);
+  const hash = createHash("sha256")
+    .update(hashInput)
+    .digest("hex")
+    .slice(0, HASH_DISPLAY_LENGTH);
   const path = join(dir, `sandbox-profile-${hash}.sb`);
 
-  const profile = buildSandboxProfile(allowNetwork).replace(/__WORKING_DIR__/g, () => escapeSBPL(workingDir));
-  writeFileSync(path, profile + '\n');
+  const profile = buildSandboxProfile(allowNetwork).replace(
+    /__WORKING_DIR__/g,
+    () => escapeSBPL(workingDir),
+  );
+  writeFileSync(path, profile + "\n");
   return path;
 }
 
@@ -127,7 +133,10 @@ let bwrapAvailable = false;
 function isBwrapAvailable(): boolean {
   if (bwrapAvailable) return true;
   try {
-    execSync('bwrap --ro-bind / / --unshare-net --unshare-pid true', { stdio: 'ignore', timeout: 5000 });
+    execSync("bwrap --ro-bind / / --unshare-net --unshare-pid true", {
+      stdio: "ignore",
+      timeout: 5000,
+    });
     bwrapAvailable = true;
     return true;
   } catch {
@@ -147,26 +156,41 @@ function isBwrapAvailable(): boolean {
  * - Network access blocked (--unshare-net)
  * - PID namespace isolated (--unshare-pid)
  */
-function buildBwrapArgs(workingDir: string, command: string, allowNetwork: boolean): string[] {
+function buildBwrapArgs(
+  workingDir: string,
+  command: string,
+  allowNetwork: boolean,
+): string[] {
   const args = [
     // Filesystem: read-only root, writable working dir and temp
-    '--ro-bind', '/', '/',
-    '--bind', workingDir, workingDir,
-    '--bind', '/tmp', '/tmp',
-    '--dev', '/dev',
-    '--proc', '/proc',
+    "--ro-bind",
+    "/",
+    "/",
+    "--bind",
+    workingDir,
+    workingDir,
+    "--bind",
+    "/tmp",
+    "/tmp",
+    "--dev",
+    "/dev",
+    "--proc",
+    "/proc",
   ];
 
   // Only isolate the network namespace when network access is not needed.
   // In proxied mode the process must be able to reach 127.0.0.1:<proxy-port>.
   if (!allowNetwork) {
-    args.push('--unshare-net');
+    args.push("--unshare-net");
   }
 
   args.push(
-    '--unshare-pid',
+    "--unshare-pid",
     // Run bash inside the sandbox
-    'bash', '-c', '--', command,
+    "bash",
+    "-c",
+    "--",
+    command,
   );
 
   return args;
@@ -177,26 +201,31 @@ function buildBwrapArgs(workingDir: string, command: string, allowNetwork: boole
  * macOS sandbox-exec (SBPL profiles) and Linux bwrap (bubblewrap).
  */
 export class NativeBackend implements SandboxBackend {
-  wrap(command: string, workingDir: string, options?: WrapOptions): SandboxResult {
-    const allowNetwork = options?.networkMode === 'proxied';
+  wrap(
+    command: string,
+    workingDir: string,
+    options?: WrapOptions,
+  ): SandboxResult {
+    const allowNetwork = options?.networkMode === "proxied";
 
     if (isMacOS()) {
       const profile = getProfilePath(workingDir, allowNetwork);
       return {
-        command: 'sandbox-exec',
-        args: ['-f', profile, 'bash', '-c', '--', command],
+        command: "sandbox-exec",
+        args: ["-f", profile, "bash", "-c", "--", command],
         sandboxed: true,
       };
     }
 
     if (isLinux()) {
       if (!isBwrapAvailable()) {
-        const msg = 'Sandbox is enabled but bwrap is not available or cannot create namespaces. Refusing to execute unsandboxed. Install bubblewrap (for example: apt install bubblewrap), or disable sandboxing.';
+        const msg =
+          "Sandbox is enabled but bwrap is not available or cannot create namespaces. Refusing to execute unsandboxed. Install bubblewrap (for example: apt install bubblewrap), or disable sandboxing.";
         log.error(msg);
-        throw new ToolError(msg, 'bash');
+        throw new ToolError(msg, "bash");
       }
       return {
-        command: 'bwrap',
+        command: "bwrap",
         args: buildBwrapArgs(workingDir, command, allowNetwork),
         sandboxed: true,
       };
@@ -204,6 +233,6 @@ export class NativeBackend implements SandboxBackend {
 
     const msg = `Sandbox is enabled but not supported on this platform (${process.platform}). Refusing to execute unsandboxed. Disable sandboxing to run shell commands.`;
     log.error(msg);
-    throw new ToolError(msg, 'bash');
+    throw new ToolError(msg, "bash");
   }
 }

@@ -16,40 +16,50 @@ import type {
   ApprovalConversationDisposition,
   ApprovalConversationGenerator,
   ApprovalConversationResult,
-} from './http-types.js';
+} from "./http-types.js";
 
-const VALID_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> = new Set([
-  'keep_pending',
-  'approve_once',
-  'approve_10m',
-  'approve_thread',
-  'approve_always',
-  'reject',
-]);
+const VALID_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> =
+  new Set([
+    "keep_pending",
+    "approve_once",
+    "approve_10m",
+    "approve_thread",
+    "approve_always",
+    "reject",
+  ]);
 
 /** Dispositions that represent an actual decision (not just "keep waiting"). */
-const DECISION_BEARING_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> = new Set([
-  'approve_once',
-  'approve_10m',
-  'approve_thread',
-  'approve_always',
-  'reject',
-]);
+const DECISION_BEARING_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> =
+  new Set([
+    "approve_once",
+    "approve_10m",
+    "approve_thread",
+    "approve_always",
+    "reject",
+  ]);
 
 const FAIL_CLOSED_REPLY =
   "I couldn't process that. Please reply with approve, deny, or cancel to decide on the pending request.";
 
 function failClosed(): ApprovalConversationResult {
-  return { disposition: 'keep_pending', replyText: FAIL_CLOSED_REPLY };
+  return { disposition: "keep_pending", replyText: FAIL_CLOSED_REPLY };
 }
 
 function isValidResult(value: unknown): value is ApprovalConversationResult {
-  if (!value || typeof value !== 'object') return false;
+  if (!value || typeof value !== "object") return false;
   const obj = value as Record<string, unknown>;
-  if (typeof obj.disposition !== 'string') return false;
-  if (!VALID_DISPOSITIONS.has(obj.disposition as ApprovalConversationDisposition)) return false;
-  if (typeof obj.replyText !== 'string' || obj.replyText.trim().length === 0) return false;
-  if (obj.targetRequestId !== undefined && typeof obj.targetRequestId !== 'string') return false;
+  if (typeof obj.disposition !== "string") return false;
+  if (
+    !VALID_DISPOSITIONS.has(obj.disposition as ApprovalConversationDisposition)
+  )
+    return false;
+  if (typeof obj.replyText !== "string" || obj.replyText.trim().length === 0)
+    return false;
+  if (
+    obj.targetRequestId !== undefined &&
+    typeof obj.targetRequestId !== "string"
+  )
+    return false;
   return true;
 }
 
@@ -79,8 +89,8 @@ export async function runApprovalConversationTurn(
   // Enforce allowed-actions policy: the model must not return a disposition
   // that the caller did not offer (keep_pending is always acceptable).
   if (
-    result.disposition !== 'keep_pending'
-    && !context.allowedActions.includes(result.disposition)
+    result.disposition !== "keep_pending" &&
+    !context.allowedActions.includes(result.disposition)
   ) {
     return failClosed();
   }
@@ -90,9 +100,12 @@ export async function runApprovalConversationTurn(
   // 2. When targetRequestId is present, it must match a known pending approval
   //    regardless of how many approvals are pending.
   if (DECISION_BEARING_DISPOSITIONS.has(result.disposition)) {
-    if (context.pendingApprovals.length > 1 && !result.targetRequestId) return failClosed();
+    if (context.pendingApprovals.length > 1 && !result.targetRequestId)
+      return failClosed();
     if (result.targetRequestId) {
-      const validRequestIds = new Set(context.pendingApprovals.map((p) => p.requestId));
+      const validRequestIds = new Set(
+        context.pendingApprovals.map((p) => p.requestId),
+      );
       if (!validRequestIds.has(result.targetRequestId)) return failClosed();
     }
   }

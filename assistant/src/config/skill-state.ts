@@ -1,9 +1,9 @@
-import { isAssistantFeatureFlagEnabled } from './assistant-feature-flags.js';
-import type { AssistantConfig, SkillEntryConfig } from './schema.js';
-import type { SkillSummary } from './skills.js';
-import { checkSkillRequirements } from './skills.js';
+import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
+import type { AssistantConfig, SkillEntryConfig } from "./schema.js";
+import type { SkillSummary } from "./skills.js";
+import { checkSkillRequirements } from "./skills.js";
 
-export type SkillState = 'enabled' | 'disabled' | 'degraded' | 'available';
+export type SkillState = "enabled" | "disabled" | "degraded" | "available";
 
 export interface ResolvedSkill {
   summary: SkillSummary;
@@ -18,7 +18,7 @@ export interface ResolvedSkill {
 // gated by the `sms` flag so that the macOS Settings SMS toggle controls
 // both the channel UI and the setup skill.
 const SKILL_FLAG_KEY_OVERRIDES: Record<string, string> = {
-  'sms-setup': 'feature_flags.sms.enabled',
+  "sms-setup": "feature_flags.sms.enabled",
 };
 
 /**
@@ -28,7 +28,9 @@ const SKILL_FLAG_KEY_OVERRIDES: Record<string, string> = {
  * can perform the same mapping without duplicating the override table.
  */
 export function skillFlagKey(skillId: string): string {
-  return SKILL_FLAG_KEY_OVERRIDES[skillId] ?? `feature_flags.${skillId}.enabled`;
+  return (
+    SKILL_FLAG_KEY_OVERRIDES[skillId] ?? `feature_flags.${skillId}.enabled`
+  );
 }
 
 /**
@@ -37,7 +39,10 @@ export function skillFlagKey(skillId: string): string {
  * Thin backward-compatible wrapper that delegates to the canonical resolver.
  * Kept to avoid breaking existing call sites during migration.
  */
-export function isSkillFeatureEnabled(skillId: string, config: AssistantConfig): boolean {
+export function isSkillFeatureEnabled(
+  skillId: string,
+  config: AssistantConfig,
+): boolean {
   return isAssistantFeatureFlagEnabled(skillFlagKey(skillId), config);
 }
 
@@ -46,7 +51,10 @@ export function resolveSkillStates(
   config: AssistantConfig,
 ): ResolvedSkill[] {
   const results: ResolvedSkill[] = [];
-  const { entries, allowBundled } = config.skills ?? { entries: {}, allowBundled: null };
+  const { entries, allowBundled } = config.skills ?? {
+    entries: {},
+    allowBundled: null,
+  };
 
   for (const skill of catalog) {
     // Assistant feature flag gate: if the flag is explicitly OFF, skip this skill entirely
@@ -55,7 +63,11 @@ export function resolveSkillStates(
     }
 
     // Filter bundled skills by allowlist
-    if (skill.source === 'bundled' && allowBundled != null && !allowBundled.includes(skill.id)) {
+    if (
+      skill.source === "bundled" &&
+      allowBundled != null &&
+      !allowBundled.includes(skill.id)
+    ) {
       continue;
     }
 
@@ -64,17 +76,17 @@ export function resolveSkillStates(
 
     // Determine enabled state
     let isEnabled: boolean;
-    if (entry && typeof entry.enabled === 'boolean') {
+    if (entry && typeof entry.enabled === "boolean") {
       isEnabled = entry.enabled;
     } else {
       // Default: bundled and managed (user-installed) skills are enabled, others are disabled
-      isEnabled = skill.source === 'bundled' || skill.source === 'managed';
+      isEnabled = skill.source === "bundled" || skill.source === "managed";
     }
 
     if (!isEnabled) {
       results.push({
         summary: skill,
-        state: 'disabled',
+        state: "disabled",
         degraded: false,
         configEntry: entry,
       });
@@ -88,7 +100,7 @@ export function resolveSkillStates(
     if (!reqCheck.eligible) {
       results.push({
         summary: skill,
-        state: 'degraded',
+        state: "degraded",
         degraded: true,
         missingRequirements: reqCheck.missing,
         configEntry: entry,
@@ -96,7 +108,7 @@ export function resolveSkillStates(
     } else {
       results.push({
         summary: skill,
-        state: 'enabled',
+        state: "enabled",
         degraded: false,
         configEntry: entry,
       });

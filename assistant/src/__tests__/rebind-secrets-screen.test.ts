@@ -79,6 +79,7 @@ function makePreflightSuccess(): ImportPreflightResponse {
       files_to_create: 1,
       files_to_overwrite: 1,
       files_unchanged: 1,
+      files_to_skip: 0,
     },
     files: [
       {
@@ -546,9 +547,9 @@ describe("completeMigration", () => {
 describe("goBackToTransfer", () => {
   test("navigates back to transfer from rebind-secrets", () => {
     const state = advanceTo("rebind-secrets");
-    const result = goBackToTransfer(state);
-    expect(result.currentStep).toBe("transfer");
-    expect(result.steps["rebind-secrets"].status).toBe("idle");
+    const { wizardState } = goBackToTransfer(state);
+    expect(wizardState.currentStep).toBe("transfer");
+    expect(wizardState.steps["rebind-secrets"].status).toBe("idle");
   });
 
   test("clears export and import results when going back to transfer", () => {
@@ -563,9 +564,9 @@ describe("goBackToTransfer", () => {
       },
       importResult: makeImportSuccess(),
     };
-    const result = goBackToTransfer(state);
-    expect(result.exportResult).toBeUndefined();
-    expect(result.importResult).toBeUndefined();
+    const { wizardState } = goBackToTransfer(state);
+    expect(wizardState.exportResult).toBeUndefined();
+    expect(wizardState.importResult).toBeUndefined();
   });
 
   test("preserves validation and preflight results when going back to transfer", () => {
@@ -575,9 +576,18 @@ describe("goBackToTransfer", () => {
       validateResult: makeValidateSuccess(),
       preflightResult: makePreflightSuccess(),
     };
-    const result = goBackToTransfer(state);
-    expect(result.validateResult).toBeDefined();
-    expect(result.preflightResult).toBeDefined();
+    const { wizardState } = goBackToTransfer(state);
+    expect(wizardState.validateResult).toBeDefined();
+    expect(wizardState.preflightResult).toBeDefined();
+  });
+
+  test("resets task completion state when going back to transfer", () => {
+    const state = advanceTo("rebind-secrets");
+    const { completionState } = goBackToTransfer(state);
+    const taskIds = getTaskIds();
+    for (const id of taskIds) {
+      expect(completionState[id]).toBe(false);
+    }
   });
 });
 

@@ -11,12 +11,12 @@
  * a per-user OAuth token.
  */
 
-import { getGatewayInternalBaseUrl } from '../../../config/env.js';
-import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
-import * as externalConversationStore from '../../../memory/external-conversation-store.js';
-import { mintDaemonDeliveryToken } from '../../../runtime/auth/token-service.js';
-import { getSecureKey } from '../../../security/secure-keys.js';
-import type { MessagingProvider } from '../../provider.js';
+import { getGatewayInternalBaseUrl } from "../../../config/env.js";
+import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
+import * as externalConversationStore from "../../../memory/external-conversation-store.js";
+import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
+import { getSecureKey } from "../../../security/secure-keys.js";
+import type { MessagingProvider } from "../../provider.js";
 import type {
   ConnectionInfo,
   Conversation,
@@ -27,8 +27,8 @@ import type {
   SearchResult,
   SendOptions,
   SendResult,
-} from '../../provider-types.js';
-import * as telegram from './client.js';
+} from "../../provider-types.js";
+import * as telegram from "./client.js";
 
 /** Resolve the gateway base URL, preferring GATEWAY_INTERNAL_BASE_URL if set. */
 function getGatewayUrl(): string {
@@ -42,14 +42,14 @@ function getBearerToken(): string {
 
 /** Read the Telegram bot token from the credential vault. */
 function getBotToken(): string | undefined {
-  return getSecureKey('credential:telegram:bot_token');
+  return getSecureKey("credential:telegram:bot_token");
 }
 
 export const telegramBotMessagingProvider: MessagingProvider = {
-  id: 'telegram',
-  displayName: 'Telegram',
-  credentialService: 'telegram',
-  capabilities: new Set(['send']),
+  id: "telegram",
+  displayName: "Telegram",
+  credentialService: "telegram",
+  capabilities: new Set(["send"]),
 
   /**
    * Custom connectivity check. The standard registry check looks for
@@ -62,7 +62,10 @@ export const telegramBotMessagingProvider: MessagingProvider = {
    * secret, so partial credentials would cause every send to fail.
    */
   isConnected(): boolean {
-    return getBotToken() !== undefined && !!getSecureKey('credential:telegram:webhook_secret');
+    return (
+      getBotToken() !== undefined &&
+      !!getSecureKey("credential:telegram:webhook_secret")
+    );
   },
 
   async testConnection(_token: string): Promise<ConnectionInfo> {
@@ -70,9 +73,11 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     if (!botToken) {
       return {
         connected: false,
-        user: 'unknown',
-        platform: 'telegram',
-        metadata: { error: 'No bot token found. Run the telegram-setup skill.' },
+        user: "unknown",
+        platform: "telegram",
+        metadata: {
+          error: "No bot token found. Run the telegram-setup skill.",
+        },
       };
     }
 
@@ -81,16 +86,16 @@ export const telegramBotMessagingProvider: MessagingProvider = {
       if (!resp.ok || !resp.result) {
         return {
           connected: false,
-          user: 'unknown',
-          platform: 'telegram',
-          metadata: { error: resp.description ?? 'getMe failed' },
+          user: "unknown",
+          platform: "telegram",
+          metadata: { error: resp.description ?? "getMe failed" },
         };
       }
 
       return {
         connected: true,
         user: resp.result.username ?? resp.result.first_name,
-        platform: 'telegram',
+        platform: "telegram",
         metadata: {
           botId: resp.result.id,
           botUsername: resp.result.username,
@@ -100,14 +105,19 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     } catch (e) {
       return {
         connected: false,
-        user: 'unknown',
-        platform: 'telegram',
-        metadata: { error: e instanceof Error ? e.message : 'getMe failed' },
+        user: "unknown",
+        platform: "telegram",
+        metadata: { error: e instanceof Error ? e.message : "getMe failed" },
       };
     }
   },
 
-  async sendMessage(_token: string, conversationId: string, text: string, _options?: SendOptions): Promise<SendResult> {
+  async sendMessage(
+    _token: string,
+    conversationId: string,
+    text: string,
+    _options?: SendOptions,
+  ): Promise<SendResult> {
     const gatewayUrl = getGatewayUrl();
     const bearerToken = getBearerToken();
 
@@ -117,9 +127,10 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     // resurrected when an outbound message is sent. This ensures the
     // conversation key mapping and binding exist for the next inbound.
     try {
-      const sourceChannel = 'telegram';
+      const sourceChannel = "telegram";
       const conversationKey = `${sourceChannel}:${conversationId}`;
-      const { conversationId: internalId } = getOrCreateConversation(conversationKey);
+      const { conversationId: internalId } =
+        getOrCreateConversation(conversationKey);
       externalConversationStore.upsertOutboundBinding({
         conversationId: internalId,
         sourceChannel,
@@ -139,17 +150,28 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   // Telegram Bot API does not support listing conversations. Bots only
   // interact with chats where users have initiated contact or the bot
   // has been added to a group.
-  async listConversations(_token: string, _options?: ListOptions): Promise<Conversation[]> {
+  async listConversations(
+    _token: string,
+    _options?: ListOptions,
+  ): Promise<Conversation[]> {
     return [];
   },
 
   // Telegram Bot API does not provide message history retrieval.
-  async getHistory(_token: string, _conversationId: string, _options?: HistoryOptions): Promise<Message[]> {
+  async getHistory(
+    _token: string,
+    _conversationId: string,
+    _options?: HistoryOptions,
+  ): Promise<Message[]> {
     return [];
   },
 
   // Telegram Bot API does not support message search.
-  async search(_token: string, _query: string, _options?: SearchOptions): Promise<SearchResult> {
+  async search(
+    _token: string,
+    _query: string,
+    _options?: SearchOptions,
+  ): Promise<SearchResult> {
     return { total: 0, messages: [], hasMore: false };
   },
 };

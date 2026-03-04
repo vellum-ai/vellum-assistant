@@ -1,11 +1,11 @@
-import type { ProductSearchResult } from './client.js';
+import type { ProductSearchResult } from "./client.js";
 import {
   AMAZON_BASE,
   cdpEval,
   handleResult,
   prepareRequest,
   runWithBackoff,
-} from './client.js';
+} from "./client.js";
 
 /**
  * Search Amazon for products.
@@ -27,7 +27,9 @@ export async function search(
     const script = `
       (async function() {
         try {
-          var resp = await fetch(${JSON.stringify(url)}, { credentials: 'include' });
+          var resp = await fetch(${JSON.stringify(
+            url,
+          )}, { credentials: 'include' });
           if (resp.status === 401) return JSON.stringify({ __status: 401, __error: true });
           if (resp.status === 403) return JSON.stringify({ __status: 403, __error: true });
           var html = await resp.text();
@@ -67,7 +69,7 @@ export async function search(
       })()
     `;
 
-    const result = await cdpEval(tabId, script) as Record<string, unknown>;
+    const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
     return result.__data as ProductSearchResult[];
   });

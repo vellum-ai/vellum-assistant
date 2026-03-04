@@ -1,7 +1,7 @@
-import { getLogger } from '../util/logger.js';
-import { rawGet, rawRun } from './db.js';
+import { getLogger } from "../util/logger.js";
+import { rawGet, rawRun } from "./db.js";
 
-const log = getLogger('fts-reconciler');
+const log = getLogger("fts-reconciler");
 
 export interface FtsReconciliationResult {
   table: string;
@@ -28,10 +28,21 @@ function reconcileTable(opts: {
   baseIdColumn: string;
   baseContentColumn: string;
 }): FtsReconciliationResult {
-  const { ftsTable, ftsIdColumn, ftsContentColumn, baseTable, baseIdColumn, baseContentColumn } = opts;
+  const {
+    ftsTable,
+    ftsIdColumn,
+    ftsContentColumn,
+    baseTable,
+    baseIdColumn,
+    baseContentColumn,
+  } = opts;
 
-  const baseCount = (rawGet<{ c: number }>(`SELECT COUNT(*) AS c FROM ${baseTable}`) ?? { c: 0 }).c;
-  const ftsCount = (rawGet<{ c: number }>(`SELECT COUNT(*) AS c FROM ${ftsTable}`) ?? { c: 0 }).c;
+  const baseCount = (
+    rawGet<{ c: number }>(`SELECT COUNT(*) AS c FROM ${baseTable}`) ?? { c: 0 }
+  ).c;
+  const ftsCount = (
+    rawGet<{ c: number }>(`SELECT COUNT(*) AS c FROM ${ftsTable}`) ?? { c: 0 }
+  ).c;
 
   // Find base table rows missing from the FTS index
   const missingInserted = rawRun(/*sql*/ `
@@ -75,7 +86,14 @@ function reconcileTable(opts: {
     `);
   }
 
-  return { table: ftsTable, baseCount, ftsCount, missingInserted, orphansRemoved, staleRefreshed: staleDeleted };
+  return {
+    table: ftsTable,
+    baseCount,
+    ftsCount,
+    missingInserted,
+    orphansRemoved,
+    staleRefreshed: staleDeleted,
+  };
 }
 
 /**
@@ -89,47 +107,58 @@ export function reconcileFtsIndexes(): FtsReconciliationResult[] {
   // memory_segment_fts tracks memory_segments
   try {
     const memResult = reconcileTable({
-      ftsTable: 'memory_segment_fts',
-      ftsIdColumn: 'segment_id',
-      ftsContentColumn: 'text',
-      baseTable: 'memory_segments',
-      baseIdColumn: 'id',
-      baseContentColumn: 'text',
+      ftsTable: "memory_segment_fts",
+      ftsIdColumn: "segment_id",
+      ftsContentColumn: "text",
+      baseTable: "memory_segments",
+      baseIdColumn: "id",
+      baseContentColumn: "text",
     });
     results.push(memResult);
-    if (memResult.missingInserted > 0 || memResult.orphansRemoved > 0 || memResult.staleRefreshed > 0) {
-      log.info(memResult, 'Reconciled memory_segment_fts');
+    if (
+      memResult.missingInserted > 0 ||
+      memResult.orphansRemoved > 0 ||
+      memResult.staleRefreshed > 0
+    ) {
+      log.info(memResult, "Reconciled memory_segment_fts");
     } else {
-      log.debug(memResult, 'memory_segment_fts is in sync');
+      log.debug(memResult, "memory_segment_fts is in sync");
     }
   } catch (err) {
-    log.error({ err }, 'Failed to reconcile memory_segment_fts');
+    log.error({ err }, "Failed to reconcile memory_segment_fts");
     errors.push(err);
   }
 
   // messages_fts tracks messages
   try {
     const msgResult = reconcileTable({
-      ftsTable: 'messages_fts',
-      ftsIdColumn: 'message_id',
-      ftsContentColumn: 'content',
-      baseTable: 'messages',
-      baseIdColumn: 'id',
-      baseContentColumn: 'content',
+      ftsTable: "messages_fts",
+      ftsIdColumn: "message_id",
+      ftsContentColumn: "content",
+      baseTable: "messages",
+      baseIdColumn: "id",
+      baseContentColumn: "content",
     });
     results.push(msgResult);
-    if (msgResult.missingInserted > 0 || msgResult.orphansRemoved > 0 || msgResult.staleRefreshed > 0) {
-      log.info(msgResult, 'Reconciled messages_fts');
+    if (
+      msgResult.missingInserted > 0 ||
+      msgResult.orphansRemoved > 0 ||
+      msgResult.staleRefreshed > 0
+    ) {
+      log.info(msgResult, "Reconciled messages_fts");
     } else {
-      log.debug(msgResult, 'messages_fts is in sync');
+      log.debug(msgResult, "messages_fts is in sync");
     }
   } catch (err) {
-    log.error({ err }, 'Failed to reconcile messages_fts');
+    log.error({ err }, "Failed to reconcile messages_fts");
     errors.push(err);
   }
 
   if (errors.length > 0) {
-    throw new AggregateError(errors, `FTS reconciliation failed for ${errors.length} table(s)`);
+    throw new AggregateError(
+      errors,
+      `FTS reconciliation failed for ${errors.length} table(s)`,
+    );
   }
 
   return results;

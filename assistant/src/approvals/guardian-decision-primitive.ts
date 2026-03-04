@@ -25,39 +25,39 @@
  *   - Scoped grant minting only on explicit approve for requests with tool metadata
  */
 
-import type { ChannelId } from '../channels/types.js';
+import type { ChannelId } from "../channels/types.js";
 import {
   type CanonicalGuardianRequest,
   type CanonicalRequestStatus,
   getCanonicalGuardianRequest,
   resolveCanonicalGuardianRequest,
-} from '../memory/canonical-guardian-store.js';
+} from "../memory/canonical-guardian-store.js";
 import {
   type GuardianApprovalRequest,
   updateApprovalDecision,
-} from '../memory/channel-guardian-store.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+} from "../memory/channel-guardian-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
-} from '../runtime/channel-approval-types.js';
+} from "../runtime/channel-approval-types.js";
 import {
   getApprovalInfoByConversation,
   handleChannelDecision,
   type PendingApprovalInfo,
-} from '../runtime/channel-approvals.js';
-import type { ApplyGuardianDecisionResult } from '../runtime/guardian-decision-types.js';
-import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
-import { getLogger } from '../util/logger.js';
-import { mintGrantFromDecision } from './approval-primitive.js';
+} from "../runtime/channel-approvals.js";
+import type { ApplyGuardianDecisionResult } from "../runtime/guardian-decision-types.js";
+import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { getLogger } from "../util/logger.js";
+import { mintGrantFromDecision } from "./approval-primitive.js";
 import {
   type ActorContext,
   type ChannelDeliveryContext,
   getResolver,
   type ResolverEmissionContext,
-} from './guardian-request-resolvers.js';
+} from "./guardian-request-resolvers.js";
 
-const log = getLogger('guardian-decision-primitive');
+const log = getLogger("guardian-decision-primitive");
 
 /** TTL for scoped approval grants minted on guardian approve_once decisions. */
 export const GRANT_TTL_MS = 5 * 60 * 1000;
@@ -81,7 +81,8 @@ export function tryMintToolApprovalGrant(params: {
   decisionChannel: ChannelId;
   guardianExternalUserId: string;
 }): void {
-  const { approvalInfo, approval, decisionChannel, guardianExternalUserId } = params;
+  const { approvalInfo, approval, decisionChannel, guardianExternalUserId } =
+    params;
 
   if (!approvalInfo.toolName) {
     return;
@@ -89,18 +90,25 @@ export function tryMintToolApprovalGrant(params: {
 
   let inputDigest: string;
   try {
-    inputDigest = computeToolApprovalDigest(approvalInfo.toolName, approvalInfo.input);
+    inputDigest = computeToolApprovalDigest(
+      approvalInfo.toolName,
+      approvalInfo.input,
+    );
   } catch (err) {
     log.error(
-      { err, toolName: approvalInfo.toolName, conversationId: approval.conversationId },
-      'Failed to compute tool approval digest for grant minting (non-fatal)',
+      {
+        err,
+        toolName: approvalInfo.toolName,
+        conversationId: approval.conversationId,
+      },
+      "Failed to compute tool approval digest for grant minting (non-fatal)",
     );
     return;
   }
 
   const result = mintGrantFromDecision({
     assistantId: approval.assistantId,
-    scopeMode: 'tool_signature',
+    scopeMode: "tool_signature",
     toolName: approvalInfo.toolName,
     inputDigest,
     requestChannel: approval.channel,
@@ -115,13 +123,20 @@ export function tryMintToolApprovalGrant(params: {
 
   if (result.ok) {
     log.info(
-      { toolName: approvalInfo.toolName, conversationId: approval.conversationId },
-      'Minted scoped approval grant for guardian tool-approval decision',
+      {
+        toolName: approvalInfo.toolName,
+        conversationId: approval.conversationId,
+      },
+      "Minted scoped approval grant for guardian tool-approval decision",
     );
   } else {
     log.error(
-      { reason: result.reason, toolName: approvalInfo.toolName, conversationId: approval.conversationId },
-      'Failed to mint scoped approval grant (non-fatal)',
+      {
+        reason: result.reason,
+        toolName: approvalInfo.toolName,
+        conversationId: approval.conversationId,
+      },
+      "Failed to mint scoped approval grant (non-fatal)",
     );
   }
 }
@@ -159,20 +174,30 @@ export interface ApplyGuardianDecisionParams {
  *
  * Returns a structured result so callers can handle stale/race outcomes.
  */
-export function applyGuardianDecision(params: ApplyGuardianDecisionParams): ApplyGuardianDecisionResult {
-  const { approval, decision, actorExternalUserId, actorChannel, decisionContext } = params;
+export function applyGuardianDecision(
+  params: ApplyGuardianDecisionParams,
+): ApplyGuardianDecisionResult {
+  const {
+    approval,
+    decision,
+    actorExternalUserId,
+    actorChannel,
+    decisionContext,
+  } = params;
 
   // Guardians cannot grant broad allow modes on behalf of requesters -- downgrade.
   const effectiveDecision: ApprovalDecisionResult =
-    decision.action === 'approve_always' || decision.action === 'approve_10m' || decision.action === 'approve_thread'
-      ? { ...decision, action: 'approve_once' }
+    decision.action === "approve_always" ||
+    decision.action === "approve_10m" ||
+    decision.action === "approve_thread"
+      ? { ...decision, action: "approve_once" }
       : decision;
 
   // Capture pending approval info before handleChannelDecision resolves
   // (and removes) the pending interaction. Needed for grant minting.
   const approvalInfo = getApprovalInfoByConversation(approval.conversationId);
   const matchedInfo = effectiveDecision.requestId
-    ? approvalInfo.find(a => a.requestId === effectiveDecision.requestId)
+    ? approvalInfo.find((a) => a.requestId === effectiveDecision.requestId)
     : approvalInfo[0];
 
   // Apply the decision to the underlying session
@@ -183,11 +208,18 @@ export function applyGuardianDecision(params: ApplyGuardianDecisionParams): Appl
   );
 
   if (!result.applied) {
-    return { applied: false, reason: 'stale', requestId: effectiveDecision.requestId };
+    return {
+      applied: false,
+      reason: "stale",
+      requestId: effectiveDecision.requestId,
+    };
   }
 
   // Update the guardian approval request record
-  const approvalStatus = effectiveDecision.action === 'reject' ? 'denied' as const : 'approved' as const;
+  const approvalStatus =
+    effectiveDecision.action === "reject"
+      ? ("denied" as const)
+      : ("approved" as const);
   updateApprovalDecision(approval.id, {
     status: approvalStatus,
     decidedByExternalUserId: actorExternalUserId,
@@ -196,7 +228,11 @@ export function applyGuardianDecision(params: ApplyGuardianDecisionParams): Appl
   // Mint a scoped grant when a guardian approves a tool-approval request.
   // Skip when actorExternalUserId is undefined -- minting a grant without
   // a known guardian identity is meaningless (e.g. requester self-cancel).
-  if (effectiveDecision.action !== 'reject' && matchedInfo && actorExternalUserId) {
+  if (
+    effectiveDecision.action !== "reject" &&
+    matchedInfo &&
+    actorExternalUserId
+  ) {
     tryMintToolApprovalGrant({
       approvalInfo: matchedInfo,
       approval,
@@ -238,10 +274,10 @@ export function mintCanonicalRequestGrant(params: {
 
   const result = mintGrantFromDecision({
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-    scopeMode: 'tool_signature',
+    scopeMode: "tool_signature",
     toolName: request.toolName,
     inputDigest: request.inputDigest,
-    requestChannel: request.sourceChannel ?? 'unknown',
+    requestChannel: request.sourceChannel ?? "unknown",
     decisionChannel: actorChannel,
     executionChannel: null,
     conversationId: request.conversationId ?? null,
@@ -254,24 +290,24 @@ export function mintCanonicalRequestGrant(params: {
   if (result.ok) {
     log.info(
       {
-        event: 'canonical_grant_minted',
+        event: "canonical_grant_minted",
         requestId: request.id,
         toolName: request.toolName,
         conversationId: request.conversationId,
       },
-      'Minted scoped approval grant for canonical guardian request',
+      "Minted scoped approval grant for canonical guardian request",
     );
     return { minted: true };
   }
 
   log.error(
     {
-      event: 'canonical_grant_mint_failed',
+      event: "canonical_grant_mint_failed",
       reason: result.reason,
       requestId: request.id,
       toolName: request.toolName,
     },
-    'Failed to mint scoped approval grant for canonical request (non-fatal)',
+    "Failed to mint scoped approval grant for canonical request (non-fatal)",
   );
   return { minted: false };
 }
@@ -282,11 +318,11 @@ export function mintCanonicalRequestGrant(params: {
 
 /** Valid actions for canonical guardian decisions. */
 const VALID_CANONICAL_ACTIONS: ReadonlySet<ApprovalAction> = new Set([
-  'approve_once',
-  'approve_10m',
-  'approve_thread',
-  'approve_always',
-  'reject',
+  "approve_once",
+  "approve_10m",
+  "approve_thread",
+  "approve_always",
+  "reject",
 ]);
 
 export interface ApplyCanonicalGuardianDecisionParams {
@@ -305,8 +341,24 @@ export interface ApplyCanonicalGuardianDecisionParams {
 }
 
 export type CanonicalDecisionResult =
-  | { applied: true; requestId: string; grantMinted: boolean; resolverFailed?: boolean; resolverFailureReason?: string; resolverReplyText?: string }
-  | { applied: false; reason: 'not_found' | 'already_resolved' | 'identity_mismatch' | 'invalid_action' | 'expired'; detail?: string };
+  | {
+      applied: true;
+      requestId: string;
+      grantMinted: boolean;
+      resolverFailed?: boolean;
+      resolverFailureReason?: string;
+      resolverReplyText?: string;
+    }
+  | {
+      applied: false;
+      reason:
+        | "not_found"
+        | "already_resolved"
+        | "identity_mismatch"
+        | "invalid_action"
+        | "expired";
+      detail?: string;
+    };
 
 /**
  * Apply a guardian decision through the canonical request primitive.
@@ -326,34 +378,49 @@ export type CanonicalDecisionResult =
 export async function applyCanonicalGuardianDecision(
   params: ApplyCanonicalGuardianDecisionParams,
 ): Promise<CanonicalDecisionResult> {
-  const { requestId, action, actorContext, userText, channelDeliveryContext, emissionContext } = params;
+  const {
+    requestId,
+    action,
+    actorContext,
+    userText,
+    channelDeliveryContext,
+    emissionContext,
+  } = params;
 
   // 1. Look up the canonical request
   const request = getCanonicalGuardianRequest(requestId);
   if (!request) {
     log.warn(
-      { event: 'canonical_decision_not_found', requestId },
-      'Canonical request not found',
+      { event: "canonical_decision_not_found", requestId },
+      "Canonical request not found",
     );
-    return { applied: false, reason: 'not_found' };
+    return { applied: false, reason: "not_found" };
   }
 
   // 2a. Validate status is pending
-  if (request.status !== 'pending') {
+  if (request.status !== "pending") {
     log.info(
-      { event: 'canonical_decision_already_resolved', requestId, currentStatus: request.status },
-      'Canonical request already resolved',
+      {
+        event: "canonical_decision_already_resolved",
+        requestId,
+        currentStatus: request.status,
+      },
+      "Canonical request already resolved",
     );
-    return { applied: false, reason: 'already_resolved' };
+    return { applied: false, reason: "already_resolved" };
   }
 
   // 2b. Validate action is valid
   if (!VALID_CANONICAL_ACTIONS.has(action)) {
     log.warn(
-      { event: 'canonical_decision_invalid_action', requestId, action },
-      'Invalid action for canonical decision',
+      { event: "canonical_decision_invalid_action", requestId, action },
+      "Invalid action for canonical decision",
     );
-    return { applied: false, reason: 'invalid_action', detail: `invalid action: ${action}` };
+    return {
+      applied: false,
+      reason: "invalid_action",
+      detail: `invalid action: ${action}`,
+    };
   }
 
   // 2c. Principal-based authorization: actor.guardianPrincipalId must match
@@ -363,64 +430,81 @@ export async function applyCanonicalGuardianDecision(
   if (!request.guardianPrincipalId) {
     log.warn(
       {
-        event: 'canonical_decision_missing_request_principal',
+        event: "canonical_decision_missing_request_principal",
         requestId,
         kind: request.kind,
         sourceType: request.sourceType,
       },
-      'Canonical request missing guardianPrincipalId; rejecting decision',
+      "Canonical request missing guardianPrincipalId; rejecting decision",
     );
-    return { applied: false, reason: 'identity_mismatch', detail: 'request missing guardianPrincipalId' };
+    return {
+      applied: false,
+      reason: "identity_mismatch",
+      detail: "request missing guardianPrincipalId",
+    };
   }
 
   if (!actorContext.guardianPrincipalId) {
     log.warn(
       {
-        event: 'canonical_decision_missing_actor_principal',
+        event: "canonical_decision_missing_actor_principal",
         requestId,
         actorChannel: actorContext.channel,
       },
-      'Actor missing guardianPrincipalId; rejecting decision',
+      "Actor missing guardianPrincipalId; rejecting decision",
     );
-    return { applied: false, reason: 'identity_mismatch', detail: 'actor missing guardianPrincipalId' };
+    return {
+      applied: false,
+      reason: "identity_mismatch",
+      detail: "actor missing guardianPrincipalId",
+    };
   }
 
   if (actorContext.guardianPrincipalId !== request.guardianPrincipalId) {
     log.warn(
       {
-        event: 'canonical_decision_principal_mismatch',
+        event: "canonical_decision_principal_mismatch",
         requestId,
         expectedPrincipal: request.guardianPrincipalId,
         actualPrincipal: actorContext.guardianPrincipalId,
       },
-      'Actor principal does not match request principal',
+      "Actor principal does not match request principal",
     );
-    return { applied: false, reason: 'identity_mismatch', detail: 'principal mismatch' };
+    return {
+      applied: false,
+      reason: "identity_mismatch",
+      detail: "principal mismatch",
+    };
   }
 
   // 2d. Check expiry
   if (request.expiresAt && new Date(request.expiresAt).getTime() < Date.now()) {
     log.info(
-      { event: 'canonical_decision_expired', requestId, expiresAt: request.expiresAt },
-      'Canonical request has expired',
+      {
+        event: "canonical_decision_expired",
+        requestId,
+        expiresAt: request.expiresAt,
+      },
+      "Canonical request has expired",
     );
-    return { applied: false, reason: 'expired' };
+    return { applied: false, reason: "expired" };
   }
 
   // 3. Downgrade approve_always and temporary modes to approve_once for
   // guardian-on-behalf requests. Guardians cannot grant broad allow modes
   // (permanent, timed, or thread-scoped) on behalf of requesters.
   const effectiveAction: ApprovalAction =
-    action === 'approve_always' || action === 'approve_10m' || action === 'approve_thread'
-      ? 'approve_once'
+    action === "approve_always" ||
+    action === "approve_10m" ||
+    action === "approve_thread"
+      ? "approve_once"
       : action;
 
   // 4. CAS resolve: atomically transition from 'pending' to terminal status
-  const targetStatus: CanonicalRequestStatus = effectiveAction === 'reject'
-    ? 'denied'
-    : 'approved';
+  const targetStatus: CanonicalRequestStatus =
+    effectiveAction === "reject" ? "denied" : "approved";
 
-  const resolved = resolveCanonicalGuardianRequest(requestId, 'pending', {
+  const resolved = resolveCanonicalGuardianRequest(requestId, "pending", {
     status: targetStatus,
     answerText: userText,
     decidedByExternalUserId: actorContext.externalUserId,
@@ -430,10 +514,10 @@ export async function applyCanonicalGuardianDecision(
   if (!resolved) {
     // CAS failed — someone else resolved it first
     log.info(
-      { event: 'canonical_decision_cas_failed', requestId },
-      'CAS resolution failed (race condition — first writer wins)',
+      { event: "canonical_decision_cas_failed", requestId },
+      "CAS resolution failed (race condition — first writer wins)",
     );
-    return { applied: false, reason: 'already_resolved' };
+    return { applied: false, reason: "already_resolved" };
   }
 
   // 5. Dispatch to kind-specific resolver
@@ -453,7 +537,7 @@ export async function applyCanonicalGuardianDecision(
     if (!resolverResult.ok) {
       log.warn(
         {
-          event: 'canonical_decision_resolver_failed',
+          event: "canonical_decision_resolver_failed",
           requestId,
           kind: request.kind,
           reason: resolverResult.reason,
@@ -471,7 +555,11 @@ export async function applyCanonicalGuardianDecision(
     }
   } else {
     log.info(
-      { event: 'canonical_decision_no_resolver', requestId, kind: request.kind },
+      {
+        event: "canonical_decision_no_resolver",
+        requestId,
+        kind: request.kind,
+      },
       `No resolver registered for kind '${request.kind}' — CAS resolution only`,
     );
   }
@@ -481,18 +569,21 @@ export async function applyCanonicalGuardianDecision(
   // would allow the tool to execute without the intended resolver action
   // (e.g. answerCall) having succeeded.
   let grantMinted = false;
-  if (effectiveAction !== 'reject' && !resolverFailed) {
+  if (effectiveAction !== "reject" && !resolverFailed) {
     const grantResult = mintCanonicalRequestGrant({
       request: resolved,
       actorChannel: actorContext.channel,
-      guardianExternalUserId: actorContext.externalUserId ?? resolved.guardianExternalUserId ?? undefined,
+      guardianExternalUserId:
+        actorContext.externalUserId ??
+        resolved.guardianExternalUserId ??
+        undefined,
     });
     grantMinted = grantResult.minted;
   }
 
   log.info(
     {
-      event: 'canonical_decision_applied',
+      event: "canonical_decision_applied",
       requestId,
       kind: request.kind,
       action: effectiveAction,
@@ -501,8 +592,8 @@ export async function applyCanonicalGuardianDecision(
       resolverFailed,
     },
     resolverFailed
-      ? 'Canonical guardian decision applied (CAS committed) but resolver failed'
-      : 'Canonical guardian decision applied successfully',
+      ? "Canonical guardian decision applied (CAS committed) but resolver failed"
+      : "Canonical guardian decision applied successfully",
   );
 
   return {

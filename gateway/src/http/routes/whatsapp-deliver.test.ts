@@ -3,7 +3,7 @@ import type { GatewayConfig } from "../../config.js";
 import { initSigningKey, mintToken } from "../../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
 // ---- Mocks ----
@@ -14,7 +14,9 @@ mock.module("../../whatsapp/send.js", () => ({
   sendWhatsAppReply: async (...args: unknown[]) => {
     sendWhatsAppReplyCalls.push(args);
   },
-  sendWhatsAppAttachments: mock(() => Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 })),
+  sendWhatsAppAttachments: mock(() =>
+    Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 }),
+  ),
 }));
 
 const { createWhatsAppDeliverHandler } = await import("./whatsapp-deliver.js");
@@ -24,9 +26,9 @@ const { createWhatsAppDeliverHandler } = await import("./whatsapp-deliver.js");
 /** Mint a valid daemon JWT for deliver auth. */
 function mintDeliverToken(): string {
   return mintToken({
-    aud: 'vellum-daemon',
-    sub: 'svc:gateway:self',
-    scope_profile: 'gateway_service_v1',
+    aud: "vellum-daemon",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -125,9 +127,12 @@ describe("/deliver/whatsapp", () => {
     const handler = createWhatsAppDeliverHandler(
       makeConfig({ whatsappDeliverAuthBypass: false }),
     );
-    const req = makeRequest({ to: "+15559876543", text: "hello" }, {
-      authorization: "Bearer wrong-token",
-    });
+    const req = makeRequest(
+      { to: "+15559876543", text: "hello" },
+      {
+        authorization: "Bearer wrong-token",
+      },
+    );
     const res = await handler(req);
     expect(res.status).toBe(401);
     const body = await res.json();
@@ -138,9 +143,12 @@ describe("/deliver/whatsapp", () => {
     const handler = createWhatsAppDeliverHandler(
       makeConfig({ whatsappDeliverAuthBypass: false }),
     );
-    const req = makeRequest({ to: "+15559876543", text: "hello" }, {
-      authorization: `Bearer ${TOKEN}`,
-    });
+    const req = makeRequest(
+      { to: "+15559876543", text: "hello" },
+      {
+        authorization: `Bearer ${TOKEN}`,
+      },
+    );
     const res = await handler(req);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -215,7 +223,10 @@ describe("/deliver/whatsapp", () => {
 
   it("accepts chatId as alias for to", async () => {
     const handler = createWhatsAppDeliverHandler(makeConfig());
-    const req = makeRequest({ chatId: "+15559876543", text: "hello via chatId" });
+    const req = makeRequest({
+      chatId: "+15559876543",
+      text: "hello via chatId",
+    });
     const res = await handler(req);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -276,13 +287,14 @@ describe("/deliver/whatsapp", () => {
       sendWhatsAppReply: async () => {
         throw new Error("WhatsApp API failure");
       },
-      sendWhatsAppAttachments: mock(() => Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 })),
+      sendWhatsAppAttachments: mock(() =>
+        Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 }),
+      ),
     }));
 
     // Re-import to get the handler with the throwing mock
-    const { createWhatsAppDeliverHandler: createHandler } = await import(
-      "./whatsapp-deliver.js"
-    );
+    const { createWhatsAppDeliverHandler: createHandler } =
+      await import("./whatsapp-deliver.js");
     const handler = createHandler(makeConfig());
     const req = makeRequest({ to: "+15559876543", text: "hello" });
     const res = await handler(req);
@@ -295,7 +307,9 @@ describe("/deliver/whatsapp", () => {
       sendWhatsAppReply: async (...args: unknown[]) => {
         sendWhatsAppReplyCalls.push(args);
       },
-      sendWhatsAppAttachments: mock(() => Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 })),
+      sendWhatsAppAttachments: mock(() =>
+        Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 }),
+      ),
     }));
   });
 
@@ -306,7 +320,11 @@ describe("/deliver/whatsapp", () => {
     expect(res.status).toBe(200);
 
     expect(sendWhatsAppReplyCalls).toHaveLength(1);
-    const [_config, to, text] = sendWhatsAppReplyCalls[0] as [GatewayConfig, string, string];
+    const [_config, to, text] = sendWhatsAppReplyCalls[0] as [
+      GatewayConfig,
+      string,
+      string,
+    ];
     expect(to).toBe("+15559876543");
     expect(text).toBe("Test message");
   });

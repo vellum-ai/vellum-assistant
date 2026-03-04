@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Add the `origin_interface` text column to `conversations` — nullable,
@@ -9,7 +9,9 @@ import type { DrizzleDb } from '../db-connection.js';
  */
 export function migrateAddOriginInterface(database: DrizzleDb): void {
   try {
-    database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN origin_interface TEXT`);
+    database.run(
+      /*sql*/ `ALTER TABLE conversations ADD COLUMN origin_interface TEXT`,
+    );
   } catch {
     // Column already exists — nothing to do.
   }

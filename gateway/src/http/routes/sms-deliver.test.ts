@@ -3,11 +3,16 @@ import type { GatewayConfig } from "../../config.js";
 import { initSigningKey, mintToken } from "../../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 
-const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
 
 mock.module("../../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
@@ -20,9 +25,9 @@ const { createSmsDeliverHandler } = await import("./sms-deliver.js");
 /** Mint a valid daemon JWT for deliver auth. */
 function mintDeliverToken(): string {
   return mintToken({
-    aud: 'vellum-daemon',
-    sub: 'svc:gateway:self',
-    scope_profile: 'gateway_service_v1',
+    aud: "vellum-daemon",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -94,10 +99,19 @@ afterEach(() => {
 
 function mockTwilioApi(overrides?: Record<string, unknown>) {
   fetchMock = mock(async () => {
-    return new Response(JSON.stringify({ sid: "SM-sent", status: "queued", error_code: null, error_message: null, ...overrides }), {
-      status: 201,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        sid: "SM-sent",
+        status: "queued",
+        error_code: null,
+        error_message: null,
+        ...overrides,
+      }),
+      {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      },
+    );
   });
 }
 
@@ -122,9 +136,12 @@ describe("/deliver/sms", () => {
 
   it("rejects request with wrong bearer token with 401", async () => {
     const handler = createSmsDeliverHandler(makeConfig());
-    const req = makeRequest({ to: "+15559876543", text: "hello" }, {
-      authorization: "Bearer wrong-token",
-    });
+    const req = makeRequest(
+      { to: "+15559876543", text: "hello" },
+      {
+        authorization: "Bearer wrong-token",
+      },
+    );
     const res = await handler(req);
     expect(res.status).toBe(401);
   });
@@ -132,9 +149,12 @@ describe("/deliver/sms", () => {
   it("accepts request with correct bearer token", async () => {
     mockTwilioApi();
     const handler = createSmsDeliverHandler(makeConfig());
-    const req = makeRequest({ to: "+15559876543", text: "hello" }, {
-      authorization: `Bearer ${TOKEN}`,
-    });
+    const req = makeRequest(
+      { to: "+15559876543", text: "hello" },
+      {
+        authorization: `Bearer ${TOKEN}`,
+      },
+    );
     const res = await handler(req);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -223,19 +243,29 @@ describe("/deliver/sms", () => {
 
   it("accepts { chatId, text } and sends Twilio request to chatId", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-      fetchCalls.push({ url: urlStr, init: init ?? {} });
-      return new Response(JSON.stringify({ sid: "SM-sent" }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      });
-    });
+    fetchMock = mock(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : url.url;
+        fetchCalls.push({ url: urlStr, init: init ?? {} });
+        return new Response(JSON.stringify({ sid: "SM-sent" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
 
     const handler = createSmsDeliverHandler(
       makeConfig({ smsDeliverAuthBypass: true }),
     );
-    const req = makeRequest({ chatId: "+15559876543", text: "hello via chatId" }, {});
+    const req = makeRequest(
+      { chatId: "+15559876543", text: "hello via chatId" },
+      {},
+    );
     const res = await handler(req);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -255,21 +285,31 @@ describe("/deliver/sms", () => {
     const handler = createSmsDeliverHandler(
       makeConfig({ smsDeliverAuthBypass: true }),
     );
-    const req = makeRequest({ to: "+15551111111", chatId: "+15552222222", text: "both fields" }, {});
+    const req = makeRequest(
+      { to: "+15551111111", chatId: "+15552222222", text: "both fields" },
+      {},
+    );
     const res = await handler(req);
     expect(res.status).toBe(200);
   });
 
   it("sends correct Twilio API request", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-      fetchCalls.push({ url: urlStr, init: init ?? {} });
-      return new Response(JSON.stringify({ sid: "SM-sent" }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      });
-    });
+    fetchMock = mock(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : url.url;
+        fetchCalls.push({ url: urlStr, init: init ?? {} });
+        return new Response(JSON.stringify({ sid: "SM-sent" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
 
     const handler = createSmsDeliverHandler(
       makeConfig({ smsDeliverAuthBypass: true }),
@@ -290,14 +330,21 @@ describe("/deliver/sms", () => {
 
   it("uses assistant-specific From number when assistantId mapping exists", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-      fetchCalls.push({ url: urlStr, init: init ?? {} });
-      return new Response(JSON.stringify({ sid: "SM-sent" }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      });
-    });
+    fetchMock = mock(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : url.url;
+        fetchCalls.push({ url: urlStr, init: init ?? {} });
+        return new Response(JSON.stringify({ sid: "SM-sent" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
 
     const handler = createSmsDeliverHandler(
       makeConfig({
@@ -321,14 +368,21 @@ describe("/deliver/sms", () => {
 
   it("falls back to global From number when assistant mapping is missing", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-      fetchCalls.push({ url: urlStr, init: init ?? {} });
-      return new Response(JSON.stringify({ sid: "SM-sent" }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      });
-    });
+    fetchMock = mock(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : url.url;
+        fetchCalls.push({ url: urlStr, init: init ?? {} });
+        return new Response(JSON.stringify({ sid: "SM-sent" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
 
     const handler = createSmsDeliverHandler(
       makeConfig({
@@ -352,14 +406,21 @@ describe("/deliver/sms", () => {
 
   it("attachment-only request (no text) uses fallback text", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-      fetchCalls.push({ url: urlStr, init: init ?? {} });
-      return new Response(JSON.stringify({ sid: "SM-sent" }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      });
-    });
+    fetchMock = mock(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : url.url;
+        fetchCalls.push({ url: urlStr, init: init ?? {} });
+        return new Response(JSON.stringify({ sid: "SM-sent" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
 
     const handler = createSmsDeliverHandler(
       makeConfig({ smsDeliverAuthBypass: true }),
@@ -386,7 +447,12 @@ describe("/deliver/sms", () => {
   });
 
   it("returns enriched Twilio acceptance details in response", async () => {
-    mockTwilioApi({ sid: "SM-enrich-test", status: "queued", error_code: null, error_message: null });
+    mockTwilioApi({
+      sid: "SM-enrich-test",
+      status: "queued",
+      error_code: null,
+      error_message: null,
+    });
     const handler = createSmsDeliverHandler(
       makeConfig({ smsDeliverAuthBypass: true }),
     );
@@ -402,7 +468,12 @@ describe("/deliver/sms", () => {
   });
 
   it("returns Twilio error details in response when error_code is present", async () => {
-    mockTwilioApi({ sid: "SM-err-test", status: "failed", error_code: 30003, error_message: "Unreachable" });
+    mockTwilioApi({
+      sid: "SM-err-test",
+      status: "failed",
+      error_code: 30003,
+      error_message: "Unreachable",
+    });
     const handler = createSmsDeliverHandler(
       makeConfig({ smsDeliverAuthBypass: true }),
     );

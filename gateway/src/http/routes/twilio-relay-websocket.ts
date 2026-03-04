@@ -1,4 +1,7 @@
-import { validateEdgeToken, mintServiceToken } from "../../auth/token-exchange.js";
+import {
+  validateEdgeToken,
+  mintServiceToken,
+} from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
 
@@ -19,7 +22,10 @@ type RelaySocketData = {
  * frames between Twilio and the runtime's /v1/calls/relay endpoint.
  */
 export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
-  return function handleUpgrade(req: Request, server: import("bun").Server<unknown>): Response | undefined {
+  return function handleUpgrade(
+    req: Request,
+    server: import("bun").Server<unknown>,
+  ): Response | undefined {
     const url = new URL(req.url);
     const callSessionId = url.searchParams.get("callSessionId");
 
@@ -71,7 +77,9 @@ function checkRelayAuth(
   const authHeader = req.headers.get("authorization");
   const queryToken = url.searchParams.get("token");
   const rawToken = authHeader
-    ? (authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : null)
+    ? authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7)
+      : null
     : queryToken;
 
   if (!rawToken) {
@@ -100,12 +108,15 @@ export function getRelayWebsocketHandlers() {
       ws.data.pendingMessages = [];
 
       // Build upstream URL to runtime with JWT service token for auth
-      const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, 'ws');
+      const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, "ws");
       const serviceToken = mintServiceToken();
       const upstreamUrl = `${runtimeBase}/v1/calls/relay?callSessionId=${encodeURIComponent(callSessionId)}&token=${encodeURIComponent(serviceToken)}`;
 
       const logSafeUpstreamUrl = `${runtimeBase}/v1/calls/relay?callSessionId=${encodeURIComponent(callSessionId)}&token=<redacted>`;
-      log.info({ callSessionId, upstreamUrl: logSafeUpstreamUrl }, "Opening upstream WS to runtime");
+      log.info(
+        { callSessionId, upstreamUrl: logSafeUpstreamUrl },
+        "Opening upstream WS to runtime",
+      );
 
       const upstream = new WebSocket(upstreamUrl);
       ws.data.upstream = upstream;
@@ -124,7 +135,10 @@ export function getRelayWebsocketHandlers() {
 
       upstream.addEventListener("message", (event) => {
         // Forward runtime -> Twilio
-        const data = typeof event.data === "string" ? event.data : new Uint8Array(event.data as ArrayBuffer);
+        const data =
+          typeof event.data === "string"
+            ? event.data
+            : new Uint8Array(event.data as ArrayBuffer);
         ws.send(data);
       });
 
@@ -139,7 +153,10 @@ export function getRelayWebsocketHandlers() {
       });
     },
 
-    message(ws: import("bun").ServerWebSocket<RelaySocketData>, message: string | ArrayBuffer | Uint8Array) {
+    message(
+      ws: import("bun").ServerWebSocket<RelaySocketData>,
+      message: string | ArrayBuffer | Uint8Array,
+    ) {
       // Forward Twilio -> runtime
       const upstream = ws.data.upstream;
       if (upstream && upstream.readyState === WebSocket.OPEN) {
@@ -147,7 +164,10 @@ export function getRelayWebsocketHandlers() {
       } else if (ws.data.pendingMessages) {
         // Buffer messages until upstream connects
         if (ws.data.pendingMessages.length >= MAX_PENDING_MESSAGES) {
-          log.warn({ callSessionId: ws.data.callSessionId }, "Pending message buffer overflow — closing connection");
+          log.warn(
+            { callSessionId: ws.data.callSessionId },
+            "Pending message buffer overflow — closing connection",
+          );
           ws.close(1008, "Buffer overflow");
           return;
         }
@@ -155,12 +175,20 @@ export function getRelayWebsocketHandlers() {
       }
     },
 
-    close(ws: import("bun").ServerWebSocket<RelaySocketData>, code: number, reason: string) {
+    close(
+      ws: import("bun").ServerWebSocket<RelaySocketData>,
+      code: number,
+      reason: string,
+    ) {
       const { callSessionId, upstream } = ws.data;
       log.info({ callSessionId, code, reason }, "Twilio WS closed");
       // Clear pending buffer so no messages are flushed after close
       ws.data.pendingMessages = undefined;
-      if (upstream && (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING)) {
+      if (
+        upstream &&
+        (upstream.readyState === WebSocket.OPEN ||
+          upstream.readyState === WebSocket.CONNECTING)
+      ) {
         upstream.close(code, reason);
       }
     },

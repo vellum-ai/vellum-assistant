@@ -48,17 +48,20 @@
  * not that we're rate-limited. Check the response body before classifying the error.
  */
 
-import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
-import { extensionRelayServer } from '../browser-extension-relay/server.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { isSigningKeyInitialized, mintEdgeRelayToken } from '../runtime/auth/token-service.js';
-import type { ExtractedCredential } from '../tools/browser/network-recording-types.js';
+import type {
+  ExtensionCommand,
+  ExtensionResponse,
+} from "../browser-extension-relay/protocol.js";
+import { extensionRelayServer } from "../browser-extension-relay/server.js";
+import { getGatewayInternalBaseUrl } from "../config/env.js";
 import {
-  type AmazonSession,
-  loadSession,
-} from './session.js';
+  isSigningKeyInitialized,
+  mintEdgeRelayToken,
+} from "../runtime/auth/token-service.js";
+import type { ExtractedCredential } from "../tools/browser/network-recording-types.js";
+import { type AmazonSession, loadSession } from "./session.js";
 
-export const AMAZON_BASE = 'https://www.amazon.com';
+export const AMAZON_BASE = "https://www.amazon.com";
 
 // ---------------------------------------------------------------------------
 // Relay command routing
@@ -68,11 +71,15 @@ export const AMAZON_BASE = 'https://www.amazon.com';
 // back to the daemon's HTTP endpoint POST /v1/browser-relay/command.
 // ---------------------------------------------------------------------------
 
-export async function sendRelayCommand(command: Record<string, unknown>): Promise<ExtensionResponse> {
+export async function sendRelayCommand(
+  command: Record<string, unknown>,
+): Promise<ExtensionResponse> {
   // Try in-process relay first (works when running inside the daemon)
   const status = extensionRelayServer.getStatus();
   if (status.connected) {
-    return extensionRelayServer.sendCommand(command as Omit<ExtensionCommand, 'id'>);
+    return extensionRelayServer.sendCommand(
+      command as Omit<ExtensionCommand, "id">,
+    );
   }
 
   // Fall back to HTTP relay endpoint via the gateway.
@@ -80,32 +87,37 @@ export async function sendRelayCommand(command: Record<string, unknown>): Promis
   // exchange token for the runtime. Without the signing key (CLI
   // out-of-process), we cannot mint JWTs at all.
   if (!isSigningKeyInitialized()) {
-    throw new Error('Auth signing key not initialized — browser-relay commands require the daemon to be running');
+    throw new Error(
+      "Auth signing key not initialized — browser-relay commands require the daemon to be running",
+    );
   }
   const token = mintEdgeRelayToken();
 
-  const resp = await fetch(`${getGatewayInternalBaseUrl()}/v1/browser-relay/command`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+  const resp = await fetch(
+    `${getGatewayInternalBaseUrl()}/v1/browser-relay/command`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(command),
     },
-    body: JSON.stringify(command),
-  });
+  );
 
   if (!resp.ok) {
     const body = await resp.text();
     throw new Error(`Relay HTTP command failed (${resp.status}): ${body}`);
   }
 
-  return await resp.json() as ExtensionResponse;
+  return (await resp.json()) as ExtensionResponse;
 }
 
 /** Thrown when the session is missing or expired. The CLI handles this specially. */
 export class SessionExpiredError extends Error {
   constructor(reason: string) {
     super(reason);
-    this.name = 'SessionExpiredError';
+    this.name = "SessionExpiredError";
   }
 }
 
@@ -113,14 +125,14 @@ export class SessionExpiredError extends Error {
 export class RateLimitError extends Error {
   constructor(reason: string) {
     super(reason);
-    this.name = 'RateLimitError';
+    this.name = "RateLimitError";
   }
 }
 
 function requireSession(): AmazonSession {
   const session = loadSession();
   if (!session) {
-    throw new SessionExpiredError('No Amazon session found.');
+    throw new SessionExpiredError("No Amazon session found.");
   }
   return session;
 }
@@ -129,7 +141,10 @@ function requireSession(): AmazonSession {
  * Prepare for an Amazon request: validate session, find a Chrome tab,
  * and sync session cookies into the browser. Returns the tab ID.
  */
-export async function prepareRequest(): Promise<{ tabId: number; session: AmazonSession }> {
+export async function prepareRequest(): Promise<{
+  tabId: number;
+  session: AmazonSession;
+}> {
   const session = requireSession();
   const tabId = await findAmazonTab();
   // Skip cookie sync — use Chrome's own live cookies instead of overwriting with stale CLI ones
@@ -142,18 +157,21 @@ export async function prepareRequest(): Promise<{ tabId: number; session: Amazon
  * Opens a new Amazon tab if none is currently open.
  */
 async function findAmazonTab(): Promise<number> {
-  const resp = await sendRelayCommand({ action: 'find_tab', url: '*://*.amazon.com/*' });
+  const resp = await sendRelayCommand({
+    action: "find_tab",
+    url: "*://*.amazon.com/*",
+  });
   if (resp.success && resp.tabId !== undefined) {
     return resp.tabId;
   }
 
   // No Amazon tab open — create one
   const newTab = await sendRelayCommand({
-    action: 'new_tab',
-    url: 'https://www.amazon.com',
+    action: "new_tab",
+    url: "https://www.amazon.com",
   });
   if (!newTab.success || newTab.tabId === undefined) {
-    throw new SessionExpiredError('Could not open an Amazon tab in Chrome.');
+    throw new SessionExpiredError("Could not open an Amazon tab in Chrome.");
   }
   return newTab.tabId;
 }
@@ -165,21 +183,23 @@ async function findAmazonTab(): Promise<number> {
 let lastCookieSyncTime = 0;
 const COOKIE_SYNC_INTERVAL = 60_000; // re-sync at most once per minute
 
-async function _syncCookiesToBrowser(cookies: ExtractedCredential[]): Promise<void> {
+async function _syncCookiesToBrowser(
+  cookies: ExtractedCredential[],
+): Promise<void> {
   const now = Date.now();
   if (now - lastCookieSyncTime < COOKIE_SYNC_INTERVAL) return;
 
   for (const cookie of cookies) {
-    const domain = cookie.domain || '.amazon.com';
-    const cleanDomain = domain.startsWith('.') ? domain.slice(1) : domain;
+    const domain = cookie.domain || ".amazon.com";
+    const cleanDomain = domain.startsWith(".") ? domain.slice(1) : domain;
     await extensionRelayServer.sendCommand({
-      action: 'set_cookie',
+      action: "set_cookie",
       cookie: {
         url: `https://${cleanDomain}`,
         name: cookie.name,
         value: cookie.value,
         domain,
-        path: cookie.path || '/',
+        path: cookie.path || "/",
         secure: cookie.secure ?? true,
         httpOnly: cookie.httpOnly ?? false,
         ...(cookie.expires ? { expirationDate: cookie.expires } : {}),
@@ -198,28 +218,28 @@ async function _syncCookiesToBrowser(cookies: ExtractedCredential[]): Promise<vo
 export async function cdpEval(tabId: number, script: string): Promise<unknown> {
   let resp: ExtensionResponse;
   try {
-    resp = await sendRelayCommand({ action: 'evaluate', tabId, code: script });
+    resp = await sendRelayCommand({ action: "evaluate", tabId, code: script });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('not connected')) {
+    if (msg.includes("not connected")) {
       throw new SessionExpiredError(
-        'Browser extension relay is not connected. Load the Vellum extension in Chrome.',
+        "Browser extension relay is not connected. Load the Vellum extension in Chrome.",
       );
     }
     throw err;
   }
 
   if (!resp.success) {
-    throw new Error(`Browser eval failed: ${resp.error ?? 'unknown error'}`);
+    throw new Error(`Browser eval failed: ${resp.error ?? "unknown error"}`);
   }
 
   const value = resp.result;
   if (value == null) {
-    throw new Error('Empty browser eval response');
+    throw new Error("Empty browser eval response");
   }
 
   try {
-    return typeof value === 'string' ? JSON.parse(value) : value;
+    return typeof value === "string" ? JSON.parse(value) : value;
   } catch {
     return value;
   }
@@ -232,14 +252,14 @@ export async function cdpEval(tabId: number, script: string): Promise<unknown> {
 export function handleResult(result: Record<string, unknown>): void {
   if (result.__error) {
     if (result.__status === 401) {
-      throw new SessionExpiredError('Amazon session has expired.');
+      throw new SessionExpiredError("Amazon session has expired.");
     }
     if (result.__status === 403) {
-      throw new RateLimitError('Amazon rate limit hit (HTTP 403).');
+      throw new RateLimitError("Amazon rate limit hit (HTTP 403).");
     }
     throw new Error(
       (result.__message as string | undefined) ??
-      `Amazon request failed with status ${result.__status ?? 'unknown'}`,
+        `Amazon request failed with status ${result.__status ?? "unknown"}`,
     );
   }
 }
@@ -254,7 +274,7 @@ export async function runWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
     const now = Date.now();
     const elapsed = now - lastRequestTime;
     if (lastRequestTime > 0 && elapsed < 2000) {
-      await new Promise(r => setTimeout(r, 2000 - elapsed));
+      await new Promise((r) => setTimeout(r, 2000 - elapsed));
     }
 
     try {
@@ -266,7 +286,7 @@ export async function runWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
         process.stderr.write(
           `[amazon] Rate limited, retrying in ${delay / 1000}s... (attempt ${attempt + 1}/${backoffSchedule.length})\n`,
         );
-        await new Promise(r => setTimeout(r, delay));
+        await new Promise((r) => setTimeout(r, delay));
         continue;
       }
       throw err;
@@ -359,13 +379,13 @@ export interface PlaceOrderResult {
 // Re-export public API from submodules
 // ---------------------------------------------------------------------------
 
-export { addToCart, removeFromCart, viewCart } from './cart.js';
+export { addToCart, removeFromCart, viewCart } from "./cart.js";
 export {
   getCheckoutSummary,
   getFreshDeliverySlots,
   getPaymentMethods,
   placeOrder,
   selectFreshDeliverySlot,
-} from './checkout.js';
-export { getProductDetails } from './product-details.js';
-export { search } from './search.js';
+} from "./checkout.js";
+export { getProductDetails } from "./product-details.js";
+export { search } from "./search.js";

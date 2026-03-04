@@ -38,12 +38,20 @@ interface WhatsAppMediaMessage {
   // image, video, and document messages can carry a caption
   image?: { caption?: string; mime_type?: string; id?: string };
   video?: { caption?: string; mime_type?: string; id?: string };
-  document?: { caption?: string; mime_type?: string; id?: string; filename?: string };
+  document?: {
+    caption?: string;
+    mime_type?: string;
+    id?: string;
+    filename?: string;
+  };
   audio?: { mime_type?: string; id?: string };
   sticker?: { mime_type?: string; id?: string };
 }
 
-type WhatsAppMessage = WhatsAppTextMessage | WhatsAppInteractiveMessage | WhatsAppMediaMessage;
+type WhatsAppMessage =
+  | WhatsAppTextMessage
+  | WhatsAppInteractiveMessage
+  | WhatsAppMediaMessage;
 
 interface WhatsAppValue {
   messaging_product: "whatsapp";
@@ -124,7 +132,13 @@ export function normalizeWhatsAppWebhook(
         if (!buttonReply?.id) continue;
         callbackData = buttonReply.id;
         body = buttonReply.title ?? "";
-      } else if (msg.type === "image" || msg.type === "video" || msg.type === "audio" || msg.type === "document" || msg.type === "sticker") {
+      } else if (
+        msg.type === "image" ||
+        msg.type === "video" ||
+        msg.type === "audio" ||
+        msg.type === "document" ||
+        msg.type === "sticker"
+      ) {
         const mediaMsg = msg as WhatsAppMediaMessage;
         // image, video, and document can carry a caption; audio and sticker cannot
         const caption =

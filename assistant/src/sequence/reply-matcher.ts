@@ -7,11 +7,15 @@
  * AND thread_id — both must match for a reply to trigger an exit.
  */
 
-import { getLogger } from '../util/logger.js';
-import { recordEvent } from './analytics.js';
-import { exitEnrollment, findActiveEnrollmentsByEmail, getSequence } from './store.js';
+import { getLogger } from "../util/logger.js";
+import { recordEvent } from "./analytics.js";
+import {
+  exitEnrollment,
+  findActiveEnrollmentsByEmail,
+  getSequence,
+} from "./store.js";
 
-const log = getLogger('sequence:reply-matcher');
+const log = getLogger("sequence:reply-matcher");
 
 interface WatcherEventPayload {
   id?: string;
@@ -30,14 +34,18 @@ interface WatcherEventPayload {
  */
 export function extractEmail(from: string): string | undefined {
   // Strip parenthetical comments first to avoid matching addresses inside them
-  const cleaned = from.replace(/\(.*?\)/g, '');
+  const cleaned = from.replace(/\(.*?\)/g, "");
   const segments = [...cleaned.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
   if (segments.length > 0) {
-    const emailSegment = [...segments].reverse().find((s) => s.includes('@'));
+    const emailSegment = [...segments].reverse().find((s) => s.includes("@"));
     if (emailSegment) return emailSegment.trim().toLowerCase();
   }
-  const stripped = from.replace(/<[^>]+>/g, '').replace(/\(.*?\)/g, '').trim().toLowerCase();
-  if (stripped.includes('@')) return stripped;
+  const stripped = from
+    .replace(/<[^>]+>/g, "")
+    .replace(/\(.*?\)/g, "")
+    .trim()
+    .toLowerCase();
+  if (stripped.includes("@")) return stripped;
   return undefined;
 }
 
@@ -59,7 +67,7 @@ export function checkForSequenceReplies(
   const results: ReplyMatchResult[] = [];
 
   for (const payload of payloads) {
-    const senderEmail = extractEmail(payload.from ?? '');
+    const senderEmail = extractEmail(payload.from ?? "");
     if (!senderEmail) continue;
 
     const enrollments = findActiveEnrollmentsByEmail(senderEmail);
@@ -74,20 +82,30 @@ export function checkForSequenceReplies(
       // yet (threadId is null) are not eligible for reply-based exit —
       // otherwise any unrelated inbound email from the contact would
       // prematurely kill the enrollment.
-      const threadMatch = enrollment.threadId != null
-        && enrollment.threadId === payload.threadId;
+      const threadMatch =
+        enrollment.threadId != null && enrollment.threadId === payload.threadId;
 
       if (!threadMatch) continue;
 
-      recordEvent(enrollment.sequenceId, enrollment.id, 'reply', enrollment.currentStep, {
-        senderEmail,
-        threadId: payload.threadId,
-      });
-      exitEnrollment(enrollment.id, 'replied');
+      recordEvent(
+        enrollment.sequenceId,
+        enrollment.id,
+        "reply",
+        enrollment.currentStep,
+        {
+          senderEmail,
+          threadId: payload.threadId,
+        },
+      );
+      exitEnrollment(enrollment.id, "replied");
 
       log.info(
-        { enrollmentId: enrollment.id, senderEmail, threadId: payload.threadId },
-        'Sequence enrollment exited on reply',
+        {
+          enrollmentId: enrollment.id,
+          senderEmail,
+          threadId: payload.threadId,
+        },
+        "Sequence enrollment exited on reply",
       );
 
       results.push({

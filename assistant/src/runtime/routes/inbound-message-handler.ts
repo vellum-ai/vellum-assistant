@@ -15,6 +15,12 @@ import {
 } from "../../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { resolveUserReference } from "../../config/user-reference.js";
+import { findContactChannel } from "../../contacts/contact-store.js";
+import {
+  touchChannelLastSeen,
+  upsertMemberContactsFirst,
+} from "../../contacts/contacts-write.js";
+import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
 import { RESEND_COOLDOWN_MS } from "../../daemon/handlers/config-channels.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
@@ -27,11 +33,7 @@ import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
 import { recordConversationSeenSignal } from "../../memory/conversation-attention-store.js";
 import * as conversationStore from "../../memory/conversation-store.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import {
-  findMember,
-  updateLastSeen,
-  upsertMember,
-} from "../../memory/ingress-member-store.js";
+import type { IngressMember } from "../../memory/ingress-member-store.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
@@ -159,7 +161,9 @@ export async function handleChannelInbound(
   if (!isChannelId(body.sourceChannel)) {
     return httpError(
       "BAD_REQUEST",
-      `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(", ")}`,
+      `Invalid sourceChannel: ${
+        body.sourceChannel
+      }. Valid values: ${CHANNEL_IDS.join(", ")}`,
       400,
     );
   }
@@ -173,7 +177,9 @@ export async function handleChannelInbound(
   if (!sourceInterface) {
     return httpError(
       "BAD_REQUEST",
-      `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(", ")}`,
+      `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(
+        ", ",
+      )}`,
       400,
     );
   }
@@ -251,7 +257,7 @@ export async function handleChannelInbound(
   // ── Ingress ACL enforcement ──
   // Track the resolved member so the escalate branch can reference it after
   // recordInbound (where we have a conversationId).
-  let resolvedMember: ReturnType<typeof findMember> = null;
+  let resolvedMember: IngressMember | null = null;
 
   // Verification codes must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
@@ -293,12 +299,17 @@ export async function handleChannelInbound(
     // Whitespace-only senders (hasSenderIdentityClaim=true but
     // canonicalSenderId=null) skip the lookup and fall into the deny path.
     if (canonicalSenderId) {
-      resolvedMember = findMember({
-        assistantId: canonicalAssistantId,
-        sourceChannel,
+      const contactResult = findContactChannel({
+        channelType: sourceChannel,
         externalUserId: canonicalSenderId,
         externalChatId: conversationExternalId,
       });
+      resolvedMember = contactResult
+        ? contactChannelToMemberRecord(
+            contactResult.contact,
+            contactResult.channel,
+          )
+        : null;
     }
 
     if (!resolvedMember) {
@@ -605,7 +616,7 @@ export async function handleChannelInbound(
       }
 
       // 'allow' or 'escalate' — update last seen and continue
-      updateLastSeen(resolvedMember.id);
+      touchChannelLastSeen(resolvedMember.id);
     }
   }
 
@@ -1010,15 +1021,20 @@ export async function handleChannelInbound(
       : "failed";
 
     if (verifyResult.success) {
-      const existingMember =
+      const existingContactResult =
         (canonicalSenderId ?? rawSenderId)
-          ? findMember({
-              assistantId: canonicalAssistantId,
-              sourceChannel,
+          ? findContactChannel({
+              channelType: sourceChannel,
               externalUserId: canonicalSenderId ?? rawSenderId!,
               externalChatId: conversationExternalId,
             })
           : null;
+      const existingMember = existingContactResult
+        ? contactChannelToMemberRecord(
+            existingContactResult.contact,
+            existingContactResult.channel,
+          )
+        : null;
       const memberMatchesSender = existingMember?.externalUserId
         ? canonicalizeInboundIdentity(
             sourceChannel,
@@ -1030,7 +1046,7 @@ export async function handleChannelInbound(
           ? existingMember.displayName
           : body.actorDisplayName;
 
-      upsertMember({
+      upsertMemberContactsFirst({
         assistantId: canonicalAssistantId,
         sourceChannel,
         externalUserId: canonicalSenderId ?? rawSenderId!,
@@ -1077,7 +1093,9 @@ export async function handleChannelInbound(
             actorDisplayName: body.actorDisplayName ?? null,
             actorUsername: body.actorUsername ?? null,
           },
-          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${canonicalSenderId ?? rawSenderId!}`,
+          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${
+            canonicalSenderId ?? rawSenderId!
+          }`,
         });
       }
     }

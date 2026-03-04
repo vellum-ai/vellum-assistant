@@ -49,12 +49,13 @@ export interface PreflightSummary {
   filesToCreate: number;
   filesToOverwrite: number;
   filesUnchanged: number;
+  filesToSkip: number;
 }
 
 /** A file entry in the preflight analysis, normalized for display. */
 export interface PreflightFileEntry {
   path: string;
-  action: "create" | "overwrite" | "unchanged";
+  action: "create" | "overwrite" | "unchanged" | "skip";
   bundleSize: number;
   currentSize: number | null;
   bundleSha256: string;
@@ -280,6 +281,7 @@ export function deriveValidationScreenState(
           filesToCreate: preflightResult.summary.files_to_create,
           filesToOverwrite: preflightResult.summary.files_to_overwrite,
           filesUnchanged: preflightResult.summary.files_unchanged,
+          filesToSkip: preflightResult.summary.files_to_skip,
         },
         files: preflightResult.files.map(normalizeFileReport),
         conflicts: preflightResult.conflicts.map(normalizeConflict),
@@ -311,6 +313,7 @@ export function deriveValidationScreenState(
             filesToCreate: pr.summary.files_to_create,
             filesToOverwrite: pr.summary.files_to_overwrite,
             filesUnchanged: pr.summary.files_unchanged,
+            filesToSkip: pr.summary.files_to_skip,
           },
           files: pr.files.map(normalizeFileReport),
           conflicts: pr.conflicts.map(normalizeConflict),
@@ -364,7 +367,16 @@ export async function retryValidationFlow(
   state: MigrationWizardState,
   options: StepExecutorOptions,
 ): Promise<MigrationWizardState> {
-  const reset = resetStepForRetry(state);
+  let reset = resetStepForRetry(state);
+
+  // Clear stale results so a new transport error isn't misclassified
+  // as a validation/preflight failure based on the previous attempt's result.
+  if (reset.currentStep === "validate") {
+    reset = { ...reset, validateResult: undefined };
+  } else if (reset.currentStep === "preflight-review") {
+    reset = { ...reset, preflightResult: undefined };
+  }
+
   options.onStateChange?.(reset);
 
   if (reset.currentStep === "validate") {
@@ -413,10 +425,12 @@ export function groupFilesByAction(files: PreflightFileEntry[]): {
   create: PreflightFileEntry[];
   overwrite: PreflightFileEntry[];
   unchanged: PreflightFileEntry[];
+  skip: PreflightFileEntry[];
 } {
   const create: PreflightFileEntry[] = [];
   const overwrite: PreflightFileEntry[] = [];
   const unchanged: PreflightFileEntry[] = [];
+  const skip: PreflightFileEntry[] = [];
 
   for (const file of files) {
     switch (file.action) {
@@ -429,20 +443,23 @@ export function groupFilesByAction(files: PreflightFileEntry[]): {
       case "unchanged":
         unchanged.push(file);
         break;
+      case "skip":
+        skip.push(file);
+        break;
     }
   }
 
-  return { create, overwrite, unchanged };
+  return { create, overwrite, unchanged, skip };
 }
 
 /**
  * Format a byte size as a human-readable string.
  */
 export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
   const exponent = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
+    Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))),
     units.length - 1,
   );
   const value = bytes / Math.pow(1024, exponent);

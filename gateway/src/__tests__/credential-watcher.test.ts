@@ -119,13 +119,7 @@ function writeEncryptedStore(botToken: string, webhookSecret: string): void {
  * for bot_token and webhook_secret.
  */
 function writeCredentialMetadata(): void {
-  const dir = join(
-    testDir,
-    ".vellum",
-    "workspace",
-    "data",
-    "credentials",
-  );
+  const dir = join(testDir, ".vellum", "workspace", "data", "credentials");
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "metadata.json"),

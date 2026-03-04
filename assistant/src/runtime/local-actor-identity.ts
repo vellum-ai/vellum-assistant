@@ -12,9 +12,9 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { buildIpcAuthContext } from "../daemon/ipc-handler.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import { getActiveBinding } from "../memory/guardian-bindings.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import type { AuthContext } from "./auth/types.js";
@@ -39,47 +39,32 @@ export function resolveLocalIpcTrustContext(
   sourceChannel: ChannelId = "vellum",
 ): TrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const binding = getActiveBinding(assistantId, "vellum");
 
-  if (!binding) {
-    // No vellum binding yet (pre-bootstrap). Eagerly create one so
-    // downstream code that creates decisionable canonical requests
-    // (tool_approval, pending_question) always has a guardianPrincipalId
-    // available. Without this, createCanonicalGuardianRequest throws
-    // IntegrityError and the request is silently dropped.
-    log.debug(
-      "No vellum guardian binding found; bootstrapping binding for IPC",
-    );
-    const principalId = ensureVellumGuardianBinding(assistantId);
-
-    // Re-resolve through the shared pipeline now that the binding exists.
+  // Try contacts-first for the vellum guardian channel
+  const guardianResult = findGuardianForChannel("vellum");
+  if (guardianResult && guardianResult.contact.principalId) {
+    const guardianPrincipalId = guardianResult.contact.principalId;
     const trustCtx = resolveTrustContext({
       assistantId,
       sourceChannel: "vellum",
       conversationExternalId: "local",
-      actorExternalId: principalId,
+      actorExternalId: guardianPrincipalId,
     });
-    // Overlay the caller's actual sourceChannel onto the resolved context.
     return { ...trustCtx, sourceChannel };
   }
 
-  const guardianPrincipalId = binding.guardianExternalUserId;
-
-  // Route through the shared trust resolution pipeline using 'vellum'
-  // as the channel for binding lookup. The guardianPrincipalId comes
-  // from the vellum binding, so the binding lookup must also target
-  // 'vellum' — otherwise resolveActorTrust would look up a different
-  // channel's binding (e.g. telegram/sms) and the IDs wouldn't match,
-  // causing a 'unknown' trust classification.
+  // No guardian contact with a principalId — bootstrap via ensureVellumGuardianBinding
+  // to self-heal (creates the binding + contact if missing).
+  log.debug(
+    "No vellum guardian contact found; bootstrapping binding for IPC",
+  );
+  const principalId = ensureVellumGuardianBinding(assistantId);
   const trustCtx = resolveTrustContext({
     assistantId,
     sourceChannel: "vellum",
     conversationExternalId: "local",
-    actorExternalId: guardianPrincipalId,
+    actorExternalId: principalId,
   });
-
-  // Overlay the caller's actual sourceChannel onto the resolved context
-  // so downstream consumers see the correct channel provenance.
   return { ...trustCtx, sourceChannel };
 }
 
@@ -95,12 +80,13 @@ export function resolveLocalIpcTrustContext(
 export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
   const authContext = buildIpcAuthContext(sessionId);
 
-  // Enrich with the guardian principal ID when a vellum binding exists,
-  // so downstream guardian resolution can use authContext.actorPrincipalId.
-  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const binding = getActiveBinding(assistantId, "vellum");
-  if (binding) {
-    return { ...authContext, actorPrincipalId: binding.guardianExternalUserId };
+  // Enrich with the guardian principal ID from contacts-first path
+  const guardianResult = findGuardianForChannel("vellum");
+  if (guardianResult && guardianResult.contact.principalId) {
+    return {
+      ...authContext,
+      actorPrincipalId: guardianResult.contact.principalId,
+    };
   }
 
   return authContext;

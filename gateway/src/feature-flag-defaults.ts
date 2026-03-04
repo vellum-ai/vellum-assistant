@@ -86,7 +86,10 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
     if (typeof entry.key !== "string") continue;
     if (typeof entry.defaultEnabled !== "boolean") continue;
     if (typeof entry.description !== "string") {
-      log.warn({ key: entry.key }, "Skipping invalid registry entry (description is not string)");
+      log.warn(
+        { key: entry.key },
+        "Skipping invalid registry entry (description is not string)",
+      );
       continue;
     }
 
@@ -126,7 +129,10 @@ export function loadFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
   }
 
   if (!raw || !resolvedPath) {
-    log.error({ candidates }, "Failed to read feature flag registry from any candidate path");
+    log.error(
+      { candidates },
+      "Failed to read feature flag registry from any candidate path",
+    );
     cachedRegistry = {};
     return cachedRegistry;
   }
@@ -135,14 +141,20 @@ export function loadFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    log.error({ err, path: resolvedPath }, "Feature flag registry is not valid JSON");
+    log.error(
+      { err, path: resolvedPath },
+      "Feature flag registry is not valid JSON",
+    );
     cachedRegistry = {};
     return cachedRegistry;
   }
 
   const registry = parseRegistryToDefaults(parsed);
 
-  log.info({ flagCount: Object.keys(registry).length, path: resolvedPath }, "Loaded feature flag defaults registry");
+  log.info(
+    { flagCount: Object.keys(registry).length, path: resolvedPath },
+    "Loaded feature flag defaults registry",
+  );
   cachedRegistry = registry;
   return cachedRegistry;
 }

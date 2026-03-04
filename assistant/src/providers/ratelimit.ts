@@ -1,9 +1,15 @@
-import type { RateLimitConfig } from '../config/types.js';
-import { RateLimitError } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
-import type { Message, Provider, ProviderResponse, SendMessageOptions, ToolDefinition } from './types.js';
+import type { RateLimitConfig } from "../config/types.js";
+import { RateLimitError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
+import type {
+  Message,
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+  ToolDefinition,
+} from "./types.js";
 
-const log = getLogger('rate-limit');
+const log = getLogger("rate-limit");
 
 export class RateLimitProvider implements Provider {
   public readonly name: string;
@@ -33,7 +39,12 @@ export class RateLimitProvider implements Provider {
     // calls from bypassing the rate limit during the async gap.
     this.recordRequest();
 
-    const response = await this.inner.sendMessage(messages, tools, systemPrompt, options);
+    const response = await this.inner.sendMessage(
+      messages,
+      tools,
+      systemPrompt,
+      options,
+    );
 
     this.recordTokens(response.usage.inputTokens + response.usage.outputTokens);
 
@@ -88,6 +99,12 @@ export class RateLimitProvider implements Provider {
   private recordTokens(tokens: number): void {
     if (this.config.maxTokensPerSession <= 0) return;
     this.sessionTokens += tokens;
-    log.debug({ sessionTokens: this.sessionTokens, limit: this.config.maxTokensPerSession }, 'Token usage updated');
+    log.debug(
+      {
+        sessionTokens: this.sessionTokens,
+        limit: this.config.maxTokensPerSession,
+      },
+      "Token usage updated",
+    );
   }
 }

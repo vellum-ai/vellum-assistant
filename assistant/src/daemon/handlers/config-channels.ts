@@ -1,15 +1,19 @@
 import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
+import { findContactChannel } from "../../contacts/contact-store.js";
+import {
+  revokeGuardianBindingContactsFirst,
+  revokeMemberContactsFirst,
+} from "../../contacts/contacts-write.js";
+import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import { findMember, revokeMember } from "../../memory/ingress-member-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
   createVerificationChallenge,
   findActiveSession,
   getGuardianBinding,
   getPendingChallenge,
-  revokeBinding as revokeGuardianBinding,
   revokePendingChallenges,
 } from "../../runtime/channel-guardian-service.js";
 import {
@@ -206,16 +210,26 @@ export function revokeGuardianForChannel(
     };
   }
 
-  revokeGuardianBinding(assistantId, resolvedChannel);
-
-  const member = findMember({
-    assistantId,
-    sourceChannel: resolvedChannel,
+  // Look up the member channel BEFORE revoking the guardian binding so the
+  // channel status is still active/pending — revokeGuardianBindingContactsFirst
+  // marks the channel as revoked, which would cause the status guard below to
+  // skip the revoke call.
+  const contactResult = findContactChannel({
+    channelType: resolvedChannel,
     externalUserId: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
-  if (member) {
-    revokeMember(member.id, "guardian_binding_revoked");
+  const member = contactResult
+    ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
+    : null;
+
+  revokeGuardianBindingContactsFirst(assistantId, resolvedChannel);
+
+  // Only revoke active/pending members — a blocked member must not be
+  // downgraded to revoked (revokeMemberContactsFirst has its own guard,
+  // but we check here to make the intent explicit at the call site).
+  if (member && (member.status === "active" || member.status === "pending")) {
+    revokeMemberContactsFirst(member.id, "guardian_binding_revoked");
   }
 
   return {

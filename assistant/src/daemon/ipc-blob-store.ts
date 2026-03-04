@@ -1,24 +1,24 @@
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 import {
   existsSync,
   lstatSync,
   mkdirSync,
   realpathSync,
   unlinkSync,
-} from 'node:fs';
-import { lstat, readdir, readFile, realpath, unlink } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+} from "node:fs";
+import { lstat, readdir, readFile, realpath, unlink } from "node:fs/promises";
+import { join, relative, resolve, sep } from "node:path";
 
-import { getLogger } from '../util/logger.js';
-import { getIpcBlobDir } from '../util/platform.js';
-import type { IpcBlobRef } from './ipc-contract.js';
+import { getLogger } from "../util/logger.js";
+import { getIpcBlobDir } from "../util/platform.js";
+import type { IpcBlobRef } from "./ipc-contract.js";
 
-const log = getLogger('ipc-blob-store');
+const log = getLogger("ipc-blob-store");
 
 const BLOB_ID_REGEX = /^[0-9a-fA-F-]{36}$/;
 const MAX_SCREENSHOT_BLOB_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_AX_BLOB_SIZE = 2 * 1024 * 1024; // 2 MB
-const BLOB_EXTENSION = '.blob';
+const BLOB_EXTENSION = ".blob";
 
 /** Ensure the blob directory exists. Call at daemon startup. */
 export function ensureBlobDir(): void {
@@ -48,7 +48,7 @@ export function resolveBlobPath(id: string): string {
   // Use relative() for separator-agnostic containment check.
   const normalizedBlobDir = resolve(blobDir);
   const rel = relative(normalizedBlobDir, candidate);
-  if (rel.startsWith('..') || rel.startsWith(sep + sep) || rel === '') {
+  if (rel.startsWith("..") || rel.startsWith(sep + sep) || rel === "") {
     throw new Error(`Blob path escapes blob directory: ${id}`);
   }
 
@@ -69,7 +69,11 @@ async function assertRegularFileInBlobDir(filePath: string): Promise<void> {
   // Realpath both the file and the blob dir so macOS /var → /private/var is handled
   const realBlobDir = await realpath(getIpcBlobDir());
   const realRel = relative(realBlobDir, real);
-  if (realRel.startsWith('..') || realRel.startsWith(sep + sep) || realRel === '') {
+  if (
+    realRel.startsWith("..") ||
+    realRel.startsWith(sep + sep) ||
+    realRel === ""
+  ) {
     throw new Error(`Blob realpath escapes blob directory: ${real}`);
   }
 }
@@ -85,15 +89,22 @@ function assertRegularFileInBlobDirSync(filePath: string): void {
   const real = realpathSync(filePath);
   const realBlobDir = realpathSync(getIpcBlobDir());
   const realRel = relative(realBlobDir, real);
-  if (realRel.startsWith('..') || realRel.startsWith(sep + sep) || realRel === '') {
+  if (
+    realRel.startsWith("..") ||
+    realRel.startsWith(sep + sep) ||
+    realRel === ""
+  ) {
     throw new Error(`Blob realpath escapes blob directory: ${real}`);
   }
 }
 
 /** Expected kind and encoding for each blob field. */
 export const EXPECTED_BLOB_FIELD_METADATA = {
-  axTreeBlob: { kind: 'ax_tree' as const, encoding: 'utf8' as const },
-  screenshotBlob: { kind: 'screenshot_jpeg' as const, encoding: 'binary' as const },
+  axTreeBlob: { kind: "ax_tree" as const, encoding: "utf8" as const },
+  screenshotBlob: {
+    kind: "screenshot_jpeg" as const,
+    encoding: "binary" as const,
+  },
 };
 
 /**
@@ -127,7 +138,10 @@ export async function readBlob(ref: IpcBlobRef): Promise<Buffer> {
   const filePath = resolveBlobPath(ref.id);
 
   // Enforce hard size limits by kind against declared byteLength before any I/O
-  const maxSize = ref.kind === 'screenshot_jpeg' ? MAX_SCREENSHOT_BLOB_SIZE : MAX_AX_BLOB_SIZE;
+  const maxSize =
+    ref.kind === "screenshot_jpeg"
+      ? MAX_SCREENSHOT_BLOB_SIZE
+      : MAX_AX_BLOB_SIZE;
   if (ref.byteLength > maxSize) {
     throw new Error(
       `Blob ${ref.id} declared size exceeds limit for kind "${ref.kind}": ${ref.byteLength} > ${maxSize}`,
@@ -156,7 +170,7 @@ export async function readBlob(ref: IpcBlobRef): Promise<Buffer> {
 
   // Verify SHA-256 if provided
   if (ref.sha256) {
-    const hash = createHash('sha256').update(buf).digest('hex');
+    const hash = createHash("sha256").update(buf).digest("hex");
     if (hash !== ref.sha256) {
       throw new Error(
         `Blob SHA-256 mismatch for ${ref.id}: expected ${ref.sha256}, got ${hash}`,
@@ -176,8 +190,8 @@ export function deleteBlob(id: string): void {
     unlinkSync(filePath);
   } catch (err) {
     // ENOENT is expected when the blob was already cleaned up
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      log.warn({ err, blobId: id }, 'Failed to delete blob');
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log.warn({ err, blobId: id }, "Failed to delete blob");
     }
   }
 }
@@ -190,10 +204,10 @@ export async function sweepStaleBlobs(maxAgeMs: number): Promise<number> {
     entries = await readdir(blobDir);
   } catch (err) {
     // Directory may not exist yet if no blobs have been written
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       return 0;
     }
-    log.warn({ err }, 'Failed to read blob directory for sweep');
+    log.warn({ err }, "Failed to read blob directory for sweep");
     return 0;
   }
 
@@ -208,7 +222,7 @@ export async function sweepStaleBlobs(maxAgeMs: number): Promise<number> {
       // Use lstat (not stat) to detect symlinks without following them
       const fileLstat = await lstat(filePath);
       if (fileLstat.isSymbolicLink()) {
-        log.warn({ filePath }, 'Skipping symlink during blob sweep');
+        log.warn({ filePath }, "Skipping symlink during blob sweep");
         continue;
       }
       const ageMs = now - fileLstat.mtimeMs;
@@ -218,14 +232,14 @@ export async function sweepStaleBlobs(maxAgeMs: number): Promise<number> {
       }
     } catch (err) {
       // File may have been deleted between readdir and stat/unlink
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        log.warn({ err, filePath }, 'Failed to stat/delete blob during sweep');
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log.warn({ err, filePath }, "Failed to stat/delete blob during sweep");
       }
     }
   }
 
   if (deleted > 0) {
-    log.info({ deleted, total: entries.length }, 'Swept stale blobs');
+    log.info({ deleted, total: entries.length }, "Swept stale blobs");
   }
 
   return deleted;

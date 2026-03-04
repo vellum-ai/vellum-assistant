@@ -3,37 +3,37 @@
 // === Client → Server ===
 
 export interface SchedulesList {
-  type: 'schedules_list';
+  type: "schedules_list";
 }
 
 export interface RemindersList {
-  type: 'reminders_list';
+  type: "reminders_list";
 }
 
 export interface ReminderCancel {
-  type: 'reminder_cancel';
+  type: "reminder_cancel";
   id: string;
 }
 
 export interface ScheduleToggle {
-  type: 'schedule_toggle';
+  type: "schedule_toggle";
   id: string;
   enabled: boolean;
 }
 
 export interface ScheduleRemove {
-  type: 'schedule_remove';
+  type: "schedule_remove";
   id: string;
 }
 
 export interface ScheduleRunNow {
-  type: 'schedule_run_now';
+  type: "schedule_run_now";
   id: string;
 }
 
 export interface HeartbeatConfig {
-  type: 'heartbeat_config';
-  action: 'get' | 'set';
+  type: "heartbeat_config";
+  action: "get" | "set";
   enabled?: boolean;
   intervalMs?: number;
   activeHoursStart?: number | null;
@@ -41,27 +41,27 @@ export interface HeartbeatConfig {
 }
 
 export interface HeartbeatRunsList {
-  type: 'heartbeat_runs_list';
+  type: "heartbeat_runs_list";
   limit?: number;
 }
 
 export interface HeartbeatRunNow {
-  type: 'heartbeat_run_now';
+  type: "heartbeat_run_now";
 }
 
 export interface HeartbeatChecklistRead {
-  type: 'heartbeat_checklist_read';
+  type: "heartbeat_checklist_read";
 }
 
 export interface HeartbeatChecklistWrite {
-  type: 'heartbeat_checklist_write';
+  type: "heartbeat_checklist_write";
   content: string;
 }
 
 // === Server → Client ===
 
 export interface SchedulesListResponse {
-  type: 'schedules_list_response';
+  type: "schedules_list_response";
   schedules: Array<{
     id: string;
     name: string;
@@ -79,7 +79,7 @@ export interface SchedulesListResponse {
 }
 
 export interface RemindersListResponse {
-  type: 'reminders_list_response';
+  type: "reminders_list_response";
   reminders: Array<{
     id: string;
     label: string;
@@ -93,13 +93,13 @@ export interface RemindersListResponse {
 }
 
 export interface HeartbeatAlert {
-  type: 'heartbeat_alert';
+  type: "heartbeat_alert";
   title: string;
   body: string;
 }
 
 export interface HeartbeatConfigResponse {
-  type: 'heartbeat_config_response';
+  type: "heartbeat_config_response";
   enabled: boolean;
   intervalMs: number;
   activeHoursStart: number | null;
@@ -110,7 +110,7 @@ export interface HeartbeatConfigResponse {
 }
 
 export interface HeartbeatRunsListResponse {
-  type: 'heartbeat_runs_list_response';
+  type: "heartbeat_runs_list_response";
   runs: Array<{
     id: string;
     title: string;
@@ -121,19 +121,19 @@ export interface HeartbeatRunsListResponse {
 }
 
 export interface HeartbeatRunNowResponse {
-  type: 'heartbeat_run_now_response';
+  type: "heartbeat_run_now_response";
   success: boolean;
   error?: string;
 }
 
 export interface HeartbeatChecklistResponse {
-  type: 'heartbeat_checklist_response';
+  type: "heartbeat_checklist_response";
   content: string;
   isDefault: boolean;
 }
 
 export interface HeartbeatChecklistWriteResponse {
-  type: 'heartbeat_checklist_write_response';
+  type: "heartbeat_checklist_write_response";
   success: boolean;
   error?: string;
 }

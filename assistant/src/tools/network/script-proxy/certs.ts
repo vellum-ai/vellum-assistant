@@ -4,4 +4,4 @@ export {
   getCAPath,
   getCombinedCAPath,
   issueLeafCert,
-} from "@vellumai/proxy-sidecar";
+} from "@vellumai/outbound-proxy";

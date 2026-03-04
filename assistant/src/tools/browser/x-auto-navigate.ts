@@ -5,11 +5,11 @@
  * so the NetworkRecorder captures the full API surface without manual browsing.
  */
 
-import { getLogger } from '../../util/logger.js';
+import { getLogger } from "../../util/logger.js";
 
-const log = getLogger('x-auto-navigate');
+const log = getLogger("x-auto-navigate");
 
-const CDP_BASE = 'http://localhost:9222';
+const CDP_BASE = "http://localhost:9222";
 
 interface NavStep {
   label: string;
@@ -21,29 +21,44 @@ interface NavStep {
 class MiniCDP {
   private ws: WebSocket | null = null;
   private nextId = 1;
-  private callbacks = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private callbacks = new Map<
+    number,
+    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+  >();
 
   async connect(wsUrl: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
-      ws.onopen = () => { this.ws = ws; resolve(); };
+      ws.onopen = () => {
+        this.ws = ws;
+        resolve();
+      };
       ws.onerror = (e) => reject(new Error(`CDP error: ${e}`));
-      ws.onclose = () => { this.ws = null; };
+      ws.onclose = () => {
+        this.ws = null;
+      };
       ws.onmessage = (event) => {
         const msg = JSON.parse(String(event.data));
         if (msg.id != null) {
           const cb = this.callbacks.get(msg.id);
           if (cb) {
             this.callbacks.delete(msg.id);
-            if (msg.error) { cb.reject(new Error(msg.error.message)); } else { cb.resolve(msg.result); }
+            if (msg.error) {
+              cb.reject(new Error(msg.error.message));
+            } else {
+              cb.resolve(msg.result);
+            }
           }
         }
       };
     });
   }
 
-  async send(method: string, params?: Record<string, unknown>): Promise<unknown> {
-    if (!this.ws) throw new Error('Not connected');
+  async send(
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<unknown> {
+    if (!this.ws) throw new Error("Not connected");
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.callbacks.set(id, { resolve, reject });
@@ -51,7 +66,9 @@ class MiniCDP {
     });
   }
 
-  close() { this.ws?.close(); }
+  close() {
+    this.ws?.close();
+  }
 }
 
 /**
@@ -61,26 +78,37 @@ class MiniCDP {
  * @param abortSignal Optional signal to stop navigation early.
  * @returns List of step labels that completed successfully.
  */
-export async function navigateXPages(abortSignal?: { aborted: boolean }): Promise<string[]> {
+export async function navigateXPages(abortSignal?: {
+  aborted: boolean;
+}): Promise<string[]> {
   let wsUrl: string | null = null;
   try {
     const res = await fetch(`${CDP_BASE}/json/list`);
     if (!res.ok) {
-      log.warn('CDP not available for auto-navigation');
+      log.warn("CDP not available for auto-navigation");
       return [];
     }
-    const targets = (await res.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
+    const targets = (await res.json()) as Array<{
+      type: string;
+      url: string;
+      webSocketDebuggerUrl: string;
+    }>;
     const xTab = targets.find(
-      t => t.type === 'page' && (t.url.includes('x.com') || t.url.includes('twitter.com')),
+      (t) =>
+        t.type === "page" &&
+        (t.url.includes("x.com") || t.url.includes("twitter.com")),
     );
-    wsUrl = xTab?.webSocketDebuggerUrl ?? targets.find(t => t.type === 'page')?.webSocketDebuggerUrl ?? null;
+    wsUrl =
+      xTab?.webSocketDebuggerUrl ??
+      targets.find((t) => t.type === "page")?.webSocketDebuggerUrl ??
+      null;
   } catch (err) {
-    log.warn({ err }, 'Failed to discover Chrome tabs');
+    log.warn({ err }, "Failed to discover Chrome tabs");
     return [];
   }
 
   if (!wsUrl) {
-    log.warn('No Chrome tab found for auto-navigation');
+    log.warn("No Chrome tab found for auto-navigation");
     return [];
   }
 
@@ -88,19 +116,19 @@ export async function navigateXPages(abortSignal?: { aborted: boolean }): Promis
   try {
     await cdp.connect(wsUrl);
   } catch (err) {
-    log.warn({ err }, 'Failed to connect CDP for auto-navigation');
+    log.warn({ err }, "Failed to connect CDP for auto-navigation");
     return [];
   }
 
-  await cdp.send('Page.enable').catch(() => {});
+  await cdp.send("Page.enable").catch(() => {});
   const completed: string[] = [];
 
   // Navigate to home first to discover the screen name
   try {
-    await cdp.send('Page.navigate', { url: 'https://x.com/home' });
+    await cdp.send("Page.navigate", { url: "https://x.com/home" });
     await sleep(3000);
   } catch (err) {
-    log.warn({ err }, 'Failed to navigate to home');
+    log.warn({ err }, "Failed to navigate to home");
     cdp.close();
     return [];
   }
@@ -108,7 +136,7 @@ export async function navigateXPages(abortSignal?: { aborted: boolean }): Promis
   // Resolve screen name for profile-based URLs
   let screenName: string | null = null;
   try {
-    const result = await cdp.send('Runtime.evaluate', {
+    const result = (await cdp.send("Runtime.evaluate", {
       expression: `
         (function() {
           const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
@@ -118,40 +146,48 @@ export async function navigateXPages(abortSignal?: { aborted: boolean }): Promis
       `,
       awaitPromise: false,
       returnByValue: true,
-    }) as { result?: { value?: string | null } };
+    })) as { result?: { value?: string | null } };
     screenName = result?.result?.value ?? null;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
-  log.info({ screenName }, 'Detected screen name');
+  log.info({ screenName }, "Detected screen name");
 
   // Build steps with resolved URLs
   const steps: NavStep[] = [
-    { label: 'Home timeline', url: 'https://x.com/home' },
-    { label: 'Profile', clickSelector: 'a[data-testid="AppTabBar_Profile_Link"]' },
-    { label: 'Tweet detail', clickSelector: 'article[data-testid="tweet"] a[href*="/status/"]' },
-    { label: 'Search', url: 'https://x.com/search?q=hello&src=typed_query' },
-    { label: 'Bookmarks', url: 'https://x.com/i/bookmarks' },
-    { label: 'Notifications', url: 'https://x.com/notifications' },
+    { label: "Home timeline", url: "https://x.com/home" },
+    {
+      label: "Profile",
+      clickSelector: 'a[data-testid="AppTabBar_Profile_Link"]',
+    },
+    {
+      label: "Tweet detail",
+      clickSelector: 'article[data-testid="tweet"] a[href*="/status/"]',
+    },
+    { label: "Search", url: "https://x.com/search?q=hello&src=typed_query" },
+    { label: "Bookmarks", url: "https://x.com/i/bookmarks" },
+    { label: "Notifications", url: "https://x.com/notifications" },
   ];
 
   // Add profile-based URLs if we have the screen name
   if (screenName) {
     steps.push(
-      { label: 'Likes', url: `https://x.com/${screenName}/likes` },
-      { label: 'Followers', url: `https://x.com/${screenName}/followers` },
-      { label: 'Following', url: `https://x.com/${screenName}/following` },
-      { label: 'Media', url: `https://x.com/${screenName}/media` },
+      { label: "Likes", url: `https://x.com/${screenName}/likes` },
+      { label: "Followers", url: `https://x.com/${screenName}/followers` },
+      { label: "Following", url: `https://x.com/${screenName}/following` },
+      { label: "Media", url: `https://x.com/${screenName}/media` },
     );
   }
 
   for (const step of steps) {
     if (abortSignal?.aborted) break;
 
-    log.info({ step: step.label }, 'Auto-navigate step starting');
+    log.info({ step: step.label }, "Auto-navigate step starting");
 
     try {
       if (step.url) {
-        await cdp.send('Page.navigate', { url: step.url });
+        await cdp.send("Page.navigate", { url: step.url });
         await sleep(3000);
       }
 
@@ -162,28 +198,33 @@ export async function navigateXPages(abortSignal?: { aborted: boolean }): Promis
       }
 
       // Scroll to trigger lazy-loaded content
-      await cdp.send('Runtime.evaluate', {
-        expression: 'window.scrollBy(0, 800)',
-        awaitPromise: false,
-      }).catch(() => {});
+      await cdp
+        .send("Runtime.evaluate", {
+          expression: "window.scrollBy(0, 800)",
+          awaitPromise: false,
+        })
+        .catch(() => {});
 
       await sleep(2000);
 
       completed.push(step.label);
-      log.info({ step: step.label }, 'Auto-navigate step completed');
+      log.info({ step: step.label }, "Auto-navigate step completed");
     } catch (err) {
-      log.warn({ err, step: step.label }, 'Auto-navigate step failed');
+      log.warn({ err, step: step.label }, "Auto-navigate step failed");
     }
   }
 
   cdp.close();
-  log.info({ completed: completed.length, total: steps.length }, 'Auto-navigation finished');
+  log.info(
+    { completed: completed.length, total: steps.length },
+    "Auto-navigation finished",
+  );
   return completed;
 }
 
 async function clickInPage(cdp: MiniCDP, selector: string): Promise<boolean> {
   try {
-    const result = await cdp.send('Runtime.evaluate', {
+    const result = (await cdp.send("Runtime.evaluate", {
       expression: `
         (function() {
           const el = document.querySelector(${JSON.stringify(selector)});
@@ -195,7 +236,7 @@ async function clickInPage(cdp: MiniCDP, selector: string): Promise<boolean> {
       `,
       awaitPromise: false,
       returnByValue: true,
-    }) as { result?: { value?: boolean } };
+    })) as { result?: { value?: boolean } };
     return result?.result?.value === true;
   } catch {
     return false;
@@ -203,5 +244,5 @@ async function clickInPage(cdp: MiniCDP, selector: string): Promise<boolean> {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }

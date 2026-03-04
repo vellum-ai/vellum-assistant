@@ -27,7 +27,7 @@
  * All public-facing ingress URL construction is centralized here.
  */
 
-import { getIngressPublicBaseUrl } from '../config/env.js';
+import { getIngressPublicBaseUrl } from "../config/env.js";
 
 export interface IngressConfig {
   ingress?: { enabled?: boolean; publicBaseUrl?: string };
@@ -37,7 +37,7 @@ export interface IngressConfig {
  * Trim whitespace and strip trailing slashes from a URL string.
  */
 function normalizeUrl(url: string): string {
-  return url.trim().replace(/\/+$/, '');
+  return url.trim().replace(/\/+$/, "");
 }
 
 /**
@@ -53,7 +53,7 @@ function normalizeUrl(url: string): string {
 export function getPublicBaseUrl(config: IngressConfig): string {
   if (config.ingress?.enabled === false) {
     throw new Error(
-      'Public ingress is disabled. Ask the assistant to enable it, or update it from the Settings page.',
+      "Public ingress is disabled. Ask the assistant to enable it, or update it from the Settings page.",
     );
   }
 
@@ -70,7 +70,7 @@ export function getPublicBaseUrl(config: IngressConfig): string {
   }
 
   throw new Error(
-    'No public base URL configured. Set ingress.publicBaseUrl in config or INGRESS_PUBLIC_BASE_URL env var.',
+    "No public base URL configured. Set ingress.publicBaseUrl in config or INGRESS_PUBLIC_BASE_URL env var.",
   );
 }
 
@@ -83,7 +83,10 @@ export function getPublicBaseUrl(config: IngressConfig): string {
  * inbound calls), the URL is returned without the query parameter — the
  * gateway will create a new session for inbound calls.
  */
-export function getTwilioVoiceWebhookUrl(config: IngressConfig, callSessionId?: string): string {
+export function getTwilioVoiceWebhookUrl(
+  config: IngressConfig,
+  callSessionId?: string,
+): string {
   const base = getPublicBaseUrl(config);
   if (callSessionId) {
     return `${base}/webhooks/twilio/voice?callSessionId=${callSessionId}`;
@@ -113,7 +116,7 @@ export function getTwilioConnectActionUrl(config: IngressConfig): string {
  */
 export function getTwilioRelayUrl(config: IngressConfig): string {
   const base = getPublicBaseUrl(config);
-  const wsBase = base.replace(/^http(s?)/, 'ws$1');
+  const wsBase = base.replace(/^http(s?)/, "ws$1");
   return `${wsBase}/webhooks/twilio/relay`;
 }
 

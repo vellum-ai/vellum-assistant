@@ -22,6 +22,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
+import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
@@ -54,6 +55,13 @@ import {
   type AssistantAttachmentDraft,
   cleanAssistantContent,
 } from "./assistant-attachments.js";
+import { requestCompressionApproval } from "./context-overflow-approval.js";
+import { resolveOverflowAction } from "./context-overflow-policy.js";
+import {
+  createInitialReducerState,
+  reduceContextOverflow,
+  type ReducerState,
+} from "./context-overflow-reducer.js";
 import {
   buildTemporalContext,
   extractUserTimeZoneFromDynamicProfile,
@@ -84,10 +92,7 @@ import {
   isUserCancellation,
 } from "./session-error.js";
 import { consolidateAssistantMessages } from "./session-history.js";
-import {
-  raceWithTimeout,
-  stripMediaPayloadsForRetry,
-} from "./session-media-retry.js";
+import { raceWithTimeout } from "./session-media-retry.js";
 import { prepareMemoryContext } from "./session-memory.js";
 import type { MessageQueue } from "./session-queue-manager.js";
 import type { QueueDrainReason } from "./session-queue-manager.js";
@@ -96,6 +101,7 @@ import type {
   ChannelCapabilities,
   ChannelTurnContextParams,
   InboundActorContext,
+  InjectionMode,
   InterfaceTurnContextParams,
   TrustContext,
 } from "./session-runtime-assembly.js";
@@ -576,7 +582,9 @@ export async function runAgentLoopImpl(
 
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
-    runMessages = applyRuntimeInjections(runMessages, {
+
+    // Shared injection options — reused whenever we need to re-inject after reduction.
+    const injectionOpts = {
       softConflictInstruction,
       activeSurface,
       workspaceTopLevelContext: ctx.workspaceTopLevelContext,
@@ -588,7 +596,110 @@ export async function runAgentLoopImpl(
       temporalContext,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       isNonInteractive: !isInteractiveResolved,
+    } as const;
+
+    let currentInjectionMode: InjectionMode = "full";
+
+    runMessages = applyRuntimeInjections(runMessages, {
+      ...injectionOpts,
+      mode: currentInjectionMode,
     });
+
+    // ── Preflight budget evaluation ──────────────────────────────
+    // After runtime injections are applied, estimate the prompt token count
+    // and proactively invoke the reducer if already above budget. This avoids
+    // a wasted provider round-trip that would just fail with context_too_large.
+    const config = getConfig();
+    const overflowRecovery = config.contextWindow.overflowRecovery;
+    const providerMaxTokens = config.contextWindow.maxInputTokens;
+    const safetyMargin = overflowRecovery.safetyMarginRatio;
+    const preflightBudget = Math.floor(providerMaxTokens * (1 - safetyMargin));
+    let reducerState: ReducerState | undefined;
+
+    const preflightTokens = estimatePromptTokens(
+      runMessages,
+      ctx.systemPrompt,
+      { providerName: ctx.provider.name },
+    );
+
+    if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
+      rlog.warn(
+        {
+          phase: "preflight",
+          estimatedTokens: preflightTokens,
+          budget: preflightBudget,
+        },
+        "Preflight budget exceeded — running overflow reducer before provider call",
+      );
+
+      reducerState = createInitialReducerState();
+      let preflightAttempts = 0;
+
+      while (
+        preflightAttempts < overflowRecovery.maxAttempts &&
+        !reducerState.exhausted
+      ) {
+        preflightAttempts++;
+        const step = await reduceContextOverflow(
+          ctx.messages,
+          {
+            providerName: ctx.provider.name,
+            systemPrompt: ctx.systemPrompt,
+            contextWindow: config.contextWindow,
+            targetTokens: preflightBudget,
+          },
+          reducerState,
+          (msgs, signal, opts) =>
+            ctx.contextWindowManager.maybeCompact(msgs, signal!, opts),
+          abortController.signal,
+        );
+
+        reducerState = step.state;
+        ctx.messages = step.messages;
+        currentInjectionMode = step.state.injectionMode;
+
+        if (step.compactionResult?.compacted) {
+          ctx.contextCompactedMessageCount +=
+            step.compactionResult.compactedPersistedMessages;
+          ctx.contextCompactedAt = Date.now();
+          conversationStore.updateConversationContextWindow(
+            ctx.conversationId,
+            step.compactionResult.summaryText,
+            ctx.contextCompactedMessageCount,
+          );
+          onEvent({
+            type: "context_compacted",
+            previousEstimatedInputTokens:
+              step.compactionResult.previousEstimatedInputTokens,
+            estimatedInputTokens: step.compactionResult.estimatedInputTokens,
+            maxInputTokens: step.compactionResult.maxInputTokens,
+            thresholdTokens: step.compactionResult.thresholdTokens,
+            compactedMessages: step.compactionResult.compactedMessages,
+            summaryCalls: step.compactionResult.summaryCalls,
+            summaryInputTokens: step.compactionResult.summaryInputTokens,
+            summaryOutputTokens: step.compactionResult.summaryOutputTokens,
+            summaryModel: step.compactionResult.summaryModel,
+          });
+          emitUsage(
+            ctx,
+            step.compactionResult.summaryInputTokens,
+            step.compactionResult.summaryOutputTokens,
+            step.compactionResult.summaryModel,
+            onEvent,
+            "context_compactor",
+            reqId,
+          );
+        }
+
+        // Re-inject with potentially downgraded injection mode
+        runMessages = applyRuntimeInjections(ctx.messages, {
+          ...injectionOpts,
+          mode: currentInjectionMode,
+        });
+
+        if (step.estimatedTokens <= preflightBudget) break;
+      }
+    }
 
     // Pre-run repair
     let preRepairMessages = runMessages;
@@ -643,6 +754,8 @@ export async function runAgentLoopImpl(
 
     turnStarted = true;
 
+    let denyCompressionMessage: Message | null = null;
+
     let updatedHistory = await ctx.agentLoop.run(
       runMessages,
       eventHandler,
@@ -683,65 +796,91 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // One-shot context-too-large recovery
+    // ── Bounded context overflow convergence loop ──────────────────
+    // When the provider rejects with context-too-large, iterate through
+    // reducer tiers (forced compaction, tool-result truncation, media
+    // stubbing, injection downgrade) with optional approval gating for
+    // interactive latest-turn compression.
     if (
       state.contextTooLargeDetected &&
       updatedHistory.length === preRunHistoryLength
     ) {
-      rlog.warn(
-        { phase: "retry" },
-        "Context too large — attempting forced compaction and retry",
-      );
-      const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
-        ctx.messages,
-        abortController.signal,
-        { lastCompactedAt: ctx.contextCompactedAt ?? undefined, force: true },
-      );
-      if (emergencyCompact.compacted) {
-        ctx.messages = emergencyCompact.messages;
-        ctx.contextCompactedMessageCount +=
-          emergencyCompact.compactedPersistedMessages;
-        ctx.contextCompactedAt = Date.now();
-        conversationStore.updateConversationContextWindow(
-          ctx.conversationId,
-          emergencyCompact.summaryText,
-          ctx.contextCompactedMessageCount,
-        );
-        onEvent({
-          type: "context_compacted",
-          previousEstimatedInputTokens:
-            emergencyCompact.previousEstimatedInputTokens,
-          estimatedInputTokens: emergencyCompact.estimatedInputTokens,
-          maxInputTokens: emergencyCompact.maxInputTokens,
-          thresholdTokens: emergencyCompact.thresholdTokens,
-          compactedMessages: emergencyCompact.compactedMessages,
-          summaryCalls: emergencyCompact.summaryCalls,
-          summaryInputTokens: emergencyCompact.summaryInputTokens,
-          summaryOutputTokens: emergencyCompact.summaryOutputTokens,
-          summaryModel: emergencyCompact.summaryModel,
-        });
-        emitUsage(
-          ctx,
-          emergencyCompact.summaryInputTokens,
-          emergencyCompact.summaryOutputTokens,
-          emergencyCompact.summaryModel,
-          onEvent,
-          "context_compactor",
-          reqId,
+      if (!reducerState) {
+        reducerState = createInitialReducerState();
+      }
+
+      let convergenceAttempts = 0;
+      const maxAttempts = overflowRecovery.maxAttempts;
+
+      while (
+        state.contextTooLargeDetected &&
+        convergenceAttempts < maxAttempts &&
+        !reducerState.exhausted
+      ) {
+        convergenceAttempts++;
+        rlog.warn(
+          {
+            phase: "convergence",
+            attempt: convergenceAttempts,
+            appliedTiers: reducerState.appliedTiers,
+          },
+          "Context too large — applying next reducer tier",
         );
 
+        const step = await reduceContextOverflow(
+          ctx.messages,
+          {
+            providerName: ctx.provider.name,
+            systemPrompt: ctx.systemPrompt,
+            contextWindow: config.contextWindow,
+            targetTokens: preflightBudget,
+          },
+          reducerState,
+          (msgs, signal, opts) =>
+            ctx.contextWindowManager.maybeCompact(msgs, signal!, opts),
+          abortController.signal,
+        );
+
+        reducerState = step.state;
+        ctx.messages = step.messages;
+        currentInjectionMode = step.state.injectionMode;
+
+        if (step.compactionResult?.compacted) {
+          ctx.contextCompactedMessageCount +=
+            step.compactionResult.compactedPersistedMessages;
+          ctx.contextCompactedAt = Date.now();
+          conversationStore.updateConversationContextWindow(
+            ctx.conversationId,
+            step.compactionResult.summaryText,
+            ctx.contextCompactedMessageCount,
+          );
+          onEvent({
+            type: "context_compacted",
+            previousEstimatedInputTokens:
+              step.compactionResult.previousEstimatedInputTokens,
+            estimatedInputTokens: step.compactionResult.estimatedInputTokens,
+            maxInputTokens: step.compactionResult.maxInputTokens,
+            thresholdTokens: step.compactionResult.thresholdTokens,
+            compactedMessages: step.compactionResult.compactedMessages,
+            summaryCalls: step.compactionResult.summaryCalls,
+            summaryInputTokens: step.compactionResult.summaryInputTokens,
+            summaryOutputTokens: step.compactionResult.summaryOutputTokens,
+            summaryModel: step.compactionResult.summaryModel,
+          });
+          emitUsage(
+            ctx,
+            step.compactionResult.summaryInputTokens,
+            step.compactionResult.summaryOutputTokens,
+            step.compactionResult.summaryModel,
+            onEvent,
+            "context_compactor",
+            reqId,
+          );
+        }
+
         runMessages = applyRuntimeInjections(ctx.messages, {
-          softConflictInstruction,
-          activeSurface,
-          workspaceTopLevelContext: ctx.workspaceTopLevelContext,
-          channelCapabilities: ctx.channelCapabilities ?? null,
-          channelCommandContext: ctx.commandIntent ?? null,
-          channelTurnContext,
-          interfaceTurnContext,
-          inboundActorContext: resolvedInboundActorContext,
-          temporalContext,
-          voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
-          isNonInteractive: !isInteractiveResolved,
+          ...injectionOpts,
+          mode: currentInjectionMode,
         });
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
@@ -756,30 +895,164 @@ export async function runAgentLoopImpl(
         );
       }
 
+      // All reducer tiers exhausted but provider still rejects —
+      // consult the overflow policy for latest-turn compression.
       if (state.contextTooLargeDetected) {
-        const mediaTrimmed = stripMediaPayloadsForRetry(ctx.messages);
-        if (mediaTrimmed.modified) {
-          rlog.warn(
+        const action = resolveOverflowAction({
+          overflowRecovery,
+          isInteractive: isInteractiveResolved,
+        });
+
+        if (action === "request_user_approval") {
+          const approval = await requestCompressionApproval(ctx.prompter, {
+            signal: abortController.signal,
+          });
+
+          if (approval.approved) {
+            // User approved — force emergency compaction with aggressive settings
+            const emergencyCompact =
+              await ctx.contextWindowManager.maybeCompact(
+                ctx.messages,
+                abortController.signal,
+                {
+                  lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+                  force: true,
+                  minKeepRecentUserTurns: 0,
+                  targetInputTokensOverride: preflightBudget,
+                },
+              );
+            if (emergencyCompact.compacted) {
+              ctx.messages = emergencyCompact.messages;
+              ctx.contextCompactedMessageCount +=
+                emergencyCompact.compactedPersistedMessages;
+              ctx.contextCompactedAt = Date.now();
+              conversationStore.updateConversationContextWindow(
+                ctx.conversationId,
+                emergencyCompact.summaryText,
+                ctx.contextCompactedMessageCount,
+              );
+              onEvent({
+                type: "context_compacted",
+                previousEstimatedInputTokens:
+                  emergencyCompact.previousEstimatedInputTokens,
+                estimatedInputTokens: emergencyCompact.estimatedInputTokens,
+                maxInputTokens: emergencyCompact.maxInputTokens,
+                thresholdTokens: emergencyCompact.thresholdTokens,
+                compactedMessages: emergencyCompact.compactedMessages,
+                summaryCalls: emergencyCompact.summaryCalls,
+                summaryInputTokens: emergencyCompact.summaryInputTokens,
+                summaryOutputTokens: emergencyCompact.summaryOutputTokens,
+                summaryModel: emergencyCompact.summaryModel,
+              });
+              emitUsage(
+                ctx,
+                emergencyCompact.summaryInputTokens,
+                emergencyCompact.summaryOutputTokens,
+                emergencyCompact.summaryModel,
+                onEvent,
+                "context_compactor",
+                reqId,
+              );
+            }
+
+            runMessages = applyRuntimeInjections(ctx.messages, {
+              ...injectionOpts,
+              mode: currentInjectionMode,
+            });
+            preRepairMessages = runMessages;
+            preRunHistoryLength = runMessages.length;
+            state.contextTooLargeDetected = false;
+
+            updatedHistory = await ctx.agentLoop.run(
+              runMessages,
+              eventHandler,
+              abortController.signal,
+              reqId,
+              onCheckpoint,
+            );
+          } else {
+            // User denied compression — emit a graceful assistant explanation
+            // instead of a session_error, and end the turn cleanly.
+            state.contextTooLargeDetected = false;
+            const denyText =
+              "The conversation has grown too long for the model to process, " +
+              "and compression was declined. Please start a new conversation " +
+              "or manually shorten the thread to continue.";
+            const loopChannelMeta = {
+              ...provenanceFromTrustContext(ctx.trustContext),
+              userMessageChannel: capturedTurnChannelContext.userMessageChannel,
+              assistantMessageChannel:
+                capturedTurnChannelContext.assistantMessageChannel,
+              userMessageInterface:
+                capturedTurnInterfaceContext.userMessageInterface,
+              assistantMessageInterface:
+                capturedTurnInterfaceContext.assistantMessageInterface,
+            };
+            const denyMessage = createAssistantMessage(denyText);
+            await conversationStore.addMessage(
+              ctx.conversationId,
+              "assistant",
+              JSON.stringify(denyMessage.content),
+              loopChannelMeta,
+            );
+            denyCompressionMessage = denyMessage;
+            onEvent({
+              type: "assistant_text_delta",
+              text: denyText,
+              sessionId: ctx.conversationId,
+            });
+            // Prevent the final error fallback from firing
+            state.providerErrorUserMessage = null;
+          }
+        } else if (action === "auto_compress_latest_turn") {
+          // Non-interactive — auto-compress without asking
+          const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
+            ctx.messages,
+            abortController.signal,
             {
-              phase: "retry",
-              replacedBlocks: mediaTrimmed.replacedBlocks,
-              latestUserIndex: mediaTrimmed.latestUserIndex,
+              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+              force: true,
+              minKeepRecentUserTurns: 0,
+              targetInputTokensOverride: preflightBudget,
             },
-            "Context still too large — retrying with older media payloads trimmed",
           );
-          ctx.messages = mediaTrimmed.messages;
+          if (emergencyCompact.compacted) {
+            ctx.messages = emergencyCompact.messages;
+            ctx.contextCompactedMessageCount +=
+              emergencyCompact.compactedPersistedMessages;
+            ctx.contextCompactedAt = Date.now();
+            conversationStore.updateConversationContextWindow(
+              ctx.conversationId,
+              emergencyCompact.summaryText,
+              ctx.contextCompactedMessageCount,
+            );
+            onEvent({
+              type: "context_compacted",
+              previousEstimatedInputTokens:
+                emergencyCompact.previousEstimatedInputTokens,
+              estimatedInputTokens: emergencyCompact.estimatedInputTokens,
+              maxInputTokens: emergencyCompact.maxInputTokens,
+              thresholdTokens: emergencyCompact.thresholdTokens,
+              compactedMessages: emergencyCompact.compactedMessages,
+              summaryCalls: emergencyCompact.summaryCalls,
+              summaryInputTokens: emergencyCompact.summaryInputTokens,
+              summaryOutputTokens: emergencyCompact.summaryOutputTokens,
+              summaryModel: emergencyCompact.summaryModel,
+            });
+            emitUsage(
+              ctx,
+              emergencyCompact.summaryInputTokens,
+              emergencyCompact.summaryOutputTokens,
+              emergencyCompact.summaryModel,
+              onEvent,
+              "context_compactor",
+              reqId,
+            );
+          }
+
           runMessages = applyRuntimeInjections(ctx.messages, {
-            softConflictInstruction,
-            activeSurface,
-            workspaceTopLevelContext: ctx.workspaceTopLevelContext,
-            channelCapabilities: ctx.channelCapabilities ?? null,
-            channelCommandContext: ctx.commandIntent ?? null,
-            channelTurnContext,
-            interfaceTurnContext,
-            inboundActorContext: resolvedInboundActorContext,
-            temporalContext,
-            voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
-            isNonInteractive: !isInteractiveResolved,
+            ...injectionOpts,
+            mode: currentInjectionMode,
           });
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
@@ -793,8 +1066,10 @@ export async function runAgentLoopImpl(
             onCheckpoint,
           );
         }
+        // action === "fail_gracefully" falls through to the final error below
       }
 
+      // Final fallback: all recovery paths exhausted
       if (state.contextTooLargeDetected) {
         const classified = classifySessionError(
           new Error("context_length_exceeded"),
@@ -882,6 +1157,10 @@ export async function runAgentLoopImpl(
       const cleanedBlocks = cleanedContent as ContentBlock[];
       return { ...msg, content: cleanedBlocks };
     });
+
+    if (denyCompressionMessage) {
+      newMessages.push(denyCompressionMessage);
+    }
 
     const hasAssistantResponse = newMessages.some(
       (msg) => msg.role === "assistant",

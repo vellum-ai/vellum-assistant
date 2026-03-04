@@ -1,4 +1,9 @@
-import { defineHandlers,log, pendingSignBundlePayload, pendingSigningIdentity } from './shared.js';
+import {
+  defineHandlers,
+  log,
+  pendingSignBundlePayload,
+  pendingSigningIdentity,
+} from "./shared.js";
 
 export const signingHandlers = defineHandlers({
   sign_bundle_payload_response: (msg) => {
@@ -9,12 +14,21 @@ export const signingHandlers = defineHandlers({
       if (msg.error) {
         pending.reject(new Error(msg.error));
       } else if (msg.signature && msg.keyId && msg.publicKey) {
-        pending.resolve({ signature: msg.signature, keyId: msg.keyId, publicKey: msg.publicKey });
+        pending.resolve({
+          signature: msg.signature,
+          keyId: msg.keyId,
+          publicKey: msg.publicKey,
+        });
       } else {
-        pending.reject(new Error('Missing required fields in sign_bundle_payload_response'));
+        pending.reject(
+          new Error("Missing required fields in sign_bundle_payload_response"),
+        );
       }
     } else {
-      log.warn({ requestId: msg.requestId }, 'Received sign_bundle_payload_response with no pending request');
+      log.warn(
+        { requestId: msg.requestId },
+        "Received sign_bundle_payload_response with no pending request",
+      );
     }
   },
 
@@ -28,10 +42,15 @@ export const signingHandlers = defineHandlers({
       } else if (msg.keyId && msg.publicKey) {
         pending.resolve({ keyId: msg.keyId, publicKey: msg.publicKey });
       } else {
-        pending.reject(new Error('Missing required fields in get_signing_identity_response'));
+        pending.reject(
+          new Error("Missing required fields in get_signing_identity_response"),
+        );
       }
     } else {
-      log.warn({ requestId: msg.requestId }, 'Received get_signing_identity_response with no pending request');
+      log.warn(
+        { requestId: msg.requestId },
+        "Received get_signing_identity_response with no pending request",
+      );
     }
   },
 });

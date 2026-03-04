@@ -6,15 +6,15 @@
  * retryable and dead-lettered events, and replaying dead letters.
  */
 
-import { and, eq, lte } from 'drizzle-orm';
+import { and, eq, lte } from "drizzle-orm";
 
-import { getDb } from './db.js';
+import { getDb } from "./db.js";
 import {
   classifyError,
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
-} from './job-utils.js';
-import { channelInboundEvents } from './schema.js';
+} from "./job-utils.js";
+import { channelInboundEvents } from "./schema.js";
 
 /**
  * Acknowledge delivery of an outbound message for a channel event.
@@ -43,7 +43,7 @@ export function acknowledgeDelivery(
 
   db.update(channelInboundEvents)
     .set({
-      deliveryStatus: 'delivered',
+      deliveryStatus: "delivered",
       updatedAt: now,
     })
     .where(eq(channelInboundEvents.id, existing.id))
@@ -56,7 +56,7 @@ export function acknowledgeDelivery(
 export function markProcessed(eventId: string): void {
   const db = getDb();
   db.update(channelInboundEvents)
-    .set({ processingStatus: 'processed', updatedAt: Date.now() })
+    .set({ processingStatus: "processed", updatedAt: Date.now() })
     .where(eq(channelInboundEvents.id, eventId))
     .run();
 }
@@ -81,10 +81,10 @@ export function recordProcessingFailure(eventId: string, err: unknown): void {
   const category = classifyError(err);
   const errorMsg = err instanceof Error ? err.message : String(err);
 
-  if (category === 'fatal' || attempts >= RETRY_MAX_ATTEMPTS) {
+  if (category === "fatal" || attempts >= RETRY_MAX_ATTEMPTS) {
     db.update(channelInboundEvents)
       .set({
-        processingStatus: 'dead_letter',
+        processingStatus: "dead_letter",
         processingAttempts: attempts,
         lastProcessingError: errorMsg,
         retryAfter: null,
@@ -96,7 +96,7 @@ export function recordProcessingFailure(eventId: string, err: unknown): void {
     const delay = retryDelayForAttempt(attempts);
     db.update(channelInboundEvents)
       .set({
-        processingStatus: 'failed',
+        processingStatus: "failed",
         processingAttempts: attempts,
         lastProcessingError: errorMsg,
         retryAfter: now + delay,
@@ -112,7 +112,10 @@ export function recordProcessingFailure(eventId: string, err: unknown): void {
  * classification. Use this when the failure reason is known and the event
  * should remain retryable (up to max attempts).
  */
-export function markRetryableFailure(eventId: string, errorMessage: string): void {
+export function markRetryableFailure(
+  eventId: string,
+  errorMessage: string,
+): void {
   const db = getDb();
   const now = Date.now();
 
@@ -127,7 +130,7 @@ export function markRetryableFailure(eventId: string, errorMessage: string): voi
   if (attempts >= RETRY_MAX_ATTEMPTS) {
     db.update(channelInboundEvents)
       .set({
-        processingStatus: 'dead_letter',
+        processingStatus: "dead_letter",
         processingAttempts: attempts,
         lastProcessingError: errorMessage,
         retryAfter: null,
@@ -139,7 +142,7 @@ export function markRetryableFailure(eventId: string, errorMessage: string): voi
     const delay = retryDelayForAttempt(attempts);
     db.update(channelInboundEvents)
       .set({
-        processingStatus: 'failed',
+        processingStatus: "failed",
         processingAttempts: attempts,
         lastProcessingError: errorMessage,
         retryAfter: now + delay,
@@ -169,7 +172,7 @@ export function getRetryableEvents(limit = 20): Array<{
     .from(channelInboundEvents)
     .where(
       and(
-        eq(channelInboundEvents.processingStatus, 'failed'),
+        eq(channelInboundEvents.processingStatus, "failed"),
         lte(channelInboundEvents.retryAfter, now),
       ),
     )
@@ -201,7 +204,7 @@ export function getDeadLetterEvents(): Array<{
       createdAt: channelInboundEvents.createdAt,
     })
     .from(channelInboundEvents)
-    .where(eq(channelInboundEvents.processingStatus, 'dead_letter'))
+    .where(eq(channelInboundEvents.processingStatus, "dead_letter"))
     .all();
 }
 
@@ -220,7 +223,7 @@ export function replayDeadLetters(eventIds: string[]): number {
       .where(
         and(
           eq(channelInboundEvents.id, id),
-          eq(channelInboundEvents.processingStatus, 'dead_letter'),
+          eq(channelInboundEvents.processingStatus, "dead_letter"),
         ),
       )
       .get();
@@ -228,7 +231,7 @@ export function replayDeadLetters(eventIds: string[]): number {
 
     db.update(channelInboundEvents)
       .set({
-        processingStatus: 'failed',
+        processingStatus: "failed",
         processingAttempts: 0,
         lastProcessingError: null,
         retryAfter: now,

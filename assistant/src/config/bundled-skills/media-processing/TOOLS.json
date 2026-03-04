@@ -81,13 +81,22 @@
             "type": "string",
             "description": "Path to a JSON file with manual section boundary definitions"
           },
-          "skip_dead_time": {
+          "detect_dead_time": {
             "type": "boolean",
-            "description": "Whether to detect and skip dead time. Default: false. Can be too aggressive for continuous action video like sports."
+            "description": "Whether to detect and skip dead time (static/idle frames). Default: false. Can be too aggressive for continuous action video like sports."
           },
           "short_edge": {
             "type": "number",
             "description": "Short edge resolution for downscaled frames in pixels. Default: 480"
+          },
+          "include_audio": {
+            "type": "boolean",
+            "description": "Whether to extract and transcribe audio for each segment. Default: false."
+          },
+          "transcription_mode": {
+            "type": "string",
+            "enum": ["api", "local"],
+            "description": "Transcription backend: 'api' (OpenAI Whisper cloud) or 'local' (whisper.cpp). Default: 'local'."
           }
         },
         "required": ["asset_id"]
@@ -106,6 +115,11 @@
           "asset_id": {
             "type": "string",
             "description": "ID of the media asset whose segments to analyze"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["keyframes", "direct_video"],
+            "description": "Analysis mode: 'keyframes' extracts frames and sends images (default), 'direct_video' uploads video directly to Gemini. Direct video lets Gemini see motion/temporal context but has a 2GB file size limit."
           },
           "system_prompt": {
             "type": "string",

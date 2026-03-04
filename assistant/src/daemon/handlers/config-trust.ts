@@ -1,12 +1,18 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { acceptStarterBundle,addRule, getAllRules, removeRule, updateRule } from '../../permissions/trust-store.js';
+import {
+  acceptStarterBundle,
+  addRule,
+  getAllRules,
+  removeRule,
+  updateRule,
+} from "../../permissions/trust-store.js";
 import type {
   AddTrustRule,
   RemoveTrustRule,
   UpdateTrustRule,
-} from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+} from "../ipc-protocol.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 export function handleAddTrustRule(
   msg: AddTrustRule,
@@ -14,8 +20,8 @@ export function handleAddTrustRule(
   _ctx: HandlerContext,
 ): void {
   try {
-    const hasMetadata = msg.allowHighRisk != null
-      || msg.executionTarget != null;
+    const hasMetadata =
+      msg.allowHighRisk != null || msg.executionTarget != null;
 
     addRule(
       msg.toolName,
@@ -30,15 +36,29 @@ export function handleAddTrustRule(
           }
         : undefined,
     );
-    log.info({ toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
+    log.info(
+      {
+        toolName: msg.toolName,
+        pattern: msg.pattern,
+        scope: msg.scope,
+        decision: msg.decision,
+      },
+      "Trust rule added via client",
+    );
   } catch (err) {
-    log.error({ err, toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope }, 'Failed to add trust rule via client');
+    log.error(
+      { err, toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope },
+      "Failed to add trust rule via client",
+    );
   }
 }
 
-export function handleTrustRulesList(socket: net.Socket, ctx: HandlerContext): void {
+export function handleTrustRulesList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
   const rules = getAllRules();
-  ctx.send(socket, { type: 'trust_rules_list_response', rules });
+  ctx.send(socket, { type: "trust_rules_list_response", rules });
 }
 
 export function handleRemoveTrustRule(
@@ -49,12 +69,12 @@ export function handleRemoveTrustRule(
   try {
     const removed = removeRule(msg.id);
     if (!removed) {
-      log.warn({ id: msg.id }, 'Trust rule not found for removal');
+      log.warn({ id: msg.id }, "Trust rule not found for removal");
     } else {
-      log.info({ id: msg.id }, 'Trust rule removed via client');
+      log.info({ id: msg.id }, "Trust rule removed via client");
     }
   } catch (err) {
-    log.error({ err }, 'Failed to remove trust rule');
+    log.error({ err }, "Failed to remove trust rule");
   }
 }
 
@@ -71,9 +91,9 @@ export function handleUpdateTrustRule(
       decision: msg.decision,
       priority: msg.priority,
     });
-    log.info({ id: msg.id }, 'Trust rule updated via client');
+    log.info({ id: msg.id }, "Trust rule updated via client");
   } catch (err) {
-    log.error({ err }, 'Failed to update trust rule');
+    log.error({ err }, "Failed to update trust rule");
   }
 }
 
@@ -84,15 +104,24 @@ export function handleAcceptStarterBundle(
   try {
     const result = acceptStarterBundle();
     ctx.send(socket, {
-      type: 'accept_starter_bundle_response',
+      type: "accept_starter_bundle_response",
       accepted: result.accepted,
       rulesAdded: result.rulesAdded,
       alreadyAccepted: result.alreadyAccepted,
     });
-    log.info({ rulesAdded: result.rulesAdded, alreadyAccepted: result.alreadyAccepted }, 'Starter bundle accepted via client');
+    log.info(
+      {
+        rulesAdded: result.rulesAdded,
+        alreadyAccepted: result.alreadyAccepted,
+      },
+      "Starter bundle accepted via client",
+    );
   } catch (err) {
-    log.error({ err }, 'Failed to accept starter bundle');
-    ctx.send(socket, { type: 'error', message: 'Failed to accept starter bundle' });
+    log.error({ err }, "Failed to accept starter bundle");
+    ctx.send(socket, {
+      type: "error",
+      message: "Failed to accept starter bundle",
+    });
   }
 }
 
@@ -101,5 +130,6 @@ export const trustHandlers = defineHandlers({
   trust_rules_list: (_msg, socket, ctx) => handleTrustRulesList(socket, ctx),
   remove_trust_rule: handleRemoveTrustRule,
   update_trust_rule: handleUpdateTrustRule,
-  accept_starter_bundle: (_msg, socket, ctx) => handleAcceptStarterBundle(socket, ctx),
+  accept_starter_bundle: (_msg, socket, ctx) =>
+    handleAcceptStarterBundle(socket, ctx),
 });

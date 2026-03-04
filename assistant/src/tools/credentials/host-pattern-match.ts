@@ -6,7 +6,7 @@
  * Used by the credential selection, proxy router, and policy engines.
  */
 
-export type HostMatchKind = 'none' | 'wildcard' | 'exact';
+export type HostMatchKind = "none" | "wildcard" | "exact";
 
 export interface MatchHostPatternOptions {
   /** When true, "*.domain" also matches bare "domain". Defaults to false. */
@@ -31,21 +31,21 @@ export function matchHostPattern(
   const lHost = host.toLowerCase();
   const lPattern = pattern.toLowerCase();
 
-  if (lHost === lPattern) return 'exact';
+  if (lHost === lPattern) return "exact";
 
-  if (lPattern.startsWith('*.')) {
+  if (lPattern.startsWith("*.")) {
     const suffix = lPattern.slice(1); // ".fal.run"
     // Subdomain match: "api.fal.run".endsWith(".fal.run") and is longer
     if (lHost.endsWith(suffix) && lHost.length > suffix.length) {
-      return 'wildcard';
+      return "wildcard";
     }
     // Apex inclusion: "*.fal.run" matches bare "fal.run"
     if (options?.includeApexForWildcard && lHost === lPattern.slice(2)) {
-      return 'wildcard';
+      return "wildcard";
     }
   }
 
-  return 'none';
+  return "none";
 }
 
 /**
@@ -54,7 +54,14 @@ export function matchHostPattern(
  *
  * Ordering: exact > wildcard > none
  */
-export function compareMatchSpecificity(a: HostMatchKind, b: HostMatchKind): number {
-  const rank: Record<HostMatchKind, number> = { exact: 2, wildcard: 1, none: 0 };
+export function compareMatchSpecificity(
+  a: HostMatchKind,
+  b: HostMatchKind,
+): number {
+  const rank: Record<HostMatchKind, number> = {
+    exact: 2,
+    wildcard: 1,
+    none: 0,
+  };
   return rank[b] - rank[a];
 }

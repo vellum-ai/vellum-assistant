@@ -1,10 +1,13 @@
-declare module 'qrcode' {
+declare module "qrcode" {
   interface QRCodeToBufferOptions {
-    type?: 'png';
+    type?: "png";
     width?: number;
   }
 
-  function toBuffer(text: string, options?: QRCodeToBufferOptions): Promise<Buffer>;
+  function toBuffer(
+    text: string,
+    options?: QRCodeToBufferOptions,
+  ): Promise<Buffer>;
 
   export default { toBuffer };
 }

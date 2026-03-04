@@ -73,6 +73,7 @@ mock.module("../memory/ingress-member-store.js", () => ({
 
 import { eq } from "drizzle-orm";
 
+import { upsertContact } from "../contacts/contact-store.js";
 import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
@@ -110,8 +111,25 @@ function resetTables(): void {
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
   channelDeliveryStore.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
+}
+
+function ensureTestContact(): void {
+  upsertContact({
+    displayName: "Test User",
+    channels: [
+      {
+        type: "telegram",
+        address: "telegram-user-default",
+        externalUserId: "telegram-user-default",
+        status: "active",
+        policy: "allow",
+      },
+    ],
+  });
 }
 
 const TEST_BEARER_TOKEN = "token";
@@ -150,6 +168,7 @@ function getAttentionEvents(conversationId: string) {
 
 beforeEach(() => {
   resetTables();
+  ensureTestContact();
   noopProcessMessage.mockClear();
 });
 

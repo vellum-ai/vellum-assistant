@@ -7,12 +7,12 @@
  * first contact.
  */
 
-import { eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
-import { GENERATING_TITLE } from './conversation-title-service.js';
-import { getDb } from './db.js';
-import { conversationKeys,conversations } from './schema.js';
+import { GENERATING_TITLE } from "./conversation-title-service.js";
+import { getDb } from "./db.js";
+import { conversationKeys, conversations } from "./schema.js";
 
 export interface ConversationKeyMapping {
   id: string;
@@ -45,9 +45,7 @@ export function getConversationByKey(
  * same key will create a fresh conversation.
  *
  */
-export function deleteConversationKey(
-  conversationKey: string,
-): void {
+export function deleteConversationKey(conversationKey: string): void {
   const db = getDb();
   db.delete(conversationKeys)
     .where(eq(conversationKeys.conversationKey, conversationKey))
@@ -57,7 +55,10 @@ export function deleteConversationKey(
 /**
  * Map a conversation key to an existing conversation ID (no creation).
  */
-export function setConversationKey(conversationKey: string, conversationId: string): void {
+export function setConversationKey(
+  conversationKey: string,
+  conversationId: string,
+): void {
   const db = getDb();
   db.insert(conversationKeys)
     .values({
@@ -76,7 +77,10 @@ export function setConversationKey(conversationKey: string, conversationId: stri
  * avoid unique-constraint races when concurrent first messages attempt
  * to migrate a legacy key to a new scoped alias.
  */
-export function setConversationKeyIfAbsent(conversationKey: string, conversationId: string): void {
+export function setConversationKeyIfAbsent(
+  conversationKey: string,
+  conversationId: string,
+): void {
   const db = getDb();
   db.insert(conversationKeys)
     .values({
@@ -96,9 +100,10 @@ export function setConversationKeyIfAbsent(conversationKey: string, conversation
  * Otherwise, creates a new conversation and mapping atomically within a
  * single transaction to prevent race conditions and orphaned rows.
  */
-export function getOrCreateConversation(
-  conversationKey: string,
-): { conversationId: string; created: boolean } {
+export function getOrCreateConversation(conversationKey: string): {
+  conversationId: string;
+  created: boolean;
+} {
   const db = getDb();
 
   return db.transaction((tx) => {

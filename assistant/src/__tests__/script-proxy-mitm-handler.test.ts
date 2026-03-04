@@ -7,13 +7,14 @@ import { join } from "node:path";
 import { connect as tlsConnect } from "node:tls";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 
+import type { RouteDecision } from "@vellumai/outbound-proxy";
+
 import {
   ensureLocalCA,
   getCAPath,
   issueLeafCert,
 } from "../tools/network/script-proxy/certs.js";
 import type { RewriteCallback } from "../tools/network/script-proxy/mitm-handler.js";
-import type { RouteDecision } from "../tools/network/script-proxy/router.js";
 import { createProxyServer } from "../tools/network/script-proxy/server.js";
 
 let dataDir: string;

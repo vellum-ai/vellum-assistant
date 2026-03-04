@@ -1,4 +1,4 @@
-import type { Message } from '../providers/types.js';
+import type { Message } from "../providers/types.js";
 
 /** Matches both old (`<loaded_skill id="..." />`) and new versioned
  *  (`<loaded_skill id="..." version="v1:hex" />`) marker formats.
@@ -37,7 +37,7 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
   const skillLoadUseIds = new Set<string>();
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type === 'tool_use' && block.name === 'skill_load') {
+      if (block.type === "tool_use" && block.name === "skill_load") {
         skillLoadUseIds.add(block.id);
       }
     }
@@ -49,7 +49,7 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
 
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type !== 'tool_result') continue;
+      if (block.type !== "tool_result") continue;
       if (!skillLoadUseIds.has(block.tool_use_id)) continue;
 
       const text = block.content;

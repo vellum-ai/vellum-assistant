@@ -7,14 +7,19 @@
  * same approval flow can be reused across transports.
  */
 
-import type { GuardianDecisionAction } from './guardian-decision-types.js';
+import type { GuardianDecisionAction } from "./guardian-decision-types.js";
 
 // ---------------------------------------------------------------------------
 // Approval actions
 // ---------------------------------------------------------------------------
 
 /** The set of actions a user can take on an approval prompt. */
-export type ApprovalAction = 'approve_once' | 'approve_10m' | 'approve_thread' | 'approve_always' | 'reject';
+export type ApprovalAction =
+  | "approve_once"
+  | "approve_10m"
+  | "approve_thread"
+  | "approve_always"
+  | "reject";
 
 /** An action presented to the user as a tappable button or text option. */
 export interface ApprovalActionOption {
@@ -31,7 +36,7 @@ export interface ApprovalActionOption {
 export function toApprovalActionOptions(
   actions: GuardianDecisionAction[],
 ): ApprovalActionOption[] {
-  return actions.map(a => ({
+  return actions.map((a) => ({
     id: a.action as ApprovalAction,
     label: a.label,
   }));
@@ -71,7 +76,10 @@ export interface ApprovalUIMetadata {
 // ---------------------------------------------------------------------------
 
 /** How the user communicated their decision. */
-export type ApprovalDecisionSource = 'telegram_button' | 'whatsapp_button' | 'plain_text';
+export type ApprovalDecisionSource =
+  | "telegram_button"
+  | "whatsapp_button"
+  | "plain_text";
 
 /** The structured result of a user's approval decision. */
 export interface ApprovalDecisionResult {

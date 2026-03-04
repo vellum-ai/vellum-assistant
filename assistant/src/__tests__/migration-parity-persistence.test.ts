@@ -155,6 +155,7 @@ function makePreflightSuccess(): ImportPreflightResponse {
       files_to_create: 1,
       files_to_overwrite: 1,
       files_unchanged: 1,
+      files_to_skip: 0,
     },
     files: [
       {
@@ -706,9 +707,8 @@ describe("interrupted flow recovery", () => {
 
     // Goes to upload-bundle because no bundle data
     expect(resumed.currentStep).toBe("upload-bundle");
-    // But validate result is preserved
-    expect(resumed.validateResult).toBeDefined();
-    expect(resumed.validateResult!.is_valid).toBe(true);
+    // Results are cleared when rewinding to upload-bundle (no bundle data)
+    expect(resumed.validateResult).toBeUndefined();
   });
 
   test("partial completion — export done but import crashed", () => {
@@ -731,8 +731,8 @@ describe("interrupted flow recovery", () => {
 
     // Goes back to upload-bundle (no bundle data)
     expect(resumed.currentStep).toBe("upload-bundle");
-    // Export result is preserved
-    expect(resumed.exportResult).toBeDefined();
+    // Results are cleared when rewinding to upload-bundle (no bundle data)
+    expect(resumed.exportResult).toBeUndefined();
   });
 
   test("error state at transfer — user can retry after resume at rebind step doesn't apply", () => {
@@ -819,19 +819,62 @@ describe("full end-to-end — managed-to-self-hosted migration", () => {
       expect(valScreen.preflight.summary.totalFiles).toBe(3);
     }
 
-    // Step 4: Transfer (runtime export + import)
+    // Step 4: Transfer (managed export via async polling + runtime import)
     const archiveBytes = new ArrayBuffer(32);
     const importResponse = makeImportSuccess();
 
-    const sourceFetch = (async () => {
-      return new Response(archiveBytes, {
-        status: 200,
-        headers: {
-          "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
-          "X-Vbundle-Manifest-Sha256": "abc",
-        },
-      });
+    let exportCallCount = 0;
+    const sourceFetch = (async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (urlStr.endsWith("/export/")) {
+        // Managed export: initiate async job
+        return new Response(
+          JSON.stringify({ job_id: "exp-m2sh", status: "pending" }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (urlStr.includes("/export/") && urlStr.includes("/status/")) {
+        exportCallCount++;
+        if (exportCallCount === 1) {
+          // First poll: still in progress
+          return new Response(
+            JSON.stringify({
+              job_id: "exp-m2sh",
+              status: "in_progress",
+              progress: 50,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        // Second poll: complete with download URL
+        return new Response(
+          JSON.stringify({
+            job_id: "exp-m2sh",
+            status: "complete",
+            download_url: "https://platform.vellum.ai/downloads/exp-m2sh",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (urlStr.includes("/downloads/")) {
+        // Download the exported archive
+        return new Response(archiveBytes, {
+          status: 200,
+          headers: {
+            "Content-Disposition": 'attachment; filename="export.vbundle"',
+          },
+        });
+      }
+      return new Response("Not found", { status: 404 });
     }) as unknown as typeof fetch;
 
     const destFetch = (async () => {
@@ -842,7 +885,7 @@ describe("full end-to-end — managed-to-self-hosted migration", () => {
     }) as unknown as typeof fetch;
 
     const transferOptions = makeExecutorOptions({
-      sourceConfig: runtimeConfig({ fetchFn: sourceFetch }),
+      sourceConfig: managedConfig({ fetchFn: sourceFetch }),
       destConfig: runtimeConfig({ fetchFn: destFetch }),
     });
 
@@ -971,142 +1014,97 @@ describe("full end-to-end — self-hosted-to-managed migration", () => {
 // 5. EDGE CASES
 // ===========================================================================
 
-describe("edge cases — polling failures and export job errors", () => {
-  test("transfer step handles export job failure as retryable error", async () => {
-    // Simulate managed export where the job fails after a single poll
-    const sourceFetch = (async (url: string | URL | Request) => {
-      const urlStr = String(url);
-      if (urlStr.endsWith("/export/")) {
-        return new Response(
-          JSON.stringify({ job_id: "exp-fail", status: "pending" }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      if (urlStr.includes("/export/") && urlStr.includes("/status/")) {
-        // Return failed status immediately — simulates a job that fails
-        return new Response(
-          JSON.stringify({
-            status: "failed",
-            job_id: "exp-fail",
-            error: "Export timed out on server",
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      return new Response("Not found", { status: 404 });
+describe("edge cases — import failures and transport errors", () => {
+  test("transfer step handles import validation failure as retryable error", async () => {
+    const destFetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          reason: "validation_failed",
+          message: "Manifest SHA mismatch",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     }) as unknown as typeof fetch;
 
     const state = advanceTo("transfer");
     const options = makeExecutorOptions({
-      sourceConfig: managedConfig({ fetchFn: sourceFetch }),
-    });
-
-    const result = await executeTransferFlow(state, options);
-    expect(result.steps.transfer.status).toBe("error");
-    expect(result.steps.transfer.error?.message).toContain("Export job failed");
-    expect(result.steps.transfer.error?.code).toBe("EXPORT_JOB_FAILED");
-
-    const screen = deriveTransferScreenState(result);
-    expect(screen.phase).toBe("error");
-    if (screen.phase === "error") {
-      expect(screen.failedPhase).toBe("export");
-      expect(screen.canRetry).toBe(true);
-    }
-  });
-
-  test("transfer step handles missing download URL after export completes", async () => {
-    // Export job completes but provides no download URL
-    const sourceFetch = (async (url: string | URL | Request) => {
-      const urlStr = String(url);
-      if (urlStr.endsWith("/export/")) {
-        return new Response(
-          JSON.stringify({ job_id: "exp-no-url", status: "pending" }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      if (urlStr.includes("/export/") && urlStr.includes("/status/")) {
-        return new Response(
-          JSON.stringify({
-            status: "complete",
-            job_id: "exp-no-url",
-            // No download_url provided
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      return new Response("Not found", { status: 404 });
-    }) as unknown as typeof fetch;
-
-    const state = advanceTo("transfer");
-    const options = makeExecutorOptions({
-      sourceConfig: managedConfig({ fetchFn: sourceFetch }),
-    });
-
-    const result = await executeTransferFlow(state, options);
-    expect(result.steps.transfer.status).toBe("error");
-    expect(result.steps.transfer.error?.code).toBe("NO_DOWNLOAD_URL");
-    expect(result.steps.transfer.error?.retryable).toBe(true);
-  });
-
-  test("transfer step handles download failure after successful export poll", async () => {
-    const sourceFetch = (async (url: string | URL | Request) => {
-      const urlStr = String(url);
-      if (urlStr.endsWith("/export/")) {
-        return new Response(
-          JSON.stringify({ job_id: "exp-dl-fail", status: "pending" }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      if (urlStr.includes("/export/") && urlStr.includes("/status/")) {
-        return new Response(
-          JSON.stringify({
-            status: "complete",
-            job_id: "exp-dl-fail",
-            download_url: "https://cdn.example.com/missing.vbundle",
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      if (urlStr === "https://cdn.example.com/missing.vbundle") {
-        return new Response("Not Found", { status: 404 });
-      }
-      return new Response("Not found", { status: 404 });
-    }) as unknown as typeof fetch;
-
-    const state = advanceTo("transfer");
-    const options = makeExecutorOptions({
-      sourceConfig: managedConfig({ fetchFn: sourceFetch }),
+      destConfig: runtimeConfig({ fetchFn: destFetch }),
     });
 
     const result = await executeTransferFlow(state, options);
     expect(result.steps.transfer.status).toBe("error");
     expect(result.steps.transfer.error?.message).toContain(
-      "Failed to download",
+      "Manifest SHA mismatch",
     );
+    expect(result.steps.transfer.error?.code).toBe("validation_failed");
+
+    const screen = deriveTransferScreenState(result);
+    expect(screen.phase).toBe("error");
+    if (screen.phase === "error") {
+      expect(screen.failedPhase).toBe("import");
+      expect(screen.canRetry).toBe(true);
+    }
   });
 
-  test("transfer step handles source HTTP 503 as retryable transport error", async () => {
+  test("transfer step handles import write failure", async () => {
+    const destFetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          reason: "write_failed",
+          message: "Disk full",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
     const state = advanceTo("transfer");
     const options = makeExecutorOptions({
-      sourceConfig: runtimeConfig({
+      destConfig: runtimeConfig({ fetchFn: destFetch }),
+    });
+
+    const result = await executeTransferFlow(state, options);
+    expect(result.steps.transfer.status).toBe("error");
+    expect(result.steps.transfer.error?.code).toBe("write_failed");
+    expect(result.steps.transfer.error?.retryable).toBe(true);
+  });
+
+  test("transfer step handles import extraction failure", async () => {
+    const destFetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          reason: "extraction_failed",
+          message: "Corrupt archive",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    const state = advanceTo("transfer");
+    const options = makeExecutorOptions({
+      destConfig: runtimeConfig({ fetchFn: destFetch }),
+    });
+
+    const result = await executeTransferFlow(state, options);
+    expect(result.steps.transfer.status).toBe("error");
+    expect(result.steps.transfer.error?.message).toContain("Corrupt archive");
+  });
+
+  test("transfer step handles destination HTTP 503 as retryable transport error", async () => {
+    const state = advanceTo("transfer");
+    const options = makeExecutorOptions({
+      destConfig: runtimeConfig({
         fetchFn: mockFetch(503, "Service Unavailable"),
       }),
     });
@@ -1118,7 +1116,7 @@ describe("edge cases — polling failures and export job errors", () => {
     expect(screen.phase).toBe("error");
     if (screen.phase === "error") {
       expect(screen.canRetry).toBe(true);
-      expect(screen.failedPhase).toBe("export");
+      expect(screen.failedPhase).toBe("import");
     }
   });
 
@@ -1196,9 +1194,9 @@ describe("edge cases — stale/expired states", () => {
     expect(restored).toBeDefined();
     expect(restored!.createdAt).toBe("2023-06-15T00:00:00Z");
 
-    // The wizard should still work
+    // The wizard should still work — transfer step is import-only
     const screen = deriveTransferScreenState(restored!);
-    expect(screen.phase).toBe("exporting");
+    expect(screen.phase).toBe("importing");
   });
 });
 
@@ -1368,7 +1366,7 @@ describe("edge cases — bundle data loss after deserialization", () => {
     expect(resumed.currentStep).toBe("rebind-secrets");
   });
 
-  test("direction and step results survive even when bundle data is lost", () => {
+  test("direction survives but step results are cleared when bundle data is lost", () => {
     let state = advanceTo("transfer");
     state = {
       ...state,
@@ -1380,11 +1378,11 @@ describe("edge cases — bundle data loss after deserialization", () => {
     const restored = deserializeWizardState(json);
     const resumed = prepareForResume(restored!);
 
-    // Redirected to upload-bundle, but results are preserved
+    // Redirected to upload-bundle; direction is preserved but results are cleared
     expect(resumed.currentStep).toBe("upload-bundle");
     expect(resumed.direction).toBe("managed-to-self-hosted");
-    expect(resumed.validateResult).toBeDefined();
-    expect(resumed.preflightResult).toBeDefined();
+    expect(resumed.validateResult).toBeUndefined();
+    expect(resumed.preflightResult).toBeUndefined();
   });
 });
 

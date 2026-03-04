@@ -104,6 +104,8 @@ async function runMcp(
     // Commander exitOverride throws on parse errors
     if (e && typeof e === "object" && "exitCode" in e) {
       process.exitCode = (e as { exitCode: number }).exitCode;
+    } else {
+      throw e;
     }
   } finally {
     process.stdout.write = origWrite;

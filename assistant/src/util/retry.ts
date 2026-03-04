@@ -20,7 +20,10 @@ export interface RetryOptions {
  * plus random in [0, cap/2]. Prevents retry storms while ensuring
  * retries never collapse to 0ms.
  */
-export function computeRetryDelay(attempt: number, baseDelayMs = DEFAULT_BASE_DELAY_MS): number {
+export function computeRetryDelay(
+  attempt: number,
+  baseDelayMs = DEFAULT_BASE_DELAY_MS,
+): number {
   const cap = baseDelayMs * Math.pow(2, attempt);
   const half = cap / 2;
   return half + Math.random() * half;
@@ -53,7 +56,7 @@ export function getHttpRetryDelay(
   attempt: number,
   baseDelayMs = DEFAULT_BASE_DELAY_MS,
 ): number {
-  const retryAfter = response.headers.get('retry-after');
+  const retryAfter = response.headers.get("retry-after");
   if (retryAfter) {
     const parsed = parseRetryAfterMs(retryAfter);
     if (parsed !== undefined) return parsed;
@@ -78,7 +81,12 @@ export function isRetryableStatus(status: number): boolean {
 export function isRetryableNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
-  const retryableCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE']);
+  const retryableCodes = new Set([
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "EPIPE",
+  ]);
 
   const code = (error as NodeJS.ErrnoException).code;
   if (code && retryableCodes.has(code)) return true;
@@ -100,18 +108,21 @@ export function sleep(ms: number): Promise<void> {
  * Resolves (not rejects) on abort so callers can check the signal
  * themselves and decide what to do.
  */
-export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function abortableSleep(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> {
   if (!signal) return sleep(ms);
   if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(onDone, ms);
-    signal.addEventListener('abort', onDone, { once: true });
+    signal.addEventListener("abort", onDone, { once: true });
     function onDone() {
       clearTimeout(timer);
-      signal!.removeEventListener('abort', onDone);
+      signal!.removeEventListener("abort", onDone);
       resolve();
     }
   });
 }
 
-export { DEFAULT_BASE_DELAY_MS,DEFAULT_MAX_RETRIES };
+export { DEFAULT_BASE_DELAY_MS, DEFAULT_MAX_RETRIES };

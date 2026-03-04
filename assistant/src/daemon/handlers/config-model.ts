@@ -1,20 +1,31 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { getConfig, loadRawConfig, saveRawConfig } from '../../config/loader.js';
-import { initializeProviders } from '../../providers/registry.js';
+import {
+  getConfig,
+  loadRawConfig,
+  saveRawConfig,
+} from "../../config/loader.js";
+import { initializeProviders } from "../../providers/registry.js";
 import type {
   ImageGenModelSetRequest,
   ModelSetRequest,
-} from '../ipc-protocol.js';
-import { MODEL_TO_PROVIDER } from '../session-slash.js';
-import { CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext,log } from './shared.js';
+} from "../ipc-protocol.js";
+import { MODEL_TO_PROVIDER } from "../session-slash.js";
+import {
+  CONFIG_RELOAD_DEBOUNCE_MS,
+  defineHandlers,
+  type HandlerContext,
+  log,
+} from "./shared.js";
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
-  const configured = Object.keys(config.apiKeys).filter((k) => !!config.apiKeys[k]);
-  if (!configured.includes('ollama')) configured.push('ollama');
+  const configured = Object.keys(config.apiKeys).filter(
+    (k) => !!config.apiKeys[k],
+  );
+  if (!configured.includes("ollama")) configured.push("ollama");
   ctx.send(socket, {
-    type: 'model_info',
+    type: "model_info",
     model: config.model,
     provider: config.provider,
     configuredProviders: configured,
@@ -35,12 +46,15 @@ export function handleModelSet(
     {
       const current = getConfig();
       const expectedProvider = MODEL_TO_PROVIDER[msg.model];
-      const providerAligned = !expectedProvider || current.provider === expectedProvider;
+      const providerAligned =
+        !expectedProvider || current.provider === expectedProvider;
       if (msg.model === current.model && providerAligned) {
-        const configured = Object.keys(current.apiKeys).filter((k) => !!current.apiKeys[k]);
-        if (!configured.includes('ollama')) configured.push('ollama');
+        const configured = Object.keys(current.apiKeys).filter(
+          (k) => !!current.apiKeys[k],
+        );
+        if (!configured.includes("ollama")) configured.push("ollama");
         ctx.send(socket, {
-          type: 'model_info',
+          type: "model_info",
           model: current.model,
           provider: current.provider,
           configuredProviders: configured,
@@ -51,14 +65,21 @@ export function handleModelSet(
 
     // Validate API key before switching
     const provider = MODEL_TO_PROVIDER[msg.model];
-    if (provider && provider !== 'ollama') {
+    if (provider && provider !== "ollama") {
       const currentConfig = getConfig();
       if (!currentConfig.apiKeys[provider]) {
         // Send current model_info so the client resyncs its optimistic state
         // (don't use generic 'error' type — it would interrupt in-flight chat)
-        const configured = Object.keys(currentConfig.apiKeys).filter((k) => !!currentConfig.apiKeys[k]);
-        if (!configured.includes('ollama')) configured.push('ollama');
-        ctx.send(socket, { type: 'model_info', model: currentConfig.model, provider: currentConfig.provider, configuredProviders: configured });
+        const configured = Object.keys(currentConfig.apiKeys).filter(
+          (k) => !!currentConfig.apiKeys[k],
+        );
+        if (!configured.includes("ollama")) configured.push("ollama");
+        ctx.send(socket, {
+          type: "model_info",
+          model: currentConfig.model,
+          provider: currentConfig.provider,
+          configuredProviders: configured,
+        });
         return;
       }
     }
@@ -80,7 +101,13 @@ export function handleModelSet(
       ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
-    ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+    ctx.debounceTimers.schedule(
+      "__suppress_reset__",
+      () => {
+        ctx.setSuppressConfigReload(false);
+      },
+      CONFIG_RELOAD_DEBOUNCE_MS,
+    );
 
     // Re-initialize provider with the new model so LLM calls use it
     const config = getConfig();
@@ -100,13 +127,16 @@ export function handleModelSet(
     ctx.updateConfigFingerprint();
 
     ctx.send(socket, {
-      type: 'model_info',
+      type: "model_info",
       model: config.model,
       provider: config.provider,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send(socket, { type: 'error', message: `Failed to set model: ${message}` });
+    ctx.send(socket, {
+      type: "error",
+      message: `Failed to set model: ${message}`,
+    });
   }
 }
 
@@ -127,10 +157,16 @@ export function handleImageGenModelSet(
       ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
-    ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+    ctx.debounceTimers.schedule(
+      "__suppress_reset__",
+      () => {
+        ctx.setSuppressConfigReload(false);
+      },
+      CONFIG_RELOAD_DEBOUNCE_MS,
+    );
 
     ctx.updateConfigFingerprint();
-    log.info({ model: msg.model }, 'Image generation model updated');
+    log.info({ model: msg.model }, "Image generation model updated");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, `Failed to set image gen model: ${message}`);

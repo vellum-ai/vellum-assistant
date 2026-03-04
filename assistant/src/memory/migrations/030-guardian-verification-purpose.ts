@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Add verification_purpose column to channel_guardian_verification_challenges.
@@ -13,5 +13,7 @@ export function migrateGuardianVerificationPurpose(database: DrizzleDb): void {
     database.run(
       /*sql*/ `ALTER TABLE channel_guardian_verification_challenges ADD COLUMN verification_purpose TEXT DEFAULT 'guardian'`,
     );
-  } catch { /* already exists */ }
+  } catch {
+    /* already exists */
+  }
 }

@@ -116,7 +116,7 @@ export type ExportResult = ExportRuntimeResult | ExportManagedResult;
 
 export interface ImportPreflightFileReport {
   path: string;
-  action: "create" | "overwrite" | "unchanged";
+  action: "create" | "overwrite" | "unchanged" | "skip";
   bundle_size: number;
   current_size: number | null;
   bundle_sha256: string;
@@ -136,6 +136,7 @@ export interface ImportPreflightSuccessResponse {
     files_to_create: number;
     files_to_overwrite: number;
     files_unchanged: number;
+    files_to_skip: number;
   };
   files: ImportPreflightFileReport[];
   conflicts: ImportPreflightConflict[];
@@ -150,9 +151,24 @@ export interface ImportPreflightValidationFailedResponse {
   };
 }
 
+export interface ImportPreflightConflictResponse {
+  can_import: false;
+  summary: {
+    total_files: number;
+    files_to_create: number;
+    files_to_overwrite: number;
+    files_unchanged: number;
+    files_to_skip: number;
+  };
+  files: ImportPreflightFileReport[];
+  conflicts: ImportPreflightConflict[];
+  manifest: Manifest;
+}
+
 export type ImportPreflightResponse =
   | ImportPreflightSuccessResponse
-  | ImportPreflightValidationFailedResponse;
+  | ImportPreflightValidationFailedResponse
+  | ImportPreflightConflictResponse;
 
 // ---------------------------------------------------------------------------
 // Import commit

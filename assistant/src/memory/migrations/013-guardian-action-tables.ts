@@ -1,4 +1,4 @@
-import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
  * Create guardian_action_requests and guardian_action_deliveries tables
@@ -11,7 +11,7 @@ export function migrateGuardianActionTables(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
 
   try {
-    raw.exec('BEGIN');
+    raw.exec("BEGIN");
 
     raw.exec(/*sql*/ `
       CREATE TABLE IF NOT EXISTS guardian_action_requests (
@@ -52,17 +52,35 @@ export function migrateGuardianActionTables(database: DrizzleDb): void {
       )
     `);
 
-    raw.exec(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_requests_status ON guardian_action_requests(status)`);
-    raw.exec(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_requests_call_session ON guardian_action_requests(call_session_id)`);
-    raw.exec(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_requests_pending_question ON guardian_action_requests(pending_question_id)`);
-    raw.exec(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_requests_request_code ON guardian_action_requests(request_code)`);
-    raw.exec(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_deliveries_request_id ON guardian_action_deliveries(request_id)`);
-    raw.exec(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_deliveries_status ON guardian_action_deliveries(status)`);
-    raw.exec(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_deliveries_destination ON guardian_action_deliveries(destination_channel, destination_chat_id)`);
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_requests_status ON guardian_action_requests(status)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_requests_call_session ON guardian_action_requests(call_session_id)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_requests_pending_question ON guardian_action_requests(pending_question_id)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_requests_request_code ON guardian_action_requests(request_code)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_deliveries_request_id ON guardian_action_deliveries(request_id)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_deliveries_status ON guardian_action_deliveries(status)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_action_deliveries_destination ON guardian_action_deliveries(destination_channel, destination_chat_id)`,
+    );
 
-    raw.exec('COMMIT');
+    raw.exec("COMMIT");
   } catch (e) {
-    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
     throw e;
   }
 }

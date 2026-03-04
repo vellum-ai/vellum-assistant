@@ -9,19 +9,22 @@
  *   3. Consume user decisions and apply them to the underlying session
  */
 
-import { addRule } from '../permissions/trust-store.js';
-import type { UserDecision } from '../permissions/types.js';
-import { getTool } from '../tools/registry.js';
-import { composeApprovalMessage } from './approval-message-composer.js';
+import { addRule } from "../permissions/trust-store.js";
+import type { UserDecision } from "../permissions/types.js";
+import { getTool } from "../tools/registry.js";
+import { composeApprovalMessage } from "./approval-message-composer.js";
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
   ApprovalUIMetadata,
   ChannelApprovalPrompt,
-} from './channel-approval-types.js';
-import { toApprovalActionOptions } from './channel-approval-types.js';
-import { buildDecisionActions, buildPlainTextFallback } from './guardian-decision-types.js';
-import * as pendingInteractions from './pending-interactions.js';
+} from "./channel-approval-types.js";
+import { toApprovalActionOptions } from "./channel-approval-types.js";
+import {
+  buildDecisionActions,
+  buildPlainTextFallback,
+} from "./guardian-decision-types.js";
+import * as pendingInteractions from "./pending-interactions.js";
 
 /** Summary of a pending interaction, used by channel approval flows. */
 export interface PendingApprovalInfo {
@@ -57,16 +60,19 @@ export function getChannelApprovalPrompt(
  * Get all pending approval interactions for a conversation, mapped
  * to the PendingApprovalInfo shape used by channel approval flows.
  */
-export function getApprovalInfoByConversation(conversationId: string): PendingApprovalInfo[] {
+export function getApprovalInfoByConversation(
+  conversationId: string,
+): PendingApprovalInfo[] {
   const interactions = pendingInteractions.getByConversation(conversationId);
   return interactions
-    .filter((i) => i.kind === 'confirmation' && i.confirmationDetails)
+    .filter((i) => i.kind === "confirmation" && i.confirmationDetails)
     .map((i) => ({
       requestId: i.requestId,
       toolName: i.confirmationDetails!.toolName,
       input: i.confirmationDetails!.input,
       riskLevel: i.confirmationDetails!.riskLevel,
-      persistentDecisionsAllowed: i.confirmationDetails!.persistentDecisionsAllowed,
+      persistentDecisionsAllowed:
+        i.confirmationDetails!.persistentDecisionsAllowed,
     }));
 }
 
@@ -78,9 +84,11 @@ export function getApprovalInfoByConversation(conversationId: string): PendingAp
  * `ApprovalActionOption` shape. This ensures channel button sets are always
  * consistent with the unified `GuardianDecisionPrompt` type.
  */
-function buildPromptFromApprovalInfo(info: PendingApprovalInfo): ChannelApprovalPrompt {
+function buildPromptFromApprovalInfo(
+  info: PendingApprovalInfo,
+): ChannelApprovalPrompt {
   const promptText = composeApprovalMessage({
-    scenario: 'standard_prompt',
+    scenario: "standard_prompt",
     toolName: info.toolName,
   });
 
@@ -124,10 +132,14 @@ export function buildApprovalUIMetadata(
  */
 function mapApprovalActionToUserDecision(action: ApprovalAction): UserDecision {
   switch (action) {
-    case 'reject': return 'deny';
-    case 'approve_10m': return 'allow_10m';
-    case 'approve_thread': return 'allow_thread';
-    default: return 'allow';
+    case "reject":
+      return "deny";
+    case "approve_10m":
+      return "allow_10m";
+    case "approve_thread":
+      return "allow_thread";
+    default:
+      return "allow";
   }
 }
 
@@ -163,7 +175,7 @@ export function handleChannelDecision(
     : pending[0];
   if (!info) return { applied: false };
 
-  if (decision.action === 'approve_always') {
+  if (decision.action === "approve_always") {
     // Only persist a trust rule when the confirmation explicitly allows persistence
     // AND provides explicit allowlist/scope options. Without explicit options we
     // would create a blanket "**"/"everywhere" rule, which is a security risk.
@@ -178,13 +190,16 @@ export function handleChannelDecision(
       // Non-scoped tools (web_fetch, network_request, etc.) have empty
       // scopeOptions — default to 'everywhere' so approve_always still
       // persists a trust rule instead of silently degrading to one-time.
-      const scope = details.scopeOptions?.length ? details.scopeOptions[0].scope : 'everywhere';
+      const scope = details.scopeOptions?.length
+        ? details.scopeOptions[0].scope
+        : "everywhere";
       // Only persist executionTarget for skill-origin tools — core tools don't
       // set it in their PolicyContext, so a persisted value would prevent the
       // rule from ever matching on subsequent permission checks.
       const tool = getTool(details.toolName);
-      const executionTarget = tool?.origin === 'skill' ? details.executionTarget : undefined;
-      addRule(details.toolName, pattern, scope, 'allow', 100, {
+      const executionTarget =
+        tool?.origin === "skill" ? details.executionTarget : undefined;
+      addRule(details.toolName, pattern, scope, "allow", 100, {
         executionTarget,
       });
     }
@@ -234,7 +249,7 @@ export function buildGuardianApprovalPrompt(
   requesterIdentifier: string,
 ): ChannelApprovalPrompt {
   const promptText = composeApprovalMessage({
-    scenario: 'guardian_prompt',
+    scenario: "guardian_prompt",
     toolName: info.toolName,
     requesterIdentifier,
   });
@@ -255,7 +270,10 @@ export function buildGuardianApprovalPrompt(
  * All other channels fall back to plain-text instructions embedded in the
  * message body.
  */
-const RICH_APPROVAL_CHANNELS: ReadonlySet<string> = new Set(['telegram', 'whatsapp']);
+const RICH_APPROVAL_CHANNELS: ReadonlySet<string> = new Set([
+  "telegram",
+  "whatsapp",
+]);
 
 /**
  * Returns true when the given channel supports rich approval UI such as

@@ -30,71 +30,88 @@ import {
   submitTollFreeVerification,
   type TollFreeVerificationSubmitParams,
   updateTollFreeVerification,
-} from '../../calls/twilio-rest.js';
-import { getGatewayInternalBaseUrl } from '../../config/env.js';
-import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
-import { getReadinessService } from '../../daemon/handlers/config-channels.js';
-import { syncTwilioWebhooks } from '../../daemon/handlers/config-ingress.js';
-import type { IngressConfig } from '../../inbound/public-ingress-urls.js';
-import { deleteSecureKey, getSecureKey, setSecureKey } from '../../security/secure-keys.js';
-import { deleteCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
-import { mintDaemonDeliveryToken } from '../auth/token-service.js';
+} from "../../calls/twilio-rest.js";
+import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
+import { getReadinessService } from "../../daemon/handlers/config-channels.js";
+import { syncTwilioWebhooks } from "../../daemon/handlers/config-ingress.js";
+import type { IngressConfig } from "../../inbound/public-ingress-urls.js";
+import {
+  deleteSecureKey,
+  getSecureKey,
+  setSecureKey,
+} from "../../security/secure-keys.js";
+import {
+  deleteCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
+import { mintDaemonDeliveryToken } from "../auth/token-service.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
 /** In-memory store for the last SMS send test result. Shared between sms_send_test and sms_doctor. */
-let _lastTestResult: {
-  messageSid: string;
-  to: string;
-  initialStatus: string;
-  finalStatus: string;
-  errorCode?: string;
-  errorMessage?: string;
-  timestamp: number;
-} | undefined;
+let _lastTestResult:
+  | {
+      messageSid: string;
+      to: string;
+      initialStatus: string;
+      finalStatus: string;
+      errorCode?: string;
+      errorMessage?: string;
+      timestamp: number;
+    }
+  | undefined;
 
-function mapTwilioErrorRemediation(errorCode: string | undefined): string | undefined {
+function mapTwilioErrorRemediation(
+  errorCode: string | undefined,
+): string | undefined {
   if (!errorCode) return undefined;
   const map: Record<string, string> = {
-    '30003': 'Unreachable destination. The handset may be off or out of service.',
-    '30004': 'Message blocked by carrier or recipient.',
-    '30005': 'Unknown destination phone number. Verify the number is valid.',
-    '30006': 'Landline or unreachable carrier. SMS cannot be delivered to this number.',
-    '30007': 'Message flagged as spam by carrier. Adjust content or register for A2P.',
-    '30008': 'Unknown error from the carrier network.',
-    '21610': 'Recipient has opted out (STOP). Cannot send until they opt back in.',
+    "30003":
+      "Unreachable destination. The handset may be off or out of service.",
+    "30004": "Message blocked by carrier or recipient.",
+    "30005": "Unknown destination phone number. Verify the number is valid.",
+    "30006":
+      "Landline or unreachable carrier. SMS cannot be delivered to this number.",
+    "30007":
+      "Message flagged as spam by carrier. Adjust content or register for A2P.",
+    "30008": "Unknown error from the carrier network.",
+    "21610":
+      "Recipient has opted out (STOP). Cannot send until they opt back in.",
   };
   return map[errorCode];
 }
 
 const TWILIO_USE_CASE_ALIASES: Record<string, string> = {
-  ACCOUNT_NOTIFICATION: 'ACCOUNT_NOTIFICATIONS',
-  DELIVERY_NOTIFICATION: 'DELIVERY_NOTIFICATIONS',
-  FRAUD_ALERT: 'FRAUD_ALERT_MESSAGING',
-  POLLING_AND_VOTING: 'POLLING_AND_VOTING_NON_POLITICAL',
+  ACCOUNT_NOTIFICATION: "ACCOUNT_NOTIFICATIONS",
+  DELIVERY_NOTIFICATION: "DELIVERY_NOTIFICATIONS",
+  FRAUD_ALERT: "FRAUD_ALERT_MESSAGING",
+  POLLING_AND_VOTING: "POLLING_AND_VOTING_NON_POLITICAL",
 };
 
 const TWILIO_VALID_USE_CASE_CATEGORIES = [
-  'TWO_FACTOR_AUTHENTICATION',
-  'ACCOUNT_NOTIFICATIONS',
-  'CUSTOMER_CARE',
-  'CHARITY_NONPROFIT',
-  'DELIVERY_NOTIFICATIONS',
-  'FRAUD_ALERT_MESSAGING',
-  'EVENTS',
-  'HIGHER_EDUCATION',
-  'K12',
-  'MARKETING',
-  'POLLING_AND_VOTING_NON_POLITICAL',
-  'POLITICAL_ELECTION_CAMPAIGNS',
-  'PUBLIC_SERVICE_ANNOUNCEMENT',
-  'SECURITY_ALERT',
+  "TWO_FACTOR_AUTHENTICATION",
+  "ACCOUNT_NOTIFICATIONS",
+  "CUSTOMER_CARE",
+  "CHARITY_NONPROFIT",
+  "DELIVERY_NOTIFICATIONS",
+  "FRAUD_ALERT_MESSAGING",
+  "EVENTS",
+  "HIGHER_EDUCATION",
+  "K12",
+  "MARKETING",
+  "POLLING_AND_VOTING_NON_POLITICAL",
+  "POLITICAL_ELECTION_CAMPAIGNS",
+  "PUBLIC_SERVICE_ANNOUNCEMENT",
+  "SECURITY_ALERT",
 ] as const;
 
 function normalizeUseCaseCategories(rawCategories: string[]): string[] {
-  const normalized = rawCategories.map((value) => TWILIO_USE_CASE_ALIASES[value] ?? value);
+  const normalized = rawCategories.map(
+    (value) => TWILIO_USE_CASE_ALIASES[value] ?? value,
+  );
   return Array.from(new Set(normalized));
 }
 
@@ -102,12 +119,15 @@ function normalizeUseCaseCategories(rawCategories: string[]): string[] {
 function pruneAssistantPhoneNumbers(
   sms: Record<string, unknown>,
   keepNumber: string,
-  mode: 'keep' | 'remove',
+  mode: "keep" | "remove",
 ): void {
-  const mappings = sms.assistantPhoneNumbers as Record<string, string> | undefined;
-  if (mappings && typeof mappings === 'object') {
+  const mappings = sms.assistantPhoneNumbers as
+    | Record<string, string>
+    | undefined;
+  if (mappings && typeof mappings === "object") {
     for (const [key, value] of Object.entries(mappings)) {
-      const shouldDelete = mode === 'keep' ? value !== keepNumber : value === keepNumber;
+      const shouldDelete =
+        mode === "keep" ? value !== keepNumber : value === keepNumber;
       if (shouldDelete) {
         delete mappings[key];
       }
@@ -129,7 +149,7 @@ export function handleGetTwilioConfig(): Response {
   const hasCredentials = hasTwilioCredentials();
   const raw = loadRawConfig();
   const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-  const phoneNumber = (sms.phoneNumber as string) ?? '';
+  const phoneNumber = (sms.phoneNumber as string) ?? "";
 
   return Response.json({
     success: true,
@@ -143,23 +163,33 @@ export function handleGetTwilioConfig(): Response {
  *
  * Body: { accountSid: string, authToken: string }
  */
-export async function handleSetTwilioCredentials(req: Request): Promise<Response> {
-  const body = (await req.json().catch(() => ({}))) as { accountSid?: string; authToken?: string };
+export async function handleSetTwilioCredentials(
+  req: Request,
+): Promise<Response> {
+  const body = (await req.json().catch(() => ({}))) as {
+    accountSid?: string;
+    authToken?: string;
+  };
 
   if (!body.accountSid || !body.authToken) {
-    return Response.json({
-      success: false,
-      hasCredentials: hasTwilioCredentials(),
-      error: 'accountSid and authToken are required',
-    }, { status: 400 });
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: hasTwilioCredentials(),
+        error: "accountSid and authToken are required",
+      },
+      { status: 400 },
+    );
   }
 
   // Validate credentials against Twilio API
-  const authHeader = 'Basic ' + Buffer.from(`${body.accountSid}:${body.authToken}`).toString('base64');
+  const authHeader =
+    "Basic " +
+    Buffer.from(`${body.accountSid}:${body.authToken}`).toString("base64");
   try {
     const res = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${body.accountSid}.json`,
-      { method: 'GET', headers: { Authorization: authHeader } },
+      { method: "GET", headers: { Authorization: authHeader } },
     );
     if (!res.ok) {
       const errBody = await res.text();
@@ -179,27 +209,33 @@ export async function handleSetTwilioCredentials(req: Request): Promise<Response
   }
 
   // Store credentials securely
-  const sidStored = setSecureKey('credential:twilio:account_sid', body.accountSid);
+  const sidStored = setSecureKey(
+    "credential:twilio:account_sid",
+    body.accountSid,
+  );
   if (!sidStored) {
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Failed to store Account SID in secure storage',
+      error: "Failed to store Account SID in secure storage",
     });
   }
 
-  const tokenStored = setSecureKey('credential:twilio:auth_token', body.authToken);
+  const tokenStored = setSecureKey(
+    "credential:twilio:auth_token",
+    body.authToken,
+  );
   if (!tokenStored) {
-    deleteSecureKey('credential:twilio:account_sid');
+    deleteSecureKey("credential:twilio:account_sid");
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Failed to store Auth Token in secure storage',
+      error: "Failed to store Auth Token in secure storage",
     });
   }
 
-  upsertCredentialMetadata('twilio', 'account_sid', {});
-  upsertCredentialMetadata('twilio', 'auth_token', {});
+  upsertCredentialMetadata("twilio", "account_sid", {});
+  upsertCredentialMetadata("twilio", "auth_token", {});
 
   return Response.json({ success: true, hasCredentials: true });
 }
@@ -208,10 +244,10 @@ export async function handleSetTwilioCredentials(req: Request): Promise<Response
  * DELETE /v1/integrations/twilio/credentials
  */
 export function handleClearTwilioCredentials(): Response {
-  deleteSecureKey('credential:twilio:account_sid');
-  deleteSecureKey('credential:twilio:auth_token');
-  deleteCredentialMetadata('twilio', 'account_sid');
-  deleteCredentialMetadata('twilio', 'auth_token');
+  deleteSecureKey("credential:twilio:account_sid");
+  deleteSecureKey("credential:twilio:auth_token");
+  deleteCredentialMetadata("twilio", "account_sid");
+  deleteCredentialMetadata("twilio", "auth_token");
 
   return Response.json({ success: true, hasCredentials: false });
 }
@@ -224,12 +260,12 @@ export async function handleListTwilioNumbers(): Promise<Response> {
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Twilio credentials not configured. Set credentials first.',
+      error: "Twilio credentials not configured. Set credentials first.",
     });
   }
 
-  const accountSid = getSecureKey('credential:twilio:account_sid')!;
-  const authToken = getSecureKey('credential:twilio:auth_token')!;
+  const accountSid = getSecureKey("credential:twilio:account_sid")!;
+  const authToken = getSecureKey("credential:twilio:auth_token")!;
   const numbers = await listIncomingPhoneNumbers(accountSid, authToken);
 
   return Response.json({ success: true, hasCredentials: true, numbers });
@@ -240,32 +276,49 @@ export async function handleListTwilioNumbers(): Promise<Response> {
  *
  * Body: { country?: string, areaCode?: string }
  */
-export async function handleProvisionTwilioNumber(req: Request): Promise<Response> {
+export async function handleProvisionTwilioNumber(
+  req: Request,
+): Promise<Response> {
   if (!hasTwilioCredentials()) {
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Twilio credentials not configured. Set credentials first.',
+      error: "Twilio credentials not configured. Set credentials first.",
     });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { country?: string; areaCode?: string };
-  const accountSid = getSecureKey('credential:twilio:account_sid')!;
-  const authToken = getSecureKey('credential:twilio:auth_token')!;
-  const country = body.country ?? 'US';
+  const body = (await req.json().catch(() => ({}))) as {
+    country?: string;
+    areaCode?: string;
+  };
+  const accountSid = getSecureKey("credential:twilio:account_sid")!;
+  const authToken = getSecureKey("credential:twilio:auth_token")!;
+  const country = body.country ?? "US";
 
-  const available = await searchAvailableNumbers(accountSid, authToken, country, body.areaCode);
+  const available = await searchAvailableNumbers(
+    accountSid,
+    authToken,
+    country,
+    body.areaCode,
+  );
   if (available.length === 0) {
     return Response.json({
       success: false,
       hasCredentials: true,
-      error: `No available phone numbers found for country=${country}${body.areaCode ? ` areaCode=${body.areaCode}` : ''}`,
+      error: `No available phone numbers found for country=${country}${body.areaCode ? ` areaCode=${body.areaCode}` : ""}`,
     });
   }
 
-  const purchased = await provisionPhoneNumber(accountSid, authToken, available[0].phoneNumber);
+  const purchased = await provisionPhoneNumber(
+    accountSid,
+    authToken,
+    available[0].phoneNumber,
+  );
 
-  const phoneStored = setSecureKey('credential:twilio:phone_number', purchased.phoneNumber);
+  const phoneStored = setSecureKey(
+    "credential:twilio:phone_number",
+    purchased.phoneNumber,
+  );
   if (!phoneStored) {
     return Response.json({
       success: false,
@@ -278,7 +331,7 @@ export async function handleProvisionTwilioNumber(req: Request): Promise<Respons
   const raw = loadRawConfig();
   const sms = (raw?.sms ?? {}) as Record<string, unknown>;
   sms.phoneNumber = purchased.phoneNumber;
-  pruneAssistantPhoneNumbers(sms, purchased.phoneNumber, 'keep');
+  pruneAssistantPhoneNumbers(sms, purchased.phoneNumber, "keep");
   saveRawConfig({ ...raw, sms });
 
   // Best-effort webhook configuration
@@ -302,37 +355,45 @@ export async function handleProvisionTwilioNumber(req: Request): Promise<Respons
  *
  * Body: { phoneNumber: string }
  */
-export async function handleAssignTwilioNumber(req: Request): Promise<Response> {
+export async function handleAssignTwilioNumber(
+  req: Request,
+): Promise<Response> {
   const body = (await req.json().catch(() => ({}))) as { phoneNumber?: string };
 
   if (!body.phoneNumber) {
-    return Response.json({
-      success: false,
-      hasCredentials: hasTwilioCredentials(),
-      error: 'phoneNumber is required',
-    }, { status: 400 });
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: hasTwilioCredentials(),
+        error: "phoneNumber is required",
+      },
+      { status: 400 },
+    );
   }
 
-  const phoneStored = setSecureKey('credential:twilio:phone_number', body.phoneNumber);
+  const phoneStored = setSecureKey(
+    "credential:twilio:phone_number",
+    body.phoneNumber,
+  );
   if (!phoneStored) {
     return Response.json({
       success: false,
       hasCredentials: hasTwilioCredentials(),
-      error: 'Failed to store phone number in secure storage',
+      error: "Failed to store phone number in secure storage",
     });
   }
 
   const raw = loadRawConfig();
   const sms = (raw?.sms ?? {}) as Record<string, unknown>;
   sms.phoneNumber = body.phoneNumber;
-  pruneAssistantPhoneNumbers(sms, body.phoneNumber, 'keep');
+  pruneAssistantPhoneNumbers(sms, body.phoneNumber, "keep");
   saveRawConfig({ ...raw, sms });
 
   // Best-effort webhook configuration when credentials are available
   let webhookWarning: string | undefined;
   if (hasTwilioCredentials()) {
-    const acctSid = getSecureKey('credential:twilio:account_sid')!;
-    const acctToken = getSecureKey('credential:twilio:auth_token')!;
+    const acctSid = getSecureKey("credential:twilio:account_sid")!;
+    const acctToken = getSecureKey("credential:twilio:auth_token")!;
     const webhookResult = await syncTwilioWebhooks(
       body.phoneNumber,
       acctSid,
@@ -355,48 +416,52 @@ export async function handleAssignTwilioNumber(req: Request): Promise<Response> 
  *
  * Body: { phoneNumber?: string }
  */
-export async function handleReleaseTwilioNumber(req: Request): Promise<Response> {
+export async function handleReleaseTwilioNumber(
+  req: Request,
+): Promise<Response> {
   if (!hasTwilioCredentials()) {
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Twilio credentials not configured. Set credentials first.',
+      error: "Twilio credentials not configured. Set credentials first.",
     });
   }
 
   const body = (await req.json().catch(() => ({}))) as { phoneNumber?: string };
   const raw = loadRawConfig();
   const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-  const phoneNumber = body.phoneNumber || (sms.phoneNumber as string) || '';
+  const phoneNumber = body.phoneNumber || (sms.phoneNumber as string) || "";
 
   if (!phoneNumber) {
     return Response.json({
       success: false,
       hasCredentials: true,
-      error: 'No phone number to release. Specify phoneNumber or ensure one is assigned.',
+      error:
+        "No phone number to release. Specify phoneNumber or ensure one is assigned.",
     });
   }
 
-  const accountSid = getSecureKey('credential:twilio:account_sid')!;
-  const authToken = getSecureKey('credential:twilio:auth_token')!;
+  const accountSid = getSecureKey("credential:twilio:account_sid")!;
+  const authToken = getSecureKey("credential:twilio:auth_token")!;
 
   await releasePhoneNumber(accountSid, authToken, phoneNumber);
 
   if (sms.phoneNumber === phoneNumber) {
     delete sms.phoneNumber;
   }
-  pruneAssistantPhoneNumbers(sms, phoneNumber, 'remove');
+  pruneAssistantPhoneNumbers(sms, phoneNumber, "remove");
   saveRawConfig({ ...raw, sms });
 
-  const storedPhone = getSecureKey('credential:twilio:phone_number');
+  const storedPhone = getSecureKey("credential:twilio:phone_number");
   if (storedPhone === phoneNumber) {
-    deleteSecureKey('credential:twilio:phone_number');
+    deleteSecureKey("credential:twilio:phone_number");
   }
 
   return Response.json({
     success: true,
     hasCredentials: true,
-    warning: 'Phone number released from Twilio. Any associated toll-free verification context is lost.',
+    warning:
+      "Phone number released from Twilio. Any associated toll-free verification context is lost.",
   });
 }
 
@@ -408,28 +473,38 @@ export async function handleGetSmsCompliance(): Promise<Response> {
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Twilio credentials not configured. Set credentials first.',
+      error: "Twilio credentials not configured. Set credentials first.",
     });
   }
 
   const raw = loadRawConfig();
   const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-  const phoneNumber = (sms.phoneNumber as string) ?? '';
+  const phoneNumber = (sms.phoneNumber as string) ?? "";
 
   if (!phoneNumber) {
     return Response.json({
       success: false,
       hasCredentials: true,
-      error: 'No phone number assigned. Assign a number first.',
+      error: "No phone number assigned. Assign a number first.",
     });
   }
 
-  const accountSid = getSecureKey('credential:twilio:account_sid')!;
-  const authToken = getSecureKey('credential:twilio:auth_token')!;
+  const accountSid = getSecureKey("credential:twilio:account_sid")!;
+  const authToken = getSecureKey("credential:twilio:auth_token")!;
 
-  const tollFreePrefixes = ['+1800', '+1833', '+1844', '+1855', '+1866', '+1877', '+1888'];
-  const isTollFree = tollFreePrefixes.some((prefix) => phoneNumber.startsWith(prefix));
-  const numberType = isTollFree ? 'toll_free' : 'local_10dlc';
+  const tollFreePrefixes = [
+    "+1800",
+    "+1833",
+    "+1844",
+    "+1855",
+    "+1866",
+    "+1877",
+    "+1888",
+  ];
+  const isTollFree = tollFreePrefixes.some((prefix) =>
+    phoneNumber.startsWith(prefix),
+  );
+  const numberType = isTollFree ? "toll_free" : "local_10dlc";
 
   if (!isTollFree) {
     return Response.json({
@@ -450,7 +525,11 @@ export async function handleGetSmsCompliance(): Promise<Response> {
     });
   }
 
-  const verification = await getTollFreeVerificationStatus(accountSid, authToken, phoneSid);
+  const verification = await getTollFreeVerificationStatus(
+    accountSid,
+    authToken,
+    phoneSid,
+  );
 
   return Response.json({
     success: true,
@@ -475,77 +554,113 @@ export async function handleGetSmsCompliance(): Promise<Response> {
  *
  * Body: TollFreeVerificationSubmitParams
  */
-export async function handleSubmitTollfreeVerification(req: Request): Promise<Response> {
+export async function handleSubmitTollfreeVerification(
+  req: Request,
+): Promise<Response> {
   if (!hasTwilioCredentials()) {
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Twilio credentials not configured. Set credentials first.',
+      error: "Twilio credentials not configured. Set credentials first.",
     });
   }
 
   const vp = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
   const requiredFields: Array<[string, unknown]> = [
-    ['tollfreePhoneNumberSid', vp.tollfreePhoneNumberSid],
-    ['businessName', vp.businessName],
-    ['businessWebsite', vp.businessWebsite],
-    ['notificationEmail', vp.notificationEmail],
-    ['useCaseCategories', vp.useCaseCategories],
-    ['useCaseSummary', vp.useCaseSummary],
-    ['productionMessageSample', vp.productionMessageSample],
-    ['optInImageUrls', vp.optInImageUrls],
-    ['optInType', vp.optInType],
-    ['messageVolume', vp.messageVolume],
+    ["tollfreePhoneNumberSid", vp.tollfreePhoneNumberSid],
+    ["businessName", vp.businessName],
+    ["businessWebsite", vp.businessWebsite],
+    ["notificationEmail", vp.notificationEmail],
+    ["useCaseCategories", vp.useCaseCategories],
+    ["useCaseSummary", vp.useCaseSummary],
+    ["productionMessageSample", vp.productionMessageSample],
+    ["optInImageUrls", vp.optInImageUrls],
+    ["optInType", vp.optInType],
+    ["messageVolume", vp.messageVolume],
   ];
 
   const missing = requiredFields
-    .filter(([, v]) => v == null || v === '' || (Array.isArray(v) && v.length === 0))
+    .filter(
+      ([, v]) => v == null || v === "" || (Array.isArray(v) && v.length === 0),
+    )
     .map(([name]) => name);
 
   if (missing.length > 0) {
-    return Response.json({
-      success: false,
-      hasCredentials: true,
-      error: `Missing required verification fields: ${missing.join(', ')}`,
-    }, { status: 400 });
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: true,
+        error: `Missing required verification fields: ${missing.join(", ")}`,
+      },
+      { status: 400 },
+    );
   }
 
-  const normalizedUseCaseCategories = normalizeUseCaseCategories(vp.useCaseCategories as string[]);
+  const normalizedUseCaseCategories = normalizeUseCaseCategories(
+    vp.useCaseCategories as string[],
+  );
   const invalidCategories = normalizedUseCaseCategories.filter(
-    (c) => !TWILIO_VALID_USE_CASE_CATEGORIES.includes(c as (typeof TWILIO_VALID_USE_CASE_CATEGORIES)[number]),
+    (c) =>
+      !TWILIO_VALID_USE_CASE_CATEGORIES.includes(
+        c as (typeof TWILIO_VALID_USE_CASE_CATEGORIES)[number],
+      ),
   );
   if (invalidCategories.length > 0) {
-    return Response.json({
-      success: false,
-      hasCredentials: true,
-      error: `Invalid useCaseCategories: ${invalidCategories.join(', ')}. Valid values: ${TWILIO_VALID_USE_CASE_CATEGORIES.join(', ')}`,
-    }, { status: 400 });
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: true,
+        error: `Invalid useCaseCategories: ${invalidCategories.join(", ")}. Valid values: ${TWILIO_VALID_USE_CASE_CATEGORIES.join(", ")}`,
+      },
+      { status: 400 },
+    );
   }
 
-  const validOptInTypes = ['VERBAL', 'WEB_FORM', 'PAPER_FORM', 'VIA_TEXT', 'MOBILE_QR_CODE'];
+  const validOptInTypes = [
+    "VERBAL",
+    "WEB_FORM",
+    "PAPER_FORM",
+    "VIA_TEXT",
+    "MOBILE_QR_CODE",
+  ];
   if (!validOptInTypes.includes(vp.optInType as string)) {
-    return Response.json({
-      success: false,
-      hasCredentials: true,
-      error: `Invalid optInType: ${vp.optInType}. Valid values: ${validOptInTypes.join(', ')}`,
-    }, { status: 400 });
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: true,
+        error: `Invalid optInType: ${vp.optInType}. Valid values: ${validOptInTypes.join(", ")}`,
+      },
+      { status: 400 },
+    );
   }
 
   const validMessageVolumes = [
-    '10', '100', '1,000', '10,000', '100,000', '250,000',
-    '500,000', '750,000', '1,000,000', '5,000,000', '10,000,000+',
+    "10",
+    "100",
+    "1,000",
+    "10,000",
+    "100,000",
+    "250,000",
+    "500,000",
+    "750,000",
+    "1,000,000",
+    "5,000,000",
+    "10,000,000+",
   ];
   if (!validMessageVolumes.includes(vp.messageVolume as string)) {
-    return Response.json({
-      success: false,
-      hasCredentials: true,
-      error: `Invalid messageVolume: ${vp.messageVolume}. Valid values: ${validMessageVolumes.join(', ')}`,
-    }, { status: 400 });
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: true,
+        error: `Invalid messageVolume: ${vp.messageVolume}. Valid values: ${validMessageVolumes.join(", ")}`,
+      },
+      { status: 400 },
+    );
   }
 
-  const accountSid = getSecureKey('credential:twilio:account_sid')!;
-  const authToken = getSecureKey('credential:twilio:auth_token')!;
+  const accountSid = getSecureKey("credential:twilio:account_sid")!;
+  const authToken = getSecureKey("credential:twilio:auth_token")!;
 
   const submitParams: TollFreeVerificationSubmitParams = {
     tollfreePhoneNumberSid: vp.tollfreePhoneNumberSid as string,
@@ -558,17 +673,21 @@ export async function handleSubmitTollfreeVerification(req: Request): Promise<Re
     optInImageUrls: vp.optInImageUrls as string[],
     optInType: vp.optInType as string,
     messageVolume: vp.messageVolume as string,
-    businessType: (vp.businessType as string) ?? 'SOLE_PROPRIETOR',
+    businessType: (vp.businessType as string) ?? "SOLE_PROPRIETOR",
     customerProfileSid: vp.customerProfileSid as string | undefined,
   };
 
-  const verification = await submitTollFreeVerification(accountSid, authToken, submitParams);
+  const verification = await submitTollFreeVerification(
+    accountSid,
+    authToken,
+    submitParams,
+  );
 
   return Response.json({
     success: true,
     hasCredentials: true,
     compliance: {
-      numberType: 'toll_free',
+      numberType: "toll_free",
       verificationSid: verification.sid,
       verificationStatus: verification.status,
     },
@@ -580,19 +699,26 @@ export async function handleSubmitTollfreeVerification(req: Request): Promise<Re
  *
  * Body: partial verification params to update
  */
-export async function handleUpdateTollfreeVerification(req: Request, verificationSid: string): Promise<Response> {
+export async function handleUpdateTollfreeVerification(
+  req: Request,
+  verificationSid: string,
+): Promise<Response> {
   if (!hasTwilioCredentials()) {
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Twilio credentials not configured. Set credentials first.',
+      error: "Twilio credentials not configured. Set credentials first.",
     });
   }
 
-  const accountSid = getSecureKey('credential:twilio:account_sid')!;
-  const authToken = getSecureKey('credential:twilio:auth_token')!;
+  const accountSid = getSecureKey("credential:twilio:account_sid")!;
+  const authToken = getSecureKey("credential:twilio:auth_token")!;
 
-  const currentVerification = await getTollFreeVerificationBySid(accountSid, authToken, verificationSid);
+  const currentVerification = await getTollFreeVerificationBySid(
+    accountSid,
+    authToken,
+    verificationSid,
+  );
   if (!currentVerification) {
     return Response.json({
       success: false,
@@ -601,21 +727,22 @@ export async function handleUpdateTollfreeVerification(req: Request, verificatio
     });
   }
 
-  if (currentVerification.status === 'TWILIO_REJECTED') {
+  if (currentVerification.status === "TWILIO_REJECTED") {
     const expirationMillis = currentVerification.editExpiration
       ? Date.parse(currentVerification.editExpiration)
       : Number.NaN;
-    const editExpired = Number.isFinite(expirationMillis) && Date.now() > expirationMillis;
+    const editExpired =
+      Number.isFinite(expirationMillis) && Date.now() > expirationMillis;
     if (currentVerification.editAllowed === false || editExpired) {
       const detail = editExpired
         ? `edit_expiration=${currentVerification.editExpiration}`
-        : 'edit_allowed=false';
+        : "edit_allowed=false";
       return Response.json({
         success: false,
         hasCredentials: true,
         error: `Verification ${verificationSid} cannot be updated (${detail}). Delete and resubmit instead.`,
         compliance: {
-          numberType: 'toll_free',
+          numberType: "toll_free",
           verificationSid: currentVerification.sid,
           verificationStatus: currentVerification.status,
           editAllowed: currentVerification.editAllowed,
@@ -625,9 +752,13 @@ export async function handleUpdateTollfreeVerification(req: Request, verificatio
     }
   }
 
-  const updateParams = { ...(await req.json().catch(() => ({})) as Record<string, unknown>) };
+  const updateParams = {
+    ...((await req.json().catch(() => ({}))) as Record<string, unknown>),
+  };
   if (updateParams.useCaseCategories) {
-    updateParams.useCaseCategories = normalizeUseCaseCategories(updateParams.useCaseCategories as string[]);
+    updateParams.useCaseCategories = normalizeUseCaseCategories(
+      updateParams.useCaseCategories as string[],
+    );
   }
 
   const verification = await updateTollFreeVerification(
@@ -641,7 +772,7 @@ export async function handleUpdateTollfreeVerification(req: Request, verificatio
     success: true,
     hasCredentials: true,
     compliance: {
-      numberType: 'toll_free',
+      numberType: "toll_free",
       verificationSid: verification.sid,
       verificationStatus: verification.status,
       editAllowed: verification.editAllowed,
@@ -653,24 +784,27 @@ export async function handleUpdateTollfreeVerification(req: Request, verificatio
 /**
  * DELETE /v1/integrations/twilio/sms/compliance/tollfree/:verificationSid
  */
-export async function handleDeleteTollfreeVerification(verificationSid: string): Promise<Response> {
+export async function handleDeleteTollfreeVerification(
+  verificationSid: string,
+): Promise<Response> {
   if (!hasTwilioCredentials()) {
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Twilio credentials not configured. Set credentials first.',
+      error: "Twilio credentials not configured. Set credentials first.",
     });
   }
 
-  const accountSid = getSecureKey('credential:twilio:account_sid')!;
-  const authToken = getSecureKey('credential:twilio:auth_token')!;
+  const accountSid = getSecureKey("credential:twilio:account_sid")!;
+  const authToken = getSecureKey("credential:twilio:auth_token")!;
 
   await deleteTollFreeVerification(accountSid, authToken, verificationSid);
 
   return Response.json({
     success: true,
     hasCredentials: true,
-    warning: 'Toll-free verification deleted. Re-submitting may reset your position in the review queue.',
+    warning:
+      "Toll-free verification deleted. Re-submitting may reset your position in the review queue.",
   });
 }
 
@@ -684,45 +818,53 @@ export async function handleSmsSendTest(req: Request): Promise<Response> {
     return Response.json({
       success: false,
       hasCredentials: false,
-      error: 'Twilio credentials not configured. Set credentials first.',
+      error: "Twilio credentials not configured. Set credentials first.",
     });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { phoneNumber?: string; text?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    phoneNumber?: string;
+    text?: string;
+  };
   const to = body.phoneNumber;
   if (!to) {
-    return Response.json({
-      success: false,
-      hasCredentials: true,
-      error: 'phoneNumber is required for SMS send test.',
-    }, { status: 400 });
+    return Response.json(
+      {
+        success: false,
+        hasCredentials: true,
+        error: "phoneNumber is required for SMS send test.",
+      },
+      { status: 400 },
+    );
   }
 
   const raw = loadRawConfig();
   const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
-  const from = (smsSection.phoneNumber as string | undefined)
-    || getSecureKey('credential:twilio:phone_number')
-    || '';
+  const from =
+    (smsSection.phoneNumber as string | undefined) ||
+    getSecureKey("credential:twilio:phone_number") ||
+    "";
   if (!from) {
     return Response.json({
       success: false,
       hasCredentials: true,
-      error: 'No phone number assigned. Run the twilio-setup skill to assign a number.',
+      error:
+        "No phone number assigned. Run the twilio-setup skill to assign a number.",
     });
   }
 
-  const accountSid = getSecureKey('credential:twilio:account_sid')!;
-  const authToken = getSecureKey('credential:twilio:auth_token')!;
-  const text = body.text || 'Test SMS from your Vellum assistant';
+  const accountSid = getSecureKey("credential:twilio:account_sid")!;
+  const authToken = getSecureKey("credential:twilio:auth_token")!;
+  const text = body.text || "Test SMS from your Vellum assistant";
 
   // Send via gateway's /deliver/sms endpoint
   const bearerToken = mintDaemonDeliveryToken();
   const gatewayUrl = getGatewayInternalBaseUrl();
 
   const sendResp = await fetch(`${gatewayUrl}/deliver/sms`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${bearerToken}`,
     },
     body: JSON.stringify({ to, text }),
@@ -730,7 +872,7 @@ export async function handleSmsSendTest(req: Request): Promise<Response> {
   });
 
   if (!sendResp.ok) {
-    const errBody = await sendResp.text().catch(() => '<unreadable>');
+    const errBody = await sendResp.text().catch(() => "<unreadable>");
     return Response.json({
       success: false,
       hasCredentials: true,
@@ -738,12 +880,12 @@ export async function handleSmsSendTest(req: Request): Promise<Response> {
     });
   }
 
-  const sendData = await sendResp.json().catch(() => ({})) as {
+  const sendData = (await sendResp.json().catch(() => ({}))) as {
     messageSid?: string;
     status?: string;
   };
-  const messageSid = sendData.messageSid || '';
-  const initialStatus = sendData.status || 'unknown';
+  const messageSid = sendData.messageSid || "";
+  const initialStatus = sendData.status || "unknown";
 
   // Poll Twilio for final status (up to 3 times, 2s apart)
   let finalStatus = initialStatus;
@@ -754,11 +896,15 @@ export async function handleSmsSendTest(req: Request): Promise<Response> {
     for (let i = 0; i < 3; i++) {
       await new Promise((r) => setTimeout(r, 2000));
       try {
-        const pollResult = await fetchMessageStatus(accountSid, authToken, messageSid);
+        const pollResult = await fetchMessageStatus(
+          accountSid,
+          authToken,
+          messageSid,
+        );
         finalStatus = pollResult.status;
         errorCode = pollResult.errorCode;
         errorMessage = pollResult.errorMessage;
-        if (['delivered', 'undelivered', 'failed'].includes(finalStatus)) break;
+        if (["delivered", "undelivered", "failed"].includes(finalStatus)) break;
       } catch {
         break;
       }
@@ -794,7 +940,7 @@ export async function handleSmsDoctor(): Promise<Response> {
   const readinessIssues: string[] = [];
   try {
     const readinessService = getReadinessService();
-    const snapshots = await readinessService.getReadiness('sms', false);
+    const snapshots = await readinessService.getReadiness("sms", false);
     const snapshot = snapshots[0];
     if (snapshot) {
       readinessReady = snapshot.ready;
@@ -802,118 +948,164 @@ export async function handleSmsDoctor(): Promise<Response> {
         readinessIssues.push(r.text);
       }
     } else {
-      readinessIssues.push('No readiness snapshot returned for SMS channel');
+      readinessIssues.push("No readiness snapshot returned for SMS channel");
     }
   } catch (err) {
-    readinessIssues.push(`Readiness check failed: ${err instanceof Error ? err.message : String(err)}`);
+    readinessIssues.push(
+      `Readiness check failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // 2. Compliance status
-  let complianceStatus = 'unknown';
+  let complianceStatus = "unknown";
   let complianceDetail: string | undefined;
   let complianceRemediation: string | undefined;
   if (hasCredentials) {
     try {
       const raw = loadRawConfig();
       const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
-      const phoneNumber = (smsSection.phoneNumber as string | undefined) || getSecureKey('credential:twilio:phone_number') || '';
+      const phoneNumber =
+        (smsSection.phoneNumber as string | undefined) ||
+        getSecureKey("credential:twilio:phone_number") ||
+        "";
       if (phoneNumber) {
-        const accountSid = getSecureKey('credential:twilio:account_sid')!;
-        const authToken = getSecureKey('credential:twilio:auth_token')!;
-        const isTollFree = phoneNumber.startsWith('+1') && ['800','888','877','866','855','844','833'].some(
-          (p) => phoneNumber.startsWith(`+1${p}`),
-        );
+        const accountSid = getSecureKey("credential:twilio:account_sid")!;
+        const authToken = getSecureKey("credential:twilio:auth_token")!;
+        const isTollFree =
+          phoneNumber.startsWith("+1") &&
+          ["800", "888", "877", "866", "855", "844", "833"].some((p) =>
+            phoneNumber.startsWith(`+1${p}`),
+          );
         if (isTollFree) {
           try {
-            const phoneSid = await getPhoneNumberSid(accountSid, authToken, phoneNumber);
+            const phoneSid = await getPhoneNumberSid(
+              accountSid,
+              authToken,
+              phoneNumber,
+            );
             if (!phoneSid) {
-              complianceStatus = 'check_failed';
+              complianceStatus = "check_failed";
               complianceDetail = `Assigned number ${phoneNumber} was not found on the Twilio account`;
-              complianceRemediation = 'Reassign the number in twilio-setup or update credentials to the matching account.';
+              complianceRemediation =
+                "Reassign the number in twilio-setup or update credentials to the matching account.";
             } else {
-              const verification = await getTollFreeVerificationStatus(accountSid, authToken, phoneSid);
+              const verification = await getTollFreeVerificationStatus(
+                accountSid,
+                authToken,
+                phoneSid,
+              );
               if (verification) {
                 const status = verification.status;
                 complianceStatus = status;
                 complianceDetail = `Toll-free verification: ${status}`;
-                if (status === 'TWILIO_APPROVED') {
+                if (status === "TWILIO_APPROVED") {
                   complianceRemediation = undefined;
-                } else if (status === 'PENDING_REVIEW' || status === 'IN_REVIEW') {
-                  complianceRemediation = 'Toll-free verification is pending. Messaging may have limited throughput until approved.';
-                } else if (status === 'TWILIO_REJECTED') {
+                } else if (
+                  status === "PENDING_REVIEW" ||
+                  status === "IN_REVIEW"
+                ) {
+                  complianceRemediation =
+                    "Toll-free verification is pending. Messaging may have limited throughput until approved.";
+                } else if (status === "TWILIO_REJECTED") {
                   if (verification.editAllowed) {
                     complianceRemediation = verification.editExpiration
                       ? `Toll-free verification was rejected but can still be edited until ${verification.editExpiration}. Update and resubmit it.`
-                      : 'Toll-free verification was rejected but can still be edited. Update and resubmit it.';
+                      : "Toll-free verification was rejected but can still be edited. Update and resubmit it.";
                   } else {
-                    complianceRemediation = 'Toll-free verification was rejected and is no longer editable. Delete and resubmit it.';
+                    complianceRemediation =
+                      "Toll-free verification was rejected and is no longer editable. Delete and resubmit it.";
                   }
                 } else {
-                  complianceRemediation = 'Submit a toll-free verification to enable full messaging throughput.';
+                  complianceRemediation =
+                    "Submit a toll-free verification to enable full messaging throughput.";
                 }
               } else {
-                complianceStatus = 'unverified';
-                complianceDetail = 'Toll-free number without verification';
-                complianceRemediation = 'Submit a toll-free verification request to avoid filtering.';
+                complianceStatus = "unverified";
+                complianceDetail = "Toll-free number without verification";
+                complianceRemediation =
+                  "Submit a toll-free verification request to avoid filtering.";
               }
             }
           } catch {
-            complianceStatus = 'check_failed';
-            complianceDetail = 'Could not retrieve toll-free verification status';
+            complianceStatus = "check_failed";
+            complianceDetail =
+              "Could not retrieve toll-free verification status";
           }
         } else {
-          complianceStatus = 'local_10dlc';
-          complianceDetail = 'Local/10DLC number — carrier registration handled externally';
+          complianceStatus = "local_10dlc";
+          complianceDetail =
+            "Local/10DLC number — carrier registration handled externally";
         }
       } else {
-        complianceStatus = 'no_number';
-        complianceDetail = 'No phone number assigned';
-        complianceRemediation = 'Assign a phone number via the twilio-setup skill.';
+        complianceStatus = "no_number";
+        complianceDetail = "No phone number assigned";
+        complianceRemediation =
+          "Assign a phone number via the twilio-setup skill.";
       }
     } catch {
-      complianceStatus = 'check_failed';
-      complianceDetail = 'Could not determine compliance status';
+      complianceStatus = "check_failed";
+      complianceDetail = "Could not determine compliance status";
     }
   } else {
-    complianceStatus = 'no_credentials';
-    complianceDetail = 'Twilio credentials are not configured';
-    complianceRemediation = 'Set Twilio credentials via the twilio-setup skill.';
+    complianceStatus = "no_credentials";
+    complianceDetail = "Twilio credentials are not configured";
+    complianceRemediation =
+      "Set Twilio credentials via the twilio-setup skill.";
   }
 
   // 3. Last send test result
-  let lastSend: { status: string; errorCode?: string; remediation?: string } | undefined;
+  let lastSend:
+    | { status: string; errorCode?: string; remediation?: string }
+    | undefined;
   if (_lastTestResult) {
     lastSend = {
       status: _lastTestResult.finalStatus,
-      ...((_lastTestResult.errorCode) ? { errorCode: _lastTestResult.errorCode } : {}),
-      ...((_lastTestResult.errorCode) ? { remediation: mapTwilioErrorRemediation(_lastTestResult.errorCode) } : {}),
+      ...(_lastTestResult.errorCode
+        ? { errorCode: _lastTestResult.errorCode }
+        : {}),
+      ...(_lastTestResult.errorCode
+        ? { remediation: mapTwilioErrorRemediation(_lastTestResult.errorCode) }
+        : {}),
     };
   }
 
   // 4. Overall status
   const actionItems: string[] = [];
-  let overallStatus: 'healthy' | 'degraded' | 'broken' = 'healthy';
+  let overallStatus: "healthy" | "degraded" | "broken" = "healthy";
 
   if (!hasCredentials) {
-    overallStatus = 'broken';
-    actionItems.push('Configure Twilio credentials.');
+    overallStatus = "broken";
+    actionItems.push("Configure Twilio credentials.");
   }
   if (!readinessReady) {
-    overallStatus = 'broken';
+    overallStatus = "broken";
     for (const issue of readinessIssues) actionItems.push(issue);
   }
-  if (complianceStatus === 'unverified' || complianceStatus === 'PENDING_REVIEW' || complianceStatus === 'IN_REVIEW') {
-    if (overallStatus === 'healthy') overallStatus = 'degraded';
+  if (
+    complianceStatus === "unverified" ||
+    complianceStatus === "PENDING_REVIEW" ||
+    complianceStatus === "IN_REVIEW"
+  ) {
+    if (overallStatus === "healthy") overallStatus = "degraded";
     if (complianceRemediation) actionItems.push(complianceRemediation);
   }
-  if (complianceStatus === 'TWILIO_REJECTED' || complianceStatus === 'no_number') {
-    overallStatus = 'broken';
+  if (
+    complianceStatus === "TWILIO_REJECTED" ||
+    complianceStatus === "no_number"
+  ) {
+    overallStatus = "broken";
     if (complianceRemediation) actionItems.push(complianceRemediation);
   }
-  if (_lastTestResult && ['failed', 'undelivered'].includes(_lastTestResult.finalStatus)) {
-    if (overallStatus === 'healthy') overallStatus = 'degraded';
+  if (
+    _lastTestResult &&
+    ["failed", "undelivered"].includes(_lastTestResult.finalStatus)
+  ) {
+    if (overallStatus === "healthy") overallStatus = "degraded";
     const remediation = mapTwilioErrorRemediation(_lastTestResult.errorCode);
-    actionItems.push(remediation || `Last test SMS ${_lastTestResult.finalStatus}. Check Twilio logs for details.`);
+    actionItems.push(
+      remediation ||
+        `Last test SMS ${_lastTestResult.finalStatus}. Check Twilio logs for details.`,
+    );
   }
 
   return Response.json({
@@ -924,7 +1116,9 @@ export async function handleSmsDoctor(): Promise<Response> {
       compliance: {
         status: complianceStatus,
         ...(complianceDetail ? { detail: complianceDetail } : {}),
-        ...(complianceRemediation ? { remediation: complianceRemediation } : {}),
+        ...(complianceRemediation
+          ? { remediation: complianceRemediation }
+          : {}),
       },
       ...(lastSend ? { lastSend } : {}),
       overallStatus,

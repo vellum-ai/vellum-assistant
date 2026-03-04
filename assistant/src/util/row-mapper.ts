@@ -38,10 +38,13 @@ export function createRowMapper<TRow, TDomain>(
   return (row: TRow): TDomain => {
     const result = {} as Record<string, unknown>;
     for (const [key, descriptor] of entries) {
-      if (typeof descriptor === 'string') {
+      if (typeof descriptor === "string") {
         result[key] = row[descriptor as keyof TRow];
       } else {
-        const d = descriptor as { from: keyof TRow & string; transform: (value: TRow[keyof TRow]) => unknown };
+        const d = descriptor as {
+          from: keyof TRow & string;
+          transform: (value: TRow[keyof TRow]) => unknown;
+        };
         result[key] = d.transform(row[d.from]);
       }
     }
@@ -57,7 +60,7 @@ export function cast<T>() {
 /** Convenience: parse a JSON string column with a fallback value on parse failure. */
 export function parseJson<T>(fallback: T): (value: unknown) => T {
   return (value: unknown): T => {
-    if (typeof value !== 'string' || !value) return fallback;
+    if (typeof value !== "string" || !value) return fallback;
     try {
       return JSON.parse(value) as T;
     } catch {
@@ -69,7 +72,7 @@ export function parseJson<T>(fallback: T): (value: unknown) => T {
 /** Convenience: parse a JSON string column, returning null on parse failure. */
 export function parseJsonNullable<T>(): (value: unknown) => T | null {
   return (value: unknown): T | null => {
-    if (typeof value !== 'string' || !value) return null;
+    if (typeof value !== "string" || !value) return null;
     try {
       return JSON.parse(value) as T;
     } catch {

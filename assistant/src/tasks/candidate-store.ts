@@ -1,7 +1,7 @@
-import { desc, eq, isNull } from 'drizzle-orm';
+import { desc, eq, isNull } from "drizzle-orm";
 
-import { getDb } from '../memory/db.js';
-import { taskCandidates } from '../memory/schema.js';
+import { getDb } from "../memory/db.js";
+import { taskCandidates } from "../memory/schema.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -18,7 +18,9 @@ export interface TaskCandidate {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /** Convert a raw DB row to a TaskCandidate, deserializing the JSON requiredTools field. */
-function rowToCandidate(row: typeof taskCandidates.$inferSelect): TaskCandidate {
+function rowToCandidate(
+  row: typeof taskCandidates.$inferSelect,
+): TaskCandidate {
   return {
     id: row.id,
     sourceConversationId: row.sourceConversationId,
@@ -47,7 +49,9 @@ export function createCandidate(opts: {
     sourceConversationId: opts.sourceConversationId,
     compiledTemplate: opts.compiledTemplate,
     confidence: opts.confidence ?? null,
-    requiredTools: opts.requiredTools ? JSON.stringify(opts.requiredTools) : null,
+    requiredTools: opts.requiredTools
+      ? JSON.stringify(opts.requiredTools)
+      : null,
     createdAt: now,
     promotedTaskId: null,
   };
@@ -82,6 +86,10 @@ export function promoteCandidate(candidateId: string, taskId: string): void {
 /** Get a candidate by ID. */
 export function getCandidate(id: string): TaskCandidate | undefined {
   const db = getDb();
-  const row = db.select().from(taskCandidates).where(eq(taskCandidates.id, id)).get();
+  const row = db
+    .select()
+    .from(taskCandidates)
+    .where(eq(taskCandidates.id, id))
+    .get();
   return row ? rowToCandidate(row) : undefined;
 }

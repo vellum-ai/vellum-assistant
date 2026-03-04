@@ -16,12 +16,16 @@ import {
   type ConsumeByRequestIdResult,
   type ConsumeByToolSignatureResult,
   type ScopedApprovalGrant,
-} from '../memory/scoped-approval-grants.js';
+} from "../memory/scoped-approval-grants.js";
 
-const { createScopedApprovalGrant, consumeScopedApprovalGrantByRequestId, consumeScopedApprovalGrantByToolSignature } = _internal;
-import { getLogger } from '../util/logger.js';
+const {
+  createScopedApprovalGrant,
+  consumeScopedApprovalGrantByRequestId,
+  consumeScopedApprovalGrantByToolSignature,
+} = _internal;
+import { getLogger } from "../util/logger.js";
 
-const log = getLogger('approval-primitive');
+const log = getLogger("approval-primitive");
 
 // ---------------------------------------------------------------------------
 // Mint
@@ -29,7 +33,7 @@ const log = getLogger('approval-primitive');
 
 export interface MintGrantParams {
   assistantId: string;
-  scopeMode: 'request_id' | 'tool_signature';
+  scopeMode: "request_id" | "tool_signature";
   requestId?: string | null;
   toolName?: string | null;
   inputDigest?: string | null;
@@ -45,7 +49,11 @@ export interface MintGrantParams {
 
 export type MintGrantResult =
   | { ok: true; grant: ScopedApprovalGrant }
-  | { ok: false; reason: 'missing_request_id' | 'missing_tool_fields' | 'storage_error'; error?: unknown };
+  | {
+      ok: false;
+      reason: "missing_request_id" | "missing_tool_fields" | "storage_error";
+      error?: unknown;
+    };
 
 /**
  * Mint a scoped approval grant from a guardian decision.
@@ -58,28 +66,33 @@ export type MintGrantResult =
  * Returns a discriminated result so callers can inspect failure reasons
  * without catching exceptions.
  */
-export function mintGrantFromDecision(params: MintGrantParams): MintGrantResult {
+export function mintGrantFromDecision(
+  params: MintGrantParams,
+): MintGrantResult {
   // Scope-mode field validation
-  if (params.scopeMode === 'request_id' && !params.requestId) {
+  if (params.scopeMode === "request_id" && !params.requestId) {
     log.warn(
       {
-        event: 'approval_primitive_mint_rejected',
-        reason: 'missing_request_id',
+        event: "approval_primitive_mint_rejected",
+        reason: "missing_request_id",
         scopeMode: params.scopeMode,
         assistantId: params.assistantId,
         requestChannel: params.requestChannel,
         decisionChannel: params.decisionChannel,
       },
-      'Mint rejected: request_id scope requires a non-null requestId',
+      "Mint rejected: request_id scope requires a non-null requestId",
     );
-    return { ok: false, reason: 'missing_request_id' };
+    return { ok: false, reason: "missing_request_id" };
   }
 
-  if (params.scopeMode === 'tool_signature' && (!params.toolName || !params.inputDigest)) {
+  if (
+    params.scopeMode === "tool_signature" &&
+    (!params.toolName || !params.inputDigest)
+  ) {
     log.warn(
       {
-        event: 'approval_primitive_mint_rejected',
-        reason: 'missing_tool_fields',
+        event: "approval_primitive_mint_rejected",
+        reason: "missing_tool_fields",
         scopeMode: params.scopeMode,
         toolName: params.toolName ?? null,
         inputDigest: params.inputDigest ?? null,
@@ -87,9 +100,9 @@ export function mintGrantFromDecision(params: MintGrantParams): MintGrantResult 
         requestChannel: params.requestChannel,
         decisionChannel: params.decisionChannel,
       },
-      'Mint rejected: tool_signature scope requires both toolName and inputDigest',
+      "Mint rejected: tool_signature scope requires both toolName and inputDigest",
     );
-    return { ok: false, reason: 'missing_tool_fields' };
+    return { ok: false, reason: "missing_tool_fields" };
   }
 
   try {
@@ -111,7 +124,7 @@ export function mintGrantFromDecision(params: MintGrantParams): MintGrantResult 
 
     log.info(
       {
-        event: 'approval_primitive_mint_success',
+        event: "approval_primitive_mint_success",
         grantId: grant.id,
         scopeMode: params.scopeMode,
         toolName: params.toolName ?? null,
@@ -123,22 +136,22 @@ export function mintGrantFromDecision(params: MintGrantParams): MintGrantResult 
         callSessionId: params.callSessionId ?? null,
         expiresAt: params.expiresAt,
       },
-      'Approval grant minted',
+      "Approval grant minted",
     );
 
     return { ok: true, grant };
   } catch (error) {
     log.error(
       {
-        event: 'approval_primitive_mint_error',
+        event: "approval_primitive_mint_error",
         scopeMode: params.scopeMode,
         toolName: params.toolName ?? null,
         assistantId: params.assistantId,
         err: error,
       },
-      'Failed to mint approval grant (storage error)',
+      "Failed to mint approval grant (storage error)",
     );
-    return { ok: false, reason: 'storage_error', error };
+    return { ok: false, reason: "storage_error", error };
   }
 }
 
@@ -167,7 +180,15 @@ export interface ConsumeByToolSignatureParams {
 
 export type ConsumeGrantResult =
   | { ok: true; grant: ScopedApprovalGrant }
-  | { ok: false; reason: 'no_match' | 'scope_mismatch' | 'expired' | 'already_consumed' | 'aborted' };
+  | {
+      ok: false;
+      reason:
+        | "no_match"
+        | "scope_mismatch"
+        | "expired"
+        | "already_consumed"
+        | "aborted";
+    };
 
 export interface ConsumeGrantParams {
   requestId?: string;
@@ -196,61 +217,63 @@ export interface ConsumeGrantParams {
 function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
   // Try request_id mode first when a requestId is provided
   if (params.requestId) {
-    const reqResult: ConsumeByRequestIdResult = consumeScopedApprovalGrantByRequestId(
-      params.requestId,
-      params.consumingRequestId,
-      params.assistantId,
-      params.now,
-    );
+    const reqResult: ConsumeByRequestIdResult =
+      consumeScopedApprovalGrantByRequestId(
+        params.requestId,
+        params.consumingRequestId,
+        params.assistantId,
+        params.now,
+      );
 
     if (reqResult.ok && reqResult.grant) {
       log.info(
         {
-          event: 'approval_primitive_consume_hit',
-          mode: 'request_id',
+          event: "approval_primitive_consume_hit",
+          mode: "request_id",
           grantId: reqResult.grant.id,
           requestId: params.requestId,
           consumingRequestId: params.consumingRequestId,
           assistantId: params.assistantId,
           toolName: params.toolName,
         },
-        'Approval grant consumed via request_id',
+        "Approval grant consumed via request_id",
       );
       return { ok: true, grant: reqResult.grant };
     }
 
     log.info(
       {
-        event: 'approval_primitive_consume_miss',
-        mode: 'request_id',
-        reason: 'no_match',
+        event: "approval_primitive_consume_miss",
+        mode: "request_id",
+        reason: "no_match",
         requestId: params.requestId,
         consumingRequestId: params.consumingRequestId,
         assistantId: params.assistantId,
         toolName: params.toolName,
       },
-      'No request_id grant match, falling through to tool_signature',
+      "No request_id grant match, falling through to tool_signature",
     );
   }
 
   // Fall back to tool_signature mode
-  const sigResult: ConsumeByToolSignatureResult = consumeScopedApprovalGrantByToolSignature({
-    toolName: params.toolName,
-    inputDigest: params.inputDigest,
-    consumingRequestId: params.consumingRequestId,
-    assistantId: params.assistantId,
-    executionChannel: params.executionChannel,
-    conversationId: params.conversationId,
-    callSessionId: params.callSessionId,
-    requesterExternalUserId: params.requesterExternalUserId,
-    now: params.now,
-  });
+  const sigResult: ConsumeByToolSignatureResult =
+    consumeScopedApprovalGrantByToolSignature({
+      toolName: params.toolName,
+      inputDigest: params.inputDigest,
+      consumingRequestId: params.consumingRequestId,
+      assistantId: params.assistantId,
+      executionChannel: params.executionChannel,
+      conversationId: params.conversationId,
+      callSessionId: params.callSessionId,
+      requesterExternalUserId: params.requesterExternalUserId,
+      now: params.now,
+    });
 
   if (sigResult.ok && sigResult.grant) {
     log.info(
       {
-        event: 'approval_primitive_consume_hit',
-        mode: 'tool_signature',
+        event: "approval_primitive_consume_hit",
+        mode: "tool_signature",
         grantId: sigResult.grant.id,
         toolName: params.toolName,
         consumingRequestId: params.consumingRequestId,
@@ -258,16 +281,16 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
         conversationId: params.conversationId ?? null,
         callSessionId: params.callSessionId ?? null,
       },
-      'Approval grant consumed via tool_signature',
+      "Approval grant consumed via tool_signature",
     );
     return { ok: true, grant: sigResult.grant };
   }
 
   log.info(
     {
-      event: 'approval_primitive_consume_miss',
-      mode: 'tool_signature',
-      reason: 'no_match',
+      event: "approval_primitive_consume_miss",
+      mode: "tool_signature",
+      reason: "no_match",
       toolName: params.toolName,
       consumingRequestId: params.consumingRequestId,
       assistantId: params.assistantId,
@@ -275,10 +298,10 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
       callSessionId: params.callSessionId ?? null,
       executionChannel: params.executionChannel ?? null,
     },
-    'No tool_signature grant match found',
+    "No tool_signature grant match found",
   );
 
-  return { ok: false, reason: 'no_match' };
+  return { ok: false, reason: "no_match" };
 }
 
 // ---------------------------------------------------------------------------
@@ -325,13 +348,13 @@ export async function consumeGrantForInvocation(
 
   log.info(
     {
-      event: 'approval_primitive_consume_retry_start',
+      event: "approval_primitive_consume_retry_start",
       toolName: params.toolName,
       consumingRequestId: params.consumingRequestId,
       maxWaitMs: maxWait,
       intervalMs: interval,
     },
-    'Grant not found on first attempt; starting retry polling',
+    "Grant not found on first attempt; starting retry polling",
   );
 
   const signal = options?.signal;
@@ -342,26 +365,26 @@ export async function consumeGrantForInvocation(
     // Returns 'aborted' (not 'no_match') so callers can distinguish
     // cancellation from a genuine grant miss.
     if (signal?.aborted) {
-      return { ok: false, reason: 'aborted' };
+      return { ok: false, reason: "aborted" };
     }
 
     await new Promise((resolve) => setTimeout(resolve, interval));
 
     if (signal?.aborted) {
-      return { ok: false, reason: 'aborted' };
+      return { ok: false, reason: "aborted" };
     }
 
     const result = consumeGrantSync(params);
     if (result.ok) {
       log.info(
         {
-          event: 'approval_primitive_consume_retry_hit',
+          event: "approval_primitive_consume_retry_hit",
           toolName: params.toolName,
           consumingRequestId: params.consumingRequestId,
           grantId: result.grant.id,
           elapsedMs: maxWait - (deadline - Date.now()),
         },
-        'Grant found after retry polling',
+        "Grant found after retry polling",
       );
       return result;
     }
@@ -369,13 +392,13 @@ export async function consumeGrantForInvocation(
 
   log.info(
     {
-      event: 'approval_primitive_consume_retry_timeout',
+      event: "approval_primitive_consume_retry_timeout",
       toolName: params.toolName,
       consumingRequestId: params.consumingRequestId,
       maxWaitMs: maxWait,
     },
-    'Grant retry polling timed out — no matching grant found',
+    "Grant retry polling timed out — no matching grant found",
   );
 
-  return { ok: false, reason: 'no_match' };
+  return { ok: false, reason: "no_match" };
 }

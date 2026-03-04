@@ -330,8 +330,7 @@ describe("session-manager", () => {
     // the templates map the session would build produces correct decisions.
 
     test("shouldIntercept returns mitm for credential-matched hosts", async () => {
-      const { routeConnection } =
-        await import("../tools/network/script-proxy/router.js");
+      const { routeConnection } = await import("@vellumai/outbound-proxy");
 
       const templates = new Map([["cred-fal", [makeTemplate("*.fal.ai")]]]);
 
@@ -346,8 +345,7 @@ describe("session-manager", () => {
     });
 
     test("shouldIntercept returns tunnel for non-matching hosts", async () => {
-      const { routeConnection } =
-        await import("../tools/network/script-proxy/router.js");
+      const { routeConnection } = await import("@vellumai/outbound-proxy");
 
       const templates = new Map([["cred-fal", [makeTemplate("*.fal.ai")]]]);
 
@@ -362,8 +360,7 @@ describe("session-manager", () => {
     });
 
     test("shouldIntercept returns tunnel when no credentials configured", async () => {
-      const { routeConnection } =
-        await import("../tools/network/script-proxy/router.js");
+      const { routeConnection } = await import("@vellumai/outbound-proxy");
 
       const decision = routeConnection("api.fal.ai", 443, [], new Map());
       expect(decision.action).toBe("tunnel");

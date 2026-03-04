@@ -12,15 +12,15 @@
  *   - `notify` → `escalate` (alert user, take no action)
  */
 
-import type { AutonomyTier } from './types.js';
+import type { AutonomyTier } from "./types.js";
 
 /** Watcher event disposition strings used by the watcher engine. */
-export type WatcherDisposition = 'silent' | 'notify' | 'escalate';
+export type WatcherDisposition = "silent" | "notify" | "escalate";
 
 const TIER_TO_DISPOSITION: Record<AutonomyTier, WatcherDisposition> = {
-  auto: 'silent',
-  draft: 'notify',
-  notify: 'escalate',
+  auto: "silent",
+  draft: "notify",
+  notify: "escalate",
 };
 
 /**

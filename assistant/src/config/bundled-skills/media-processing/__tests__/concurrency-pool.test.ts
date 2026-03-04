@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from "bun:test";
 
-import { ConcurrencyPool } from '../services/concurrency-pool.js';
+import { ConcurrencyPool } from "../services/concurrency-pool.js";
 
-describe('ConcurrencyPool', () => {
-  it('allows up to maxConcurrency tasks to run simultaneously', async () => {
+describe("ConcurrencyPool", () => {
+  it("allows up to maxConcurrency tasks to run simultaneously", async () => {
     const pool = new ConcurrencyPool(2);
 
     await pool.acquire();
@@ -31,20 +31,20 @@ describe('ConcurrencyPool', () => {
     expect(pool.waitingCount).toBe(0);
   });
 
-  it('releases slots on error so the pool does not leak', async () => {
+  it("releases slots on error so the pool does not leak", async () => {
     const pool = new ConcurrencyPool(1);
 
     const runTask = async () => {
       await pool.acquire();
       try {
-        throw new Error('simulated failure');
+        throw new Error("simulated failure");
       } finally {
         pool.release();
       }
     };
 
     // First task errors and releases its slot
-    await expect(runTask()).rejects.toThrow('simulated failure');
+    await expect(runTask()).rejects.toThrow("simulated failure");
     expect(pool.activeCount).toBe(0);
 
     // Pool should still be usable after the error
@@ -53,11 +53,13 @@ describe('ConcurrencyPool', () => {
     pool.release();
   });
 
-  it('rejects maxConcurrency less than 1', () => {
-    expect(() => new ConcurrencyPool(0)).toThrow('maxConcurrency must be at least 1');
+  it("rejects maxConcurrency less than 1", () => {
+    expect(() => new ConcurrencyPool(0)).toThrow(
+      "maxConcurrency must be at least 1",
+    );
   });
 
-  it('defaults to maxConcurrency of 10', async () => {
+  it("defaults to maxConcurrency of 10", async () => {
     const pool = new ConcurrencyPool();
 
     // Acquire 10 slots — all should resolve immediately

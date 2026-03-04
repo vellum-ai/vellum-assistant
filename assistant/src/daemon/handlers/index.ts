@@ -1,43 +1,53 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { type Confidence, recordConversationSeenSignal, type SignalType } from '../../memory/conversation-attention-store.js';
-import { updateDeliveryClientOutcome } from '../../notifications/deliveries-store.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
-import type { ClientMessage } from '../ipc-protocol.js';
-import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
-import { handleWatchObservation } from '../watch-handler.js';
-import { appHandlers } from './apps.js';
-import { avatarHandlers } from './avatar.js';
-import { browserHandlers } from './browser.js';
-import { computerUseHandlers } from './computer-use.js';
-import { configHandlers } from './config.js';
-import { inboxInviteHandlers } from './config-inbox.js';
-import { diagnosticsHandlers } from './diagnostics.js';
-import { dictationHandlers } from './dictation.js';
-import { documentHandlers } from './documents.js';
-import { guardianActionsHandlers } from './guardian-actions.js';
-import { homeBaseHandlers } from './home-base.js';
-import { identityHandlers } from './identity.js';
-import { miscHandlers } from './misc.js';
-import { oauthConnectHandlers } from './oauth-connect.js';
-import { handleOpenBundle } from './open-bundle-handler.js';
-import { pairingHandlers } from './pairing.js';
-import { publishHandlers } from './publish.js';
-import { recordingHandlers } from './recording.js';
-import { sessionHandlers } from './sessions.js';
-import { defineHandlers, type DispatchMap, type HandlerContext, log } from './shared.js';
-import { signingHandlers } from './signing.js';
-import { skillHandlers } from './skills.js';
-import { subagentHandlers } from './subagents.js';
-import { twitterAuthHandlers } from './twitter-auth.js';
-import { workItemHandlers } from './work-items.js';
-import { workspaceFileHandlers } from './workspace-files.js';
+import {
+  type Confidence,
+  recordConversationSeenSignal,
+  type SignalType,
+} from "../../memory/conversation-attention-store.js";
+import { updateDeliveryClientOutcome } from "../../notifications/deliveries-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
+import type { ClientMessage } from "../ipc-protocol.js";
+import {
+  handleRideShotgunStart,
+  handleRideShotgunStop,
+} from "../ride-shotgun-handler.js";
+import { handleWatchObservation } from "../watch-handler.js";
+import { appHandlers } from "./apps.js";
+import { avatarHandlers } from "./avatar.js";
+import { browserHandlers } from "./browser.js";
+import { computerUseHandlers } from "./computer-use.js";
+import { configHandlers } from "./config.js";
+import { inboxInviteHandlers } from "./config-inbox.js";
+import { contactsHandlers } from "./contacts.js";
+import { diagnosticsHandlers } from "./diagnostics.js";
+import { dictationHandlers } from "./dictation.js";
+import { documentHandlers } from "./documents.js";
+import { guardianActionsHandlers } from "./guardian-actions.js";
+import { homeBaseHandlers } from "./home-base.js";
+import { identityHandlers } from "./identity.js";
+import { miscHandlers } from "./misc.js";
+import { oauthConnectHandlers } from "./oauth-connect.js";
+import { handleOpenBundle } from "./open-bundle-handler.js";
+import { pairingHandlers } from "./pairing.js";
+import { publishHandlers } from "./publish.js";
+import { recordingHandlers } from "./recording.js";
+import { sessionHandlers } from "./sessions.js";
+import {
+  defineHandlers,
+  type DispatchMap,
+  type HandlerContext,
+  log,
+} from "./shared.js";
+import { signingHandlers } from "./signing.js";
+import { skillHandlers } from "./skills.js";
+import { subagentHandlers } from "./subagents.js";
+import { twitterAuthHandlers } from "./twitter-auth.js";
+import { workItemHandlers } from "./work-items.js";
+import { workspaceFileHandlers } from "./workspace-files.js";
 
 // Re-export types and utilities for backwards compatibility
-export {
-  handleRecordingStart,
-  handleRecordingStop,
-} from './recording.js';
+export { handleRecordingStart, handleRecordingStop } from "./recording.js";
 export type {
   HandlerContext,
   HistorySurface,
@@ -45,11 +55,8 @@ export type {
   ParsedHistoryMessage,
   RenderedHistoryContent,
   SessionCreateOptions,
-} from './shared.js';
-export {
-  mergeToolResults,
-  renderHistoryContent,
-} from './shared.js';
+} from "./shared.js";
+export { mergeToolResults, renderHistoryContent } from "./shared.js";
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 
@@ -72,7 +79,10 @@ const inlineHandlers = defineHandlers({
       session.handleSurfaceAction(msg.surfaceId, msg.actionId, msg.data);
       return;
     }
-    log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface action');
+    log.warn(
+      { sessionId: msg.sessionId, surfaceId: msg.surfaceId },
+      "No session found for surface action",
+    );
   },
   ui_surface_undo: (msg, _socket, ctx) => {
     const session = ctx.sessions.get(msg.sessionId);
@@ -81,24 +91,29 @@ const inlineHandlers = defineHandlers({
       session.handleSurfaceUndo(msg.surfaceId);
       return;
     }
-    log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface undo');
+    log.warn(
+      { sessionId: msg.sessionId, surfaceId: msg.surfaceId },
+      "No session found for surface undo",
+    );
   },
 
   // Stub handlers: the integration registry was removed but the Swift client
   // still sends these messages. Return safe no-op responses so the client
   // doesn't hang waiting for a reply.
   integration_list: (_msg, socket, ctx) => {
-    ctx.send(socket, { type: 'integration_list_response', integrations: [] });
+    ctx.send(socket, { type: "integration_list_response", integrations: [] });
   },
   integration_connect: (msg, socket, ctx) => {
     ctx.send(socket, {
-      type: 'integration_connect_result',
+      type: "integration_connect_result",
       integrationId: msg.integrationId,
       success: false,
-      error: 'Please use chat to connect integrations.',
+      error: "Please use chat to connect integrations.",
     });
   },
-  integration_disconnect: () => { /* no-op — integration registry removed */ },
+  integration_disconnect: () => {
+    /* no-op — integration registry removed */
+  },
 
   // Client signal: user has seen a conversation (notification click, conversation open, etc.)
   conversation_seen_signal: (msg) => {
@@ -115,7 +130,10 @@ const inlineHandlers = defineHandlers({
         observedAt: msg.observedAt,
       });
     } catch (err) {
-      log.error({ err, conversationId: msg.conversationId }, 'conversation_seen_signal: failed to record seen signal');
+      log.error(
+        { err, conversationId: msg.conversationId },
+        "conversation_seen_signal: failed to record seen signal",
+      );
     }
   },
 
@@ -130,13 +148,18 @@ const inlineHandlers = defineHandlers({
           : undefined,
       );
       if (!updated) {
-        log.warn({ deliveryId: msg.deliveryId }, 'notification_intent_result: no delivery row found for deliveryId');
+        log.warn(
+          { deliveryId: msg.deliveryId },
+          "notification_intent_result: no delivery row found for deliveryId",
+        );
       }
     } catch (err) {
-      log.error({ err, deliveryId: msg.deliveryId }, 'notification_intent_result: failed to persist client delivery outcome');
+      log.error(
+        { err, deliveryId: msg.deliveryId },
+        "notification_intent_result: failed to persist client delivery outcome",
+      );
     }
   },
-
 });
 
 const handlers = {
@@ -162,6 +185,7 @@ const handlers = {
   ...identityHandlers,
   ...dictationHandlers,
   ...inboxInviteHandlers,
+  ...contactsHandlers,
   ...pairingHandlers,
   ...recordingHandlers,
   ...inlineHandlers,
@@ -173,13 +197,13 @@ export function handleMessage(
   ctx: HandlerContext,
 ): void {
   // 'auth' is handled at the transport layer and should never reach dispatch.
-  if (msg.type === 'auth') return;
+  if (msg.type === "auth") return;
 
   const handler = handlers[msg.type] as
     | ((msg: ClientMessage, socket: net.Socket, ctx: HandlerContext) => void)
     | undefined;
   if (!handler) {
-    log.warn({ type: msg.type }, 'Unknown message type, ignoring');
+    log.warn({ type: msg.type }, "Unknown message type, ignoring");
     return;
   }
   handler(msg, socket, ctx);

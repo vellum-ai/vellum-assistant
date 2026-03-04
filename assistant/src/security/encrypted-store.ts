@@ -16,18 +16,18 @@ import {
   createDecipheriv,
   pbkdf2Sync,
   randomBytes,
-} from 'node:crypto';
-import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { hostname, userInfo } from 'node:os';
-import { dirname, join } from 'node:path';
+} from "node:crypto";
+import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { hostname, userInfo } from "node:os";
+import { dirname, join } from "node:path";
 
-import { ensureDir,pathExists } from '../util/fs.js';
-import { getLogger } from '../util/logger.js';
-import { getPlatformName,getRootDir } from '../util/platform.js';
+import { ensureDir, pathExists } from "../util/fs.js";
+import { getLogger } from "../util/logger.js";
+import { getPlatformName, getRootDir } from "../util/platform.js";
 
-const log = getLogger('encrypted-store');
+const log = getLogger("encrypted-store");
 
-const ALGORITHM = 'aes-256-gcm';
+const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32; // bytes (256 bits)
 const IV_LENGTH = 16; // bytes (128 bits)
 const AUTH_TAG_LENGTH = 16; // bytes
@@ -61,7 +61,7 @@ interface EncryptedEntry {
 let storePathOverride: string | null = null;
 
 function getStorePath(): string {
-  return storePathOverride ?? join(getRootDir(), 'protected', 'keys.enc');
+  return storePathOverride ?? join(getRootDir(), "protected", "keys.enc");
 }
 
 /** @internal Test-only: override the store file path. Pass `null` to reset. */
@@ -75,17 +75,29 @@ export function _setStorePath(path: string | null): void {
 
 function getMachineEntropy(): string {
   const parts: string[] = [];
-  try { parts.push(hostname()); } catch { parts.push('unknown-host'); }
-  try { parts.push(userInfo().username); } catch { parts.push('unknown-user'); }
+  try {
+    parts.push(hostname());
+  } catch {
+    parts.push("unknown-host");
+  }
+  try {
+    parts.push(userInfo().username);
+  } catch {
+    parts.push("unknown-user");
+  }
   parts.push(getPlatformName());
   parts.push(process.arch);
-  try { parts.push(userInfo().homedir); } catch { parts.push('/tmp'); }
-  return parts.join(':');
+  try {
+    parts.push(userInfo().homedir);
+  } catch {
+    parts.push("/tmp");
+  }
+  return parts.join(":");
 }
 
 function deriveKey(salt: Buffer): Buffer {
   const entropy = getMachineEntropy();
-  return pbkdf2Sync(entropy, salt, PBKDF2_ITERATIONS, KEY_LENGTH, 'sha512');
+  return pbkdf2Sync(entropy, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha512");
 }
 
 // ---------------------------------------------------------------------------
@@ -104,12 +116,16 @@ function readStore(): StoreFile | null {
 
   // Read outside the parse try/catch so transient filesystem errors (EACCES,
   // EMFILE, EIO) propagate to callers instead of triggering corruption recovery.
-  const raw = readFileSync(path, 'utf-8');
+  const raw = readFileSync(path, "utf-8");
 
   try {
     const parsed = JSON.parse(raw);
-    if (parsed.version !== 1 || typeof parsed.salt !== 'string' || typeof parsed.entries !== 'object') {
-      throw new Error('Encrypted store has invalid format');
+    if (
+      parsed.version !== 1 ||
+      typeof parsed.salt !== "string" ||
+      typeof parsed.entries !== "object"
+    ) {
+      throw new Error("Encrypted store has invalid format");
     }
     // Use null-prototype object for entries to prevent prototype pollution
     const safeEntries: Record<string, EncryptedEntry> = Object.create(null);
@@ -120,11 +136,14 @@ function readStore(): StoreFile | null {
     // Corrupted or invalid store file — back it up and start fresh so the
     // daemon doesn't crash on every credential access.
     const backupPath = `${path}.corrupt.${Date.now()}`;
-    log.error({ err, backupPath }, 'Encrypted store is corrupt — backing up and resetting');
+    log.error(
+      { err, backupPath },
+      "Encrypted store is corrupt — backing up and resetting",
+    );
     try {
       renameSync(path, backupPath);
     } catch (renameErr) {
-      log.warn({ err: renameErr }, 'Failed to back up corrupt store file');
+      log.warn({ err: renameErr }, "Failed to back up corrupt store file");
     }
     return null;
   }
@@ -146,7 +165,7 @@ function getOrCreateStore(): StoreFile {
   const entries: Record<string, EncryptedEntry> = Object.create(null);
   const store: StoreFile = {
     version: 1,
-    salt: salt.toString('hex'),
+    salt: salt.toString("hex"),
     entries,
   };
   writeStore(store);
@@ -159,24 +178,31 @@ function getOrCreateStore(): StoreFile {
 
 function encrypt(plaintext: string, key: Buffer): EncryptedEntry {
   const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
-  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf-8'), cipher.final()]);
+  const cipher = createCipheriv(ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, "utf-8"),
+    cipher.final(),
+  ]);
   const tag = cipher.getAuthTag();
   return {
-    iv: iv.toString('hex'),
-    tag: tag.toString('hex'),
-    data: encrypted.toString('hex'),
+    iv: iv.toString("hex"),
+    tag: tag.toString("hex"),
+    data: encrypted.toString("hex"),
   };
 }
 
 function decrypt(entry: EncryptedEntry, key: Buffer): string {
-  const iv = Buffer.from(entry.iv, 'hex');
-  const tag = Buffer.from(entry.tag, 'hex');
-  const data = Buffer.from(entry.data, 'hex');
-  const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  const iv = Buffer.from(entry.iv, "hex");
+  const tag = Buffer.from(entry.tag, "hex");
+  const data = Buffer.from(entry.data, "hex");
+  const decipher = createDecipheriv(ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
   decipher.setAuthTag(tag);
   const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-  return decrypted.toString('utf-8');
+  return decrypted.toString("utf-8");
 }
 
 // ---------------------------------------------------------------------------
@@ -195,11 +221,11 @@ export function getKey(account: string): string | undefined {
     const entry = store.entries[account];
     if (!entry) return undefined;
 
-    const salt = Buffer.from(store.salt, 'hex');
+    const salt = Buffer.from(store.salt, "hex");
     const key = deriveKey(salt);
     return decrypt(entry, key);
   } catch (err) {
-    log.debug({ err, account }, 'Failed to read from encrypted store');
+    log.debug({ err, account }, "Failed to read from encrypted store");
     return undefined;
   }
 }
@@ -211,13 +237,13 @@ export function getKey(account: string): string | undefined {
 export function setKey(account: string, value: string): boolean {
   try {
     const store = getOrCreateStore();
-    const salt = Buffer.from(store.salt, 'hex');
+    const salt = Buffer.from(store.salt, "hex");
     const key = deriveKey(salt);
     store.entries[account] = encrypt(value, key);
     writeStore(store);
     return true;
   } catch (err) {
-    log.warn({ err, account }, 'Failed to write to encrypted store');
+    log.warn({ err, account }, "Failed to write to encrypted store");
     return false;
   }
 }
@@ -229,13 +255,14 @@ export function setKey(account: string, value: string): boolean {
 export function deleteKey(account: string): boolean {
   try {
     const store = readStore();
-    if (!store || !Object.prototype.hasOwnProperty.call(store.entries, account)) return false;
+    if (!store || !Object.prototype.hasOwnProperty.call(store.entries, account))
+      return false;
 
     delete store.entries[account];
     writeStore(store);
     return true;
   } catch (err) {
-    log.debug({ err, account }, 'Failed to delete from encrypted store');
+    log.debug({ err, account }, "Failed to delete from encrypted store");
     return false;
   }
 }

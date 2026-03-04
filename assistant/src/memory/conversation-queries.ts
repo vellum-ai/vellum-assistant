@@ -1,19 +1,25 @@
-import { and, asc, count, desc, eq, gte, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, lt, ne, or, sql } from "drizzle-orm";
 
-import { getLogger } from '../util/logger.js';
-import type { ConversationRow, MessageRow } from './conversation-crud.js';
-import { parseConversation, parseMessage } from './conversation-crud.js';
-import { ensureDisplayOrderMigration } from './conversation-display-order-migration.js';
-import { getDb, rawAll } from './db.js';
-import { conversations, messages } from './schema.js';
-import { buildFtsMatchQuery } from './search/lexical.js';
+import { getLogger } from "../util/logger.js";
+import type { ConversationRow, MessageRow } from "./conversation-crud.js";
+import { parseConversation, parseMessage } from "./conversation-crud.js";
+import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
+import { getDb, rawAll } from "./db.js";
+import { conversations, messages } from "./schema.js";
+import { buildFtsMatchQuery } from "./search/lexical.js";
 
-const log = getLogger('conversation-store');
+const log = getLogger("conversation-store");
 
-export function listConversations(limit?: number, includeBackground = false, offset = 0): ConversationRow[] {
+export function listConversations(
+  limit?: number,
+  includeBackground = false,
+  offset = 0,
+): ConversationRow[] {
   ensureDisplayOrderMigration();
   const db = getDb();
-  const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
+  const where = includeBackground
+    ? undefined
+    : sql`${conversations.threadType} != 'background'`;
   const query = db
     .select()
     .from(conversations)
@@ -26,7 +32,9 @@ export function listConversations(limit?: number, includeBackground = false, off
 
 export function countConversations(includeBackground = false): number {
   const db = getDb();
-  const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
+  const where = includeBackground
+    ? undefined
+    : sql`${conversations.threadType} != 'background'`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
@@ -53,16 +61,22 @@ export function getLatestConversation(): ConversationRow | null {
  * same millisecond (common in legacy conversations where an assistant turn and
  * the following user tool_result are saved in the same tick) are not skipped.
  */
-export function getNextMessage(conversationId: string, afterTimestamp: number, excludeMessageId: string): MessageRow | null {
+export function getNextMessage(
+  conversationId: string,
+  afterTimestamp: number,
+  excludeMessageId: string,
+): MessageRow | null {
   const db = getDb();
   const row = db
     .select()
     .from(messages)
-    .where(and(
-      eq(messages.conversationId, conversationId),
-      gte(messages.createdAt, afterTimestamp),
-      ne(messages.id, excludeMessageId),
-    ))
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        gte(messages.createdAt, afterTimestamp),
+        ne(messages.id, excludeMessageId),
+      ),
+    )
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(1)
     .get();
@@ -97,10 +111,15 @@ export function getMessagesPaginated(
       // Proper compound cursor: fetch messages that are strictly older, OR
       // share the same timestamp but have a smaller ID. This avoids both
       // duplicates and skipped messages when multiple rows share a timestamp.
-      conditions.push(or(
-        lt(messages.createdAt, beforeTimestamp),
-        and(eq(messages.createdAt, beforeTimestamp), lt(messages.id, beforeMessageId)),
-      )!);
+      conditions.push(
+        or(
+          lt(messages.createdAt, beforeTimestamp),
+          and(
+            eq(messages.createdAt, beforeTimestamp),
+            lt(messages.id, beforeMessageId),
+          ),
+        )!,
+      );
     } else {
       // Legacy callers without a message ID tie-breaker: use strict lt.
       // This may skip same-millisecond messages at boundaries, but avoids
@@ -151,7 +170,12 @@ export function isLastUserMessageToolResult(conversationId: string): boolean {
   const lastUserMsg = db
     .select({ content: messages.content })
     .from(messages)
-    .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.role, "user"),
+      ),
+    )
     .orderBy(sql`rowid DESC`)
     .limit(1)
     .get();
@@ -160,7 +184,13 @@ export function isLastUserMessageToolResult(conversationId: string): boolean {
 
   try {
     const parsed = JSON.parse(lastUserMsg.content);
-    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((block: Record<string, unknown>) => block.type === 'tool_result')) {
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (block: Record<string, unknown>) => block.type === "tool_result",
+      )
+    ) {
       return true;
     }
   } catch {
@@ -201,7 +231,10 @@ export function searchConversations(
   const ftsMatch = buildFtsMatchQuery(query.trim());
 
   // LIKE pattern for title matching (FTS only covers message content).
-  const titlePattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+  const titlePattern = `%${query
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_")}%`;
 
   interface ConvIdRow {
     conversation_id: string;
@@ -214,30 +247,42 @@ export function searchConversations(
   const ftsConvIds = new Set<string>();
   if (ftsMatch) {
     try {
-      const ftsRows = rawAll<ConvIdRow>(`
+      const ftsRows = rawAll<ConvIdRow>(
+        `
         SELECT DISTINCT m.conversation_id
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
         WHERE messages_fts MATCH ? AND c.thread_type != 'background'
         LIMIT 1000
-      `, ftsMatch);
+      `,
+        ftsMatch,
+      );
       for (const row of ftsRows) ftsConvIds.add(row.conversation_id);
     } catch (err) {
-      log.warn({ err, query: query.slice(0, 80) }, 'searchConversations: FTS query failed — falling through to title matches');
+      log.warn(
+        { err, query: query.slice(0, 80) },
+        "searchConversations: FTS query failed — falling through to title matches",
+      );
     }
   } else if (query.trim()) {
     // FTS tokens were all dropped (non-ASCII, single-char, etc.) — fall back to
     // LIKE-based message content search so queries like "你", "é", or "C++" still
     // match message text.
-    const likePattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
-    const likeRows = rawAll<ConvIdRow>(`
+    const likePattern = `%${query
+      .replace(/\\/g, "\\\\")
+      .replace(/%/g, "\\%")
+      .replace(/_/g, "\\_")}%`;
+    const likeRows = rawAll<ConvIdRow>(
+      `
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
       WHERE m.content LIKE ? ESCAPE '\\' AND c.thread_type != 'background'
       LIMIT 1000
-    `, likePattern);
+    `,
+      likePattern,
+    );
     for (const row of likeRows) ftsConvIds.add(row.conversation_id);
   }
 
@@ -258,14 +303,19 @@ export function searchConversations(
 
   // Fetch the matching conversation rows, ordered by updatedAt, capped at limit.
   const convIds = [...ftsConvIds];
-  const placeholders = convIds.map(() => '?').join(',');
-  interface ConvRow { id: string; title: string | null; updated_at: number }
+  const placeholders = convIds.map(() => "?").join(",");
+  interface ConvRow {
+    id: string;
+    title: string | null;
+    updated_at: number;
+  }
   const matchingConversations = rawAll<ConvRow>(
     `SELECT id, title, updated_at FROM conversations
      WHERE id IN (${placeholders})
      ORDER BY updated_at DESC
      LIMIT ?`,
-    ...convIds, limit,
+    ...convIds,
+    limit,
   );
 
   if (matchingConversations.length === 0) return [];
@@ -273,31 +323,52 @@ export function searchConversations(
   const results: ConversationSearchResult[] = [];
 
   for (const conv of matchingConversations) {
-    interface MsgRow { id: string; role: string; content: string; created_at: number }
+    interface MsgRow {
+      id: string;
+      role: string;
+      content: string;
+      created_at: number;
+    }
     let matchingMsgs: MsgRow[] = [];
     if (ftsMatch) {
       try {
-        matchingMsgs = rawAll<MsgRow>(`
+        matchingMsgs = rawAll<MsgRow>(
+          `
           SELECT m.id, m.role, m.content, m.created_at
           FROM messages_fts f
           JOIN messages m ON m.id = f.message_id
           WHERE messages_fts MATCH ? AND m.conversation_id = ?
           ORDER BY m.created_at ASC
           LIMIT ?
-        `, ftsMatch, conv.id, maxMsgsPerConv);
+        `,
+          ftsMatch,
+          conv.id,
+          maxMsgsPerConv,
+        );
       } catch (err) {
-        log.warn({ err, conversationId: conv.id }, 'searchConversations: FTS per-conversation query failed');
+        log.warn(
+          { err, conversationId: conv.id },
+          "searchConversations: FTS per-conversation query failed",
+        );
       }
     } else if (query.trim()) {
       // LIKE fallback for non-ASCII / short-token queries.
-      const msgLikePattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
-      matchingMsgs = rawAll<MsgRow>(`
+      const msgLikePattern = `%${query
+        .replace(/\\/g, "\\\\")
+        .replace(/%/g, "\\%")
+        .replace(/_/g, "\\_")}%`;
+      matchingMsgs = rawAll<MsgRow>(
+        `
         SELECT id, role, content, created_at
         FROM messages
         WHERE conversation_id = ? AND content LIKE ? ESCAPE '\\'
         ORDER BY created_at ASC
         LIMIT ?
-      `, conv.id, msgLikePattern, maxMsgsPerConv);
+      `,
+        conv.id,
+        msgLikePattern,
+        maxMsgsPerConv,
+      );
     }
 
     results.push({
@@ -329,19 +400,20 @@ function buildExcerpt(rawContent: string, query: string): string {
     if (Array.isArray(parsed)) {
       const parts: string[] = [];
       for (const block of parsed) {
-        if (typeof block === 'object' && block != null) {
-          if (block.type === 'text' && typeof block.text === 'string') {
+        if (typeof block === "object" && block != null) {
+          if (block.type === "text" && typeof block.text === "string") {
             parts.push(block.text);
-          } else if (block.type === 'tool_result') {
+          } else if (block.type === "tool_result") {
             const inner = Array.isArray(block.content) ? block.content : [];
             for (const ib of inner) {
-              if (ib?.type === 'text' && typeof ib.text === 'string') parts.push(ib.text);
+              if (ib?.type === "text" && typeof ib.text === "string")
+                parts.push(ib.text);
             }
           }
         }
       }
-      if (parts.length > 0) text = parts.join(' ');
-    } else if (typeof parsed === 'string') {
+      if (parts.length > 0) text = parts.join(" ");
+    } else if (typeof parsed === "string") {
       text = parsed;
     }
   } catch {
@@ -354,10 +426,16 @@ function buildExcerpt(rawContent: string, query: string): string {
   const idx = lowerText.indexOf(lowerQuery);
   if (idx === -1) {
     // Query matched the raw JSON but not the extracted text — fall back to raw start
-    return text.slice(0, WINDOW * 2).replace(/\s+/g, ' ').trim();
+    return text
+      .slice(0, WINDOW * 2)
+      .replace(/\s+/g, " ")
+      .trim();
   }
   const start = Math.max(0, idx - WINDOW);
   const end = Math.min(text.length, idx + query.length + WINDOW);
-  const excerpt = (start > 0 ? '\u2026' : '') + text.slice(start, end).replace(/\s+/g, ' ').trim() + (end < text.length ? '\u2026' : '');
+  const excerpt =
+    (start > 0 ? "\u2026" : "") +
+    text.slice(start, end).replace(/\s+/g, " ").trim() +
+    (end < text.length ? "\u2026" : "");
   return excerpt;
 }

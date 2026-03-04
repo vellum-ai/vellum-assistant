@@ -5,14 +5,11 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import { Command } from 'commander';
+import { Command } from "commander";
 
-import {
-  createMessageParser,
-  serialize,
-} from '../daemon/ipc-protocol.js';
+import { createMessageParser, serialize } from "../daemon/ipc-protocol.js";
 import {
   getBookmarks,
   getFollowers,
@@ -26,14 +23,14 @@ import {
   getUserTweets,
   searchTweets,
   SessionExpiredError,
-} from '../twitter/client.js';
-import { routedPostTweet } from '../twitter/router.js';
+} from "../twitter/client.js";
+import { routedPostTweet } from "../twitter/router.js";
 import {
   clearSession,
   importFromRecording,
   loadSession,
-} from '../twitter/session.js';
-import { getSocketPath, readSessionToken } from '../util/platform.js';
+} from "../twitter/session.js";
+import { getSocketPath, readSessionToken } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,7 +38,7 @@ import { getSocketPath, readSessionToken } from '../util/platform.js';
 
 function output(data: unknown, json: boolean): void {
   process.stdout.write(
-    json ? JSON.stringify(data) + '\n' : JSON.stringify(data, null, 2) + '\n',
+    json ? JSON.stringify(data) + "\n" : JSON.stringify(data, null, 2) + "\n",
   );
 }
 
@@ -60,27 +57,25 @@ function getJson(cmd: Command): boolean {
 }
 
 const SESSION_EXPIRED_MSG =
-  'Your Twitter session has expired. Please sign in to Twitter in Chrome — ' +
-  'run `vellum twitter refresh` to capture your session automatically.';
+  "Your Twitter session has expired. Please sign in to Twitter in Chrome — " +
+  "run `vellum twitter refresh` to capture your session automatically.";
 
 async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
   try {
     const result = await fn();
-    output(
-      { ok: true, ...(result as Record<string, unknown>) },
-      getJson(cmd),
-    );
+    output({ ok: true, ...(result as Record<string, unknown>) }, getJson(cmd));
   } catch (err) {
     const meta = err as Record<string, unknown>;
     if (err instanceof SessionExpiredError) {
       // Preserve backward-compatible error code while surfacing router metadata
       const payload: Record<string, unknown> = {
         ok: false,
-        error: 'session_expired',
+        error: "session_expired",
         message: SESSION_EXPIRED_MSG,
       };
       if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
-      if (meta.suggestAlternative !== undefined) payload.suggestAlternative = meta.suggestAlternative;
+      if (meta.suggestAlternative !== undefined)
+        payload.suggestAlternative = meta.suggestAlternative;
       if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
       output(payload, getJson(cmd));
       process.exitCode = 1;
@@ -88,13 +83,19 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
     }
     // For routed errors with any router metadata, emit structured JSON
     // so callers can see dual-path diagnostics (pathUsed, oauthError, etc.)
-    if (err instanceof Error && (meta.pathUsed !== undefined || meta.suggestAlternative !== undefined || meta.oauthError !== undefined)) {
+    if (
+      err instanceof Error &&
+      (meta.pathUsed !== undefined ||
+        meta.suggestAlternative !== undefined ||
+        meta.oauthError !== undefined)
+    ) {
       const payload: Record<string, unknown> = {
         ok: false,
         error: err.message,
       };
       if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
-      if (meta.suggestAlternative !== undefined) payload.suggestAlternative = meta.suggestAlternative;
+      if (meta.suggestAlternative !== undefined)
+        payload.suggestAlternative = meta.suggestAlternative;
       if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
       output(payload, getJson(cmd));
       process.exitCode = 1;
@@ -110,27 +111,24 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
 
 export function registerTwitterCommand(program: Command): void {
   const tw = program
-    .command('x')
-    .alias('twitter')
+    .command("x")
+    .alias("twitter")
     .description(
-      'Post on X and manage connections. Supports OAuth (official API) and browser session paths.',
+      "Post on X and manage connections. Supports OAuth (official API) and browser session paths.",
     )
-    .option('--json', 'Machine-readable JSON output');
+    .option("--json", "Machine-readable JSON output");
 
   // =========================================================================
   // login — import session from a recording
   // =========================================================================
-  tw.command('login')
-    .description('Import a Twitter session from a Ride Shotgun recording')
-    .requiredOption(
-      '--recording <path>',
-      'Path to the recording JSON file',
-    )
+  tw.command("login")
+    .description("Import a Twitter session from a Ride Shotgun recording")
+    .requiredOption("--recording <path>", "Path to the recording JSON file")
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
         const session = importFromRecording(opts.recording);
         return {
-          message: 'Session imported successfully',
+          message: "Session imported successfully",
           cookieCount: session.cookies.length,
           recordingId: session.recordingId,
         };
@@ -140,23 +138,23 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // logout — clear saved session
   // =========================================================================
-  tw.command('logout')
-    .description('Clear the saved Twitter session')
+  tw.command("logout")
+    .description("Clear the saved Twitter session")
     .action((_opts: unknown, cmd: Command) => {
       clearSession();
-      output({ ok: true, message: 'Session cleared' }, getJson(cmd));
+      output({ ok: true, message: "Session cleared" }, getJson(cmd));
     });
 
   // =========================================================================
   // refresh — start Ride Shotgun learn to capture fresh cookies
   // =========================================================================
-  tw.command('refresh')
+  tw.command("refresh")
     .description(
-      'Start a Ride Shotgun learn session to capture fresh Twitter cookies. ' +
-      'Opens x.com in Chrome — sign in when prompted. ' +
-      'NOTE: Chrome will restart with debugging enabled; your tabs will be restored.',
+      "Start a Ride Shotgun learn session to capture fresh Twitter cookies. " +
+        "Opens x.com in Chrome — sign in when prompted. " +
+        "NOTE: Chrome will restart with debugging enabled; your tabs will be restored.",
     )
-    .option('--duration <seconds>', 'Recording duration in seconds', '180')
+    .option("--duration <seconds>", "Recording duration in seconds", "180")
     .action(async (opts: { duration: string }, cmd: Command) => {
       const json = getJson(cmd);
       const duration = parseInt(opts.duration, 10);
@@ -167,12 +165,16 @@ export function registerTwitterCommand(program: Command): void {
           const session = importFromRecording(result.recordingPath);
 
           // Hide Chrome after capturing session
-          try { await minimizeChromeWindow(); } catch { /* best-effort */ }
+          try {
+            await minimizeChromeWindow();
+          } catch {
+            /* best-effort */
+          }
 
           output(
             {
               ok: true,
-              message: 'Session refreshed successfully',
+              message: "Session refreshed successfully",
               cookieCount: session.cookies.length,
               recordingId: result.recordingId,
             },
@@ -182,7 +184,7 @@ export function registerTwitterCommand(program: Command): void {
           output(
             {
               ok: false,
-              error: 'Recording completed but no recording path returned',
+              error: "Recording completed but no recording path returned",
               recordingId: result.recordingId,
             },
             json,
@@ -197,8 +199,8 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // status — check session status + OAuth and strategy info
   // =========================================================================
-  tw.command('status')
-    .description('Check Twitter session, OAuth, and strategy status')
+  tw.command("status")
+    .description("Check Twitter session, OAuth, and strategy status")
     .action(async (_opts: unknown, cmd: Command) => {
       const session = loadSession();
       const browserInfo: Record<string, unknown> = session
@@ -213,15 +215,18 @@ export function registerTwitterCommand(program: Command): void {
       // Query daemon for OAuth / strategy config
       let oauthInfo: Record<string, unknown> = {};
       try {
-        const daemonResponse = await sendDaemonMessage({
-          type: 'twitter_integration_config',
-          action: 'get',
-        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
+        const daemonResponse = await sendDaemonMessage(
+          {
+            type: "twitter_integration_config",
+            action: "get",
+          } as import("../daemon/ipc-protocol.js").ClientMessage,
+          "twitter_integration_config_response",
+        );
         const r = daemonResponse as Record<string, unknown>;
         oauthInfo = {
           oauthConnected: r.connected ?? false,
           oauthAccount: r.accountInfo ?? undefined,
-          preferredStrategy: r.strategy ?? 'auto',
+          preferredStrategy: r.strategy ?? "auto",
           strategyConfigured: r.strategyConfigured ?? false,
         };
       } catch {
@@ -248,38 +253,51 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // strategy — get or set the Twitter operation strategy
   // =========================================================================
-  const strategyCli = tw.command('strategy')
-    .description('Get or set the Twitter operation strategy (oauth, browser, auto)')
+  const strategyCli = tw
+    .command("strategy")
+    .description(
+      "Get or set the Twitter operation strategy (oauth, browser, auto)",
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
       try {
-        const daemonResponse = await sendDaemonMessage({
-          type: 'twitter_integration_config',
-          action: 'get_strategy',
-        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
+        const daemonResponse = await sendDaemonMessage(
+          {
+            type: "twitter_integration_config",
+            action: "get_strategy",
+          } as import("../daemon/ipc-protocol.js").ClientMessage,
+          "twitter_integration_config_response",
+        );
         const r = daemonResponse as Record<string, unknown>;
-        output({ ok: true, strategy: r.strategy ?? 'auto' }, json);
+        output({ ok: true, strategy: r.strategy ?? "auto" }, json);
       } catch (err) {
         outputError(err instanceof Error ? err.message : String(err));
       }
     });
 
-  strategyCli.command('set')
-    .description('Set the Twitter operation strategy')
-    .argument('<value>', 'Strategy value: oauth, browser, or auto')
+  strategyCli
+    .command("set")
+    .description("Set the Twitter operation strategy")
+    .argument("<value>", "Strategy value: oauth, browser, or auto")
     .action(async (value: string, _opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
       try {
-        const daemonResponse = await sendDaemonMessage({
-          type: 'twitter_integration_config',
-          action: 'set_strategy',
-          strategy: value,
-        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
+        const daemonResponse = await sendDaemonMessage(
+          {
+            type: "twitter_integration_config",
+            action: "set_strategy",
+            strategy: value,
+          } as import("../daemon/ipc-protocol.js").ClientMessage,
+          "twitter_integration_config_response",
+        );
         const r = daemonResponse as Record<string, unknown>;
         if (r.success) {
           output({ ok: true, strategy: r.strategy }, json);
         } else {
-          output({ ok: false, error: r.error ?? 'Failed to set strategy' }, json);
+          output(
+            { ok: false, error: r.error ?? "Failed to set strategy" },
+            json,
+          );
           process.exitCode = 1;
         }
       } catch (err) {
@@ -290,9 +308,9 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // post — post a tweet
   // =========================================================================
-  tw.command('post')
-    .description('Post a tweet')
-    .argument('<text>', 'Tweet text')
+  tw.command("post")
+    .description("Post a tweet")
+    .argument("<text>", "Tweet text")
     .action(async (text: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const { result, pathUsed } = await routedPostTweet(text);
@@ -308,53 +326,63 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // reply — reply to a tweet
   // =========================================================================
-  tw.command('reply')
-    .description('Reply to a tweet')
-    .argument('<tweetUrl>', 'Tweet URL or tweet ID')
-    .argument('<text>', 'Reply text')
-    .action(async (tweetUrl: string, text: string, _opts: unknown, cmd: Command) => {
-      await run(cmd, async () => {
-        // Extract tweet ID: either a bare numeric ID or the last numeric segment of a URL
-        const idMatch = tweetUrl.match(/(\d+)\s*$/);
-        if (!idMatch) {
-          throw new Error(`Could not extract tweet ID from: ${tweetUrl}`);
-        }
-        const inReplyToTweetId = idMatch[1];
-        const { result, pathUsed } = await routedPostTweet(text, { inReplyToTweetId });
-        return {
-          tweetId: result.tweetId,
-          text: result.text,
-          url: result.url,
-          inReplyToTweetId,
-          pathUsed,
-        };
-      });
-    });
+  tw.command("reply")
+    .description("Reply to a tweet")
+    .argument("<tweetUrl>", "Tweet URL or tweet ID")
+    .argument("<text>", "Reply text")
+    .action(
+      async (tweetUrl: string, text: string, _opts: unknown, cmd: Command) => {
+        await run(cmd, async () => {
+          // Extract tweet ID: either a bare numeric ID or the last numeric segment of a URL
+          const idMatch = tweetUrl.match(/(\d+)\s*$/);
+          if (!idMatch) {
+            throw new Error(`Could not extract tweet ID from: ${tweetUrl}`);
+          }
+          const inReplyToTweetId = idMatch[1];
+          const { result, pathUsed } = await routedPostTweet(text, {
+            inReplyToTweetId,
+          });
+          return {
+            tweetId: result.tweetId,
+            text: result.text,
+            url: result.url,
+            inReplyToTweetId,
+            pathUsed,
+          };
+        });
+      },
+    );
   // =========================================================================
   // timeline — fetch a user's recent tweets
   // =========================================================================
-  tw.command('timeline')
+  tw.command("timeline")
     .description("Fetch a user's recent tweets")
-    .argument('<screenName>', 'Twitter screen name (without @)')
-    .option('--count <n>', 'Number of tweets to fetch', '20')
-    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
-      await run(cmd, async () => {
-        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
-        const tweets = await getUserTweets(user.userId, parseInt(opts.count, 10));
-        return { user, tweets };
-      });
-    });
+    .argument("<screenName>", "Twitter screen name (without @)")
+    .option("--count <n>", "Number of tweets to fetch", "20")
+    .action(
+      async (screenName: string, opts: { count: string }, cmd: Command) => {
+        await run(cmd, async () => {
+          const user = await getUserByScreenName(screenName.replace(/^@/, ""));
+          const tweets = await getUserTweets(
+            user.userId,
+            parseInt(opts.count, 10),
+          );
+          return { user, tweets };
+        });
+      },
+    );
 
   // =========================================================================
   // tweet — fetch a single tweet and its replies
   // =========================================================================
-  tw.command('tweet')
-    .description('Fetch a tweet and its reply thread')
-    .argument('<tweetIdOrUrl>', 'Tweet ID or URL')
+  tw.command("tweet")
+    .description("Fetch a tweet and its reply thread")
+    .argument("<tweetIdOrUrl>", "Tweet ID or URL")
     .action(async (tweetIdOrUrl: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const idMatch = tweetIdOrUrl.match(/(\d+)\s*$/);
-        if (!idMatch) throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
+        if (!idMatch)
+          throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
         const tweets = await getTweetDetail(idMatch[1]);
         return { tweets };
       });
@@ -363,15 +391,15 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // search — search tweets
   // =========================================================================
-  tw.command('search')
-    .description('Search tweets')
-    .argument('<query>', 'Search query')
-    .option('--product <type>', 'Top, Latest, People, or Media', 'Top')
+  tw.command("search")
+    .description("Search tweets")
+    .argument("<query>", "Search query")
+    .option("--product <type>", "Top, Latest, People, or Media", "Top")
     .action(async (query: string, opts: { product: string }, cmd: Command) => {
       await run(cmd, async () => {
         const tweets = await searchTweets(
           query,
-          opts.product as 'Top' | 'Latest' | 'People' | 'Media',
+          opts.product as "Top" | "Latest" | "People" | "Media",
         );
         return { query, tweets };
       });
@@ -380,9 +408,9 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // bookmarks — fetch bookmarks
   // =========================================================================
-  tw.command('bookmarks')
-    .description('Fetch your bookmarks')
-    .option('--count <n>', 'Number of bookmarks', '20')
+  tw.command("bookmarks")
+    .description("Fetch your bookmarks")
+    .option("--count <n>", "Number of bookmarks", "20")
     .action(async (opts: { count: string }, cmd: Command) => {
       await run(cmd, async () => {
         const tweets = await getBookmarks(parseInt(opts.count, 10));
@@ -393,9 +421,9 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // home — fetch home timeline
   // =========================================================================
-  tw.command('home')
-    .description('Fetch your home timeline')
-    .option('--count <n>', 'Number of tweets', '20')
+  tw.command("home")
+    .description("Fetch your home timeline")
+    .option("--count <n>", "Number of tweets", "20")
     .action(async (opts: { count: string }, cmd: Command) => {
       await run(cmd, async () => {
         const tweets = await getHomeTimeline(parseInt(opts.count, 10));
@@ -406,9 +434,9 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // notifications — fetch notifications
   // =========================================================================
-  tw.command('notifications')
-    .description('Fetch your notifications')
-    .option('--count <n>', 'Number of notifications', '20')
+  tw.command("notifications")
+    .description("Fetch your notifications")
+    .option("--count <n>", "Number of notifications", "20")
     .action(async (opts: { count: string }, cmd: Command) => {
       await run(cmd, async () => {
         const notifications = await getNotifications(parseInt(opts.count, 10));
@@ -419,27 +447,29 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // likes — fetch a user's liked tweets
   // =========================================================================
-  tw.command('likes')
+  tw.command("likes")
     .description("Fetch a user's liked tweets")
-    .argument('<screenName>', 'Twitter screen name (without @)')
-    .option('--count <n>', 'Number of likes', '20')
-    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
-      await run(cmd, async () => {
-        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
-        const tweets = await getLikes(user.userId, parseInt(opts.count, 10));
-        return { user, tweets };
-      });
-    });
+    .argument("<screenName>", "Twitter screen name (without @)")
+    .option("--count <n>", "Number of likes", "20")
+    .action(
+      async (screenName: string, opts: { count: string }, cmd: Command) => {
+        await run(cmd, async () => {
+          const user = await getUserByScreenName(screenName.replace(/^@/, ""));
+          const tweets = await getLikes(user.userId, parseInt(opts.count, 10));
+          return { user, tweets };
+        });
+      },
+    );
 
   // =========================================================================
   // followers — fetch a user's followers
   // =========================================================================
-  tw.command('followers')
+  tw.command("followers")
     .description("Fetch a user's followers")
-    .argument('<screenName>', 'Twitter screen name (without @)')
+    .argument("<screenName>", "Twitter screen name (without @)")
     .action(async (screenName: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
-        const cleanName = screenName.replace(/^@/, '');
+        const cleanName = screenName.replace(/^@/, "");
         const user = await getUserByScreenName(cleanName);
         const followers = await getFollowers(user.userId, cleanName);
         return { user, followers };
@@ -449,32 +479,42 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   // following — fetch who a user follows
   // =========================================================================
-  tw.command('following')
+  tw.command("following")
     .description("Fetch who a user follows")
-    .argument('<screenName>', 'Twitter screen name (without @)')
-    .option('--count <n>', 'Number of following', '20')
-    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
-      await run(cmd, async () => {
-        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
-        const following = await getFollowing(user.userId, parseInt(opts.count, 10));
-        return { user, following };
-      });
-    });
+    .argument("<screenName>", "Twitter screen name (without @)")
+    .option("--count <n>", "Number of following", "20")
+    .action(
+      async (screenName: string, opts: { count: string }, cmd: Command) => {
+        await run(cmd, async () => {
+          const user = await getUserByScreenName(screenName.replace(/^@/, ""));
+          const following = await getFollowing(
+            user.userId,
+            parseInt(opts.count, 10),
+          );
+          return { user, following };
+        });
+      },
+    );
 
   // =========================================================================
   // media — fetch a user's media tweets
   // =========================================================================
-  tw.command('media')
+  tw.command("media")
     .description("Fetch a user's media tweets")
-    .argument('<screenName>', 'Twitter screen name (without @)')
-    .option('--count <n>', 'Number of media tweets', '20')
-    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
-      await run(cmd, async () => {
-        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
-        const tweets = await getUserMedia(user.userId, parseInt(opts.count, 10));
-        return { user, tweets };
-      });
-    });
+    .argument("<screenName>", "Twitter screen name (without @)")
+    .option("--count <n>", "Number of media tweets", "20")
+    .action(
+      async (screenName: string, opts: { count: string }, cmd: Command) => {
+        await run(cmd, async () => {
+          const user = await getUserByScreenName(screenName.replace(/^@/, ""));
+          const tweets = await getUserMedia(
+            user.userId,
+            parseInt(opts.count, 10),
+          );
+          return { user, tweets };
+        });
+      },
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -482,7 +522,7 @@ export function registerTwitterCommand(program: Command): void {
 // ---------------------------------------------------------------------------
 
 function sendDaemonMessage(
-  message: import('../daemon/ipc-protocol.js').ClientMessage,
+  message: import("../daemon/ipc-protocol.js").ClientMessage,
   expectedResponseType: string,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -493,7 +533,7 @@ function sendDaemonMessage(
 
     const timeoutHandle = setTimeout(() => {
       socket.destroy();
-      reject(new Error('Daemon request timed out after 10s'));
+      reject(new Error("Daemon request timed out after 10s"));
     }, 10_000);
     timeoutHandle.unref();
 
@@ -506,34 +546,42 @@ function sendDaemonMessage(
       socket.write(serialize(message));
     };
 
-    socket.on('error', (err) => {
+    socket.on("error", (err) => {
       clearTimeout(timeoutHandle);
-      reject(new Error(`Cannot connect to daemon: ${err.message}. Is the daemon running?`));
+      reject(
+        new Error(
+          `Cannot connect to daemon: ${err.message}. Is the daemon running?`,
+        ),
+      );
     });
 
-    socket.on('data', (chunk) => {
-      const messages = parser.feed(chunk.toString('utf-8'));
+    socket.on("data", (chunk) => {
+      const messages = parser.feed(chunk.toString("utf-8"));
       for (const msg of messages) {
         const m = msg as unknown as Record<string, unknown>;
 
-        if (!authenticated && m.type === 'auth_result') {
+        if (!authenticated && m.type === "auth_result") {
           if ((m as { success: boolean }).success) {
             authenticated = true;
             sendPayload();
           } else {
             clearTimeout(timeoutHandle);
             socket.destroy();
-            reject(new Error('Daemon authentication failed'));
+            reject(new Error("Daemon authentication failed"));
           }
           continue;
         }
 
         // Reject immediately on daemon error frames so the CLI surfaces the
         // real failure reason instead of hanging until the timeout fires.
-        if (m.type === 'error') {
+        if (m.type === "error") {
           clearTimeout(timeoutHandle);
           socket.destroy();
-          reject(new Error((m as { message?: string }).message ?? 'Daemon returned an error'));
+          reject(
+            new Error(
+              (m as { message?: string }).message ?? "Daemon returned an error",
+            ),
+          );
           return;
         }
 
@@ -548,13 +596,13 @@ function sendDaemonMessage(
       }
     });
 
-    socket.on('connect', () => {
+    socket.on("connect", () => {
       if (sessionToken) {
         socket.write(
           serialize({
-            type: 'auth',
+            type: "auth",
             token: sessionToken,
-          } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+          } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
         );
       } else {
         sendPayload();
@@ -567,14 +615,14 @@ function sendDaemonMessage(
 // Chrome CDP restart helper
 // ---------------------------------------------------------------------------
 
-import { spawn as spawnChild } from 'node:child_process';
-import { homedir } from 'node:os';
-import { join as pathJoin } from 'node:path';
+import { spawn as spawnChild } from "node:child_process";
+import { homedir } from "node:os";
+import { join as pathJoin } from "node:path";
 
-const CDP_BASE = 'http://localhost:9222';
+const CDP_BASE = "http://localhost:9222";
 const CHROME_DATA_DIR = pathJoin(
   homedir(),
-  'Library/Application Support/Google/Chrome-CDP',
+  "Library/Application Support/Google/Chrome-CDP",
 );
 
 async function isCdpReady(): Promise<boolean> {
@@ -593,29 +641,36 @@ async function ensureChromeWithCDP(): Promise<void> {
   // Launch a separate Chrome instance with CDP flags alongside any existing Chrome.
   // Using a dedicated --user-data-dir allows coexistence without killing the user's browser.
   const chromeApp =
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  spawnChild(chromeApp, [
-    `--remote-debugging-port=9222`,
-    `--force-renderer-accessibility`,
-    `--user-data-dir=${CHROME_DATA_DIR}`,
-    'https://x.com/login',
-  ], {
-    detached: true,
-    stdio: 'ignore',
-  }).unref();
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  spawnChild(
+    chromeApp,
+    [
+      `--remote-debugging-port=9222`,
+      `--force-renderer-accessibility`,
+      `--user-data-dir=${CHROME_DATA_DIR}`,
+      "https://x.com/login",
+    ],
+    {
+      detached: true,
+      stdio: "ignore",
+    },
+  ).unref();
 
   // Wait for CDP to be ready
   for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 500));
     if (await isCdpReady()) return;
   }
-  throw new Error('Chrome started but CDP endpoint not responding after 15s');
+  throw new Error("Chrome started but CDP endpoint not responding after 15s");
 }
 
 async function minimizeChromeWindow(): Promise<void> {
   const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{ type: string; webSocketDebuggerUrl: string }>;
-  const pageTarget = targets.find(t => t.type === 'page');
+  const targets = (await res.json()) as Array<{
+    type: string;
+    webSocketDebuggerUrl: string;
+  }>;
+  const pageTarget = targets.find((t) => t.type === "page");
   if (!pageTarget) return;
 
   const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
@@ -623,21 +678,29 @@ async function minimizeChromeWindow(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       ws.close();
-      reject(new Error('CDP minimize timed out'));
+      reject(new Error("CDP minimize timed out"));
     }, 5000);
 
-    ws.addEventListener('open', () => {
-      ws.send(JSON.stringify({ id: 1, method: 'Browser.getWindowForTarget' }));
+    ws.addEventListener("open", () => {
+      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
     });
 
-    ws.addEventListener('message', (event) => {
-      const msg = JSON.parse(String(event.data)) as { id: number; result?: { windowId: number } };
+    ws.addEventListener("message", (event) => {
+      const msg = JSON.parse(String(event.data)) as {
+        id: number;
+        result?: { windowId: number };
+      };
       if (msg.id === 1 && msg.result) {
-        ws.send(JSON.stringify({
-          id: 2,
-          method: 'Browser.setWindowBounds',
-          params: { windowId: msg.result.windowId, bounds: { windowState: 'minimized' } },
-        }));
+        ws.send(
+          JSON.stringify({
+            id: 2,
+            method: "Browser.setWindowBounds",
+            params: {
+              windowId: msg.result.windowId,
+              bounds: { windowState: "minimized" },
+            },
+          }),
+        );
       } else if (msg.id === 2) {
         clearTimeout(timeout);
         ws.close();
@@ -645,7 +708,7 @@ async function minimizeChromeWindow(): Promise<void> {
       }
     });
 
-    ws.addEventListener('error', (err) => {
+    ws.addEventListener("error", (err) => {
       clearTimeout(timeout);
       reject(err);
     });
@@ -665,16 +728,27 @@ async function navigateToX(): Promise<void> {
   try {
     const res = await fetch(`${CDP_BASE}/json/list`);
     if (!res.ok) return;
-    const targets = (await res.json()) as Array<{ id: string; type: string; url: string }>;
-    const tab = targets.find(t => t.type === 'page');
+    const targets = (await res.json()) as Array<{
+      id: string;
+      type: string;
+      url: string;
+    }>;
+    const tab = targets.find((t) => t.type === "page");
     if (!tab) return;
-    await fetch(`${CDP_BASE}/json/navigate?url=${encodeURIComponent('https://x.com/login')}&id=${tab.id}`, { method: 'PUT' });
+    await fetch(
+      `${CDP_BASE}/json/navigate?url=${encodeURIComponent(
+        "https://x.com/login",
+      )}&id=${tab.id}`,
+      { method: "PUT" },
+    );
   } catch {
     // best-effort
   }
 }
 
-async function startLearnSession(durationSeconds: number): Promise<LearnResult> {
+async function startLearnSession(
+  durationSeconds: number,
+): Promise<LearnResult> {
   await ensureChromeWithCDP();
   await navigateToX();
 
@@ -684,14 +758,23 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
     const socket = net.createConnection(socketPath);
     const parser = createMessageParser();
 
-    socket.on('error', (err) => {
-      reject(new Error(`Cannot connect to daemon: ${err.message}. Is the daemon running?`));
+    socket.on("error", (err) => {
+      reject(
+        new Error(
+          `Cannot connect to daemon: ${err.message}. Is the daemon running?`,
+        ),
+      );
     });
 
-    const timeoutHandle = setTimeout(() => {
-      socket.destroy();
-      reject(new Error(`Learn session timed out after ${durationSeconds + 30}s`));
-    }, (durationSeconds + 30) * 1000);
+    const timeoutHandle = setTimeout(
+      () => {
+        socket.destroy();
+        reject(
+          new Error(`Learn session timed out after ${durationSeconds + 30}s`),
+        );
+      },
+      (durationSeconds + 30) * 1000,
+    );
     timeoutHandle.unref();
 
     let authenticated = !sessionToken;
@@ -699,37 +782,37 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
     const sendStartCommand = () => {
       socket.write(
         serialize({
-          type: 'ride_shotgun_start',
+          type: "ride_shotgun_start",
           durationSeconds,
           intervalSeconds: 5,
-          mode: 'learn',
-          targetDomain: 'x.com',
-        } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+          mode: "learn",
+          targetDomain: "x.com",
+        } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
       );
     };
 
-    socket.on('data', (chunk) => {
-      const messages = parser.feed(chunk.toString('utf-8'));
+    socket.on("data", (chunk) => {
+      const messages = parser.feed(chunk.toString("utf-8"));
       for (const msg of messages) {
         const m = msg as unknown as Record<string, unknown>;
 
-        if (!authenticated && m.type === 'auth_result') {
+        if (!authenticated && m.type === "auth_result") {
           if ((m as { success: boolean }).success) {
             authenticated = true;
             sendStartCommand();
           } else {
             clearTimeout(timeoutHandle);
             socket.destroy();
-            reject(new Error('Daemon authentication failed'));
+            reject(new Error("Daemon authentication failed"));
           }
           continue;
         }
 
-        if (m.type === 'auth_result') {
+        if (m.type === "auth_result") {
           continue;
         }
 
-        if (m.type === 'ride_shotgun_result') {
+        if (m.type === "ride_shotgun_result") {
           clearTimeout(timeoutHandle);
           socket.destroy();
           resolve({
@@ -740,13 +823,13 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
       }
     });
 
-    socket.on('connect', () => {
+    socket.on("connect", () => {
       if (sessionToken) {
         socket.write(
           serialize({
-            type: 'auth',
+            type: "auth",
             token: sessionToken,
-          } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+          } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
         );
       } else {
         sendStartCommand();

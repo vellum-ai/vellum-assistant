@@ -503,6 +503,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `generate_avatar_response` message.
     public var onGenerateAvatarResponse: ((IPCGenerateAvatarResponse) -> Void)?
 
+    /// Called when the daemon sends a `contacts_response` message.
+    public var onContactsResponse: ((ContactsResponseMessage) -> Void)?
+
+    /// Called when the daemon broadcasts a `contacts_changed` event (contact table mutated).
+    public var onContactsChanged: ((IPCContactsChanged) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -1510,6 +1516,23 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Submit a guardian action decision.
     public func sendGuardianActionDecision(requestId: String, action: String, conversationId: String? = nil) throws {
         try send(GuardianActionDecisionMessage(requestId: requestId, action: action, conversationId: conversationId))
+    }
+
+    // MARK: - Contacts Management
+
+    /// Request the list of all contacts from the daemon, optionally filtered by role.
+    public func sendListContacts(role: String? = nil, limit: Int? = nil) throws {
+        try send(ContactsRequestMessage(action: "list", role: role, limit: limit))
+    }
+
+    /// Request a single contact by ID.
+    public func sendGetContact(contactId: String) throws {
+        try send(ContactsRequestMessage(action: "get", contactId: contactId))
+    }
+
+    /// Update a contact channel's status and/or policy.
+    public func sendUpdateContactChannel(channelId: String, status: String? = nil, policy: String? = nil, reason: String? = nil) throws {
+        try send(ContactsRequestMessage(action: "update_channel", channelId: channelId, status: status, policy: policy, reason: reason))
     }
 
     // MARK: - Feature Flags

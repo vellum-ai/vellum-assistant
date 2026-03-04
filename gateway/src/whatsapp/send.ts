@@ -1,9 +1,18 @@
 import type { GatewayConfig } from "../config.js";
 import type { ApprovalPayload } from "../http/routes/whatsapp-deliver.js";
 import { getLogger } from "../logger.js";
-import { downloadAttachment, type RuntimeAttachmentMeta } from "../runtime/client.js";
+import {
+  downloadAttachment,
+  type RuntimeAttachmentMeta,
+} from "../runtime/client.js";
 import { splitText } from "../util/split-text.js";
-import { sendWhatsAppInteractiveMessage, sendWhatsAppTextMessage, uploadWhatsAppMedia, sendWhatsAppMediaMessage, type WhatsAppMediaType } from "./api.js";
+import {
+  sendWhatsAppInteractiveMessage,
+  sendWhatsAppTextMessage,
+  uploadWhatsAppMedia,
+  sendWhatsAppMediaMessage,
+  type WhatsAppMediaType,
+} from "./api.js";
 
 const log = getLogger("whatsapp-send");
 
@@ -34,12 +43,18 @@ const WHATSAPP_MAX_BUTTONS = 3;
  * and `approve_always` are always preserved (they are the most important
  * decisions), with remaining slots filled by other approve variants in order.
  */
-function selectWhatsAppButtons(actions: Array<{ id: string; label: string }>): Array<{ id: string; label: string }> {
+function selectWhatsAppButtons(
+  actions: Array<{ id: string; label: string }>,
+): Array<{ id: string; label: string }> {
   if (actions.length <= WHATSAPP_MAX_BUTTONS) return actions;
 
   // Always preserve reject and approve_always when present
-  const pinned = actions.filter(a => a.id === 'reject' || a.id === 'approve_always');
-  const rest = actions.filter(a => a.id !== 'reject' && a.id !== 'approve_always');
+  const pinned = actions.filter(
+    (a) => a.id === "reject" || a.id === "approve_always",
+  );
+  const rest = actions.filter(
+    (a) => a.id !== "reject" && a.id !== "approve_always",
+  );
   const slotsForRest = WHATSAPP_MAX_BUTTONS - pinned.length;
   const selected = [...rest.slice(0, slotsForRest), ...pinned];
   return selected;
@@ -81,7 +96,12 @@ export async function sendWhatsAppReply(
     } else {
       // Last chunk still too long — send it as text, then a short interactive prompt
       await sendWhatsAppTextMessage(config, to, lastChunk);
-      await sendWhatsAppInteractiveMessage(config, to, "Choose an action:", buttons);
+      await sendWhatsAppInteractiveMessage(
+        config,
+        to,
+        "Choose an action:",
+        buttons,
+      );
     }
 
     log.debug({ to, chunks: chunks.length }, "WhatsApp approval reply sent");
@@ -111,8 +131,14 @@ export async function sendWhatsAppAttachments(
   const failures: string[] = [];
 
   for (const meta of attachments) {
-    if (meta.sizeBytes !== undefined && meta.sizeBytes > config.maxAttachmentBytes) {
-      log.warn({ attachmentId: meta.id, sizeBytes: meta.sizeBytes }, "Skipping oversized outbound attachment");
+    if (
+      meta.sizeBytes !== undefined &&
+      meta.sizeBytes > config.maxAttachmentBytes
+    ) {
+      log.warn(
+        { attachmentId: meta.id, sizeBytes: meta.sizeBytes },
+        "Skipping oversized outbound attachment",
+      );
       failures.push(meta.filename ?? meta.id);
       continue;
     }
@@ -120,13 +146,17 @@ export async function sendWhatsAppAttachments(
     try {
       const payload = await downloadAttachment(config, meta.id);
 
-      const mimeType = meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
+      const mimeType =
+        meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
       const filename = meta.filename ?? payload.filename ?? meta.id;
       const buffer = Buffer.from(payload.data, "base64");
       const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? buffer.length;
 
       if (sizeBytes > config.maxAttachmentBytes) {
-        log.warn({ attachmentId: meta.id, sizeBytes }, "Skipping oversized outbound attachment (detected after download)");
+        log.warn(
+          { attachmentId: meta.id, sizeBytes },
+          "Skipping oversized outbound attachment (detected after download)",
+        );
         failures.push(filename);
         continue;
       }
@@ -134,13 +164,30 @@ export async function sendWhatsAppAttachments(
       const blob = new Blob([buffer], { type: mimeType });
       const mediaType = resolveMediaType(mimeType);
 
-      const uploaded = await uploadWhatsAppMedia(config, blob, filename, mimeType);
-      await sendWhatsAppMediaMessage(config, to, mediaType, uploaded.id, filename);
+      const uploaded = await uploadWhatsAppMedia(
+        config,
+        blob,
+        filename,
+        mimeType,
+      );
+      await sendWhatsAppMediaMessage(
+        config,
+        to,
+        mediaType,
+        uploaded.id,
+        filename,
+      );
 
-      log.debug({ to, attachmentId: meta.id, filename, mediaType }, "Attachment sent to WhatsApp");
+      log.debug(
+        { to, attachmentId: meta.id, filename, mediaType },
+        "Attachment sent to WhatsApp",
+      );
     } catch (err) {
       const displayName = meta.filename ?? meta.id;
-      log.error({ err, attachmentId: meta.id, filename: displayName }, "Failed to send attachment to WhatsApp");
+      log.error(
+        { err, attachmentId: meta.id, filename: displayName },
+        "Failed to send attachment to WhatsApp",
+      );
       failures.push(displayName);
     }
   }
@@ -152,7 +199,6 @@ export async function sendWhatsAppAttachments(
     } catch (err) {
       log.error({ err, to }, "Failed to send attachment failure notice");
     }
-
   }
 
   return {

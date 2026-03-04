@@ -40,7 +40,7 @@ export class DebouncerMap {
   }) {
     this.defaultDelayMs = options.defaultDelayMs;
     this.maxEntries = options.maxEntries ?? Infinity;
-    this.protectedKeyPrefix = options.protectedKeyPrefix ?? '';
+    this.protectedKeyPrefix = options.protectedKeyPrefix ?? "";
   }
 
   schedule(key: string, fn: () => void, delayMs?: number): void {
@@ -79,7 +79,8 @@ export class DebouncerMap {
     let removed = 0;
     for (const [key, timer] of this.timers) {
       if (removed >= excess) break;
-      if (this.protectedKeyPrefix && key.startsWith(this.protectedKeyPrefix)) continue;
+      if (this.protectedKeyPrefix && key.startsWith(this.protectedKeyPrefix))
+        continue;
       clearTimeout(timer);
       this.timers.delete(key);
       removed++;

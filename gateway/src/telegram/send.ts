@@ -1,7 +1,10 @@
 import type { GatewayConfig } from "../config.js";
 import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
 import { getLogger } from "../logger.js";
-import { downloadAttachment, type RuntimeAttachmentMeta } from "../runtime/client.js";
+import {
+  downloadAttachment,
+  type RuntimeAttachmentMeta,
+} from "../runtime/client.js";
 import { splitText } from "../util/split-text.js";
 import { callTelegramApi, callTelegramApiMultipart } from "./api.js";
 
@@ -12,11 +15,16 @@ const TELEGRAM_MAX_MESSAGE_LEN = 4000;
 /** Telegram Bot API enforces a 1-64 byte limit on InlineKeyboardButton callback_data. */
 export const TELEGRAM_MAX_CALLBACK_DATA_BYTES = 64;
 
-const IMAGE_MIME_PREFIXES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const IMAGE_MIME_PREFIXES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+];
 
-export function buildInlineKeyboard(
-  approval: ApprovalPayload,
-): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } {
+export function buildInlineKeyboard(approval: ApprovalPayload): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
   return {
     inline_keyboard: approval.actions.map((action) => {
       const callbackData = `apr:${approval.requestId}:${action.id}`;
@@ -70,8 +78,14 @@ export async function sendTelegramAttachments(
 
   for (const meta of attachments) {
     // When size is known upfront, skip oversized attachments before downloading.
-    if (meta.sizeBytes !== undefined && meta.sizeBytes > config.maxAttachmentBytes) {
-      log.warn({ attachmentId: meta.id, sizeBytes: meta.sizeBytes }, "Skipping oversized outbound attachment");
+    if (
+      meta.sizeBytes !== undefined &&
+      meta.sizeBytes > config.maxAttachmentBytes
+    ) {
+      log.warn(
+        { attachmentId: meta.id, sizeBytes: meta.sizeBytes },
+        "Skipping oversized outbound attachment",
+      );
       failures.push(meta.filename ?? meta.id);
       continue;
     }
@@ -82,14 +96,18 @@ export async function sendTelegramAttachments(
       // Hydrate missing metadata from the downloaded payload so that
       // ID-only attachment payloads work correctly. Explicit meta fields
       // take precedence over downloaded values.
-      const mimeType = meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
+      const mimeType =
+        meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
       const filename = meta.filename ?? payload.filename ?? meta.id;
       const buffer = Buffer.from(payload.data, "base64");
       const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? buffer.length;
 
       // Check size after hydration for ID-only payloads where size was unknown.
       if (sizeBytes > config.maxAttachmentBytes) {
-        log.warn({ attachmentId: meta.id, sizeBytes }, "Skipping oversized outbound attachment (detected after download)");
+        log.warn(
+          { attachmentId: meta.id, sizeBytes },
+          "Skipping oversized outbound attachment (detected after download)",
+        );
         failures.push(filename);
         continue;
       }
@@ -108,10 +126,16 @@ export async function sendTelegramAttachments(
         await callTelegramApiMultipart(config, "sendDocument", form);
       }
 
-      log.debug({ chatId, attachmentId: meta.id, filename }, "Attachment sent to Telegram");
+      log.debug(
+        { chatId, attachmentId: meta.id, filename },
+        "Attachment sent to Telegram",
+      );
     } catch (err) {
       const displayName = meta.filename ?? meta.id;
-      log.error({ err, attachmentId: meta.id, filename: displayName }, "Failed to send attachment to Telegram");
+      log.error(
+        { err, attachmentId: meta.id, filename: displayName },
+        "Failed to send attachment to Telegram",
+      );
       failures.push(displayName);
     }
   }
@@ -126,9 +150,15 @@ export async function sendTelegramAttachments(
   }
 }
 
-export async function sendTypingIndicator(config: GatewayConfig, chatId: string): Promise<boolean> {
+export async function sendTypingIndicator(
+  config: GatewayConfig,
+  chatId: string,
+): Promise<boolean> {
   try {
-    await callTelegramApi(config, "sendChatAction", { chat_id: chatId, action: "typing" });
+    await callTelegramApi(config, "sendChatAction", {
+      chat_id: chatId,
+      action: "typing",
+    });
     return true;
   } catch (err) {
     log.debug({ err, chatId }, "Failed to send typing indicator");

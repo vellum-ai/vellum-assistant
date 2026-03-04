@@ -1,6 +1,9 @@
-import { createHash } from 'crypto';
+import { createHash } from "crypto";
 
-import type { MemoryRecallOptions,MemoryRecallResult } from './search/types.js';
+import type {
+  MemoryRecallOptions,
+  MemoryRecallResult,
+} from "./search/types.js";
 
 /**
  * In-memory cache for memory recall results.
@@ -47,15 +50,19 @@ function buildCacheKey(
   const parts = [
     query,
     conversationId,
-    options?.scopeId ?? '',
+    options?.scopeId ?? "",
     options?.scopePolicyOverride
       ? `${options.scopePolicyOverride.scopeId}:${options.scopePolicyOverride.fallbackToDefault}`
-      : '',
-    options?.excludeMessageIds ? [...options.excludeMessageIds].sort().join(',') : '',
-    options?.maxInjectTokensOverride != null ? String(options.maxInjectTokensOverride) : '',
-    configFingerprint ?? '',
+      : "",
+    options?.excludeMessageIds
+      ? [...options.excludeMessageIds].sort().join(",")
+      : "",
+    options?.maxInjectTokensOverride != null
+      ? String(options.maxInjectTokensOverride)
+      : "",
+    configFingerprint ?? "",
   ];
-  return createHash('sha256').update(parts.join('\0')).digest('hex');
+  return createHash("sha256").update(parts.join("\0")).digest("hex");
 }
 
 /** Look up a cached recall result. Returns undefined on miss or stale entry. */

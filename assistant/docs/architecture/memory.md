@@ -68,6 +68,17 @@ graph TB
         REPLACE["Replace old messages<br/>with summary in context<br/>(originals stay in DB)"]
     end
 
+    subgraph "Overflow Recovery (context-overflow-reducer.ts)"
+        OVF_PRE["Preflight budget check<br/>estimate > maxInputTokens × (1 − safetyMarginRatio)"]
+        OVF_T1["Tier 1: Forced compaction<br/>force=true, minKeepRecentUserTurns=0"]
+        OVF_T2["Tier 2: Tool-result truncation<br/>4,000 chars per result"]
+        OVF_T3["Tier 3: Media/file stubbing"]
+        OVF_T4["Tier 4: Injection downgrade<br/>→ minimal mode"]
+        OVF_POLICY["Overflow policy resolver<br/>auto_compress / request_approval / fail_gracefully"]
+        OVF_APPROVE["Approval gate<br/>PermissionPrompter"]
+        OVF_DENY["Graceful deny message<br/>(not session_error)"]
+    end
+
     MSG_IN --> STORE
     STORE --> INDEX
     INDEX --> SEGMENT
@@ -120,32 +131,55 @@ graph TB
     COMPACT --> GUARDS
     GUARDS --> SUMMARIZE
     SUMMARIZE --> REPLACE
+
+    %% Overflow recovery flow
+    CTX --> OVF_PRE
+    OVF_PRE --> OVF_T1
+    OVF_T1 --> OVF_T2
+    OVF_T2 --> OVF_T3
+    OVF_T3 --> OVF_T4
+    OVF_T4 --> OVF_POLICY
+    OVF_POLICY -->|"interactive"| OVF_APPROVE
+    OVF_POLICY -->|"non-interactive"| OVF_T1
+    OVF_APPROVE -->|"denied"| OVF_DENY
+    OVF_APPROVE -->|"approved"| OVF_T1
+    OVF_T1 -.->|"uses"| SUMMARIZE
 ```
+
+### Context Compaction and Overflow Recovery Interaction
+
+Normal context compaction (the "Context Window Management" subgraph above) runs proactively as the conversation approaches the token limit, using cooldown guards and a severity-pressure override to balance compaction frequency against cost. This is the primary defense against context overflow.
+
+When compaction alone is insufficient — either because the conversation grew too fast between turns or because a single turn contains extremely large payloads — the overflow recovery pipeline takes over. The pipeline's first tier (forced compaction) reuses the same `maybeCompact()` summarization machinery but with emergency parameters: `force: true` bypasses cooldown guards, `minKeepRecentUserTurns: 0` allows summarizing even the most recent history, and `targetInputTokensOverride` sets a tighter budget. Subsequent tiers (tool-result truncation, media stubbing, injection downgrade) apply progressively more aggressive payload reduction without involving the summarizer.
+
+If all four reducer tiers are exhausted, the overflow policy resolver determines whether to compress the latest user turn. In interactive sessions, the user is prompted for approval before this lossy step. If the user declines, the session emits a graceful assistant explanation message rather than a `session_error`, ending the turn cleanly. Non-interactive sessions auto-compress without prompting.
+
+The key distinction: normal compaction is a cost-optimized background process that preserves conversational quality; overflow recovery is a convergence mechanism that prioritizes session survival over context richness. Both share the same summarization infrastructure but operate under different pressure thresholds and constraints.
 
 ### Memory Retrieval Config Knobs (Defaults)
 
-| Config key | Default | Purpose |
-|---|---:|---|
-| `memory.retrieval.dynamicBudget.enabled` | `true` | Toggle per-turn recall budget calculation from live prompt headroom. |
-| `memory.retrieval.dynamicBudget.minInjectTokens` | `1200` | Lower clamp for computed recall injection budget. |
-| `memory.retrieval.dynamicBudget.maxInjectTokens` | `10000` | Upper clamp for computed recall injection budget. |
-| `memory.retrieval.dynamicBudget.targetHeadroomTokens` | `10000` | Reserved headroom to keep free for response generation/tool traces. |
-| `memory.entity.extractRelations.enabled` | `true` | Enable relation edge extraction and persistence in `memory_entity_relations`. |
-| `memory.entity.extractRelations.backfillBatchSize` | `200` | Batch size for checkpointed `backfill_entity_relations` jobs. |
-| `memory.entity.relationRetrieval.enabled` | `true` | Enable one-hop relation expansion from matched seed entities at recall time. |
-| `memory.entity.relationRetrieval.maxSeedEntities` | `8` | Maximum matched seed entities from the query. |
-| `memory.entity.relationRetrieval.maxNeighborEntities` | `20` | Maximum unique neighbor entities expanded from relation edges. |
-| `memory.entity.relationRetrieval.maxEdges` | `40` | Maximum relation edges traversed during expansion. |
-| `memory.entity.relationRetrieval.neighborScoreMultiplier` | `0.7` | Downweight multiplier for relation-expanded candidates vs direct entity hits. |
-| `memory.conflicts.enabled` | `true` | Enable soft conflict gate for unresolved `memory_item_conflicts`. |
-| `memory.conflicts.reaskCooldownTurns` | `3` | Minimum turn distance before re-asking the same conflict clarification. |
-| `memory.conflicts.resolverLlmTimeoutMs` | `12000` | Timeout bound for clarification resolver LLM fallback. |
-| `memory.conflicts.relevanceThreshold` | `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request. |
-| `memory.conflicts.gateMode` | `'soft'` | Conflict gate strategy. Currently only `'soft'` is supported (asks the user inline). |
-| `memory.conflicts.askOnIrrelevantTurns` | `false` | When `true`, soft-inject irrelevant conflict clarifications into every turn. When `false` (default), only ask when the conflict is topically relevant. |
-| `memory.conflicts.conflictableKinds` | `['preference', 'profile', 'constraint', 'instruction', 'style']` | Memory item kinds eligible for conflict detection. Items with kinds outside this list are auto-dismissed. |
-| `memory.profile.enabled` | `true` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories. |
-| `memory.profile.maxInjectTokens` | `800` | Hard token cap enforced by `ProfileCompiler` when generating the runtime profile block. |
+| Config key                                                |                                                           Default | Purpose                                                                                                                                                |
+| --------------------------------------------------------- | ----------------------------------------------------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `memory.retrieval.dynamicBudget.enabled`                  |                                                            `true` | Toggle per-turn recall budget calculation from live prompt headroom.                                                                                   |
+| `memory.retrieval.dynamicBudget.minInjectTokens`          |                                                            `1200` | Lower clamp for computed recall injection budget.                                                                                                      |
+| `memory.retrieval.dynamicBudget.maxInjectTokens`          |                                                           `10000` | Upper clamp for computed recall injection budget.                                                                                                      |
+| `memory.retrieval.dynamicBudget.targetHeadroomTokens`     |                                                           `10000` | Reserved headroom to keep free for response generation/tool traces.                                                                                    |
+| `memory.entity.extractRelations.enabled`                  |                                                            `true` | Enable relation edge extraction and persistence in `memory_entity_relations`.                                                                          |
+| `memory.entity.extractRelations.backfillBatchSize`        |                                                             `200` | Batch size for checkpointed `backfill_entity_relations` jobs.                                                                                          |
+| `memory.entity.relationRetrieval.enabled`                 |                                                            `true` | Enable one-hop relation expansion from matched seed entities at recall time.                                                                           |
+| `memory.entity.relationRetrieval.maxSeedEntities`         |                                                               `8` | Maximum matched seed entities from the query.                                                                                                          |
+| `memory.entity.relationRetrieval.maxNeighborEntities`     |                                                              `20` | Maximum unique neighbor entities expanded from relation edges.                                                                                         |
+| `memory.entity.relationRetrieval.maxEdges`                |                                                              `40` | Maximum relation edges traversed during expansion.                                                                                                     |
+| `memory.entity.relationRetrieval.neighborScoreMultiplier` |                                                             `0.7` | Downweight multiplier for relation-expanded candidates vs direct entity hits.                                                                          |
+| `memory.conflicts.enabled`                                |                                                            `true` | Enable soft conflict gate for unresolved `memory_item_conflicts`.                                                                                      |
+| `memory.conflicts.reaskCooldownTurns`                     |                                                               `3` | Minimum turn distance before re-asking the same conflict clarification.                                                                                |
+| `memory.conflicts.resolverLlmTimeoutMs`                   |                                                           `12000` | Timeout bound for clarification resolver LLM fallback.                                                                                                 |
+| `memory.conflicts.relevanceThreshold`                     |                                                             `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request.                                                       |
+| `memory.conflicts.gateMode`                               |                                                          `'soft'` | Conflict gate strategy. Currently only `'soft'` is supported (asks the user inline).                                                                   |
+| `memory.conflicts.askOnIrrelevantTurns`                   |                                                           `false` | When `true`, soft-inject irrelevant conflict clarifications into every turn. When `false` (default), only ask when the conflict is topically relevant. |
+| `memory.conflicts.conflictableKinds`                      | `['preference', 'profile', 'constraint', 'instruction', 'style']` | Memory item kinds eligible for conflict detection. Items with kinds outside this list are auto-dismissed.                                              |
+| `memory.profile.enabled`                                  |                                                            `true` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories.                                             |
+| `memory.profile.maxInjectTokens`                          |                                                             `800` | Hard token cap enforced by `ProfileCompiler` when generating the runtime profile block.                                                                |
 
 ### Memory Recall Debugging Playbook
 
@@ -191,6 +225,7 @@ stateDiagram-v2
 ```
 
 Runtime profile flow (per turn):
+
 1. `ProfileCompiler` builds a trusted profile block from active `profile` / `preference` / `constraint` / `instruction` items under strict token cap.
 2. Session injects that block only into runtime prompt state.
 3. Session strips the injected profile block before persisting conversation history, so dynamic profile context never pollutes durable message rows.
@@ -217,10 +252,10 @@ Private threads provide per-conversation memory isolation and stricter tool exec
 
 Two columns on the `conversations` table drive the feature:
 
-| Column | Type | Values | Purpose |
-|---|---|---|---|
-| `thread_type` | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'` | Determines whether the conversation uses shared or isolated memory and permission policies |
-| `memory_scope_id` | `text NOT NULL DEFAULT 'default'` | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
+| Column            | Type                               | Values                                                                   | Purpose                                                                                                                        |
+| ----------------- | ---------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `thread_type`     | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'`                                              | Determines whether the conversation uses shared or isolated memory and permission policies                                     |
+| `memory_scope_id` | `text NOT NULL DEFAULT 'default'`  | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
 
 ### Memory Isolation
 
@@ -260,9 +295,9 @@ The daemon derives a `SessionMemoryPolicy` from the conversation's `thread_type`
 
 ```typescript
 interface SessionMemoryPolicy {
-  scopeId: string;                // 'default' or 'private:<uuid>'
+  scopeId: string; // 'default' or 'private:<uuid>'
   includeDefaultFallback: boolean; // true for private threads
-  strictSideEffects: boolean;      // true for private threads
+  strictSideEffects: boolean; // true for private threads
 }
 ```
 
@@ -287,17 +322,17 @@ This ensures that file writes, bash commands, host operations, and other mutatin
 
 ### Key Source Files
 
-| File | Role |
-|---|---|
-| `assistant/src/memory/schema.ts` | `conversations` table: `threadType` and `memoryScopeId` column definitions |
-| `assistant/src/daemon/session.ts` | `SessionMemoryPolicy` interface and `DEFAULT_MEMORY_POLICY` constant |
-| `assistant/src/daemon/server.ts` | `deriveMemoryPolicy()` — maps thread type to memory policy |
+| File                                         | Role                                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `assistant/src/memory/schema.ts`             | `conversations` table: `threadType` and `memoryScopeId` column definitions                 |
+| `assistant/src/daemon/session.ts`            | `SessionMemoryPolicy` interface and `DEFAULT_MEMORY_POLICY` constant                       |
+| `assistant/src/daemon/server.ts`             | `deriveMemoryPolicy()` — maps thread type to memory policy                                 |
 | `assistant/src/daemon/session-tool-setup.ts` | Propagates `memoryPolicy.strictSideEffects` as `forcePromptSideEffects` into `ToolContext` |
-| `assistant/src/tools/executor.ts` | `forcePromptSideEffects` gate — promotes allow to prompt for side-effect tools |
-| `assistant/src/memory/search/types.ts` | `ScopePolicyOverride` interface for per-call scope control |
-| `assistant/src/memory/retriever.ts` | `buildScopeFilter()` — builds scope ID list from override or global config |
-| `assistant/src/memory/profile-compiler.ts` | Dual-scope profile compilation with `includeDefaultFallback` |
-| `assistant/src/daemon/session-memory.ts` | Wires `scopeId` and `includeDefaultFallback` into recall and profile compilation |
+| `assistant/src/tools/executor.ts`            | `forcePromptSideEffects` gate — promotes allow to prompt for side-effect tools             |
+| `assistant/src/memory/search/types.ts`       | `ScopePolicyOverride` interface for per-call scope control                                 |
+| `assistant/src/memory/retriever.ts`          | `buildScopeFilter()` — builds scope ID list from override or global config                 |
+| `assistant/src/memory/profile-compiler.ts`   | Dual-scope profile compilation with `includeDefaultFallback`                               |
+| `assistant/src/daemon/session-memory.ts`     | Wires `scopeId` and `includeDefaultFallback` into recall and profile compilation           |
 
 ---
 
@@ -354,13 +389,13 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 
 ### Key files
 
-| File | Role |
-|------|------|
-| `assistant/src/workspace/top-level-scanner.ts` | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap |
-| `assistant/src/workspace/top-level-renderer.ts` | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block |
-| `assistant/src/daemon/session-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<temporal_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
-| `assistant/src/onboarding/onboarding-orchestrator.ts` | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata |
-| `assistant/src/daemon/session-agent-loop.ts` | Agent loop orchestration, runtime injection wiring, strip chain |
+| File                                                  | Role                                                                                                                                       |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `assistant/src/workspace/top-level-scanner.ts`        | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap                                                                             |
+| `assistant/src/workspace/top-level-renderer.ts`       | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block                                                                            |
+| `assistant/src/daemon/session-runtime-assembly.ts`    | Runtime injections and strip helpers (`<workspace_top_level>`, `<temporal_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/onboarding/onboarding-orchestrator.ts` | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata                                              |
+| `assistant/src/daemon/session-agent-loop.ts`          | Agent loop orchestration, runtime injection wiring, strip chain                                                                            |
 
 ---
 
@@ -397,11 +432,11 @@ graph TB
 
 ### Key files
 
-| File | Role |
-|------|------|
-| `assistant/src/daemon/date-context.ts` | `buildTemporalContext()` — generates the `<temporal_context>` XML block |
-| `assistant/src/daemon/session-runtime-assembly.ts` | `injectTemporalContext()` / `stripTemporalContext()` helpers |
-| `assistant/src/daemon/session-agent-loop.ts` | Wiring: computes temporal context, passes to `applyRuntimeInjections`, strips after run |
+| File                                               | Role                                                                                    |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `assistant/src/daemon/date-context.ts`             | `buildTemporalContext()` — generates the `<temporal_context>` XML block                 |
+| `assistant/src/daemon/session-runtime-assembly.ts` | `injectTemporalContext()` / `stripTemporalContext()` helpers                            |
+| `assistant/src/daemon/session-agent-loop.ts`       | Wiring: computes temporal context, passes to `applyRuntimeInjections`, strips after run |
 
 ---
 
@@ -481,9 +516,11 @@ graph TB
     7. `timeout` — the LLM call exceeded `timeoutMs` (AbortController fires)
     8. `provider_error` — the provider threw an exception during the LLM call
     9. `invalid_output` — the LLM returned empty text, the literal string "FALLBACK", or total output > 500 chars
+
     - **Subject line capping**: If the LLM subject line exceeds 72 chars it is deterministically truncated to 72 chars. This is NOT treated as a failure (no breaker penalty, no deterministic fallback).
 
     **Fast model resolution**: The LLM call uses a small/fast model to minimize latency and cost. The model is resolved **before** any provider call as a pre-flight check:
+
     - If `commitMessageLLM.providerFastModelOverrides[provider]` is set, that model is used.
     - Otherwise, a built-in default is used: `anthropic` -> `claude-haiku-4-5-20251001`, `openai` -> `gpt-4o-mini`, `gemini` -> `gemini-2.0-flash`.
     - If the configured provider has no override and no built-in default (e.g., `ollama`, `fireworks`, `openrouter`), the generator returns a deterministic fallback with reason `missing_fast_model` and the provider is never called. To enable LLM commit messages for such providers, set `providerFastModelOverrides[provider]` to the desired model.
@@ -501,16 +538,16 @@ graph TB
 
 ### Key files
 
-| File | Role |
-|------|------|
-| `assistant/src/workspace/git-service.ts` | `WorkspaceGitService`: lazy init, mutex, circuit breaker, `commitIfDirty()`, `getHeadHash()`, `writeNote()`, singleton registry |
-| `assistant/src/workspace/commit-message-provider.ts` | `CommitMessageProvider` interface, `DefaultCommitMessageProvider`, `CommitContext`/`CommitMessageResult` types |
-| `assistant/src/workspace/commit-message-enrichment-service.ts` | `CommitEnrichmentService`: bounded async queue, fire-and-forget enrichment, git notes output |
-| `assistant/src/workspace/turn-commit.ts` | `commitTurnChanges()`: turn-boundary commit with structured metadata + enrichment enqueue |
-| `assistant/src/workspace/provider-commit-message-generator.ts` | `ProviderCommitMessageGenerator`: LLM-based commit message generation with circuit breaker and deterministic fallback |
-| `assistant/src/workspace/heartbeat-service.ts` | `HeartbeatService`: periodic safety-net auto-commits, shutdown commits, enrichment enqueue |
-| `assistant/src/daemon/session-agent-loop.ts` | Integration: turn-boundary commit with `raceWithTimeout` protection in `runAgentLoop` finally block |
-| `assistant/src/daemon/lifecycle.ts` | Integration: `HeartbeatService` start/stop and shutdown commit |
-| `assistant/src/config/schema.ts` | `WorkspaceGitConfigSchema`: timeout, backoff, and enrichment queue configuration |
+| File                                                           | Role                                                                                                                            |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/workspace/git-service.ts`                       | `WorkspaceGitService`: lazy init, mutex, circuit breaker, `commitIfDirty()`, `getHeadHash()`, `writeNote()`, singleton registry |
+| `assistant/src/workspace/commit-message-provider.ts`           | `CommitMessageProvider` interface, `DefaultCommitMessageProvider`, `CommitContext`/`CommitMessageResult` types                  |
+| `assistant/src/workspace/commit-message-enrichment-service.ts` | `CommitEnrichmentService`: bounded async queue, fire-and-forget enrichment, git notes output                                    |
+| `assistant/src/workspace/turn-commit.ts`                       | `commitTurnChanges()`: turn-boundary commit with structured metadata + enrichment enqueue                                       |
+| `assistant/src/workspace/provider-commit-message-generator.ts` | `ProviderCommitMessageGenerator`: LLM-based commit message generation with circuit breaker and deterministic fallback           |
+| `assistant/src/workspace/heartbeat-service.ts`                 | `HeartbeatService`: periodic safety-net auto-commits, shutdown commits, enrichment enqueue                                      |
+| `assistant/src/daemon/session-agent-loop.ts`                   | Integration: turn-boundary commit with `raceWithTimeout` protection in `runAgentLoop` finally block                             |
+| `assistant/src/daemon/lifecycle.ts`                            | Integration: `HeartbeatService` start/stop and shutdown commit                                                                  |
+| `assistant/src/config/schema.ts`                               | `WorkspaceGitConfigSchema`: timeout, backoff, and enrichment queue configuration                                                |
 
 ---

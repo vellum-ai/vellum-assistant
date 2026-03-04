@@ -1,4 +1,4 @@
-import type { DrizzleDb } from '../db-connection.js';
+import type { DrizzleDb } from "../db-connection.js";
 
 /**
  * Tasks, task runs, task candidates, and work items tables with indexes.
@@ -66,18 +66,50 @@ export function createTasksAndWorkItemsTables(database: DrizzleDb): void {
   `);
 
   // Work item run contract snapshot
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN required_tools TEXT`); } catch { /* already exists */ }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE work_items ADD COLUMN required_tools TEXT`,
+    );
+  } catch {
+    /* already exists */
+  }
 
   // Work item permission preflight columns
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch { /* already exists */ }
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`); } catch { /* already exists */ }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`,
+    );
+  } catch {
+    /* already exists */
+  }
+  try {
+    database.run(
+      /*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`,
+    );
+  } catch {
+    /* already exists */
+  }
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_task_id ON work_items(task_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_priority_sort ON work_items(priority_tier, sort_index)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_task_id ON work_items(task_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_priority_sort ON work_items(priority_tier, sort_index)`,
+  );
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_status ON task_runs(status)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_candidates_promoted ON task_candidates(promoted_task_id)`);
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_status ON task_runs(status)`,
+  );
+  database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_candidates_promoted ON task_candidates(promoted_task_id)`,
+  );
 }

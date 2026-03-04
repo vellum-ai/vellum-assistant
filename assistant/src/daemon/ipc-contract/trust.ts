@@ -3,57 +3,57 @@
 // === Client → Server ===
 
 export interface AddTrustRule {
-  type: 'add_trust_rule';
+  type: "add_trust_rule";
   toolName: string;
   pattern: string;
   scope: string;
-  decision: 'allow' | 'deny' | 'ask';
+  decision: "allow" | "deny" | "ask";
   /** When true, the rule also covers high-risk invocations. */
   allowHighRisk?: boolean;
   /** Execution target override for this rule. */
-  executionTarget?: 'host' | 'sandbox';
+  executionTarget?: "host" | "sandbox";
 }
 
 export interface TrustRulesList {
-  type: 'trust_rules_list';
+  type: "trust_rules_list";
 }
 
 export interface RemoveTrustRule {
-  type: 'remove_trust_rule';
+  type: "remove_trust_rule";
   id: string;
 }
 
 export interface UpdateTrustRule {
-  type: 'update_trust_rule';
+  type: "update_trust_rule";
   id: string;
   tool?: string;
   pattern?: string;
   scope?: string;
-  decision?: 'allow' | 'deny' | 'ask';
+  decision?: "allow" | "deny" | "ask";
   priority?: number;
 }
 
 export interface AcceptStarterBundle {
-  type: 'accept_starter_bundle';
+  type: "accept_starter_bundle";
 }
 
 // === Server → Client ===
 
 export interface TrustRulesListResponse {
-  type: 'trust_rules_list_response';
+  type: "trust_rules_list_response";
   rules: Array<{
     id: string;
     tool: string;
     pattern: string;
     scope: string;
-    decision: 'allow' | 'deny' | 'ask';
+    decision: "allow" | "deny" | "ask";
     priority: number;
     createdAt: number;
   }>;
 }
 
 export interface AcceptStarterBundleResponse {
-  type: 'accept_starter_bundle_response';
+  type: "accept_starter_bundle_response";
   accepted: boolean;
   rulesAdded: number;
   alreadyAccepted: boolean;

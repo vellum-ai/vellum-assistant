@@ -4,10 +4,10 @@
  * knowing about JWT internals.
  */
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
-import { resolveScopeProfile } from './scopes.js';
-import { parseSub } from './subject.js';
-import type { AuthContext, TokenClaims } from './types.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { resolveScopeProfile } from "./scopes.js";
+import { parseSub } from "./subject.js";
+import type { AuthContext, TokenClaims } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Result type
@@ -43,9 +43,10 @@ export function buildAuthContext(claims: TokenClaims): BuildAuthContextResult {
   // Daemon-audience tokens always scope to the internal assistant ID,
   // preventing external assistant IDs from leaking into daemon-side
   // storage and routing.
-  const assistantId = claims.aud === 'vellum-daemon'
-    ? DAEMON_INTERNAL_ASSISTANT_ID
-    : subResult.assistantId;
+  const assistantId =
+    claims.aud === "vellum-daemon"
+      ? DAEMON_INTERNAL_ASSISTANT_ID
+      : subResult.assistantId;
 
   const context: AuthContext = {
     subject: claims.sub,

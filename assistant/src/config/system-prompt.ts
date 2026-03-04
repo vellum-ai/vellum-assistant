@@ -117,7 +117,9 @@ export function buildSystemPrompt(): string {
 
   // ── Core sections ──
   const parts: string[] = [];
-  parts.push('IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.');
+  parts.push(
+    "IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.",
+  );
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
@@ -893,6 +895,21 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+/**
+ * Build a dynamic description for the mcp-setup skill that includes
+ * configured MCP server names, so the model knows which servers exist.
+ */
+function getMcpSetupDescription(): string {
+  const config = getConfig();
+  const servers = config.mcp?.servers;
+  if (!servers || Object.keys(servers).length === 0) {
+    return "Add, authenticate, list, and remove MCP (Model Context Protocol) servers";
+  }
+
+  const serverNames = Object.keys(servers);
+  return `Manage MCP servers. Configured: ${serverNames.join(", ")}. Load this skill to check status, authenticate, or add/remove servers.`;
+}
+
 function formatSkillsCatalog(skills: SkillSummary[]): string {
   // Filter out skills with disableModelInvocation or unsupported OS
   const visible = skills.filter((s) => {
@@ -907,7 +924,10 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
   for (const skill of visible) {
     const idAttr = escapeXml(skill.id);
     const nameAttr = escapeXml(skill.name);
-    const descAttr = escapeXml(skill.description);
+    const descAttr =
+      skill.id === "mcp-setup"
+        ? escapeXml(getMcpSetupDescription())
+        : escapeXml(skill.description);
     const locAttr = escapeXml(skill.directoryPath);
     const credAttr = skill.credentialSetupFor
       ? ` credential-setup-for="${escapeXml(skill.credentialSetupFor)}"`

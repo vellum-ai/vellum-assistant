@@ -1,5 +1,10 @@
-import { type CommandSegment, type DangerousPattern,parse, type ParsedCommand } from '../tools/terminal/parser.js';
-import type { AllowlistOption } from './types.js';
+import {
+  type CommandSegment,
+  type DangerousPattern,
+  parse,
+  type ParsedCommand,
+} from "../tools/terminal/parser.js";
+import type { AllowlistOption } from "./types.js";
 
 export type { ParsedCommand };
 
@@ -61,7 +66,13 @@ export interface ActionKeyResult {
 }
 
 /** Programs that are considered setup prefixes (not the main action) */
-const SETUP_PREFIX_PROGRAMS = new Set(['cd', 'pushd', 'export', 'unset', 'set']);
+const SETUP_PREFIX_PROGRAMS = new Set([
+  "cd",
+  "pushd",
+  "export",
+  "unset",
+  "set",
+]);
 
 const MAX_ACTION_KEY_DEPTH = 3;
 
@@ -69,8 +80,11 @@ const MAX_ACTION_KEY_DEPTH = 3;
  * Analyze a shell command using the tree-sitter parser to extract
  * identity information for permission decisions.
  */
-export async function analyzeShellCommand(command: string, preParsed?: ParsedCommand): Promise<ShellIdentityAnalysis> {
-  const parsed = preParsed ?? await cachedParse(command);
+export async function analyzeShellCommand(
+  command: string,
+  preParsed?: ParsedCommand,
+): Promise<ShellIdentityAnalysis> {
+  const parsed = preParsed ?? (await cachedParse(command));
 
   const operators: string[] = [];
   for (const seg of parsed.segments) {
@@ -99,7 +113,9 @@ export async function analyzeShellCommand(command: string, preParsed?: ParsedCom
  * Only "simple action" commands (optional setup prefix + one action) get
  * action keys. Pipelines and complex chains are marked non-simple.
  */
-export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKeyResult {
+export function deriveShellActionKeys(
+  analysis: ShellIdentityAnalysis,
+): ActionKeyResult {
   const { segments } = analysis;
 
   if (segments.length === 0) {
@@ -115,7 +131,7 @@ export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKe
     for (const seg of segments) {
       const op = seg.operator;
       // Non-empty operator that isn't && → definitely complex
-      if (op && op !== '&&') {
+      if (op && op !== "&&") {
         return { keys: [], isSimpleAction: false };
       }
     }
@@ -154,10 +170,10 @@ export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKe
   // Add non-flag, non-path stable subcommand tokens (up to MAX_ACTION_KEY_DEPTH)
   for (const arg of primarySegment.args) {
     if (tokens.length >= MAX_ACTION_KEY_DEPTH) break;
-    if (arg.startsWith('-')) continue;
-    if (arg.includes('/') || arg.startsWith('.')) continue;
+    if (arg.startsWith("-")) continue;
+    if (arg.includes("/") || arg.startsWith(".")) continue;
     if (/^\d+$/.test(arg)) continue;
-    if (arg.includes('$') || arg.includes('"') || arg.includes("'")) continue;
+    if (arg.includes("$") || arg.includes('"') || arg.includes("'")) continue;
     tokens.push(arg);
   }
 
@@ -165,7 +181,7 @@ export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKe
   const keys: ShellActionKey[] = [];
   for (let depth = tokens.length; depth >= 1; depth--) {
     keys.push({
-      key: `action:${tokens.slice(0, depth).join(' ')}`,
+      key: `action:${tokens.slice(0, depth).join(" ")}`,
       depth,
     });
   }
@@ -183,7 +199,10 @@ export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKe
  *
  * Complex commands (pipelines, multi-action chains) only return the raw candidate.
  */
-export async function buildShellCommandCandidates(command: string, preParsed?: ParsedCommand): Promise<string[]> {
+export async function buildShellCommandCandidates(
+  command: string,
+  preParsed?: ParsedCommand,
+): Promise<string[]> {
   const trimmed = command.trim();
   if (!trimmed) return [trimmed];
 
@@ -220,7 +239,9 @@ export async function buildShellCommandCandidates(command: string, preParsed?: P
  * For complex commands (pipelines, multi-action chains), only the exact
  * command is offered (no broad options).
  */
-export async function buildShellAllowlistOptions(command: string): Promise<AllowlistOption[]> {
+export async function buildShellAllowlistOptions(
+  command: string,
+): Promise<AllowlistOption[]> {
   const trimmed = command.trim();
   if (!trimmed) return [];
 
@@ -229,17 +250,27 @@ export async function buildShellAllowlistOptions(command: string): Promise<Allow
 
   if (!actionResult.isSimpleAction || !actionResult.primarySegment) {
     // Complex command — exact only
-    return [{ label: trimmed, description: 'This exact compound command', pattern: trimmed }];
+    return [
+      {
+        label: trimmed,
+        description: "This exact compound command",
+        pattern: trimmed,
+      },
+    ];
   }
 
   const options: AllowlistOption[] = [];
 
   // Full original command text — "this exact command" means exactly what the user approved
-  options.push({ label: trimmed, description: 'This exact command', pattern: trimmed });
+  options.push({
+    label: trimmed,
+    description: "This exact command",
+    pattern: trimmed,
+  });
 
   // Action keys from narrowest to broadest
   for (const actionKey of actionResult.keys) {
-    const keyTokens = actionKey.key.replace(/^action:/, '');
+    const keyTokens = actionKey.key.replace(/^action:/, "");
     options.push({
       label: `${keyTokens} *`,
       description: `Any "${keyTokens}" command`,

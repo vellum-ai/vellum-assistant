@@ -834,6 +834,114 @@ public struct IPCConfirmationSurfaceData: Codable, Sendable {
     }
 }
 
+public struct IPCContactChannelPayload: Codable, Sendable {
+    public let id: String
+    public let type: String
+    public let address: String
+    public let isPrimary: Bool
+    public let externalUserId: String?
+    public let status: String
+    public let policy: String
+    public let verifiedAt: Int?
+    public let verifiedVia: String?
+    public let lastSeenAt: Int?
+    public let revokedReason: String?
+    public let blockedReason: String?
+
+    public init(id: String, type: String, address: String, isPrimary: Bool, externalUserId: String? = nil, status: String, policy: String, verifiedAt: Int? = nil, verifiedVia: String? = nil, lastSeenAt: Int? = nil, revokedReason: String? = nil, blockedReason: String? = nil) {
+        self.id = id
+        self.type = type
+        self.address = address
+        self.isPrimary = isPrimary
+        self.externalUserId = externalUserId
+        self.status = status
+        self.policy = policy
+        self.verifiedAt = verifiedAt
+        self.verifiedVia = verifiedVia
+        self.lastSeenAt = lastSeenAt
+        self.revokedReason = revokedReason
+        self.blockedReason = blockedReason
+    }
+}
+
+public struct IPCContactPayload: Codable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let role: String
+    public let relationship: String?
+    public let importance: Double
+    public let lastInteraction: Double?
+    public let interactionCount: Int
+    public let channels: [IPCContactChannelPayload]
+
+    public init(id: String, displayName: String, role: String, relationship: String? = nil, importance: Double, lastInteraction: Double? = nil, interactionCount: Int, channels: [IPCContactChannelPayload]) {
+        self.id = id
+        self.displayName = displayName
+        self.role = role
+        self.relationship = relationship
+        self.importance = importance
+        self.lastInteraction = lastInteraction
+        self.interactionCount = interactionCount
+        self.channels = channels
+    }
+}
+
+/// Server push — lightweight invalidation signal: the contacts table has been mutated, refetch your list.
+public struct IPCContactsChanged: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCContactsRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    /// Contact ID (get only).
+    public let contactId: String?
+    /// Channel ID (update_channel only).
+    public let channelId: String?
+    /// New status for channel (update_channel only).
+    public let status: String?
+    /// New policy for channel (update_channel only).
+    public let policy: String?
+    /// Reason for status change (update_channel only).
+    public let reason: String?
+    /// Filter by role (list only).
+    public let role: String?
+    /// Limit (list only).
+    public let limit: Double?
+
+    public init(type: String, action: String, contactId: String? = nil, channelId: String? = nil, status: String? = nil, policy: String? = nil, reason: String? = nil, role: String? = nil, limit: Double? = nil) {
+        self.type = type
+        self.action = action
+        self.contactId = contactId
+        self.channelId = channelId
+        self.status = status
+        self.policy = policy
+        self.reason = reason
+        self.role = role
+        self.limit = limit
+    }
+}
+
+public struct IPCContactsResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+    public let contact: IPCContactPayload?
+    public let contacts: [IPCContactPayload]?
+
+    public init(type: String, success: Bool, error: String? = nil, contact: IPCContactPayload? = nil, contacts: [IPCContactPayload]? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+        self.contact = contact
+        self.contacts = contacts
+    }
+}
+
 public struct IPCContextCompacted: Codable, Sendable {
     public let type: String
     public let previousEstimatedInputTokens: Int

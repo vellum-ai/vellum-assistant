@@ -111,7 +111,7 @@ The CLI looks up the instance by name in `~/.vellum.lock.json` and determines ho
 
 - **`gcp`** -- Deletes the GCP Compute Engine instance via `gcloud compute instances delete`.
 - **`aws`** -- Terminates the AWS EC2 instance by looking up the instance ID from its Name tag.
-- **`local`** -- Stops the local daemon (`bunx vellum daemon stop`) and removes the `~/.vellum` directory.
+- **`local`** -- Stops the local daemon (`vellum sleep`) and removes the `~/.vellum` directory.
 - **`custom`** -- SSHs to the remote host to stop the daemon/gateway and remove the `~/.vellum` directory.
 
 #### Examples

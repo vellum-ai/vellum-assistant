@@ -9,18 +9,21 @@
  * preventing cross-turn attribution of file changes.
  */
 
-import { getLogger } from '../util/logger.js';
-import { getEnrichmentService } from './commit-message-enrichment-service.js';
+import { getLogger } from "../util/logger.js";
+import { getEnrichmentService } from "./commit-message-enrichment-service.js";
 import {
   type CommitContext,
   type CommitMessageProvider,
   DefaultCommitMessageProvider,
-} from './commit-message-provider.js';
-import { getWorkspaceGitService } from './git-service.js';
-import type { CommitMessageSource, LLMFallbackReason } from './provider-commit-message-generator.js';
-import { getCommitMessageGenerator } from './provider-commit-message-generator.js';
+} from "./commit-message-provider.js";
+import { getWorkspaceGitService } from "./git-service.js";
+import type {
+  CommitMessageSource,
+  LLMFallbackReason,
+} from "./provider-commit-message-generator.js";
+import { getCommitMessageGenerator } from "./provider-commit-message-generator.js";
 
-const log = getLogger('turn-commit');
+const log = getLogger("turn-commit");
 
 export interface TurnCommitMetadata {
   /** Session/conversation identifier */
@@ -66,7 +69,7 @@ export async function commitTurnChanges(
     //   1. No custom provider was injected (respect caller contract)
     //   2. The workspace actually has pending changes (avoid wasting budget)
     let llmMessage: string | undefined;
-    let commitMessageSource: CommitMessageSource = 'deterministic';
+    let commitMessageSource: CommitMessageSource = "deterministic";
     let llmFallbackReason: LLMFallbackReason | undefined;
 
     if (!provider) {
@@ -78,7 +81,13 @@ export async function commitTurnChanges(
           const preStatus = await gitService.getStatus();
           preClean = preStatus.clean;
           if (!preClean) {
-            candidateChangedFiles = [...new Set([...preStatus.staged, ...preStatus.modified, ...preStatus.untracked])];
+            candidateChangedFiles = [
+              ...new Set([
+                ...preStatus.staged,
+                ...preStatus.modified,
+                ...preStatus.untracked,
+              ]),
+            ];
           }
         } catch {
           // If we can't determine status, assume dirty so we don't skip the commit
@@ -91,7 +100,7 @@ export async function commitTurnChanges(
           const result = await generator.generateCommitMessage(
             {
               workspaceDir,
-              trigger: 'turn',
+              trigger: "turn",
               sessionId,
               turnNumber,
               changedFiles: candidateChangedFiles,
@@ -101,40 +110,50 @@ export async function commitTurnChanges(
           );
           commitMessageSource = result.source;
           llmFallbackReason = result.reason;
-          if (result.source === 'llm') {
+          if (result.source === "llm") {
             llmMessage = result.message;
           }
         } catch (llmErr) {
           // Never let LLM errors affect the commit path
-          log.debug({ err: llmErr }, 'LLM commit message generation failed (non-fatal)');
-          llmFallbackReason = 'provider_error';
+          log.debug(
+            { err: llmErr },
+            "LLM commit message generation failed (non-fatal)",
+          );
+          llmFallbackReason = "provider_error";
         }
       }
     }
 
-    const { committed, status } = await gitService.commitIfDirty((st) => {
-      const uniqueFiles = [...new Set([...st.staged, ...st.modified, ...st.untracked])];
+    const { committed, status } = await gitService.commitIfDirty(
+      (st) => {
+        const uniqueFiles = [
+          ...new Set([...st.staged, ...st.modified, ...st.untracked]),
+        ];
 
-      const ctx: CommitContext = {
-        workspaceDir,
-        trigger: 'turn',
-        sessionId,
-        turnNumber,
-        changedFiles: uniqueFiles,
-        timestampMs: Date.now(),
-      };
+        const ctx: CommitContext = {
+          workspaceDir,
+          trigger: "turn",
+          sessionId,
+          turnNumber,
+          changedFiles: uniqueFiles,
+          timestampMs: Date.now(),
+        };
 
-      // Use LLM message if available, otherwise deterministic
-      if (llmMessage) {
-        return { message: llmMessage };
-      }
-      return messageProvider.buildImmediateMessage(ctx);
-    }, deadlineMs !== undefined ? { deadlineMs } : undefined);
+        // Use LLM message if available, otherwise deterministic
+        if (llmMessage) {
+          return { message: llmMessage };
+        }
+        return messageProvider.buildImmediateMessage(ctx);
+      },
+      deadlineMs !== undefined ? { deadlineMs } : undefined,
+    );
 
     const commitDurationMs = Date.now() - commitStartMs;
 
     if (committed) {
-      const uniqueFiles = [...new Set([...status.staged, ...status.modified, ...status.untracked])];
+      const uniqueFiles = [
+        ...new Set([...status.staged, ...status.modified, ...status.untracked]),
+      ];
       log.info(
         {
           sessionId,
@@ -144,7 +163,7 @@ export async function commitTurnChanges(
           commitMessageSource,
           ...(llmFallbackReason ? { llmFallbackReason } : {}),
         },
-        'Turn-boundary commit created',
+        "Turn-boundary commit created",
       );
 
       // Fire-and-forget enrichment — never blocks turn completion
@@ -152,24 +171,32 @@ export async function commitTurnChanges(
         const commitHash = await gitService.getHeadHash();
         const ctx: CommitContext = {
           workspaceDir,
-          trigger: 'turn',
+          trigger: "turn",
           sessionId,
           turnNumber,
           changedFiles: uniqueFiles,
           timestampMs: Date.now(),
         };
-        getEnrichmentService().enqueue({ workspaceDir, commitHash, context: ctx, gitService });
+        getEnrichmentService().enqueue({
+          workspaceDir,
+          commitHash,
+          context: ctx,
+          gitService,
+        });
       } catch (enrichErr) {
-        log.debug({ enrichErr }, 'Failed to enqueue enrichment (non-fatal)');
+        log.debug({ enrichErr }, "Failed to enqueue enrichment (non-fatal)");
       }
     } else {
-      log.debug({ sessionId, turnNumber, durationMs: commitDurationMs }, 'No workspace changes to commit for turn');
+      log.debug(
+        { sessionId, turnNumber, durationMs: commitDurationMs },
+        "No workspace changes to commit for turn",
+      );
     }
   } catch (err) {
     // Never let commit failures propagate — they must not affect the turn
     log.warn(
       { err, sessionId, turnNumber },
-      'Failed to create turn-boundary commit (non-fatal)',
+      "Failed to create turn-boundary commit (non-fatal)",
     );
   }
 }

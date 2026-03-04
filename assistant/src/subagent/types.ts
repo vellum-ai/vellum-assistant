@@ -6,24 +6,21 @@
  * back to the parent's client socket wrapped in `subagent_event` envelopes.
  */
 
-import type { UsageStats } from '../daemon/ipc-contract.js';
+import type { UsageStats } from "../daemon/ipc-contract.js";
 
 // ── Status ──────────────────────────────────────────────────────────────
 
 export type SubagentStatus =
-  | 'pending'
-  | 'running'
-  | 'awaiting_input'
-  | 'completed'
-  | 'failed'
-  | 'aborted';
+  | "pending"
+  | "running"
+  | "awaiting_input"
+  | "completed"
+  | "failed"
+  | "aborted";
 
 /** Terminal states — once entered, a subagent cannot transition out. */
-export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> = new Set<SubagentStatus>([
-  'completed',
-  'failed',
-  'aborted',
-]);
+export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> =
+  new Set<SubagentStatus>(["completed", "failed", "aborted"]);
 
 // ── Config (spawn-time) ─────────────────────────────────────────────────
 

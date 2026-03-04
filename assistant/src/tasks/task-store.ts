@@ -1,7 +1,7 @@
-import { desc, eq, inArray } from 'drizzle-orm';
+import { desc, eq, inArray } from "drizzle-orm";
 
-import { getDb } from '../memory/db.js';
-import { taskRuns, tasks, workItems } from '../memory/schema.js';
+import { getDb } from "../memory/db.js";
+import { taskRuns, tasks, workItems } from "../memory/schema.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -50,9 +50,11 @@ export function createTask(opts: {
     template: opts.template,
     inputSchema: opts.inputSchema ? JSON.stringify(opts.inputSchema) : null,
     contextFlags: opts.contextFlags ? JSON.stringify(opts.contextFlags) : null,
-    requiredTools: opts.requiredTools ? JSON.stringify(opts.requiredTools) : null,
+    requiredTools: opts.requiredTools
+      ? JSON.stringify(opts.requiredTools)
+      : null,
     createdFromConversationId: opts.createdFromConversationId ?? null,
-    status: 'active',
+    status: "active",
     createdAt: now,
     updatedAt: now,
   };
@@ -102,7 +104,7 @@ export function createTaskRun(taskId: string): TaskRun {
     id,
     taskId,
     conversationId: null,
-    status: 'pending',
+    status: "pending",
     startedAt: null,
     finishedAt: null,
     error: null,
@@ -116,7 +118,18 @@ export function createTaskRun(taskId: string): TaskRun {
 
 export function updateTaskRun(
   id: string,
-  updates: Partial<Pick<TaskRun, 'status' | 'conversationId' | 'error' | 'principalId' | 'memoryScopeId' | 'startedAt' | 'finishedAt'>>,
+  updates: Partial<
+    Pick<
+      TaskRun,
+      | "status"
+      | "conversationId"
+      | "error"
+      | "principalId"
+      | "memoryScopeId"
+      | "startedAt"
+      | "finishedAt"
+    >
+  >,
 ): void {
   const db = getDb();
   db.update(taskRuns).set(updates).where(eq(taskRuns.id, id)).run();

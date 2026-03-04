@@ -429,10 +429,14 @@ export function registerDoordashCommand(program: Command): void {
             } else {
               for (const item of extracted) {
                 process.stderr.write(
-                  `\nItem: ${item.itemName ?? "unknown"} (${item.itemId ?? "?"})\n`,
+                  `\nItem: ${item.itemName ?? "unknown"} (${
+                    item.itemId ?? "?"
+                  })\n`,
                 );
                 process.stderr.write(
-                  `  Store: ${item.storeId ?? "?"}, Menu: ${item.menuId ?? "?"}\n`,
+                  `  Store: ${item.storeId ?? "?"}, Menu: ${
+                    item.menuId ?? "?"
+                  }\n`,
                 );
                 process.stderr.write(
                   `  Unit Price: ${item.unitPrice ?? "?"}\n`,
@@ -454,7 +458,9 @@ export function registerDoordashCommand(program: Command): void {
             const match = queries.find((q) => q.operationName === opts.op);
             if (!match) {
               outputError(
-                `Operation "${opts.op}" not found. Available: ${queries.map((q) => q.operationName).join(", ")}`,
+                `Operation "${opts.op}" not found. Available: ${queries
+                  .map((q) => q.operationName)
+                  .join(", ")}`,
               );
               return;
             }
@@ -464,7 +470,9 @@ export function registerDoordashCommand(program: Command): void {
             } else {
               process.stderr.write(`Operation: ${match.operationName}\n`);
               process.stderr.write(
-                `Captured at: ${new Date(match.capturedAt * 1000).toISOString()}\n\n`,
+                `Captured at: ${new Date(
+                  match.capturedAt * 1000,
+                ).toISOString()}\n\n`,
               );
               process.stderr.write("--- Query ---\n");
               process.stderr.write(match.query + "\n\n");
@@ -496,7 +504,9 @@ export function registerDoordashCommand(program: Command): void {
                 process.stderr.write(`  ${q.operationName}\n`);
                 process.stderr.write(`    Variables: ${varsKeys}\n`);
                 process.stderr.write(
-                  `    Captured: ${new Date(q.capturedAt * 1000).toISOString()}\n`,
+                  `    Captured: ${new Date(
+                    q.capturedAt * 1000,
+                  ).toISOString()}\n`,
                 );
               }
             }

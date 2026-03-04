@@ -200,7 +200,7 @@ extension AppDelegate {
         return nil
     }
 
-    private func messageId(from userInfo: [AnyHashable: Any]) -> String? {
+    private nonisolated func messageId(from userInfo: [AnyHashable: Any]) -> String? {
         if let direct = userInfo["messageId"] as? String {
             return direct
         }

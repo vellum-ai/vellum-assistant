@@ -5,16 +5,17 @@
  * a transfer/import progress UI. Usable from macOS/iOS web views, CLI, or
  * any TypeScript consumer.
  *
- * The transfer step involves two phases:
- *   1. Export -- export data from the source (runtime: synchronous, managed: async with polling)
- *   2. Import -- commit the exported bundle to the destination
+ * The transfer step is import-only: it commits a pre-uploaded bundle to
+ * the destination. The export/poll phases are retained in the type system
+ * for managed-source flows that still use them, but the default phase is
+ * "import".
  *
  * View model states:
  *   - disabled: step is not yet accessible (earlier steps incomplete)
- *   - exporting: export phase is in progress
+ *   - exporting: export phase is in progress (managed-source flows only)
  *   - polling: managed async export job is being polled for completion
- *   - importing: import phase is in progress (export completed, importing bundle)
- *   - success: both export and import completed successfully
+ *   - importing: import phase is in progress
+ *   - success: import completed successfully
  *   - error: an error occurred (with retry capability info)
  */
 
@@ -81,34 +82,19 @@ export type TransferScreenState =
 /**
  * Infer which transfer sub-phase is active based on wizard state.
  *
- * Heuristic:
- * - If exportResult exists and has a jobId (managed) but no importResult,
- *   we are in the polling/download phase.
- * - If exportResult exists (runtime or managed complete) but no importResult,
- *   we are in the import phase.
- * - Otherwise we are in the export phase.
+ * The default flow is import-only (bundleData provided directly). Managed
+ * export flows that populate exportResult still get poll/export phases.
  */
 function inferActivePhase(state: MigrationWizardState): TransferPhase {
-  if (!state.exportResult) {
-    return "export";
-  }
-
-  // Managed export that may still be polling
-  if ("jobId" in state.exportResult) {
+  // Managed export flows that populate exportResult
+  if (state.exportResult && "jobId" in state.exportResult) {
     const managed = state.exportResult as ExportManagedResult;
-    // If we have an importResult, polling is done and import has started/finished
     if (state.importResult) {
       return "import";
     }
-    // Still in polling/export phase
     if (managed.status !== "complete") {
       return "poll";
     }
-  }
-
-  // Export is done; if no import result yet, we are importing
-  if (!state.importResult) {
-    return "import";
   }
 
   return "import";
@@ -131,9 +117,9 @@ function inferFailedPhase(
     return "export";
   }
 
-  // If we have no export result, the export itself failed
+  // No exportResult means this is the import-only flow; attribute to import
   if (!state.exportResult) {
-    return "export";
+    return "import";
   }
 
   // If we have an export result but the error mentions import
@@ -144,8 +130,19 @@ function inferFailedPhase(
   // If export result exists but no import result, and error is transport-level,
   // it could be download failure or import failure
   if (state.exportResult && !state.importResult) {
-    // If it's a managed export and we have no import result, it could be polling or download
     if ("jobId" in state.exportResult) {
+      const managed = state.exportResult as ExportManagedResult;
+      if (managed.status === "complete") {
+        // Export completed but no importResult -- check whether the failure was
+        // during archive download (between export and import) or during import.
+        // Download failures surface with "download" in the message; actual
+        // import failures would have set importResult.
+        const msg = stepError.message?.toLowerCase() ?? "";
+        if (msg.includes("download")) {
+          return "poll";
+        }
+        return "import";
+      }
       return "poll";
     }
     return "import";
@@ -210,17 +207,17 @@ export function deriveTransferScreenState(
       };
     }
 
-    if (activePhase === "import") {
+    if (activePhase === "export") {
       return {
-        phase: "importing",
-        message: "Importing bundle to destination...",
+        phase: "exporting",
+        message: "Exporting data from source...",
       };
     }
 
-    // Default: export phase
+    // Default: import phase
     return {
-      phase: "exporting",
-      message: "Exporting data from source...",
+      phase: "importing",
+      message: "Importing bundle to destination...",
     };
   }
 
@@ -290,8 +287,13 @@ export async function retryTransferFlow(
   options: StepExecutorOptions,
 ): Promise<MigrationWizardState> {
   const reset = resetStepForRetry(state);
-  options.onStateChange?.(reset);
-  return executeTransferStep(reset, options);
+  const cleaned = {
+    ...reset,
+    exportResult: undefined,
+    importResult: undefined,
+  };
+  options.onStateChange?.(cleaned);
+  return executeTransferStep(cleaned, options);
 }
 
 /**

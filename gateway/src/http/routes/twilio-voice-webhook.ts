@@ -1,13 +1,21 @@
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
-import { CircuitBreakerOpenError, forwardTwilioVoiceWebhook } from "../../runtime/client.js";
-import { resolveAssistant, resolveAssistantByPhoneNumber, isRejection } from "../../routing/resolve-assistant.js";
+import {
+  CircuitBreakerOpenError,
+  forwardTwilioVoiceWebhook,
+} from "../../runtime/client.js";
+import {
+  resolveAssistant,
+  resolveAssistantByPhoneNumber,
+  isRejection,
+} from "../../routing/resolve-assistant.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
 
 const log = getLogger("twilio-voice-webhook");
 
 /** TwiML that rejects the call — Twilio plays a busy signal and hangs up. */
-const REJECT_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="rejected"/></Response>';
+const REJECT_TWIML =
+  '<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="rejected"/></Response>';
 
 export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
@@ -32,7 +40,10 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
 
       if (phoneRouting && "assistantId" in phoneRouting) {
         assistantId = phoneRouting.assistantId;
-        log.info({ assistantId, toNumber: params.To }, "Resolved assistant by phone number for inbound call");
+        log.info(
+          { assistantId, toNumber: params.To },
+          "Resolved assistant by phone number for inbound call",
+        );
       } else {
         // Phone-number lookup missed — fall through to standard routing so
         // defaultAssistantId / unmapped policy is respected, instead of
@@ -45,7 +56,11 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
 
         if (isRejection(fallbackRouting)) {
           log.warn(
-            { from: params.From, to: params.To, reason: fallbackRouting.reason },
+            {
+              from: params.From,
+              to: params.To,
+              reason: fallbackRouting.reason,
+            },
             "Inbound voice call rejected by routing — no phone number match and unmapped policy rejects",
           );
           return new Response(REJECT_TWIML, {
@@ -56,14 +71,22 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
 
         assistantId = fallbackRouting.assistantId;
         log.info(
-          { assistantId, routeSource: fallbackRouting.routeSource, from: params.From },
+          {
+            assistantId,
+            routeSource: fallbackRouting.routeSource,
+            from: params.From,
+          },
           "Resolved assistant via fallback routing for inbound call",
         );
       }
     }
 
     try {
-      const runtimeResponse = await forwardTwilioVoiceWebhook(config, params, req.url);
+      const runtimeResponse = await forwardTwilioVoiceWebhook(
+        config,
+        params,
+        req.url,
+      );
       return new Response(runtimeResponse.body, {
         status: runtimeResponse.status,
         headers: runtimeResponse.headers,
@@ -72,7 +95,10 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
       if (err instanceof CircuitBreakerOpenError) {
         return Response.json(
           { error: "Service temporarily unavailable" },
-          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+          {
+            status: 503,
+            headers: { "Retry-After": String(err.retryAfterSecs) },
+          },
         );
       }
       log.error({ err }, "Failed to forward Twilio voice webhook to runtime");

@@ -63,10 +63,14 @@ function printTable(rows: TableRow[]): void {
 // ── Remote process listing via SSH ──────────────────────────────
 
 const SSH_OPTS = [
-  "-o", "StrictHostKeyChecking=no",
-  "-o", "UserKnownHostsFile=/dev/null",
-  "-o", "ConnectTimeout=10",
-  "-o", "LogLevel=ERROR",
+  "-o",
+  "StrictHostKeyChecking=no",
+  "-o",
+  "UserKnownHostsFile=/dev/null",
+  "-o",
+  "ConnectTimeout=10",
+  "-o",
+  "LogLevel=ERROR",
 ];
 
 const REMOTE_PS_CMD = [
@@ -126,9 +130,7 @@ function resolveCloud(entry: AssistantEntry): string {
   return "local";
 }
 
-async function getRemoteProcessesGcp(
-  entry: AssistantEntry,
-): Promise<string> {
+async function getRemoteProcessesGcp(entry: AssistantEntry): Promise<string> {
   return execOutput("gcloud", [
     "compute",
     "ssh",
@@ -148,11 +150,7 @@ async function getRemoteProcessesCustom(
 ): Promise<string> {
   const host = extractHostFromUrl(entry.runtimeUrl);
   const sshUser = entry.sshUser ?? "root";
-  return execOutput("ssh", [
-    ...SSH_OPTS,
-    `${sshUser}@${host}`,
-    REMOTE_PS_CMD,
-  ]);
+  return execOutput("ssh", [...SSH_OPTS, `${sshUser}@${host}`, REMOTE_PS_CMD]);
 }
 
 interface ProcessSpec {
@@ -192,7 +190,7 @@ async function detectProcess(spec: ProcessSpec): Promise<DetectedProcess> {
   }
 
   // Tier 2: TCP port probe (skip for processes without a port)
-  const listening = spec.port > 0 && await probePort(spec.port);
+  const listening = spec.port > 0 && (await probePort(spec.port));
   if (listening) {
     const filePid = readPidFile(spec.pidFile);
     return {
@@ -222,11 +220,39 @@ function formatDetectionInfo(proc: DetectedProcess): string {
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
 
+  const PROXY_PORT = Number(process.env.PROXY_PORT) || 7829;
+
   const specs: ProcessSpec[] = [
-    { name: "daemon", pgrepName: "vellum-daemon", port: RUNTIME_HTTP_PORT, pidFile: join(vellumDir, "vellum.pid") },
-    { name: "qdrant", pgrepName: "qdrant", port: QDRANT_PORT, pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid") },
-    { name: "gateway", pgrepName: "vellum-gateway", port: GATEWAY_PORT, pidFile: join(vellumDir, "gateway.pid") },
-    { name: "embed-worker", pgrepName: "embed-worker", port: 0, pidFile: join(vellumDir, "embed-worker.pid") },
+    {
+      name: "daemon",
+      pgrepName: "vellum-daemon",
+      port: RUNTIME_HTTP_PORT,
+      pidFile: join(vellumDir, "vellum.pid"),
+    },
+    {
+      name: "qdrant",
+      pgrepName: "qdrant",
+      port: QDRANT_PORT,
+      pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid"),
+    },
+    {
+      name: "gateway",
+      pgrepName: "vellum-gateway",
+      port: GATEWAY_PORT,
+      pidFile: join(vellumDir, "gateway.pid"),
+    },
+    {
+      name: "outbound-proxy",
+      pgrepName: "outbound-proxy",
+      port: PROXY_PORT,
+      pidFile: join(vellumDir, "outbound-proxy.pid"),
+    },
+    {
+      name: "embed-worker",
+      pgrepName: "embed-worker",
+      port: 0,
+      pidFile: join(vellumDir, "embed-worker.pid"),
+    },
   ];
 
   const results = await Promise.all(specs.map(detectProcess));
@@ -260,7 +286,9 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
       process.exit(1);
     }
   } catch (error) {
-    console.error(`Failed to list processes: ${error instanceof Error ? error.message : error}`);
+    console.error(
+      `Failed to list processes: ${error instanceof Error ? error.message : error}`,
+    );
     process.exit(1);
   }
 
@@ -349,7 +377,9 @@ async function listAllAssistants(): Promise<void> {
       }));
       printTable(rows);
       const pids = orphans.map((o) => o.pid).join(" ");
-      console.log(`\nHint: Run \`kill ${pids}\` to clean up orphaned processes.`);
+      console.log(
+        `\nHint: Run \`kill ${pids}\` to clean up orphaned processes.`,
+      );
     }
 
     return;
@@ -413,7 +443,9 @@ export async function ps(): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum ps [<name>]");
     console.log("");
-    console.log("List all assistants, or show processes for a specific assistant.");
+    console.log(
+      "List all assistants, or show processes for a specific assistant.",
+    );
     console.log("");
     console.log("Arguments:");
     console.log("  <name>    Show processes for the named assistant");

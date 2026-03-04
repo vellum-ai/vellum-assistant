@@ -72,6 +72,22 @@
       "label": "Local HTTP Enabled",
       "description": "Enable local HTTP transport mode in macOS app",
       "defaultEnabled": false
+    },
+    {
+      "id": "command-palette",
+      "scope": "assistant",
+      "key": "feature_flags.command-palette.enabled",
+      "label": "Command Palette",
+      "description": "Enable the CMD+K command palette for unified search across conversations, memories, schedules, and contacts",
+      "defaultEnabled": true
+    },
+    {
+      "id": "contacts-tab",
+      "scope": "macos",
+      "key": "contacts_tab",
+      "label": "Contacts Tab",
+      "description": "Show the Contacts tab in Settings for viewing and managing contacts",
+      "defaultEnabled": false
     }
   ]
 }

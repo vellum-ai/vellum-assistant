@@ -4,10 +4,21 @@
  * and response extraction helpers.
  */
 
-import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
-import { getFailoverProvider, initializeProviders, listProviders, resolveProviderSelection } from './registry.js';
-import type { ContentBlock, Message, Provider, ProviderResponse, ToolUseContent } from './types.js';
+import { getConfig } from "../config/loader.js";
+import { getLogger } from "../util/logger.js";
+import {
+  getFailoverProvider,
+  initializeProviders,
+  listProviders,
+  resolveProviderSelection,
+} from "./registry.js";
+import type {
+  ContentBlock,
+  Message,
+  Provider,
+  ProviderResponse,
+  ToolUseContent,
+} from "./types.js";
 
 export interface ConfiguredProviderResult {
   provider: Provider;
@@ -16,7 +27,7 @@ export interface ConfiguredProviderResult {
   usedFallbackPrimary: boolean;
 }
 
-const providerSelectionLog = getLogger('provider-selection');
+const providerSelectionLog = getLogger("provider-selection");
 let fallbackWarningLogged = false;
 
 /**
@@ -40,7 +51,9 @@ export function resolveConfiguredProvider(): ConfiguredProviderResult | null {
     }
   }
 
-  const providerOrder = Array.isArray(config.providerOrder) ? config.providerOrder : [];
+  const providerOrder = Array.isArray(config.providerOrder)
+    ? config.providerOrder
+    : [];
   const selection = resolveProviderSelection(config.provider, providerOrder);
 
   if (!selection.selectedPrimary) {
@@ -48,10 +61,10 @@ export function resolveConfiguredProvider(): ConfiguredProviderResult | null {
   }
 
   if (selection.usedFallbackPrimary) {
-    const level = fallbackWarningLogged ? 'debug' : 'warn';
+    const level = fallbackWarningLogged ? "debug" : "warn";
     providerSelectionLog[level](
       { configured: config.provider, selected: selection.selectedPrimary },
-      'Configured provider unavailable, using fallback',
+      "Configured provider unavailable, using fallback",
     );
     fallbackWarningLogged = true;
   }
@@ -85,7 +98,10 @@ export function getConfiguredProvider(): Provider | null {
  * Create an AbortSignal that fires after `ms` milliseconds.
  * Returns the signal and a cleanup function to clear the timer.
  */
-export function createTimeout(ms: number): { signal: AbortSignal; cleanup: () => void } {
+export function createTimeout(ms: number): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   return {
@@ -99,8 +115,10 @@ export function createTimeout(ms: number): { signal: AbortSignal; cleanup: () =>
  * Returns empty string if no text block is found.
  */
 export function extractText(response: ProviderResponse): string {
-  const block = response.content.find((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text');
-  return block?.text?.trim() ?? '';
+  const block = response.content.find(
+    (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+  );
+  return block?.text?.trim() ?? "";
 }
 
 /**
@@ -108,17 +126,27 @@ export function extractText(response: ProviderResponse): string {
  */
 export function extractAllText(response: ProviderResponse): string {
   const parts = response.content
-    .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+    .filter(
+      (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+    )
     .map((b) => b.text);
   // Join consecutive text blocks with a space, but skip the separator when
   // either side already has whitespace (avoids double-spacing).
-  let result = parts[0] ?? '';
+  let result = parts[0] ?? "";
   for (let i = 1; i < parts.length; i++) {
     const prev = result[result.length - 1];
     const next = parts[i][0];
-    if (prev && next && prev !== ' ' && prev !== '\n' && prev !== '\t' &&
-        next !== ' ' && next !== '\n' && next !== '\t') {
-      result += ' ';
+    if (
+      prev &&
+      next &&
+      prev !== " " &&
+      prev !== "\n" &&
+      prev !== "\t" &&
+      next !== " " &&
+      next !== "\n" &&
+      next !== "\t"
+    ) {
+      result += " ";
     }
     result += parts[i];
   }
@@ -128,15 +156,19 @@ export function extractAllText(response: ProviderResponse): string {
 /**
  * Find the first tool_use block in a ProviderResponse.
  */
-export function extractToolUse(response: ProviderResponse): ToolUseContent | undefined {
-  return response.content.find((b): b is ToolUseContent => b.type === 'tool_use');
+export function extractToolUse(
+  response: ProviderResponse,
+): ToolUseContent | undefined {
+  return response.content.find(
+    (b): b is ToolUseContent => b.type === "tool_use",
+  );
 }
 
 /**
  * Build a single user message in the provider Message format.
  */
 export function userMessage(text: string): Message {
-  return { role: 'user', content: [{ type: 'text', text }] };
+  return { role: "user", content: [{ type: "text", text }] };
 }
 
 /**
@@ -148,17 +180,17 @@ export function userMessageWithImage(
   text: string,
 ): Message {
   return {
-    role: 'user',
+    role: "user",
     content: [
       {
-        type: 'image',
+        type: "image",
         source: {
-          type: 'base64',
+          type: "base64",
           media_type: mediaType,
           data: imageBase64,
         },
       },
-      { type: 'text', text },
+      { type: "text", text },
     ],
   };
 }
@@ -172,17 +204,17 @@ export function userMessageWithImages(
   text: string,
 ): Message {
   return {
-    role: 'user',
+    role: "user",
     content: [
       ...images.map((img) => ({
-        type: 'image' as const,
+        type: "image" as const,
         source: {
-          type: 'base64' as const,
+          type: "base64" as const,
           media_type: img.mediaType,
           data: img.base64,
         },
       })),
-      { type: 'text' as const, text },
+      { type: "text" as const, text },
     ],
   };
 }

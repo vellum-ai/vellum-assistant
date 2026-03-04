@@ -1,25 +1,27 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import { registerTool } from "../registry.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 function readPackageVersion(): string {
   try {
-    const pkgPath = join(import.meta.dir, '../../../package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: string };
-    return pkg.version ?? 'unknown';
+    const pkgPath = join(import.meta.dir, "../../../package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      version?: string;
+    };
+    return pkg.version ?? "unknown";
   } catch {
-    return 'unknown';
+    return "unknown";
   }
 }
 
 class VersionTool implements Tool {
-  name = 'version';
-  description = 'Return the current version of the Vellum assistant daemon.';
-  category = 'system';
+  name = "version";
+  description = "Return the current version of the Vellum assistant daemon.";
+  category = "system";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
@@ -27,11 +29,12 @@ class VersionTool implements Tool {
       name: this.name,
       description: this.description,
       input_schema: {
-        type: 'object',
+        type: "object",
         properties: {
           reason: {
-            type: 'string',
-            description: 'Brief non-technical explanation of why you are checking the version, shown to the user as a status update. Use simple language a non-technical person would understand.',
+            type: "string",
+            description:
+              "Brief non-technical explanation of why you are checking the version, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
         required: [],
@@ -39,7 +42,10 @@ class VersionTool implements Tool {
     };
   }
 
-  async execute(_input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(
+    _input: Record<string, unknown>,
+    _context: ToolContext,
+  ): Promise<ToolExecutionResult> {
     const version = readPackageVersion();
     return { content: `Vellum assistant version: ${version}`, isError: false };
   }
