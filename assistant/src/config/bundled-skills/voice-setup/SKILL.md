@@ -73,10 +73,10 @@ After storing the API key, let the user pick their preferred voice. The shared c
 Check the current voice:
 
 ```bash
-vellum config get elevenlabs.voiceId
+vellum integrations voice config --json
 ```
 
-Ask the user if they want to change their TTS voice. If yes, use `voice_config_update` with `setting: "tts_voice_id"` and the chosen voice ID. This writes to both the config file (`elevenlabs.voiceId`) and pushes to the macOS app via IPC in one call.
+Use `voiceId` from the response as the current selection (and `usesDefaultVoice` to know if Rachel is still in use by default). Ask the user if they want to change their TTS voice. If yes, use `voice_config_update` with `setting: "tts_voice_id"` and the chosen voice ID. This writes to both the config file (`elevenlabs.voiceId`) and pushes to the macOS app via IPC in one call.
 
 Common choices from the curated ElevenLabs list:
 - **Rachel** (`21m00Tcm4TlvDq8ikWAM`) — Calm, warm, conversational (default)
@@ -92,13 +92,13 @@ If the user wants to browse more voices, they can search at https://elevenlabs.i
 After setting the voice, check whether phone calls are configured:
 
 ```bash
-vellum config get calls.enabled
+vellum integrations voice config --json
 ```
 
-**If phone calls are enabled** (`calls.enabled` is `true`):
+**If phone calls are enabled** (`callsEnabled` is `true`):
 - Tell the user their phone calls will automatically use the same voice they just chose, since both in-app TTS and phone calls read from `elevenlabs.voiceId`.
 
-**If phone calls are not yet configured** (`calls.enabled` is `false` or not set):
+**If phone calls are not yet configured** (`callsEnabled` is `false`):
 - Tell the user: "When you set up phone calls later, they'll automatically use the same voice for a consistent experience."
 
 ### 5. Verification

@@ -24,6 +24,7 @@ import {
 } from "./cli/core-commands.js";
 import { registerEmailCommand } from "./cli/email.js";
 import { registerInfluencerCommand } from "./cli/influencer.js";
+import { registerIntegrationsCommand } from "./cli/integrations.js";
 import { registerMapCommand } from "./cli/map.js";
 import { registerMcpCommand } from "./cli/mcp.js";
 import { registerSequenceCommand } from "./cli/sequence.js";
@@ -46,6 +47,7 @@ registerDoctorCommand(program);
 registerHooksCommand(program);
 registerMcpCommand(program);
 registerEmailCommand(program);
+registerIntegrationsCommand(program);
 registerAmazonCommand(program);
 registerCompletionsCommand(program);
 

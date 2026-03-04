@@ -5,13 +5,13 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "\ud83d\udc65"}}
 ---
 
-You are helping your user manage trusted contacts and invite links for the Vellum Assistant. Trusted contacts control who is allowed to send messages to the assistant through external channels like Telegram, SMS, and voice (phone calls). Invite links let the guardian share a Telegram deep link that automatically grants access when opened. Voice invites let the guardian authorize a specific phone number to call in — the invitee must call from that phone number AND enter a one-time numeric code. All operations go through the gateway HTTP API using `curl` with bearer auth.
+You are helping your user manage trusted contacts and invite links for the Vellum Assistant. Trusted contacts control who is allowed to send messages to the assistant through external channels like Telegram, SMS, and voice (phone calls). Invite links let the guardian share a Telegram deep link that automatically grants access when opened. Voice invites let the guardian authorize a specific phone number to call in — the invitee must call from that phone number AND enter a one-time numeric code. Use Vellum CLI for status/list retrieval, and use gateway control-plane `curl` calls for mutating actions.
 
 ## Prerequisites
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
 - Use gateway control-plane routes only: this skill calls `/v1/ingress/*` and `/v1/integrations/telegram/config` on the gateway, never the daemon runtime port directly.
-- The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable.
+- The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable for control-plane `curl` requests.
 
 ## Concepts
 
@@ -29,8 +29,7 @@ You are helping your user manage trusted contacts and invite links for the Vellu
 Use this to show the user who currently has access, or to look up a specific contact.
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations ingress members --json
 ```
 
 Optional query parameters for filtering:
@@ -40,8 +39,7 @@ Optional query parameters for filtering:
 
 Example with filters:
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members?sourceChannel=telegram&status=active" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations ingress members --source-channel telegram --status active --json
 ```
 
 The response contains `{ ok: true, members: [...] }` where each member has:
@@ -153,8 +151,7 @@ fi
 
 # Prefer backend-provided canonical link when available.
 if [ -z "$INVITE_URL" ]; then
-  BOT_CONFIG_JSON=$(curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config" \
-    -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN")
+  BOT_CONFIG_JSON=$(vellum integrations telegram config --json)
   BOT_USERNAME=$(printf '%s' "$BOT_CONFIG_JSON" | tr -d '\n' | sed -n 's/.*"botUsername"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   if [ -z "$BOT_USERNAME" ]; then
     echo "error:no_share_url_or_bot_username"
@@ -195,8 +192,7 @@ If the Telegram bot username is not available (integration not set up), tell the
 Use this to show the guardian their active (and optionally all) invite links.
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites?sourceChannel=telegram" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations ingress invites --source-channel telegram --json
 ```
 
 Optional query parameters:
@@ -293,8 +289,7 @@ If the user provides a phone number without the `+` country code prefix, ask the
 Use this to show the guardian their active voice invites.
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites?sourceChannel=voice" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations ingress invites --source-channel voice --json
 ```
 
 Optional query parameters:

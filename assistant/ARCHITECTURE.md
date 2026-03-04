@@ -1404,6 +1404,25 @@ graph LR
 
 Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKILL.md`. When a skill is activated during a session, its tools are dynamically loaded, registered, and made available to the agent loop. Browser, Gmail, Claude Code, Weather, and other capabilities are delivered as **bundled skills** rather than hardcoded tools. Browser tools (previously the core `headless-browser` tool) are now provided by the bundled `browser` skill with system default allow rules that preserve frictionless auto-approval.
 
+### Bundled Skill Retrieval Contract (CLI-First)
+
+Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`vellum config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or keychain lookups.
+
+```mermaid
+graph LR
+    SKILL["SKILL.md retrieval instruction"] --> BASH["bash tool"]
+    BASH --> CLI["vellum config get / secure credential surfaces / domain reads"]
+    CLI --> GW["Gateway read route (when needed)"]
+    GW --> RT["Runtime handler/config service"]
+```
+
+Rules enforced by guard tests:
+- Retrieval reads use `bash` + canonical CLI surfaces (`vellum config get` and domain read commands where available).
+- Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
+- Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
+- `host_bash` is not used for Vellum CLI retrieval commands unless intentionally allowlisted.
+- Outbound credentialed API calls prefer proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) so credentials are injected by policy-aware plumbing instead of copied into commands.
+
 ### Skill Directory Structure
 
 Each skill directory (bundled, managed, workspace, or extra) may contain:

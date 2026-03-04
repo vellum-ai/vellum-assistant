@@ -20,6 +20,9 @@ This file is the cross-system architecture index. Detailed designs live in domai
 ## Cross-Cutting Invariants
 
 - Public ingress is gateway-only; external webhook/API routes are implemented in `gateway/` and forwarded internally.
+- Bundled-skill config/status retrieval is CLI-first: `SKILL.md -> bash -> canonical vellum CLI surfaces -> gateway/runtime`. The baseline retrieval path is `vellum config` plus secure secret surfaces (`vellum keys`); domain-specific status reads (for example `vellum integrations ...` or `vellum email ...`) are follow-on surfaces, not a prerequisite for the initial migration. Direct gateway curls are reserved for control-plane writes when no CLI surface exists; keychain lookup commands are not part of bundled skill retrieval guidance.
+- Bundled-skill outbound API calls that require credentials default to proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) rather than manual token plumbing.
+- Managed shared-identity channel routing runs in a separate managed-gateway service lane from the per-assistant `gateway/` lane. The deployable managed-gateway runtime is platform-owned; this repo keeps public contracts/fixtures under `gateway-managed/`.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel thread actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_thread_created` IPC is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.

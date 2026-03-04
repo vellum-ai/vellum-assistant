@@ -1664,11 +1664,12 @@ describe("IPC handler channel-aware guardian status", () => {
   });
 
   test("status action returns guardian username/displayName from binding metadata", () => {
-    // Contacts-based bindings store displayName on the contact record,
-    // not in metadataJson. The IPC handler reads metadataJson from the
-    // binding (now always null) and falls back to
-    // externalConversationStore. In a test environment neither source
-    // is populated, so username/displayName are undefined.
+    // createGuardianBindingContactsFirst stores the displayName from
+    // metadataJson on the contact record. getGuardianBinding then
+    // synthesizes metadataJson back from contact.displayName, so the
+    // IPC handler can extract displayName from it. However, the
+    // username field is not persisted in the contacts table, so it
+    // remains undefined unless populated via externalConversationStore.
     createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
@@ -1692,11 +1693,11 @@ describe("IPC handler channel-aware guardian status", () => {
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
-    // With contacts-based storage, metadataJson is not carried through
-    // the service layer, so these fields are undefined unless populated
-    // via externalConversationStore.
+    // username is not stored in the contacts table, so it stays undefined
     expect(resp!.guardianUsername).toBeUndefined();
-    expect(resp!.guardianDisplayName).toBeUndefined();
+    // displayName is persisted on the contact and synthesized back into
+    // metadataJson by getGuardianBinding, so the handler extracts it
+    expect(resp!.guardianDisplayName).toBe("Guardian Name");
   });
 
   test("status action defaults channel to telegram when omitted (backward compat)", () => {

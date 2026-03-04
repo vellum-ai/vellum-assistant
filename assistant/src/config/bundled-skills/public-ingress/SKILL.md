@@ -21,12 +21,15 @@ This skill installs ngrok, configures authentication, starts a tunnel, discovers
 First, check whether ingress is already configured:
 
 ```bash
-vellum config get ingress.publicBaseUrl
+vellum integrations ingress config --json
 ```
 
-Use the injected `INTERNAL_GATEWAY_BASE_URL` as the local gateway target before proceeding.
+The response includes:
+- `publicBaseUrl` — currently configured public ingress URL (if any)
+- `enabled` — whether ingress is enabled
+- `localGatewayTarget` — local gateway URL ngrok should forward to
 
-If `ingress.publicBaseUrl` is already set and the tunnel is running (check via `curl -s http://127.0.0.1:4040/api/tunnels`), tell the user the current status and ask if they want to reconfigure or if this is sufficient.
+If `publicBaseUrl` is already set and the tunnel is running (check via `curl -s http://127.0.0.1:4040/api/tunnels`), tell the user the current status and ask if they want to reconfigure or if this is sufficient.
 
 ## Step 2: Install ngrok
 
@@ -78,19 +81,14 @@ If not authenticated:
    - description: `Get your auth token from https://dashboard.ngrok.com/get-started/your-authtoken`
    - usage_description: `ngrok authentication token for creating public tunnels`
 
-3. Once the credential is stored, configure ngrok by reading the token directly from the OS keychain and piping it to ngrok so the plaintext never enters the conversation:
+3. Once the credential is stored, retrieve it via `credential_store` and apply it to ngrok:
 
-   **macOS:**
    ```bash
-   ngrok config add-authtoken "$(security find-generic-password -s vellum-assistant -a credential:ngrok:authtoken -w)"
+   credential_store action=get service=ngrok field=authtoken
+   ngrok config add-authtoken "<authtoken_from_credential_store>"
    ```
 
-   **Linux:**
-   ```bash
-   ngrok config add-authtoken "$(secret-tool lookup service vellum-assistant account credential:ngrok:authtoken)"
-   ```
-
-   If the keychain command fails (e.g., headless environment without a keyring), fall back to asking the user to re-enter the token via `credential_store prompt` and then paste it into `ngrok config add-authtoken` manually as a last resort.
+   If no value is returned, re-run `credential_store` with `action: "prompt"` and try again.
 
 Verify authentication succeeded by checking `ngrok config check` again.
 
@@ -112,7 +110,7 @@ sleep 1
 Start ngrok in the background, tunneling to the local gateway target:
 
 ```bash
-nohup ngrok http "$INTERNAL_GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &
+nohup ngrok http "<localGatewayTarget from Step 1>" --log=stdout > /tmp/ngrok.log 2>&1 &
 echo $! > /tmp/ngrok.pid
 ```
 
@@ -160,8 +158,7 @@ vellum config set ingress.enabled true
 Verify it was saved:
 
 ```bash
-vellum config get ingress.publicBaseUrl
-vellum config get ingress.enabled
+vellum integrations ingress config --json
 ```
 
 ## Step 7: Report Completion
@@ -169,14 +166,14 @@ vellum config get ingress.enabled
 Summarize the setup:
 
 - **Public URL:** `<the-url>` (this is your `ingress.publicBaseUrl`)
-- **Local gateway target:** `$INTERNAL_GATEWAY_BASE_URL`
+- **Local gateway target:** `<localGatewayTarget from vellum integrations ingress config --json>`
 - **ngrok dashboard:** http://127.0.0.1:4040
 
 Provide useful follow-up commands:
 
 - **Check tunnel status:** `curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "import sys,json; [print(t['public_url']) for t in json.load(sys.stdin)['tunnels']]"`
 - **View ngrok logs:** `cat /tmp/ngrok.log`
-- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http "$INTERNAL_GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &`
+- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http "<localGatewayTarget>" --log=stdout > /tmp/ngrok.log 2>&1 &`
 - **Stop tunnel:** `pkill -f ngrok`
 - **Rotate URL:** Stop and restart ngrok (free tier assigns a new URL each time; update `ingress.publicBaseUrl` afterward)
 
@@ -194,7 +191,7 @@ Sign in to https://dashboard.ngrok.com, copy a fresh token from the "Your Authto
 The ngrok process may not be running. Check with `ps aux | grep ngrok`. If not running, start it per Step 4. If running but 4040 is unresponsive, check `/tmp/ngrok.log` for errors.
 
 ### Gateway not reachable on local target
-Ensure the Vellum gateway is running on `$INTERNAL_GATEWAY_BASE_URL`. Check with `curl -s "$INTERNAL_GATEWAY_BASE_URL/healthz"`. If not running, start the assistant daemon first.
+Re-check local gateway target with `vellum integrations ingress config --json`, then run `curl -s "<localGatewayTarget>/healthz"`. If the gateway is not running, start the assistant daemon first.
 
 ### "Too many connections" or tunnel limit errors
 ngrok's free tier allows one tunnel at a time. Stop any other ngrok tunnels before starting a new one.
