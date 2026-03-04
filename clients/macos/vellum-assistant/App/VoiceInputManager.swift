@@ -529,7 +529,6 @@ final class VoiceInputManager {
 
         isRecording = true
         onRecordingStateChanged?(true)
-        VoiceFeedback.playActivationChime()
         if currentMode == .dictation {
             overlayWindow.show(state: .recording)
         }
@@ -591,6 +590,7 @@ final class VoiceInputManager {
         do {
             audioEngine.prepare()
             try audioEngine.start()
+            VoiceFeedback.playActivationChime()
         } catch {
             log.error("Audio engine failed to start: \(error.localizedDescription)")
             isRecording = false
