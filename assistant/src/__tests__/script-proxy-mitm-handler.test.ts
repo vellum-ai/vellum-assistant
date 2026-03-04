@@ -13,7 +13,7 @@ import {
   issueLeafCert,
 } from "../tools/network/script-proxy/certs.js";
 import type { RewriteCallback } from "../tools/network/script-proxy/mitm-handler.js";
-import type { RouteDecision } from "../tools/network/script-proxy/router.js";
+import type { RouteDecision } from "@vellumai/outbound-proxy";
 import { createProxyServer } from "../tools/network/script-proxy/server.js";
 
 let dataDir: string;

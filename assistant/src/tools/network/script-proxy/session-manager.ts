@@ -13,15 +13,15 @@ import { ensureCombinedCABundle,ensureLocalCA, getCAPath } from './certs.js';
 import type { PolicyCallback } from './http-forwarder.js';
 import { buildDecisionTrace, stripQueryString } from './logging.js';
 import { evaluateRequestWithApproval } from './policy.js';
-import { routeConnection } from './router.js';
 import type { ProxyServerConfig } from './server.js';
 import { createProxyServer } from './server.js';
-import type {
-  ProxyApprovalCallback,
-  ProxyEnvVars,
-  ProxySession,
-  ProxySessionConfig,
-  ProxySessionId,
+import {
+  routeConnection,
+  type ProxyApprovalCallback,
+  type ProxyEnvVars,
+  type ProxySession,
+  type ProxySessionConfig,
+  type ProxySessionId,
 } from '@vellumai/outbound-proxy';
 
 const log = getLogger('proxy-session');
