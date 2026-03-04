@@ -84,28 +84,6 @@ describe("ingress control-plane proxy", () => {
 
     const handler = createIngressControlPlaneProxyHandler(makeConfig());
 
-    await handler.handleListMembers(
-      new Request(
-        "http://localhost:7830/v1/ingress/members?sourceChannel=telegram",
-      ),
-    );
-    await handler.handleUpsertMember(
-      new Request("http://localhost:7830/v1/ingress/members", {
-        method: "POST",
-      }),
-    );
-    await handler.handleRevokeMember(
-      new Request("http://localhost:7830/v1/ingress/members/mbr_123", {
-        method: "DELETE",
-      }),
-      "mbr_123",
-    );
-    await handler.handleBlockMember(
-      new Request("http://localhost:7830/v1/ingress/members/mbr_123/block", {
-        method: "POST",
-      }),
-      "mbr_123",
-    );
     await handler.handleListInvites(
       new Request("http://localhost:7830/v1/ingress/invites?status=active"),
     );
@@ -127,10 +105,6 @@ describe("ingress control-plane proxy", () => {
     );
 
     expect(captured).toEqual([
-      "http://localhost:7821/v1/ingress/members?sourceChannel=telegram",
-      "http://localhost:7821/v1/ingress/members",
-      "http://localhost:7821/v1/ingress/members/mbr_123",
-      "http://localhost:7821/v1/ingress/members/mbr_123/block",
       "http://localhost:7821/v1/ingress/invites?status=active",
       "http://localhost:7821/v1/ingress/invites",
       "http://localhost:7821/v1/ingress/invites/redeem",
@@ -148,8 +122,8 @@ describe("ingress control-plane proxy", () => {
     );
 
     const handler = createIngressControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleUpsertMember(
-      new Request("http://localhost:7830/v1/ingress/members", {
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/ingress/invites", {
         method: "POST",
         headers: {
           authorization: "Bearer caller-token",
@@ -203,8 +177,8 @@ describe("ingress control-plane proxy", () => {
     const handler = createIngressControlPlaneProxyHandler(
       makeConfig({ runtimeTimeoutMs: 100 }),
     );
-    const res = await handler.handleListMembers(
-      new Request("http://localhost:7830/v1/ingress/members"),
+    const res = await handler.handleListInvites(
+      new Request("http://localhost:7830/v1/ingress/invites"),
     );
 
     expect(res.status).toBe(504);

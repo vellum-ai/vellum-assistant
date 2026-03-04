@@ -6,11 +6,6 @@
  * keeping the constructor body focused on wiring.
  */
 
-import type {
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-} from "@vellumai/outbound-proxy";
-
 import { isHttpAuthDisabled } from "../config/env.js";
 import {
   generateAllowlistOptions,
@@ -33,6 +28,8 @@ import { requestComputerControlTool } from "../tools/computer-use/request-comput
 import type { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type {
+  ProxyApprovalCallback,
+  ProxyApprovalRequest,
   ToolExecutionResult,
   ToolLifecycleEventHandler,
 } from "../tools/types.js";

@@ -33,15 +33,12 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   VOICE_SUCCESS: "guardian_verify.voice.success",
   /** Voice failure prompt after too many incorrect attempts. */
   VOICE_FAILURE: "guardian_verify.voice.failure",
-  /** Deterministic reply after successful channel verification command. */
+  /** Deterministic reply after successful verification (guardian or trusted contact). */
   CHANNEL_VERIFY_SUCCESS: "guardian_verify.channel.success",
   /** Deterministic reply after failed channel verification command. */
   CHANNEL_VERIFY_FAILED: "guardian_verify.channel.failed",
   /** Deterministic reply for bootstrap deep-link success. */
   CHANNEL_BOOTSTRAP_BOUND: "guardian_verify.channel.bootstrap_bound",
-  /** Deterministic reply after successful trusted contact verification. */
-  CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS:
-    "guardian_verify.channel.trusted_contact_success",
 } as const;
 
 export type GuardianVerifyTemplateKey =
@@ -61,8 +58,7 @@ type TextVerifyTemplateKey =
 export type ChannelVerifyReplyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS;
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND;
 
 // ---------------------------------------------------------------------------
 // Template Variables
@@ -82,6 +78,8 @@ export interface GuardianVerifyVoiceTemplateVars {
 export interface ChannelVerifyReplyVars {
   /** Failure reason (anti-oracle: generic message). Only used for failed template. */
   failureReason?: string;
+  /** Drives different success copy for guardian vs trusted contact verification. */
+  verificationType?: "guardian" | "trusted_contact";
 }
 
 // ---------------------------------------------------------------------------
@@ -204,17 +202,16 @@ const channelVerifyReplyTemplates: Record<
   ChannelVerifyReplyTemplateKey,
   (vars: ChannelVerifyReplyVars) => string
 > = {
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS]: () =>
-    "Verification successful. You are now set as the guardian for this channel.",
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS]: (vars) =>
+    vars.verificationType === "trusted_contact"
+      ? "Verification successful! You can now message the assistant."
+      : "Verification successful. You are now set as the guardian for this channel.",
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED]: (vars) =>
     vars.failureReason ?? "The verification code is invalid or has expired.",
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND]: () =>
     "Welcome! Your identity has been linked. Please check for a verification code message.",
-
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS]: () =>
-    "Verification successful! You can now message the assistant.",
 };
 
 /**
