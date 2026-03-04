@@ -96,6 +96,7 @@ struct SettingsPanel: View {
     @State private var notificationBadgesGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .account
+    @State private var settingsSnapshot: SettingsSnapshot? = nil
 
     var body: some View {
         // Two-column layout: bare nav on window background, content in its own surface panel
@@ -126,12 +127,28 @@ struct SettingsPanel: View {
             // Refresh permission status when the view appears
             await refreshPermissionStatus()
         }
+        .task {
+            // Delay baseline snapshot until after async IPC refreshes (refreshTwitterStatus,
+            // refreshTelegramStatus, etc.) have had time to update @Published properties.
+            // Snapshotting before those responses land captures stale `false` values,
+            // which then look like user-made changes and trigger false-positive nudges.
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            if settingsSnapshot == nil {
+                settingsSnapshot = SettingsSnapshot(store: store)
+            }
+        }
         .onAppear {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
+            // Prefetch Slack config here so slackChannelConnected is populated before the
+            // 700ms baseline snapshot. Without this, the snapshot captures false and a later
+            // visit to the Channels tab (which calls fetchSlackChannelConfig) would flip it to
+            // true, producing a spurious "Slack connected" nudge on close.
+            store.fetchSlackChannelConfig()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
             if let pending = store.pendingSettingsTab {
@@ -202,7 +219,7 @@ struct SettingsPanel: View {
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             // Back to app link at top of sidebar
-            Button(action: onClose) {
+            Button(action: closeWithNudge) {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 12, weight: .medium))
@@ -952,6 +969,19 @@ struct SettingsPanel: View {
         case "gmail": return "\u{1F4E7}"
         default: return "\u{1F517}"
         }
+    }
+
+    /// Closes the settings panel, injecting a proactive assistant nudge if meaningful changes were made.
+    private func closeWithNudge() {
+        if let snapshot = settingsSnapshot {
+            let after = SettingsSnapshot(store: store)
+            let changes = SettingsChangeDetector.detect(before: snapshot, after: after)
+            if !changes.isEmpty {
+                let msg = SettingsChangeDetector.buildNudgeMessage(changes: changes)
+                threadManager.activeViewModel?.injectAssistantMessage(msg)
+            }
+        }
+        onClose()
     }
 
     private func setupIntegrationCallbacks() {
