@@ -813,7 +813,7 @@ struct MainWindowView: View {
     }
 
     @ViewBuilder
-    private func threadItem(_ thread: ThreadModel, onSelect: (() -> Void)? = nil) -> some View {
+    func threadItem(_ thread: ThreadModel, onSelect: (() -> Void)? = nil) -> some View {
         let isSelected: Bool = {
             switch windowState.selection {
             case .panel:
