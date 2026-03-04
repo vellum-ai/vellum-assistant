@@ -13,12 +13,9 @@
 import { eq } from "drizzle-orm";
 
 import type { ChannelId } from "../channels/types.js";
-import { emitContactChange } from "./contact-events.js";
+import { getDb } from "../memory/db.js";
 import type { GuardianBinding } from "../memory/guardian-bindings.js";
-import {
-  createBinding,
-  revokeBinding,
-} from "../memory/guardian-bindings.js";
+import { createBinding, revokeBinding } from "../memory/guardian-bindings.js";
 import type { IngressMember } from "../memory/ingress-member-store.js";
 import {
   blockMember,
@@ -26,10 +23,10 @@ import {
   updateLastSeen,
   upsertMember,
 } from "../memory/ingress-member-store.js";
-import { getDb } from "../memory/db.js";
 import { assistantIngressMembers } from "../memory/schema.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
+import { emitContactChange } from "./contact-events.js";
 import {
   findContactByChannelExternalId,
   findGuardianForChannel,
@@ -208,8 +205,8 @@ export function upsertMemberContactsFirst(params: {
           status: (params.status as ChannelStatus) ?? undefined,
           policy: (params.policy as ChannelPolicy) ?? undefined,
           inviteId: params.inviteId ?? null,
-          revokedReason: params.status === 'active' ? null : undefined,
-          blockedReason: params.status === 'active' ? null : undefined,
+          revokedReason: params.status === "active" ? null : undefined,
+          blockedReason: params.status === "active" ? null : undefined,
         },
       ],
     });
@@ -305,9 +302,9 @@ export function blockMemberContactsFirst(
         if (!contact && canonicalUserId !== result.externalUserId) {
           contact = findContactByChannelExternalId(
             result.sourceChannel,
-            result.externalUserId,
+            result.externalUserId!,
           );
-          lookupId = result.externalUserId;
+          lookupId = result.externalUserId!;
         }
 
         if (contact) {
@@ -348,10 +345,7 @@ export function touchChannelLastSeen(memberId: string): void {
         ) ?? member.externalUserId;
 
       // Try canonical ID first
-      updateChannelLastSeenByExternalId(
-        member.sourceChannel,
-        canonicalUserId,
-      );
+      updateChannelLastSeenByExternalId(member.sourceChannel, canonicalUserId);
 
       // Also try raw ID for legacy contacts that haven't been rewritten yet
       if (canonicalUserId !== member.externalUserId) {

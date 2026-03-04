@@ -1,10 +1,14 @@
-import type { SecretPromptResult } from '../permissions/secret-prompter.js';
-import type { AllowlistOption, RiskLevel, ScopeOption } from '../permissions/types.js';
-import type { ContentBlock,ToolDefinition } from '../providers/types.js';
-import type { TrustClass } from '../runtime/actor-trust-resolver.js';
-import type { SensitiveOutputBinding } from './sensitive-output-placeholders.js';
+import type { SecretPromptResult } from "../permissions/secret-prompter.js";
+import type {
+  AllowlistOption,
+  RiskLevel,
+  ScopeOption,
+} from "../permissions/types.js";
+import type { ContentBlock, ToolDefinition } from "../providers/types.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import type { SensitiveOutputBinding } from "./sensitive-output-placeholders.js";
 
-export type ExecutionTarget = 'sandbox' | 'host';
+export type ExecutionTarget = "sandbox" | "host";
 
 interface ToolLifecycleEventBase {
   toolName: string;
@@ -17,12 +21,12 @@ interface ToolLifecycleEventBase {
 }
 
 export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
-  type: 'start';
+  type: "start";
   startedAtMs: number;
 }
 
 export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
-  type: 'permission_prompt';
+  type: "permission_prompt";
   riskLevel: string;
   reason: string;
   allowlistOptions: AllowlistOption[];
@@ -33,25 +37,29 @@ export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
 }
 
 export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
-  type: 'permission_denied';
+  type: "permission_denied";
   riskLevel: string;
-  decision: 'deny' | 'always_deny';
+  decision: "deny" | "always_deny";
   reason: string;
   durationMs: number;
 }
 
 export interface ToolExecutedEvent extends ToolLifecycleEventBase {
-  type: 'executed';
+  type: "executed";
   riskLevel: string;
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;
 }
 
-export type ErrorCategory = 'permission_denied' | 'auth' | 'tool_failure' | 'unexpected';
+export type ErrorCategory =
+  | "permission_denied"
+  | "auth"
+  | "tool_failure"
+  | "unexpected";
 
 export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
-  type: 'error';
+  type: "error";
   riskLevel: string;
   decision: string;
   durationMs: number;
@@ -64,9 +72,9 @@ export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
 }
 
 export interface ToolSecretDetectedEvent extends ToolLifecycleEventBase {
-  type: 'secret_detected';
+  type: "secret_detected";
   matches: Array<{ type: string; redactedValue: string }>;
-  action: 'redact' | 'warn' | 'block' | 'prompt';
+  action: "redact" | "warn" | "block" | "prompt";
   detectedAtMs: number;
 }
 
@@ -78,7 +86,9 @@ export type ToolLifecycleEvent =
   | ToolExecutionErrorEvent
   | ToolSecretDetectedEvent;
 
-export type ToolLifecycleEventHandler = (event: ToolLifecycleEvent) => void | Promise<void>;
+export type ToolLifecycleEventHandler = (
+  event: ToolLifecycleEvent,
+) => void | Promise<void>;
 
 export type ProxyToolResolver = (
   toolName: string,
@@ -114,7 +124,7 @@ export interface ToolContext {
     riskLevel: string;
     executionTarget?: ExecutionTarget;
     principal?: string;
-  }) => Promise<{ decision: 'allow' | 'deny' }>;
+  }) => Promise<{ decision: "allow" | "deny" }>;
   /** Prompt the user for a secret value via native SecureField UI. */
   requestSecret?: (params: {
     service: string;
@@ -135,7 +145,7 @@ export interface ToolContext {
   /** When true, tools with private side-effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /** Approval callback for proxy policy decisions that require user confirmation. */
-  proxyApprovalCallback?: import('./network/script-proxy/types.js').ProxyApprovalCallback;
+  proxyApprovalCallback?: import("./network/script-proxy/index.js").ProxyApprovalCallback;
   /** Optional principal identifier propagated to sub-tool confirmation flows. */
   principal?: string;
   /**
@@ -195,9 +205,9 @@ export interface Tool {
   category: string;
   defaultRiskLevel: RiskLevel;
   /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
-  executionMode?: 'local' | 'proxy';
+  executionMode?: "local" | "proxy";
   /** Whether this tool is a core built-in, provided by a skill, or from an MCP server. */
-  origin?: 'core' | 'skill' | 'mcp';
+  origin?: "core" | "skill" | "mcp";
   /** If origin is 'skill', the ID of the owning skill. */
   ownerSkillId?: string;
   /** If origin is 'mcp', the ID of the owning MCP server. */
@@ -210,5 +220,8 @@ export interface Tool {
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
   getDefinition(): ToolDefinition;
-  execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult>;
+  execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult>;
 }
