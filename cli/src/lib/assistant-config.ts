@@ -197,7 +197,7 @@ export async function allocateLocalResources(
 export function defaultLocalResources(): LocalInstanceResources {
   const vellumDir = join(homedir(), ".vellum");
   return {
-    instanceDir: vellumDir,
+    instanceDir: homedir(),
     daemonPort: DEFAULT_DAEMON_PORT,
     gatewayPort: DEFAULT_GATEWAY_PORT,
     qdrantPort: DEFAULT_QDRANT_PORT,
