@@ -8,6 +8,7 @@
 import { and, desc, eq, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { updateChannelLastSeenByExternalId } from '../contacts/contact-store.js';
 import { syncSingleMember } from '../contacts/contact-sync.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getLogger } from '../util/logger.js';
@@ -379,4 +380,21 @@ export function updateLastSeen(memberId: string): void {
     .set({ lastSeenAt: now, updatedAt: now })
     .where(eq(assistantIngressMembers.id, memberId))
     .run();
+
+  // Forward-sync lastSeenAt to contacts
+  try {
+    const member = db
+      .select({
+        sourceChannel: assistantIngressMembers.sourceChannel,
+        externalUserId: assistantIngressMembers.externalUserId,
+      })
+      .from(assistantIngressMembers)
+      .where(eq(assistantIngressMembers.id, memberId))
+      .get();
+    if (member?.externalUserId) {
+      updateChannelLastSeenByExternalId(member.sourceChannel, member.externalUserId);
+    }
+  } catch (err) {
+    log.warn({ err }, 'Contact sync failed for last seen update');
+  }
 }

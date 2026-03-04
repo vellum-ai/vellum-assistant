@@ -812,3 +812,24 @@ export function updateChannelStatus(
 
   return updated ? parseChannel(updated) : null;
 }
+
+/**
+ * Update the lastSeenAt timestamp on a contact channel by (type, externalUserId).
+ * Optimized for the hot path — single UPDATE with no prior SELECT.
+ */
+export function updateChannelLastSeenByExternalId(
+  channelType: string,
+  externalUserId: string,
+): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(contactChannels)
+    .set({ lastSeenAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(contactChannels.type, channelType),
+        eq(contactChannels.externalUserId, externalUserId),
+      ),
+    )
+    .run();
+}
