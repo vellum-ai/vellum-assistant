@@ -76,7 +76,8 @@ mock.module("../permissions/trust-store.js", () => ({
   getRules: () => [],
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";

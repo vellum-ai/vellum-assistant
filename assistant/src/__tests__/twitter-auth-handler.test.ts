@@ -159,7 +159,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   _setMetadataPath: () => {},
 }));
 
-import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
+import { handleMessage, type HandlerContext } from '../daemon/handlers/index.js';
 import type {
   ServerMessage,
   TwitterAuthStartRequest,

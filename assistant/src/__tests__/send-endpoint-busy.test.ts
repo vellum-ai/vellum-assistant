@@ -16,7 +16,7 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import type { Session } from "../daemon/session.js";
 import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { createBinding } from "../memory/channel-guardian-store.js";
+import { createBinding } from '../memory/guardian-bindings.js';
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 
 const testDir = realpathSync(
@@ -73,7 +73,8 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";

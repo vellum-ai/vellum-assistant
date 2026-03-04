@@ -2,7 +2,7 @@ import { desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import type { PricingResult,UsageEvent, UsageEventInput } from '../usage/types.js';
-import { getDb } from './db.js';
+import { getDb } from './db-connection.js';
 import { llmUsageEvents } from './schema.js';
 
 export function recordUsageEvent(input: UsageEventInput, pricing: PricingResult): UsageEvent {

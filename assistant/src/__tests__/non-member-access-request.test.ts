@@ -97,10 +97,11 @@ import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
-import { createBinding } from "../memory/channel-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { createBinding } from '../memory/guardian-bindings.js';
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { handleChannelInbound } from '../runtime/routes/inbound-message-handler.js';
 
 initializeDb();
 

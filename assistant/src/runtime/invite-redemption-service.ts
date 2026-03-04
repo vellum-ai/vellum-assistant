@@ -8,7 +8,7 @@
  */
 
 import type { ChannelId } from '../channels/types.js';
-import { getSqlite } from '../memory/db.js';
+import { getSqlite } from '../memory/db-connection.js';
 import { findActiveVoiceInvites,findByTokenHash, hashToken, markInviteExpired, recordInviteUse, redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
 import { findMember } from '../memory/ingress-member-store.js';
 import { upsertMemberContactsFirst } from '../contacts/contacts-write.js';

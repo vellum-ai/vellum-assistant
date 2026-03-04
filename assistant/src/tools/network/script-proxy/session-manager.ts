@@ -9,12 +9,12 @@ import { compareMatchSpecificity, type HostMatchKind,matchHostPattern } from '..
 import { listCredentialMetadata } from '../../credentials/metadata-store.js';
 import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
 import { resolveById } from '../../credentials/resolve.js';
-import { ensureCombinedCABundle,ensureLocalCA, getCAPath } from './certs.js';
-import type { PolicyCallback } from './http-forwarder.js';
-import { buildDecisionTrace, stripQueryString } from './logging.js';
-import { evaluateRequestWithApproval } from './policy.js';
-import type { ProxyServerConfig } from './server.js';
-import { createProxyServer } from './server.js';
+import { ensureCombinedCABundle, ensureLocalCA, getCAPath } from '@vellumai/outbound-proxy';
+import type { PolicyCallback } from '@vellumai/outbound-proxy';
+import { buildDecisionTrace, stripQueryString } from '@vellumai/outbound-proxy';
+import { evaluateRequestWithApproval } from '@vellumai/outbound-proxy';
+import type { ProxyServerConfig } from '@vellumai/outbound-proxy';
+import { createProxyServer } from '@vellumai/outbound-proxy';
 import {
   routeConnection,
   type ProxyApprovalCallback,

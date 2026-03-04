@@ -82,12 +82,11 @@ import {
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
-import {
-  createApprovalRequest,
-  createBinding,
-  getAllPendingApprovalsByGuardianChat,
-} from "../memory/channel-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getAllPendingApprovalsByGuardianChat } from '../memory/guardian-approvals.js';
+import { createBinding } from '../memory/guardian-bindings.js';
+import { createApprovalRequest } from '../memory/channel-guardian-store.js';
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import {
   conversations,
   externalConversationBindings,
@@ -95,11 +94,9 @@ import {
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import {
-  _setTestPollMaxWait,
-  handleChannelInbound,
-  sweepExpiredGuardianApprovals,
-} from "../runtime/routes/channel-routes.js";
+import { _setTestPollMaxWait } from '../runtime/routes/channel-route-shared.js';
+import { sweepExpiredGuardianApprovals } from '../runtime/routes/guardian-expiry-sweep.js';
+import { handleChannelInbound } from '../runtime/routes/inbound-message-handler.js';
 
 initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));

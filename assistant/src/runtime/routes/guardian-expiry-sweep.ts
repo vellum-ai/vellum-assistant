@@ -3,10 +3,7 @@
  * guardian approvals, auto-denies the underlying requests, and notifies both
  * the requester and guardian.
  */
-import {
-  getExpiredPendingApprovals,
-  updateApprovalDecision,
-} from '../../memory/channel-guardian-store.js';
+import { getExpiredPendingApprovals, updateApprovalDecision } from '../../memory/guardian-approvals.js';
 import { getLogger } from '../../util/logger.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import type { ApprovalDecisionResult } from '../channel-approval-types.js';

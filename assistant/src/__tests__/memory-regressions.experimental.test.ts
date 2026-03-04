@@ -54,7 +54,8 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => TEST_CONFIG,
   invalidateConfigCache: () => {},
 }));
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import { indexMessageNow } from "../memory/indexer.js";
 import { vectorToBlob } from "../memory/job-utils.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";

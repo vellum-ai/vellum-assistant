@@ -176,13 +176,11 @@ import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import {
-  createBinding,
-  createChallenge,
-  createVerificationSession,
-} from "../memory/channel-guardian-store.js";
+import { createBinding } from '../memory/guardian-bindings.js';
+import { createChallenge, createVerificationSession } from '../memory/guardian-verification.js';
 import { addMessage, getMessages } from "../memory/conversation-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import { createInvite } from "../memory/ingress-invite-store.js";
 import { upsertMember } from "../memory/ingress-member-store.js";
 import { conversations } from "../memory/schema.js";

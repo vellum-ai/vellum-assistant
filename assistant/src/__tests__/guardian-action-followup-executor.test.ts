@@ -90,8 +90,9 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { initializeDb, resetDb } from "../memory/db.js";
-import { getDb } from "../memory/db.js";
+import { resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
+import { getDb } from '../memory/db-connection.js';
 import {
   createGuardianActionDelivery,
   createGuardianActionRequest,

@@ -27,7 +27,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { mergeToolResults, renderHistoryContent } from "../daemon/handlers.js";
+import { mergeToolResults, renderHistoryContent } from '../daemon/handlers/index.js';
 import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
@@ -37,7 +37,8 @@ import {
   addMessage,
   createConversation,
 } from "../memory/conversation-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 
 initializeDb();
 

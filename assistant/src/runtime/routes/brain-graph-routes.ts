@@ -10,7 +10,7 @@ import { join } from 'node:path';
 
 import { count } from 'drizzle-orm';
 
-import { getDb } from '../../memory/db.js';
+import { getDb } from '../../memory/db-connection.js';
 import { memoryEntities, memoryEntityRelations, memoryItems } from '../../memory/schema.js';
 import { resolveBundledDir } from '../../util/bundled-asset.js';
 

@@ -5,10 +5,7 @@
  * so they need a separate decision path that creates a verification session
  * instead of resuming an agent loop.
  */
-import {
-  type GuardianApprovalRequest,
-  resolveApprovalRequest,
-} from '../../memory/channel-guardian-store.js';
+import { resolveApprovalRequest, type GuardianApprovalRequest } from '../../memory/guardian-approvals.js';
 import { getLogger } from '../../util/logger.js';
 import { createOutboundSession } from '../channel-guardian-service.js';
 import { deliverChannelReply } from '../gateway-client.js';

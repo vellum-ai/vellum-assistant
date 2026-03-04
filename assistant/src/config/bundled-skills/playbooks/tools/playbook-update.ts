@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 
-import { getDb } from '../../../../memory/db.js';
+import { getDb } from '../../../../memory/db-connection.js';
 import { computeMemoryFingerprint } from '../../../../memory/fingerprint.js';
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
 import { memoryItems } from '../../../../memory/schema.js';

@@ -10,7 +10,8 @@ import { unlinkSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb, rawAll, rawGet, rawRun } from './db.js';
+import { getDb } from './db-connection.js';
+import { rawAll, rawGet, rawRun } from './raw-query.js';
 import { attachments, messageAttachments } from './schema.js';
 
 export interface StoredAttachment {

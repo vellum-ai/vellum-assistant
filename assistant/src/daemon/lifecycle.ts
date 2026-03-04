@@ -29,7 +29,7 @@ import { initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
-import { initializeDb } from "../memory/db.js";
+import { initializeDb } from '../memory/db-init.js';
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";

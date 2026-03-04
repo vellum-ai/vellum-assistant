@@ -8,7 +8,7 @@
 import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "./db.js";
+import { getDb } from './db-connection.js';
 import {
   mediaAssets,
   mediaEvents,

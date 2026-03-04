@@ -3,11 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import {
-  ensureLocalCA,
-  getCAPath,
-  issueLeafCert,
-} from "../tools/network/script-proxy/certs.js";
+import { ensureLocalCA, getCAPath, issueLeafCert } from '@vellumai/outbound-proxy';
 
 let dataDir: string;
 

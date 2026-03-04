@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { GENERATING_TITLE } from './conversation-title-service.js';
-import { getDb } from './db.js';
+import { getDb } from './db-connection.js';
 import { conversationKeys,conversations } from './schema.js';
 
 export interface ConversationKeyMapping {

@@ -23,7 +23,7 @@ import {
   getMessages,
   listConversations,
 } from '../memory/conversation-store.js';
-import { initializeDb } from '../memory/db.js';
+import { initializeDb } from '../memory/db-init.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
 import { getRecentInvocations } from '../memory/tool-usage-store.js';
 import { IpcError } from '../util/errors.js';

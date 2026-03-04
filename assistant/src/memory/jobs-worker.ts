@@ -1,7 +1,7 @@
 import { getConfig } from '../config/loader.js';
 import type { AssistantConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
-import { rawRun } from './db.js';
+import { rawRun } from './raw-query.js';
 import { reconcileFtsIndexes } from './fts-reconciler.js';
 import { backfillEntityRelationsJob,backfillJob } from './job-handlers/backfill.js';
 import { checkContradictionsJob, cleanupStaleSupersededItemsJob, pruneOldConversationsJob } from './job-handlers/cleanup.js';

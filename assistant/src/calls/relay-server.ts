@@ -15,7 +15,7 @@ import { resolveUserReference } from "../config/user-reference.js";
 import { findGuardianForChannel, listGuardianChannels } from "../contacts/contact-store.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { listActiveBindingsByAssistant } from "../memory/channel-guardian-store.js";
+import { listActiveBindingsByAssistant } from '../memory/guardian-bindings.js';
 import * as conversationStore from "../memory/conversation-store.js";
 import { findActiveVoiceInvites } from "../memory/ingress-invite-store.js";
 import { findMember } from "../memory/ingress-member-store.js";

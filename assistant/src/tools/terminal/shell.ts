@@ -7,11 +7,8 @@ import { redactSecrets } from '../../security/secret-scanner.js';
 import { getLogger } from '../../util/logger.js';
 import { getDataDir } from '../../util/platform.js';
 import { resolveCredentialRef } from '../credentials/resolve.js';
-import {
-  getOrStartSession,
-  getSessionEnv,
-} from '../network/script-proxy/index.js';
-import { buildCredentialRefTrace } from '../network/script-proxy/logging.js';
+import { getOrStartSession, getSessionEnv } from '../network/script-proxy/session-manager.js';
+import { buildCredentialRefTrace } from '@vellumai/outbound-proxy';
 import { registerTool } from '../registry.js';
 import { formatShellOutput } from '../shared/shell-output.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';

@@ -25,15 +25,7 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
   getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
 }));
 
-import {
-  createSession,
-  getActiveSession,
-  getSessionEnv,
-  getSessionsForConversation,
-  startSession,
-  stopAllSessions,
-  stopSession,
-} from "../tools/network/script-proxy/index.js";
+import { createSession, getActiveSession, getSessionEnv, getSessionsForConversation, startSession, stopAllSessions, stopSession } from '../tools/network/script-proxy/session-manager.js';
 
 afterEach(async () => {
   await stopAllSessions();

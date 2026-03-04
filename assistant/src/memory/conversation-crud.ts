@@ -12,7 +12,8 @@ import { getLogger } from "../util/logger.js";
 import { createRowMapper } from "../util/row-mapper.js";
 import { deleteOrphanAttachments } from "./attachments-store.js";
 import { projectAssistantMessage } from "./conversation-attention-store.js";
-import { getDb, rawExec, rawGet } from "./db.js";
+import { getDb } from './db-connection.js';
+import { rawExec, rawGet } from './raw-query.js';
 import { indexMessageNow } from "./indexer.js";
 import {
   channelInboundEvents,

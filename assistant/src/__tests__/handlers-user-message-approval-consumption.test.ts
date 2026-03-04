@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import type { HandlerContext } from "../daemon/handlers.js";
+import type { HandlerContext } from '../daemon/handlers/index.js';
 import type {
   ConfirmationResponse,
   UserMessage,

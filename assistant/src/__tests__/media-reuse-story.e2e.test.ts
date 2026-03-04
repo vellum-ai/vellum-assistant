@@ -114,11 +114,12 @@ import {
   addMessage,
   createConversation,
 } from "../memory/conversation-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import { assetMaterializeTool } from "../tools/assets/materialize.js";
 import { assetSearchTool, searchAttachments } from "../tools/assets/search.js";
 import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import { stopAllSessions } from "../tools/network/script-proxy/index.js";
+import { stopAllSessions } from '../tools/network/script-proxy/session-manager.js';
 import { shellTool } from "../tools/terminal/shell.js";
 import type { ToolContext } from "../tools/types.js";
 import {

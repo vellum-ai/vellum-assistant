@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  buildCredentialRefTrace,
-  buildDecisionTrace,
-  type CredentialRefTrace,
-  type ProxyDecisionTrace,
-} from "../tools/network/script-proxy/logging.js";
+import { buildCredentialRefTrace, buildDecisionTrace, type CredentialRefTrace, type ProxyDecisionTrace } from '@vellumai/outbound-proxy';
 import type { PolicyDecision } from "../tools/network/script-proxy/types.js";
 
 describe("buildDecisionTrace", () => {

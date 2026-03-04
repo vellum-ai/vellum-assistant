@@ -51,11 +51,7 @@ import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import { AuthManager } from "./auth-manager.js";
 import { ComputerUseSession } from "./computer-use-session.js";
 import { ConfigWatcher } from "./config-watcher.js";
-import {
-  handleMessage,
-  type HandlerContext,
-  type SessionCreateOptions,
-} from "./handlers.js";
+import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers/index.js';
 import { parseIdentityFields } from "./handlers/identity.js";
 import { cleanupRecordingsOnDisconnect } from "./handlers/recording.js";
 import { ensureBlobDir, sweepStaleBlobs } from "./ipc-blob-store.js";

@@ -56,7 +56,7 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-import type { HandlerContext } from "../daemon/handlers.js";
+import type { HandlerContext } from '../daemon/handlers/index.js';
 import { handleAddTrustRule } from "../daemon/handlers/config.js";
 import type { AddTrustRule } from "../daemon/ipc-contract.js";
 import type { ServerMessage } from "../daemon/ipc-contract.js";

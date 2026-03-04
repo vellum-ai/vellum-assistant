@@ -6,7 +6,7 @@ import type { MemoryExtractionConfig } from '../config/types.js';
 import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { getDb } from './db.js';
+import { getDb } from './db-connection.js';
 import { computeMemoryFingerprint } from './fingerprint.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';

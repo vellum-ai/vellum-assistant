@@ -25,7 +25,7 @@ import {
   updateLastSeen,
   upsertMember,
 } from "../memory/ingress-member-store.js";
-import { getDb } from "../memory/db.js";
+import { getDb } from '../memory/db-connection.js';
 import { assistantIngressMembers } from "../memory/schema.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";

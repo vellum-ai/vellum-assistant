@@ -14,10 +14,7 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
-import {
-  mergeToolResults,
-  renderHistoryContent,
-} from "../../daemon/handlers.js";
+import { mergeToolResults, renderHistoryContent } from '../../daemon/handlers/index.js';
 import type { ServerMessage } from "../../daemon/ipc-protocol.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {

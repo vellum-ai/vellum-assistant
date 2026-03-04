@@ -12,7 +12,8 @@ import { v4 as uuid } from 'uuid';
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getLogger } from '../util/logger.js';
-import { getDb, rawChanges } from './db.js';
+import { getDb } from './db-connection.js';
+import { rawChanges } from './raw-query.js';
 import {
   guardianActionDeliveries,
   guardianActionRequests,

@@ -1,4 +1,4 @@
-import { renderHistoryContent } from '../daemon/handlers.js';
+import { renderHistoryContent } from '../daemon/handlers/index.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { deliverChannelReply } from './gateway-client.js';

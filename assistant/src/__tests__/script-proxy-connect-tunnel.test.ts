@@ -3,7 +3,7 @@ import { createServer as createTcpServer } from "node:net";
 import { connect } from "node:net";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { createProxyServer } from "../tools/network/script-proxy/server.js";
+import { createProxyServer } from '@vellumai/outbound-proxy';
 
 /** Start an HTTP server and return its address + cleanup handle. */
 function listenEphemeral(

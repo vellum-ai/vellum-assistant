@@ -112,7 +112,8 @@ import {
 } from "../calls/voice-session-bridge.js";
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import { scopedApprovalGrants } from "../memory/schema.js";
 import {
   _internal,

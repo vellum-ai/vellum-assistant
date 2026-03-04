@@ -47,7 +47,8 @@ mock.module("../config/env.js", () => ({
   getBaseDataDir: () => testDir,
 }));
 
-import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
+import { getSqlite, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import {
   createBinding,
   getActiveBinding,

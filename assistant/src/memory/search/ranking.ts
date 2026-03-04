@@ -4,7 +4,7 @@ import type { AssistantConfig, MemoryRerankingConfig } from '../../config/types.
 import { estimateTextTokens } from '../../context/token-estimator.js';
 import { extractText, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
+import { getDb } from '../db-connection.js';
 import { memoryItems } from '../schema.js';
 import { buildInjectedText } from './formatting.js';
 import type { Candidate, CandidateSource, ItemMetadata } from './types.js';

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getConfig } from '../../config/loader.js';
 import type { AssistantConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
+import { getDb } from '../db-connection.js';
 import {
   extractEntitiesWithLLM,
   linkMemoryItemToEntity,

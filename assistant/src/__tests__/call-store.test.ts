@@ -40,7 +40,8 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "../calls/call-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import { conversations } from "../memory/schema.js";
 
 initializeDb();

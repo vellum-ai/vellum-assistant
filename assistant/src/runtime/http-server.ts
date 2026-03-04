@@ -125,15 +125,10 @@ import {
   handleGetChannelReadiness,
   handleRefreshChannelReadiness,
 } from "./routes/channel-readiness-routes.js";
-import {
-  handleChannelDeliveryAck,
-  handleChannelInbound,
-  handleDeleteConversation,
-  handleListDeadLetters,
-  handleReplayDeadLetters,
-  startGuardianExpirySweep,
-  stopGuardianExpirySweep,
-} from "./routes/channel-routes.js";
+import { handleChannelDeliveryAck, handleListDeadLetters, handleReplayDeadLetters } from './routes/channel-delivery-routes.js';
+import { startGuardianExpirySweep, stopGuardianExpirySweep } from './routes/guardian-expiry-sweep.js';
+import { handleDeleteConversation } from './routes/inbound-conversation.js';
+import { handleChannelInbound } from './routes/inbound-message-handler.js';
 import {
   handleGetContact,
   handleListContacts,

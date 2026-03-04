@@ -35,7 +35,8 @@ mock.module("../config/loader.js", () => ({
 
 import type { Database } from "bun:sqlite";
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import { executeFollowupCreate } from "../tools/followups/followup_create.js";
 import { executeFollowupList } from "../tools/followups/followup_list.js";
 import { executeFollowupResolve } from "../tools/followups/followup_resolve.js";

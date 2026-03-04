@@ -74,14 +74,15 @@ mock.module("../memory/ingress-member-store.js", () => ({
 import { eq } from "drizzle-orm";
 
 import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import {
   attachments,
   conversationAssistantAttentionState,
   conversationAttentionEvents,
 } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { handleChannelInbound } from '../runtime/routes/inbound-message-handler.js';
 
 initializeDb();
 

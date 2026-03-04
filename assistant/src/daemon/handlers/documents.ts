@@ -1,6 +1,6 @@
 import type * as net from 'node:net';
 
-import { rawAll,rawGet, rawRun } from '../../memory/db.js';
+import { rawAll, rawGet, rawRun } from '../../memory/raw-query.js';
 import { getLogger } from '../../util/logger.js';
 import type { DocumentListRequest,DocumentLoadRequest, DocumentSaveRequest } from '../ipc-protocol.js';
 import type { HandlerContext } from './shared.js';

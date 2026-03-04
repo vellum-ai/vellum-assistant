@@ -15,7 +15,7 @@ import {
   watchSessions,
 } from '../tools/watch/watch-state.js';
 import { getLogger } from '../util/logger.js';
-import type { HandlerContext } from './handlers.js';
+import type { HandlerContext } from './handlers/index.js';
 import type { RideShotgunStart, RideShotgunStop } from './ipc-protocol.js';
 import { generateSummary,lastSummaryBySession } from './watch-handler.js';
 

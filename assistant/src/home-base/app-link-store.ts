@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 
-import { getDb } from '../memory/db.js';
+import { getDb } from '../memory/db-connection.js';
 import { homeBaseAppLinks } from '../memory/schema.js';
 
 const HOME_BASE_LINK_ID = 'default';

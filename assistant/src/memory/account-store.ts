@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { and,eq } from 'drizzle-orm';
 
-import { getDb } from './db.js';
+import { getDb } from './db-connection.js';
 import { accounts } from './schema.js';
 
 export interface AccountRecord {

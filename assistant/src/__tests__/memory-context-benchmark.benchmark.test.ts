@@ -24,7 +24,8 @@ import {
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import { ContextWindowManager } from "../context/window-manager.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";

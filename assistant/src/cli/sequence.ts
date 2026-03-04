@@ -6,7 +6,7 @@
 
 import { Command } from 'commander';
 
-import { initializeDb } from '../memory/db.js';
+import { initializeDb } from '../memory/db-init.js';
 import {
   getGuardrailConfig,
   setGuardrailConfig,

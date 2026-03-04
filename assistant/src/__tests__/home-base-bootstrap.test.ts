@@ -36,7 +36,8 @@ import {
   resolveHomeBaseAppId,
 } from "../home-base/bootstrap.js";
 import { deleteApp } from "../memory/app-store.js";
-import { initializeDb, resetDb } from "../memory/db.js";
+import { resetDb } from '../memory/db-connection.js';
+import { initializeDb } from '../memory/db-init.js';
 
 describe("home base bootstrap", () => {
   beforeEach(() => {

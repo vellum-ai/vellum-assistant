@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/node';
 import type { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import type { HookManager } from '../hooks/manager.js';
 import type { McpServerManager } from '../mcp/manager.js';
-import { getSqlite, resetDb } from '../memory/db.js';
+import { getSqlite, resetDb } from '../memory/db-connection.js';
 import type { QdrantManager } from '../memory/qdrant-manager.js';
 import type { RuntimeHttpServer } from '../runtime/http-server.js';
 import { browserManager } from '../tools/browser/browser-manager.js';

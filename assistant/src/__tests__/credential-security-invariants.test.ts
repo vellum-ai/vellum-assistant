@@ -509,11 +509,7 @@ describe("One-time send override", () => {
 // Invariant 5 — Proxy Redaction and Sensitive Logging Guards
 // ---------------------------------------------------------------------------
 
-import {
-  createSafeLogEntry,
-  sanitizeHeaders,
-  sanitizeUrl,
-} from "../tools/network/script-proxy/logging.js";
+import { createSafeLogEntry, sanitizeHeaders, sanitizeUrl } from '@vellumai/outbound-proxy';
 
 describe("Invariant 5: proxy log entries never contain secrets", () => {
   test("Authorization headers are redacted in log entries", () => {

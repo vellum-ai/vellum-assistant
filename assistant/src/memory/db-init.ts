@@ -1,56 +1,53 @@
 import { getDb } from "./db-connection.js";
-import {
-  addCoreColumns,
-  createActorRefreshTokenRecordsTable,
-  createActorTokenRecordsTable,
-  createAssistantInboxTables,
-  createCallSessionsTables,
-  createCanonicalGuardianTables,
-  createChannelGuardianTables,
-  createContactsAndTriageTables,
-  createConversationAttentionTables,
-  createCoreIndexes,
-  createCoreTables,
-  createExternalConversationBindingsTables,
-  createFollowupsTables,
-  createMediaAssetsTables,
-  createMessagesFts,
-  createNotificationTables,
-  createScopedApprovalGrantsTable,
-  createSequenceTables,
-  createTasksAndWorkItemsTables,
-  createWatchersAndLogsTables,
-  migrateBackfillGuardianPrincipalId,
-  migrateCallSessionMode,
-  migrateCanonicalGuardianDeliveriesDestinationIndex,
-  migrateCanonicalGuardianRequesterChatId,
-  migrateChannelInboundDeliveredSegments,
-  migrateContactChannelsAccessFields,
-  migrateContactChannelsTypeChatIdIndex,
-  migrateContactsRolePrincipal,
-  migrateConversationsThreadTypeIndex,
-  migrateFkCascadeRebuilds,
-  migrateGuardianActionFollowup,
-  migrateGuardianActionSupersession,
-  migrateGuardianActionToolMetadata,
-  migrateGuardianBootstrapToken,
-  migrateGuardianDeliveryConversationIndex,
-  migrateGuardianPrincipalIdColumns,
-  migrateGuardianPrincipalIdNotNull,
-  migrateGuardianVerificationPurpose,
-  migrateGuardianVerificationSessions,
-  migrateMessagesFtsBackfill,
-  migrateNormalizePhoneIdentities,
-  migrateNotificationDeliveryThreadDecision,
-  migrateReminderRoutingIntent,
-  migrateSchemaIndexesAndColumns,
-  migrateVoiceInviteColumns,
-  migrateVoiceInviteDisplayMetadata,
-  recoverCrashedMigrations,
-  runComplexMigrations,
-  runLateMigrations,
-  validateMigrationState,
-} from "./migrations/index.js";
+import { migrateMessagesFtsBackfill } from './migrations/025-messages-fts-backfill.js';
+import { migrateGuardianVerificationSessions } from './migrations/026-guardian-verification-sessions.js';
+import { migrateGuardianBootstrapToken } from './migrations/027a-guardian-bootstrap-token.js';
+import { migrateCallSessionMode } from './migrations/028-call-session-mode.js';
+import { migrateChannelInboundDeliveredSegments } from './migrations/029-channel-inbound-delivered-segments.js';
+import { migrateGuardianActionFollowup } from './migrations/030-guardian-action-followup.js';
+import { migrateGuardianVerificationPurpose } from './migrations/030-guardian-verification-purpose.js';
+import { migrateConversationsThreadTypeIndex } from './migrations/031-conversations-thread-type-index.js';
+import { migrateGuardianDeliveryConversationIndex } from './migrations/032-guardian-delivery-conversation-index.js';
+import { migrateNotificationDeliveryThreadDecision } from './migrations/032-notification-delivery-thread-decision.js';
+import { createScopedApprovalGrantsTable } from './migrations/033-scoped-approval-grants.js';
+import { migrateGuardianActionToolMetadata } from './migrations/034-guardian-action-tool-metadata.js';
+import { migrateGuardianActionSupersession } from './migrations/035-guardian-action-supersession.js';
+import { migrateNormalizePhoneIdentities } from './migrations/036-normalize-phone-identities.js';
+import { migrateVoiceInviteColumns } from './migrations/037-voice-invite-columns.js';
+import { createActorTokenRecordsTable } from './migrations/038-actor-token-records.js';
+import { createActorRefreshTokenRecordsTable } from './migrations/039-actor-refresh-token-records.js';
+import { createCoreTables } from './migrations/100-core-tables.js';
+import { createWatchersAndLogsTables } from './migrations/101-watchers-and-logs.js';
+import { addCoreColumns } from './migrations/102-alter-table-columns.js';
+import { runComplexMigrations } from './migrations/103-complex-migrations.js';
+import { createCoreIndexes } from './migrations/104-core-indexes.js';
+import { createContactsAndTriageTables } from './migrations/105-contacts-and-triage.js';
+import { createCallSessionsTables } from './migrations/106-call-sessions.js';
+import { createFollowupsTables } from './migrations/107-followups.js';
+import { createTasksAndWorkItemsTables } from './migrations/108-tasks-and-work-items.js';
+import { createExternalConversationBindingsTables } from './migrations/109-external-conversation-bindings.js';
+import { createChannelGuardianTables } from './migrations/110-channel-guardian.js';
+import { createMediaAssetsTables } from './migrations/111-media-assets.js';
+import { createAssistantInboxTables } from './migrations/112-assistant-inbox.js';
+import { runLateMigrations } from './migrations/113-late-migrations.js';
+import { createNotificationTables } from './migrations/114-notifications.js';
+import { createSequenceTables } from './migrations/115-sequences.js';
+import { createMessagesFts } from './migrations/116-messages-fts.js';
+import { createConversationAttentionTables } from './migrations/117-conversation-attention.js';
+import { migrateReminderRoutingIntent } from './migrations/118-reminder-routing-intent.js';
+import { migrateSchemaIndexesAndColumns } from './migrations/119-schema-indexes-and-columns.js';
+import { migrateFkCascadeRebuilds } from './migrations/120-fk-cascade-rebuilds.js';
+import { createCanonicalGuardianTables } from './migrations/121-canonical-guardian-requests.js';
+import { migrateCanonicalGuardianRequesterChatId } from './migrations/122-canonical-guardian-requester-chat-id.js';
+import { migrateCanonicalGuardianDeliveriesDestinationIndex } from './migrations/123-canonical-guardian-deliveries-destination-index.js';
+import { migrateVoiceInviteDisplayMetadata } from './migrations/124-voice-invite-display-metadata.js';
+import { migrateGuardianPrincipalIdColumns } from './migrations/125-guardian-principal-id-columns.js';
+import { migrateBackfillGuardianPrincipalId } from './migrations/126-backfill-guardian-principal-id.js';
+import { migrateGuardianPrincipalIdNotNull } from './migrations/127-guardian-principal-id-not-null.js';
+import { migrateContactsRolePrincipal } from './migrations/128-contacts-role-principal.js';
+import { migrateContactChannelsAccessFields } from './migrations/129-contact-channels-access-fields.js';
+import { migrateContactChannelsTypeChatIdIndex } from './migrations/130-contact-channels-type-ext-chat-id-index.js';
+import { recoverCrashedMigrations, validateMigrationState } from './migrations/validate-migration-state.js';
 
 export function initializeDb(): void {
   const database = getDb();

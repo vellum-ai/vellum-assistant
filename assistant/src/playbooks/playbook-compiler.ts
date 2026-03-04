@@ -6,7 +6,7 @@
 
 import { and, desc, eq, isNull } from 'drizzle-orm';
 
-import { getDb } from '../memory/db.js';
+import { getDb } from '../memory/db-connection.js';
 import { memoryItems } from '../memory/schema.js';
 import type { Playbook } from './types.js';
 import { parsePlaybookStatement } from './types.js';

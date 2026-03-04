@@ -1,7 +1,8 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb, getSqlite, rawAll, rawChanges } from './db.js';
+import { getDb, getSqlite } from './db-connection.js';
+import { rawAll, rawChanges } from './raw-query.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItemConflicts, memoryItems } from './schema.js';
 import { clampUnitInterval } from './validation.js';

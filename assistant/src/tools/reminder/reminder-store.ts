@@ -1,7 +1,8 @@
 import { and, asc, eq, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb, rawRun } from '../../memory/db.js';
+import { getDb } from '../../memory/db-connection.js';
+import { rawRun } from '../../memory/raw-query.js';
 import { reminders } from '../../memory/schema.js';
 import { cast,createRowMapper, parseJson } from '../../util/row-mapper.js';
 

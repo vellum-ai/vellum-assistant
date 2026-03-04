@@ -5,14 +5,7 @@
 import { applyGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
-import {
-  getAllPendingApprovalsByGuardianChat,
-  getPendingApprovalByRequestAndGuardianChat,
-  getPendingApprovalForRequest,
-  getUnresolvedApprovalForRequest,
-  type GuardianApprovalRequest,
-  updateApprovalDecision,
-} from "../../memory/channel-guardian-store.js";
+import { getAllPendingApprovalsByGuardianChat, getPendingApprovalByRequestAndGuardianChat, getPendingApprovalForRequest, getUnresolvedApprovalForRequest, type GuardianApprovalRequest, updateApprovalDecision } from '../../memory/guardian-approvals.js';
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { getLogger } from "../../util/logger.js";
 import { runApprovalConversationTurn } from "../approval-conversation-turn.js";

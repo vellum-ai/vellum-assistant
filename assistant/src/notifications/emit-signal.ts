@@ -13,7 +13,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { getActiveBinding } from "../memory/channel-guardian-store.js";
+import { getActiveBinding } from '../memory/guardian-bindings.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";

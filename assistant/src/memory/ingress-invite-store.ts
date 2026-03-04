@@ -11,7 +11,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { getDb } from './db.js';
+import { getDb } from './db-connection.js';
 import { assistantIngressInvites, assistantIngressMembers } from './schema.js';
 
 // ---------------------------------------------------------------------------
