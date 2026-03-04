@@ -380,7 +380,7 @@ export function redeemVoiceInviteCode(params: {
           policy: "allow",
           inviteId: invite.id,
         });
-        memberId = writeResult?.channel.id;
+        memberId = writeResult!.channel.id;
 
         const recorded = recordInviteUse({
           inviteId: invite.id,
