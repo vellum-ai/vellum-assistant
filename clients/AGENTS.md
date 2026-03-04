@@ -78,6 +78,34 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 - Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
 - Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
 
+## File organization and splitting
+
+### Extension file naming
+Use the Swift convention `TypeName+Purpose.swift` for files that contain extensions of a type. This is a long-standing Swift/Apple community convention (inherited from Objective-C categories) and is the idiomatic way to split a large type across multiple files.
+
+**Examples:**
+- `MainWindowView+Sidebar.swift` — sidebar content extension of `MainWindowView`
+- `MainWindowView+Sharing.swift` — publishing and sharing logic extension
+- `ChatViewModel+Streaming.swift` — streaming-related methods
+
+### When to split a file
+- **Target: ~500-600 lines max per file.** If a file exceeds this, split it.
+- **Extension files** (`TypeName+Purpose.swift`) — use when the code logically belongs to the same type but can be grouped by purpose. The extension lives in the same directory as the primary file.
+- **Standalone views** (`SidebarThreadItem.swift`) — use when a view has its own identity, state, and can be reused independently. Place in a subdirectory if there are multiple related views (e.g., `Sidebar/`).
+- **Helper types** (`MainWindowGroupedState.swift`) — use for supporting types (state enums, delegates) that don't belong in the main view file.
+
+### Access control across file boundaries
+Swift does not allow `private` members to be accessed from a different file, even in an extension of the same type. When extracting code into a `TypeName+Purpose.swift` extension file:
+- Members that were `private` must become `internal` (the default, no keyword needed).
+- Only use `private` for members that are truly file-scoped. Use `internal` for members shared across extension files of the same type.
+- Note this in PR descriptions when widening access — reviewers should verify no unintended callers exist.
+
+### Comment quality
+- Comments and docstrings must describe the code's intent and behavior, not its refactoring history.
+- Do not leave breadcrumb comments like `// moved to X.swift` or `// extracted from Y()`. These become stale and clutter the code.
+- Good: `/// Cancellable task for the delayed hover trigger on the collapsed thread section.`
+- Bad: `// threadItem — moved to Sidebar/SidebarThreadItem.swift (standalone view)`
+
 ## SwiftUI type-checker complexity
 
 Swift's type checker has quadratic complexity with chained view modifiers. Complex view bodies will cause "unable to type-check this expression in reasonable time" build errors.
