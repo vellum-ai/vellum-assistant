@@ -427,7 +427,7 @@ describe("trusted contact verification → member activation", () => {
     }
 
     // The original guardian binding should remain intact
-    const guardianResult = findGuardianForChannel("telegram");
+    const guardianResult = findGuardianForChannel("telegram", "self");
     expect(guardianResult).not.toBeNull();
     expect(guardianResult!.channel.externalUserId).toBe(
       "guardian-user-original",
@@ -455,7 +455,7 @@ describe("trusted contact verification → member activation", () => {
     }
 
     // Guardian binding should be created (in contacts table)
-    const guardianResult = findGuardianForChannel("telegram");
+    const guardianResult = findGuardianForChannel("telegram", "self");
     expect(guardianResult).not.toBeNull();
     expect(guardianResult!.channel.externalUserId).toBe("guardian-user");
   });

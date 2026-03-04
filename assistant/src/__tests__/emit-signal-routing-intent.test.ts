@@ -21,7 +21,7 @@ mock.module("../channels/config.js", () => ({
 }));
 
 mock.module("../contacts/contact-store.js", () => ({
-  findGuardianForChannel: () => null,
+  findGuardianForChannel: (_channelType: string, _assistantId: string) => null,
 }));
 
 mock.module("../memory/channel-guardian-store.js", () => ({

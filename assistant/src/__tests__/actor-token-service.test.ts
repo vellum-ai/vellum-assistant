@@ -214,7 +214,7 @@ describe("guardian vellum migration", () => {
     const principalId = ensureVellumGuardianBinding("self");
     expect(principalId).toMatch(/^vellum-principal-/);
 
-    const guardianResult = findGuardianForChannel("vellum");
+    const guardianResult = findGuardianForChannel("vellum", "self");
     expect(guardianResult).not.toBeNull();
     expect(guardianResult!.contact.principalId).toBe(principalId);
     expect(guardianResult!.channel.verifiedVia).toBe("startup-migration");
@@ -238,11 +238,11 @@ describe("guardian vellum migration", () => {
 
     ensureVellumGuardianBinding("self");
 
-    const tgGuardian = findGuardianForChannel("telegram");
+    const tgGuardian = findGuardianForChannel("telegram", "self");
     expect(tgGuardian).not.toBeNull();
     expect(tgGuardian!.channel.externalUserId).toBe("tg-user-123");
 
-    const vGuardian = findGuardianForChannel("vellum");
+    const vGuardian = findGuardianForChannel("vellum", "self");
     expect(vGuardian).not.toBeNull();
   });
 });
@@ -440,7 +440,7 @@ describe("resolveLocalIpcAuthContext", () => {
 
   test("enriches actorPrincipalId from vellum guardian binding when present", () => {
     ensureVellumGuardianBinding("self");
-    const guardianResult = findGuardianForChannel("vellum");
+    const guardianResult = findGuardianForChannel("vellum", "self");
     expect(guardianResult).toBeTruthy();
 
     const ctx = resolveLocalIpcAuthContext("session-123");
