@@ -439,7 +439,7 @@ Each channel has:
 ## Tips
 
 - Use contact search with `channelAddress` to find contacts by their email, phone, or handle.
-- When creating follow-ups, provide a `contactId` to link the follow-up to a specific contact for grace period calculations.
+- When creating follow-ups, provide a `contact_id` to link the follow-up to a specific contact for grace period calculations.
 - Contacts with higher importance scores get shorter default response deadlines.
 - When merging contacts, the surviving contact keeps the higher importance score and gains all channels from the donor.
 
