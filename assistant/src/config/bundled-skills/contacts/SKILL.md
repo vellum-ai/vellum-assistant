@@ -24,16 +24,16 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
-    "display_name": "<name>",
+    "displayName": "<name>",
     "relationship": "<relationship>",
     "importance": 0.5,
-    "response_expectation": "<speed>",
-    "preferred_tone": "<tone>",
+    "responseExpectation": "<speed>",
+    "preferredTone": "<tone>",
     "channels": [
       {
         "type": "<channel_type>",
         "address": "<address>",
-        "is_primary": true
+        "isPrimary": true
       }
     ]
   }'
@@ -43,32 +43,33 @@ To update an existing contact, include the `id` field in the request body.
 
 Required fields:
 
-- `display_name` -- the contact's name
+- `displayName` -- the contact's name
 
 Optional fields:
 
 - `id` -- contact ID to update (omit to create new, or auto-match by channel address)
 - `relationship` -- e.g. colleague, friend, manager, client, family
 - `importance` -- score from 0 to 1 (default 0.5), higher means more important
-- `response_expectation` -- expected response speed: immediate, within_hours, within_day, casual
-- `preferred_tone` -- communication tone: formal, casual, friendly, professional
+- `responseExpectation` -- expected response speed: immediate, within_hours, within_day, casual
+- `preferredTone` -- communication tone: formal, casual, friendly, professional
 - `channels` -- list of communication channels
 
 ### Search contacts
 
-Search for contacts by name, channel address, relationship type, or other criteria.
+Search for contacts by name, channel address, relationship type, or other criteria using the gateway API.
 
 ```bash
-vellum contacts search --query "<search_term>" --json
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/contacts?query=<search_term>" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
-Optional parameters:
+Optional query parameters:
 
-- `--query` -- search by display name (partial match)
-- `--channel-address` -- search by channel address (email, phone, handle)
-- `--channel-type` -- filter by channel type when searching by address
-- `--relationship` -- filter by relationship type (exact match)
-- `--limit` -- maximum results to return (default 20, max 100)
+- `query` -- search by display name (partial match)
+- `channelAddress` -- search by channel address (email, phone, handle)
+- `channelType` -- filter by channel type when searching by address
+- `relationship` -- filter by relationship type (exact match)
+- `limit` -- maximum results to return (default 50, max 100)
 
 ### Merge contacts
 
@@ -84,8 +85,8 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/merge" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
-    "keep_id": "<surviving_contact_id>",
-    "merge_id": "<donor_contact_id>"
+    "keepId": "<surviving_contact_id>",
+    "mergeId": "<donor_contact_id>"
   }'
 ```
 
@@ -395,11 +396,11 @@ Replace `<invite_id>` with the invite's `id` from the list response. The same re
 
 ## Contact Fields
 
-- **display_name** -- the contact's name (required)
+- **displayName** -- the contact's name (required)
 - **relationship** -- e.g. colleague, friend, manager, client, family
 - **importance** -- score from 0 to 1 (default 0.5), higher means more important
-- **response_expectation** -- expected response speed: immediate, within_hours, within_day, casual
-- **preferred_tone** -- communication tone: formal, casual, friendly, professional
+- **responseExpectation** -- expected response speed: immediate, within_hours, within_day, casual
+- **preferredTone** -- communication tone: formal, casual, friendly, professional
 - **channels** -- list of communication channels (email, slack, whatsapp, phone, telegram, discord, other)
 
 ### Channel Types
@@ -410,7 +411,7 @@ Each channel has:
 
 - **type** -- one of the supported channel types
 - **address** -- the channel-specific identifier (email address, phone number, handle, etc.)
-- **is_primary** -- whether this is the primary channel for its type
+- **isPrimary** -- whether this is the primary channel for its type
 
 ## Confirmation Requirements
 
@@ -437,8 +438,8 @@ Each channel has:
 
 ## Tips
 
-- Use contact search with `channel_address` to find contacts by their email, phone, or handle.
-- When creating follow-ups, provide a `contact_id` to link the follow-up to a specific contact for grace period calculations.
+- Use contact search with `channelAddress` to find contacts by their email, phone, or handle.
+- When creating follow-ups, provide a `contactId` to link the follow-up to a specific contact for grace period calculations.
 - Contacts with higher importance scores get shorter default response deadlines.
 - When merging contacts, the surviving contact keeps the higher importance score and gains all channels from the donor.
 
