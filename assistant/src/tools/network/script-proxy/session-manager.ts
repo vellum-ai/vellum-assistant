@@ -22,7 +22,7 @@ import type {
   ProxySession,
   ProxySessionConfig,
   ProxySessionId,
-} from './types.js';
+} from '@vellumai/outbound-proxy';
 
 const log = getLogger('proxy-session');
 
