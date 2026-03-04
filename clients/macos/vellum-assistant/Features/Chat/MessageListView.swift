@@ -86,6 +86,11 @@ struct MessageListView: View {
     /// visible viewport. Used alongside `isNearBottom` to suppress the "Scroll
     /// to latest" button when all content fits on screen.
     @State private var anchorIsVisible: Bool = true
+    /// Whether a physical scroll event (wheel/trackpad) has been received since
+    /// the current thread loaded. Before any scroll event, `isNearBottom`
+    /// (which defaults to `true`) is not trusted; the button relies solely on
+    /// `anchorIsVisible` to decide visibility.
+    @State private var hasReceivedScrollEvent: Bool = false
     /// The scroll view's viewport height, captured via preference key. Used by
     /// the anchor GeometryReader to determine if the anchor is within bounds.
     @State private var scrollViewportHeight: CGFloat = .infinity
@@ -493,8 +498,12 @@ struct MessageListView: View {
                         scrollDebounceTask?.cancel()
                         scrollDebounceTask = nil
                         isNearBottom = false
+                        hasReceivedScrollEvent = true
                     },
-                    onScrollToBottom: { isNearBottom = true }
+                    onScrollToBottom: {
+                        isNearBottom = true
+                        hasReceivedScrollEvent = true
+                    }
                 )
                 ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
@@ -507,7 +516,7 @@ struct MessageListView: View {
                 anchorIsVisible = minY >= -20 && minY <= scrollViewportHeight + 20
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && !anchorIsVisible {
+                if (!isNearBottom || !hasReceivedScrollEvent) && !anchorIsVisible {
                     Button(action: {
                         isNearBottom = true
                         withAnimation(VAnimation.fast) {
@@ -684,6 +693,7 @@ struct MessageListView: View {
                 isSuppressingBottomScroll = false
                 isNearBottom = true
                 anchorIsVisible = true
+                hasReceivedScrollEvent = false
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
                 anchorTimeoutTask?.cancel()
