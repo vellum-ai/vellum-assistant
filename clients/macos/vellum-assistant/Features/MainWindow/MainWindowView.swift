@@ -2167,7 +2167,7 @@ private struct DrawerMenuItem: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: VSpacing.md) {
+                HStack(spacing: VSpacing.sm) {
                     Image(systemName: icon)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
