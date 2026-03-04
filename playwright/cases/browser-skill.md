@@ -1,6 +1,6 @@
 ---
 fixture: desktop-app-hatched
-status: stable
+status: experimental
 ---
 
 # Browser Skill Usage
