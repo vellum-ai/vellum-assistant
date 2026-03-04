@@ -89,6 +89,9 @@ struct MessageListView: View {
     /// The scroll view's viewport height, captured via preference key. Used by
     /// the anchor GeometryReader to determine if the anchor is within bounds.
     @State private var scrollViewportHeight: CGFloat = .infinity
+    /// Last known anchor Y position, stored so `anchorIsVisible` can be
+    /// recalculated when the viewport height changes (e.g., window resize).
+    @State private var lastAnchorMinY: CGFloat = .infinity
     /// Timestamp when anchorMessageId was set. Used together with pagination
     /// exhaustion to decide when a stale anchor should be cleared.
     @State private var anchorSetTime: Date?
@@ -495,8 +498,12 @@ struct MessageListView: View {
                 )
                 ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
-            .onPreferenceChange(ScrollViewportHeightKey.self) { scrollViewportHeight = $0 }
+            .onPreferenceChange(ScrollViewportHeightKey.self) {
+                scrollViewportHeight = $0
+                anchorIsVisible = lastAnchorMinY >= -20 && lastAnchorMinY <= $0 + 20
+            }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
+                lastAnchorMinY = minY
                 anchorIsVisible = minY >= -20 && minY <= scrollViewportHeight + 20
             }
             .overlay(alignment: .bottom) {
