@@ -508,33 +508,33 @@ extension MainWindowView {
                 }
                 .onTapGesture {
                     guard regularThreads.count > 1 else { return }
-                    threadSwitcherHoverTimer?.cancel()
-                    threadSwitcherHoverTimer = nil
+                    threadSwitcherHoverTask?.cancel()
+                    threadSwitcherHoverTask = nil
                     showThreadSwitcher.toggle()
                 }
                 .onHover { hovering in
                     guard regularThreads.count > 1 else { return }
                     if hovering {
                         // Cancel any pending dismiss
-                        threadSwitcherDismissTimer?.cancel()
-                        threadSwitcherDismissTimer = nil
+                        threadSwitcherDismissTask?.cancel()
+                        threadSwitcherDismissTask = nil
                         // Start open timer
-                        threadSwitcherHoverTimer?.cancel()
-                        let work = DispatchWorkItem {
+                        threadSwitcherHoverTask?.cancel()
+                        threadSwitcherHoverTask = Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(300))
+                            guard !Task.isCancelled else { return }
                             showThreadSwitcher = true
                         }
-                        threadSwitcherHoverTimer = work
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
                     } else {
-                        threadSwitcherHoverTimer?.cancel()
-                        threadSwitcherHoverTimer = nil
+                        threadSwitcherHoverTask?.cancel()
+                        threadSwitcherHoverTask = nil
                         // Schedule dismiss — gives time to move mouse into the popover
                         if showThreadSwitcher {
-                            let dismiss = DispatchWorkItem {
+                            threadSwitcherDismissTask = Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(300))
+                                guard !Task.isCancelled else { return }
                                 showThreadSwitcher = false
                             }
-                            threadSwitcherDismissTimer = dismiss
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: dismiss)
                         }
                     }
                 }
@@ -616,15 +616,15 @@ extension MainWindowView {
                     .onHover { hovering in
                         if hovering {
                             // Mouse entered popover — cancel pending dismiss
-                            threadSwitcherDismissTimer?.cancel()
-                            threadSwitcherDismissTimer = nil
+                            threadSwitcherDismissTask?.cancel()
+                            threadSwitcherDismissTask = nil
                         } else {
                             // Mouse left popover — dismiss after short delay
-                            let dismiss = DispatchWorkItem {
+                            threadSwitcherDismissTask = Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(300))
+                                guard !Task.isCancelled else { return }
                                 showThreadSwitcher = false
                             }
-                            threadSwitcherDismissTimer = dismiss
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: dismiss)
                         }
                     }
                 }
