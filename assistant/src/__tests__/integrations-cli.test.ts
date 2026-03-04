@@ -163,27 +163,6 @@ describe("vellum integrations CLI", () => {
     );
   });
 
-  test("passes filters for ingress members", async () => {
-    const result = await runCli(
-      [
-        "--json",
-        "ingress",
-        "members",
-        "--assistant-id",
-        "assistant-1",
-        "--source-channel",
-        "voice",
-        "--status",
-        "active",
-      ],
-      { ok: true, members: [] },
-    );
-    expect(result.exitCode).toBe(0);
-    expect(result.fetchCalls[0]?.url).toBe(
-      "http://gateway.test/v1/ingress/members?assistantId=assistant-1&sourceChannel=voice&status=active",
-    );
-  });
-
   test("reads ingress config without gateway fetch", async () => {
     rawConfig = {
       ingress: {

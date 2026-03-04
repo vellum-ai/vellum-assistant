@@ -18,7 +18,7 @@ import {
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
-import type { MemberStatus } from "../contacts/member-record-shim.js";
+import type { MemberStatus } from "../contacts/types.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,

@@ -205,7 +205,7 @@ export async function runDaemon(): Promise<void> {
     }
 
     // Catch-up migration: populate contacts table from legacy guardian
-    // bindings and ingress member rows. Ensures upgrades from pre-contacts
+    // bindings and contact rows. Ensures upgrades from pre-contacts
     // versions have a populated contacts table on first boot.
     try {
       migrateContactsFromLegacyTables("self");
@@ -312,8 +312,20 @@ export async function runDaemon(): Promise<void> {
     registerBroadcastFn((msg) => server.broadcast(msg));
 
     const scheduler = startScheduler(
-      async (conversationId, message) => {
-        await server.processMessage(conversationId, message);
+      async (conversationId, message, options) => {
+        await server.processMessage(
+          conversationId,
+          message,
+          undefined,
+          options?.trustClass
+            ? {
+                trustContext: {
+                  sourceChannel: "vellum",
+                  trustClass: options.trustClass,
+                },
+              }
+            : undefined,
+        );
       },
       (reminder) => {
         void emitNotificationSignal({

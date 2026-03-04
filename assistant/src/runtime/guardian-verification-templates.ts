@@ -25,6 +25,11 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   SLACK_CHALLENGE_REQUEST: "guardian_verify.slack.challenge_request",
   /** Resend Slack DM verification prompt. */
   SLACK_RESEND: "guardian_verify.slack.resend",
+  /** Slack DM verification for inbound trusted contact (includes the code). */
+  SLACK_TRUSTED_CONTACT_CHALLENGE:
+    "guardian_verify.slack.trusted_contact_challenge",
+  /** Resend Slack DM verification for inbound trusted contact (includes the code). */
+  SLACK_TRUSTED_CONTACT_RESEND: "guardian_verify.slack.trusted_contact_resend",
   /** Outbound voice call intro prompt: asks guardian to enter verification code via keypad. */
   VOICE_CALL_INTRO: "guardian_verify.voice.call_intro",
   /** Voice retry prompt after an incorrect code entry. */
@@ -33,15 +38,12 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   VOICE_SUCCESS: "guardian_verify.voice.success",
   /** Voice failure prompt after too many incorrect attempts. */
   VOICE_FAILURE: "guardian_verify.voice.failure",
-  /** Deterministic reply after successful channel verification command. */
+  /** Deterministic reply after successful verification (guardian or trusted contact). */
   CHANNEL_VERIFY_SUCCESS: "guardian_verify.channel.success",
   /** Deterministic reply after failed channel verification command. */
   CHANNEL_VERIFY_FAILED: "guardian_verify.channel.failed",
   /** Deterministic reply for bootstrap deep-link success. */
   CHANNEL_BOOTSTRAP_BOUND: "guardian_verify.channel.bootstrap_bound",
-  /** Deterministic reply after successful trusted contact verification. */
-  CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS:
-    "guardian_verify.channel.trusted_contact_success",
 } as const;
 
 export type GuardianVerifyTemplateKey =
@@ -55,14 +57,15 @@ type TextVerifyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND;
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_RESEND;
 
 /** Template keys for deterministic channel verification reply messages. */
 export type ChannelVerifyReplyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS;
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND;
 
 // ---------------------------------------------------------------------------
 // Template Variables
@@ -82,6 +85,8 @@ export interface GuardianVerifyVoiceTemplateVars {
 export interface ChannelVerifyReplyVars {
   /** Failure reason (anti-oracle: generic message). Only used for failed template. */
   failureReason?: string;
+  /** Drives different success copy for guardian vs trusted contact verification. */
+  verificationType?: "guardian" | "trusted_contact";
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +123,14 @@ const templates: Record<
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND]: (_vars) => {
     return "Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)";
+  },
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE]: (vars) => {
+    return `Vellum assistant verification: your code is ${vars.code}. Reply with this code to verify your identity. It expires in ${vars.expiresInMinutes} minutes.`;
+  },
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_RESEND]: (vars) => {
+    return `Vellum assistant verification: your code is ${vars.code}. Reply with this code to verify your identity. It expires in ${vars.expiresInMinutes} minutes. (resent)`;
   },
 };
 
@@ -204,17 +217,16 @@ const channelVerifyReplyTemplates: Record<
   ChannelVerifyReplyTemplateKey,
   (vars: ChannelVerifyReplyVars) => string
 > = {
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS]: () =>
-    "Verification successful. You are now set as the guardian for this channel.",
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS]: (vars) =>
+    vars.verificationType === "trusted_contact"
+      ? "Verification successful! You can now message the assistant."
+      : "Verification successful. You are now set as the guardian for this channel.",
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED]: (vars) =>
     vars.failureReason ?? "The verification code is invalid or has expired.",
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND]: () =>
     "Welcome! Your identity has been linked. Please check for a verification code message.",
-
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS]: () =>
-    "Verification successful! You can now message the assistant.",
 };
 
 /**

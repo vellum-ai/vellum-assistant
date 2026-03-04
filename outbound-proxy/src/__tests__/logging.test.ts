@@ -1,10 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  buildCredentialRefTrace,
   buildDecisionTrace,
   createSafeLogEntry,
-  type CredentialRefTrace,
   type ProxyDecisionTrace,
   sanitizeHeaders,
   sanitizeUrl,
@@ -365,36 +363,3 @@ describe('buildDecisionTrace', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildCredentialRefTrace
-// ---------------------------------------------------------------------------
-
-describe('buildCredentialRefTrace', () => {
-  test('builds trace with all fields', () => {
-    const trace = buildCredentialRefTrace(
-      ['fal/api_key', 'unknown/ref'],
-      ['uuid-123'],
-      ['unknown/ref'],
-    );
-    expect(trace).toEqual<CredentialRefTrace>({
-      rawRefs: ['fal/api_key', 'unknown/ref'],
-      resolvedIds: ['uuid-123'],
-      unresolvedRefs: ['unknown/ref'],
-    });
-  });
-
-  test('empty arrays for clean resolution', () => {
-    const trace = buildCredentialRefTrace(['uuid-abc'], ['uuid-abc'], []);
-    expect(trace.unresolvedRefs).toEqual([]);
-    expect(trace.resolvedIds).toEqual(['uuid-abc']);
-  });
-
-  test('handles completely empty inputs', () => {
-    const trace = buildCredentialRefTrace([], [], []);
-    expect(trace).toEqual<CredentialRefTrace>({
-      rawRefs: [],
-      resolvedIds: [],
-      unresolvedRefs: [],
-    });
-  });
-});

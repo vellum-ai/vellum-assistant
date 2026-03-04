@@ -3,6 +3,7 @@ import http, {
   type IncomingMessage,
   type Server,
 } from 'node:http';
+import { Socket } from 'node:net';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { createProxyServer } from '../server.js';
@@ -223,7 +224,7 @@ describe('http-forwarder', () => {
     const { hostname, port } = new URL(px.url);
     const response = await new Promise<{ status: number; body: string }>(
       (resolve, reject) => {
-        const socket = new (require('node:net').Socket)();
+        const socket = new Socket();
         socket.connect(Number(port), hostname, () => {
           socket.write(
             'GET https://example.com/path HTTP/1.1\r\nHost: example.com\r\n\r\n',

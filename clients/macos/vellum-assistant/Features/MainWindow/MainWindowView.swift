@@ -511,9 +511,19 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                VIconButton(label: "Sidebar", icon: "sidebar.left", iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
+                    }
+                }
+
+                HStack(spacing: 0) {
+                    VIconButton(label: "Search", icon: "magnifyingglass", iconOnly: true, tooltip: "Search (\u{2318}K)") {
+                        AppDelegate.shared?.toggleCommandPalette()
+                    }
+
+                    VShortcutTag("\u{2318}K") {
+                        AppDelegate.shared?.toggleCommandPalette()
                     }
                 }
             }
@@ -1249,11 +1259,6 @@ struct MainWindowView: View {
                     .padding(.vertical, VSpacing.sm)
             }
 
-            // MARK: Search Bar
-            SidebarSearchButton(isExpanded: true) {
-                AppDelegate.shared?.toggleCommandPalette()
-            }
-
             // MARK: Nav Items (fixed)
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
                 windowState.togglePanel(.intelligence)
@@ -1522,10 +1527,6 @@ struct MainWindowView: View {
                     .padding(.horizontal, VSpacing.xs)
             }
 
-            SidebarSearchButton(isExpanded: false) {
-                AppDelegate.shared?.toggleCommandPalette()
-            }
-
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
                 windowState.togglePanel(.intelligence)
             }
@@ -1545,13 +1546,12 @@ struct MainWindowView: View {
             // MARK: Thread Section (collapsed)
             if let activeThread = threadManager.activeThread {
                 ZStack(alignment: .bottomTrailing) {
-                    // Active thread icon
-                    VThreadIcon(
-                        title: activeThread.title,
-                        size: .medium,
-                        isActive: true,
-                        dotColor: interactionDotColor(for: activeThread)
-                    )
+                    // Active thread icon — SF Symbol chat bubble matching SidebarNavRow style
+                    Image(systemName: "ellipsis.message")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                        .frame(width: 28, height: 28)
+                        .accessibilityLabel("Thread: \(activeThread.title)")
 
                     // Unseen dot overlay (bottom-right) — shows when any thread has unseen messages
                     if regularThreads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
@@ -1616,13 +1616,67 @@ struct MainWindowView: View {
                             VStack(spacing: 0) {
                                 ForEach(regularThreads) { thread in
                                     let isActive = thread.id == threadManager.activeThreadId
+                                    let isHovered = sidebar.isHoveredThread == thread.id
+                                    let hasTrailingIcon = isHovered || sidebar.threadPendingDeletion == thread.id
+                                    let interactionState = threadManager.interactionState(for: thread.id)
                                     HStack(spacing: VSpacing.xs) {
-                                        VThreadIcon(
-                                            title: thread.title,
-                                            size: .small,
-                                            isActive: isActive,
-                                            dotColor: interactionDotColor(for: thread)
-                                        )
+                                        // Leading status indicator / pin button slot
+                                        if isHovered {
+                                            Button {
+                                                withAnimation(VAnimation.standard) {
+                                                    if thread.isPinned {
+                                                        threadManager.unpinThread(id: thread.id)
+                                                    } else {
+                                                        threadManager.pinThread(id: thread.id)
+                                                    }
+                                                }
+                                            } label: {
+                                                Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                                                    .font(.system(size: 13, weight: .medium))
+                                                    .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                                                    .rotationEffect(.degrees(-45))
+                                                    .frame(width: 20, height: 20)
+                                                    .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .transition(.opacity)
+                                            .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+                                        } else {
+                                            switch interactionState {
+                                            case .processing:
+                                                VBusyIndicator()
+                                                    .frame(width: 20, height: 20)
+                                            case .waitingForInput:
+                                                Image(systemName: "exclamationmark.circle.fill")
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(VColor.warning)
+                                                    .frame(width: 20, height: 20)
+                                            case .error:
+                                                Image(systemName: "exclamationmark.circle.fill")
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(VColor.error)
+                                                    .frame(width: 20, height: 20)
+                                                    .transition(.opacity)
+                                            case .idle:
+                                                if thread.hasUnseenLatestAssistantMessage {
+                                                    Circle()
+                                                        .fill(Color(hex: 0xE86B40))
+                                                        .frame(width: 6, height: 6)
+                                                        .frame(width: 20, height: 20)
+                                                        .transition(.opacity)
+                                                } else if thread.isPinned {
+                                                    Image(systemName: "pin.fill")
+                                                        .font(.system(size: 13, weight: .medium))
+                                                        .foregroundColor(VColor.textMuted)
+                                                        .rotationEffect(.degrees(-45))
+                                                        .frame(width: 20, height: 20)
+                                                        .transition(.opacity)
+                                                } else {
+                                                    Color.clear
+                                                        .frame(width: 20, height: 20)
+                                                }
+                                            }
+                                        }
 
                                         Text(thread.title)
                                             .font(VFont.body)
@@ -1631,22 +1685,75 @@ struct MainWindowView: View {
                                             .truncationMode(.tail)
 
                                         Spacer()
-
-                                        // Unseen indicator
-                                        if thread.hasUnseenLatestAssistantMessage {
-                                            Circle()
-                                                .fill(Color(hex: 0xE86B40))
-                                                .frame(width: 6, height: 6)
+                                    }
+                                    .padding(.leading, VSpacing.sm)
+                                    .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
+                                    .padding(.vertical, VSpacing.xs)
+                                    .background {
+                                        if isActive {
+                                            adaptiveColor(light: Moss._100, dark: Moss._700)
+                                        } else if isHovered {
+                                            adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5)
+                                        } else {
+                                            Color.clear
                                         }
                                     }
-                                    .padding(.horizontal, VSpacing.sm)
-                                    .padding(.vertical, VSpacing.xs)
-                                    .background(isActive ? VColor.accent.opacity(0.12) : Color.clear)
+                                    .animation(VAnimation.fast, value: isHovered)
+                                    .overlay(alignment: .trailing) {
+                                        if sidebar.threadPendingDeletion == thread.id {
+                                            VButton(label: "Confirm", style: .danger, size: .small) {
+                                                threadManager.archiveThread(id: thread.id)
+                                                sidebar.threadPendingDeletion = nil
+                                            }
+                                            .padding(.trailing, VSpacing.xs)
+                                        } else if isHovered {
+                                            Button {
+                                                sidebar.threadPendingDeletion = thread.id
+                                            } label: {
+                                                Image(systemName: "archivebox")
+                                                    .font(.system(size: 13, weight: .medium))
+                                                    .foregroundColor(VColor.textSecondary)
+                                                    .frame(width: 20, height: 20)
+                                                    .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .padding(.trailing, VSpacing.xs)
+                                            .accessibilityLabel("Archive \(thread.title)")
+                                        }
+                                    }
                                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         selectThread(thread)
                                         showThreadSwitcher = false
+                                    }
+                                    .contextMenu {
+                                        Button {
+                                            withAnimation(VAnimation.standard) {
+                                                if thread.isPinned {
+                                                    threadManager.unpinThread(id: thread.id)
+                                                } else {
+                                                    threadManager.pinThread(id: thread.id)
+                                                }
+                                            }
+                                        } label: {
+                                            Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
+                                        }
+                                        Button {
+                                            threadManager.archiveThread(id: thread.id)
+                                        } label: {
+                                            Label("Archive", systemImage: "archivebox")
+                                        }
+                                    }
+                                    .onHover { hovering in
+                                        withAnimation(VAnimation.fast) {
+                                            if hovering {
+                                                sidebar.isHoveredThread = thread.id
+                                            } else if sidebar.isHoveredThread == thread.id {
+                                                sidebar.isHoveredThread = nil
+                                            }
+                                        }
+                                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                                     }
                                 }
                             }
@@ -1654,8 +1761,13 @@ struct MainWindowView: View {
                         }
                         .frame(maxHeight: 300)
                     }
-                    .frame(width: 200)
+                    .frame(width: 240)
                     .padding(.bottom, VSpacing.sm)
+                    .onChange(of: sidebar.isHoveredThread) { _, newValue in
+                        if let pending = sidebar.threadPendingDeletion, newValue != pending {
+                            sidebar.threadPendingDeletion = nil
+                        }
+                    }
                     .onHover { hovering in
                         if hovering {
                             // Mouse entered popover — cancel pending dismiss
@@ -1755,7 +1867,7 @@ private struct SidebarPrimaryRow: View {
             HStack(spacing: isExpanded ? VSpacing.xs : 0) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
+                    .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                     .frame(width: 20)
                 Text(label)
                     .font(VFont.bodyMedium)
@@ -1864,7 +1976,7 @@ private struct DrawerMenuView: View {
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
 
-            DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
+            DrawerMenuItem(icon: "gearshape", label: String(localized: "Settings"), description: String(localized: "Ask the assistant to help you with any settings you wish to change"), action: onSettings)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
@@ -2048,23 +2160,32 @@ private struct ScheduleGroupHeaderDropDelegate: DropDelegate {
 private struct DrawerMenuItem: View {
     let icon: String
     let label: String
+    var description: String? = nil
     let action: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: VSpacing.md) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
-                    .frame(width: 18)
-                    .rotationEffect(.degrees(isHovered ? -10 : 0))
-                    .scaleEffect(isHovered ? 1.15 : 1.0)
-                    .animation(VAnimation.fast, value: isHovered)
-                Text(label)
-                    .font(.custom("Inter", size: 13))
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                        .frame(width: 18)
+                        .rotationEffect(.degrees(isHovered ? -10 : 0))
+                        .scaleEffect(isHovered ? 1.15 : 1.0)
+                        .animation(VAnimation.fast, value: isHovered)
+                    Text(label)
+                        .font(.custom("Inter", size: 13))
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                }
+                if let description {
+                    Text(description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)

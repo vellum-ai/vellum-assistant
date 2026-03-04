@@ -1,29 +1,24 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// A sheet for picking an SF Symbol and gradient background for an app icon.
+/// A sheet for picking an SF Symbol for an app icon.
 struct AppIconPickerSheet: View {
     let appName: String
     let currentSymbol: String
-    let currentColors: [String]
-    let onSave: (String, [String]) -> Void
+    let onSave: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSymbol: String
-    @State private var selectedColors: [String]
 
     init(
         appName: String,
         currentSymbol: String,
-        currentColors: [String],
-        onSave: @escaping (String, [String]) -> Void
+        onSave: @escaping (String) -> Void
     ) {
         self.appName = appName
         self.currentSymbol = currentSymbol
-        self.currentColors = currentColors
         self.onSave = onSave
         _selectedSymbol = State(initialValue: currentSymbol)
-        _selectedColors = State(initialValue: currentColors)
     }
 
     private let symbolColumns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 6)
@@ -37,11 +32,15 @@ struct AppIconPickerSheet: View {
 
             // Live preview
             VStack(spacing: VSpacing.sm) {
-                VAppIcon(
-                    sfSymbol: selectedSymbol,
-                    gradientColors: selectedColors,
-                    size: .large
-                )
+                ZStack {
+                    RoundedRectangle(cornerRadius: 96 * 0.22, style: .continuous)
+                        .fill(Moss._100)
+                    Image(systemName: selectedSymbol)
+                        .font(.system(size: 42, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                }
+                .frame(width: 96, height: 96)
+
                 Text(appName)
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
@@ -97,47 +96,6 @@ struct AppIconPickerSheet: View {
                 .frame(maxHeight: 180)
             }
 
-            // Color picker
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("COLOR")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .tracking(1.2)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: VSpacing.sm) {
-                        ForEach(VAppIconGenerator.gradientPalettes, id: \.self) { palette in
-                            let isSelected = palette == selectedColors
-                            Button {
-                                selectedColors = palette
-                            } label: {
-                                Circle()
-                                    .fill(
-                                        LinearGradient(
-                                            colors: palette.map { Color(hexString: $0) },
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .frame(width: 28, height: 28)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(
-                                                isSelected ? VColor.accent : Color.clear,
-                                                lineWidth: 2.5
-                                            )
-                                            .padding(-3)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Gradient swatch")
-                        }
-                    }
-                    .padding(.horizontal, VSpacing.xs)
-                    .padding(.vertical, VSpacing.xs)
-                }
-            }
-
             Divider()
                 .background(VColor.surfaceBorder)
 
@@ -153,7 +111,7 @@ struct AppIconPickerSheet: View {
                 Spacer()
 
                 Button("Save") {
-                    onSave(selectedSymbol, selectedColors)
+                    onSave(selectedSymbol)
                     dismiss()
                 }
                 .buttonStyle(.plain)
@@ -176,8 +134,7 @@ struct AppIconPickerSheet_Previews: PreviewProvider {
             AppIconPickerSheet(
                 appName: "Safari",
                 currentSymbol: "globe",
-                currentColors: ["#059669", "#10B981"],
-                onSave: { _, _ in }
+                onSave: { _ in }
             )
         }
         .frame(width: 360, height: 600)

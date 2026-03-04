@@ -97,10 +97,10 @@ async function main() {
     );
     console.log("  recover  Restore a previously retired local assistant");
     console.log("  retire   Delete an assistant instance");
-    console.log("  sleep    Stop the daemon process");
+    console.log("  sleep    Stop the assistant process");
     console.log("  ssh      SSH into a remote assistant instance");
     console.log("  tunnel   Create a tunnel for a locally hosted assistant");
-    console.log("  wake     Start the daemon and gateway");
+    console.log("  wake     Start the assistant and gateway");
     console.log("  whoami   Show current logged-in user");
     process.exit(0);
   }
