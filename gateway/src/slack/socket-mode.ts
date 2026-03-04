@@ -29,6 +29,10 @@ export type SlackSocketModeConfig = {
   gatewayConfig: GatewayConfig;
   /** Bot's own Slack user ID, used to ignore the bot's own DMs. */
   botUserId?: string;
+  /** Bot's display name, resolved at startup via auth.test. */
+  botUsername?: string;
+  /** Workspace/team name, resolved at startup via auth.test. */
+  teamName?: string;
 };
 
 /**
@@ -63,20 +67,45 @@ export class SlackSocketModeClient {
     this.running = true;
     this.startDedupCleanup();
 
-    // Resolve bot user ID via auth.test so we can filter the bot's own DMs
-    if (!this.config.botUserId) {
+    // Resolve bot identity via auth.test so we can filter the bot's own DMs
+    // and populate the App Home view with connection info
+    if (
+      !this.config.botUserId ||
+      !this.config.botUsername ||
+      !this.config.teamName
+    ) {
       try {
         const resp = await fetchImpl("https://slack.com/api/auth.test", {
           method: "POST",
           headers: { Authorization: `Bearer ${this.config.botToken}` },
         });
-        const data = (await resp.json()) as { ok: boolean; user_id?: string };
-        if (data.ok && data.user_id) {
-          this.config.botUserId = data.user_id;
-          log.info({ botUserId: data.user_id }, "Resolved Slack bot user ID");
+        const data = (await resp.json()) as {
+          ok: boolean;
+          user_id?: string;
+          user?: string;
+          team?: string;
+        };
+        if (data.ok) {
+          if (data.user_id) {
+            this.config.botUserId = data.user_id;
+          }
+          if (data.user) {
+            this.config.botUsername = data.user;
+          }
+          if (data.team) {
+            this.config.teamName = data.team;
+          }
+          log.info(
+            {
+              botUserId: data.user_id,
+              botUsername: data.user,
+              teamName: data.team,
+            },
+            "Resolved Slack bot identity",
+          );
         }
       } catch (err) {
-        log.warn({ err }, "Failed to resolve bot user ID via auth.test");
+        log.warn({ err }, "Failed to resolve bot identity via auth.test");
       }
     }
 
