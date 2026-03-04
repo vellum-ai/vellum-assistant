@@ -231,7 +231,7 @@ export class SlackSocketModeClient {
         trigger_id?: string;
         user?: { id: string; username?: string; name?: string };
         channel?: { id: string; name?: string };
-        message?: { ts: string; text?: string };
+        message?: { ts: string; thread_ts?: string; text?: string };
         actions?: SlackBlockActionsPayload["actions"];
       };
       reason?: string;
