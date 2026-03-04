@@ -1235,126 +1235,123 @@ describe("assistant-scoped guardian resolution", () => {
     resetTables();
   });
 
-  test("isGuardian resolves independently per assistantId", () => {
-    // Create guardian binding for asst-A on telegram
+  test("isGuardian resolves independently per channel", () => {
+    // Create guardian binding on telegram
     createGuardianBindingContactsFirst({
-      assistantId: "asst-A",
+      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
       guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
-    // Create guardian binding for asst-B on telegram with a different user
+    // Create guardian binding on sms with a different user
     createGuardianBindingContactsFirst({
-      assistantId: "asst-B",
-      channel: "telegram",
+      assistantId: "self",
+      channel: "sms",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
     });
 
-    // user-alpha is guardian for asst-A but not asst-B
-    expect(isGuardian("asst-A", "telegram", "user-alpha")).toBe(true);
-    expect(isGuardian("asst-B", "telegram", "user-alpha")).toBe(false);
+    // user-alpha is guardian for telegram but not sms
+    expect(isGuardian("self", "telegram", "user-alpha")).toBe(true);
+    expect(isGuardian("self", "sms", "user-alpha")).toBe(false);
 
-    // user-beta is guardian for asst-B but not asst-A
-    expect(isGuardian("asst-B", "telegram", "user-beta")).toBe(true);
-    expect(isGuardian("asst-A", "telegram", "user-beta")).toBe(false);
+    // user-beta is guardian for sms but not telegram
+    expect(isGuardian("self", "sms", "user-beta")).toBe(true);
+    expect(isGuardian("self", "telegram", "user-beta")).toBe(false);
   });
 
-  test("getGuardianBinding returns different bindings for different assistants", () => {
+  test("getGuardianBinding returns different bindings for different channels", () => {
     createGuardianBindingContactsFirst({
-      assistantId: "asst-A",
-      channel: "telegram",
-      guardianExternalUserId: "user-alpha",
-      guardianPrincipalId: "user-alpha",
-      guardianDeliveryChatId: "chat-alpha",
-    });
-    createGuardianBindingContactsFirst({
-      assistantId: "asst-B",
-      channel: "telegram",
-      guardianExternalUserId: "user-beta",
-      guardianPrincipalId: "user-beta",
-      guardianDeliveryChatId: "chat-beta",
-    });
-
-    const bindingA = getGuardianBinding("asst-A", "telegram");
-    const bindingB = getGuardianBinding("asst-B", "telegram");
-
-    expect(bindingA).not.toBeNull();
-    expect(bindingB).not.toBeNull();
-    expect(bindingA!.guardianExternalUserId).toBe("user-alpha");
-    expect(bindingB!.guardianExternalUserId).toBe("user-beta");
-  });
-
-  test("revoking binding for one assistant does not affect another", () => {
-    createGuardianBindingContactsFirst({
-      assistantId: "asst-A",
+      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
       guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
     createGuardianBindingContactsFirst({
-      assistantId: "asst-B",
-      channel: "telegram",
+      assistantId: "self",
+      channel: "sms",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
     });
 
-    serviceRevokeBinding("asst-A", "telegram");
+    const bindingTelegram = getGuardianBinding("self", "telegram");
+    const bindingSms = getGuardianBinding("self", "sms");
 
-    expect(getGuardianBinding("asst-A", "telegram")).toBeNull();
-    expect(getGuardianBinding("asst-B", "telegram")).not.toBeNull();
+    expect(bindingTelegram).not.toBeNull();
+    expect(bindingSms).not.toBeNull();
+    expect(bindingTelegram!.guardianExternalUserId).toBe("user-alpha");
+    expect(bindingSms!.guardianExternalUserId).toBe("user-beta");
   });
 
-  test("validateAndConsumeChallenge scoped to assistantId", () => {
-    // Create challenge for asst-A on telegram
-    const { secret: secretA } = createVerificationChallenge(
-      "asst-A",
+  test("revoking binding for one channel does not affect another", () => {
+    createGuardianBindingContactsFirst({
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "user-alpha",
+      guardianPrincipalId: "user-alpha",
+      guardianDeliveryChatId: "chat-alpha",
+    });
+    createGuardianBindingContactsFirst({
+      assistantId: "self",
+      channel: "sms",
+      guardianExternalUserId: "user-beta",
+      guardianPrincipalId: "user-beta",
+      guardianDeliveryChatId: "chat-beta",
+    });
+
+    serviceRevokeBinding("self", "telegram");
+
+    expect(getGuardianBinding("self", "telegram")).toBeNull();
+    expect(getGuardianBinding("self", "sms")).not.toBeNull();
+  });
+
+  test("validateAndConsumeChallenge scoped to channel", () => {
+    // Create challenge on telegram
+    const { secret: secretTelegram } = createVerificationChallenge(
+      "self",
       "telegram",
     );
-    // Create challenge for asst-B on telegram
-    const { secret: secretB } = createVerificationChallenge(
-      "asst-B",
-      "telegram",
-    );
+    // Create challenge on sms
+    const { secret: secretSms } = createVerificationChallenge("self", "sms");
 
-    // Attempting to consume asst-A challenge with asst-B should fail
+    // Attempting to consume telegram challenge on sms should fail
     const crossResult = validateAndConsumeChallenge(
-      "asst-B",
-      "telegram",
-      secretA,
+      "self",
+      "sms",
+      secretTelegram,
       "user-1",
       "chat-1",
     );
     expect(crossResult.success).toBe(false);
 
-    // Consuming with correct assistant should succeed
-    const resultA = validateAndConsumeChallenge(
-      "asst-A",
+    // Consuming with correct channel should succeed
+    const resultTelegram = validateAndConsumeChallenge(
+      "self",
       "telegram",
-      secretA,
+      secretTelegram,
       "user-1",
       "chat-1",
     );
-    expect(resultA.success).toBe(true);
+    expect(resultTelegram.success).toBe(true);
 
-    const resultB = validateAndConsumeChallenge(
-      "asst-B",
-      "telegram",
-      secretB,
+    const resultSms = validateAndConsumeChallenge(
+      "self",
+      "sms",
+      secretSms,
       "user-2",
       "chat-2",
     );
-    expect(resultB.success).toBe(true);
+    expect(resultSms.success).toBe(true);
 
-    // Verify bindings are scoped correctly per assistant
-    const bindingA = getGuardianBinding("asst-A", "telegram");
-    const bindingB = getGuardianBinding("asst-B", "telegram");
-    expect(bindingA!.guardianExternalUserId).toBe("user-1");
-    expect(bindingB!.guardianExternalUserId).toBe("user-2");
+    // Verify bindings are scoped correctly per channel
+    const bindingTelegram = getGuardianBinding("self", "telegram");
+    const bindingSms = getGuardianBinding("self", "sms");
+    expect(bindingTelegram!.guardianExternalUserId).toBe("user-1");
+    expect(bindingSms!.guardianExternalUserId).toBe("user-2");
   });
 });
 
