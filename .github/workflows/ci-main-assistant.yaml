@@ -110,9 +110,14 @@ jobs:
         env:
           TEST_WORKERS: '8'
 
+  track-failures:
+    name: Track Consecutive Failures
+    needs: [lint, typecheck, test]
+    if: always()
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
       - name: Track consecutive failures
-        if: always()
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -136,8 +141,8 @@ jobs:
             fi
           done
 
-          # Add current run result
-          if [ "${{ job.status }}" = "failure" ]; then
+          # Check all upstream job results instead of just job.status
+          if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.typecheck.result }}" == "failure" || "${{ needs.test.result }}" == "failure" ]]; then
             CONSECUTIVE=$((CONSECUTIVE + 1))
           else
             CONSECUTIVE=0
