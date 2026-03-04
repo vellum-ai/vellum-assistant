@@ -176,8 +176,10 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "guardian-user-789",
+      verifiedVia: "test",
     });
     upsertMemberContactsFirst({
+      assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -256,8 +258,10 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "guardian-user-789",
+      verifiedVia: "test",
     });
     upsertMemberContactsFirst({
+      assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -332,8 +336,10 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "guardian-user-789",
+      verifiedVia: "test",
     });
     upsertMemberContactsFirst({
+      assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -397,6 +403,7 @@ describe("trusted contact activated notification signal", () => {
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "guardian-user-789",
+      verifiedVia: "test",
     });
 
     // Create an identity-bound outbound session (simulates M3 approval flow)
@@ -453,9 +460,11 @@ describe("trusted contact activated notification signal", () => {
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "guardian-user-789",
+      verifiedVia: "test",
     });
 
     upsertMemberContactsFirst({
+      assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "chat-123",
@@ -483,13 +492,13 @@ describe("trusted contact activated notification signal", () => {
 
     await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
 
-    const contactResult = findContactChannel({
+    const result = findContactChannel({
       channelType: "telegram",
       externalUserId: "requester-user-456",
     });
-    expect(contactResult).not.toBeNull();
-    expect(contactResult!.channel.status).toBe("active");
-    expect(contactResult!.contact.displayName).toBe("Jeff");
+    expect(result).not.toBeNull();
+    expect(result!.channel.status).toBe("active");
+    expect(result!.contact.displayName).toBe("Jeff");
   });
 
   test("guardian verification does NOT emit activated signal", async () => {
@@ -532,6 +541,7 @@ describe("trusted contact activated notification signal", () => {
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "guardian-user-789",
+      verifiedVia: "test",
     });
 
     const session = createOutboundSession({
@@ -559,12 +569,12 @@ describe("trusted contact activated notification signal", () => {
     expect(activatedSignals.length).toBe(1);
 
     // Verify the member was already persisted (the signal fires after upsertMemberContactsFirst)
-    const contactResult = findContactChannel({
+    const result = findContactChannel({
       channelType: "telegram",
       externalUserId: "requester-user-456",
     });
-    expect(contactResult).not.toBeNull();
-    expect(contactResult!.channel.status).toBe("active");
-    expect(contactResult!.channel.policy).toBe("allow");
+    expect(result).not.toBeNull();
+    expect(result!.channel.status).toBe("active");
+    expect(result!.channel.policy).toBe("allow");
   });
 });

@@ -96,9 +96,12 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
+import { findContactChannel } from "../contacts/contact-store.js";
+import {
+  createGuardianBindingContactsFirst,
+  upsertMemberContactsFirst,
+} from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { createBinding } from "../memory/guardian-bindings.js";
-import { findMember, upsertMember } from "../memory/ingress-member-store.js";
 import {
   createOutboundSession,
   validateAndConsumeChallenge,
@@ -229,12 +232,13 @@ for (const config of CHANNEL_CONFIGS) {
     });
 
     test("guardian is notified when a non-member messages", async () => {
-      createBinding({
+      createGuardianBindingContactsFirst({
         assistantId: "self",
         channel: config.channel,
         guardianExternalUserId: config.guardianExternalUserId,
         guardianDeliveryChatId: config.guardianChatId,
         guardianPrincipalId: config.guardianExternalUserId,
+        verifiedVia: "test",
       });
 
       const req = buildInboundRequest(config);
@@ -281,7 +285,7 @@ for (const config of CHANNEL_CONFIGS) {
         expect(result.verificationType).toBe("trusted_contact");
       }
 
-      upsertMember({
+      upsertMemberContactsFirst({
         assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
@@ -292,21 +296,20 @@ for (const config of CHANNEL_CONFIGS) {
         username: "test_requester",
       });
 
-      const member = findMember({
-        assistantId: "self",
-        sourceChannel: config.channel,
+      const result = findContactChannel({
+        channelType: config.channel,
         externalUserId: config.senderExternalUserId,
       });
 
-      expect(member).not.toBeNull();
-      expect(member!.status).toBe("active");
-      expect(member!.policy).toBe("allow");
-      expect(member!.sourceChannel).toBe(config.channel);
+      expect(result).not.toBeNull();
+      expect(result!.channel.status).toBe("active");
+      expect(result!.channel.policy).toBe("allow");
+      expect(result!.channel.type).toBe(config.channel);
     });
 
     test("no cross-channel leakage between member records", () => {
       // Create a member for this channel
-      upsertMember({
+      upsertMemberContactsFirst({
         assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
@@ -316,21 +319,19 @@ for (const config of CHANNEL_CONFIGS) {
       });
 
       // Should be found on this channel
-      const sameChanMember = findMember({
-        assistantId: "self",
-        sourceChannel: config.channel,
+      const sameChanResult = findContactChannel({
+        channelType: config.channel,
         externalUserId: config.senderExternalUserId,
       });
-      expect(sameChanMember).not.toBeNull();
+      expect(sameChanResult).not.toBeNull();
 
       // Should NOT be found on a different channel
       const otherChannel = config.channel === "telegram" ? "sms" : "telegram";
-      const crossChanMember = findMember({
-        assistantId: "self",
-        sourceChannel: otherChannel,
+      const crossChanResult = findContactChannel({
+        channelType: otherChannel,
         externalUserId: config.senderExternalUserId,
       });
-      expect(crossChanMember).toBeNull();
+      expect(crossChanResult).toBeNull();
     });
   });
 }

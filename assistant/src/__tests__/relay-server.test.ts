@@ -185,6 +185,10 @@ import {
   createVerificationSession,
 } from "../memory/channel-guardian-store.js";
 import { addMessage, getMessages } from "../memory/conversation-store.js";
+import {
+  createGuardianBindingContactsFirst,
+  upsertMemberContactsFirst,
+} from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite } from "../memory/ingress-invite-store.js";
 import { conversations } from "../memory/schema.js";
@@ -275,9 +279,10 @@ function resetTables() {
 
 function addTrustedVoiceContact(
   phoneNumber: string,
-  _assistantId: string = "self",
+  assistantId: string = "self",
 ): void {
   upsertMemberContactsFirst({
+    assistantId,
     sourceChannel: "voice",
     externalUserId: phoneNumber,
     externalChatId: phoneNumber,
@@ -1472,6 +1477,7 @@ describe("relay-server", () => {
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
       guardianPrincipalId: "+15550001111",
+      verifiedVia: "test",
     });
 
     mockSendMessage.mockImplementation(
@@ -1521,6 +1527,7 @@ describe("relay-server", () => {
       guardianExternalUserId: "+15550009999",
       guardianDeliveryChatId: "+15550009999",
       guardianPrincipalId: "+15550009999",
+      verifiedVia: "test",
     });
     addTrustedVoiceContact("+15550002222", "self");
 
@@ -1575,6 +1582,7 @@ describe("relay-server", () => {
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
       guardianPrincipalId: "+15550001111",
+      verifiedVia: "test",
     });
 
     mockSendMessage.mockImplementation(
@@ -1626,6 +1634,7 @@ describe("relay-server", () => {
       guardianExternalUserId: "tg-guardian-user",
       guardianDeliveryChatId: "tg-guardian-chat",
       guardianPrincipalId: "tg-guardian-user",
+      verifiedVia: "test",
     });
 
     // Number matches the configured owner number, but there is no active
@@ -2470,6 +2479,7 @@ describe("relay-server", () => {
 
     // Create a blocked member
     upsertMemberContactsFirst({
+      assistantId: "self",
       sourceChannel: "voice",
       externalUserId: "+15558881111",
       externalChatId: "+15558881111",
