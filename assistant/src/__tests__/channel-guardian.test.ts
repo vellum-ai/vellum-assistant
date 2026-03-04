@@ -136,7 +136,7 @@ import {
   findSessionByBootstrapTokenHash as _storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as _storeFindSessionByIdentity,
   getPendingApprovalByGuardianChat,
-  getPendingApprovalForRun,
+  getPendingApprovalForRequest,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
@@ -696,6 +696,7 @@ describe("guardian approval request CRUD", () => {
   test("createApprovalRequest creates a pending request", () => {
     const request = createApprovalRequest({
       runId: "run-1",
+      requestId: "req-1",
       conversationId: "conv-1",
       channel: "telegram",
       requesterExternalUserId: "user-99",
@@ -710,6 +711,7 @@ describe("guardian approval request CRUD", () => {
 
     expect(request.id).toBeDefined();
     expect(request.runId).toBe("run-1");
+    expect(request.requestId).toBe("req-1");
     expect(request.status).toBe("pending");
     expect(request.toolName).toBe("shell");
     expect(request.riskLevel).toBe("high");
@@ -717,9 +719,10 @@ describe("guardian approval request CRUD", () => {
     expect(request.decidedByExternalUserId).toBeNull();
   });
 
-  test("getPendingApprovalForRun returns the pending request", () => {
+  test("getPendingApprovalForRequest returns the pending request", () => {
     createApprovalRequest({
       runId: "run-1",
+      requestId: "req-1",
       conversationId: "conv-1",
       channel: "telegram",
       requesterExternalUserId: "user-99",
@@ -730,20 +733,21 @@ describe("guardian approval request CRUD", () => {
       expiresAt: Date.now() + 300_000,
     });
 
-    const found = getPendingApprovalForRun("run-1");
+    const found = getPendingApprovalForRequest("req-1");
     expect(found).not.toBeNull();
-    expect(found!.runId).toBe("run-1");
+    expect(found!.requestId).toBe("req-1");
     expect(found!.status).toBe("pending");
   });
 
-  test("getPendingApprovalForRun returns null when no pending request exists", () => {
-    const found = getPendingApprovalForRun("run-nonexistent");
+  test("getPendingApprovalForRequest returns null when no pending request exists", () => {
+    const found = getPendingApprovalForRequest("req-nonexistent");
     expect(found).toBeNull();
   });
 
   test("getPendingApprovalByGuardianChat returns pending request for guardian chat", () => {
     createApprovalRequest({
       runId: "run-1",
+      requestId: "req-1",
       conversationId: "conv-1",
       channel: "telegram",
       requesterExternalUserId: "user-99",
@@ -762,6 +766,7 @@ describe("guardian approval request CRUD", () => {
   test("getPendingApprovalByGuardianChat returns null for wrong channel", () => {
     createApprovalRequest({
       runId: "run-1",
+      requestId: "req-1",
       conversationId: "conv-1",
       channel: "telegram",
       requesterExternalUserId: "user-99",
@@ -779,6 +784,7 @@ describe("guardian approval request CRUD", () => {
   test("updateApprovalDecision updates status to approved", () => {
     const request = createApprovalRequest({
       runId: "run-1",
+      requestId: "req-1",
       conversationId: "conv-1",
       channel: "telegram",
       requesterExternalUserId: "user-99",
@@ -794,14 +800,15 @@ describe("guardian approval request CRUD", () => {
       decidedByExternalUserId: "user-42",
     });
 
-    // After approval, getPendingApprovalForRun should return null
-    const found = getPendingApprovalForRun("run-1");
+    // After approval, getPendingApprovalForRequest should return null
+    const found = getPendingApprovalForRequest("req-1");
     expect(found).toBeNull();
   });
 
   test("updateApprovalDecision updates status to denied", () => {
     const request = createApprovalRequest({
       runId: "run-1",
+      requestId: "req-1",
       conversationId: "conv-1",
       channel: "telegram",
       requesterExternalUserId: "user-99",
@@ -817,13 +824,14 @@ describe("guardian approval request CRUD", () => {
       decidedByExternalUserId: "user-42",
     });
 
-    const found = getPendingApprovalForRun("run-1");
+    const found = getPendingApprovalForRequest("req-1");
     expect(found).toBeNull();
   });
 
   test("multiple approval requests for different runs are independent", () => {
     createApprovalRequest({
       runId: "run-1",
+      requestId: "req-1",
       conversationId: "conv-1",
       channel: "telegram",
       requesterExternalUserId: "user-99",
@@ -836,6 +844,7 @@ describe("guardian approval request CRUD", () => {
 
     createApprovalRequest({
       runId: "run-2",
+      requestId: "req-2",
       conversationId: "conv-2",
       channel: "telegram",
       requesterExternalUserId: "user-88",
@@ -846,8 +855,8 @@ describe("guardian approval request CRUD", () => {
       expiresAt: Date.now() + 300_000,
     });
 
-    const found1 = getPendingApprovalForRun("run-1");
-    const found2 = getPendingApprovalForRun("run-2");
+    const found1 = getPendingApprovalForRequest("req-1");
+    const found2 = getPendingApprovalForRequest("req-2");
     expect(found1).not.toBeNull();
     expect(found2).not.toBeNull();
     expect(found1!.toolName).toBe("shell");
@@ -857,6 +866,7 @@ describe("guardian approval request CRUD", () => {
   test("createApprovalRequest works for sms channel", () => {
     const request = createApprovalRequest({
       runId: "run-sms-1",
+      requestId: "req-sms-1",
       conversationId: "conv-sms-1",
       channel: "sms",
       requesterExternalUserId: "phone-user-99",
@@ -869,10 +879,11 @@ describe("guardian approval request CRUD", () => {
 
     expect(request.id).toBeDefined();
     expect(request.runId).toBe("run-sms-1");
+    expect(request.requestId).toBe("req-sms-1");
     expect(request.channel).toBe("sms");
     expect(request.status).toBe("pending");
 
-    const found = getPendingApprovalForRun("run-sms-1");
+    const found = getPendingApprovalForRequest("req-sms-1");
     expect(found).not.toBeNull();
     expect(found!.channel).toBe("sms");
   });
@@ -880,6 +891,7 @@ describe("guardian approval request CRUD", () => {
   test("getPendingApprovalByGuardianChat works for sms channel", () => {
     createApprovalRequest({
       runId: "run-sms-2",
+      requestId: "req-sms-2",
       conversationId: "conv-sms-2",
       channel: "sms",
       requesterExternalUserId: "phone-user-99",
@@ -905,6 +917,7 @@ describe("guardian approval request CRUD", () => {
   test("createApprovalRequest with optional fields omitted defaults to null", () => {
     const request = createApprovalRequest({
       runId: "run-1",
+      requestId: "req-1",
       conversationId: "conv-1",
       channel: "telegram",
       requesterExternalUserId: "user-99",
@@ -1370,6 +1383,7 @@ describe("assistant-scoped approval request lookups", () => {
   test("createApprovalRequest stores assistantId and defaults to self", () => {
     const reqWithoutId = createApprovalRequest({
       runId: "run-1",
+      requestId: "req-1",
       conversationId: "conv-1",
       channel: "telegram",
       requesterExternalUserId: "user-99",
@@ -1383,6 +1397,7 @@ describe("assistant-scoped approval request lookups", () => {
 
     const reqWithId = createApprovalRequest({
       runId: "run-2",
+      requestId: "req-2",
       conversationId: "conv-2",
       assistantId: "asst-A",
       channel: "telegram",
@@ -1399,6 +1414,7 @@ describe("assistant-scoped approval request lookups", () => {
   test("approval requests from different assistants are independent", () => {
     createApprovalRequest({
       runId: "run-A",
+      requestId: "req-A",
       conversationId: "conv-A",
       assistantId: "asst-A",
       channel: "telegram",
@@ -1411,6 +1427,7 @@ describe("assistant-scoped approval request lookups", () => {
     });
     createApprovalRequest({
       runId: "run-B",
+      requestId: "req-B",
       conversationId: "conv-B",
       assistantId: "asst-B",
       channel: "telegram",
@@ -1422,8 +1439,8 @@ describe("assistant-scoped approval request lookups", () => {
       expiresAt: Date.now() + 300_000,
     });
 
-    const foundA = getPendingApprovalForRun("run-A");
-    const foundB = getPendingApprovalForRun("run-B");
+    const foundA = getPendingApprovalForRequest("req-A");
+    const foundB = getPendingApprovalForRequest("req-B");
     expect(foundA).not.toBeNull();
     expect(foundB).not.toBeNull();
     expect(foundA!.assistantId).toBe("asst-A");
