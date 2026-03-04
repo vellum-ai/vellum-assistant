@@ -22,7 +22,18 @@ export function spawnWithTimeout(
   timeoutMs: number,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+    // Augment PATH so Homebrew-installed tools (ffmpeg, ffprobe, whisper-cpp)
+    // are found even when the daemon runs as a bundled binary with minimal PATH.
+    const proc = Bun.spawn(cmd, {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...process.env,
+        PATH: [process.env.PATH, "/opt/homebrew/bin", "/usr/local/bin"]
+          .filter(Boolean)
+          .join(":"),
+      },
+    });
     const timer = setTimeout(() => {
       proc.kill();
       reject(new Error(`Process timed out after ${timeoutMs}ms: ${cmd[0]}`));
