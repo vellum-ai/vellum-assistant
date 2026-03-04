@@ -55,6 +55,7 @@ These rules exist because competing `proxy.scrollTo` calls have caused repeated 
 - **Use an in-flight guard to prevent stacking concurrent pagination loads.** A `@State var isPaginationInFlight: Bool` (or equivalent) must gate the pagination sentinel's `onAppear`. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
 - **Allow a layout settle delay before restoring scroll position.** After inserting new messages (pagination prepend), wait at least **32 ms** before calling `proxy.scrollTo(anchor)` so SwiftUI can finish its layout pass. If any inserted content performs an animated height change (e.g., `InlineVideoEmbedCard` at 0.25 s), increase the delay to at least the animation duration (100 ms minimum) — restoring scroll mid-animation lands at the wrong position.
 - **Forward scroll/wheel events from gesture-capturing subviews.** `WKWebView` (and other `NSResponder`/`UIResponder` subclasses that capture scroll events) swallow all scroll-wheel input, preventing the enclosing `ScrollView` from scrolling. Subclass the view and override `scrollWheel(_:)` (macOS) / `gestureRecognizerShouldBegin(_:)` (iOS) to forward the event to `nextResponder` / the parent scroll view instead of consuming it.
+- **Do not use `.scrollPosition(id:anchor:)` without actively managing the binding.** Declaring a `@State var scrollPositionId: AnyHashable?` and attaching `.scrollPosition(id: $scrollPositionId)` without ever setting or updating the value causes crashes during LazyVStack re-layouts (pagination, streaming). SwiftUI's internal tracking fights with the nil binding. Either fully manage the binding (set it on scroll events, clear it on content changes) or don't use the API at all — the existing `ScrollViewReader` + `proxy.scrollTo()` pattern handles all current scroll needs.
 - **Add `os.Logger` diagnostics to complex scroll paths.** Pagination, suppression flag transitions, and scroll position restoration are hard to debug from a crash report alone. Log key events (`[pagination] sentinel appeared`, `[scroll] suppression on/off`, `[scroll] restoring to anchor`) via `os.Logger` with subsystem `com.vellum.assistant` so they are visible in Console.app without Xcode attached.
 
 ## Native SwiftUI over custom AppKit
@@ -77,6 +78,34 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 - Intercepting `Cmd+Enter` as a key equivalent before the field editor consumes it
 - Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
 - Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
+
+## File organization and splitting
+
+### Extension file naming
+Use the Swift convention `TypeName+Purpose.swift` for files that contain extensions of a type. This is a long-standing Swift/Apple community convention (inherited from Objective-C categories) and is the idiomatic way to split a large type across multiple files.
+
+**Examples:**
+- `MainWindowView+Sidebar.swift` — sidebar content extension of `MainWindowView`
+- `MainWindowView+Sharing.swift` — publishing and sharing logic extension
+- `ChatViewModel+Streaming.swift` — streaming-related methods
+
+### When to split a file
+- **Target: ~500-600 lines max per file.** If a file exceeds this, split it.
+- **Extension files** (`TypeName+Purpose.swift`) — use when the code logically belongs to the same type but can be grouped by purpose. The extension lives in the same directory as the primary file.
+- **Standalone views** (`SidebarThreadItem.swift`) — use when a view has its own identity, state, and can be reused independently. Place in a subdirectory if there are multiple related views (e.g., `Sidebar/`).
+- **Helper types** (`MainWindowGroupedState.swift`) — use for supporting types (state enums, delegates) that don't belong in the main view file.
+
+### Access control across file boundaries
+Swift does not allow `private` members to be accessed from a different file, even in an extension of the same type. When extracting code into a `TypeName+Purpose.swift` extension file:
+- Members that were `private` must become `internal` (the default, no keyword needed).
+- Only use `private` for members that are truly file-scoped. Use `internal` for members shared across extension files of the same type.
+- Note this in PR descriptions when widening access — reviewers should verify no unintended callers exist.
+
+### Comment quality
+- Comments and docstrings must describe the code's intent and behavior, not its refactoring history.
+- Do not leave breadcrumb comments like `// moved to X.swift` or `// extracted from Y()`. These become stale and clutter the code.
+- Good: `/// Cancellable task for the delayed hover trigger on the collapsed thread section.`
+- Bad: `// threadItem — moved to Sidebar/SidebarThreadItem.swift (standalone view)`
 
 ## SwiftUI type-checker complexity
 
@@ -101,6 +130,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | View in flexible container without size constraint | View expands to fill parent (e.g., ZStack) | Add `.fixedSize(horizontal: false, vertical: true)` to hug content |
 | Mutable array in `DispatchGroup` callbacks | Race condition — callbacks may run on different threads | Wrap each append in `DispatchQueue.main.async` |
 | Duplicated send/action logic across code paths | Paths drift out of sync (e.g., AppKit bridge vs SwiftUI handler) | Extract shared logic into a single function both paths call |
+| `.scrollPosition(id:)` with unmanaged binding | Nil binding fights SwiftUI's internal tracking, crashes on re-layout | Use `ScrollViewReader` + `proxy.scrollTo()`, or fully manage the binding |
 | Strong closure capture on window | Retain cycle if window outlives view | Use `[weak coordinator]` or clear in `dismantleNSView` |
 
 ## Non-Apple clients
@@ -142,3 +172,4 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 
 ## Maintenance
 - Refresh this guidance after major Apple OS or SwiftUI releases (for example, post-WWDC).
+- **When fixing a bug, consider whether the root cause represents a generalizable pitfall.** If an API was misused in a way that compiled but caused runtime crashes, freezes, or subtle misbehavior — and another developer or agent could plausibly make the same mistake — add a rule to the relevant section of this file (or the pitfalls table). This file is the team's collective memory for hard-won lessons; keeping it current prevents repeat bugs.

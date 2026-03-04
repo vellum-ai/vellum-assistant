@@ -353,9 +353,8 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
     public let createdAt: Int
     public let version: String?
     public let contentId: String?
-    public let appType: String?
 
-    public init(id: String, name: String, description: String? = nil, icon: String? = nil, preview: String? = nil, createdAt: Int, version: String? = nil, contentId: String? = nil, appType: String? = nil) {
+    public init(id: String, name: String, description: String? = nil, icon: String? = nil, preview: String? = nil, createdAt: Int, version: String? = nil, contentId: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -364,7 +363,6 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
         self.createdAt = createdAt
         self.version = version
         self.contentId = contentId
-        self.appType = appType
     }
 }
 
@@ -1544,17 +1542,15 @@ public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     public let width: Int?
     public let height: Int?
     public let appId: String?
-    public let appType: String?
     public let reloadGeneration: Double?
     public let status: String?
     public let preview: IPCDynamicPagePreview?
 
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, appType: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: IPCDynamicPagePreview? = nil) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: IPCDynamicPagePreview? = nil) {
         self.html = html
         self.width = width
         self.height = height
         self.appId = appId
-        self.appType = appType
         self.reloadGeneration = reloadGeneration
         self.status = status
         self.preview = preview

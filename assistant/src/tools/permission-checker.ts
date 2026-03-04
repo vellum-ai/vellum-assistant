@@ -127,6 +127,24 @@ export class PermissionChecker {
       }
 
       if (result.decision === "prompt") {
+        // Guardian-trust sessions (e.g. scheduled jobs, reminders) should be
+        // able to use bundled tools without interactive approval. The guardian
+        // is the owner — prompting makes no sense when there is no client.
+        if (
+          context.isInteractive === false &&
+          context.trustClass === "guardian"
+        ) {
+          log.info(
+            { toolName: name, riskLevel },
+            "Auto-approving for non-interactive guardian session",
+          );
+          return {
+            allowed: true,
+            decision: "guardian_auto_approve",
+            riskLevel,
+          };
+        }
+
         // Non-interactive sessions have no client to respond to prompts —
         // deny immediately instead of blocking for the full permission timeout.
         if (context.isInteractive === false) {

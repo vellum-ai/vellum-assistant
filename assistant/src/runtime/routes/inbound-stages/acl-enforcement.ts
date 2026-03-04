@@ -26,13 +26,8 @@ import {
 } from "../../channel-guardian-service.js";
 import { getTransport } from "../../channel-invite-transport.js";
 import { deliverChannelReply } from "../../gateway-client.js";
-import {
-  composeVerificationSlack,
-  GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../../guardian-verification-templates.js";
 import { redeemInvite } from "../../invite-redemption-service.js";
 import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
-import { sendSlackVerificationDm } from "./slack-verification-challenge.js";
 
 const log = getLogger("runtime-http");
 
@@ -302,7 +297,7 @@ export async function enforceIngressAcl(
                   replyCallbackUrl,
                   {
                     chatId: conversationExternalId,
-                    text: "I've sent you a verification code via DM. Please reply with the code there to verify your identity.",
+                    text: "I've notified the owner. They'll share a verification code with you if they approve access.",
                     assistantId,
                   },
                   mintBearerToken(),
@@ -518,7 +513,7 @@ export async function enforceIngressAcl(
                     replyCallbackUrl,
                     {
                       chatId: conversationExternalId,
-                      text: "I've sent you a verification code via DM. Please reply with the code there to verify your identity.",
+                      text: "I've notified the owner. They'll share a verification code with you if they approve access.",
                       assistantId,
                     },
                     mintBearerToken(),
@@ -807,8 +802,9 @@ interface SlackVerificationResult {
 }
 
 /**
- * Create an outbound verification session for a Slack user and send the
- * verification code to their DM. The session is identity-bound with
+ * Create an outbound verification session for a Slack user. The guardian
+ * receives the verification code via the notification pipeline (not a
+ * direct DM to the requester). The session is identity-bound with
  * `verificationPurpose: "trusted_contact"` so consuming the code
  * creates a trusted contact record (not a guardian binding).
  */
@@ -821,8 +817,7 @@ function initiateSlackVerificationChallenge(params: {
   mintBearerToken: () => string;
   assistantId: string;
 }): SlackVerificationResult {
-  const { canonicalAssistantId, sourceChannel, senderUserId, assistantId } =
-    params;
+  const { canonicalAssistantId, sourceChannel, senderUserId } = params;
 
   // Skip if there is already a pending challenge or active session for
   // this sender to avoid flooding them with duplicate codes. We scope by
@@ -865,16 +860,9 @@ function initiateSlackVerificationChallenge(params: {
       verificationPurpose: "trusted_contact",
     });
 
-    const slackBody = composeVerificationSlack(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE,
-      {
-        code: session.secret,
-        expiresInMinutes: Math.floor(session.ttlSeconds / 60),
-      },
-    );
-
-    // Fire-and-forget DM delivery via the gateway
-    sendSlackVerificationDm(senderUserId, slackBody, assistantId);
+    // The verification code is delivered to the guardian via the access
+    // request notification flow. The guardian decides whether to share
+    // it with the requester — we do NOT DM the code to the requester.
 
     log.info(
       { sourceChannel, senderUserId, sessionId: session.sessionId },

@@ -343,9 +343,18 @@ export class SlackSocketModeClient {
     const messageChangedEvent = event as SlackMessageChangedEvent;
 
     const isAppMention = event.type === "app_mention";
-    const isMessageChanged =
+    const isMessageChangedRaw =
       event.type === "message" &&
       messageChangedEvent.subtype === "message_changed";
+    // Only accept message_changed in DMs or tracked bot threads — otherwise
+    // Slack unfurls (link previews) in random channels trigger the bot.
+    const isMessageChanged =
+      isMessageChangedRaw &&
+      (messageChangedEvent.channel_type === "im" ||
+        (!!messageChangedEvent.message?.thread_ts &&
+          this.store.hasThread(messageChangedEvent.message.thread_ts)) ||
+        (!!messageChangedEvent.message?.ts &&
+          this.store.hasThread(messageChangedEvent.message.ts)));
     const isDm =
       event.type === "message" &&
       !isMessageChanged &&
@@ -382,6 +391,21 @@ export class SlackSocketModeClient {
               : null;
 
     if (!matchedFilter) {
+      log.debug(
+        {
+          eventId: eventPayload.event_id,
+          type: event.type,
+          subtype: (event as { subtype?: string }).subtype,
+          channel: (event as { channel?: string }).channel,
+          channelType: (event as { channel_type?: string }).channel_type,
+          user: (event as { user?: string }).user,
+          hasThreadTs: !!(event as { thread_ts?: string }).thread_ts,
+          threadTs: (event as { thread_ts?: string }).thread_ts,
+          isMessageChangedRaw,
+          text: (event as { text?: string }).text?.slice(0, 80),
+        },
+        "Slack event dropped by filter",
+      );
       return;
     }
 

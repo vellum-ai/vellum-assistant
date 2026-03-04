@@ -235,7 +235,7 @@ struct SettingsAdvancedDevTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    VButton(label: "View...", style: .secondary, size: .medium) {
+                    VButton(label: "View...", style: .secondary) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }

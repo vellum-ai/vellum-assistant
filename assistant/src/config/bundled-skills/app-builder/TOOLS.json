@@ -23,7 +23,7 @@
           },
           "html": {
             "type": "string",
-            "description": "HTML definition for rendering the app (main index.html page)"
+            "description": "Optional HTML definition for the main index.html page. If omitted, a minimal scaffold is created and you can write index.html later via app_file_write."
           },
           "pages": {
             "type": "object",
@@ -31,11 +31,6 @@
             "additionalProperties": {
               "type": "string"
             }
-          },
-          "type": {
-            "type": "string",
-            "enum": ["app", "site"],
-            "description": "Type of creation: 'app' for interactive apps with data/state, 'site' for presentational content (portfolios, landing pages, blogs)"
           },
           "auto_open": {
             "type": "boolean",
@@ -89,7 +84,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["name", "html"]
+        "required": ["name"]
       },
       "executor": "tools/app-create.ts",
       "execution_target": "host"

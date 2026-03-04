@@ -497,6 +497,26 @@ export function createSlackDeliverHandler(
             ? textToBlocks(text)
             : [];
 
+    tlog.info(
+      {
+        chatId,
+        hasBodyBlocks: Array.isArray(body.blocks) && body.blocks.length > 0,
+        bodyBlockCount: Array.isArray(body.blocks) ? body.blocks.length : 0,
+        hasApproval: !!body.approval,
+        useBlocks: !!body.useBlocks,
+        resolvedBlockCount: blocks.length,
+        blockSource:
+          Array.isArray(body.blocks) && body.blocks.length > 0
+            ? "provided"
+            : body.approval
+              ? "approval"
+              : body.useBlocks && text
+                ? "textToBlocks"
+                : "none",
+      },
+      "Block Kit resolution",
+    );
+
     try {
       // Typing indicator: post a placeholder message that the runtime can
       // later update via `updateTs` when the real response is ready.

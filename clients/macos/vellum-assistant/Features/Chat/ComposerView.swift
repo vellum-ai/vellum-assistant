@@ -34,6 +34,7 @@ struct ComposerView: View {
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
     let onFileDrop: ([URL]) -> Void
+    let onDropImageData: ((Data, String?) -> Void)?
     let onMicrophoneToggle: () -> Void
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
@@ -302,6 +303,23 @@ struct ComposerView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Auto-focus the composer on app reactivation so the user can
+            // start typing immediately after cmd+tab or Dock click.
+            guard !hasPendingConfirmation else { return }
+            // Only claim focus when the main window is key. If a floating
+            // panel or other window is frontmost, skip to avoid intercepting
+            // shortcuts (Cmd+V, Cmd+Enter) in the wrong context.
+            guard let window = NSApp.keyWindow as? TitleBarZoomableWindow else { return }
+            // Preserve focus if another input (NSTextView, WKWebView, etc.)
+            // already owns first-responder status in split-panel mode.
+            if let responder = window.firstResponder as? NSView,
+               responder != window.contentView,
+               window.composerContainerView.map({ !responder.isDescendant(of: $0) }) ?? false {
+                return
+            }
+            composerFocus = true
+        }
         .onChange(of: inputText) {
             if inputText.isEmpty {
                 withAnimation(VAnimation.fast) { isComposerExpanded = false }
@@ -317,17 +335,71 @@ struct ComposerView: View {
                 withAnimation(VAnimation.fast) { isComposerExpanded = true }
             }
         }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: nil) { providers in
             let group = DispatchGroup()
             // Collect URLs on the main queue to avoid concurrent Array mutation
             // from loadObject callbacks that may fire on different threads.
             var urls: [URL] = []
+            var imageDataItems: [NSItemProvider] = []
             for provider in providers {
-                group.enter()
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    DispatchQueue.main.async {
-                        if let url { urls.append(url) }
-                        group.leave()
+                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                    let hasImageFallback = provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+                        || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
+                        || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
+                    group.enter()
+                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                        DispatchQueue.main.async {
+                            if let url, FileManager.default.fileExists(atPath: url.path) {
+                                urls.append(url)
+                                group.leave()
+                            } else if hasImageFallback, let onDropImageData {
+                                let typeIdentifier: String
+                                if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
+                                    typeIdentifier = UTType.png.identifier
+                                } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                                    typeIdentifier = UTType.tiff.identifier
+                                } else {
+                                    typeIdentifier = UTType.image.identifier
+                                }
+                                let suggestedName = provider.suggestedName
+                                provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+                                    DispatchQueue.main.async {
+                                        if let data {
+                                            onDropImageData(data, suggestedName)
+                                        }
+                                        group.leave()
+                                    }
+                                }
+                            } else {
+                                group.leave()
+                            }
+                        }
+                    }
+                } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+                            || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
+                            || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                    imageDataItems.append(provider)
+                }
+            }
+            if let onDropImageData {
+                for provider in imageDataItems {
+                    let typeIdentifier: String
+                    if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
+                        typeIdentifier = UTType.png.identifier
+                    } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                        typeIdentifier = UTType.tiff.identifier
+                    } else {
+                        typeIdentifier = UTType.image.identifier
+                    }
+                    let suggestedName = provider.suggestedName
+                    group.enter()
+                    provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+                        DispatchQueue.main.async {
+                            if let data {
+                                onDropImageData(data, suggestedName)
+                            }
+                            group.leave()
+                        }
                     }
                 }
             }
