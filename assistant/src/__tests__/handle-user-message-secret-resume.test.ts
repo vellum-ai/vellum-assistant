@@ -20,8 +20,8 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
+mock.module("../config/loader.js", () => {
+  const config = {
     daemon: { standaloneRecording: false },
     secretDetection: {
       enabled: true,
@@ -29,8 +29,20 @@ mock.module("../config/loader.js", () => ({
       customPatterns: [],
       entropyThreshold: 3.5,
     },
-  }),
-}));
+  };
+  return {
+    getConfig: () => config,
+    loadConfig: () => config,
+    loadRawConfig: () => ({}),
+    saveConfig: () => {},
+    saveRawConfig: () => {},
+    invalidateConfigCache: () => {},
+    applyNestedDefaults: (c: unknown) => c,
+    getNestedValue: () => undefined,
+    setNestedValue: () => {},
+    API_KEY_PROVIDERS: [],
+  };
+});
 
 const { handleUserMessage } = await import("../daemon/handlers/sessions.js");
 
