@@ -466,14 +466,14 @@ export function createSlackDeliverHandler(
         return Response.json({ ok: true, placeholderTs: data.ts });
       }
 
-      if (text && typeof text === "string") {
-        // Track the thread early — before the API call — so replies arriving
-        // while the post is in-flight are still forwarded.  A spurious entry
-        // if the post ultimately fails is harmless (24h TTL expiry).
-        if (threadTs && onThreadReply && !isEphemeral) {
-          onThreadReply(threadTs);
-        }
+      // Track the thread early — before any API call — so replies arriving
+      // while the post is in-flight are still forwarded.  A spurious entry
+      // if the post ultimately fails is harmless (24h TTL expiry).
+      if (threadTs && onThreadReply && !isEphemeral) {
+        onThreadReply(threadTs);
+      }
 
+      if (text && typeof text === "string") {
         const slackBody: Record<string, unknown> = {
           channel: chatId,
           // `text` is always required as a fallback for notifications and accessibility
