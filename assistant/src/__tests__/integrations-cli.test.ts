@@ -97,6 +97,7 @@ describe('vellum integrations CLI', () => {
 
   afterEach(() => {
     delete process.env.GATEWAY_AUTH_TOKEN;
+    delete process.env.INTERNAL_GATEWAY_BASE_URL;
     process.exitCode = 0;
   });
 
@@ -121,6 +122,13 @@ describe('vellum integrations CLI', () => {
     expect(loadCalls).toBe(1);
     expect(initCalls).toBe(1);
     expect(mintCalls).toBe(1);
+  });
+
+  test('prefers INTERNAL_GATEWAY_BASE_URL when it is injected', async () => {
+    process.env.INTERNAL_GATEWAY_BASE_URL = 'http://gateway.internal:9900/';
+    const result = await runCli(['--json', 'twilio', 'config'], { success: true });
+    expect(result.exitCode).toBe(0);
+    expect(result.fetchCalls[0]?.url).toBe('http://gateway.internal:9900/v1/integrations/twilio/config');
   });
 
   test('passes channel query for guardian status', async () => {

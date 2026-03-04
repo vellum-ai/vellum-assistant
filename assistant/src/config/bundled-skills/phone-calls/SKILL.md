@@ -41,8 +41,7 @@ The user's assistant gets its own personal phone number through Twilio. All impl
 Check whether Twilio credentials, phone number, and public ingress are already configured:
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations twilio config --json
 ```
 
 ```bash
@@ -138,7 +137,7 @@ voice_config_update setting="tts_voice_id" value="<selected-voice-id>"
 
 Before making real calls, offer a quick verification:
 
-1. Confirm credentials are stored: check the Twilio config endpoint for `hasCredentials: true` and `phoneNumber`
+1. Confirm credentials are stored: run `vellum integrations twilio config --json` and verify `hasCredentials: true` plus `phoneNumber`
 2. Confirm ingress is running: `ingress.publicBaseUrl` must be set and the tunnel active
 3. Confirm calls are enabled: `calls.enabled` must be `true`
 4. Confirm voice is configured: `elevenlabs.voiceId` should be set
@@ -642,4 +641,3 @@ The system has a 30-second silence timeout. If nobody speaks for 30 seconds duri
 - Keep `elevenlabs.voiceModelId` empty first (bare `voiceId` mode)
 - If you set `voiceModelId`, try clearing it and retesting:
   `vellum config set elevenlabs.voiceModelId ""`
-
