@@ -57,6 +57,52 @@ These rules exist because competing `proxy.scrollTo` calls have caused repeated 
 - **Forward scroll/wheel events from gesture-capturing subviews.** `WKWebView` (and other `NSResponder`/`UIResponder` subclasses that capture scroll events) swallow all scroll-wheel input, preventing the enclosing `ScrollView` from scrolling. Subclass the view and override `scrollWheel(_:)` (macOS) / `gestureRecognizerShouldBegin(_:)` (iOS) to forward the event to `nextResponder` / the parent scroll view instead of consuming it.
 - **Add `os.Logger` diagnostics to complex scroll paths.** Pagination, suppression flag transitions, and scroll position restoration are hard to debug from a crash report alone. Log key events (`[pagination] sentinel appeared`, `[scroll] suppression on/off`, `[scroll] restoring to anchor`) via `os.Logger` with subsystem `com.vellum.assistant` so they are visible in Console.app without Xcode attached.
 
+## Native SwiftUI over custom AppKit
+
+Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wrappers. Custom AppKit text stacks (NSScrollView + NSClipView + NSTextView) have caused scroll-offset drift bugs that are hard to reproduce and diagnose.
+
+| Need | Use this | Not this |
+|------|----------|----------|
+| Multi-line text input | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
+| Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
+| Auto-growing height | `.lineLimit(1...N)` | Manual height sync + frame clamping |
+| Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
+| Attributed/colored text display | `AttributedString` + `Text` overlay | `layoutManager.addTemporaryAttributes` |
+| File drag-drop | `.onDrop(of: [.fileURL])` | `performDragOperation` override |
+| Focus management | `@FocusState` | Manual `makeFirstResponder` calls |
+| Placeholder text | `TextField("placeholder", ...)` | Custom `draw()` override |
+
+**When AppKit bridges are still needed** (keep them minimal — only AppKit-specific logic, no business logic or layout):
+- Intercepting `Cmd+V` for image paste detection (pasteboard inspection not available in SwiftUI)
+- Intercepting `Cmd+Enter` as a key equivalent before the field editor consumes it
+- Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
+- Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
+
+## SwiftUI type-checker complexity
+
+Swift's type checker has quadratic complexity with chained view modifiers. Complex view bodies will cause "unable to type-check this expression in reasonable time" build errors.
+
+**Prevention:**
+- Extract groups of related views into separate `@ViewBuilder` methods (~50 lines max each).
+- If you have 3+ `.onKeyPress()` handlers on a single view, extract the view + handlers into its own `@ViewBuilder`.
+- Use computed properties (`private var foo: some View`) for complex sub-hierarchies.
+
+**`.onKeyPress()` API signatures (macOS 14+):**
+- `.onKeyPress(.key) { return .handled }` — no-argument closure `() -> KeyPress.Result`
+- `.onKeyPress(.key, phases: .down) { press in return .handled }` — use this when you need `press.modifiers`
+- These are different overloads; using the wrong signature causes confusing build errors.
+
+## Common SwiftUI pitfalls
+
+| Pitfall | Why it's bad | Do this instead |
+|---------|-------------|----------------|
+| `[weak context]` in NSViewRepresentable | `Context` is a struct, not a class — won't compile | Capture `context.coordinator` in a local `let` |
+| `GeometryReader` as layout container | Expands to fill available space, breaking intrinsic sizing | Use `GeometryReader` only in `.background()` for measurement |
+| View in flexible container without size constraint | View expands to fill parent (e.g., ZStack) | Add `.fixedSize(horizontal: false, vertical: true)` to hug content |
+| Mutable array in `DispatchGroup` callbacks | Race condition — callbacks may run on different threads | Wrap each append in `DispatchQueue.main.async` |
+| Duplicated send/action logic across code paths | Paths drift out of sync (e.g., AppKit bridge vs SwiftUI handler) | Extract shared logic into a single function both paths call |
+| Strong closure capture on window | Retain cycle if window outlives view | Use `[weak coordinator]` or clear in `dismantleNSView` |
+
 ## Non-Apple clients
 - Follow platform-specific best practices for the target (for example, Chrome extension guidelines).
 - Keep shared client logic in `clients/shared` when it is platform-agnostic.
