@@ -91,6 +91,27 @@ export async function handleMergeContacts(
   }
 }
 
+const VALID_CHANNEL_STATUSES: readonly ChannelStatus[] = [
+  "active",
+  "pending",
+  "revoked",
+  "blocked",
+  "unverified",
+];
+const VALID_CHANNEL_POLICIES: readonly ChannelPolicy[] = [
+  "allow",
+  "deny",
+  "escalate",
+];
+
+function isChannelStatus(value: string): value is ChannelStatus {
+  return (VALID_CHANNEL_STATUSES as readonly string[]).includes(value);
+}
+
+function isChannelPolicy(value: string): value is ChannelPolicy {
+  return (VALID_CHANNEL_POLICIES as readonly string[]).includes(value);
+}
+
 /**
  * POST /v1/contacts { displayName, id?, relationship?, importance?, ... }
  */
@@ -143,6 +164,26 @@ export async function handleUpsertContact(
     );
   }
 
+  // Validate channel status/policy values before passing to the store
+  if (body.channels) {
+    for (const ch of body.channels) {
+      if (ch.status !== undefined && !isChannelStatus(ch.status)) {
+        return httpError(
+          "BAD_REQUEST",
+          `Invalid channel status "${ch.status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
+          400,
+        );
+      }
+      if (ch.policy !== undefined && !isChannelPolicy(ch.policy)) {
+        return httpError(
+          "BAD_REQUEST",
+          `Invalid channel policy "${ch.policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
+          400,
+        );
+      }
+    }
+  }
+
   try {
     const contact = upsertContact({
       id: body.id,
@@ -153,7 +194,17 @@ export async function handleUpsertContact(
       preferredTone: body.preferredTone,
       role: body.role as ContactRole | undefined,
       assistantId,
-      channels: body.channels,
+      channels: body.channels as
+        | Array<{
+            type: string;
+            address: string;
+            isPrimary?: boolean;
+            status?: ChannelStatus;
+            policy?: ChannelPolicy;
+            externalUserId?: string;
+            externalChatId?: string;
+          }>
+        | undefined,
     });
     return Response.json(
       { ok: true, contact },
@@ -163,27 +214,6 @@ export async function handleUpsertContact(
     const message = err instanceof Error ? err.message : String(err);
     return httpError("BAD_REQUEST", message, 400);
   }
-}
-
-const VALID_CHANNEL_STATUSES: readonly ChannelStatus[] = [
-  "active",
-  "pending",
-  "revoked",
-  "blocked",
-  "unverified",
-];
-const VALID_CHANNEL_POLICIES: readonly ChannelPolicy[] = [
-  "allow",
-  "deny",
-  "escalate",
-];
-
-function isChannelStatus(value: string): value is ChannelStatus {
-  return (VALID_CHANNEL_STATUSES as readonly string[]).includes(value);
-}
-
-function isChannelPolicy(value: string): value is ChannelPolicy {
-  return (VALID_CHANNEL_POLICIES as readonly string[]).includes(value);
 }
 
 /**
