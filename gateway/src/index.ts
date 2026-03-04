@@ -53,7 +53,11 @@ import {
 } from "./slack/socket-mode.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
-import { createRouter, type RouteDefinition } from "./http/router.js";
+import {
+  createRouter,
+  type RouteDefinition,
+  type GetClientIp,
+} from "./http/router.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
@@ -454,16 +458,16 @@ function main() {
       path: "/v1/integrations/guardian/vellum/refresh",
       method: "POST",
       auth: "custom",
-      handler: (req) => {
+      handler: (req, _params, getClientIp) => {
         const authHeader = req.headers.get("authorization");
         if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-          authRateLimiter.recordFailure(resolveClientIp());
+          authRateLimiter.recordFailure(getClientIp());
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         const token = authHeader.slice(7);
         const result = validateEdgeToken(token, { allowExpired: true });
         if (!result.ok) {
-          authRateLimiter.recordFailure(resolveClientIp());
+          authRateLimiter.recordFailure(getClientIp());
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         return guardianControlPlaneProxy.handleGuardianRefresh(req);
@@ -621,18 +625,13 @@ function main() {
     routes.push({
       path: /^\//, // match everything
       auth: "track-failures",
-      handler: (req) => handleRuntimeProxy(req, resolveClientIp()),
+      handler: (req, _params, getClientIp) =>
+        handleRuntimeProxy(req, getClientIp()),
     });
   }
 
-  // `resolveClientIp` is a lazy getter that is set per-request in the
-  // fetch handler. Declared here so that the guardian refresh custom
-  // auth handler and the runtime proxy catch-all can reference it.
-  let resolveClientIp: () => string;
-
   const router = createRouter(routes, {
     authRateLimiter,
-    getClientIp: () => resolveClientIp(),
   });
 
   const server = Bun.serve({
@@ -695,9 +694,10 @@ function main() {
         return Response.json({ status: "ok" });
       }
 
-      // Set the per-request IP resolver for use by auth middleware and
-      // custom auth handlers in the route table.
-      resolveClientIp = () => getClientIp(req, svr, config.trustProxy);
+      // Per-request IP resolver — scoped to this request so it remains
+      // correct across async yields under concurrent load.
+      const resolveClientIp: GetClientIp = () =>
+        getClientIp(req, svr, config.trustProxy);
 
       const rateLimitResponse = checkAuthRateLimit(
         url,
@@ -732,7 +732,7 @@ function main() {
       const tracedReq = new Request(req, { headers });
 
       // ── Route table dispatch ──
-      const response = router(tracedReq, url);
+      const response = router(tracedReq, url, resolveClientIp);
       if (response !== null) return response;
 
       return Response.json(

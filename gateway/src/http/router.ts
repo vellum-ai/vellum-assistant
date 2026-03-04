@@ -9,7 +9,7 @@ import {
 // Public types
 // ---------------------------------------------------------------------------
 
-type GetClientIp = () => string;
+export type GetClientIp = () => string;
 
 /**
  * Auth strategy for a route:
@@ -50,12 +50,15 @@ export interface RouteDefinition {
    */
   precondition?: () => Response | null;
   /** Route handler. Params are populated from regex capture groups. */
-  handler: (req: Request, params: RouteParams) => Promise<Response> | Response;
+  handler: (
+    req: Request,
+    params: RouteParams,
+    getClientIp: GetClientIp,
+  ) => Promise<Response> | Response;
 }
 
 export interface RouterDeps {
   authRateLimiter: AuthRateLimiter;
-  getClientIp: GetClientIp;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,10 +75,14 @@ export interface RouterDeps {
 export function createRouter(
   routes: RouteDefinition[],
   deps: RouterDeps,
-): (req: Request, url: URL) => Promise<Response> | Response | null {
-  const { authRateLimiter, getClientIp } = deps;
+): (
+  req: Request,
+  url: URL,
+  getClientIp: GetClientIp,
+) => Promise<Response> | Response | null {
+  const { authRateLimiter } = deps;
 
-  return (req: Request, url: URL) => {
+  return (req: Request, url: URL, getClientIp: GetClientIp) => {
     for (const route of routes) {
       const matchResult = matchRoute(route, url.pathname, req.method);
       if (!matchResult) continue;
@@ -91,7 +98,7 @@ export function createRouter(
       switch (auth) {
         case "none":
         case "custom":
-          return route.handler(req, matchResult.params);
+          return route.handler(req, matchResult.params, getClientIp);
 
         case "edge": {
           const { requireEdgeAuth } = createAuthMiddleware(
@@ -100,7 +107,7 @@ export function createRouter(
           );
           const authError = requireEdgeAuth(req);
           if (authError) return authError;
-          return route.handler(req, matchResult.params);
+          return route.handler(req, matchResult.params, getClientIp);
         }
 
         case "edge-scoped": {
@@ -110,12 +117,12 @@ export function createRouter(
           );
           const authError = requireEdgeAuthWithScope(req, route.scope!);
           if (authError) return authError;
-          return route.handler(req, matchResult.params);
+          return route.handler(req, matchResult.params, getClientIp);
         }
 
         case "track-failures": {
           return wrapWithAuthFailureTracking(
-            (r) => route.handler(r, matchResult.params),
+            (r) => route.handler(r, matchResult.params, getClientIp),
             authRateLimiter,
             getClientIp,
             route.trackFailureStatuses,
