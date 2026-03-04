@@ -880,6 +880,5 @@ describe("slack attachment delivery", () => {
     );
     expect(completeCall).toBeDefined();
     expect((completeCall!.body as any).thread_ts).toBe("1700000000.000050");
->>>>>>> origin/main
   });
 });
