@@ -4,8 +4,10 @@ import type { GatewayConfig } from "../config.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
+  normalizeSlackChannelMessage,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
+  type SlackChannelMessageEvent,
   type NormalizedSlackEvent,
 } from "./normalize.js";
 
@@ -15,6 +17,7 @@ const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
+const ACTIVE_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
 
 export type SlackSocketModeConfig = {
   appToken: string;
@@ -41,6 +44,7 @@ export class SlackSocketModeClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private dedupMap = new Map<string, number>();
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private activeThreads = new Map<string, number>();
 
   constructor(
     config: SlackSocketModeConfig,
@@ -90,6 +94,13 @@ export class SlackSocketModeClient {
       }
       this.ws = null;
     }
+  }
+
+  /**
+   * Register a thread as active so future replies (without @mention) are forwarded.
+   */
+  trackThread(threadTs: string): void {
+    this.activeThreads.set(threadTs, Date.now());
   }
 
   private async connect(): Promise<void> {
@@ -177,7 +188,10 @@ export class SlackSocketModeClient {
       type?: string;
       payload?: {
         event_id?: string;
-        event?: SlackAppMentionEvent | SlackDirectMessageEvent;
+        event?:
+          | SlackAppMentionEvent
+          | SlackDirectMessageEvent
+          | SlackChannelMessageEvent;
       };
       reason?: string;
     };
@@ -226,12 +240,18 @@ export class SlackSocketModeClient {
 
     const event = eventPayload.event;
     const dmEvent = event as SlackDirectMessageEvent;
+    const channelEvent = event as SlackChannelMessageEvent;
 
-    // Process app_mention events and DM (message with channel_type: "im") events
-    if (
-      event.type !== "app_mention" &&
-      !(event.type === "message" && dmEvent.channel_type === "im")
-    ) {
+    const isAppMention = event.type === "app_mention";
+    const isDm = event.type === "message" && dmEvent.channel_type === "im";
+    const isActiveThreadReply =
+      event.type === "message" &&
+      !isDm &&
+      !!channelEvent.thread_ts &&
+      this.activeThreads.has(channelEvent.thread_ts);
+
+    // Process app_mention events, DMs, and replies in active bot threads
+    if (!isAppMention && !isDm && !isActiveThreadReply) {
       return;
     }
 
@@ -244,11 +264,18 @@ export class SlackSocketModeClient {
     this.dedupMap.set(eventId, Date.now());
 
     let normalized: NormalizedSlackEvent | null;
-    if (event.type === "app_mention") {
+    if (isAppMention) {
       normalized = normalizeSlackAppMention(
         event as SlackAppMentionEvent,
         eventId,
         this.config.gatewayConfig,
+      );
+    } else if (isActiveThreadReply) {
+      normalized = normalizeSlackChannelMessage(
+        event as SlackChannelMessageEvent,
+        eventId,
+        this.config.gatewayConfig,
+        this.config.botUserId,
       );
     } else {
       normalized = normalizeSlackDirectMessage(
@@ -309,6 +336,17 @@ export class SlackSocketModeClient {
       }
       if (evicted > 0) {
         log.debug({ evicted }, "Evicted expired Slack event dedup entries");
+      }
+      // Also clean up expired active threads
+      let threadEvicted = 0;
+      for (const [key, timestamp] of this.activeThreads) {
+        if (now - timestamp > ACTIVE_THREAD_TTL_MS) {
+          this.activeThreads.delete(key);
+          threadEvicted++;
+        }
+      }
+      if (threadEvicted > 0) {
+        log.debug({ threadEvicted }, "Evicted expired active thread entries");
       }
     }, DEDUP_CLEANUP_INTERVAL_MS);
   }

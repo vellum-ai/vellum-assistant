@@ -2,7 +2,10 @@ process.title = "vellum-gateway";
 
 import { randomBytes } from "node:crypto";
 import { AuthRateLimiter } from "./auth-rate-limiter.js";
-import { loadOrCreateSigningKey, initSigningKey } from "./auth/token-service.js";
+import {
+  loadOrCreateSigningKey,
+  initSigningKey,
+} from "./auth/token-service.js";
 import { validateEdgeToken } from "./auth/token-exchange.js";
 import { resolveScopeProfile } from "./auth/scopes.js";
 import type { Scope } from "./auth/types.js";
@@ -21,7 +24,10 @@ import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js"
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
-import { createTwilioRelayWebsocketHandler, getRelayWebsocketHandlers } from "./http/routes/twilio-relay-websocket.js";
+import {
+  createTwilioRelayWebsocketHandler,
+  getRelayWebsocketHandlers,
+} from "./http/routes/twilio-relay-websocket.js";
 import { createTwilioSmsWebhookHandler } from "./http/routes/twilio-sms-webhook.js";
 import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
@@ -29,7 +35,10 @@ import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js"
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
-import { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } from "./http/routes/feature-flags.js";
+import {
+  createFeatureFlagsGetHandler,
+  createFeatureFlagsPatchHandler,
+} from "./http/routes/feature-flags.js";
 import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createIngressControlPlaneProxyHandler } from "./http/routes/ingress-control-plane-proxy.js";
@@ -41,7 +50,10 @@ import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
 import { buildSchema } from "./schema.js";
-import { createSlackSocketModeClient, type SlackSocketModeClient } from "./slack/socket-mode.js";
+import {
+  createSlackSocketModeClient,
+  type SlackSocketModeClient,
+} from "./slack/socket-mode.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
@@ -57,11 +69,21 @@ let draining = false;
 // Shared rate limiter for auth failures and unauthenticated endpoints
 const authRateLimiter = new AuthRateLimiter();
 
-function isBrowserRelaySocketData(data: unknown): data is BrowserRelaySocketData {
-  return !!data && typeof data === "object" && (data as { wsType?: unknown }).wsType === "browser-relay";
+function isBrowserRelaySocketData(
+  data: unknown,
+): data is BrowserRelaySocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "browser-relay"
+  );
 }
 
-function getClientIp(req: Request, server: ReturnType<typeof Bun.serve>, trustProxy: boolean): string {
+function getClientIp(
+  req: Request,
+  server: ReturnType<typeof Bun.serve>,
+  trustProxy: boolean,
+): string {
   if (trustProxy) {
     const forwarded = req.headers.get("x-forwarded-for");
     if (forwarded) {
@@ -85,7 +107,8 @@ function main() {
   initSigningKey(signingKey);
   log.info("JWT signing key initialized");
 
-  const { handler: handleTelegramWebhook, dedupCache: telegramDedupCache } = createTelegramWebhookHandler(config);
+  const { handler: handleTelegramWebhook, dedupCache: telegramDedupCache } =
+    createTelegramWebhookHandler(config);
   const handleTelegramDeliver = createTelegramDeliverHandler(config);
   const handleTelegramReconcile = createTelegramReconcileHandler(config);
 
@@ -97,21 +120,29 @@ function main() {
 
   const handleTwilioVoiceWebhook = createTwilioVoiceWebhookHandler(config);
   const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
-  const handleTwilioConnectActionWebhook = createTwilioConnectActionWebhookHandler(config);
+  const handleTwilioConnectActionWebhook =
+    createTwilioConnectActionWebhookHandler(config);
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config);
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
-  const { handler: handleTwilioSmsWebhook, dedupCache: smsDedupCache } = createTwilioSmsWebhookHandler(config);
+  const { handler: handleTwilioSmsWebhook, dedupCache: smsDedupCache } =
+    createTwilioSmsWebhookHandler(config);
   const handleSmsDeliver = createSmsDeliverHandler(config);
-  const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } = createWhatsAppWebhookHandler(config);
+  const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
+    createWhatsAppWebhookHandler(config);
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
-  const handleSlackDeliver = createSlackDeliverHandler(config);
+  const handleSlackDeliver = createSlackDeliverHandler(config, (threadTs) => {
+    slackSocketClient?.trackThread(threadTs);
+  });
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
-  const guardianControlPlaneProxy = createGuardianControlPlaneProxyHandler(config);
-  const telegramControlPlaneProxy = createTelegramControlPlaneProxyHandler(config);
-  const ingressControlPlaneProxy = createIngressControlPlaneProxyHandler(config);
+  const guardianControlPlaneProxy =
+    createGuardianControlPlaneProxyHandler(config);
+  const telegramControlPlaneProxy =
+    createTelegramControlPlaneProxyHandler(config);
+  const ingressControlPlaneProxy =
+    createIngressControlPlaneProxyHandler(config);
   const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
@@ -153,7 +184,10 @@ function main() {
       if (err instanceof CircuitBreakerOpenError) {
         return Response.json(
           { error: "Service temporarily unavailable — runtime is unreachable" },
-          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+          {
+            status: 503,
+            headers: { "Retry-After": String(err.retryAfterSecs) },
+          },
         );
       }
       log.error({ err }, "Unhandled gateway error");
@@ -181,7 +215,8 @@ function main() {
       // Rate-limit check for auth-protected, pairing, and unauthenticated
       // endpoints that forward to the runtime (OAuth callback is publicly
       // reachable and forwards every valid-looking request).
-      const isRateLimitedRoute = url.pathname === "/integrations/status" ||
+      const isRateLimitedRoute =
+        url.pathname === "/integrations/status" ||
         url.pathname === "/deliver/telegram" ||
         url.pathname === "/deliver/sms" ||
         url.pathname === "/deliver/whatsapp" ||
@@ -197,7 +232,10 @@ function main() {
       if (isRateLimitedRoute) {
         const clientIp = getClientIp(req, svr, config.trustProxy);
         if (authRateLimiter.isBlocked(clientIp)) {
-          log.warn({ ip: clientIp, path: url.pathname }, "Auth rate limit exceeded");
+          log.warn(
+            { ip: clientIp, path: url.pathname },
+            "Auth rate limit exceeded",
+          );
           return Response.json(
             { error: "Too many failed attempts. Try again later." },
             { status: 429, headers: { "Retry-After": "60" } },
@@ -235,7 +273,9 @@ function main() {
         }
         const res = await handleTelegramDeliver(tracedReq);
         if (res.status === 401) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
         }
         return res;
       }
@@ -268,7 +308,9 @@ function main() {
       if (url.pathname === "/deliver/sms") {
         const res = await handleSmsDeliver(tracedReq);
         if (res.status === 401) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
         }
         return res;
       }
@@ -292,7 +334,9 @@ function main() {
         }
         const res = await handleWhatsAppDeliver(tracedReq);
         if (res.status === 401) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
         }
         return res;
       }
@@ -306,12 +350,17 @@ function main() {
         }
         const res = await handleSlackDeliver(tracedReq);
         if (res.status === 401) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
         }
         return res;
       }
 
-      if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {
+      if (
+        url.pathname === "/webhooks/twilio/relay" ||
+        url.pathname === "/v1/calls/relay"
+      ) {
         const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         // If upgrade was handled, Bun doesn't need a response
@@ -325,10 +374,15 @@ function main() {
         return undefined as unknown as Response;
       }
 
-      if (url.pathname === "/webhooks/oauth/callback" && tracedReq.method === "GET") {
+      if (
+        url.pathname === "/webhooks/oauth/callback" &&
+        tracedReq.method === "GET"
+      ) {
         const res = await handleOAuthCallback(tracedReq);
         if (res.status === 400) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
         }
         return res;
       }
@@ -340,13 +394,17 @@ function main() {
       function requireEdgeAuth(): Response | null {
         const authHeader = tracedReq.headers.get("authorization");
         if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         const token = authHeader.slice(7);
         const result = validateEdgeToken(token);
         if (!result.ok) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         return null;
@@ -359,13 +417,17 @@ function main() {
       function requireEdgeAuthWithScope(scope: Scope): Response | null {
         const authHeader = tracedReq.headers.get("authorization");
         if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         const token = authHeader.slice(7);
         const result = validateEdgeToken(token);
         if (!result.ok) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         const scopes = resolveScopeProfile(result.claims.scope_profile);
@@ -401,22 +463,36 @@ function main() {
 
       // ── Telegram integration control-plane proxy ──
       if (
-        (url.pathname === "/v1/integrations/telegram/config" && req.method === "GET")
-        || (url.pathname === "/v1/integrations/telegram/config" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/telegram/config" && req.method === "DELETE")
-        || (url.pathname === "/v1/integrations/telegram/commands" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/telegram/setup" && req.method === "POST")
+        (url.pathname === "/v1/integrations/telegram/config" &&
+          req.method === "GET") ||
+        (url.pathname === "/v1/integrations/telegram/config" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/telegram/config" &&
+          req.method === "DELETE") ||
+        (url.pathname === "/v1/integrations/telegram/commands" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/telegram/setup" &&
+          req.method === "POST")
       ) {
         const authError = requireEdgeAuth();
         if (authError) return authError;
 
-        if (url.pathname === "/v1/integrations/telegram/config" && req.method === "GET") {
+        if (
+          url.pathname === "/v1/integrations/telegram/config" &&
+          req.method === "GET"
+        ) {
           return telegramControlPlaneProxy.handleGetTelegramConfig(tracedReq);
         }
-        if (url.pathname === "/v1/integrations/telegram/config" && req.method === "POST") {
+        if (
+          url.pathname === "/v1/integrations/telegram/config" &&
+          req.method === "POST"
+        ) {
           return telegramControlPlaneProxy.handleSetTelegramConfig(tracedReq);
         }
-        if (url.pathname === "/v1/integrations/telegram/config" && req.method === "DELETE") {
+        if (
+          url.pathname === "/v1/integrations/telegram/config" &&
+          req.method === "DELETE"
+        ) {
           return telegramControlPlaneProxy.handleClearTelegramConfig(tracedReq);
         }
         if (url.pathname === "/v1/integrations/telegram/commands") {
@@ -426,7 +502,10 @@ function main() {
       }
 
       // ── Ingress members/invites control-plane proxy ──
-      const ingressRoute = matchIngressControlPlaneRoute(url.pathname, req.method);
+      const ingressRoute = matchIngressControlPlaneRoute(
+        url.pathname,
+        req.method,
+      );
       if (ingressRoute) {
         const authError = requireEdgeAuth();
         if (authError) return authError;
@@ -437,9 +516,15 @@ function main() {
           case "upsertMember":
             return ingressControlPlaneProxy.handleUpsertMember(tracedReq);
           case "blockMember":
-            return ingressControlPlaneProxy.handleBlockMember(tracedReq, ingressRoute.memberId);
+            return ingressControlPlaneProxy.handleBlockMember(
+              tracedReq,
+              ingressRoute.memberId,
+            );
           case "revokeMember":
-            return ingressControlPlaneProxy.handleRevokeMember(tracedReq, ingressRoute.memberId);
+            return ingressControlPlaneProxy.handleRevokeMember(
+              tracedReq,
+              ingressRoute.memberId,
+            );
           case "listInvites":
             return ingressControlPlaneProxy.handleListInvites(tracedReq);
           case "createInvite":
@@ -447,15 +532,23 @@ function main() {
           case "redeemInvite":
             return ingressControlPlaneProxy.handleRedeemInvite(tracedReq);
           case "revokeInvite":
-            return ingressControlPlaneProxy.handleRevokeInvite(tracedReq, ingressRoute.inviteId);
+            return ingressControlPlaneProxy.handleRevokeInvite(
+              tracedReq,
+              ingressRoute.inviteId,
+            );
         }
       }
 
       // ── Guardian vellum bootstrap (actor token) ──
-      if (url.pathname === "/v1/integrations/guardian/vellum/bootstrap" && req.method === "POST") {
+      if (
+        url.pathname === "/v1/integrations/guardian/vellum/bootstrap" &&
+        req.method === "POST"
+      ) {
         const authError = requireEdgeAuth();
         if (authError) return authError;
-        return guardianControlPlaneProxy.handleGuardianVellumBootstrap(tracedReq);
+        return guardianControlPlaneProxy.handleGuardianVellumBootstrap(
+          tracedReq,
+        );
       }
 
       // ── Guardian verification control-plane proxy ──
@@ -471,7 +564,9 @@ function main() {
         if (authError) return authError;
 
         if (url.pathname === "/v1/integrations/guardian/challenge") {
-          return guardianControlPlaneProxy.handleCreateGuardianChallenge(tracedReq);
+          return guardianControlPlaneProxy.handleCreateGuardianChallenge(
+            tracedReq,
+          );
         }
         if (url.pathname === "/v1/integrations/guardian/status") {
           return guardianControlPlaneProxy.handleGetGuardianStatus(tracedReq);
@@ -480,12 +575,18 @@ function main() {
           return guardianControlPlaneProxy.handleRevokeGuardian(tracedReq);
         }
         if (url.pathname === "/v1/integrations/guardian/outbound/start") {
-          return guardianControlPlaneProxy.handleStartGuardianOutbound(tracedReq);
+          return guardianControlPlaneProxy.handleStartGuardianOutbound(
+            tracedReq,
+          );
         }
         if (url.pathname === "/v1/integrations/guardian/outbound/resend") {
-          return guardianControlPlaneProxy.handleResendGuardianOutbound(tracedReq);
+          return guardianControlPlaneProxy.handleResendGuardianOutbound(
+            tracedReq,
+          );
         }
-        return guardianControlPlaneProxy.handleCancelGuardianOutbound(tracedReq);
+        return guardianControlPlaneProxy.handleCancelGuardianOutbound(
+          tracedReq,
+        );
       }
 
       // ── Guardian vellum refresh proxy ──
@@ -494,16 +595,23 @@ function main() {
       // so rejecting expired tokens here would create a deadlock once
       // the JWT expires. Signature, audience, and policy epoch are still
       // verified — only the expiration check is relaxed.
-      if (url.pathname === "/v1/integrations/guardian/vellum/refresh" && req.method === "POST") {
+      if (
+        url.pathname === "/v1/integrations/guardian/vellum/refresh" &&
+        req.method === "POST"
+      ) {
         const authHeader = tracedReq.headers.get("authorization");
         if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         const token = authHeader.slice(7);
         const result = validateEdgeToken(token, { allowExpired: true });
         if (!result.ok) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         return guardianControlPlaneProxy.handleGuardianRefresh(tracedReq);
@@ -511,31 +619,56 @@ function main() {
 
       // ── Twilio integration control-plane proxy ──
       if (
-        (url.pathname === "/v1/integrations/twilio/config" && req.method === "GET")
-        || (url.pathname === "/v1/integrations/twilio/credentials" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/twilio/credentials" && req.method === "DELETE")
-        || (url.pathname === "/v1/integrations/twilio/numbers" && req.method === "GET")
-        || (url.pathname === "/v1/integrations/twilio/numbers/provision" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/twilio/numbers/assign" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/twilio/numbers/release" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/twilio/sms/compliance" && req.method === "GET")
-        || (url.pathname === "/v1/integrations/twilio/sms/compliance/tollfree" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/twilio/sms/test" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/twilio/sms/doctor" && req.method === "POST")
+        (url.pathname === "/v1/integrations/twilio/config" &&
+          req.method === "GET") ||
+        (url.pathname === "/v1/integrations/twilio/credentials" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/twilio/credentials" &&
+          req.method === "DELETE") ||
+        (url.pathname === "/v1/integrations/twilio/numbers" &&
+          req.method === "GET") ||
+        (url.pathname === "/v1/integrations/twilio/numbers/provision" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/twilio/numbers/assign" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/twilio/numbers/release" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/twilio/sms/compliance" &&
+          req.method === "GET") ||
+        (url.pathname === "/v1/integrations/twilio/sms/compliance/tollfree" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/twilio/sms/test" &&
+          req.method === "POST") ||
+        (url.pathname === "/v1/integrations/twilio/sms/doctor" &&
+          req.method === "POST")
       ) {
         const authError = requireEdgeAuth();
         if (authError) return authError;
 
-        if (url.pathname === "/v1/integrations/twilio/config" && req.method === "GET") {
+        if (
+          url.pathname === "/v1/integrations/twilio/config" &&
+          req.method === "GET"
+        ) {
           return twilioControlPlaneProxy.handleGetTwilioConfig(tracedReq);
         }
-        if (url.pathname === "/v1/integrations/twilio/credentials" && req.method === "POST") {
+        if (
+          url.pathname === "/v1/integrations/twilio/credentials" &&
+          req.method === "POST"
+        ) {
           return twilioControlPlaneProxy.handleSetTwilioCredentials(tracedReq);
         }
-        if (url.pathname === "/v1/integrations/twilio/credentials" && req.method === "DELETE") {
-          return twilioControlPlaneProxy.handleClearTwilioCredentials(tracedReq);
+        if (
+          url.pathname === "/v1/integrations/twilio/credentials" &&
+          req.method === "DELETE"
+        ) {
+          return twilioControlPlaneProxy.handleClearTwilioCredentials(
+            tracedReq,
+          );
         }
-        if (url.pathname === "/v1/integrations/twilio/numbers" && req.method === "GET") {
+        if (
+          url.pathname === "/v1/integrations/twilio/numbers" &&
+          req.method === "GET"
+        ) {
           return twilioControlPlaneProxy.handleListTwilioNumbers(tracedReq);
         }
         if (url.pathname === "/v1/integrations/twilio/numbers/provision") {
@@ -547,11 +680,18 @@ function main() {
         if (url.pathname === "/v1/integrations/twilio/numbers/release") {
           return twilioControlPlaneProxy.handleReleaseTwilioNumber(tracedReq);
         }
-        if (url.pathname === "/v1/integrations/twilio/sms/compliance" && req.method === "GET") {
+        if (
+          url.pathname === "/v1/integrations/twilio/sms/compliance" &&
+          req.method === "GET"
+        ) {
           return twilioControlPlaneProxy.handleGetSmsCompliance(tracedReq);
         }
-        if (url.pathname === "/v1/integrations/twilio/sms/compliance/tollfree") {
-          return twilioControlPlaneProxy.handleSubmitTollfreeVerification(tracedReq);
+        if (
+          url.pathname === "/v1/integrations/twilio/sms/compliance/tollfree"
+        ) {
+          return twilioControlPlaneProxy.handleSubmitTollfreeVerification(
+            tracedReq,
+          );
         }
         if (url.pathname === "/v1/integrations/twilio/sms/test") {
           return twilioControlPlaneProxy.handleSmsSendTest(tracedReq);
@@ -563,21 +703,33 @@ function main() {
       const tollfreeVerificationMatch = url.pathname.match(
         /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
       );
-      if (tollfreeVerificationMatch && (req.method === "PATCH" || req.method === "DELETE")) {
+      if (
+        tollfreeVerificationMatch &&
+        (req.method === "PATCH" || req.method === "DELETE")
+      ) {
         const authError = requireEdgeAuth();
         if (authError) return authError;
 
-        const verificationSid = decodeURIComponent(tollfreeVerificationMatch[1]);
+        const verificationSid = decodeURIComponent(
+          tollfreeVerificationMatch[1],
+        );
         if (req.method === "PATCH") {
-          return twilioControlPlaneProxy.handleUpdateTollfreeVerification(tracedReq, verificationSid);
+          return twilioControlPlaneProxy.handleUpdateTollfreeVerification(
+            tracedReq,
+            verificationSid,
+          );
         }
-        return twilioControlPlaneProxy.handleDeleteTollfreeVerification(tracedReq, verificationSid);
+        return twilioControlPlaneProxy.handleDeleteTollfreeVerification(
+          tracedReq,
+          verificationSid,
+        );
       }
 
       // ── Channel readiness proxy ──
       if (
-        (url.pathname === "/v1/channels/readiness" && req.method === "GET")
-        || (url.pathname === "/v1/channels/readiness/refresh" && req.method === "POST")
+        (url.pathname === "/v1/channels/readiness" && req.method === "GET") ||
+        (url.pathname === "/v1/channels/readiness/refresh" &&
+          req.method === "POST")
       ) {
         const authError = requireEdgeAuth();
         if (authError) return authError;
@@ -610,14 +762,18 @@ function main() {
       if (url.pathname === "/pairing/request" && tracedReq.method === "POST") {
         const res = await pairingProxy.handlePairingRequest(tracedReq);
         if (res.status === 401 || res.status === 403) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
         }
         return res;
       }
       if (url.pathname === "/pairing/status" && tracedReq.method === "GET") {
         const res = await pairingProxy.handlePairingStatus(tracedReq);
         if (res.status === 401 || res.status === 403) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
         }
         return res;
       }
@@ -626,33 +782,46 @@ function main() {
       // Feature flag access is scope-based: actor_client_v1 includes
       // feature_flags.read/write. No separate feature flag token needed.
       if (url.pathname === "/v1/feature-flags" && req.method === "GET") {
-        const authError = requireEdgeAuthWithScope('feature_flags.read');
+        const authError = requireEdgeAuthWithScope("feature_flags.read");
         if (authError) return authError;
         return handleFeatureFlagsGet(tracedReq);
       }
 
-      const featureFlagPatchMatch = url.pathname.match(/^\/v1\/feature-flags\/(.+)$/);
+      const featureFlagPatchMatch = url.pathname.match(
+        /^\/v1\/feature-flags\/(.+)$/,
+      );
       if (featureFlagPatchMatch && req.method === "PATCH") {
-        const authError = requireEdgeAuthWithScope('feature_flags.write');
+        const authError = requireEdgeAuthWithScope("feature_flags.write");
         if (authError) return authError;
         let flagKey: string;
         try {
           flagKey = decodeURIComponent(featureFlagPatchMatch[1]);
         } catch {
-          return Response.json({ error: "Invalid flag key encoding" }, { status: 400 });
+          return Response.json(
+            { error: "Invalid flag key encoding" },
+            { status: 400 },
+          );
         }
         return handleFeatureFlagsPatch(tracedReq, flagKey);
       }
 
       if (handleRuntimeProxy) {
-        const res = await handleRuntimeProxy(tracedReq, getClientIp(req, svr, config.trustProxy));
+        const res = await handleRuntimeProxy(
+          tracedReq,
+          getClientIp(req, svr, config.trustProxy),
+        );
         if (res.status === 401) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(
+            getClientIp(req, svr, config.trustProxy),
+          );
         }
         return res;
       }
 
-      return Response.json({ error: "Not found", source: "gateway" }, { status: 404 });
+      return Response.json(
+        { error: "Not found", source: "gateway" },
+        { status: 404 },
+      );
     },
   });
 
@@ -699,14 +868,16 @@ function main() {
       },
       (normalized) => {
         const { threadTs, channel } = normalized;
-        const replyCallbackUrl =
-          `${config.gatewayInternalBaseUrl}/deliver/slack?threadTs=${encodeURIComponent(threadTs)}&channel=${encodeURIComponent(channel)}`;
+        const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?threadTs=${encodeURIComponent(threadTs)}&channel=${encodeURIComponent(channel)}`;
 
         handleInbound(config, normalized.event, {
           replyCallbackUrl,
           routingOverride: normalized.routing,
         }).catch((err) => {
-          log.error({ err, channel, threadTs }, "Failed to forward Slack event to runtime");
+          log.error(
+            { err, channel, threadTs },
+            "Failed to forward Slack event to runtime",
+          );
         });
       },
     );
@@ -722,7 +893,9 @@ function main() {
   }
 
   const telegramFromEnv = isTelegramConfigured();
-  const slackFromEnv = !!(process.env.SLACK_CHANNEL_BOT_TOKEN && process.env.SLACK_CHANNEL_APP_TOKEN);
+  const slackFromEnv = !!(
+    process.env.SLACK_CHANNEL_BOT_TOKEN && process.env.SLACK_CHANNEL_APP_TOKEN
+  );
 
   const credentialWatcher = new CredentialWatcher((event) => {
     if (event.telegramChanged && !telegramFromEnv) {
@@ -732,7 +905,10 @@ function main() {
         log.info("Telegram credentials loaded from credential vault");
         registerTelegramCommands();
         reconcileTelegramWebhook(config).catch((err) => {
-          log.error({ err }, "Failed to reconcile Telegram webhook after credential change");
+          log.error(
+            { err },
+            "Failed to reconcile Telegram webhook after credential change",
+          );
         });
       } else {
         config.telegramBotToken = undefined;
@@ -758,7 +934,8 @@ function main() {
         config.whatsappPhoneNumberId = event.whatsappCredentials.phoneNumberId;
         config.whatsappAccessToken = event.whatsappCredentials.accessToken;
         config.whatsappAppSecret = event.whatsappCredentials.appSecret;
-        config.whatsappWebhookVerifyToken = event.whatsappCredentials.webhookVerifyToken;
+        config.whatsappWebhookVerifyToken =
+          event.whatsappCredentials.webhookVerifyToken;
         log.info("WhatsApp credentials loaded from credential vault");
       } else {
         config.whatsappPhoneNumberId = undefined;
@@ -802,7 +979,10 @@ function main() {
       config.ingressPublicBaseUrl = event.ingressPublicBaseUrl;
       if (isTelegramConfigured()) {
         reconcileTelegramWebhook(config).catch((err) => {
-          log.error({ err }, "Failed to reconcile Telegram webhook after ingress URL change");
+          log.error(
+            { err },
+            "Failed to reconcile Telegram webhook after ingress URL change",
+          );
         });
       }
     }
