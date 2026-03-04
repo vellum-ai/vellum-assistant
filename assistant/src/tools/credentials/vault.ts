@@ -227,7 +227,7 @@ class CredentialStoreTool implements Tool {
               required: ["hostPattern", "injectionType"],
             },
             description:
-              "Templates describing how to inject this credential into proxied requests (only for store action)",
+              "Templates describing how to inject this credential into proxied requests (for store and prompt actions)",
           },
           reason: {
             type: "string",
