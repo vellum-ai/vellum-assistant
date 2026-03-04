@@ -20,8 +20,11 @@ import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import type { IngressMember } from '../memory/ingress-member-store.js';
 import { findMember } from '../memory/ingress-member-store.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
+import { getLogger } from '../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
+
+const log = getLogger('actor-trust-resolver');
 
 export type { TrustContext } from '../daemon/session-runtime-assembly.js';
 
@@ -226,6 +229,12 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
     }
   }
 
+  log.debug('trust-resolver guardian lookup', {
+    channel: input.sourceChannel,
+    source: guardianResult ? 'contacts' : 'legacy',
+    found: !!guardianBindingMatch,
+  });
+
   // --- Member lookup: contacts-first, legacy fallback ---
   let memberRecord: IngressMember | null = null;
   const contactMatch = findContactByChannelExternalId(input.sourceChannel, canonicalSenderId);
@@ -247,6 +256,13 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
       externalChatId: input.conversationExternalId,
     });
   }
+
+  log.debug('trust-resolver member lookup', {
+    channel: input.sourceChannel,
+    canonicalSenderId,
+    source: contactMatch ? 'contacts' : 'legacy',
+    found: !!memberRecord,
+  });
 
   // In group chats, findMember may match on externalChatId and return a
   // record for a different user. Only use member metadata when the record's
