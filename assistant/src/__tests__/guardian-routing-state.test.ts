@@ -37,35 +37,6 @@ mock.module("../security/secret-ingress.js", () => ({
   checkIngressForSecrets: () => ({ blocked: false }),
 }));
 
-// Mock ingress member store with a configurable member lookup.
-// By default returns an active member so ACL passes.
-let mockFindMember: (() => unknown) | null = null;
-mock.module("../memory/ingress-member-store.js", () => ({
-  findMember: (..._args: unknown[]) => {
-    if (mockFindMember) return mockFindMember();
-    return {
-      id: "member-test-default",
-      assistantId: "self",
-      sourceChannel: "telegram",
-      externalUserId: "telegram-user-default",
-      externalChatId: null,
-      displayName: null,
-      username: null,
-      status: "active",
-      policy: "allow",
-      inviteId: null,
-      createdBySessionId: null,
-      revokedReason: null,
-      blockedReason: null,
-      lastSeenAt: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-  },
-  updateLastSeen: () => {},
-  upsertMember: () => {},
-}));
-
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
@@ -211,7 +182,6 @@ describe("resolveRoutingStateFromRuntime", () => {
 describe("inbound-message-handler trusted-contact interactivity", () => {
   beforeEach(() => {
     resetTables();
-    mockFindMember = null;
     // Insert a test contact so the contacts-based ACL lookup passes
     upsertContact({
       displayName: "Test User",
@@ -405,10 +375,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
   });
 
   test("unknown actors remain non-interactive (denied at gate)", async () => {
-    // No member record => non-member denied at the ACL gate,
+    // No contact record => non-member denied at the ACL gate,
     // which is the strongest form of "not interactive".
-    mockFindMember = () => null;
-
     const req = makeInboundRequest({
       externalMessageId: `msg-unknown-${Date.now()}`,
       actorExternalId: "unknown-user-no-member",
@@ -430,7 +398,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
 describe("channel-retry-sweep routing state", () => {
   beforeEach(() => {
     resetTables();
-    mockFindMember = null;
   });
 
   function seedFailedEvent(

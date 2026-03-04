@@ -47,30 +47,6 @@ mock.module("../daemon/handlers.js", () => ({
   }),
 }));
 
-// Mock ingress member store to return an active member for all lookups
-mock.module("../memory/ingress-member-store.js", () => ({
-  findMember: () => ({
-    id: "member-test-default",
-    assistantId: "self",
-    sourceChannel: "telegram",
-    externalUserId: "telegram-user-default",
-    externalChatId: null,
-    displayName: null,
-    username: null,
-    status: "active",
-    policy: "allow",
-    inviteId: null,
-    createdBySessionId: null,
-    revokedReason: null,
-    blockedReason: null,
-    lastSeenAt: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  }),
-  updateLastSeen: () => {},
-  upsertMember: () => {},
-}));
-
 import { eq } from "drizzle-orm";
 
 import { upsertContact } from "../contacts/contact-store.js";
