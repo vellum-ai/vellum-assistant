@@ -1045,7 +1045,7 @@ function parseAssistantMetadata(
  * Enforces the invariant that makes the discriminated union cast in
  * parseAssistantMetadata safe.
  */
-function validateSpeciesMetadata(
+export function validateSpeciesMetadata(
   species: AssistantSpecies,
   metadata: Record<string, unknown> | null | undefined,
 ): void {
