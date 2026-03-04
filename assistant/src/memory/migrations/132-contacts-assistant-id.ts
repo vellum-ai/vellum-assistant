@@ -11,4 +11,11 @@ export function migrateContactsAssistantId(database: DrizzleDb): void {
   } catch {
     /* already exists */
   }
+
+  // Backfill existing guardian contacts so they remain discoverable via
+  // queries that filter on assistant_id = 'self'.  Without this, NULL = 'self'
+  // evaluates to false in SQL and existing guardian bindings silently break.
+  database.run(
+    /*sql*/ `UPDATE contacts SET assistant_id = 'self' WHERE role = 'guardian' AND assistant_id IS NULL`,
+  );
 }
