@@ -54,13 +54,20 @@ export interface VBundleValidationResult {
   is_valid: boolean;
   errors: ValidationError[];
   manifest?: ManifestType;
+  /** Parsed tar entries, only populated when `includeEntries` option is set. */
+  entries?: Map<string, TarEntry>;
+}
+
+export interface ValidateVBundleOptions {
+  /** When true, include parsed tar entries in the result for downstream reuse. */
+  includeEntries?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Tar parsing (minimal, spec-compliant for ustar/GNU tar)
 // ---------------------------------------------------------------------------
 
-interface TarEntry {
+export interface TarEntry {
   name: string;
   data: Uint8Array;
   size: number;
@@ -186,7 +193,10 @@ const MAX_DECOMPRESSED_SIZE = 2 * 1024 * 1024 * 1024;
  * 3. Manifest checksum (SHA-256 of canonicalized JSON without manifest_sha256)
  * 4. Per-file content integrity (SHA-256 of each file vs manifest declaration)
  */
-export function validateVBundle(data: Uint8Array): VBundleValidationResult {
+export function validateVBundle(
+  data: Uint8Array,
+  options?: ValidateVBundleOptions,
+): VBundleValidationResult {
   const errors: ValidationError[] = [];
 
   // Step 1: Decompress gzip with size cap to prevent zip-bomb DoS
@@ -338,9 +348,11 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
     }
   }
 
+  const isValid = errors.length === 0;
   return {
-    is_valid: errors.length === 0,
+    is_valid: isValid,
     errors,
-    manifest: errors.length === 0 ? manifest : undefined,
+    manifest: isValid ? manifest : undefined,
+    entries: isValid && options?.includeEntries ? entryMap : undefined,
   };
 }

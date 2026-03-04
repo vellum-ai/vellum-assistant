@@ -357,8 +357,9 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
 
   try {
     // Validate the bundle before closing the DB to avoid an unnecessary
-    // close/reopen cycle when the bundle is invalid.
-    const validation = validateVBundle(fileData);
+    // close/reopen cycle when the bundle is invalid. Request parsed entries
+    // so commitImport can reuse them without re-decompressing.
+    const validation = validateVBundle(fileData, { includeEntries: true });
     if (!validation.is_valid) {
       return Response.json({
         success: false,
@@ -379,6 +380,8 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     const result = commitImport({
       archiveData: fileData,
       pathResolver,
+      preValidatedManifest: validation.manifest,
+      preValidatedEntries: validation.entries,
     });
 
     if (!result.ok) {
