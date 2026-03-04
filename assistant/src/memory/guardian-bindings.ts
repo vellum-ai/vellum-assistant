@@ -8,6 +8,7 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { syncSingleGuardianBinding } from '../contacts/contact-sync.js';
 import { getDb } from './db.js';
 import { channelGuardianBindings } from './schema.js';
 
@@ -87,7 +88,10 @@ export function createBinding(params: {
 
   db.insert(channelGuardianBindings).values(row).run();
 
-  return rowToBinding(row);
+  const binding = rowToBinding(row);
+  syncSingleGuardianBinding(binding);
+
+  return binding;
 }
 
 export function getActiveBinding(assistantId: string, channel: string): GuardianBinding | null {

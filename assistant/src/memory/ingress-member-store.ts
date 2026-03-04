@@ -8,6 +8,7 @@
 import { and, desc, eq, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { syncSingleMember } from '../contacts/contact-sync.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getDb } from './db.js';
 import { assistantIngressMembers } from './schema.js';
@@ -140,7 +141,9 @@ export function upsertMember(params: {
       .where(eq(assistantIngressMembers.id, existing.id))
       .get();
 
-    return rowToMember(updated!);
+    const member = rowToMember(updated!);
+    syncSingleMember(member);
+    return member;
   }
 
   // Create a new member
@@ -166,7 +169,9 @@ export function upsertMember(params: {
 
   db.insert(assistantIngressMembers).values(row).run();
 
-  return rowToMember(row);
+  const member = rowToMember(row);
+  syncSingleMember(member);
+  return member;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,7 +253,10 @@ export function revokeMember(memberId: string, reason?: string): IngressMember |
     .where(eq(assistantIngressMembers.id, memberId))
     .get();
 
-  return updated ? rowToMember(updated) : null;
+  if (!updated) return null;
+  const member = rowToMember(updated);
+  syncSingleMember(member);
+  return member;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +295,10 @@ export function blockMember(memberId: string, reason?: string): IngressMember | 
     .where(eq(assistantIngressMembers.id, memberId))
     .get();
 
-  return updated ? rowToMember(updated) : null;
+  if (!updated) return null;
+  const member = rowToMember(updated);
+  syncSingleMember(member);
+  return member;
 }
 
 // ---------------------------------------------------------------------------
