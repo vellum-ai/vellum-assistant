@@ -10,7 +10,6 @@ struct SettingsSnapshot {
     let hasBraveKey: Bool
     let hasPerplexityKey: Bool
     let hasElevenLabsKey: Bool
-    let platformBaseUrl: String
 
     init(store: SettingsStore) {
         model = store.selectedModel
@@ -21,7 +20,6 @@ struct SettingsSnapshot {
         hasBraveKey = store.hasBraveKey
         hasPerplexityKey = store.hasPerplexityKey
         hasElevenLabsKey = store.hasElevenLabsKey
-        platformBaseUrl = store.platformBaseUrl
     }
 }
 
