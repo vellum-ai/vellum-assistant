@@ -88,6 +88,14 @@
       "label": "Contacts Tab",
       "description": "Show the Contacts tab in Settings for viewing and managing contacts",
       "defaultEnabled": false
+    },
+    {
+      "id": "outbound-proxy-sidecar",
+      "scope": "assistant",
+      "key": "feature_flags.outbound-proxy-sidecar.enabled",
+      "label": "Outbound Proxy Sidecar",
+      "description": "Route proxy session management through the sidecar process instead of running in-process",
+      "defaultEnabled": false
     }
   ]
 }

@@ -17,7 +17,11 @@ import {
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
-import { upsertMember } from "../contacts/contacts-write.js";
+import {
+  createGuardianBinding,
+  revokeGuardianBinding,
+  upsertMember,
+} from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
@@ -1206,6 +1210,19 @@ export class RelayConnection {
         { callSessionId: this.callSessionId, isOutbound },
         "Guardian voice verification succeeded",
       );
+
+      // Create the guardian binding now that verification succeeded.
+      if (result.verificationType === "guardian") {
+        revokeGuardianBinding(this.guardianChallengeAssistantId, "voice");
+        createGuardianBinding({
+          assistantId: this.guardianChallengeAssistantId,
+          channel: "voice",
+          guardianExternalUserId: this.guardianVerificationFromNumber,
+          guardianDeliveryChatId: this.guardianVerificationFromNumber,
+          guardianPrincipalId: this.guardianVerificationFromNumber,
+          verifiedVia: "challenge",
+        });
+      }
 
       if (isOutbound) {
         // Outbound guardian verification: play success and hang up.
