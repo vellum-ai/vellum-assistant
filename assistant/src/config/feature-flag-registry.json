@@ -1,1 +1,93 @@
-../../../meta/feature-flags/feature-flag-registry.json
+{
+  "version": 1,
+  "flags": [
+    {
+      "id": "sms",
+      "scope": "assistant",
+      "key": "feature_flags.sms.enabled",
+      "label": "SMS",
+      "description": "Show SMS setup in Settings > Connect and enable the SMS setup skill",
+      "defaultEnabled": true
+    },
+    {
+      "id": "hatch-new-assistant",
+      "scope": "assistant",
+      "key": "feature_flags.hatch-new-assistant.enabled",
+      "label": "Hatch New Assistant",
+      "description": "Show Hatch New Assistant action in Settings > Account",
+      "defaultEnabled": true
+    },
+    {
+      "id": "guardian-verify-setup",
+      "scope": "assistant",
+      "key": "feature_flags.guardian-verify-setup.enabled",
+      "label": "Guardian Verification Setup",
+      "description": "Enable guardian verification routing in the system prompt",
+      "defaultEnabled": true
+    },
+    {
+      "id": "browser",
+      "scope": "assistant",
+      "key": "feature_flags.browser.enabled",
+      "label": "Browser",
+      "description": "Enable browser skill prerequisites section in the system prompt",
+      "defaultEnabled": true
+    },
+    {
+      "id": "twitter",
+      "scope": "assistant",
+      "key": "feature_flags.twitter.enabled",
+      "label": "Twitter",
+      "description": "Enable X (Twitter) skill section in the system prompt",
+      "defaultEnabled": true
+    },
+    {
+      "id": "messaging",
+      "scope": "assistant",
+      "key": "feature_flags.messaging.enabled",
+      "label": "Messaging",
+      "description": "Enable messaging skill section in the system prompt",
+      "defaultEnabled": true
+    },
+    {
+      "id": "collect-usage-data",
+      "scope": "assistant",
+      "key": "feature_flags.collect-usage-data.enabled",
+      "label": "Collect usage data",
+      "description": "Send crash reports and error diagnostics to help improve the app",
+      "defaultEnabled": true
+    },
+    {
+      "id": "user-hosted-enabled",
+      "scope": "macos",
+      "key": "user_hosted_enabled",
+      "label": "User Hosted Enabled",
+      "description": "Enable user-hosted onboarding flow",
+      "defaultEnabled": false
+    },
+    {
+      "id": "local-http-enabled",
+      "scope": "macos",
+      "key": "local_http_enabled",
+      "label": "Local HTTP Enabled",
+      "description": "Enable local HTTP transport mode in macOS app",
+      "defaultEnabled": false
+    },
+    {
+      "id": "command-palette",
+      "scope": "assistant",
+      "key": "feature_flags.command-palette.enabled",
+      "label": "Command Palette",
+      "description": "Enable the CMD+K command palette for unified search across conversations, memories, schedules, and contacts",
+      "defaultEnabled": true
+    },
+    {
+      "id": "contacts-tab",
+      "scope": "macos",
+      "key": "contacts_tab",
+      "label": "Contacts Tab",
+      "description": "Show the Contacts tab in Settings for viewing and managing contacts",
+      "defaultEnabled": false
+    }
+  ]
+}
