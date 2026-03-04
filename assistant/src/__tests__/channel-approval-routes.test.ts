@@ -89,7 +89,6 @@ import {
   getAllPendingApprovalsByGuardianChat,
 } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { createBinding } from "../memory/guardian-bindings.js";
 import {
   conversations,
   externalConversationBindings,
