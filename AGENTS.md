@@ -165,34 +165,9 @@ When adding a new assistant feature flag, declare it in the unified registry at 
 
 ## LLM Provider Abstraction
 
-All LLM calls in production code **MUST** go through the provider abstraction layer — never import `@anthropic-ai/sdk` (or any other provider SDK) directly.
+All LLM calls must go through the provider abstraction — use `getConfiguredProvider()` from `providers/provider-send-message.ts`. Never import `@anthropic-ai/sdk` directly (only `providers/anthropic/client.ts` may). Guard test: `no-direct-anthropic-sdk-imports.test.ts`.
 
-- Use `getConfiguredProvider()` from `providers/provider-send-message.ts` to obtain a provider instance, then call `provider.sendMessage(...)`.
-- Use the helper utilities (`extractText`, `extractToolUse`, `userMessage`, `createTimeout`, etc.) from the same module.
-- A guard test (`no-direct-anthropic-sdk-imports.test.ts`) enforces this — any new direct SDK import in production code will fail CI.
-- The only file allowed to import `@anthropic-ai/sdk` directly is `providers/anthropic/client.ts`.
-
-### Model intents over hardcoded model IDs
-
-Do not hardcode provider-specific model names (e.g., `claude-haiku-4-5-20251001`, `gpt-4o-mini`). Instead, use `modelIntent` in the config to express **what you need** from the model:
-
-- `'latency-optimized'` — fastest response (e.g., classifiers, triage, icon generation)
-- `'quality-optimized'` — best reasoning (e.g., summaries, complex analysis)
-- `'vision-optimized'` — best vision/multimodal capabilities
-
-The `RetryProvider` resolves intents to provider-specific models automatically. An explicit `model` in config takes precedence over `modelIntent`.
-
-### Provider-agnostic language
-
-Use generic terms in comments, logs, and variable names — write "LLM" instead of "Haiku"/"Sonnet"/"Claude". The system is multi-provider; naming should reflect that.
-
-### Text generation goes through the assistant daemon
-
-When you need to generate text (summaries, replies, rewrites, classifications, etc.), route the request through the assistant/daemon process — do **not** make direct calls to an LLM provider or side-step the daemon.
-
-Why: the assistant daemon carries context, identity, and user preferences. Text produced through the daemon is shaped by all of that, which is what we want in almost every case. Calling a provider directly discards that context and produces generic output.
-
-There may be narrow cases where a direct provider call is acceptable (e.g., a low-level embedding or a purely mechanical transformation with no user-facing prose). If you believe your case qualifies, call it out explicitly in the PR description and get sign-off — don't silently bypass the daemon.
+Use `modelIntent` (`'latency-optimized'`, `'quality-optimized'`, `'vision-optimized'`) instead of hardcoded model IDs. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
 
 ## HTTP API Patterns
 
@@ -216,11 +191,7 @@ Guardian and trust invariants are enforced in domain-specific code. See `assista
 
 ## Tooling Direction
 
-Do not add new tool registrations using the `class ____Tool implements Tool {` pattern.
-
-Prefer skills in `assistant/src/config/bundled-skills/` that teach the model how to use CLI tools directly.
-
-Keep the system prompt as minimal as possible. Avoid adding instructions about how to use tools; only document what tools exist when they are basic, primitive, and universally useful. Prefer CLI programs that the assistant can progressively learn to use via `--help`.
+Do not add new tool registrations using the `class ____Tool implements Tool` pattern. Prefer skills in `assistant/src/config/bundled-skills/` that teach the model CLI tools. When touching existing tool-based flows, migrate toward skill-driven CLI usage. Keep the system prompt minimal.
 
 ## Skill Independence
 
