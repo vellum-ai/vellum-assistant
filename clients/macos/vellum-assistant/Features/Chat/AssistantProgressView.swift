@@ -526,7 +526,7 @@ private struct StepDetailRow: View {
             .buttonStyle(.plain)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xxs)
-            .background(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.3) : .clear)
+            .background(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.3) : VColor.surface.opacity(0.5))
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
@@ -547,6 +547,7 @@ private struct StepDetailRow: View {
                     }
             }
         }
+        .clipped()
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
             if newValue, cachedInputFull == nil {
