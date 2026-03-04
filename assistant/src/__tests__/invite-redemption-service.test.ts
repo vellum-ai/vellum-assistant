@@ -29,7 +29,7 @@ import {
   createInvite,
   revokeInvite as revokeStoreFn,
 } from "../memory/ingress-invite-store.js";
-import { upsertMember } from "../memory/ingress-member-store.js";
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
 import {
   type InviteRedemptionOutcome,
   redeemInvite,
@@ -49,6 +49,8 @@ afterAll(() => {
 function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_members");
   getSqlite().run("DELETE FROM assistant_ingress_invites");
+  getSqlite().run("DELETE FROM contact_channels");
+  getSqlite().run("DELETE FROM contacts");
 }
 
 describe("invite-redemption-service", () => {
@@ -178,7 +180,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member
-    upsertMember({
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "existing-user",
       status: "active",
@@ -208,7 +210,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create a blocked member — simulates a guardian-initiated block
-    upsertMember({
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "blocked-user",
       status: "blocked",
@@ -230,7 +232,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create a revoked member
-    const member = upsertMember({
+    const member = upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "revoked-user",
       status: "revoked",
@@ -281,7 +283,7 @@ describe("invite-redemption-service", () => {
 
   test("returns invalid_token for an active member with a bogus token (no membership probing)", () => {
     // Pre-create an active member
-    upsertMember({
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "probed-user",
       status: "active",
@@ -306,7 +308,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member
-    upsertMember({
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "expired-token-user",
       status: "active",
@@ -330,7 +332,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member on telegram
-    upsertMember({
+    upsertMemberContactsFirst({
       sourceChannel: "telegram",
       externalUserId: "cross-channel-user",
       status: "active",

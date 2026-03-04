@@ -89,10 +89,8 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
-import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/ingress-invite-store.js";
-import { findMember } from "../memory/ingress-member-store.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
@@ -196,15 +194,13 @@ describe("inbound invite redemption intercept", () => {
     expect(json.memberId).toEqual(expect.any(String));
     expect(json.denied).toBeUndefined();
 
-    // Verify the user is now an active member (invite redemption for new
-    // members writes to the legacy table via storeRedeemInvite)
-    const member = findMember({
-      assistantId: "self",
-      sourceChannel: "telegram",
+    // Verify the user is now an active member
+    const result = findContactChannel({
+      channelType: "telegram",
       externalUserId: "user-invite-123",
     });
-    expect(member).not.toBeNull();
-    expect(member!.status).toBe("active");
+    expect(result).not.toBeNull();
+    expect(result!.channel.status).toBe("active");
 
     // Verify a welcome reply was delivered
     expect(deliverReplyCalls.length).toBe(1);
@@ -231,12 +227,11 @@ describe("inbound invite redemption intercept", () => {
     expect(replyText).toContain("no longer valid");
 
     // Verify the user was NOT made a member
-    const member = findMember({
-      assistantId: "self",
-      sourceChannel: "telegram",
+    const result = findContactChannel({
+      channelType: "telegram",
       externalUserId: "user-invite-123",
     });
-    expect(member).toBeNull();
+    expect(result).toBeNull();
   });
 
   test("non-member with expired token gets appropriate message", async () => {
@@ -434,17 +429,13 @@ describe("inbound invite redemption intercept", () => {
     expect(json.accepted).toBe(true);
     expect(json.inviteRedemption).toBe("redeemed");
 
-    const contactResult = findContactChannel({
+    const result = findContactChannel({
       channelType: "telegram",
       externalUserId: "user-invite-123",
       externalChatId: "chat-invite-test",
     });
-    expect(contactResult).not.toBeNull();
-    const member = contactChannelToMemberRecord(
-      contactResult!.contact,
-      contactResult!.channel,
-    );
-    expect(member.status).toBe("active");
-    expect(contactResult!.contact.displayName).toBe("Jeff");
+    expect(result).not.toBeNull();
+    expect(result!.channel.status).toBe("active");
+    expect(result!.contact.displayName).toBe("Jeff");
   });
 });

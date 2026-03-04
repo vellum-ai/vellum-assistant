@@ -26,7 +26,7 @@ mock.module("../util/logger.js", () => ({
 
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/ingress-invite-store.js";
-import { upsertMember } from "../memory/ingress-member-store.js";
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 
@@ -283,7 +283,7 @@ describe("redeemVoiceInviteCode", () => {
     const { code } = createVoiceInvite({ callerPhone: phone });
 
     // Pre-create an active member for this phone on voice channel
-    upsertMember({
+    upsertMemberContactsFirst({
       sourceChannel: "voice",
       externalUserId: phone,
       status: "active",
@@ -308,7 +308,7 @@ describe("redeemVoiceInviteCode", () => {
     const phone = "+15551234567";
     const { code } = createVoiceInvite({ callerPhone: phone });
 
-    upsertMember({
+    upsertMemberContactsFirst({
       sourceChannel: "voice",
       externalUserId: phone,
       status: "blocked",
