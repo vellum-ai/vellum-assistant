@@ -413,7 +413,7 @@ extension ChatViewModel {
             // Message ID is set but message not found — stale reference after
             // history replacement or reconnect. Discard the buffer to avoid
             // creating an orphan message.
-            log.warning("Stale currentAssistantMessageId \(currentAssistantMessageId!.uuidString) — discarding \(buffered.count) buffered chars")
+            log.warning("Stale currentAssistantMessageId \(self.currentAssistantMessageId!.uuidString) — discarding \(buffered.count) buffered chars")
             currentAssistantMessageId = nil
             return
         } else {
