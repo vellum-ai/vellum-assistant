@@ -41,6 +41,13 @@ mock.module("../config/loader.js", () => ({
       preserveRecentUserTurns: 6,
       summaryMaxTokens: 512,
       chunkTokens: 12000,
+      overflowRecovery: {
+        enabled: true,
+        safetyMarginRatio: 0.05,
+        maxAttempts: 3,
+        interactiveLatestTurnCompression: "summarize",
+        nonInteractiveLatestTurnCompression: "truncate",
+      },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     apiKeys: {},
@@ -48,6 +55,76 @@ mock.module("../config/loader.js", () => ({
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
+}));
+
+// Token estimator: return a small value (well within budget) so preflight
+// does not trigger in existing tests.
+mock.module("../context/token-estimator.js", () => ({
+  estimatePromptTokens: () => 1000,
+}));
+
+// Overflow recovery module mocks — the convergence loop delegates to these
+// but these tests exercise the Session-level flow, not the reducer internals.
+// The reducer mock delegates to the compactFn to simulate a forced compaction
+// tier, matching the real reducer's behavior for Tier 1.
+mock.module("../daemon/context-overflow-reducer.js", () => ({
+  createInitialReducerState: () => ({
+    appliedTiers: [],
+    injectionMode: "full" as const,
+    exhausted: false,
+  }),
+  reduceContextOverflow: async (
+    msgs: Message[],
+    _cfg: unknown,
+    _state: unknown,
+    compactFn?: (
+      m: Message[],
+      s: AbortSignal | undefined,
+      o: Record<string, unknown>,
+    ) => Promise<{
+      compacted: boolean;
+      messages: Message[];
+      compactedPersistedMessages?: number;
+      summaryText?: string;
+      [k: string]: unknown;
+    }>,
+    signal?: AbortSignal,
+  ) => {
+    let resultMessages = msgs;
+    let compactionResult;
+    if (compactFn) {
+      const cr = await compactFn(msgs, signal, { force: true });
+      if (cr.compacted) {
+        resultMessages = cr.messages;
+        compactionResult = cr;
+      }
+    }
+    return {
+      messages: resultMessages,
+      tier: "forced_compaction",
+      state: {
+        appliedTiers: [
+          "forced_compaction",
+          "tool_result_truncation",
+          "media_stubbing",
+          "injection_downgrade",
+        ],
+        injectionMode: "full",
+        exhausted: true,
+      },
+      estimatedTokens: 1000,
+      compactionResult,
+    };
+  },
+}));
+
+mock.module("../daemon/context-overflow-policy.js", () => ({
+  resolveOverflowAction: () => "fail_gracefully",
+}));
+
+mock.module("../daemon/context-overflow-approval.js", () => ({
+  requestCompressionApproval: async () => ({ approved: false }),
+  CONTEXT_OVERFLOW_TOOL_NAME: "context_overflow_compression",
 }));
 
 mock.module("../config/system-prompt.js", () => ({
@@ -448,12 +525,14 @@ describe("provider ordering error retry", () => {
       events.push(msg as unknown as Record<string, unknown>),
     );
 
-    expect(agentLoopRunCount).toBe(1);
+    // The convergence loop attempts one reducer tier (which calls compactFn
+    // via force:true but compaction returns compacted:false), then retries the
+    // agent loop. The mock agent loop succeeds on the second call, so the
+    // convergence loop recovers. agentLoopRunCount is 2: initial + one retry.
+    expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
-    const sessionError = events.find((e) => e.type === "session_error") as
-      | { code?: string }
-      | undefined;
-    expect(sessionError?.code).toBe("CONTEXT_TOO_LARGE");
+    // Recovery succeeded — no session_error surfaced
+    expect(events.some((e) => e.type === "message_complete")).toBe(true);
   });
 
   test("context-too-large phrase also triggers one forced-compaction retry", async () => {
