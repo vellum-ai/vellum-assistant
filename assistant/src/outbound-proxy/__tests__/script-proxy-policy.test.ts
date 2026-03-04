@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   evaluateRequest,
   evaluateRequestWithApproval,
-} from "../outbound-proxy/index.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
+} from "../index.js";
+import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 
 function headerTemplate(
   hostPattern: string,

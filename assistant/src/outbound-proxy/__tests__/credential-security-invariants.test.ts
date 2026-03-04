@@ -26,7 +26,7 @@ import {
 // Mock logger
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
+mock.module("../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -37,7 +37,7 @@ mock.module("../util/logger.js", () => ({
 // Use encrypted backend (no keychain) with a temp store path
 // ---------------------------------------------------------------------------
 
-import { _overrideDeps, _resetDeps } from "../security/keychain.js";
+import { _overrideDeps, _resetDeps } from "../../security/keychain.js";
 
 _overrideDeps({
   isMacOS: () => false,
@@ -52,8 +52,8 @@ afterAll(() => {
   mock.restore();
 });
 
-import { _setStorePath } from "../security/encrypted-store.js";
-import { _resetBackend } from "../security/secure-keys.js";
+import { _setStorePath } from "../../security/encrypted-store.js";
+import { _resetBackend } from "../../security/secure-keys.js";
 
 const TEST_DIR = join(
   tmpdir(),
@@ -65,7 +65,7 @@ const STORE_PATH = join(TEST_DIR, "keys.enc");
 // Mock registry to avoid double-registration
 // ---------------------------------------------------------------------------
 
-mock.module("../tools/registry.js", () => ({
+mock.module("../../tools/registry.js", () => ({
   registerTool: () => {},
 }));
 
@@ -73,14 +73,14 @@ mock.module("../tools/registry.js", () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
-import { DEFAULT_CONFIG } from "../config/defaults.js";
-import { redactSensitiveFields } from "../security/redaction.js";
-import { setSecureKey } from "../security/secure-keys.js";
-import { CredentialBroker } from "../tools/credentials/broker.js";
+import { DEFAULT_CONFIG } from "../../config/defaults.js";
+import { redactSensitiveFields } from "../../security/redaction.js";
+import { setSecureKey } from "../../security/secure-keys.js";
+import { CredentialBroker } from "../../tools/credentials/broker.js";
 import {
   _setMetadataPath,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+} from "../../tools/credentials/metadata-store.js";
 
 /**
  * Security invariant test harness for credential storage hardening.
@@ -148,7 +148,7 @@ describe("Invariant 1: secrets never enter LLM context", () => {
   // PR 27 — secret ingress block scans inbound messages
   test("user message containing secret is blocked from entering history", () => {
     // Mock config to enable block mode
-    mock.module("../config/loader.js", () => ({
+    mock.module("../../config/loader.js", () => ({
       applyNestedDefaults: (config: unknown) => config,
       getConfig: () => ({
         ui: {},
@@ -171,7 +171,7 @@ describe("Invariant 1: secrets never enter LLM context", () => {
 
     // Re-import to pick up the mock
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { checkIngressForSecrets } = require("../security/secret-ingress.js");
+    const { checkIngressForSecrets } = require("../../security/secret-ingress.js");
 
     // Build a fake AWS key at runtime to avoid pre-commit hook
     const fakeKey = ["AKIA", "IOSFODNN7", "REALKEY"].join("");
@@ -200,7 +200,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
   test("browser_fill_credential does not import getCredentialValue", () => {
     const thisDir = dirname(fileURLToPath(import.meta.url));
     const browserSrc = readFileSync(
-      resolve(thisDir, "../tools/browser/headless-browser.ts"),
+      resolve(thisDir, "../../tools/browser/headless-browser.ts"),
       "utf-8",
     );
     expect(browserSrc).not.toContain("getCredentialValue");
@@ -333,7 +333,7 @@ describe("Invariant 3: secrets never logged in plaintext", () => {
       test(`${tc.label}`, () => {
         const thisDir = dirname(fileURLToPath(import.meta.url));
         const ipcSrc = readFileSync(
-          resolve(thisDir, "../daemon/ipc-protocol.ts"),
+          resolve(thisDir, "../../daemon/ipc-protocol.ts"),
           "utf-8",
         );
         // Verify log calls never include raw content fields — only safe
@@ -355,7 +355,7 @@ describe("Invariant 3: secrets never logged in plaintext", () => {
       test(`${tc.label}`, () => {
         const thisDir = dirname(fileURLToPath(import.meta.url));
         const prompterSrc = readFileSync(
-          resolve(thisDir, "../permissions/secret-prompter.ts"),
+          resolve(thisDir, "../../permissions/secret-prompter.ts"),
           "utf-8",
         );
 
@@ -513,7 +513,7 @@ import {
   createSafeLogEntry,
   sanitizeHeaders,
   sanitizeUrl,
-} from "../outbound-proxy/index.js";
+} from "../index.js";
 
 describe("Invariant 5: proxy log entries never contain secrets", () => {
   test("Authorization headers are redacted in log entries", () => {

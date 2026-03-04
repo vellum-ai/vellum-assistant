@@ -2,7 +2,7 @@ import { type Server } from "node:http";
 import { connect, createServer as createTcpServer } from "node:net";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { createProxyServer } from "../outbound-proxy/index.js";
+import { createProxyServer } from "../index.js";
 
 /** Start an HTTP server and return its address + cleanup handle. */
 function listenEphemeral(

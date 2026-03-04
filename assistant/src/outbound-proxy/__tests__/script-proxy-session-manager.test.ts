@@ -1,25 +1,25 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import type { ResolvedCredential } from "../tools/credentials/resolve.js";
+import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
+import type { ResolvedCredential } from "../../tools/credentials/resolve.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
 // Track resolveById return values per credential ID
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
 
-mock.module("../tools/credentials/resolve.js", () => ({
+mock.module("../../tools/credentials/resolve.js", () => ({
   resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
   resolveByServiceField: () => undefined,
   resolveForDomain: () => [],
 }));
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => [],
 }));
 
 // Stub ensureLocalCA so tests never run openssl
-mock.module("../tools/network/script-proxy/certs.js", () => ({
+mock.module("../../tools/network/script-proxy/certs.js", () => ({
   ensureLocalCA: async () => {},
   issueLeafCert: async () => ({ cert: "", key: "" }),
   getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
@@ -33,7 +33,7 @@ import {
   startSession,
   stopAllSessions,
   stopSession,
-} from "../tools/network/script-proxy/session-manager.js";
+} from "../../tools/network/script-proxy/session-manager.js";
 
 afterEach(async () => {
   await stopAllSessions();
@@ -330,7 +330,7 @@ describe("session-manager", () => {
     // the templates map the session would build produces correct decisions.
 
     test("shouldIntercept returns mitm for credential-matched hosts", async () => {
-      const { routeConnection } = await import("../outbound-proxy/index.js");
+      const { routeConnection } = await import("../index.js");
 
       const templates = new Map([["cred-fal", [makeTemplate("*.fal.ai")]]]);
 
@@ -345,7 +345,7 @@ describe("session-manager", () => {
     });
 
     test("shouldIntercept returns tunnel for non-matching hosts", async () => {
-      const { routeConnection } = await import("../outbound-proxy/index.js");
+      const { routeConnection } = await import("../index.js");
 
       const templates = new Map([["cred-fal", [makeTemplate("*.fal.ai")]]]);
 
@@ -360,7 +360,7 @@ describe("session-manager", () => {
     });
 
     test("shouldIntercept returns tunnel when no credentials configured", async () => {
-      const { routeConnection } = await import("../outbound-proxy/index.js");
+      const { routeConnection } = await import("../index.js");
 
       const decision = routeConnection("api.fal.ai", 443, [], new Map());
       expect(decision.action).toBe("tunnel");

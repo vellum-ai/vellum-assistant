@@ -7,7 +7,7 @@ import {
   ensureLocalCA,
   getCAPath,
   issueLeafCert,
-} from "../outbound-proxy/index.js";
+} from "../index.js";
 
 let dataDir: string;
 

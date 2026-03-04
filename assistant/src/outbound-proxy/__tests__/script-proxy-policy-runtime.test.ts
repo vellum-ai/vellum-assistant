@@ -1,27 +1,27 @@
 import { createServer, request as httpRequest, type Server } from "node:http";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { ProxyApprovalCallback } from "../outbound-proxy/index.js";
-import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import type { ResolvedCredential } from "../tools/credentials/resolve.js";
+import type { ProxyApprovalCallback } from "../index.js";
+import type { CredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
+import type { ResolvedCredential } from "../../tools/credentials/resolve.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
 let credentialMetadataList: CredentialMetadata[] = [];
 
-mock.module("../tools/credentials/resolve.js", () => ({
+mock.module("../../tools/credentials/resolve.js", () => ({
   resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
   resolveByServiceField: () => undefined,
   resolveForDomain: () => [],
 }));
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => credentialMetadataList,
 }));
 
-mock.module("../tools/network/script-proxy/certs.js", () => ({
+mock.module("../../tools/network/script-proxy/certs.js", () => ({
   ensureLocalCA: async () => {},
   issueLeafCert: async () => ({ cert: "", key: "" }),
   getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
@@ -32,7 +32,7 @@ import {
   startSession,
   stopAllSessions,
   stopSession,
-} from "../tools/network/script-proxy/session-manager.js";
+} from "../../tools/network/script-proxy/session-manager.js";
 
 let upstreamServer: Server | null = null;
 

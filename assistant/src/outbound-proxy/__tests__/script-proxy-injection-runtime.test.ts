@@ -1,9 +1,9 @@
 import * as http from "node:http";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import type { ResolvedCredential } from "../tools/credentials/resolve.js";
+import type { CredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
+import type { ResolvedCredential } from "../../tools/credentials/resolve.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
@@ -11,20 +11,20 @@ import type { ResolvedCredential } from "../tools/credentials/resolve.js";
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
 let credentialMetadataList: CredentialMetadata[] = [];
 
-mock.module("../tools/credentials/resolve.js", () => ({
+mock.module("../../tools/credentials/resolve.js", () => ({
   resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
   resolveByServiceField: () => undefined,
   resolveForDomain: () => [],
 }));
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => credentialMetadataList,
 }));
 
 // Track getSecureKey return values per storage key
 let secureKeyValues = new Map<string, string | undefined>();
 
-mock.module("../security/secure-keys.js", () => ({
+mock.module("../../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyValues.get(account),
   setSecureKey: () => true,
   deleteSecureKey: () => true,
@@ -35,7 +35,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 // Stub ensureLocalCA / certs so tests never run openssl
-mock.module("../tools/network/script-proxy/certs.js", () => ({
+mock.module("../../tools/network/script-proxy/certs.js", () => ({
   ensureLocalCA: async () => {},
   issueLeafCert: async () => ({ cert: "", key: "" }),
   getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
@@ -44,12 +44,12 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
 import {
   createSafeLogEntry,
   sanitizeHeaders,
-} from "../outbound-proxy/index.js";
+} from "../index.js";
 import {
   createSession,
   startSession,
   stopAllSessions,
-} from "../tools/network/script-proxy/session-manager.js";
+} from "../../tools/network/script-proxy/session-manager.js";
 
 afterEach(async () => {
   await stopAllSessions();

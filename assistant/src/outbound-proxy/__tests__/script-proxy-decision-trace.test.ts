@@ -6,7 +6,7 @@ import {
   type CredentialRefTrace,
   type PolicyDecision,
   type ProxyDecisionTrace,
-} from "../outbound-proxy/index.js";
+} from "../index.js";
 
 describe("buildDecisionTrace", () => {
   test("matched decision includes selected pattern and credential", () => {

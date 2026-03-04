@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ProxyApprovalRequest } from "../outbound-proxy/index.js";
+import type { ProxyApprovalRequest } from "../index.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the import of `createProxyApprovalCallback`.
@@ -10,17 +10,17 @@ const addRuleMock = mock(() => {});
 const findHighestPriorityRuleMock = mock(
   () =>
     null as ReturnType<
-      typeof import("../permissions/trust-store.js").findHighestPriorityRule
+      typeof import("../../permissions/trust-store.js").findHighestPriorityRule
     >,
 );
 
-mock.module("../permissions/trust-store.js", () => ({
+mock.module("../../permissions/trust-store.js", () => ({
   addRule: addRuleMock,
   findHighestPriorityRule: findHighestPriorityRuleMock,
   clearCache: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
+mock.module("../../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
 
@@ -31,12 +31,12 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../util/logger.js", () => ({
+mock.module("../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../security/redaction.js", () => ({
+mock.module("../../security/redaction.js", () => ({
   redactSensitiveFields: (input: Record<string, unknown>) => input,
 }));
 
@@ -44,9 +44,9 @@ mock.module("../security/redaction.js", () => ({
 // Import after mocks are registered.
 // ---------------------------------------------------------------------------
 
-import type { ToolSetupContext } from "../daemon/session-tool-setup.js";
-import { createProxyApprovalCallback } from "../daemon/session-tool-setup.js";
-import { PermissionPrompter } from "../permissions/prompter.js";
+import type { ToolSetupContext } from "../../daemon/session-tool-setup.js";
+import { createProxyApprovalCallback } from "../../daemon/session-tool-setup.js";
+import { PermissionPrompter } from "../../permissions/prompter.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
