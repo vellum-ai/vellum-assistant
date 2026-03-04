@@ -412,6 +412,53 @@ export function createSlackDeliverHandler(
       );
     }
 
+    // Validate approval payload shape
+    if (body.approval) {
+      const apr = body.approval;
+      if (typeof apr !== "object" || apr === null || Array.isArray(apr)) {
+        return Response.json(
+          { error: "approval must be an object" },
+          { status: 400 },
+        );
+      }
+      if (!apr.requestId || typeof apr.requestId !== "string") {
+        return Response.json(
+          { error: "approval.requestId is required" },
+          { status: 400 },
+        );
+      }
+      if (!Array.isArray(apr.actions) || apr.actions.length === 0) {
+        return Response.json(
+          { error: "approval.actions must be a non-empty array" },
+          { status: 400 },
+        );
+      }
+      for (const action of apr.actions) {
+        if (
+          action === null ||
+          typeof action !== "object" ||
+          Array.isArray(action)
+        ) {
+          return Response.json(
+            { error: "each approval action must be an object" },
+            { status: 400 },
+          );
+        }
+        if (!action.id || typeof action.id !== "string") {
+          return Response.json(
+            { error: "each approval action must have an id" },
+            { status: 400 },
+          );
+        }
+        if (!action.label || typeof action.label !== "string") {
+          return Response.json(
+            { error: "each approval action must have a label" },
+            { status: 400 },
+          );
+        }
+      }
+    }
+
     // Support threading via query param
     const threadTs = new URL(req.url).searchParams.get("threadTs") ?? undefined;
     const messageTs = body.messageTs ?? updateTs;
