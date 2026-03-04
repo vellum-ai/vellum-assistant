@@ -19,6 +19,8 @@ const SMS_ATTACHMENTS_FALLBACK_TEXT =
 export interface ChannelReplyPayload {
   chatId: string;
   text?: string;
+  /** Pre-formatted Block Kit blocks for Slack delivery. */
+  blocks?: unknown[];
   assistantId?: string;
   attachments?: RuntimeAttachmentMetadata[];
   approval?: ApprovalUIMetadata;

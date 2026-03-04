@@ -3,6 +3,10 @@ import * as attachmentsStore from "../memory/attachments-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
+import {
+  isSlackCallbackUrl,
+  textToSlackBlocks,
+} from "./slack-block-formatting.js";
 
 const INTER_SEGMENT_DELAY_MS = 150;
 
@@ -78,13 +82,18 @@ export async function deliverRenderedReplyViaCallback(
     return;
   }
 
+  const isSlack = isSlackCallbackUrl(callbackUrl);
+
   for (let i = startFromSegment; i < deliverableSegments.length; i++) {
     const isLastSegment = i === deliverableSegments.length - 1;
+    const segmentText = deliverableSegments[i];
+    const blocks = isSlack ? textToSlackBlocks(segmentText) : undefined;
     await deliverChannelReply(
       callbackUrl,
       {
         chatId,
-        text: deliverableSegments[i],
+        text: segmentText,
+        blocks,
         attachments: isLastSegment ? replyAttachments : undefined,
         assistantId,
       },

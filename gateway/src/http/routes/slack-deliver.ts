@@ -2,6 +2,8 @@ import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
+import type { Block } from "../../slack/block-kit-builder.js";
+import { textToBlocks } from "../../slack/text-to-blocks.js";
 
 const log = getLogger("slack-deliver");
 
@@ -36,6 +38,7 @@ export function createSlackDeliverHandler(
       chatId?: string;
       to?: string;
       text?: string;
+      blocks?: Block[];
       assistantId?: string;
       attachments?: unknown[];
     };
@@ -76,11 +79,23 @@ export function createSlackDeliverHandler(
     // Support threading via query param
     const threadTs = new URL(req.url).searchParams.get("threadTs") ?? undefined;
 
+    // Resolve Block Kit blocks: use provided blocks, or auto-format text
+    const blocks: Block[] =
+      Array.isArray(body.blocks) && body.blocks.length > 0
+        ? body.blocks
+        : textToBlocks(text);
+
     try {
-      const slackBody: Record<string, string> = {
+      const slackBody: Record<string, unknown> = {
         channel: chatId,
+        // `text` is always required as a fallback for notifications and accessibility
         text,
       };
+
+      if (blocks.length > 0) {
+        slackBody.blocks = blocks;
+      }
+
       if (threadTs) {
         slackBody.thread_ts = threadTs;
       }
@@ -111,7 +126,10 @@ export function createSlackDeliverHandler(
       return Response.json({ error: "Delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ chatId, hasThreadTs: !!threadTs }, "Slack message sent");
+    tlog.info(
+      { chatId, hasThreadTs: !!threadTs, hasBlocks: blocks.length > 0 },
+      "Slack message sent",
+    );
 
     // Track the thread so future replies without @mention are forwarded
     if (threadTs && onThreadReply) {
