@@ -16,34 +16,34 @@ Only proceed if the user explicitly asks you to create or set up **your own** (t
 Before doing anything, check whether you already have an email address configured:
 
 ```bash
-vellum email status
+vellum email status --json
 ```
 
-This will return your email address, the callback URL that inbound email will hit, and the path to the inbox locally. If you already have an email address, tell the user your existing email address and stop — do NOT create another one.
+Inspect `health.inboxes` in the response. If at least one inbox exists, tell the user the existing address and stop — do NOT create another one.
 
 ## Step 2: Create Your Email
 
-Call the Vellum hosted API to provision your email. Use `host_bash` to make the request:
+Create a new inbox through the domain CLI:
 
 ```bash
-vellum email create <your-username>
+vellum email inbox create --username <your-username> --json
 ```
 
 For `<your-username>`, use your assistant name (lowercased, alphanumeric only). Check your identity from `IDENTITY.md` or `USER.md` to determine your name. If you don't have a name yet, ask the user what username they'd like for your email.
 
-## Step 3: Persist Your Email
+Use the returned `inbox.address` (or `inbox.id` if `address` is empty) as the created email address.
 
-After the inbox is created successfully, persist your email address to the workspace config so the desktop app can display it:
+## Step 3: Verify Status
 
 ```bash
-vellum config set email.address <your-new-email-address>
+vellum email status --json
 ```
 
-Replace `<your-new-email-address>` with the full email address returned from the create command (e.g. `sam@agentmail.to`).
+Confirm the created inbox appears in `health.inboxes`.
 
 ## Step 4: Confirm Setup
 
-After the inbox is created and persisted:
+After the inbox is created and visible in status:
 
 1. Tell the user your new email address.
 2. Store a note in your memory or `USER.md` that your email has been provisioned so you remember it in future conversations.
