@@ -2,7 +2,7 @@
 name: "Email Setup"
 description: "Create the assistant's own email address via the Vellum hosted API (one-time setup)"
 user-invocable: true
-metadata: {"vellum": {"emoji": "📧"}}
+metadata: { "vellum": { "emoji": "📧" } }
 ---
 
 You are setting up your own personal email address. This is a one-time operation — once you have an email, you do not need to run this again.
@@ -16,30 +16,36 @@ Only proceed if the user explicitly asks you to create or set up **your own** (t
 Before doing anything, check whether you already have an email address configured:
 
 ```bash
-vellum email status --json
+vellum email status
 ```
 
-Inspect `health.inboxes` in the response. If at least one inbox exists, tell the user the existing address and stop — do NOT create another one.
+Inspect `addresses` in the response. If at least one address exists, tell the user the existing address and stop — do NOT create another one.
 
 ## Step 2: Create Your Email
 
-Create a new inbox through the domain CLI:
+Create a new inbox through the CLI:
 
 ```bash
-vellum email inbox create --username <your-username> --json
+vellum email create <your-username>
 ```
 
 For `<your-username>`, use your assistant name (lowercased, alphanumeric only). Check your identity from `IDENTITY.md` or `USER.md` to determine your name. If you don't have a name yet, ask the user what username they'd like for your email.
 
 Use the returned `inbox.address` (or `inbox.id` if `address` is empty) as the created email address.
 
+After successfully creating the inbox, persist the email address to config so the desktop app can display it:
+
+```bash
+vellum config set email.address <address>
+```
+
 ## Step 3: Verify Status
 
 ```bash
-vellum email status --json
+vellum email status
 ```
 
-Confirm the created inbox appears in `health.inboxes`.
+Confirm the created inbox appears in `addresses`.
 
 ## Step 4: Confirm Setup
 
@@ -58,8 +64,11 @@ After the inbox is created and visible in status:
 ## Troubleshooting
 
 ### API key not configured
+
 If you get an error about a missing API key, the email provider has not been set up. Tell the user:
+
 > "Email isn't configured yet. Please set up the email integration first."
 
 ### Inbox creation failed
+
 If inbox creation returns an error (e.g. username taken), try a variation of the name (append a number or use a nickname) and retry once. If it still fails, report the error to the user.
