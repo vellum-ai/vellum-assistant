@@ -23,17 +23,6 @@ import * as appFileWrite from "./bundled-skills/app-builder/tools/app-file-write
 import * as appList from "./bundled-skills/app-builder/tools/app-list.js";
 import * as appQuery from "./bundled-skills/app-builder/tools/app-query.js";
 import * as appUpdate from "./bundled-skills/app-builder/tools/app-update.js";
-import * as browserClick from "./bundled-skills/browser/tools/browser-click.js";
-import * as browserClose from "./bundled-skills/browser/tools/browser-close.js";
-import * as browserExtract from "./bundled-skills/browser/tools/browser-extract.js";
-import * as browserFillCredential from "./bundled-skills/browser/tools/browser-fill-credential.js";
-// ── browser ──────────────────────────────────────────────────────────────────
-import * as browserNavigate from "./bundled-skills/browser/tools/browser-navigate.js";
-import * as browserPressKey from "./bundled-skills/browser/tools/browser-press-key.js";
-import * as browserScreenshot from "./bundled-skills/browser/tools/browser-screenshot.js";
-import * as browserSnapshot from "./bundled-skills/browser/tools/browser-snapshot.js";
-import * as browserType from "./bundled-skills/browser/tools/browser-type.js";
-import * as browserWaitFor from "./bundled-skills/browser/tools/browser-wait-for.js";
 // ── chatgpt-import ───────────────────────────────────────────────────────────
 import * as chatgptImport_chatgptImport from "./bundled-skills/chatgpt-import/tools/chatgpt-import.js";
 // ── claude-code ──────────────────────────────────────────────────────────────
@@ -176,6 +165,17 @@ import * as watcherList from "./bundled-skills/watcher/tools/watcher-list.js";
 import * as watcherUpdate from "./bundled-skills/watcher/tools/watcher-update.js";
 // ── weather ──────────────────────────────────────────────────────────────────
 import * as getWeather from "./bundled-skills/weather/tools/get-weather.js";
+import * as browserClick from "./installable-skills/browser/tools/browser-click.js";
+import * as browserClose from "./installable-skills/browser/tools/browser-close.js";
+import * as browserExtract from "./installable-skills/browser/tools/browser-extract.js";
+import * as browserFillCredential from "./installable-skills/browser/tools/browser-fill-credential.js";
+// ── browser (installable) ────────────────────────────────────────────────────
+import * as browserNavigate from "./installable-skills/browser/tools/browser-navigate.js";
+import * as browserPressKey from "./installable-skills/browser/tools/browser-press-key.js";
+import * as browserScreenshot from "./installable-skills/browser/tools/browser-screenshot.js";
+import * as browserSnapshot from "./installable-skills/browser/tools/browser-snapshot.js";
+import * as browserType from "./installable-skills/browser/tools/browser-type.js";
+import * as browserWaitFor from "./installable-skills/browser/tools/browser-wait-for.js";
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 

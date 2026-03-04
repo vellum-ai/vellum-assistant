@@ -1941,7 +1941,7 @@ describe("bundled skill: browser", () => {
   });
 
   test("browser skill activation via loaded_skill marker projects all 14 tool definitions", () => {
-    mockCatalog = [makeSkill("browser", "/path/to/bundled-skills/browser")];
+    mockCatalog = [makeSkill("browser", "/path/to/installable-skills/browser")];
     mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
 
     const history: Message[] = [
@@ -1960,7 +1960,7 @@ describe("bundled skill: browser", () => {
   });
 
   test("browser tools are NOT available when browser skill is not in active context", () => {
-    mockCatalog = [makeSkill("browser", "/path/to/bundled-skills/browser")];
+    mockCatalog = [makeSkill("browser", "/path/to/installable-skills/browser")];
     mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
 
     const history: Message[] = [
@@ -1979,7 +1979,7 @@ describe("bundled skill: browser", () => {
   });
 
   test("browser skill tools have skill origin metadata", () => {
-    mockCatalog = [makeSkill("browser", "/path/to/bundled-skills/browser")];
+    mockCatalog = [makeSkill("browser", "/path/to/installable-skills/browser")];
     mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
 
     const history: Message[] = [

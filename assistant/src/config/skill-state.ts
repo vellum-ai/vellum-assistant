@@ -62,9 +62,9 @@ export function resolveSkillStates(
       continue;
     }
 
-    // Filter bundled skills by allowlist
+    // Filter bundled/installable skills by allowlist
     if (
-      skill.source === "bundled" &&
+      (skill.source === "bundled" || skill.source === "installable") &&
       allowBundled != null &&
       !allowBundled.includes(skill.id)
     ) {

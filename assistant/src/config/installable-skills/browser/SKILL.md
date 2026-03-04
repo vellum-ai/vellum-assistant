@@ -3,7 +3,7 @@ name: "Browser"
 description: "Navigate and interact with web pages using a headless browser"
 user-invocable: true
 disable-model-invocation: false
-metadata: {"vellum": {"emoji": "🌐"}}
+metadata: {"vellum": {"emoji": "🌐", "dependencies": [{"name": "Chromium", "installCommand": "npx playwright install chromium", "checkBin": "chromium"}]}}
 ---
 
 Use this skill to browse the web. After loading this skill, the following browser tools become available:

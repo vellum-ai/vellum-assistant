@@ -86,7 +86,13 @@ export interface SkillsListResponse {
     description: string;
     emoji?: string;
     homepage?: string;
-    source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
+    source:
+      | "bundled"
+      | "clawhub"
+      | "extra"
+      | "installable"
+      | "managed"
+      | "workspace";
     state: "enabled" | "disabled" | "available";
     degraded: boolean;
     missingRequirements?: {

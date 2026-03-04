@@ -23,9 +23,9 @@ export interface RunSkillToolScriptOptions {
    *  to `computeSkillVersionHash` from the version-hash module. Provided as an
    *  option to support testing and custom resolution strategies. */
   skillDirHashResolver?: (skillDir: string) => string;
-  /** Whether this is a bundled (first-party) skill. When true and running inside
-   *  a compiled binary, the runner uses the pre-imported bundled tool registry
-   *  instead of a dynamic filesystem import. */
+  /** Whether this is a first-party skill (bundled or installable). When true and
+   *  running inside a compiled binary, the runner uses the pre-imported tool
+   *  registry instead of a dynamic filesystem import. */
   bundled?: boolean;
 }
 
