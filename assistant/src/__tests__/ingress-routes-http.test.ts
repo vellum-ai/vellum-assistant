@@ -530,7 +530,7 @@ describe("ingress service shared logic", () => {
       members: Array<{ id: string; displayName: string }>;
     };
     expect(listed.members.length).toBe(1);
-    expect(listed.members[0].id).toContain(created.member.id);
+    expect(listed.members[0].id).toBe(created.member.id);
   });
 
   test("invite create + revoke round-trip through shared service", async () => {

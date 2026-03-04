@@ -277,8 +277,8 @@ describe("trusted contact verification → member activation", () => {
     // ACL check passes: member exists, is active, and has allow policy
   });
 
-  test("no cross-assistant leakage (member scoped correctly)", () => {
-    // Create member for assistant 'self'
+  test("member lookup is scoped by channel type", () => {
+    // Create member on the telegram channel
     const session = createOutboundSession({
       assistantId: "self",
       channel: "telegram",
