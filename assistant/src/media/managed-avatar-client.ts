@@ -1,14 +1,14 @@
-import { getSecureKey } from "../security/secure-keys.js";
-import { getConfig } from "../config/loader.js";
 import { getPlatformBaseUrl } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
+import { getSecureKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import {
-  type ManagedAvatarResponse,
-  type ManagedAvatarErrorResponse,
-  ManagedAvatarError,
-  AVATAR_MIME_ALLOWLIST,
   AVATAR_MAX_DECODED_BYTES,
+  AVATAR_MIME_ALLOWLIST,
   AVATAR_PROMPT_MAX_LENGTH,
+  ManagedAvatarError,
+  type ManagedAvatarErrorResponse,
+  type ManagedAvatarResponse,
 } from "./avatar-types.js";
 
 const log = getLogger("managed-avatar-client");
@@ -18,8 +18,7 @@ export function getAssistantApiKey(): string | undefined {
 }
 
 export function getManagedAvatarBaseUrl(): string {
-  const baseUrl =
-    getConfig().platform.baseUrl || getPlatformBaseUrl();
+  const baseUrl = getConfig().platform.baseUrl || getPlatformBaseUrl();
   return baseUrl.replace(/\/+$/, "");
 }
 
@@ -61,7 +60,8 @@ export async function generateManagedAvatar(
     throw new ManagedAvatarError({
       code: "configuration_error",
       subcode: "missing_base_url",
-      detail: "Platform base URL is not configured. Set platform.baseUrl in config or PLATFORM_BASE_URL environment variable.",
+      detail:
+        "Platform base URL is not configured. Set platform.baseUrl in config or PLATFORM_BASE_URL environment variable.",
       retryable: false,
       correlationId: options?.correlationId ?? crypto.randomUUID(),
       statusCode: 0,
@@ -90,11 +90,14 @@ export async function generateManagedAvatar(
       headers,
     });
   } catch (err) {
-    const isTimeout = err instanceof DOMException && err.name === "TimeoutError";
+    const isTimeout =
+      err instanceof DOMException && err.name === "TimeoutError";
     throw new ManagedAvatarError({
       code: "avatar_generation_failed",
       subcode: isTimeout ? "upstream_timeout" : "network_error",
-      detail: isTimeout ? "Request to avatar generation service timed out" : `Network error: ${err instanceof Error ? err.message : String(err)}`,
+      detail: isTimeout
+        ? "Request to avatar generation service timed out"
+        : `Network error: ${err instanceof Error ? err.message : String(err)}`,
       retryable: true,
       correlationId,
       statusCode: 0,
@@ -120,43 +123,67 @@ export async function generateManagedAvatar(
       code: errorBody.code ?? "upstream_error",
       subcode: errorBody.subcode ?? "unknown",
       detail: errorBody.detail ?? `HTTP ${response.status}`,
-      retryable: errorBody.retryable ?? (response.status >= 500 || response.status === 429),
+      retryable:
+        errorBody.retryable ??
+        (response.status >= 500 || response.status === 429),
       correlationId: errorBody.correlation_id ?? correlationId,
       statusCode: response.status,
     });
   }
 
-  const body = (await response.json()) as ManagedAvatarResponse;
+  let body: ManagedAvatarResponse;
+  try {
+    body = (await response.json()) as ManagedAvatarResponse;
 
-  if (!AVATAR_MIME_ALLOWLIST.has(body.image.mime_type)) {
+    if (!AVATAR_MIME_ALLOWLIST.has(body.image.mime_type)) {
+      throw new ManagedAvatarError({
+        code: "validation_error",
+        subcode: "disallowed_mime_type",
+        detail: `Response MIME type "${body.image.mime_type}" is not in the allowlist`,
+        retryable: false,
+        correlationId,
+        statusCode: 0,
+      });
+    }
+
+    const b64 = body.image.data_base64;
+    const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+    const estimatedDecodedBytes = Math.ceil((b64.length * 3) / 4) - padding;
+    if (
+      estimatedDecodedBytes > AVATAR_MAX_DECODED_BYTES ||
+      body.image.bytes > AVATAR_MAX_DECODED_BYTES
+    ) {
+      throw new ManagedAvatarError({
+        code: "validation_error",
+        subcode: "oversized_image",
+        detail: `Response image size ${Math.max(estimatedDecodedBytes, body.image.bytes)} exceeds maximum of ${AVATAR_MAX_DECODED_BYTES} bytes`,
+        retryable: false,
+        correlationId,
+        statusCode: 0,
+      });
+    }
+
+    log.debug(
+      {
+        correlationId,
+        mimeType: body.image.mime_type,
+        bytes: body.image.bytes,
+      },
+      "Managed avatar generation succeeded",
+    );
+
+    return body;
+  } catch (err) {
+    if (err instanceof ManagedAvatarError) {
+      throw err;
+    }
     throw new ManagedAvatarError({
-      code: "validation_error",
-      subcode: "disallowed_mime_type",
-      detail: `Response MIME type "${body.image.mime_type}" is not in the allowlist`,
+      code: "upstream_error",
+      subcode: "unparseable_response",
+      detail: `Failed to parse avatar generation response: ${err instanceof Error ? err.message : String(err)}`,
       retryable: false,
       correlationId,
       statusCode: 0,
     });
   }
-
-  const b64 = body.image.data_base64;
-  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
-  const estimatedDecodedBytes = Math.ceil(b64.length * 3 / 4) - padding;
-  if (estimatedDecodedBytes > AVATAR_MAX_DECODED_BYTES || body.image.bytes > AVATAR_MAX_DECODED_BYTES) {
-    throw new ManagedAvatarError({
-      code: "validation_error",
-      subcode: "oversized_image",
-      detail: `Response image size ${Math.max(estimatedDecodedBytes, body.image.bytes)} exceeds maximum of ${AVATAR_MAX_DECODED_BYTES} bytes`,
-      retryable: false,
-      correlationId,
-      statusCode: 0,
-    });
-  }
-
-  log.debug(
-    { correlationId, mimeType: body.image.mime_type, bytes: body.image.bytes },
-    "Managed avatar generation succeeded",
-  );
-
-  return body;
 }
