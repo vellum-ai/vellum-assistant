@@ -97,7 +97,7 @@ mock.module(
   }),
 );
 
-import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { findActiveSession } from "../runtime/channel-guardian-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
@@ -210,7 +210,7 @@ describe("Slack inbound trusted contact verification", () => {
 
   test("guardian is notified of the access attempt alongside verification", async () => {
     // Set up a guardian binding so the notification can target it
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "slack",
       guardianExternalUserId: "U_GUARDIAN",

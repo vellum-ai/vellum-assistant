@@ -196,7 +196,7 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result!.event.message.content).toBe("reaction:thumbsup");
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.message.externalMessageId).toBe(
-      "C456:1234567890.123456:thumbsup",
+      "C456:1234567890.123456:thumbsup:U123",
     );
     expect(result!.event.actor.actorExternalId).toBe("U123");
     expect(result!.event.source.messageId).toBe("1234567890.123456");
