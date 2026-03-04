@@ -17,6 +17,10 @@ final class ContactsViewModel: ObservableObject {
 
     private let daemonClient: DaemonClient?
 
+    /// Debounce task for contacts_changed events, avoiding races with
+    /// in-progress channel update response handling in ContactDetailView.
+    private var contactsChangedTask: Task<Void, Never>?
+
     // MARK: - Init
 
     init(daemonClient: DaemonClient?) {
@@ -70,7 +74,16 @@ final class ContactsViewModel: ObservableObject {
         }
 
         daemonClient.onContactsChanged = { [weak self] _ in
-            self?.loadContacts()
+            guard let self else { return }
+            // Debounce to let in-flight channel update responses
+            // (consumed by ContactDetailView.updateChannelStatus) settle
+            // before we fire a new list request.
+            self.contactsChangedTask?.cancel()
+            self.contactsChangedTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                self?.loadContacts()
+            }
         }
 
         do {

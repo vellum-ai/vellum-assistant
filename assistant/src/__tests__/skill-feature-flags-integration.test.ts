@@ -141,17 +141,20 @@ describe("buildSystemPrompt feature flag filtering", () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
+      assistantFeatureFlagValues: {
+        [DECLARED_FLAG_KEY]: false,
+        "feature_flags.twitter.enabled": true,
+      },
     };
 
     const result = buildSystemPrompt();
 
-    // twitter should be visible, declared flagged skill should not
+    // twitter is explicitly enabled, declared flagged skill is explicitly off
     expect(result).toContain('id="twitter"');
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
-  test("all skills visible when featureFlags is empty", () => {
+  test("declared skills hidden when featureFlags is empty (registry defaults to false)", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
       "Hatch New Assistant",
@@ -166,8 +169,9 @@ describe("buildSystemPrompt feature flag filtering", () => {
 
     const result = buildSystemPrompt();
 
-    expect(result).toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).toContain('id="twitter"');
+    // Both skills are declared in the registry with defaultEnabled: false
+    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
+    expect(result).not.toContain('id="twitter"');
   });
 
   test("flagged-off skills hidden even when all workspace skill flags are OFF", () => {

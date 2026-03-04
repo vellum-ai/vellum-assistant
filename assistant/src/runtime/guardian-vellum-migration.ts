@@ -40,15 +40,29 @@ export function ensureVellumGuardianBinding(
 
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
 
-  createGuardianBinding({
-    assistantId,
-    channel: "vellum",
-    guardianExternalUserId: guardianPrincipalId,
-    guardianDeliveryChatId: "local",
-    guardianPrincipalId,
-    verifiedVia: "startup-migration",
-    metadataJson: JSON.stringify({ migratedAt: Date.now() }),
-  });
+  try {
+    createGuardianBinding({
+      assistantId,
+      channel: "vellum",
+      guardianExternalUserId: guardianPrincipalId,
+      guardianDeliveryChatId: "local",
+      guardianPrincipalId,
+      verifiedVia: "startup-migration",
+      metadataJson: JSON.stringify({ migratedAt: Date.now() }),
+    });
+  } catch (err) {
+    // A concurrent call or legacy binding may already occupy this slot.
+    // Re-check contacts; if a binding now exists, return it instead of throwing.
+    const existing = findGuardianForChannel("vellum", assistantId);
+    if (existing?.contact.principalId) {
+      log.debug(
+        { assistantId, guardianPrincipalId: existing.contact.principalId },
+        "Vellum guardian binding creation conflicted — returning existing principal",
+      );
+      return existing.contact.principalId;
+    }
+    throw err;
+  }
 
   log.info(
     { assistantId, guardianPrincipalId },
