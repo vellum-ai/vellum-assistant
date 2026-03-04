@@ -33,7 +33,7 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   VOICE_SUCCESS: "guardian_verify.voice.success",
   /** Voice failure prompt after too many incorrect attempts. */
   VOICE_FAILURE: "guardian_verify.voice.failure",
-  /** Deterministic reply after successful channel verification command. */
+  /** Deterministic reply after successful verification (guardian or trusted contact). */
   CHANNEL_VERIFY_SUCCESS: "guardian_verify.channel.success",
   /** Deterministic reply after failed channel verification command. */
   CHANNEL_VERIFY_FAILED: "guardian_verify.channel.failed",

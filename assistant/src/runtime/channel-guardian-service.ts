@@ -149,10 +149,12 @@ export function createVerificationChallenge(
 /**
  * Validate and consume a verification challenge.
  *
- * Pure challenge-consumption function: checks per-actor/per-channel rate
- * limits, hashes the provided secret, looks up a matching pending challenge,
- * validates it has not expired, and consumes it. Role-specific side effects
- * (guardian binding creation, notification signals) are handled by the caller.
+ * This function is a pure challenge validator: it checks rate limits,
+ * validates the secret against pending challenges, verifies identity
+ * binding, and consumes the challenge. It returns the verification type
+ * (guardian or trusted_contact) but does NOT create bindings or apply
+ * role-specific side effects — those are handled by the caller
+ * (verification-intercept.ts) in a symmetric dispatch pattern.
  *
  * On failure the invalid-attempt counter is incremented; after
  * exceeding the threshold the actor is locked out for a cooldown

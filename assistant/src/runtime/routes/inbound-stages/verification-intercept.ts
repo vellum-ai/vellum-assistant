@@ -1,14 +1,16 @@
 /**
- * Guardian verification code intercept stage: validates and consumes
- * verification codes, upserts member records, and delivers deterministic
- * template-driven replies.
+ * Verification code intercept stage: validates and consumes verification
+ * codes, applies role-specific side effects (guardian binding creation,
+ * trusted-contact activation signals), upserts member records, and delivers
+ * deterministic template-driven replies.
+ *
+ * This is the single dispatch point for all post-verification side effects.
+ * Both guardian and trusted-contact flows converge here after
+ * validateAndConsumeChallenge() returns success.
  *
  * Verification code messages are short-circuited here and NEVER enter the
  * agent pipeline. This prevents verification codes from producing
  * agent-generated copy.
- *
- * Extracted from inbound-message-handler.ts to keep the top-level handler
- * focused on orchestration.
  */
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
