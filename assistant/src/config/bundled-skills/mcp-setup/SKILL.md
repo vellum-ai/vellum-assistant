@@ -9,7 +9,7 @@ Help users configure MCP servers so external tools (e.g. Linear, GitHub, Notion)
 
 ## CLI Commands
 
-All commands use `vellum mcp`. Run them via `host_shell`.
+All commands use `vellum mcp`. Run them via `host_bash`.
 
 ### List servers
 
