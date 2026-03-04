@@ -120,10 +120,6 @@ struct CommandPaletteView: View {
         }
         .background(VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
         .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
         .frame(width: 600)
         .onAppear {
