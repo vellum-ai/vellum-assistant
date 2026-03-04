@@ -169,13 +169,42 @@ export async function run(
     const result = await spawnWithTimeout(ffmpegArgs, FFMPEG_CLIP_TIMEOUT_MS);
 
     if (result.exitCode !== 0) {
-      return {
-        content: `ffmpeg clip extraction failed: ${result.stderr.slice(
-          0,
-          500,
-        )}`,
-        isError: true,
-      };
+      // Stream copy failed — fall back to re-encoding (handles high-bitrate
+      // sources, incompatible codecs, and missing keyframes at cut points)
+      context.onOutput?.("Stream copy failed, re-encoding clip...\n");
+      const reencodeArgs = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        String(clipStart),
+        "-i",
+        asset.filePath,
+        "-t",
+        String(clipDuration),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "23",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-avoid_negative_ts",
+        "make_zero",
+        clipPath,
+      ];
+      const reencodeResult = await spawnWithTimeout(
+        reencodeArgs,
+        FFMPEG_CLIP_TIMEOUT_MS,
+      );
+      if (reencodeResult.exitCode !== 0) {
+        return {
+          content: `ffmpeg clip extraction failed (both stream copy and re-encode): ${reencodeResult.stderr.slice(0, 500)}`,
+          isError: true,
+        };
+      }
     }
 
     // Verify the output file exists and has content
