@@ -1,13 +1,15 @@
-import { readFile } from 'node:fs/promises';
-import { dirname,join } from 'node:path';
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
-import { getConfig } from '../../../../config/loader.js';
-import {
-  getMediaAssetById,
-} from '../../../../memory/media-store.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { type MapOutput,mapSegments } from '../services/gemini-map.js';
-import type { PreprocessManifest } from '../services/preprocess.js';
+import { getConfig } from "../../../../config/loader.js";
+import { getMediaAssetById } from "../../../../memory/media-store.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { type MapOutput, mapSegments } from "../services/gemini-map.js";
+import { analyzeVideoDirectly } from "../services/gemini-video.js";
+import type { PreprocessManifest } from "../services/preprocess.js";
 
 // ---------------------------------------------------------------------------
 // Exported function for job handler use
@@ -31,7 +33,9 @@ export async function mapSegmentsForAsset(
   const apiKey = config.apiKeys.gemini;
 
   if (!apiKey) {
-    throw new Error('No Gemini API key configured. Please set your Gemini API key to use keyframe analysis.');
+    throw new Error(
+      "No Gemini API key configured. Please set your Gemini API key to use keyframe analysis.",
+    );
   }
 
   const asset = getMediaAssetById(assetId);
@@ -40,30 +44,40 @@ export async function mapSegmentsForAsset(
   }
 
   // Load preprocess manifest
-  const pipelineDir = join(dirname(asset.filePath), 'pipeline', assetId);
-  const manifestPath = join(pipelineDir, 'manifest.json');
+  const pipelineDir = join(dirname(asset.filePath), "pipeline", assetId);
+  const manifestPath = join(pipelineDir, "manifest.json");
 
   let manifest: PreprocessManifest;
   try {
-    const raw = await readFile(manifestPath, 'utf-8');
+    const raw = await readFile(manifestPath, "utf-8");
     manifest = JSON.parse(raw) as PreprocessManifest;
   } catch {
-    throw new Error('No preprocess manifest found. Run extract_keyframes first.');
+    throw new Error(
+      "No preprocess manifest found. Run extract_keyframes first.",
+    );
   }
 
   if (manifest.segments.length === 0) {
-    throw new Error('No segments found in preprocess manifest. Run extract_keyframes first.');
+    throw new Error(
+      "No segments found in preprocess manifest. Run extract_keyframes first.",
+    );
   }
 
-  return mapSegments(assetId, pipelineDir, manifest.segments, {
-    apiKey,
-    systemPrompt: options.systemPrompt,
-    outputSchema: options.outputSchema,
-    context: options.context,
-    model: options.model,
-    concurrency: options.concurrency,
-    maxRetries: options.maxRetries,
-  }, onProgress);
+  return mapSegments(
+    assetId,
+    pipelineDir,
+    manifest.segments,
+    {
+      apiKey,
+      systemPrompt: options.systemPrompt,
+      outputSchema: options.outputSchema,
+      context: options.context,
+      model: options.model,
+      concurrency: options.concurrency,
+      maxRetries: options.maxRetries,
+    },
+    onProgress,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -76,58 +90,109 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const assetId = input.asset_id as string | undefined;
   if (!assetId) {
-    return { content: 'asset_id is required.', isError: true };
+    return { content: "asset_id is required.", isError: true };
   }
 
   const systemPrompt = input.system_prompt as string | undefined;
   if (!systemPrompt) {
-    return { content: 'system_prompt is required.', isError: true };
+    return { content: "system_prompt is required.", isError: true };
   }
 
-  const outputSchema = input.output_schema as Record<string, unknown> | undefined;
+  const outputSchema = input.output_schema as
+    | Record<string, unknown>
+    | undefined;
   if (!outputSchema) {
-    return { content: 'output_schema is required.', isError: true };
+    return { content: "output_schema is required.", isError: true };
   }
 
+  const mode = (input.mode as string | undefined) ?? "keyframes";
   const contextObj = input.context as Record<string, unknown> | undefined;
   const model = input.model as string | undefined;
   const concurrency = input.concurrency as number | undefined;
   const maxRetries = input.max_retries as number | undefined;
 
   if (concurrency !== undefined && concurrency < 1) {
-    return { content: 'concurrency must be at least 1.', isError: true };
+    return { content: "concurrency must be at least 1.", isError: true };
   }
   if (maxRetries !== undefined && maxRetries < 0) {
-    return { content: 'max_retries must be non-negative.', isError: true };
+    return { content: "max_retries must be non-negative.", isError: true };
   }
 
   try {
-    const output = await mapSegmentsForAsset(
-      assetId,
-      {
-        systemPrompt,
-        outputSchema,
-        context: contextObj,
-        model,
-        concurrency,
-        maxRetries,
-      },
-      context.onOutput,
-    );
+    let output: MapOutput;
+
+    if (mode === "direct_video") {
+      const config = getConfig();
+      const apiKey = config.apiKeys.gemini;
+      if (!apiKey) {
+        return {
+          content:
+            "No Gemini API key configured. Please set your Gemini API key to use video analysis.",
+          isError: true,
+        };
+      }
+
+      const asset = getMediaAssetById(assetId);
+      if (!asset) {
+        return { content: `Media asset not found: ${assetId}`, isError: true };
+      }
+      if (asset.mediaType !== "video") {
+        return {
+          content: `Asset ${assetId} is not a video (type: ${asset.mediaType}). Direct video mode requires a video asset.`,
+          isError: true,
+        };
+      }
+
+      const pipelineDir = join(dirname(asset.filePath), "pipeline", assetId);
+
+      output = await analyzeVideoDirectly(
+        assetId,
+        pipelineDir,
+        {
+          apiKey,
+          systemPrompt,
+          outputSchema,
+          context: contextObj,
+          model,
+          maxRetries,
+        },
+        asset.filePath,
+        asset.durationSeconds ?? 0,
+        context.onOutput,
+      );
+    } else {
+      output = await mapSegmentsForAsset(
+        assetId,
+        {
+          systemPrompt,
+          outputSchema,
+          context: contextObj,
+          model,
+          concurrency,
+          maxRetries,
+        },
+        context.onOutput,
+      );
+    }
 
     return {
-      content: JSON.stringify({
-        message: `Map ${output.failedCount === 0 ? 'completed' : 'completed with errors'}`,
-        assetId,
-        model: output.model,
-        segmentCount: output.segmentCount,
-        successCount: output.successCount,
-        failedCount: output.failedCount,
-        skippedCount: output.skippedCount,
-        totalInputTokens: output.costSummary.totalInputTokens,
-        totalOutputTokens: output.costSummary.totalOutputTokens,
-        estimatedCostUSD: output.costSummary.totalEstimatedUSD,
-      }, null, 2),
+      content: JSON.stringify(
+        {
+          message: `Map ${output.failedCount === 0 ? "completed" : "completed with errors"}`,
+          assetId,
+          mode,
+          model: output.model,
+          segmentCount: output.segmentCount,
+          successCount: output.successCount,
+          failedCount: output.failedCount,
+          skippedCount: output.skippedCount,
+          totalInputTokens: output.costSummary.totalInputTokens,
+          totalOutputTokens: output.costSummary.totalOutputTokens,
+          estimatedCostUSD: output.costSummary.totalEstimatedUSD,
+        },
+        null,
+        2,
+      ),
       isError: false,
     };
   } catch (err) {

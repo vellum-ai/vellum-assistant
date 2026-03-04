@@ -107,6 +107,11 @@
             "type": "string",
             "description": "ID of the media asset whose segments to analyze"
           },
+          "mode": {
+            "type": "string",
+            "enum": ["keyframes", "direct_video"],
+            "description": "Analysis mode: 'keyframes' extracts frames and sends images (default), 'direct_video' uploads video directly to Gemini. Direct video lets Gemini see motion/temporal context but has a 2GB file size limit."
+          },
           "system_prompt": {
             "type": "string",
             "description": "Assistant-provided extraction instructions for Gemini (e.g., what to look for in the frames)"

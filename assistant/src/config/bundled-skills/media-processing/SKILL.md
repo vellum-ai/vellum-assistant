@@ -44,16 +44,22 @@ Parameters:
 
 ### analyze_keyframes
 
-Map video segments through Gemini's structured output API. Reads frames from the preprocess manifest, sends each segment to Gemini with assistant-provided extraction instructions and a JSON Schema for guaranteed structured output. Supports concurrency pooling, cost tracking, resumability (skips segments with existing results), and automatic retries with exponential backoff.
+Map video segments through Gemini's structured output API. Supports two modes:
+
+- **`keyframes`** (default) — Reads frames from the preprocess manifest, sends each segment's images to Gemini. Requires `extract_keyframes` to be run first. Best for longer videos (> 1 hour) or when you need fine-grained control over frame selection (interval, segment duration, dead-time skipping).
+- **`direct_video`** — Uploads the video file directly to Gemini's Files API. Gemini sees actual motion and temporal context instead of static frames. Best for shorter videos (< 1 hour) where temporal context matters (detecting actions, transitions, motion patterns). Has a 2 GB file size limit. Does not require `extract_keyframes` preprocessing.
+
+Both modes produce the same `MapOutput` format, so `query_media` works identically regardless of which mode was used.
 
 Parameters:
 
 - `asset_id` (required) — ID of the media asset.
 - `system_prompt` (required) — Extraction instructions for Gemini.
 - `output_schema` (required) — JSON Schema for structured output.
+- `mode` — Analysis mode: `'keyframes'` (default) or `'direct_video'`.
 - `context` — Additional context to include in the prompt.
 - `model` — Gemini model to use (default: `gemini-2.5-flash`).
-- `concurrency` — Maximum concurrent API requests (default: 10).
+- `concurrency` — Maximum concurrent API requests (default: 10, keyframes mode only).
 - `max_retries` — Retry attempts per segment on failure (default: 3).
 
 ### query_media
@@ -186,13 +192,13 @@ Gemini performs well at **spatial/descriptive analysis** from static keyframes:
 - Score and on-screen text
 - Camera angles and scene composition
 
-Gemini **hallucinates when asked to detect fast temporal events** from static frames, regardless of frame density:
+Gemini **hallucinates when asked to detect fast temporal events** from static frames (keyframes mode), regardless of frame density:
 
 - Turnovers, steals, fouls, and specific plays
 - Fast transitions and split-second actions
 - Causality between frames (what "happened" vs. what's visible)
 
-The model is good at describing **what is there** but bad at detecting **what happened**. Structure your map prompts and queries accordingly — ask the model to describe scenes, then use `query_media` (Claude) to reason about patterns and events across the descriptive data.
+The model is good at describing **what is there** but bad at detecting **what happened** from static frames. For content where temporal context matters, consider using `mode: 'direct_video'` which lets Gemini see actual motion. For keyframes mode, structure your map prompts and queries accordingly — ask the model to describe scenes, then use `query_media` (Claude) to reason about patterns and events across the descriptive data.
 
 ## Operator Runbook
 
