@@ -82,11 +82,12 @@ struct MessageListView: View {
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
     /// resign first responder exactly once per new confirmation appearance.
     @State private var lastAutoFocusedRequestId: String?
-    /// Counts consecutive message-count changes where anchorMessageId is set
-    /// but the target message is not found. After a threshold number of retries,
-    /// the anchor is cleared to prevent permanently suppressed auto-scroll from
-    /// invalid or permanently unavailable deep-link message IDs.
-    @State private var anchorRetryCount: Int = 0
+    /// Timestamp when anchorMessageId was set. Used together with pagination
+    /// exhaustion to decide when a stale anchor should be cleared. The anchor
+    /// is cleared when either (a) pagination is exhausted and the target is
+    /// still not found, or (b) a generous time-based fallback elapses (covers
+    /// cases where pagination stalls or never completes).
+    @State private var anchorSetTime: Date?
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -507,7 +508,14 @@ struct MessageListView: View {
                     // scroll to it immediately instead of falling through to bottom.
                     proxy.scrollTo(id, anchor: .center)
                     anchorMessageId = nil
-                } else if anchorMessageId == nil {
+                    anchorSetTime = nil
+                } else if anchorMessageId != nil {
+                    // Anchor is set but the target message isn't loaded yet.
+                    // Record the timestamp so the time-based fallback starts
+                    // counting from view appearance (onChange may not fire for
+                    // the initial value).
+                    if anchorSetTime == nil { anchorSetTime = Date() }
+                } else {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
                 // When anchorMessageId is set but the target message isn't loaded
@@ -569,20 +577,25 @@ struct MessageListView: View {
                         proxy.scrollTo(id, anchor: .center)
                     }
                     anchorMessageId = nil
-                    anchorRetryCount = 0
+                    anchorSetTime = nil
                     return
                 }
                 // If anchor is set but the target message still hasn't appeared,
-                // increment the retry counter. After 3 message-count changes
-                // without finding the anchor, assume it's permanently invalid
-                // (e.g., deleted message, wrong thread) and clear it so
-                // auto-scroll is no longer suppressed.
+                // check whether we should give up. Two conditions clear the anchor:
+                //   1. Pagination exhaustion: all history pages have been loaded
+                //      (!hasMoreMessages) and the target still isn't present — the
+                //      message genuinely doesn't exist in this thread.
+                //   2. Time-based fallback: 10 seconds have elapsed since the anchor
+                //      was set. This covers edge cases where pagination stalls or
+                //      the daemon never responds with more history.
                 if anchorMessageId != nil {
-                    anchorRetryCount += 1
-                    if anchorRetryCount >= 3 {
-                        log.debug("Anchor message not found after \(anchorRetryCount) retries — clearing stale anchor")
+                    let paginationExhausted = !hasMoreMessages
+                    let timedOut = anchorSetTime.map { Date().timeIntervalSince($0) > 10 } ?? false
+                    if paginationExhausted || timedOut {
+                        let reason = paginationExhausted ? "pagination exhausted" : "timed out"
+                        log.debug("Anchor message not found (\(reason)) — clearing stale anchor")
                         anchorMessageId = nil
-                        anchorRetryCount = 0
+                        anchorSetTime = nil
                         isNearBottom = true
                         withAnimation(VAnimation.fast) {
                             proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -642,9 +655,9 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: anchorMessageId) {
-                // Reset the retry counter whenever the anchor target changes
-                // (new deep-link or external clear).
-                anchorRetryCount = 0
+                // Record the timestamp when a new anchor is set so the
+                // time-based fallback can measure elapsed time accurately.
+                anchorSetTime = anchorMessageId != nil ? Date() : nil
                 guard let id = anchorMessageId else { return }
                 // Only scroll and clear if the target message is already loaded;
                 // otherwise leave the anchor set so the messages-change handler
