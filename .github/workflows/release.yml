@@ -483,7 +483,12 @@ jobs:
 
       - name: Compute image name
         id: image
-        run: echo "name=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+        run: |
+          IMAGE_NAME="${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}"
+          if [ -z "$IMAGE_NAME" ]; then
+            IMAGE_NAME="vellum-outbound-proxy"
+          fi
+          echo "name=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push by digest
         id: build
@@ -558,7 +563,11 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}"
+          IMAGE_NAME="${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}"
+          if [ -z "$IMAGE_NAME" ]; then
+            IMAGE_NAME="vellum-outbound-proxy"
+          fi
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${IMAGE_NAME}"
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
           TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
           TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
@@ -570,7 +579,11 @@ jobs:
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}"
+          IMAGE_NAME="${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}"
+          if [ -z "$IMAGE_NAME" ]; then
+            IMAGE_NAME="vellum-outbound-proxy"
+          fi
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${IMAGE_NAME}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
@@ -581,7 +594,11 @@ jobs:
       - name: Export image metadata
         id: meta
         run: |
-          echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+          IMAGE_NAME="${{ secrets.OUTBOUND_PROXY_IMAGE_NAME }}"
+          if [ -z "$IMAGE_NAME" ]; then
+            IMAGE_NAME="vellum-outbound-proxy"
+          fi
+          echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
           echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
 
