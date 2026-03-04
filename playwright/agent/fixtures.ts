@@ -209,10 +209,7 @@ function ensureVellumInPath(appDisplayName: string): void {
   for (const [target, link] of symlinks) {
     if (!existsSync(target)) continue;
     try {
-      if (existsSync(link)) {
-        execSync(`rm -f ${JSON.stringify(link)}`);
-      }
-      execSync(`ln -s ${JSON.stringify(target)} ${JSON.stringify(link)}`);
+      execSync(`ln -sf ${JSON.stringify(target)} ${JSON.stringify(link)}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to create symlink ${link}: ${message}`);
