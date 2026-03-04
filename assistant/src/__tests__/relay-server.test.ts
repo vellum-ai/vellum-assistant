@@ -177,10 +177,6 @@ import {
   upsertMemberContactsFirst,
 } from "../contacts/contacts-write.js";
 import {
-  createGuardianBindingContactsFirst,
-  upsertMemberContactsFirst,
-} from "../contacts/contacts-write.js";
-import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
