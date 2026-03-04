@@ -701,7 +701,10 @@ done
 
 # --- TypeScript type-check for assistant/ ---
 # Full-project tsc catches cross-file type errors that per-file lint misses.
-# Uses --incremental for ~4s warm runs (vs ~15s cold).
+# Uses --incremental + --declaration false to keep warm runs at ~5s.
+# Without --declaration false, the tsconfig's declaration:true causes tsc to
+# mark all 1600+ files as "pending emit" on every --noEmit run, defeating
+# incremental caching and falling back to ~20s full rebuilds.
 
 ASSISTANT_TS_STAGED=0
 while IFS= read -r -d '' FILE; do
@@ -716,7 +719,7 @@ if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
         echo -e "${YELLOW}⚠️  bun not found — skipping type check for assistant/${NC}"
     else
         echo "🔍 Type-checking assistant/..."
-        if ! (cd assistant && "$BUN" x tsc --noEmit --incremental --tsBuildInfoFile .tsbuildinfo) 2>&1; then
+        if ! (cd assistant && "$BUN" x tsc --noEmit --incremental --tsBuildInfoFile .tsbuildinfo --declaration false --declarationMap false) 2>&1; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}TypeScript type errors found in assistant/!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
