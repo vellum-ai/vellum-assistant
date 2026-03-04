@@ -494,7 +494,7 @@ export function listContacts(
       desc(contacts.importance),
       desc(contacts.lastInteraction),
     )
-    .limit(Math.min(limit, 200))
+    .limit(limit)
     .all();
   return rows.map((r) => withChannels(parseContact(r)));
 }
