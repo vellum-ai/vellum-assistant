@@ -66,9 +66,10 @@ mock.module("../memory/ingress-member-store.js", () => ({
   upsertMember: () => {},
 }));
 
+import { upsertContact } from "../contacts/contact-store.js";
+import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
-import { createBinding } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
@@ -213,6 +214,19 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
   beforeEach(() => {
     resetTables();
     mockFindMember = null;
+    // Insert a test contact so the contacts-based ACL lookup passes
+    upsertContact({
+      displayName: "Test User",
+      channels: [
+        {
+          type: "telegram",
+          address: "telegram-user-default",
+          externalUserId: "telegram-user-default",
+          status: "active",
+          policy: "allow",
+        },
+      ],
+    });
   });
 
   function makeInboundRequest(
@@ -240,8 +254,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
   }
 
   test("trusted contact with guardian binding gets interactive turn", async () => {
-    // Create guardian binding so the trusted contact has a resolvable route
-    createBinding({
+    // Create guardian binding in contacts table so the trust resolver finds it
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-for-tc",
@@ -341,8 +355,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
   });
 
   test("guardian actors remain interactive regardless", async () => {
-    // Guardian binding matches the sender
-    createBinding({
+    // Guardian binding matches the sender — use contacts-first so trust resolver finds it
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
