@@ -12,15 +12,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
+  lint:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
-    name: Lint, Type Check & Test
-    runs-on: ubuntu-latest-4-cores
-    timeout-minutes: 15
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: assistant
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+  typecheck:
+    if: contains(github.event.pull_request.labels.*.name, 'preview')
+    name: Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: assistant
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,14 +83,52 @@ jobs:
       - name: Type check
         run: bunx tsc --noEmit
 
-      - name: Lint
-        run: bun run lint
+  test:
+    if: contains(github.event.pull_request.labels.*.name, 'preview')
+    name: Test
+    runs-on: ubuntu-latest-4-cores
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: assistant
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Test
         run: bun run test
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
           TEST_WORKERS: '8'
+
+  artifact:
+    name: Upload Artifact
+    needs: [lint, typecheck, test]
+    if: contains(github.event.pull_request.labels.*.name, 'preview')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: assistant
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Zip assistant artifact
         run: zip -r ../assistant-pr-${{ github.event.pull_request.number }}.zip . -x "node_modules/*"
