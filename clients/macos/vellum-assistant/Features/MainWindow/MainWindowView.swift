@@ -1640,6 +1640,7 @@ struct MainWindowView: View {
                                             }
                                             .buttonStyle(.plain)
                                             .transition(.opacity)
+                                            .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
                                         } else {
                                             switch interactionState {
                                             case .processing:
@@ -1717,6 +1718,7 @@ struct MainWindowView: View {
                                             }
                                             .buttonStyle(.plain)
                                             .padding(.trailing, VSpacing.xs)
+                                            .accessibilityLabel("Archive \(thread.title)")
                                         }
                                     }
                                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
@@ -1761,6 +1763,11 @@ struct MainWindowView: View {
                     }
                     .frame(width: 240)
                     .padding(.bottom, VSpacing.sm)
+                    .onChange(of: sidebar.isHoveredThread) { _, newValue in
+                        if let pending = sidebar.threadPendingDeletion, newValue != pending {
+                            sidebar.threadPendingDeletion = nil
+                        }
+                    }
                     .onHover { hovering in
                         if hovering {
                             // Mouse entered popover — cancel pending dismiss
