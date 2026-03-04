@@ -244,9 +244,13 @@ export class SlackSocketModeClient {
 
     const isAppMention = event.type === "app_mention";
     const isDm = event.type === "message" && dmEvent.channel_type === "im";
+    const mentionsBot =
+      this.config.botUserId &&
+      channelEvent.text?.includes(`<@${this.config.botUserId}>`);
     const isActiveThreadReply =
       event.type === "message" &&
       !isDm &&
+      !mentionsBot &&
       !!channelEvent.thread_ts &&
       this.activeThreads.has(channelEvent.thread_ts);
 
