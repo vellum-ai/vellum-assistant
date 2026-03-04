@@ -2,7 +2,7 @@
 name: "Trusted Contacts"
 description: "Manage trusted contacts and invite links — list, allow, revoke, block users, and create/list/revoke invite links for Telegram and voice (phone call) channels"
 user-invocable: true
-metadata: {"vellum": {"emoji": "\ud83d\udc65"}}
+metadata: { "vellum": { "emoji": "\ud83d\udc65" } }
 ---
 
 You are helping your user manage trusted contacts and invite links for the Vellum Assistant. Trusted contacts control who is allowed to send messages to the assistant through external channels like Telegram, SMS, and voice (phone calls). Invite links let the guardian share a Telegram deep link that automatically grants access when opened. Voice invites let the guardian authorize a specific phone number to call in — the invitee must call from that phone number AND enter a one-time numeric code. Use Vellum CLI for status/list retrieval, and use gateway control-plane `curl` calls for mutating actions.
@@ -10,7 +10,7 @@ You are helping your user manage trusted contacts and invite links for the Vellu
 ## Prerequisites
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
-- Use gateway control-plane routes only: this skill calls `/v1/ingress/*` and `/v1/integrations/telegram/config` on the gateway, never the daemon runtime port directly.
+- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/ingress/*`, and `/v1/integrations/telegram/config` on the gateway, never the daemon runtime port directly.
 - The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable for control-plane `curl` requests.
 
 ## Concepts
@@ -33,33 +33,39 @@ vellum integrations ingress members --json
 ```
 
 Optional query parameters for filtering:
-- `sourceChannel` — filter by channel (e.g., `telegram`, `sms`)
-- `status` — filter by status (`active`, `revoked`, `blocked`)
-- `policy` — filter by policy (`allow`, `deny`)
 
-Example with filters:
+- `--role <role>` — filter by role (default: `contact`; use `guardian` to list guardians)
+- `--limit <limit>` — maximum number of contacts to return
+
+Example:
+
 ```bash
-vellum integrations ingress members --source-channel telegram --status active --json
+vellum integrations ingress members --role contact --json
 ```
 
-The response contains `{ ok: true, members: [...] }` where each member has:
-- `id` — unique member ID (needed for revoke/block operations)
-- `sourceChannel` — the channel (e.g., `telegram`)
-- `externalUserId` — the user's ID on that channel
-- `externalChatId` — the chat ID on that channel
-- `displayName` — human-readable name
-- `username` — channel username (e.g., Telegram @handle)
-- `status` — current status
-- `policy` — current policy
-- `createdAt` — when the member was added
+The response contains `{ ok: true, contacts: [...] }` where each contact has:
 
-**Presenting results**: Format the member list as a readable table or list. Include display name (or username/user ID as fallback), channel, status, and policy. If no members exist, tell the user their contact list is empty.
+- `id` — unique contact ID
+- `role` — the contact's role (`contact`, `guardian`)
+- `displayName` — human-readable name
+- `channels` — array of channel entries, each with:
+  - `id` — channel ID (needed for status/policy changes)
+  - `channel` — the channel type (e.g., `telegram`, `sms`, `voice`)
+  - `externalUserId` — the user's ID on that channel
+  - `externalChatId` — the chat ID on that channel
+  - `displayName` — channel-specific display name
+  - `username` — channel username (e.g., Telegram @handle)
+  - `status` — current status (`active`, `revoked`, `blocked`, etc.)
+  - `policy` — current policy (`allow`, `deny`, `escalate`)
+- `createdAt` — when the contact was added
+
+**Presenting results**: Format the contact list as a readable table or list. Include display name, role, and per-channel status/policy. If no contacts exist, tell the user their contact list is empty.
 
 ### 2. Allow a user (add trusted contact)
 
 Use this when the user wants to grant someone access to message the assistant. **Always confirm with the user before executing this action.**
 
-Ask the user: *"I'll add [name/identifier] on [channel] as an allowed contact. Should I proceed?"*
+Ask the user: _"I'll add [name/identifier] on [channel] as an allowed contact. Should I proceed?"_
 
 ```bash
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members" \
@@ -75,10 +81,12 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members" \
 ```
 
 Required fields:
+
 - `sourceChannel` — the channel (e.g., `telegram`, `sms`)
 - At least one of `externalUserId` or `externalChatId`
 
 Optional fields:
+
 - `displayName` — human-readable name for the contact
 - `username` — channel-specific handle (e.g., Telegram @username)
 
@@ -88,7 +96,7 @@ If the user provides a name but not an external ID, explain that you need the ch
 
 Use this when the user wants to remove someone's access. **Always confirm with the user before executing this action.**
 
-Ask the user: *"I'll revoke access for [name/identifier]. They will no longer be able to message the assistant. Should I proceed?"*
+Ask the user: _"I'll revoke access for [name/identifier]. They will no longer be able to message the assistant. Should I proceed?"_
 
 First, list members to find the member's `id`, then revoke:
 
@@ -105,7 +113,7 @@ Replace `<member_id>` with the member's `id` from the list response.
 
 Use this when the user wants to explicitly block someone. Blocking is stronger than revoking — it marks the contact as actively denied. **Always confirm with the user before executing this action.**
 
-Ask the user: *"I'll block [name/identifier]. They will be permanently denied from messaging the assistant. Should I proceed?"*
+Ask the user: _"I'll block [name/identifier]. They will be permanently denied from messaging the assistant. Should I proceed?"_
 
 ```bash
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members/<member_id>/block" \
@@ -165,11 +173,13 @@ echo "$INVITE_URL"
 ```
 
 Optional fields:
+
 - `maxUses` — how many times the link can be used (default: 1). Use a higher number for group invites.
 - `expiresInMs` — expiration time in milliseconds from now (e.g., `86400000` for 24 hours). Defaults to 7 days (`604800000`) if omitted.
 - `note` — a human-readable label for the invite (e.g., "For Mom", "Family group").
 
 The create response contains `{ ok: true, invite: { id, token, share?, ... } }`.
+
 - `token` is the raw invite token and is only returned at creation time.
 - `share.url` is the canonical shareable deep link (when channel transport config is available).
 
@@ -196,10 +206,12 @@ vellum integrations ingress invites --source-channel telegram --json
 ```
 
 Optional query parameters:
+
 - `sourceChannel` — filter by channel (e.g., `telegram`)
 - `status` — filter by status (`active`, `revoked`, `redeemed`, `expired`)
 
 The response contains `{ ok: true, invites: [...] }` where each invite has:
+
 - `id` — unique invite ID (needed for revoke)
 - `sourceChannel` — the channel
 - `tokenHash` — hashed token (the raw token is only available at creation time)
@@ -216,7 +228,7 @@ The response contains `{ ok: true, invites: [...] }` where each invite has:
 
 Use this when the guardian wants to cancel an active invite link. **Always confirm before revoking.**
 
-Ask the user: *"I'll revoke the invite link [note or ID]. It will no longer be usable. Should I proceed?"*
+Ask the user: _"I'll revoke the invite link [note or ID]. It will no longer be usable. Should I proceed?"_
 
 First, list invites to find the invite's `id`, then revoke:
 
@@ -249,18 +261,21 @@ printf '%s\n' "$INVITE_JSON"
 ```
 
 Required fields:
+
 - `sourceChannel` — must be `"voice"`
 - `expectedExternalUserId` — the invitee's phone number in E.164 format (e.g., `+15551234567`)
 - `friendName` — the invitee's display name (e.g., "Mom", "Dr. Smith"). Used during the voice verification call to personalize the experience.
 - `guardianName` — the guardian's display name (e.g., "Alex"). Used during the voice verification call so the invitee knows who invited them.
 
 Optional fields:
+
 - `maxUses` — how many times the code can be used (default: 1)
 - `expiresInMs` — expiration time in milliseconds from now (e.g., `86400000` for 24 hours). Defaults to 7 days if omitted.
 - ~~`voiceCodeDigits`~~ — always 6 digits; this parameter is accepted but ignored
 - `note` — a human-readable label for the invite (e.g., "For Mom", "Dr. Smith")
 
 The create response contains `{ ok: true, invite: { id, voiceCode, expectedExternalUserId, friendName, guardianName, ... } }`.
+
 - `voiceCode` is the numeric code the invitee must enter and is only returned at creation time.
 - `friendName` and `guardianName` are echoed back in the response.
 - Voice invite responses do **not** include `token` or `share.url`. Do not try to build or send a deep link for voice invites.
@@ -272,6 +287,7 @@ The create response contains `{ ok: true, invite: { id, voiceCode, expectedExter
 > **Invite code: `<voiceCode>`**
 >
 > Share these instructions with the person you are inviting:
+>
 > 1. Call the assistant's phone number from **<phone_number>** (the call must come from this exact number)
 > 2. When prompted, enter the code **<voiceCode>**
 > 3. Once verified, they will be added as a trusted contact and can call the assistant directly in the future
@@ -293,9 +309,11 @@ vellum integrations ingress invites --source-channel voice --json
 ```
 
 Optional query parameters:
+
 - `status` — filter by status (`active`, `revoked`, `redeemed`, `expired`)
 
 The response format is the same as regular invites but voice invites also include:
+
 - `expectedExternalUserId` — the bound phone number
 - `voiceCodeDigits` — always 6 (the code itself is not retrievable after creation)
 - `token` and `share` are not present for voice invites
@@ -306,7 +324,7 @@ The response format is the same as regular invites but voice invites also includ
 
 Use this when the guardian wants to cancel an active voice invite. **Always confirm before revoking.**
 
-Ask the user: *"I'll revoke the voice invite for [phone number or note]. The code will no longer work. Should I proceed?"*
+Ask the user: _"I'll revoke the voice invite for [phone number or note]. The code will no longer work. Should I proceed?"_
 
 First, list voice invites to find the invite's `id`, then revoke:
 

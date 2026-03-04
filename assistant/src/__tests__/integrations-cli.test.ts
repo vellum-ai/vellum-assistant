@@ -163,24 +163,25 @@ describe("vellum integrations CLI", () => {
     );
   });
 
-  test("passes filters for ingress members", async () => {
+  test("passes filters for ingress members (now calls /v1/contacts)", async () => {
     const result = await runCli(
-      [
-        "--json",
-        "ingress",
-        "members",
-        "--assistant-id",
-        "assistant-1",
-        "--source-channel",
-        "voice",
-        "--status",
-        "active",
-      ],
-      { ok: true, members: [] },
+      ["--json", "ingress", "members", "--role", "contact", "--limit", "20"],
+      { ok: true, contacts: [] },
     );
     expect(result.exitCode).toBe(0);
     expect(result.fetchCalls[0]?.url).toBe(
-      "http://gateway.test/v1/ingress/members?assistantId=assistant-1&sourceChannel=voice&status=active",
+      "http://gateway.test/v1/contacts?role=contact&limit=20",
+    );
+  });
+
+  test("ingress members defaults role to contact", async () => {
+    const result = await runCli(["--json", "ingress", "members"], {
+      ok: true,
+      contacts: [],
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.fetchCalls[0]?.url).toBe(
+      "http://gateway.test/v1/contacts?role=contact",
     );
   });
 
