@@ -1,27 +1,33 @@
 /**
- * Lint script that ensures no bundled skill imports from another bundled skill.
+ * Ensures no skill imports from a sibling skill directory.
  *
- * For any given skill directory under `bundled-skills/`, all relative imports
- * must resolve within that same skill directory (or go outside `bundled-skills/`
- * entirely, e.g. into the main assistant codebase). Importing from a sibling
- * skill is a violation.
+ * For any given skill under `skills/`, all relative imports must resolve
+ * within that same skill (or go outside `skills/` entirely). Importing
+ * from a sibling skill is a violation.
  *
  * Usage:
- *   bun run assistant/scripts/lint-skill-imports.ts [skill-name ...]
+ *   node scripts/lint-skill-imports.mjs [skill-name ...]
  *
  * If no skill names are provided, all skills are checked.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const BUNDLED_SKILLS_DIR = resolve(
-  import.meta.dirname,
-  "../src/config/bundled-skills",
-);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SKILLS_DIR = resolve(__dirname, "../skills");
 
-function getSkillDirs(filter?: string[]): string[] {
-  const entries = readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true });
+/**
+ * Known cross-skill imports that are intentionally allowed.
+ * Each entry maps "source-skill/relative/file.ts" to an array of target skills.
+ */
+const ALLOWED_CROSS_SKILL_IMPORTS = {
+  "messaging/tools/send-notification.ts": ["notifications"],
+};
+
+function getSkillDirs(filter) {
+  const entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
   return entries
     .filter((e) => e.isDirectory() && e.name !== "_shared")
     .filter((e) => !filter || filter.length === 0 || filter.includes(e.name))
@@ -29,8 +35,8 @@ function getSkillDirs(filter?: string[]): string[] {
     .sort();
 }
 
-function findTsFiles(dir: string): string[] {
-  const results: string[] = [];
+function findTsFiles(dir) {
+  const results = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -42,16 +48,9 @@ function findTsFiles(dir: string): string[] {
   return results;
 }
 
-interface Violation {
-  file: string;
-  line: number;
-  importPath: string;
-  targetSkill: string;
-}
-
-function checkSkill(skillName: string): Violation[] {
-  const skillDir = join(BUNDLED_SKILLS_DIR, skillName);
-  const violations: Violation[] = [];
+function checkSkill(skillName) {
+  const skillDir = join(SKILLS_DIR, skillName);
+  const violations = [];
 
   if (!statSync(skillDir, { throwIfNoEntry: false })?.isDirectory()) {
     return violations;
@@ -65,7 +64,6 @@ function checkSkill(skillName: string): Violation[] {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      // Match import statements and re-exports with relative paths
       const importMatches = line.matchAll(
         /(?:import|export)\s+.*?from\s+["'](\.[^"']+)["']/g,
       );
@@ -74,29 +72,32 @@ function checkSkill(skillName: string): Violation[] {
         const importPath = match[1];
         const fileDir = dirname(filePath);
         const resolved = resolve(fileDir, importPath);
-        const relToBundled = relative(BUNDLED_SKILLS_DIR, resolved);
+        const relToSkills = relative(SKILLS_DIR, resolved);
 
-        // If it goes outside bundled-skills entirely, that's fine
-        if (relToBundled.startsWith("..")) {
+        // If it goes outside skills/ entirely, that's fine
+        if (relToSkills.startsWith("..")) {
           continue;
         }
 
-        // Extract the top-level skill directory from the resolved path
-        const targetSkill = relToBundled.split("/")[0];
+        const targetSkill = relToSkills.split("/")[0];
 
-        // If it resolves to _shared, that's allowed
+        // Imports from _shared are allowed
         if (targetSkill === "_shared") {
           continue;
         }
 
-        // If it resolves to a different skill, that's a violation
+        // If it resolves to a different skill, check the allowlist
         if (targetSkill !== skillName) {
-          violations.push({
-            file: relative(process.cwd(), filePath),
-            line: i + 1,
-            importPath,
-            targetSkill,
-          });
+          const fileRelToSkills = relative(SKILLS_DIR, filePath);
+          const allowed = ALLOWED_CROSS_SKILL_IMPORTS[fileRelToSkills] ?? [];
+          if (!allowed.includes(targetSkill)) {
+            violations.push({
+              file: relative(process.cwd(), filePath),
+              line: i + 1,
+              importPath,
+              targetSkill,
+            });
+          }
         }
       }
     }
