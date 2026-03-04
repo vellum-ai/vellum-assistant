@@ -22,7 +22,7 @@ struct VoiceTranscriptionView: View {
                     .clipShape(Circle())
             }
 
-            Text(voiceModeManager.stateLabel)
+            Text(voiceModeManager.stateLabel.isEmpty ? "Listening" : voiceModeManager.stateLabel)
                 .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textPrimary)
 
