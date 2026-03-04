@@ -105,13 +105,22 @@ struct SettingsPanel: View {
                 .frame(width: 200)
 
             // Right: tab content — panel background on content only, nav floats on window chrome
-            ScrollView {
+            // Contacts tab is a master-detail split that needs full height; wrapping it in
+            // a ScrollView would collapse maxHeight: .infinity to minimum content size.
+            if selectedTab == .contacts {
                 selectedTabContent
-                    .padding(VSpacing.lg)
-                    .frame(maxWidth: .infinity, alignment: .top)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .background(VColor.backgroundSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            } else {
+                ScrollView {
+                    selectedTabContent
+                        .padding(VSpacing.lg)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                }
+                .background(VColor.backgroundSubtle)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             }
-            .background(VColor.backgroundSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
         .task {
             // Refresh permission status when the view appears
