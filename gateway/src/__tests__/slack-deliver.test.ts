@@ -13,6 +13,11 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
+mock.module("../auth/token-exchange.js", () => ({
+  mintIngressToken: () => "mock-ingress-token",
+  mintServiceToken: () => "mock-service-token",
+}));
+
 const { createSlackDeliverHandler } =
   await import("../http/routes/slack-deliver.js");
 
