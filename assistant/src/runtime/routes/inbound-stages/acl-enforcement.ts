@@ -19,14 +19,20 @@ import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js
 import { getLogger } from "../../../util/logger.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
 import {
+  createOutboundSession,
   findActiveSession,
   getPendingChallenge,
   resolveBootstrapToken,
 } from "../../channel-guardian-service.js";
 import { getTransport } from "../../channel-invite-transport.js";
 import { deliverChannelReply } from "../../gateway-client.js";
+import {
+  composeVerificationSlack,
+  GUARDIAN_VERIFY_TEMPLATE_KEYS,
+} from "../../guardian-verification-templates.js";
 import { redeemInvite } from "../../invite-redemption-service.js";
 import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
+import { sendSlackVerificationDm } from "./slack-verification-challenge.js";
 
 const log = getLogger("runtime-http");
 
@@ -258,6 +264,70 @@ export async function enforceIngressAcl(
           "Ingress ACL: no member record, denying",
         );
 
+        // Slack-specific: send a verification challenge directly to the
+        // user's DM instead of requiring guardian-mediated approval. The
+        // user can reply with the code in the DM to self-verify.
+        if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+          const slackVerifyResult = initiateSlackVerificationChallenge({
+            canonicalAssistantId,
+            sourceChannel,
+            conversationExternalId,
+            senderUserId: (canonicalSenderId ?? rawSenderId)!,
+            replyCallbackUrl,
+            mintBearerToken,
+            assistantId,
+          });
+
+          if (slackVerifyResult.initiated) {
+            // Still notify the guardian about the access attempt
+            try {
+              notifyGuardianOfAccessRequest({
+                canonicalAssistantId,
+                sourceChannel,
+                conversationExternalId,
+                actorExternalId: canonicalSenderId ?? rawSenderId,
+                actorDisplayName,
+                actorUsername,
+              });
+            } catch (err) {
+              log.error(
+                { err, sourceChannel, conversationExternalId },
+                "Failed to notify guardian of access request (Slack verification)",
+              );
+            }
+
+            if (replyCallbackUrl) {
+              try {
+                await deliverChannelReply(
+                  replyCallbackUrl,
+                  {
+                    chatId: conversationExternalId,
+                    text: "I've sent you a verification code via DM. Please reply with the code there to verify your identity.",
+                    assistantId,
+                  },
+                  mintBearerToken(),
+                );
+              } catch (err) {
+                log.error(
+                  { err, conversationExternalId },
+                  "Failed to deliver Slack verification prompt reply",
+                );
+              }
+            }
+
+            return {
+              resolvedMember: null,
+              earlyResponse: Response.json({
+                accepted: true,
+                denied: true,
+                reason: "verification_challenge_sent",
+                verificationSessionId: slackVerifyResult.sessionId,
+              }),
+              guardianVerifyCode,
+            };
+          }
+        }
+
         // Notify the guardian about the access request so they can approve/deny.
         // Uses the shared helper which handles guardian binding lookup,
         // deduplication, canonical request creation, and notification emission.
@@ -403,6 +473,74 @@ export async function enforceIngressAcl(
             },
             "Ingress ACL: member not active, denying",
           );
+
+          // Slack-specific: re-verify inactive members via DM challenge
+          // (same as non-member path). Blocked members are excluded —
+          // the guardian made an explicit decision to block them.
+          if (
+            sourceChannel === "slack" &&
+            resolvedMember.status !== "blocked" &&
+            (canonicalSenderId ?? rawSenderId)
+          ) {
+            const slackVerifyResult = initiateSlackVerificationChallenge({
+              canonicalAssistantId,
+              sourceChannel,
+              conversationExternalId,
+              senderUserId: (canonicalSenderId ?? rawSenderId)!,
+              replyCallbackUrl,
+              mintBearerToken,
+              assistantId,
+            });
+
+            if (slackVerifyResult.initiated) {
+              try {
+                notifyGuardianOfAccessRequest({
+                  canonicalAssistantId,
+                  sourceChannel,
+                  conversationExternalId,
+                  actorExternalId: canonicalSenderId ?? rawSenderId,
+                  actorDisplayName,
+                  actorUsername,
+                  previousMemberStatus: resolvedMember.status,
+                });
+              } catch (err) {
+                log.error(
+                  { err, sourceChannel, conversationExternalId },
+                  "Failed to notify guardian of access request (Slack verification, inactive member)",
+                );
+              }
+
+              if (replyCallbackUrl) {
+                try {
+                  await deliverChannelReply(
+                    replyCallbackUrl,
+                    {
+                      chatId: conversationExternalId,
+                      text: "I've sent you a verification code via DM. Please reply with the code there to verify your identity.",
+                      assistantId,
+                    },
+                    mintBearerToken(),
+                  );
+                } catch (err) {
+                  log.error(
+                    { err, conversationExternalId },
+                    "Failed to deliver Slack verification prompt reply (inactive member)",
+                  );
+                }
+              }
+
+              return {
+                resolvedMember,
+                earlyResponse: Response.json({
+                  accepted: true,
+                  denied: true,
+                  reason: "verification_challenge_sent",
+                  verificationSessionId: slackVerifyResult.sessionId,
+                }),
+                guardianVerifyCode,
+              };
+            }
+          }
 
           // For revoked/pending members, notify the guardian so they can
           // re-approve. Blocked members are intentionally excluded — the
@@ -655,4 +793,98 @@ async function handleInviteTokenIntercept(params: {
     denied: true,
     inviteRedemption: outcome.reason,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Slack verification challenge
+// ---------------------------------------------------------------------------
+
+interface SlackVerificationResult {
+  initiated: boolean;
+  sessionId?: string;
+}
+
+/**
+ * Create an outbound verification session for a Slack user and send the
+ * verification code to their DM. The session is identity-bound with
+ * `verificationPurpose: "trusted_contact"` so consuming the code
+ * creates a trusted contact record (not a guardian binding).
+ */
+function initiateSlackVerificationChallenge(params: {
+  canonicalAssistantId: string;
+  sourceChannel: ChannelId;
+  conversationExternalId: string;
+  senderUserId: string;
+  replyCallbackUrl: string | undefined;
+  mintBearerToken: () => string;
+  assistantId: string;
+}): SlackVerificationResult {
+  const { canonicalAssistantId, sourceChannel, senderUserId, assistantId } =
+    params;
+
+  // Skip if there is already a pending challenge or active session for
+  // this sender to avoid flooding them with duplicate codes. We scope by
+  // sender identity (expectedExternalUserId) so that a pending session for
+  // user A does not suppress challenges for user B.
+  const existingChallenge = getPendingChallenge(
+    canonicalAssistantId,
+    sourceChannel,
+  );
+  const existingSession = findActiveSession(
+    canonicalAssistantId,
+    sourceChannel,
+  );
+  const senderHasPending =
+    (existingChallenge &&
+      existingChallenge.expectedExternalUserId === senderUserId) ||
+    (existingSession &&
+      existingSession.expectedExternalUserId === senderUserId);
+  if (senderHasPending) {
+    log.debug(
+      {
+        sourceChannel,
+        senderUserId,
+        hasChallenge: !!existingChallenge,
+        hasSession: !!existingSession,
+      },
+      "Slack verification: skipping — existing challenge/session for this sender",
+    );
+    return { initiated: false };
+  }
+
+  try {
+    const session = createOutboundSession({
+      assistantId: canonicalAssistantId,
+      channel: sourceChannel,
+      expectedExternalUserId: senderUserId,
+      expectedChatId: senderUserId,
+      identityBindingStatus: "bound",
+      destinationAddress: senderUserId,
+      verificationPurpose: "trusted_contact",
+    });
+
+    const slackBody = composeVerificationSlack(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE,
+      {
+        code: session.secret,
+        expiresInMinutes: Math.floor(session.ttlSeconds / 60),
+      },
+    );
+
+    // Fire-and-forget DM delivery via the gateway
+    sendSlackVerificationDm(senderUserId, slackBody, assistantId);
+
+    log.info(
+      { sourceChannel, senderUserId, sessionId: session.sessionId },
+      "Slack verification challenge initiated for unknown contact",
+    );
+
+    return { initiated: true, sessionId: session.sessionId };
+  } catch (err) {
+    log.error(
+      { err, sourceChannel, senderUserId },
+      "Failed to initiate Slack verification challenge",
+    );
+    return { initiated: false };
+  }
 }

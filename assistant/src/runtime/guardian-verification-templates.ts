@@ -25,6 +25,11 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   SLACK_CHALLENGE_REQUEST: "guardian_verify.slack.challenge_request",
   /** Resend Slack DM verification prompt. */
   SLACK_RESEND: "guardian_verify.slack.resend",
+  /** Slack DM verification for inbound trusted contact (includes the code). */
+  SLACK_TRUSTED_CONTACT_CHALLENGE:
+    "guardian_verify.slack.trusted_contact_challenge",
+  /** Resend Slack DM verification for inbound trusted contact (includes the code). */
+  SLACK_TRUSTED_CONTACT_RESEND: "guardian_verify.slack.trusted_contact_resend",
   /** Outbound voice call intro prompt: asks guardian to enter verification code via keypad. */
   VOICE_CALL_INTRO: "guardian_verify.voice.call_intro",
   /** Voice retry prompt after an incorrect code entry. */
@@ -52,7 +57,9 @@ type TextVerifyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND;
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_RESEND;
 
 /** Template keys for deterministic channel verification reply messages. */
 export type ChannelVerifyReplyTemplateKey =
@@ -116,6 +123,14 @@ const templates: Record<
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND]: (_vars) => {
     return "Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)";
+  },
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE]: (vars) => {
+    return `Vellum assistant verification: your code is ${vars.code}. Reply with this code to verify your identity. It expires in ${vars.expiresInMinutes} minutes.`;
+  },
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_RESEND]: (vars) => {
+    return `Vellum assistant verification: your code is ${vars.code}. Reply with this code to verify your identity. It expires in ${vars.expiresInMinutes} minutes. (resent)`;
   },
 };
 
