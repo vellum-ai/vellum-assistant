@@ -105,10 +105,26 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Restore test durations cache
+        uses: actions/cache/restore@v4
+        with:
+          path: assistant/.test-durations
+          key: test-durations-unused
+          restore-keys: test-durations-
+
       - name: Test
         run: bun run test:stable
         env:
           TEST_WORKERS: '8'
+          TEST_DURATIONS_FILE: .test-durations
+          TEST_DURATIONS_OUTPUT: .test-durations
+
+      - name: Save test durations cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: assistant/.test-durations
+          key: test-durations-${{ github.run_id }}
 
       - name: Track consecutive failures
         if: always()

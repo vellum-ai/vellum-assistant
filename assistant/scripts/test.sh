@@ -20,6 +20,10 @@ WORKERS="${TEST_WORKERS:-$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/n
 COVERAGE="${COVERAGE:-false}"
 # Per-test timeout (seconds). Kills bun processes that pass but don't exit due to open handles.
 PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-120}"
+# Longest-first scheduling: provide a durations file from a previous run to sort
+# slow tests to the front, improving parallel utilization.
+TEST_DURATIONS_FILE="${TEST_DURATIONS_FILE:-}"
+TEST_DURATIONS_OUTPUT="${TEST_DURATIONS_OUTPUT:-}"
 
 EXPERIMENTAL_FILES=(
   "skill-load-tool.test.ts"
@@ -53,6 +57,40 @@ done < <(find src/__tests__ -maxdepth 1 -type f -name '*.test.ts' | sort)
 if [[ ${#test_files[@]} -eq 0 ]]; then
   echo "No test files found under src/__tests__"
   exit 1
+fi
+
+# Sort tests longest-first using durations from a previous run.
+# This ensures slow tests start immediately across all workers instead of
+# piling up at the end and becoming long poles.
+if [[ -n "${TEST_DURATIONS_FILE}" && -f "${TEST_DURATIONS_FILE}" ]]; then
+  sorted_files=()
+  # Build lookup: basename -> duration_ms
+  declare -A dur_map
+  while IFS=$'\t' read -r ms name; do
+    dur_map["${name}"]="${ms}"
+  done < "${TEST_DURATIONS_FILE}"
+
+  # Partition into known (with durations) and unknown
+  known=()
+  unknown=()
+  for f in "${test_files[@]}"; do
+    base="$(basename "${f}")"
+    if [[ -n "${dur_map["${base}"]:-}" ]]; then
+      known+=("${dur_map["${base}"]}"$'\t'"${f}")
+    else
+      unknown+=("${f}")
+    fi
+  done
+
+  # Sort known by duration descending
+  while IFS= read -r line; do
+    sorted_files+=("${line#*$'\t'}")
+  done < <(printf '%s\n' "${known[@]}" | sort -t$'\t' -k1 -rn)
+
+  # Append unknown files at the end
+  sorted_files+=("${unknown[@]}")
+  test_files=("${sorted_files[@]}")
+  echo "Sorted tests longest-first using ${TEST_DURATIONS_FILE} (${#known[@]} known, ${#unknown[@]} new)"
 fi
 
 echo "Running ${#test_files[@]} test files (${WORKERS} workers)"
@@ -115,6 +153,10 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   elapsed=$(( end_ms - start_ms ))
 
   base="$(basename "${test_file}")"
+
+  # Record duration for longest-first scheduling in future runs
+  echo -e "${elapsed}\t${base}" >> "${results_dir}/durations"
+
   if [[ -n "${timeout_cmd}" && ( ${exit_code} -eq 124 || ${exit_code} -eq 137 ) ]]; then
     # timeout killed the process — tests likely passed but bun did not exit (open handles)
     echo "${test_file}" >> "${results_dir}/failures"
@@ -330,6 +372,12 @@ if [[ "${COVERAGE}" == "true" ]]; then
   else
     echo "Warning: no coverage data was generated"
   fi
+fi
+
+# Write observed durations for longest-first scheduling in future CI runs
+if [[ -n "${TEST_DURATIONS_OUTPUT}" && -f "${results_dir}/durations" ]]; then
+  sort -t$'\t' -k1 -rn "${results_dir}/durations" > "${TEST_DURATIONS_OUTPUT}"
+  echo "Wrote test durations to ${TEST_DURATIONS_OUTPUT}"
 fi
 
 echo "All ${#test_files[@]} test files passed"
