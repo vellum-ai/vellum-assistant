@@ -79,6 +79,7 @@ export interface ApprovalUIMetadata {
 export type ApprovalDecisionSource =
   | "telegram_button"
   | "whatsapp_button"
+  | "slack_button"
   | "plain_text";
 
 /** The structured result of a user's approval decision. */

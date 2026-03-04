@@ -478,8 +478,11 @@ describe("channelSupportsRichApprovalUI", () => {
     expect(channelSupportsRichApprovalUI("sms")).toBe(false);
   });
 
+  test("returns true for slack", () => {
+    expect(channelSupportsRichApprovalUI("slack")).toBe(true);
+  });
+
   test("returns false for unknown channels", () => {
-    expect(channelSupportsRichApprovalUI("slack")).toBe(false);
     expect(channelSupportsRichApprovalUI("")).toBe(false);
   });
 });

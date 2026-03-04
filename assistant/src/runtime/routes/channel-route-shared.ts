@@ -64,7 +64,9 @@ export function parseCallbackData(
   const source =
     sourceChannel === "whatsapp"
       ? ("whatsapp_button" as const)
-      : ("telegram_button" as const);
+      : sourceChannel === "slack"
+        ? ("slack_button" as const)
+        : ("telegram_button" as const);
   return { action: action as ApprovalAction, source, requestId };
 }
 
