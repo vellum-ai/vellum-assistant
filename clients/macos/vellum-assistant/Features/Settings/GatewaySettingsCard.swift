@@ -107,7 +107,7 @@ struct GatewaySettingsCard: View {
 
             // Save button at the bottom
             HStack {
-                VButton(label: "Save", style: .secondary, size: .medium) {
+                VButton(label: "Save", style: .primary, size: .medium) {
                     store.saveIngressPublicBaseUrl(gatewayUrlText)
                     isGatewayUrlFocused = false
                 }
