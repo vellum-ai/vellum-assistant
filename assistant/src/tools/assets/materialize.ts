@@ -14,7 +14,7 @@ import { eq } from 'drizzle-orm';
 
 import { type AttachmentContext,isAttachmentVisible } from '../../daemon/media-visibility-policy.js';
 import { getConversationThreadType } from '../../memory/conversation-store.js';
-import { getDb } from '../../memory/db-connection.js';
+import { getDb } from '../../memory/db.js';
 import { attachments } from '../../memory/schema.js';
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';

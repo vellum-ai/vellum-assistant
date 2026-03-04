@@ -180,7 +180,8 @@ mock.module("../config/env.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
-import { getResolver, type ActorContext } from "../approvals/guardian-request-resolvers.js";
+import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
+import { getResolver } from "../approvals/guardian-request-resolvers.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
@@ -188,8 +189,7 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import { resolveRoutingState } from "../runtime/trust-context-resolver.js";

@@ -18,7 +18,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 
-import { getDb } from '../../memory/db-connection.js';
+import { getDb } from '../../memory/db.js';
 import { getLogger } from '../../util/logger.js';
 import {
   createRefreshTokenRecord,

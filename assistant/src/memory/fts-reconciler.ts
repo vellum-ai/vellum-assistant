@@ -1,5 +1,5 @@
 import { getLogger } from '../util/logger.js';
-import { rawGet, rawRun } from './raw-query.js';
+import { rawGet, rawRun } from './db.js';
 
 const log = getLogger('fts-reconciler');
 

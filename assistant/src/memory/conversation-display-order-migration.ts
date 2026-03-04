@@ -7,7 +7,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { rawRun } from './raw-query.js';
+import { rawRun } from './db.js';
 
 const log = getLogger('conversation-store');
 

@@ -123,13 +123,30 @@ import type {
   GuardianVerificationRequest,
   GuardianVerificationResponse,
 } from "../daemon/ipc-contract.js";
-import { getPendingApprovalByGuardianChat, getPendingApprovalForRun, updateApprovalDecision } from '../memory/guardian-approvals.js';
-import { createBinding, getActiveBinding, revokeBinding } from '../memory/guardian-bindings.js';
-import { getRateLimit, recordInvalidAttempt, resetRateLimit } from '../memory/guardian-rate-limits.js';
-import { bindSessionIdentity as _storeBindSessionIdentity, consumeChallenge, createChallenge, createVerificationSession, findActiveSession as storeFindActiveSession, findPendingChallengeByHash, findPendingChallengeForChannel, findSessionByBootstrapTokenHash as _storeFindSessionByBootstrapTokenHash, findSessionByIdentity as _storeFindSessionByIdentity, updateSessionDelivery as storeUpdateSessionDelivery, updateSessionStatus as _storeUpdateSessionStatus } from '../memory/guardian-verification.js';
-import { createApprovalRequest } from '../memory/channel-guardian-store.js';
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import {
+  bindSessionIdentity as _storeBindSessionIdentity,
+  consumeChallenge,
+  createApprovalRequest,
+  createBinding,
+  createChallenge,
+  createVerificationSession,
+  findActiveSession as storeFindActiveSession,
+  findPendingChallengeByHash,
+  findPendingChallengeForChannel,
+  findSessionByBootstrapTokenHash as _storeFindSessionByBootstrapTokenHash,
+  findSessionByIdentity as _storeFindSessionByIdentity,
+  getActiveBinding,
+  getPendingApprovalByGuardianChat,
+  getPendingApprovalForRun,
+  getRateLimit,
+  recordInvalidAttempt,
+  resetRateLimit,
+  revokeBinding,
+  updateApprovalDecision,
+  updateSessionDelivery as storeUpdateSessionDelivery,
+  updateSessionStatus as _storeUpdateSessionStatus,
+} from "../memory/channel-guardian-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { channelGuardianVerificationChallenges } from "../memory/schema.js";
 import {
   bindSessionIdentity as serviceBindSessionIdentity,

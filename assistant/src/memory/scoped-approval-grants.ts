@@ -15,8 +15,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
-import { getDb } from './db-connection.js';
-import { rawChanges } from './raw-query.js';
+import { getDb, rawChanges } from './db.js';
 import { scopedApprovalGrants } from './schema.js';
 
 const log = getLogger('scoped-approval-grants');

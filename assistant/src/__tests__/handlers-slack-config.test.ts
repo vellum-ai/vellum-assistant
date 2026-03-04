@@ -78,7 +78,7 @@ mock.module("../slack/slack-webhook.js", () => ({
   },
 }));
 
-import { handleMessage, type HandlerContext } from '../daemon/handlers/index.js';
+import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
 import type {
   ServerMessage,
   ShareToSlackRequest,

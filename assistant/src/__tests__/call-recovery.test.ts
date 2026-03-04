@@ -38,8 +38,7 @@ import {
   updateCallSession,
 } from "../calls/call-store.js";
 import type { VoiceProvider } from "../calls/voice-provider.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();

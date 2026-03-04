@@ -14,7 +14,7 @@
  * Also verifies that private-thread isolation blocks cross-thread media access.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import * as http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -99,6 +99,7 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
 // Source imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { mkdirSync } from "node:fs";
 
 import {
   type AttachmentContext,
@@ -113,12 +114,11 @@ import {
   addMessage,
   createConversation,
 } from "../memory/conversation-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { assetMaterializeTool } from "../tools/assets/materialize.js";
 import { assetSearchTool, searchAttachments } from "../tools/assets/search.js";
 import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import { stopAllSessions } from '../tools/network/script-proxy/session-manager.js';
+import { stopAllSessions } from "../tools/network/script-proxy/index.js";
 import { shellTool } from "../tools/terminal/shell.js";
 import type { ToolContext } from "../tools/types.js";
 import {

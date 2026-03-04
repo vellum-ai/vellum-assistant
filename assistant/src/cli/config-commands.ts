@@ -17,8 +17,7 @@ import {
 } from '../memory/admin.js';
 import { listPendingConflictDetails } from '../memory/conflict-store.js';
 import { listConversations } from '../memory/conversation-store.js';
-import { initializeDb } from '../memory/db-init.js';
-import { rawGet } from '../memory/raw-query.js';
+import { initializeDb, rawGet } from '../memory/db.js';
 import {
   clearAllRules,
   getAllRules,

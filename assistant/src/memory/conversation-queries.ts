@@ -1,10 +1,10 @@
 import { and, asc, count, desc, eq, gte, lt, ne, or, sql } from 'drizzle-orm';
 
 import { getLogger } from '../util/logger.js';
-import { parseConversation, parseMessage, type ConversationRow, type MessageRow } from './conversation-crud.js';
+import type { ConversationRow, MessageRow } from './conversation-crud.js';
+import { parseConversation, parseMessage } from './conversation-crud.js';
 import { ensureDisplayOrderMigration } from './conversation-display-order-migration.js';
-import { getDb } from './db-connection.js';
-import { rawAll } from './raw-query.js';
+import { getDb, rawAll } from './db.js';
 import { conversations, messages } from './schema.js';
 import { buildFtsMatchQuery } from './search/lexical.js';
 

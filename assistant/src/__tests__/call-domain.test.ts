@@ -104,8 +104,7 @@ mock.module("../memory/conversation-title-service.js", () => ({
 import { resolveCallerIdentity, startCall } from "../calls/call-domain.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getMessages } from "../memory/conversation-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();

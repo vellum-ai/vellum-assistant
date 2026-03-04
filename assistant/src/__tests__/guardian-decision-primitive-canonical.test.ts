@@ -41,8 +41,7 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 
 initializeDb();

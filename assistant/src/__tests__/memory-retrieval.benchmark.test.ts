@@ -68,8 +68,7 @@ mock.module("../memory/embedding-backend.js", () => ({
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import type { AssistantConfig } from "../config/types.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";
 

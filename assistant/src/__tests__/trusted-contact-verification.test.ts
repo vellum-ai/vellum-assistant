@@ -41,9 +41,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { createBinding, getActiveBinding } from '../memory/guardian-bindings.js';
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import {
+  createBinding,
+  getActiveBinding,
+} from "../memory/channel-guardian-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   findMember,
   revokeMember,

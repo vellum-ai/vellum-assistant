@@ -80,8 +80,8 @@ import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { initializeDb, resetDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import {

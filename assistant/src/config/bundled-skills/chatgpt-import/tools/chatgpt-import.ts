@@ -9,7 +9,7 @@ import {
   addMessage,
   createConversation,
 } from "../../../../memory/conversation-store.js";
-import { getDb } from '../../../../memory/db-connection.js';
+import { getDb } from "../../../../memory/db.js";
 import { indexMessageNow } from "../../../../memory/indexer.js";
 import {
   conversationKeys,

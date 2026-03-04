@@ -1,4 +1,5 @@
-import { execSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { existsSync, readFileSync,statSync } from 'node:fs';
 import * as net from 'node:net';
 import { join } from 'node:path';
@@ -7,7 +8,8 @@ import type { Command } from 'commander';
 
 import { startCli } from '../cli.js';
 import { getQdrantUrlEnv } from '../config/env.js';
-import { getConfig, loadRawConfig } from '../config/loader.js';
+import { loadRawConfig } from '../config/loader.js';
+import { getConfig } from '../config/loader.js';
 import { hasSocketOverride,shouldAutoStartDaemon } from '../daemon/connection-policy.js';
 import {
   ensureDaemonRunning,
@@ -21,7 +23,7 @@ import {
   getMessages,
   listConversations,
 } from '../memory/conversation-store.js';
-import { initializeDb } from '../memory/db-init.js';
+import { initializeDb } from '../memory/db.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
 import { getRecentInvocations } from '../memory/tool-usage-store.js';
 import { IpcError } from '../util/errors.js';

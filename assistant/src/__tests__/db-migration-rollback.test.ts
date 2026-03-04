@@ -17,11 +17,14 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../memory/db-connection.js";
 import * as schema from "../memory/schema.js";
-import { migrateJobDeferrals } from '../memory/migrations/001-job-deferrals.js';
-import { migrateMemoryEntityRelationDedup } from '../memory/migrations/004-entity-relation-dedup.js';
-import { migrateMemoryItemsFingerprintScopeUnique } from '../memory/migrations/005-fingerprint-scope-unique.js';
-import { MIGRATION_REGISTRY, type MigrationValidationResult } from '../memory/migrations/registry.js';
-import { validateMigrationState } from '../memory/migrations/validate-migration-state.js';
+import {
+  migrateJobDeferrals,
+  migrateMemoryEntityRelationDedup,
+  migrateMemoryItemsFingerprintScopeUnique,
+  MIGRATION_REGISTRY,
+  type MigrationValidationResult,
+  validateMigrationState,
+} from "../memory/schema-migration.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

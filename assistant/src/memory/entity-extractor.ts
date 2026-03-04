@@ -4,8 +4,7 @@ import type { MemoryEntityConfig } from '../config/types.js';
 import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { getDb } from './db-connection.js';
-import { rawAll } from './raw-query.js';
+import { getDb, rawAll } from './db.js';
 import { memoryEntities, memoryEntityRelations, memoryItemEntities } from './schema.js';
 
 const log = getLogger('memory-entity-extractor');

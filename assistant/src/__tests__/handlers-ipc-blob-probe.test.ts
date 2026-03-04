@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import * as net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,7 +42,7 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-import { handleMessage, type HandlerContext } from '../daemon/handlers/index.js';
+import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
 import type { IpcBlobProbe, ServerMessage } from "../daemon/ipc-contract.js";
 import { DebouncerMap } from "../util/debounce.js";
 

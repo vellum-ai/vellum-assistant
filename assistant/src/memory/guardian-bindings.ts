@@ -11,7 +11,7 @@ import { v4 as uuid } from 'uuid';
 import { syncSingleGuardianBinding } from '../contacts/contact-sync.js';
 import { revokeGuardianChannel } from '../contacts/contact-store.js';
 import { getLogger } from '../util/logger.js';
-import { getDb } from './db-connection.js';
+import { getDb } from './db.js';
 import { channelGuardianBindings } from './schema.js';
 
 const log = getLogger('guardian-bindings');

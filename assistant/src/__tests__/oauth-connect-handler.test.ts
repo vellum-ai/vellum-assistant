@@ -115,7 +115,7 @@ mock.module("../security/oauth2.js", () => ({
   prepareOAuth2Flow: async () => ({}),
 }));
 
-import { handleMessage, type HandlerContext } from '../daemon/handlers/index.js';
+import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
 import type {
   OAuthConnectStartRequest,
   ServerMessage,

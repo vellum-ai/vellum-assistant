@@ -96,8 +96,7 @@ import {
   generateCanonicalRequestCode,
   listCanonicalGuardianDeliveries,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 
 initializeDb();

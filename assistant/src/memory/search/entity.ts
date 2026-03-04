@@ -2,8 +2,7 @@ import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 
 import type { MemoryEntityConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db-connection.js';
-import { rawAll } from '../raw-query.js';
+import { getDb, rawAll } from '../db.js';
 import {
   memoryEntityRelations,
   memoryItemEntities,

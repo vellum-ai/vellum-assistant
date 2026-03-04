@@ -6,7 +6,7 @@ import { estimateTextTokens } from '../../context/token-estimator.js';
 import { createTimeout, extractText, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
 import { getLogger } from '../../util/logger.js';
 import { getConversationMemoryScopeId } from '../conversation-store.js';
-import { getDb } from '../db-connection.js';
+import { getDb } from '../db.js';
 import { asString, currentMonthWindow, currentWeekWindow, truncate } from '../job-utils.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { memoryItems, memorySegments, memorySummaries } from '../schema.js';

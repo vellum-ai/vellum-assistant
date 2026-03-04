@@ -33,8 +33,7 @@ import {
   mintGrantFromDecision,
   type MintGrantParams,
 } from "../approvals/approval-primitive.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 

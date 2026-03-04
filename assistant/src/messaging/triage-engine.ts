@@ -12,13 +12,15 @@ import { v4 as uuid } from 'uuid';
 
 import { findContactByAddress } from '../contacts/contact-store.js';
 import type { ContactWithChannels } from '../contacts/types.js';
-import { getDb } from '../memory/db-connection.js';
+import { getDb } from '../memory/db.js';
 import { memoryItems, triageResults } from '../memory/schema.js';
-import { parsePlaybookStatement, type Playbook } from '../playbooks/types.js';
+import type { Playbook } from '../playbooks/types.js';
+import { parsePlaybookStatement } from '../playbooks/types.js';
 import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { DEFAULT_TRIAGE_CATEGORIES, type InboundMessage, type TriageResult } from './types.js';
+import type { InboundMessage, TriageResult } from './types.js';
+import { DEFAULT_TRIAGE_CATEGORIES } from './types.js';
 
 const log = getLogger('triage-engine');
 

@@ -1,7 +1,7 @@
 import { and, eq,gte, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb } from './db-connection.js';
+import { getDb } from './db.js';
 import { llmRequestLogs } from './schema.js';
 
 export function recordRequestLog(

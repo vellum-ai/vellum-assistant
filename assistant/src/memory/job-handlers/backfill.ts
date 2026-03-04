@@ -9,7 +9,7 @@ import {
   writeMessageCursorCheckpoint,
 } from '../checkpoints.js';
 import { getConversationMemoryScopeId, messageMetadataSchema } from '../conversation-store.js';
-import { getDb } from '../db-connection.js';
+import { getDb } from '../db.js';
 import { indexMessageNow } from '../indexer.js';
 import {
   enqueueBackfillEntityRelationsJob,

@@ -1,9 +1,10 @@
 import type * as net from 'node:net';
 
-import { rawAll, rawGet, rawRun } from '../../memory/raw-query.js';
+import { rawAll,rawGet, rawRun } from '../../memory/db.js';
 import { getLogger } from '../../util/logger.js';
 import type { DocumentListRequest,DocumentLoadRequest, DocumentSaveRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext } from './shared.js';
+import type { HandlerContext } from './shared.js';
+import { defineHandlers } from './shared.js';
 
 const log = getLogger('documents');
 

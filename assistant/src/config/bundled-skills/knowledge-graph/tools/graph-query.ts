@@ -1,7 +1,6 @@
 import { inArray } from 'drizzle-orm';
 
-import { getDb } from '../../../../memory/db-connection.js';
-import { initializeDb } from '../../../../memory/db-init.js';
+import { getDb,initializeDb } from '../../../../memory/db.js';
 import type { EntityRelationType, EntityType } from '../../../../memory/entity-extractor.js';
 import { memoryEntities } from '../../../../memory/schema.js';
 import { collectTypedNeighbors,findMatchedEntities, findNeighborEntities, getEntityLinkedItemCandidates } from '../../../../memory/search/entity.js';

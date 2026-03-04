@@ -26,8 +26,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { renderTemplate, runTask } from "../tasks/task-runner.js";
 import { createTask } from "../tasks/task-store.js";

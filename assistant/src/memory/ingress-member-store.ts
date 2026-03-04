@@ -14,7 +14,7 @@ import { syncSingleMember } from '../contacts/contact-sync.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { getLogger } from '../util/logger.js';
-import { getDb } from './db-connection.js';
+import { getDb } from './db.js';
 import { assistantIngressMembers } from './schema.js';
 
 const log = getLogger('ingress-member-store');

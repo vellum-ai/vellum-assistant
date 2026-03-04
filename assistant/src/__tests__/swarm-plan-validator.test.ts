@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SwarmPlan } from '../swarm/types.js';
-import { resolveSwarmLimits } from '../swarm/limits.js';
-import { SwarmPlanValidationError, validateAndNormalizePlan } from '../swarm/plan-validator.js';
+import type { SwarmPlan } from "../swarm/index.js";
+import {
+  resolveSwarmLimits,
+  SwarmPlanValidationError,
+  validateAndNormalizePlan,
+} from "../swarm/index.js";
 
 const DEFAULT_LIMITS = resolveSwarmLimits({
   maxWorkers: 3,

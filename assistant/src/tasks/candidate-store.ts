@@ -1,6 +1,6 @@
 import { desc, eq, isNull } from 'drizzle-orm';
 
-import { getDb } from '../memory/db-connection.js';
+import { getDb } from '../memory/db.js';
 import { taskCandidates } from '../memory/schema.js';
 
 // ── Types ────────────────────────────────────────────────────────────

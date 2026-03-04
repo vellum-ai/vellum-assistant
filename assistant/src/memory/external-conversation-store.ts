@@ -9,7 +9,7 @@
 
 import { and, eq, inArray } from 'drizzle-orm';
 
-import { getDb } from './db-connection.js';
+import { getDb } from './db.js';
 import { externalConversationBindings } from './schema.js';
 
 export interface ExternalConversationBinding {

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -48,14 +48,14 @@ import {
   addMessage,
   createConversation,
 } from "../memory/conversation-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { assetMaterializeTool } from "../tools/assets/materialize.js";
 import type { ToolContext } from "../tools/types.js";
 
 initializeDb();
 
 // Ensure the sandbox directory exists
+import { mkdirSync } from "node:fs";
 mkdirSync(sandboxDir, { recursive: true });
 
 afterAll(() => {

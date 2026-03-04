@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb } from '../../../../memory/db-connection.js';
+import { getDb } from '../../../../memory/db.js';
 import { computeMemoryFingerprint } from '../../../../memory/fingerprint.js';
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
 import { memoryItems } from '../../../../memory/schema.js';

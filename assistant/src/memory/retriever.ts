@@ -5,7 +5,7 @@ import type { AssistantConfig } from '../config/types.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import { abortableSleep,computeRetryDelay, isRetryableNetworkError } from '../util/retry.js';
-import { getDb } from './db-connection.js';
+import { getDb } from './db.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getCachedRecall, getMemoryVersion,setCachedRecall } from './recall-cache.js';
 import { memoryItemSources } from './schema.js';

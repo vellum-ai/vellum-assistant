@@ -137,14 +137,13 @@ let _fetchMock: ((url: string | URL | Request) => Promise<Response>) | null =
   null;
 const originalFetch = globalThis.fetch;
 
-import type { HandlerContext } from '../daemon/handlers/index.js';
-import { handleGuardianVerification, handleTelegramConfig } from "../daemon/handlers/config.js";
+import type { HandlerContext } from "../daemon/handlers.js";
+import { handleTelegramConfig } from "../daemon/handlers/config.js";
 import type {
   ServerMessage,
   TelegramConfigRequest,
 } from "../daemon/ipc-contract.js";
-import { resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { initializeDb, resetDb } from "../memory/db.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 // Initialize the database for guardian verification tests
@@ -1231,6 +1230,7 @@ describe("Telegram config handler", () => {
 // Guardian verification status/revoke IPC actions
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { handleGuardianVerification } from "../daemon/handlers/config.js";
 import type { GuardianVerificationRequest } from "../daemon/ipc-contract.js";
 describe("Guardian verification IPC actions", () => {
   beforeEach(() => {

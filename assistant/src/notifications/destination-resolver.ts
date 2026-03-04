@@ -16,7 +16,7 @@
 import { isNotificationDeliverable } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { getActiveBinding } from '../memory/guardian-bindings.js';
+import { getActiveBinding } from "../memory/channel-guardian-store.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDestination, NotificationChannel } from "./types.js";
 

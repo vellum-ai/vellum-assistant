@@ -129,8 +129,7 @@ globalThis.fetch = (async (
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { updateSessionDelivery } from "../runtime/channel-guardian-service.js";
 import {
   cancelOutbound,

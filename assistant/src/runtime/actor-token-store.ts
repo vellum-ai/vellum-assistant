@@ -11,7 +11,7 @@
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb } from '../memory/db-connection.js';
+import { getDb } from '../memory/db.js';
 import { actorTokenRecords } from '../memory/schema.js';
 import { getLogger } from '../util/logger.js';
 

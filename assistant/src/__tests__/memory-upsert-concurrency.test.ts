@@ -80,8 +80,7 @@ import {
   createOrUpdatePendingConflict,
   listPendingConflicts,
 } from "../memory/conflict-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import {
   conversations,

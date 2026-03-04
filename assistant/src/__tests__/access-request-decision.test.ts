@@ -58,10 +58,11 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-import { getApprovalRequestById } from '../memory/guardian-approvals.js';
-import { createApprovalRequest } from '../memory/channel-guardian-store.js';
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import {
+  createApprovalRequest,
+  getApprovalRequestById,
+} from "../memory/channel-guardian-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { findActiveSession } from "../runtime/channel-guardian-service.js";
 import {
   deliverVerificationCodeToGuardian,

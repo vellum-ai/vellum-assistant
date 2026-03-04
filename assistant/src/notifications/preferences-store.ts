@@ -10,8 +10,7 @@
 import { desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb } from '../memory/db-connection.js';
-import { rawChanges } from '../memory/raw-query.js';
+import { getDb, rawChanges } from '../memory/db.js';
 import { notificationPreferences } from '../memory/schema.js';
 
 // ── Row type ────────────────────────────────────────────────────────────

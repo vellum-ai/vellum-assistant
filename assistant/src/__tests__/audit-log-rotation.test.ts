@@ -34,8 +34,7 @@ mock.module("../util/platform.js", () => ({
   isWindows: () => false,
 }));
 
-import { resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { initializeDb, resetDb } from "../memory/db.js";
 import {
   getRecentInvocations,
   rotateToolInvocations,

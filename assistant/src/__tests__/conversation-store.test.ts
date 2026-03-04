@@ -41,8 +41,7 @@ import {
   getMessages,
   isLastUserMessageToolResult,
 } from "../memory/conversation-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 
 // Initialize db once before all tests
 initializeDb();

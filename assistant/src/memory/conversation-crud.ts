@@ -2,7 +2,9 @@ import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
-import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseChannelId, parseInterfaceId, type ChannelId, type InterfaceId } from "../channels/types.js";
+import type { ChannelId, InterfaceId } from "../channels/types.js";
+import { parseChannelId, parseInterfaceId } from "../channels/types.js";
+import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -10,8 +12,7 @@ import { getLogger } from "../util/logger.js";
 import { createRowMapper } from "../util/row-mapper.js";
 import { deleteOrphanAttachments } from "./attachments-store.js";
 import { projectAssistantMessage } from "./conversation-attention-store.js";
-import { getDb } from './db-connection.js';
-import { rawExec, rawGet } from './raw-query.js';
+import { getDb, rawExec, rawGet } from "./db.js";
 import { indexMessageNow } from "./indexer.js";
 import {
   channelInboundEvents,

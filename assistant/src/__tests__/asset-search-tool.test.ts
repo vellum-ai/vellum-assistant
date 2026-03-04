@@ -47,9 +47,9 @@ import {
   addMessage,
   createConversation,
 } from "../memory/conversation-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
-import { assetSearchTool, searchAttachments } from "../tools/assets/search.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { searchAttachments } from "../tools/assets/search.js";
+import { assetSearchTool } from "../tools/assets/search.js";
 import type { ToolContext } from "../tools/types.js";
 
 initializeDb();

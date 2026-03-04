@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   afterAll,
@@ -51,7 +53,7 @@ afterAll(() => {
 });
 
 import { _setStorePath } from "../security/encrypted-store.js";
-import { _resetBackend, setSecureKey } from "../security/secure-keys.js";
+import { _resetBackend } from "../security/secure-keys.js";
 
 const TEST_DIR = join(
   tmpdir(),
@@ -73,6 +75,7 @@ mock.module("../tools/registry.js", () => ({
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { redactSensitiveFields } from "../security/redaction.js";
+import { setSecureKey } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
@@ -506,7 +509,11 @@ describe("One-time send override", () => {
 // Invariant 5 — Proxy Redaction and Sensitive Logging Guards
 // ---------------------------------------------------------------------------
 
-import { createSafeLogEntry, sanitizeHeaders, sanitizeUrl } from '@vellumai/outbound-proxy';
+import {
+  createSafeLogEntry,
+  sanitizeHeaders,
+  sanitizeUrl,
+} from "../tools/network/script-proxy/logging.js";
 
 describe("Invariant 5: proxy log entries never contain secrets", () => {
   test("Authorization headers are redacted in log entries", () => {

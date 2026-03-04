@@ -32,7 +32,10 @@ import {
   getCanonicalGuardianRequest,
   resolveCanonicalGuardianRequest,
 } from '../memory/canonical-guardian-store.js';
-import { type GuardianApprovalRequest, updateApprovalDecision } from '../memory/guardian-approvals.js';
+import {
+  type GuardianApprovalRequest,
+  updateApprovalDecision,
+} from '../memory/channel-guardian-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import type {
   ApprovalAction,

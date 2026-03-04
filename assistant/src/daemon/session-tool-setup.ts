@@ -26,7 +26,10 @@ import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerSessionSender } from "../tools/browser/browser-screencast.js";
 import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import type { ProxyApprovalCallback, ProxyApprovalRequest } from '@vellumai/outbound-proxy';
+import type {
+  ProxyApprovalCallback,
+  ProxyApprovalRequest,
+} from "../tools/network/script-proxy/index.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type {
   ToolExecutionResult,
@@ -44,7 +47,8 @@ import {
   projectSkillTools,
   type SkillProjectionCache,
 } from "./session-skill-tools.js";
-import { surfaceProxyResolver, type SurfaceSessionContext } from "./session-surfaces.js";
+import type { SurfaceSessionContext } from "./session-surfaces.js";
+import { surfaceProxyResolver } from "./session-surfaces.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 
 const log = getLogger("session-tool-setup");

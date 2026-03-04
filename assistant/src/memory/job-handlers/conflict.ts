@@ -10,7 +10,7 @@ import {
 } from '../conflict-intent.js';
 import { isConflictKindPairEligible, isStatementConflictEligible } from '../conflict-policy.js';
 import { applyConflictResolution, listPendingConflictDetails, resolveConflict } from '../conflict-store.js';
-import { getDb } from '../db-connection.js';
+import { getDb } from '../db.js';
 import { asPositiveMs, asString } from '../job-utils.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { extractTextFromStoredMessageContent } from '../message-content.js';

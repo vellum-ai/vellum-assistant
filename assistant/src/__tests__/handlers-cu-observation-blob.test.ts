@@ -49,7 +49,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { ComputerUseSession } from "../daemon/computer-use-session.js";
-import { handleMessage, type HandlerContext } from '../daemon/handlers/index.js';
+import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
 import type {
   CuObservation,
   IpcBlobRef,

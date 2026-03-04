@@ -7,7 +7,7 @@
 
 import { eq } from 'drizzle-orm';
 
-import { getDb } from './db-connection.js';
+import { getDb } from './db.js';
 import { channelInboundEvents } from './schema.js';
 
 // ── Pending verification reply helpers ───────────────────────────────

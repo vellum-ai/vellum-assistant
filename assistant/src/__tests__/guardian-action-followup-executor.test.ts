@@ -90,8 +90,8 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { initializeDb, resetDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   createGuardianActionDelivery,
   createGuardianActionRequest,
@@ -102,7 +102,8 @@ import {
   updateDeliveryStatus,
 } from "../memory/guardian-action-store.js";
 import { conversations } from "../memory/schema.js";
-import { executeFollowupAction, resolveCounterparty } from "../runtime/guardian-action-followup-executor.js";
+import { executeFollowupAction } from "../runtime/guardian-action-followup-executor.js";
+import { resolveCounterparty } from "../runtime/guardian-action-followup-executor.js";
 
 initializeDb();
 

@@ -11,7 +11,8 @@ import { join, resolve } from "node:path";
 
 import type { ServerWebSocket } from "bun";
 
-import { extensionRelayServer, type BrowserRelayWebSocketData } from "../browser-extension-relay/server.js";
+import type { BrowserRelayWebSocketData } from "../browser-extension-relay/server.js";
+import { extensionRelayServer } from "../browser-extension-relay/server.js";
 import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
@@ -124,10 +125,15 @@ import {
   handleGetChannelReadiness,
   handleRefreshChannelReadiness,
 } from "./routes/channel-readiness-routes.js";
-import { handleChannelDeliveryAck, handleListDeadLetters, handleReplayDeadLetters } from './routes/channel-delivery-routes.js';
-import { startGuardianExpirySweep, stopGuardianExpirySweep } from './routes/guardian-expiry-sweep.js';
-import { handleDeleteConversation } from './routes/inbound-conversation.js';
-import { handleChannelInbound } from './routes/inbound-message-handler.js';
+import {
+  handleChannelDeliveryAck,
+  handleChannelInbound,
+  handleDeleteConversation,
+  handleListDeadLetters,
+  handleReplayDeadLetters,
+  startGuardianExpirySweep,
+  stopGuardianExpirySweep,
+} from "./routes/channel-routes.js";
 import {
   handleGetContact,
   handleListContacts,

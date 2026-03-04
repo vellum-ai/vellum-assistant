@@ -55,7 +55,7 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-import type { HandlerContext } from '../daemon/handlers/index.js';
+import type { HandlerContext } from "../daemon/handlers.js";
 import { handleToolPermissionSimulate } from "../daemon/handlers/config.js";
 import type {
   ServerMessage,

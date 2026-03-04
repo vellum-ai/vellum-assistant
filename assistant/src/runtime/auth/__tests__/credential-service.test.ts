@@ -34,8 +34,7 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
-import { getSqlite, resetDb } from '../../../memory/db-connection.js';
-import { initializeDb } from '../../../memory/db-init.js';
+import { getSqlite, initializeDb, resetDb } from "../../../memory/db.js";
 import { findActiveByTokenHash } from "../../actor-token-store.js";
 import {
   mintCredentialPair,

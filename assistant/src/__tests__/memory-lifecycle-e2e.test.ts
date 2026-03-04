@@ -163,8 +163,7 @@ import {
   createOrUpdatePendingConflict,
   getConflictById,
 } from "../memory/conflict-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { enqueueResolvePendingConflictsForMessageJob } from "../memory/jobs-store.js";
 import {
   resetCleanupScheduleThrottle,

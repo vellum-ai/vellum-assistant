@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { reminders } from "../memory/schema.js";
 import {
   executeReminderCancel,

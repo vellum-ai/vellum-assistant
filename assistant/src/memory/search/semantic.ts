@@ -1,9 +1,10 @@
 import { inArray } from 'drizzle-orm';
 
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db-connection.js';
+import { getDb } from '../db.js';
 import { _getQdrantBreakerState,_resetQdrantBreaker, withQdrantBreaker } from '../qdrant-circuit-breaker.js';
-import { getQdrantClient, type QdrantSearchResult } from '../qdrant-client.js';
+import type { QdrantSearchResult } from '../qdrant-client.js';
+import { getQdrantClient } from '../qdrant-client.js';
 import {
   memoryItems,
   memoryItemSources,

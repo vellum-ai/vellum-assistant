@@ -27,8 +27,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 

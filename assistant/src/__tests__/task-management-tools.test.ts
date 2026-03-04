@@ -39,8 +39,7 @@ mock.module("../tools/registry.js", () => ({
   getAllTools: () => [],
 }));
 
-import { getDb, resetDb } from '../memory/db-connection.js';
-import { initializeDb } from '../memory/db-init.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { renderTemplate } from "../tasks/task-runner.js";
 import {
   createTask,

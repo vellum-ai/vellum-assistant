@@ -1,10 +1,11 @@
 import { and, eq } from 'drizzle-orm';
 
-import { getDb } from '../../../../memory/db-connection.js';
+import { getDb } from '../../../../memory/db.js';
 import { computeMemoryFingerprint } from '../../../../memory/fingerprint.js';
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
 import { memoryItems } from '../../../../memory/schema.js';
-import { parsePlaybookStatement, type Playbook, type PlaybookAutonomyLevel } from '../../../../playbooks/types.js';
+import type { Playbook, PlaybookAutonomyLevel } from '../../../../playbooks/types.js';
+import { parsePlaybookStatement } from '../../../../playbooks/types.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { truncate } from '../../../../util/truncate.js';
 

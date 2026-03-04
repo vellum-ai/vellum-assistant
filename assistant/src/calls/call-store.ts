@@ -1,8 +1,7 @@
 import { and, desc,eq, notInArray, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb } from '../memory/db-connection.js';
-import { rawChanges, rawGet, rawRun } from '../memory/raw-query.js';
+import { getDb, rawChanges, rawGet, rawRun } from '../memory/db.js';
 import { callEvents, callPendingQuestions,callSessions } from '../memory/schema.js';
 import { getLogger } from '../util/logger.js';
 import { cast,createRowMapper } from '../util/row-mapper.js';

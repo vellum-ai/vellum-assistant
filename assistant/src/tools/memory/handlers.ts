@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import type { AssistantConfig } from '../../config/types.js';
-import { getDb } from '../../memory/db-connection.js';
+import { getDb } from '../../memory/db.js';
 import { computeMemoryFingerprint } from '../../memory/fingerprint.js';
 import { enqueueMemoryJob } from '../../memory/jobs-store.js';
 import { formatRelativeTime,searchMemoryItems } from '../../memory/retriever.js';

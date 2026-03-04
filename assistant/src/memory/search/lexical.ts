@@ -1,8 +1,7 @@
 import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
 
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db-connection.js';
-import { rawAll } from '../raw-query.js';
+import { getDb, rawAll } from '../db.js';
 import { memorySegments } from '../schema.js';
 import { computeRecencyScore } from './ranking.js';
 import type { Candidate, CandidateType } from './types.js';
