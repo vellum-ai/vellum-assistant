@@ -104,6 +104,11 @@ for (const file of caseFiles) {
     let fixtureCtx: FixtureContext | undefined;
     let recorder: ChildProcess | undefined;
 
+    // Fixtures that manage a native macOS app trigger the system
+    // screen-capture permission modal when screencapture runs.
+    // Disable screencapture-based tools/recording for those fixtures.
+    const disableScreenCapture = fixture === "desktop-app-hatched";
+
     try {
       // Setup fixture if needed
       if (fixture) {
@@ -117,7 +122,9 @@ for (const file of caseFiles) {
         testName,
       );
       const videoPath = path.join(videoDir, "screen-recording.mov");
-      recorder = startScreenRecording(videoPath);
+      if (!disableScreenCapture) {
+        recorder = startScreenRecording(videoPath);
+      }
 
       const screenshotDir = path.resolve(
         __dirname,
@@ -138,6 +145,7 @@ for (const file of caseFiles) {
         traceLogPath,
         verbose: !!process.env.VERBOSE,
         workerIndex: testInfo.workerIndex,
+        disableScreenCapture,
       });
 
       // Stop the screen recording BEFORE attaching so the file is finalized

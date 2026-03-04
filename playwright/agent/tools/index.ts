@@ -55,13 +55,23 @@ const toolsByName = new Map<string, ToolModule>(
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = TOOLS.map((t) => t.definition);
 
+/** Tool definitions with the screenshot tool excluded (avoids macOS screen-capture permission modal). */
+export const TOOL_DEFINITIONS_NO_SCREEN_CAPTURE: Anthropic.Tool[] = TOOLS
+  .filter((t) => t !== screenshot)
+  .map((t) => t.definition);
+
 // ── Dispatcher ──────────────────────────────────────────────────────
 
-export function createToolExecutor(screenshotDir: string, workerIndex: number = 0) {
+export function createToolExecutor(
+  screenshotDir: string,
+  workerIndex: number = 0,
+  disableScreenCapture: boolean = false,
+) {
   const context: ToolContext = {
     screenshotDir,
     screenshotCounter: { value: 0 },
     workerIndex,
+    disableScreenCapture,
   };
 
   return async function executeTool(

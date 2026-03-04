@@ -150,6 +150,8 @@ async function runTestCase(
   let fixtureCtx: FixtureContext | undefined;
   let recorder: ChildProcess | undefined;
 
+  const disableScreenCapture = testCase.fixture === "desktop-app-hatched";
+
   try {
     // Setup fixture if needed
     if (testCase.fixture) {
@@ -171,7 +173,9 @@ async function runTestCase(
     // Start macOS screen recording (captures the actual desktop, not the browser tab)
     const videoDir = path.resolve(__dirname, "../test-results/agent-videos", testCase.name);
     const videoPath = path.join(videoDir, "screen-recording.mov");
-    recorder = startScreenRecording(videoPath);
+    if (!disableScreenCapture) {
+      recorder = startScreenRecording(videoPath);
+    }
 
     // Run the agent (workerIndex=0 since standalone runner is single-threaded)
     const result = await runAgent({
@@ -181,6 +185,7 @@ async function runTestCase(
       traceLogPath,
       verbose,
       workerIndex: 0,
+      disableScreenCapture,
     });
 
     return {
