@@ -4,20 +4,25 @@
  * prevented by address-based dedup in upsertContact.
  */
 
-import { upsertContact } from './contact-store.js';
-import type { ChannelStatus } from './types.js';
-import { listActiveBindingsByAssistant } from '../memory/guardian-bindings.js';
-import type { GuardianBinding } from '../memory/guardian-bindings.js';
-import { listMembers } from '../memory/ingress-member-store.js';
-import type { IngressMember } from '../memory/ingress-member-store.js';
+import type { GuardianBinding } from "../memory/guardian-bindings.js";
+import { listActiveBindingsByAssistant } from "../memory/guardian-bindings.js";
+import type { IngressMember } from "../memory/ingress-member-store.js";
+import { listMembers } from "../memory/ingress-member-store.js";
+import { upsertContact } from "./contact-store.js";
+import type { ChannelStatus } from "./types.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function parseDisplayNameFromMetadata(metadataJson: string | null): string | null {
+function parseDisplayNameFromMetadata(
+  metadataJson: string | null,
+): string | null {
   if (!metadataJson) return null;
   try {
     const parsed = JSON.parse(metadataJson);
-    if (typeof parsed.displayName === 'string' && parsed.displayName.length > 0) {
+    if (
+      typeof parsed.displayName === "string" &&
+      parsed.displayName.length > 0
+    ) {
       return parsed.displayName;
     }
   } catch {
@@ -45,11 +50,12 @@ export function syncGuardianBindingsToContacts(assistantId: string): void {
  */
 export function syncSingleGuardianBinding(binding: GuardianBinding): void {
   const displayName =
-    parseDisplayNameFromMetadata(binding.metadataJson) ?? binding.guardianExternalUserId;
+    parseDisplayNameFromMetadata(binding.metadataJson) ??
+    binding.guardianExternalUserId;
 
   upsertContact({
     displayName,
-    role: 'guardian',
+    role: "guardian",
     principalId: binding.guardianPrincipalId,
     channels: [
       {
@@ -57,7 +63,7 @@ export function syncSingleGuardianBinding(binding: GuardianBinding): void {
         address: binding.guardianExternalUserId,
         externalUserId: binding.guardianExternalUserId,
         externalChatId: binding.guardianDeliveryChatId,
-        status: 'active',
+        status: "active",
         verifiedAt: binding.verifiedAt,
         verifiedVia: binding.verifiedVia,
       },
@@ -75,7 +81,7 @@ export function syncSingleGuardianBinding(binding: GuardianBinding): void {
 export function syncIngressMembersToContacts(assistantId: string): void {
   const members = listMembers({ assistantId });
   for (const member of members) {
-    if (member.status === 'pending') continue;
+    if (member.status === "pending") continue;
     syncSingleMember(member);
   }
 }
@@ -89,13 +95,13 @@ export function syncSingleMember(member: IngressMember): void {
   if (!member.externalUserId && !member.externalChatId) return;
 
   const displayName =
-    member.displayName ?? member.username ?? member.externalUserId ?? 'Unknown';
+    member.displayName ?? member.username ?? member.externalUserId ?? "Unknown";
 
   const address = member.externalUserId ?? member.externalChatId!;
 
   upsertContact({
     displayName,
-    role: 'contact',
+    role: "contact",
     channels: [
       {
         type: member.sourceChannel,
@@ -103,7 +109,7 @@ export function syncSingleMember(member: IngressMember): void {
         externalUserId: member.externalUserId,
         externalChatId: member.externalChatId,
         status: member.status as ChannelStatus,
-        policy: member.policy as 'allow' | 'deny' | 'escalate',
+        policy: member.policy as "allow" | "deny" | "escalate",
         inviteId: member.inviteId,
       },
     ],
