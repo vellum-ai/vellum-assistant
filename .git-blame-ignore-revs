@@ -1,3 +1,5 @@
 # Bulk prettier formatting — formatting-only, no logic changes.
 # To use: git config blame.ignoreRevsFile .git-blame-ignore-revs
-# (This file is updated after the commit is created.)
+
+# chore: bulk prettier format all TS source files
+# (hash will be the squash-merge commit on main)
