@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import * as net from "node:net";
 
-import { credentialBroker } from "@vellumai/outbound-proxy";
 import { v4 as uuid } from "uuid";
 
 import {
@@ -15,6 +14,7 @@ import {
   deleteVercelDeployment,
   deployHtmlToVercel,
 } from "../../services/vercel-deploy.js";
+import { credentialBroker } from "../../tools/credentials/broker.js";
 import type {
   PublishPageRequest,
   UnpublishPageRequest,

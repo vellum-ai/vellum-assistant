@@ -1,16 +1,15 @@
 import * as net from "node:net";
 
-import {
-  assertMetadataWritable,
-  getCredentialMetadata,
-} from "@vellumai/outbound-proxy";
-
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
   getProviderProfile,
   resolveService,
 } from "../../oauth/provider-profiles.js";
 import { getSecureKey } from "../../security/secure-keys.js";
+import {
+  assertMetadataWritable,
+  getCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
 import type { OAuthConnectStartRequest } from "../ipc-protocol.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 

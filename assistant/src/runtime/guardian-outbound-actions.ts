@@ -9,12 +9,11 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { getCredentialMetadata } from "@vellumai/outbound-proxy";
-
 import { startGuardianVerificationCall } from "../calls/call-domain.js";
 import type { ChannelId } from "../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { sendMessage as sendSms } from "../messaging/providers/sms/client.js";
+import { getCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";

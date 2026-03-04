@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import type { CredentialInjectionTemplate } from "@vellumai/outbound-proxy";
 import {
   evaluateRequest,
   evaluateRequestWithApproval,
 } from "@vellumai/outbound-proxy";
+
+import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 
 function headerTemplate(
   hostPattern: string,

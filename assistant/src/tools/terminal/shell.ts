@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 
 import { buildCredentialRefTrace } from "@vellumai/outbound-proxy";
-import { resolveCredentialRef } from "@vellumai/outbound-proxy";
 
 import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
@@ -9,6 +8,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
+import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
   getSessionEnv,

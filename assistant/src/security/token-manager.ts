@@ -9,8 +9,7 @@
 import {
   getCredentialMetadata,
   upsertCredentialMetadata,
-} from "@vellumai/outbound-proxy";
-
+} from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
 import { getSecureKey, setSecureKey } from "./secure-keys.js";
