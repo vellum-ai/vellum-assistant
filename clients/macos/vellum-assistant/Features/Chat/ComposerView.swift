@@ -302,6 +302,23 @@ struct ComposerView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Auto-focus the composer on app reactivation so the user can
+            // start typing immediately after cmd+tab or Dock click.
+            guard !hasPendingConfirmation else { return }
+            // Only claim focus when the main window is key. If a floating
+            // panel or other window is frontmost, skip to avoid intercepting
+            // shortcuts (Cmd+V, Cmd+Enter) in the wrong context.
+            guard let window = NSApp.keyWindow as? TitleBarZoomableWindow else { return }
+            // Preserve focus if another input (NSTextView, WKWebView, etc.)
+            // already owns first-responder status in split-panel mode.
+            if let responder = window.firstResponder as? NSView,
+               responder != window.contentView,
+               window.composerContainerView.map({ !responder.isDescendant(of: $0) }) ?? false {
+                return
+            }
+            composerFocus = true
+        }
         .onChange(of: inputText) {
             if inputText.isEmpty {
                 withAnimation(VAnimation.fast) { isComposerExpanded = false }

@@ -29,11 +29,50 @@ class TitleBarZoomableWindow: NSWindow {
 
     /// When true, `keyDown` will not auto-redirect keystrokes to the composer.
     /// Set when the user clicks outside the composer to dismiss focus; cleared
-    /// when the composer regains focus (e.g. user clicks back into it).
+    /// when the composer regains focus (e.g. user clicks back into it) or when
+    /// the app is reactivated (cmd+tab / Dock click).
     private(set) var composerDismissed = false
+
+    /// Set on `didResignActiveNotification` so `becomeKey` can distinguish
+    /// app reactivation (cmd+tab / Dock click) from an in-app window change
+    /// (e.g. command palette or sheet dismiss).
+    private var appWasDeactivated = false
+    private var activationObservers: [Any] = []
 
     func clearComposerDismissed() {
         composerDismissed = false
+    }
+
+    override func becomeKey() {
+        super.becomeKey()
+        // Re-enable keystroke redirect only on app reactivation, not when
+        // a secondary window closes within the already-active app.
+        if appWasDeactivated {
+            appWasDeactivated = false
+            composerDismissed = false
+        }
+    }
+
+    /// Subscribe to app activation lifecycle. Idempotent — safe to call
+    /// more than once.
+    func observeAppActivation() {
+        guard activationObservers.isEmpty else { return }
+        activationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.appWasDeactivated = true
+                }
+            }
+        )
+    }
+
+    deinit {
+        for observer in activationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     override func sendEvent(_ event: NSEvent) {
@@ -363,6 +402,7 @@ public final class MainWindow {
         window.setFrameAutosaveName("MainWindow")
 
         configureTrafficLightPadding(window)
+        window.observeAppActivation()
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
