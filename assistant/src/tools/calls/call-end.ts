@@ -13,7 +13,7 @@ export async function executeCallEnd(
     };
   }
 
-  const reason = input.reason as string | undefined;
+  const reason = input.end_reason as string | undefined;
 
   const result = await cancelCall({ callSessionId, reason });
 

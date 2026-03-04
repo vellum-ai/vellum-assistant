@@ -20,17 +20,27 @@
           },
           "attachment_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "IDs of attached source images to edit (required for edit mode)"
           },
           "model": {
             "type": "string",
-            "enum": ["gemini-2.5-flash-image", "gemini-3-pro-image", "gemini-3-pro-image-preview"],
+            "enum": [
+              "gemini-2.5-flash-image",
+              "gemini-3-pro-image",
+              "gemini-3-pro-image-preview"
+            ],
             "description": "Which model to use for generation. If omitted, uses the user's configured preference."
           },
           "variants": {
             "type": "number",
             "description": "Number of image variants to generate (1-4, default: 1)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["prompt"]

@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "reminder_create",
-      "description": "Create a one-time time-based reminder. Reminders fire at a specific future time and either notify the user or execute a message through the assistant. Use this ONLY when the user wants a time-triggered notification (e.g. \"remind me at 3pm\", \"remind me in 2 hours\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" — use task_list_add for those requests.",
+      "description": "Create a one-time time-based reminder. Reminders fire at a specific future time and either notify the user or execute a message through the assistant. Use this ONLY when the user wants a time-triggered notification (e.g. \"remind me at 3pm\", \"remind me in 2 hours\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" \u2014 use task_list_add for those requests.",
       "category": "reminder",
       "risk": "low",
       "input_schema": {
@@ -34,6 +34,10 @@
           "routing_hints": {
             "type": "object",
             "description": "Optional hints for the routing engine (e.g. preferred channels, exclusions)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["fire_at", "label", "message"]
@@ -48,7 +52,12 @@
       "risk": "low",
       "input_schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
         "required": []
       },
       "executor": "tools/reminder-list.ts",
@@ -65,6 +74,10 @@
           "reminder_id": {
             "type": "string",
             "description": "Reminder ID to cancel"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["reminder_id"]
