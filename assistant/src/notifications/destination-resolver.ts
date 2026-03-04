@@ -1,17 +1,21 @@
 /**
  * Resolves per-channel destination endpoints for notification delivery.
  *
+ * Uses a contacts-first approach: reads guardian delivery info from the
+ * contacts table, falling back to the legacy channel-guardian bindings
+ * when contacts have not yet been synced.
+ *
  * - Vellum: no external endpoint needed — delivery goes through the IPC
  *   broadcast mechanism to connected desktop/mobile clients. The
- *   guardianPrincipalId from the vellum binding is included in metadata
- *   so downstream adapters can scope guardian-sensitive notifications to
- *   bound guardian devices only.
+ *   guardianPrincipalId is included in metadata so downstream adapters
+ *   can scope guardian-sensitive notifications to bound guardian devices.
  * - Binding-based channels (telegram, sms): require a chat/delivery ID
- *   sourced from the guardian binding for the assistant.
+ *   sourced from the guardian contact's channel record (or legacy binding).
  */
 
 import { isNotificationDeliverable } from '../channels/config.js';
 import type { ChannelId } from '../channels/types.js';
+import { findGuardianForChannel } from '../contacts/contact-store.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import type { ChannelDestination, NotificationChannel } from './types.js';
 
@@ -38,13 +42,18 @@ export function resolveDestinations(
     switch (channel as NotificationChannel) {
       case 'vellum': {
         // Vellum delivery is local IPC — no external endpoint required.
-        // Include the guardianPrincipalId from the vellum binding so the
-        // adapter can annotate guardian-sensitive notifications for scoped
-        // delivery to bound guardian devices.
-        const vellumBinding = getActiveBinding(assistantId, 'vellum');
+        // Include the guardianPrincipalId so the adapter can annotate
+        // guardian-sensitive notifications for scoped delivery.
+        const guardianResult = findGuardianForChannel('vellum');
         const metadata: Record<string, unknown> = {};
-        if (vellumBinding) {
-          metadata.guardianPrincipalId = vellumBinding.guardianExternalUserId;
+        if (guardianResult) {
+          metadata.guardianPrincipalId = guardianResult.contact.principalId;
+        } else {
+          // Legacy fallback: contacts not yet synced
+          const vellumBinding = getActiveBinding(assistantId, 'vellum');
+          if (vellumBinding) {
+            metadata.guardianPrincipalId = vellumBinding.guardianExternalUserId;
+          }
         }
         result.set('vellum', {
           channel: 'vellum',
@@ -54,17 +63,28 @@ export function resolveDestinations(
       }
       case 'telegram':
       case 'sms': {
-        const binding = getActiveBinding(assistantId, channel);
-        if (binding) {
+        const guardianResult = findGuardianForChannel(channel);
+        if (guardianResult) {
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
-            endpoint: binding.guardianDeliveryChatId,
+            endpoint: guardianResult.channel.externalChatId,
             metadata: {
-              externalUserId: binding.guardianExternalUserId,
+              externalUserId: guardianResult.channel.externalUserId,
             },
           });
+        } else {
+          // Legacy fallback: contacts not yet synced
+          const binding = getActiveBinding(assistantId, channel);
+          if (binding) {
+            result.set(channel as NotificationChannel, {
+              channel: channel as NotificationChannel,
+              endpoint: binding.guardianDeliveryChatId,
+              metadata: {
+                externalUserId: binding.guardianExternalUserId,
+              },
+            });
+          }
         }
-        // If no binding exists, skip — the channel is not configured.
         break;
       }
       default: {
