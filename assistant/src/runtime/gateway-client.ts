@@ -31,6 +31,14 @@ export interface ChannelReplyPayload {
   ephemeral?: boolean;
   /** Slack user ID — required when `ephemeral` is true. */
   user?: string;
+  /** When provided, instructs the delivery endpoint to update an existing message instead of posting a new one. */
+  messageTs?: string;
+}
+
+export interface ChannelDeliveryResult {
+  ok: boolean;
+  /** The message timestamp returned by the delivery endpoint (e.g. Slack message ts). */
+  ts?: string;
 }
 
 interface ManagedOutboundCallbackContext {
@@ -46,11 +54,11 @@ export async function deliverChannelReply(
   callbackUrl: string,
   payload: ChannelReplyPayload,
   bearerToken?: string,
-): Promise<void> {
+): Promise<ChannelDeliveryResult> {
   const managedCallback = parseManagedOutboundCallback(callbackUrl);
   if (managedCallback) {
     await deliverManagedOutboundReply(managedCallback, payload, bearerToken);
-    return;
+    return { ok: true };
   }
 
   const headers: Record<string, string> = {
@@ -78,6 +86,16 @@ export async function deliverChannelReply(
     );
   }
 
+  let result: ChannelDeliveryResult = { ok: true };
+  try {
+    const responseBody = (await response.json()) as Record<string, unknown>;
+    if (typeof responseBody.ts === "string") {
+      result = { ok: true, ts: responseBody.ts };
+    }
+  } catch {
+    // Response may not be JSON for non-Slack channels; that's fine.
+  }
+
   if (payload.chatAction) {
     log.debug(
       { chatId: payload.chatId, callbackUrl, chatAction: payload.chatAction },
@@ -89,6 +107,8 @@ export async function deliverChannelReply(
       "Channel reply delivered",
     );
   }
+
+  return result;
 }
 
 function parseManagedOutboundCallback(
