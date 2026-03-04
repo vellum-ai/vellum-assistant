@@ -236,7 +236,7 @@ describe("invite-redemption-service", () => {
       externalUserId: "revoked-user",
       status: "revoked",
     });
-    expect(member.status).toBe("revoked");
+    expect(member!.channel.status).toBe("revoked");
 
     const outcome = redeemInvite({
       rawToken,

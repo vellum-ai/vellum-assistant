@@ -333,9 +333,12 @@ describe("trusted contact verification → member activation", () => {
     });
 
     // Revoke the member
-    const revoked = revokeMemberContactsFirst(member.id, "testing revocation");
+    const revoked = revokeMemberContactsFirst(
+      member!.channel.id,
+      "testing revocation",
+    );
     expect(revoked).not.toBeNull();
-    expect(revoked!.status).toBe("revoked");
+    expect(revoked!.channel.status).toBe("revoked");
 
     // Verify the member is indeed revoked (ACL would reject)
     const revokedResult = findContactChannel({
