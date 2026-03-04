@@ -43,7 +43,7 @@ import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/guardian-verification-templates.js";
-import { redeemVoiceInviteCode } from "../runtime/ingress-service.js";
+import { redeemVoiceInviteCode } from "../runtime/invite-service.js";
 import { parseJsonSafe } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import {
