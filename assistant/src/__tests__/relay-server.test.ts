@@ -881,7 +881,7 @@ describe("relay-server", () => {
     );
 
     // Let the delayed endSession callback flush to avoid timer bleed across tests.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const finalState = getCallSession(session.id);
     expect(finalState).not.toBeNull();
@@ -1822,7 +1822,7 @@ describe("relay-server", () => {
     ).toBe(true);
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verify end message was sent
     const endMessages = ws.sentMessages
@@ -1985,7 +1985,7 @@ describe("relay-server", () => {
     expect(originText).toContain("succeeded");
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     relay.destroy();
   });
@@ -2046,7 +2046,7 @@ describe("relay-server", () => {
     expect(originText).toContain("failed");
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     relay.destroy();
   });
@@ -2199,7 +2199,7 @@ describe("relay-server", () => {
     );
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verify end message was sent
     const endMessages = ws.sentMessages
@@ -2508,7 +2508,7 @@ describe("relay-server", () => {
     ).toBe(true);
 
     // Let delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     relay.destroy();
   });
@@ -2728,7 +2728,7 @@ describe("relay-server", () => {
     ).toBe(true);
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     relay.destroy();
   });
@@ -2778,7 +2778,7 @@ describe("relay-server", () => {
     }
 
     // Let async fire-and-forget work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Should be disconnecting after timeout
     expect(relay.getConnectionState()).toBe("disconnecting");
@@ -3417,7 +3417,7 @@ describe("relay-server", () => {
     }
 
     // Let async notification emission settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(relay.getConnectionState()).toBe("disconnecting");
 
@@ -3491,7 +3491,7 @@ describe("relay-server", () => {
     }
 
     // Let async work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(relay.getConnectionState()).toBe("disconnecting");
 
@@ -3562,7 +3562,7 @@ describe("relay-server", () => {
     // Simulate transport close while still in guardian wait
     relay.handleTransportClosed(1001, "Going away");
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(
@@ -3638,7 +3638,7 @@ describe("relay-server", () => {
     relay.handleTransportClosed(1000, "Normal closure");
 
     // Let async work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const events = getCallEvents(session.id);
     // Guard should ensure only ONE handoff event
@@ -3720,7 +3720,7 @@ describe("relay-server", () => {
     }
 
     // Let async work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(
@@ -3808,7 +3808,7 @@ describe("relay-server", () => {
     }
 
     // Let async work settle
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(
