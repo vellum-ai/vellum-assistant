@@ -31,32 +31,6 @@ import {
 import { listCredentialMetadata } from "../../credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
 import { resolveById } from "../../credentials/resolve.js";
-import {
-  type ProxyApprovalCallback,
-  type ProxyEnvVars,
-  type ProxySession,
-  type ProxySessionConfig,
-  type ProxySessionId,
-  routeConnection,
-} from "@vellumai/outbound-proxy";
-
-import { getSecureKey } from "../../../security/secure-keys.js";
-import { getLogger } from "../../../util/logger.js";
-import { silentlyWithLog } from "../../../util/silently.js";
-import {
-  compareMatchSpecificity,
-  type HostMatchKind,
-  matchHostPattern,
-} from "../../credentials/host-pattern-match.js";
-import { listCredentialMetadata } from "../../credentials/metadata-store.js";
-import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
-import { resolveById } from "../../credentials/resolve.js";
-import { ensureCombinedCABundle, ensureLocalCA, getCAPath } from "./certs.js";
-import type { PolicyCallback } from "./http-forwarder.js";
-import { buildDecisionTrace, stripQueryString } from "./logging.js";
-import { evaluateRequestWithApproval } from "./policy.js";
-import type { ProxyServerConfig } from "./server.js";
-import { createProxyServer } from "./server.js";
 
 const log = getLogger("proxy-session");
 

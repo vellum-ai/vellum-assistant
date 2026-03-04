@@ -42,7 +42,7 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
 }));
 
 import { createSession, startSession, stopAllSessions } from '../tools/network/script-proxy/session-manager.js';
-import { createSafeLogEntry, sanitizeHeaders } from '@vellumai/outbound-proxy';
+import { createSafeLogEntry, sanitizeHeaders } from "@vellumai/outbound-proxy";
 
 afterEach(async () => {
   await stopAllSessions();
