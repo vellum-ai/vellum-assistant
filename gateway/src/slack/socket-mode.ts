@@ -363,9 +363,10 @@ export class SlackSocketModeClient {
 
     const messageTs = payload.message?.ts;
 
-    // Build a dedup key from the action value + message ts to prevent
-    // double-processing if Slack retries the interactive payload.
-    const dedupKey = `interactive:${callbackData}:${messageTs ?? "no-ts"}`;
+    // Build a dedup key from the actor, action value, and message ts to prevent
+    // double-processing if Slack retries the interactive payload. Including userId
+    // ensures that different users clicking the same button are not collapsed.
+    const dedupKey = `interactive:${userId}:${callbackData}:${messageTs ?? "no-ts"}`;
     if (this.dedupMap.has(dedupKey)) {
       log.debug({ dedupKey }, "Duplicate interactive payload, skipping");
       return;
@@ -378,8 +379,13 @@ export class SlackSocketModeClient {
       userId,
     );
     if (isRejection(routing)) {
-      // DMs are always directed at the bot, so fall back to default assistant
-      if (this.config.gatewayConfig.defaultAssistantId) {
+      // Only fall back to the default assistant when unmappedPolicy allows it.
+      // When the policy is "reject", interactive payloads from unmapped
+      // channels/actors must be dropped to preserve routing isolation.
+      if (
+        this.config.gatewayConfig.unmappedPolicy === "default" &&
+        this.config.gatewayConfig.defaultAssistantId
+      ) {
         const defaultRouting = {
           assistantId: this.config.gatewayConfig.defaultAssistantId,
           routeSource: "default" as const,
@@ -395,7 +401,7 @@ export class SlackSocketModeClient {
       } else {
         log.info(
           { channelId, userId },
-          "block_actions dropped: no route and no default assistant",
+          "block_actions dropped: no route for channel/actor",
         );
       }
       return;
