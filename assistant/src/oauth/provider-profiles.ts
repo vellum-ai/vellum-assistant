@@ -43,6 +43,28 @@ export const PROVIDER_PROFILES: Record<string, OAuthProviderProfile> = {
     ],
     scopePolicy: DEFAULT_SCOPE_POLICY,
     userinfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+    // Google APIs for Gmail/Calendar/Contacts span multiple hosts; register
+    // all of them so proxied bash can inject the OAuth bearer token reliably.
+    injectionTemplates: [
+      {
+        hostPattern: "gmail.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "www.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "people.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
     extraParams: { access_type: "offline", prompt: "consent" },
     callbackTransport: "loopback",
     setupSkillId: "google-oauth-setup",
