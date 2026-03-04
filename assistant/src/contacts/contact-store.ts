@@ -437,6 +437,7 @@ export function searchContacts(params: {
   channelType?: string;
   relationship?: string;
   role?: ContactRole;
+  contactType?: ContactType;
   limit?: number;
 }): ContactWithChannels[] {
   const db = getDb();
@@ -477,7 +478,11 @@ export function searchContacts(params: {
     for (const id of contactIds) {
       if (results.length >= limit) break;
       const contact = getContactInternal(id);
-      if (contact && (!params.role || contact.role === params.role)) {
+      if (
+        contact &&
+        (!params.role || contact.role === params.role) &&
+        (!params.contactType || contact.contactType === params.contactType)
+      ) {
         results.push(contact);
       }
     }
@@ -508,7 +513,11 @@ export function searchContacts(params: {
     for (const id of contactIds) {
       if (results.length >= limit) break;
       const contact = getContactInternal(id);
-      if (contact && (!params.role || contact.role === params.role)) {
+      if (
+        contact &&
+        (!params.role || contact.role === params.role) &&
+        (!params.contactType || contact.contactType === params.contactType)
+      ) {
         results.push(contact);
       }
     }
@@ -534,6 +543,9 @@ export function searchContacts(params: {
   }
   if (params.role) {
     conditions.push(eq(contacts.role, params.role));
+  }
+  if (params.contactType) {
+    conditions.push(eq(contacts.contactType, params.contactType));
   }
   if (params.channelType) {
     conditions.push(eq(contactChannels.type, params.channelType));
@@ -582,6 +594,7 @@ export function listContacts(
   assistantId: string,
   limit = 50,
   role?: ContactRole,
+  contactType?: ContactType,
   opts?: { uncapped?: boolean },
 ): ContactWithChannels[] {
   const db = getDb();
@@ -590,6 +603,7 @@ export function listContacts(
     or(eq(contacts.assistantId, assistantId), isNull(contacts.assistantId))!,
   ];
   if (role) conditions.push(eq(contacts.role, role));
+  if (contactType) conditions.push(eq(contacts.contactType, contactType));
   const rows = db
     .select()
     .from(contacts)
