@@ -12,6 +12,7 @@ import type { ServerWebSocket } from "bun";
 
 import { getConfig } from "../config/loader.js";
 import { resolveUserReference } from "../config/user-reference.js";
+import { listGuardianChannels } from "../contacts/contact-store.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { listActiveBindingsByAssistant } from "../memory/channel-guardian-store.js";
@@ -1994,13 +1995,24 @@ export class RelayConnection {
     // binding for the assistant (mirrors the cross-channel fallback pattern
     // in access-request-helper.ts).
     let metadataJson: string | null = null;
-    const voiceBinding = getGuardianBinding(assistantId, "voice");
-    if (voiceBinding?.metadataJson) {
-      metadataJson = voiceBinding.metadataJson;
-    } else {
-      const allBindings = listActiveBindingsByAssistant(assistantId);
-      if (allBindings.length > 0 && allBindings[0].metadataJson) {
-        metadataJson = allBindings[0].metadataJson;
+    // Contacts-first: use the guardian contact's displayName
+    const guardianChannels = listGuardianChannels();
+    if (guardianChannels) {
+      const displayName = guardianChannels.contact.displayName;
+      if (displayName) {
+        metadataJson = JSON.stringify({ displayName });
+      }
+    }
+    if (!metadataJson) {
+      // Legacy fallback
+      const voiceBinding = getGuardianBinding(assistantId, "voice");
+      if (voiceBinding?.metadataJson) {
+        metadataJson = voiceBinding.metadataJson;
+      } else {
+        const allBindings = listActiveBindingsByAssistant(assistantId);
+        if (allBindings.length > 0 && allBindings[0].metadataJson) {
+          metadataJson = allBindings[0].metadataJson;
+        }
       }
     }
 
