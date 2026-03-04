@@ -188,11 +188,7 @@ function classifyCore(
           retryable: false,
         };
       }
-      if (
-        /credit balance is too low|insufficient.*credits?|billing/i.test(
-          message,
-        )
-      ) {
+      if (/credit balance is too low|insufficient.*credits?/i.test(message)) {
         return {
           code: "PROVIDER_BILLING",
           userMessage: "Your API key has insufficient credits.",
@@ -200,7 +196,9 @@ function classifyCore(
         };
       }
       if (
-        /invalid.*api.?key|invalid.*x-api-key|authentication/i.test(message)
+        /invalid.*api.?key|invalid.*x-api-key|authentication.?error|invalid.authentication/i.test(
+          message,
+        )
       ) {
         return {
           code: "PROVIDER_BILLING",
