@@ -14,8 +14,8 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
-  type TrustClass,
   isUntrustedTrustClass,
+  type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { unregisterSessionSender } from "../tools/browser/browser-screencast.js";
 import { getLogger } from "../util/logger.js";

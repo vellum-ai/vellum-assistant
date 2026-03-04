@@ -21,6 +21,12 @@ function proxyExecute(): Promise<ToolExecutionResult> {
   );
 }
 
+const reasonProperty = {
+  type: "string" as const,
+  description:
+    "Brief non-technical explanation of why this tool is being called",
+};
+
 function makeClickTool(name: string, verb: string): Tool {
   return {
     name,
@@ -55,6 +61,7 @@ function makeClickTool(name: string, verb: string): Tool {
               type: "string",
               description: `Explanation of what you see and why you are ${verb.toLowerCase()}ing here`,
             },
+            reason: reasonProperty,
           },
           required: ["reasoning"],
         },
@@ -109,6 +116,7 @@ export const computerUseTypeTextTool: Tool = {
             type: "string",
             description: "Explanation of what you are typing and why",
           },
+          reason: reasonProperty,
         },
         required: ["text", "reasoning"],
       },
@@ -146,6 +154,7 @@ export const computerUseKeyTool: Tool = {
             type: "string",
             description: "Explanation of why you are pressing this key",
           },
+          reason: reasonProperty,
         },
         required: ["key", "reasoning"],
       },
@@ -200,6 +209,7 @@ export const computerUseScrollTool: Tool = {
             type: "string",
             description: "Explanation of why you are scrolling",
           },
+          reason: reasonProperty,
         },
         required: ["direction", "amount", "reasoning"],
       },
@@ -260,6 +270,7 @@ export const computerUseDragTool: Tool = {
             type: "string",
             description: "Explanation of what you are dragging and why",
           },
+          reason: reasonProperty,
         },
         required: ["reasoning"],
       },
@@ -295,6 +306,7 @@ export const computerUseWaitTool: Tool = {
             type: "string",
             description: "Explanation of what you are waiting for",
           },
+          reason: reasonProperty,
         },
         required: ["duration_ms", "reasoning"],
       },
@@ -333,6 +345,7 @@ export const computerUseOpenAppTool: Tool = {
             description:
               "Explanation of why you need to open or switch to this app",
           },
+          reason: reasonProperty,
         },
         required: ["app_name", "reasoning"],
       },
@@ -376,6 +389,7 @@ export const computerUseRunAppleScriptTool: Tool = {
             description:
               "Explanation of what this script does and why AppleScript is better than UI interaction for this step",
           },
+          reason: reasonProperty,
         },
         required: ["script", "reasoning"],
       },
@@ -407,6 +421,7 @@ export const computerUseDoneTool: Tool = {
             type: "string",
             description: "Human-readable summary of what was accomplished",
           },
+          reason: reasonProperty,
         },
         required: ["summary"],
       },
@@ -443,6 +458,7 @@ export const computerUseRespondTool: Tool = {
             type: "string",
             description: "Explanation of how you determined the answer",
           },
+          reason: reasonProperty,
         },
         required: ["answer", "reasoning"],
       },
