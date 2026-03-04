@@ -184,8 +184,8 @@ export async function allocateLocalResources(
     daemonPort,
     gatewayPort,
     qdrantPort,
-    socketPath: join(instanceDir, "vellum.sock"),
-    pidFile: join(instanceDir, "vellum.pid"),
+    socketPath: join(instanceDir, ".vellum", "vellum.sock"),
+    pidFile: join(instanceDir, ".vellum", "vellum.pid"),
   };
 }
 

@@ -177,8 +177,9 @@ async function startDaemonFromSource(
 
   const defaults = defaultLocalResources();
   const res = resources ?? defaults;
-  const vellumDir = res.instanceDir;
-  mkdirSync(vellumDir, { recursive: true });
+  // Ensure the directory containing PID/socket files exists. For named
+  // instances this is instanceDir/.vellum/ (matching daemon's getRootDir()).
+  mkdirSync(dirname(res.pidFile), { recursive: true });
 
   const pidFile = res.pidFile;
   const socketFile = res.socketPath;
@@ -265,8 +266,7 @@ async function startDaemonWatchFromSource(
 
   const defaults = defaultLocalResources();
   const res = resources ?? defaults;
-  const vellumDir = res.instanceDir;
-  mkdirSync(vellumDir, { recursive: true });
+  mkdirSync(dirname(res.pidFile), { recursive: true });
 
   const pidFile = res.pidFile;
   const socketFile = res.socketPath;
@@ -618,7 +618,6 @@ export async function startLocalDaemon(
 
     const defaults = defaultLocalResources();
     const res = resources ?? defaults;
-    const vellumDir = res.instanceDir;
     const pidFile = res.pidFile;
     const socketFile = res.socketPath;
 
@@ -670,8 +669,8 @@ export async function startLocalDaemon(
 
       console.log("🔨 Starting assistant...");
 
-      // Ensure ~/.vellum/ exists for PID/socket files
-      mkdirSync(vellumDir, { recursive: true });
+      // Ensure the directory containing PID/socket files exists
+      mkdirSync(dirname(pidFile), { recursive: true });
 
       // Build a minimal environment for the daemon. When launched from the
       // macOS app the CLI inherits a huge environment (XPC_SERVICE_NAME,
@@ -824,7 +823,7 @@ export async function startGateway(
   const httpTokenPath =
     process.env.VELLUM_HTTP_TOKEN_PATH ??
     (resources
-      ? join(resources.instanceDir, "http-token")
+      ? join(resources.instanceDir, ".vellum", "http-token")
       : join(
           process.env.BASE_DATA_DIR?.trim() || homedir(),
           ".vellum",
@@ -957,7 +956,9 @@ export async function startGateway(
   gateway.unref();
 
   if (gateway.pid) {
-    const gwPidDir = resources?.instanceDir ?? join(homedir(), ".vellum");
+    const gwPidDir = resources
+      ? join(resources.instanceDir, ".vellum")
+      : join(homedir(), ".vellum");
     writeFileSync(join(gwPidDir, "gateway.pid"), String(gateway.pid), "utf-8");
   }
 
@@ -1009,7 +1010,9 @@ export async function startOutboundProxy(
 
   console.log("🔒 Starting outbound proxy...");
 
-  const vellumDir = resources?.instanceDir ?? join(homedir(), ".vellum");
+  const vellumDir = resources
+    ? join(resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
   mkdirSync(vellumDir, { recursive: true });
 
   const pidFile = join(vellumDir, "outbound-proxy.pid");
@@ -1129,7 +1132,9 @@ export async function startOutboundProxy(
 export async function stopLocalProcesses(
   resources?: LocalInstanceResources,
 ): Promise<void> {
-  const vellumDir = resources?.instanceDir ?? join(homedir(), ".vellum");
+  const vellumDir = resources
+    ? join(resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
   const daemonPidFile = resources?.pidFile ?? join(vellumDir, "vellum.pid");
   const socketFile = resources?.socketPath ?? join(vellumDir, "vellum.sock");
   await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
