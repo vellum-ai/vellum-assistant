@@ -7,13 +7,15 @@
  *
  * Access requests are a special case: they always create a canonical request
  * and emit a notification signal, even when no same-channel guardian binding
- * exists. Guardian binding resolution uses a fallback strategy:
- *   1. Source-channel active binding first.
- *   2. Any active binding for the assistant (deterministic, most-recently-verified).
- *   3. No guardian identity (trusted/vellum-only resolution path).
+ * exists. Guardian identity resolution uses a contacts-first fallback strategy:
+ *   1. Source-channel guardian contact channel.
+ *   2. Any active guardian channel (deterministic, most-recently-verified).
+ *   3. Legacy fallback to getGuardianBinding + listActiveBindingsByAssistant.
+ *   4. No guardian identity (trusted/vellum-only resolution path).
  */
 
 import type { ChannelId } from '../channels/types.js';
+import { findGuardianForChannel, listGuardianChannels } from '../contacts/contact-store.js';
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
@@ -68,9 +70,9 @@ export type AccessRequestResult =
  * Returns a result indicating whether the guardian was notified and whether
  * a new request was created or an existing one was deduped.
  *
- * Guardian binding resolution: source-channel first, then any active binding
- * for the assistant, then null (notification pipeline handles delivery via
- * trusted/vellum channels when no binding exists).
+ * Guardian identity resolution: contacts-first for source channel, then any
+ * active guardian channel, then legacy bindings, then null (notification
+ * pipeline handles delivery via trusted/vellum channels when no binding exists).
  *
  * This is intentionally synchronous with respect to the canonical store writes
  * and fire-and-forget for the notification signal emission.
@@ -92,45 +94,74 @@ export function notifyGuardianOfAccessRequest(
     return { notified: false, reason: 'no_sender_id' };
   }
 
-  // Resolve guardian binding with fallback strategy:
-  // 1. Source-channel active binding
-  // 2. Any active binding for the assistant (deterministic order)
-  // 3. null (no guardian identity — notification pipeline uses trusted channels)
-  const sourceBinding = getGuardianBinding(canonicalAssistantId, sourceChannel);
+  // Resolve guardian identity with contacts-first strategy:
+  // 1. Source-channel guardian contact channel
+  // 2. Any active guardian channel (deterministic, most-recently-verified)
+  // 3. Legacy fallback to getGuardianBinding + listActiveBindingsByAssistant
+  // 4. null (notification pipeline handles delivery via trusted channels)
   let guardianExternalUserId: string | null = null;
   let guardianPrincipalId: string | null = null;
   let guardianBindingChannel: string | null = null;
 
-  if (sourceBinding) {
-    guardianExternalUserId = sourceBinding.guardianExternalUserId;
-    guardianPrincipalId = sourceBinding.guardianPrincipalId;
-    guardianBindingChannel = sourceBinding.channel;
+  // Try contacts-first: source channel
+  const sourceGuardian = findGuardianForChannel(sourceChannel);
+  if (sourceGuardian) {
+    guardianExternalUserId = sourceGuardian.channel.externalUserId;
+    guardianPrincipalId = sourceGuardian.contact.principalId;
+    guardianBindingChannel = sourceGuardian.channel.type;
   } else {
-    const allBindings = listActiveBindingsByAssistant(canonicalAssistantId);
-    if (allBindings.length > 0) {
-      guardianExternalUserId = allBindings[0].guardianExternalUserId;
-      guardianPrincipalId = allBindings[0].guardianPrincipalId;
-      guardianBindingChannel = allBindings[0].channel;
+    // Try contacts-first: any active guardian channel
+    const allGuardianChannels = listGuardianChannels();
+    if (allGuardianChannels && allGuardianChannels.channels.length > 0) {
+      const fallbackChannel = allGuardianChannels.channels[0];
+      guardianExternalUserId = fallbackChannel.externalUserId;
+      guardianPrincipalId = allGuardianChannels.contact.principalId;
+      guardianBindingChannel = fallbackChannel.type;
       log.debug(
         { sourceChannel, fallbackChannel: guardianBindingChannel, canonicalAssistantId },
-        'Using cross-channel guardian binding fallback for access request',
+        'Using cross-channel guardian contact fallback for access request',
       );
+    } else {
+      // Legacy fallback: contacts not yet synced
+      const sourceBinding = getGuardianBinding(canonicalAssistantId, sourceChannel);
+      if (sourceBinding) {
+        guardianExternalUserId = sourceBinding.guardianExternalUserId;
+        guardianPrincipalId = sourceBinding.guardianPrincipalId;
+        guardianBindingChannel = sourceBinding.channel;
+      } else {
+        const allBindings = listActiveBindingsByAssistant(canonicalAssistantId);
+        if (allBindings.length > 0) {
+          guardianExternalUserId = allBindings[0].guardianExternalUserId;
+          guardianPrincipalId = allBindings[0].guardianPrincipalId;
+          guardianBindingChannel = allBindings[0].channel;
+          log.debug(
+            { sourceChannel, fallbackChannel: guardianBindingChannel, canonicalAssistantId },
+            'Using cross-channel guardian binding fallback for access request',
+          );
+        }
+      }
     }
   }
 
-  // Self-heal: access_request is now decisionable and requires a principal.
-  // If no binding was found (or the binding lacks a principal), bootstrap the
-  // vellum binding so the request can be properly attributed.
+  // Self-heal: access_request requires a principal. If none found via
+  // contacts or legacy, bootstrap the vellum binding.
   if (!guardianPrincipalId) {
     log.info(
       { sourceChannel, canonicalAssistantId },
       'No guardian principal for access request — self-healing vellum binding',
     );
     const healedPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
-    const vellumBinding = getGuardianBinding(canonicalAssistantId, 'vellum');
-    guardianExternalUserId = vellumBinding?.guardianExternalUserId ?? guardianExternalUserId;
-    guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? healedPrincipalId;
-    guardianBindingChannel = guardianBindingChannel ?? 'vellum';
+    const vellumGuardian = findGuardianForChannel('vellum');
+    if (vellumGuardian) {
+      guardianExternalUserId = vellumGuardian.channel.externalUserId;
+      guardianPrincipalId = vellumGuardian.contact.principalId;
+      guardianBindingChannel = guardianBindingChannel ?? 'vellum';
+    } else {
+      const vellumBinding = getGuardianBinding(canonicalAssistantId, 'vellum');
+      guardianExternalUserId = vellumBinding?.guardianExternalUserId ?? guardianExternalUserId;
+      guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? healedPrincipalId;
+      guardianBindingChannel = guardianBindingChannel ?? 'vellum';
+    }
   }
 
   // The conversationId is assistant-scoped so the dedupe query below only
