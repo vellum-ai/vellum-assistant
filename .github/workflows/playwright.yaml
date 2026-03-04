@@ -2,8 +2,8 @@ name: Playwright Tests
 
 on:
   schedule:
-    - cron: '0 9 * * *'   # Every day at 9:00 AM UTC
-    - cron: '0 19 * * *'  # Every day at 7:00 PM UTC
+    - cron: '0 14 * * *'  # Every day at 9:00 AM EST (14:00 UTC)
+    - cron: '0 0 * * *'   # Every day at 7:00 PM EST (00:00 UTC next day)
   workflow_dispatch:
     inputs:
       release_version:
@@ -388,6 +388,7 @@ jobs:
     name: Slack Notification
     needs: [prepare, build, playwright]
     if: always() && github.event_name == 'schedule'
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
