@@ -1,5 +1,5 @@
 ---
-name: "Weather"
+name: "weather"
 description: "Get current weather conditions and forecasts for any location"
 user-invocable: true
 metadata: {"vellum": {"emoji": "\ud83c\udf24\ufe0f"}}
