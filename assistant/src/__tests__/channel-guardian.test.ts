@@ -59,7 +59,7 @@ mock.module("../config/env.js", () => ({
 
 // Telegram credential metadata mock — provides the bot username for deep-link construction
 let mockBotUsername: string | undefined = "test_bot";
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   getCredentialMetadata: (_service: string, _key: string) =>
     mockBotUsername ? { accountInfo: mockBotUsername } : null,
   upsertCredentialMetadata: () => {},

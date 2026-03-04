@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isDomainAllowed } from "../tools/credentials/domain-policy.js";
+import { isDomainAllowed } from "../outbound-proxy/index.js";
 
 describe("isDomainAllowed", () => {
   // ── Exact host match ────────────────────────────────────────────────

@@ -34,7 +34,7 @@ mock.module("../security/secure-keys.js", () => ({
   _setBackend: () => {},
 }));
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   assertMetadataWritable: () => {},
   upsertCredentialMetadata: (service: string, field: string) => {
     upsertCredentialMetadataMock(service, field, {});

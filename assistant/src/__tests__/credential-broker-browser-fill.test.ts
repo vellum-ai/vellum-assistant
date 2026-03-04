@@ -58,12 +58,12 @@ mock.module("../tools/registry.js", () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
-import { setSecureKey } from "../security/secure-keys.js";
-import { CredentialBroker } from "../tools/credentials/broker.js";
+import { CredentialBroker } from "../outbound-proxy/index.js";
 import {
   _setMetadataPath,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+} from "../outbound-proxy/index.js";
+import { setSecureKey } from "../security/secure-keys.js";
 
 afterAll(() => {
   mock.restore();

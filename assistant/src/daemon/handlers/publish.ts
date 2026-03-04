@@ -10,11 +10,11 @@ import {
   markDeleted,
   updatePublishedPage,
 } from "../../memory/published-pages-store.js";
+import { credentialBroker } from "../../outbound-proxy/index.js";
 import {
   deleteVercelDeployment,
   deployHtmlToVercel,
 } from "../../services/vercel-deploy.js";
-import { credentialBroker } from "../../tools/credentials/broker.js";
 import type {
   PublishPageRequest,
   UnpublishPageRequest,

@@ -6,15 +6,15 @@ import {
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
 import {
+  deleteCredentialMetadata,
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../../outbound-proxy/index.js";
+import {
   deleteSecureKey,
   getSecureKey,
   setSecureKey,
 } from "../../security/secure-keys.js";
-import {
-  deleteCredentialMetadata,
-  getCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
 import type {
   TelegramConfigRequest,
   TelegramConfigResponse,

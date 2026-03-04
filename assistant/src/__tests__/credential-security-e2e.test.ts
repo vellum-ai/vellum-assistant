@@ -48,7 +48,7 @@ const metadataStore = new Map<
   { credentialId: string; service: string; field: string }
 >();
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   upsertCredentialMetadata: (
     service: string,
     field: string,
@@ -78,7 +78,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   _setMetadataPath: () => {},
 }));
 
-mock.module("../tools/credentials/policy-validate.js", () => ({
+mock.module("../outbound-proxy/credentials/policy-validate.js", () => ({
   validatePolicyInput: () => ({ valid: true, errors: [] }),
   toPolicyFromInput: (input: Record<string, unknown>) => ({
     allowedTools: input.allowed_tools ?? [],
@@ -91,9 +91,10 @@ mock.module("../tools/credentials/policy-validate.js", () => ({
 const { credentialStoreTool } = await import("../tools/credentials/vault.js");
 const { checkIngressForSecrets } =
   await import("../security/secret-ingress.js");
-const { isToolAllowed } = await import("../tools/credentials/tool-policy.js");
+const { isToolAllowed } =
+  await import("../outbound-proxy/credentials/tool-policy.js");
 const { isDomainAllowed } =
-  await import("../tools/credentials/domain-policy.js");
+  await import("../outbound-proxy/credentials/domain-policy.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -74,13 +74,13 @@ mock.module("../tools/registry.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
-import { redactSensitiveFields } from "../security/redaction.js";
-import { setSecureKey } from "../security/secure-keys.js";
-import { CredentialBroker } from "../tools/credentials/broker.js";
+import { CredentialBroker } from "../outbound-proxy/index.js";
 import {
   _setMetadataPath,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+} from "../outbound-proxy/index.js";
+import { redactSensitiveFields } from "../security/redaction.js";
+import { setSecureKey } from "../security/secure-keys.js";
 
 /**
  * Security invariant test harness for credential storage hardening.
@@ -214,7 +214,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "index.ts", // daemon startup / API key config
       "config/loader.ts", // config management (API keys)
       "tools/credentials/vault.ts", // credential store tool
-      "tools/credentials/broker.ts", // brokered credential access
+      "outbound-proxy/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
       "daemon/handlers.ts", // Vercel API token + integration OAuth
       "daemon/handlers/config-integrations.ts", // Vercel API token + Twitter integration OAuth

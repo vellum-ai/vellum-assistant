@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { CredentialBroker } from "../tools/credentials/broker.js";
+import { CredentialBroker } from "../outbound-proxy/index.js";
 import {
   _setMetadataPath,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+} from "../outbound-proxy/index.js";
 
 describe("CredentialBroker", () => {
   let broker: CredentialBroker;

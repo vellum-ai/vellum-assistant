@@ -1,7 +1,7 @@
+import { credentialBroker } from "../../outbound-proxy/index.js";
 import type { ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
-import { credentialBroker } from "../credentials/broker.js";
 import {
   isPrivateOrLocalHost,
   parseUrl,

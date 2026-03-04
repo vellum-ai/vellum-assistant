@@ -1,9 +1,9 @@
 import * as http from "node:http";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import type { ResolvedCredential } from "../tools/credentials/resolve.js";
+import type { CredentialMetadata } from "../outbound-proxy/index.js";
+import type { CredentialInjectionTemplate } from "../outbound-proxy/index.js";
+import type { ResolvedCredential } from "../outbound-proxy/index.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
@@ -11,13 +11,13 @@ import type { ResolvedCredential } from "../tools/credentials/resolve.js";
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
 let credentialMetadataList: CredentialMetadata[] = [];
 
-mock.module("../tools/credentials/resolve.js", () => ({
+mock.module("../outbound-proxy/credentials/resolve.js", () => ({
   resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
   resolveByServiceField: () => undefined,
   resolveForDomain: () => [],
 }));
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => credentialMetadataList,
 }));
 

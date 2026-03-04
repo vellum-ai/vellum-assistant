@@ -15,13 +15,13 @@ mock.module("../util/logger.js", () => ({
 import {
   _setMetadataPath,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+} from "../outbound-proxy/index.js";
 import {
   resolveById,
   resolveByServiceField,
   resolveCredentialRef,
   resolveForDomain,
-} from "../tools/credentials/resolve.js";
+} from "../outbound-proxy/index.js";
 
 const TEST_DIR = join(
   tmpdir(),

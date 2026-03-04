@@ -4,7 +4,7 @@ import {
   compareMatchSpecificity,
   type HostMatchKind,
   matchHostPattern,
-} from "../tools/credentials/host-pattern-match.js";
+} from "../outbound-proxy/index.js";
 
 describe("matchHostPattern", () => {
   // -- Exact matches --------------------------------------------------------

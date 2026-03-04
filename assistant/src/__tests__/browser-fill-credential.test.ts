@@ -67,7 +67,7 @@ mock.module("../security/secure-keys.js", () => ({
   _setBackend: () => {},
 }));
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   getCredentialMetadata: (...args: unknown[]) =>
     mockGetCredentialMetadata(...args),
   getCredentialMetadataById: () => undefined,

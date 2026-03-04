@@ -48,7 +48,7 @@ mock.module("../config/env.js", () => ({
 
 // Mock the credential metadata store so the Telegram transport adapter
 // resolves without touching the filesystem.
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   getCredentialMetadata: () => undefined,
   upsertCredentialMetadata: () => {},
   deleteCredentialMetadata: () => {},

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
-import { rankCredentialsForEndpoint } from "../tools/credentials/selection.js";
+import type { CredentialMetadata } from "../outbound-proxy/index.js";
+import { rankCredentialsForEndpoint } from "../outbound-proxy/index.js";
 
 // Realistic epoch-millisecond timestamps (similar to Date.now())
 const NOW = 1_770_000_000_000;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isToolAllowed } from "../tools/credentials/tool-policy.js";
+import { isToolAllowed } from "../outbound-proxy/index.js";
 
 describe("isToolAllowed", () => {
   // ── Allow cases ─────────────────────────────────────────────────────

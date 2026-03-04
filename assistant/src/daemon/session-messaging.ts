@@ -405,12 +405,12 @@ export function redirectToSecurePrompt(
 
       const { setSecureKey } = await import("../security/secure-keys.js");
       const { upsertCredentialMetadata } =
-        await import("../tools/credentials/metadata-store.js");
+        await import("../outbound-proxy/credentials/metadata-store.js");
 
       let wasStored = false;
       if (result.delivery === "transient_send") {
         const { credentialBroker } =
-          await import("../tools/credentials/broker.js");
+          await import("../outbound-proxy/credentials/broker.js");
         credentialBroker.injectTransient(
           target.service,
           target.field,

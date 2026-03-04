@@ -161,7 +161,7 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
   stopAllSessions: async () => {},
 }));
 
-mock.module("../tools/credentials/resolve.js", () => ({
+mock.module("../outbound-proxy/credentials/resolve.js", () => ({
   resolveCredentialRef: (ref: string) => ({ credentialId: ref }),
 }));
 

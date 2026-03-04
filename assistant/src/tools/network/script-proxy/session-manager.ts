@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { join } from "node:path";
 
+import type { CredentialInjectionTemplate } from "../../../outbound-proxy/index.js";
 import {
   buildDecisionTrace,
   createProxyServer,
@@ -19,17 +20,16 @@ import {
   routeConnection,
   stripQueryString,
 } from "../../../outbound-proxy/index.js";
-import { getSecureKey } from "../../../security/secure-keys.js";
-import { getLogger } from "../../../util/logger.js";
-import { silentlyWithLog } from "../../../util/silently.js";
 import {
   compareMatchSpecificity,
   type HostMatchKind,
   matchHostPattern,
-} from "../../credentials/host-pattern-match.js";
-import { listCredentialMetadata } from "../../credentials/metadata-store.js";
-import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
-import { resolveById } from "../../credentials/resolve.js";
+} from "../../../outbound-proxy/index.js";
+import { listCredentialMetadata } from "../../../outbound-proxy/index.js";
+import { resolveById } from "../../../outbound-proxy/index.js";
+import { getSecureKey } from "../../../security/secure-keys.js";
+import { getLogger } from "../../../util/logger.js";
+import { silentlyWithLog } from "../../../util/silently.js";
 
 const log = getLogger("proxy-session");
 

@@ -9,7 +9,7 @@ import {
   getActivePublishedPageByAppId,
   updatePublishedPage,
 } from "../memory/published-pages-store.js";
-import { credentialBroker } from "../tools/credentials/broker.js";
+import { credentialBroker } from "../outbound-proxy/index.js";
 import { getLogger } from "../util/logger.js";
 import { deployHtmlToVercel } from "./vercel-deploy.js";
 

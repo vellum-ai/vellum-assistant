@@ -9,7 +9,7 @@
  */
 
 import type { ChannelId } from "../../channels/types.js";
-import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import { getCredentialMetadata } from "../../outbound-proxy/index.js";
 import {
   type ChannelInviteTransport,
   type InviteSharePayload,

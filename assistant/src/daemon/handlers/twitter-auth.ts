@@ -3,12 +3,12 @@ import * as net from "node:net";
 import { loadConfig, loadRawConfig } from "../../config/loader.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
-import { getSecureKey } from "../../security/secure-keys.js";
 import {
   assertMetadataWritable,
   getCredentialMetadata,
   upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
+} from "../../outbound-proxy/index.js";
+import { getSecureKey } from "../../security/secure-keys.js";
 import { ConfigError } from "../../util/errors.js";
 import type {
   TwitterAuthStartRequest,

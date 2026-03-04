@@ -83,7 +83,7 @@ mock.module("../config/user-reference.js", () => ({
   resolveUserPronouns: () => null,
 }));
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => [],
 }));
 

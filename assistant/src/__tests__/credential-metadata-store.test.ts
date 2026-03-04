@@ -19,6 +19,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import type { CredentialInjectionTemplate } from "../outbound-proxy/index.js";
 import {
   _setMetadataPath,
   assertMetadataWritable,
@@ -27,8 +28,7 @@ import {
   getCredentialMetadataById,
   listCredentialMetadata,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
+} from "../outbound-proxy/index.js";
 
 const TEST_DIR = join(
   tmpdir(),

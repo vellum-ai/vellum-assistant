@@ -83,7 +83,7 @@ mock.module("../util/platform.js", () => ({
   getSocketPath: () => "/tmp/vellum.sock",
 }));
 
-mock.module("../tools/credentials/resolve.js", () => ({
+mock.module("../outbound-proxy/credentials/resolve.js", () => ({
   resolveCredentialRef: () => null,
 }));
 

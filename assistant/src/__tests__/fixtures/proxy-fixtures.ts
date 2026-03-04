@@ -5,7 +5,7 @@
  * used by the proxy layer test suite.
  */
 
-import type { CredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import type { CredentialMetadata } from "../../outbound-proxy/index.js";
 
 // ---------------------------------------------------------------------------
 // Injection template types (defined here for upcoming proxy PRs)

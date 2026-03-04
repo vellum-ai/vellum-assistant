@@ -5,6 +5,22 @@ import {
   resolveService,
   SERVICE_ALIASES,
 } from "../../oauth/provider-profiles.js";
+import type {
+  CredentialInjectionTemplate,
+  CredentialPolicyInput,
+} from "../../outbound-proxy/index.js";
+import { credentialBroker } from "../../outbound-proxy/index.js";
+import {
+  assertMetadataWritable,
+  deleteCredentialMetadata,
+  getCredentialMetadata,
+  listCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../../outbound-proxy/index.js";
+import {
+  toPolicyFromInput,
+  validatePolicyInput,
+} from "../../outbound-proxy/index.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
@@ -18,19 +34,6 @@ import {
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
-import { credentialBroker } from "./broker.js";
-import {
-  assertMetadataWritable,
-  deleteCredentialMetadata,
-  getCredentialMetadata,
-  listCredentialMetadata,
-  upsertCredentialMetadata,
-} from "./metadata-store.js";
-import type {
-  CredentialInjectionTemplate,
-  CredentialPolicyInput,
-} from "./policy-types.js";
-import { toPolicyFromInput, validatePolicyInput } from "./policy-validate.js";
 
 const log = getLogger("credential-vault");
 

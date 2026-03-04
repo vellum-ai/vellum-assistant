@@ -5,12 +5,12 @@ import {
   buildCredentialRefTrace,
   type ProxyEnvVars,
 } from "../../outbound-proxy/index.js";
+import { resolveCredentialRef } from "../../outbound-proxy/index.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
-import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
   getSessionEnv,

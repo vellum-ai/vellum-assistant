@@ -63,18 +63,18 @@ mock.module("../config/loader.js", () => ({
 
 // Credential resolver and secure key mocks — must be set up before
 // session-manager is imported so the proxy uses our test data.
-import type { ResolvedCredential } from "../tools/credentials/resolve.js";
+import type { ResolvedCredential } from "../outbound-proxy/index.js";
 
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
 let secureKeyValues = new Map<string, string | undefined>();
 
-mock.module("../tools/credentials/resolve.js", () => ({
+mock.module("../outbound-proxy/credentials/resolve.js", () => ({
   resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
   resolveByServiceField: () => undefined,
   resolveForDomain: () => [],
 }));
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => [],
 }));
 
@@ -115,9 +115,9 @@ import {
   createConversation,
 } from "../memory/conversation-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import type { CredentialInjectionTemplate } from "../outbound-proxy/index.js";
 import { assetMaterializeTool } from "../tools/assets/materialize.js";
 import { assetSearchTool, searchAttachments } from "../tools/assets/search.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import { stopAllSessions } from "../tools/network/script-proxy/index.js";
 import { shellTool } from "../tools/terminal/shell.js";
 import type { ToolContext } from "../tools/types.js";

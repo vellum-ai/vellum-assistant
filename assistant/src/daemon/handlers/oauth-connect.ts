@@ -5,11 +5,11 @@ import {
   getProviderProfile,
   resolveService,
 } from "../../oauth/provider-profiles.js";
-import { getSecureKey } from "../../security/secure-keys.js";
 import {
   assertMetadataWritable,
   getCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
+} from "../../outbound-proxy/index.js";
+import { getSecureKey } from "../../security/secure-keys.js";
 import type { OAuthConnectStartRequest } from "../ipc-protocol.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 

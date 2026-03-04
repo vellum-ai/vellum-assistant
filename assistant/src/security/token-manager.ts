@@ -9,7 +9,7 @@
 import {
   getCredentialMetadata,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+} from "../outbound-proxy/index.js";
 import { getLogger } from "../util/logger.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
 import { getSecureKey, setSecureKey } from "./secure-keys.js";

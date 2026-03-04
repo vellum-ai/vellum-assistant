@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mock the credential metadata store so the Telegram adapter can resolve
 // the bot username without touching the filesystem.
 let mockBotUsername: string | undefined = "test_invite_bot";
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   getCredentialMetadata: (service: string, field: string) => {
     if (service === "telegram" && field === "bot_token" && mockBotUsername) {
       return { accountInfo: mockBotUsername };

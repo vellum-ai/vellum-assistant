@@ -57,12 +57,12 @@ mock.module("../tools/registry.js", () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
-import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
-import { CredentialBroker } from "../tools/credentials/broker.js";
+import { CredentialBroker } from "../outbound-proxy/index.js";
 import {
   _setMetadataPath,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+} from "../outbound-proxy/index.js";
+import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
 import { credentialStoreTool } from "../tools/credentials/vault.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -449,7 +449,7 @@ describe("credential_store tool — prompt action", () => {
     expect(result.isError).toBe(false);
 
     const { getCredentialMetadata } =
-      await import("../tools/credentials/metadata-store.js");
+      await import("../outbound-proxy/credentials/metadata-store.js");
     const meta = getCredentialMetadata("github", "token");
     expect(meta).toBeDefined();
     expect(meta!.allowedTools).toEqual(["browser_fill_credential"]);
@@ -798,7 +798,7 @@ describe("credential_store tool — store validation edge cases", () => {
     // Verify stored
     expect(getSecureKey("credential:del-test:key")).toBe("secret");
     const { getCredentialMetadata } =
-      await import("../tools/credentials/metadata-store.js");
+      await import("../outbound-proxy/credentials/metadata-store.js");
     expect(getCredentialMetadata("del-test", "key")).toBeDefined();
 
     // Delete

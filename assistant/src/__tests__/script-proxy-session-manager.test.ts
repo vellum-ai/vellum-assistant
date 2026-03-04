@@ -1,20 +1,20 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import type { ResolvedCredential } from "../tools/credentials/resolve.js";
+import type { CredentialInjectionTemplate } from "../outbound-proxy/index.js";
+import type { ResolvedCredential } from "../outbound-proxy/index.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
 // Track resolveById return values per credential ID
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
 
-mock.module("../tools/credentials/resolve.js", () => ({
+mock.module("../outbound-proxy/credentials/resolve.js", () => ({
   resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
   resolveByServiceField: () => undefined,
   resolveForDomain: () => [],
 }));
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => [],
 }));
 

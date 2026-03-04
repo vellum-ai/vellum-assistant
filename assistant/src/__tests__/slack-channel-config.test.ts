@@ -80,7 +80,7 @@ let credentialMetadataStore: Array<{
   accountInfo?: string;
 }> = [];
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   getCredentialMetadata: (service: string, field: string) =>
     credentialMetadataStore.find(
       (m) => m.service === service && m.field === field,

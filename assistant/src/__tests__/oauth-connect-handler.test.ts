@@ -100,7 +100,7 @@ mock.module("../oauth/connect-orchestrator.js", () => ({
 }));
 
 // Mock credential metadata store
-mock.module("../tools/credentials/metadata-store.js", () => ({
+mock.module("../outbound-proxy/credentials/metadata-store.js", () => ({
   getCredentialMetadata: () => undefined,
   upsertCredentialMetadata: () => ({}),
   deleteCredentialMetadata: () => false,

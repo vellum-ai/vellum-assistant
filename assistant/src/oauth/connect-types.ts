@@ -5,8 +5,8 @@
  * persistence module, and the credential vault orchestrator.
  */
 
+import type { CredentialInjectionTemplate } from "../outbound-proxy/index.js";
 import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 
 // ---------------------------------------------------------------------------
 // Scope policy

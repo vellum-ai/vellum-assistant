@@ -62,14 +62,14 @@ mock.module("../tools/registry.js", () => ({
 // getCredentialValue is no longer exported (sealed in PR 17) — use getSecureKey directly
 
 import {
+  _setMetadataPath,
+  getCredentialMetadata,
+} from "../outbound-proxy/index.js";
+import {
   deleteSecureKey,
   getSecureKey,
   setSecureKey,
 } from "../security/secure-keys.js";
-import {
-  _setMetadataPath,
-  getCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
 import { credentialStoreTool } from "../tools/credentials/vault.js";
 import type { ToolContext } from "../tools/types.js";
 
