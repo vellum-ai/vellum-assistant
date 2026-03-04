@@ -322,7 +322,7 @@ export class SlackSocketModeClient {
     const isReactionAdded =
       event.type === "reaction_added" &&
       !!reactionEvent.item?.ts &&
-      this.activeThreads.has(reactionEvent.item.ts);
+      this.store.hasThread(reactionEvent.item.ts);
 
     // Process app_mention events, DMs, scoped reactions, and replies in active bot threads
     if (!isAppMention && !isDm && !isReactionAdded && !isActiveThreadReply) {
