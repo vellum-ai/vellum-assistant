@@ -207,7 +207,7 @@ struct AppsGridView: View {
                     .allowsHitTesting(isHovered)
                     .animation(VAnimation.fast, value: isHovered)
                 }
-                .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+
 
                 // Name + date below the image
                 VStack(alignment: .leading, spacing: 2) {
