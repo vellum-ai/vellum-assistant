@@ -1,5 +1,29 @@
 export type ContactRole = "guardian" | "contact";
 
+export type ContactType = "human" | "assistant";
+
+export type AssistantSpecies = "vellum" | "openclaw";
+
+export interface VellumAssistantMetadata {
+  assistantId: string;
+  gatewayUrl: string;
+}
+
+export interface OpenClawAssistantMetadata {
+  [key: string]: unknown;
+}
+
+export type AssistantMetadataBySpecies = {
+  vellum: VellumAssistantMetadata;
+  openclaw: OpenClawAssistantMetadata;
+};
+
+export interface AssistantContactMetadata {
+  contactId: string;
+  species: AssistantSpecies;
+  metadata: AssistantMetadataBySpecies[AssistantSpecies] | null;
+}
+
 export interface Contact {
   id: string;
   displayName: string;
@@ -12,6 +36,7 @@ export interface Contact {
   createdAt: number;
   updatedAt: number;
   role: ContactRole;
+  contactType: ContactType;
   principalId: string | null;
   assistantId: string | null;
 }
