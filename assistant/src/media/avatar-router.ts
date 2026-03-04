@@ -4,6 +4,7 @@
  */
 
 import { getConfig, loadRawConfig } from "../config/loader.js";
+import { ConfigError, ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type {
   AvatarGenerationResult,
@@ -42,7 +43,7 @@ async function generateLocal(
 ): Promise<AvatarGenerationResult> {
   const geminiKey = getConfig().apiKeys.gemini ?? process.env.GEMINI_API_KEY;
   if (!geminiKey) {
-    throw new Error(
+    throw new ConfigError(
       "Gemini API key is not configured. Set it via `config set apiKeys.gemini <key>` or the GEMINI_API_KEY environment variable.",
     );
   }
@@ -54,7 +55,10 @@ async function generateLocal(
 
   const image = result.images[0];
   if (!image) {
-    throw new Error("Local Gemini image generation returned no images.");
+    throw new ProviderError(
+      "Local Gemini image generation returned no images.",
+      "gemini",
+    );
   }
 
   return {
