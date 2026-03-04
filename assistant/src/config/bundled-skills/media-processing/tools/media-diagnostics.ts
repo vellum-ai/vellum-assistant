@@ -6,17 +6,21 @@
  * All metrics are generic media-processing infrastructure.
  */
 
-import { readFile } from 'node:fs/promises';
-import { dirname,join } from 'node:path';
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import {
   getKeyframesForAsset,
   getMediaAssetById,
   getProcessingStagesForAsset,
   type ProcessingStage,
-} from '../../../../memory/media-store.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import type { PreprocessManifest } from '../services/preprocess.js';
+} from "../../../../memory/media-store.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import type { PreprocessManifest } from "../services/preprocess.js";
+import type { ReduceCostData } from "../services/reduce.js";
 // ---------------------------------------------------------------------------
 // Cost estimation constants (Gemini 2.5 Flash pricing)
 // ---------------------------------------------------------------------------
@@ -47,9 +51,13 @@ interface DiagnosticReport {
   };
   stages: StageDiagnostic[];
   costEstimate: {
-    keyframeCount: number;
-    estimatedSegments: number;
-    estimatedCostPerSegment: number;
+    mapPhase: {
+      keyframeCount: number;
+      estimatedSegments: number;
+      estimatedCostPerSegment: number;
+      estimatedMapCost: number;
+    };
+    reduceCost: ReduceCostData | null;
     estimatedTotalCost: number;
     currency: string;
     note: string;
@@ -64,7 +72,7 @@ function computeStageDuration(stage: ProcessingStage): number | null {
   if (stage.startedAt == null) return null;
   if (stage.completedAt != null) return stage.completedAt - stage.startedAt;
   // Only use Date.now() as a fallback for currently running stages
-  if (stage.status === 'running') return Date.now() - stage.startedAt;
+  if (stage.status === "running") return Date.now() - stage.startedAt;
   // For failed/pending stages without completedAt, duration is unknown
   return null;
 }
@@ -79,7 +87,7 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const assetId = input.asset_id as string | undefined;
   if (!assetId) {
-    return { content: 'asset_id is required.', isError: true };
+    return { content: "asset_id is required.", isError: true };
   }
 
   const asset = getMediaAssetById(assetId);
@@ -105,9 +113,14 @@ export async function run(
 
   // Prefer actual segment count from preprocess manifest when available
   let estimatedSegments: number;
-  const manifestPath = join(dirname(asset.filePath), 'pipeline', asset.id, 'manifest.json');
+  const manifestPath = join(
+    dirname(asset.filePath),
+    "pipeline",
+    asset.id,
+    "manifest.json",
+  );
   try {
-    const raw = await readFile(manifestPath, 'utf-8');
+    const raw = await readFile(manifestPath, "utf-8");
     const manifest: PreprocessManifest = JSON.parse(raw);
     estimatedSegments = manifest.segments.length;
   } catch {
@@ -115,7 +128,30 @@ export async function run(
     estimatedSegments = Math.ceil(keyframeCount / 10);
   }
 
-  const estimatedTotalCost = estimatedSegments * ESTIMATED_COST_PER_SEGMENT_USD;
+  const estimatedMapCost = estimatedSegments * ESTIMATED_COST_PER_SEGMENT_USD;
+
+  // Load reduce cost data if available
+  const reduceCostPath = join(
+    dirname(asset.filePath),
+    "pipeline",
+    asset.id,
+    "reduce-cost.json",
+  );
+  let reduceCost: ReduceCostData | null = null;
+  try {
+    const raw = await readFile(reduceCostPath, "utf-8");
+    reduceCost = JSON.parse(raw) as ReduceCostData;
+  } catch {
+    // No reduce cost data yet
+  }
+
+  // Combine map + reduce costs for the total estimate
+  // Reduce cost is token-based; use a rough estimate of $3/M input + $15/M output (Claude Sonnet-class)
+  const reduceEstimatedCost = reduceCost
+    ? (reduceCost.totalInputTokens * 3 + reduceCost.totalOutputTokens * 15) /
+      1_000_000
+    : 0;
+  const estimatedTotalCost = estimatedMapCost + reduceEstimatedCost;
 
   const report: DiagnosticReport = {
     assetId: asset.id,
@@ -128,12 +164,16 @@ export async function run(
     },
     stages: stageDiagnostics,
     costEstimate: {
-      keyframeCount,
-      estimatedSegments,
-      estimatedCostPerSegment: ESTIMATED_COST_PER_SEGMENT_USD,
-      estimatedTotalCost: Math.round(estimatedTotalCost * 1000) / 1000,
-      currency: 'USD',
-      note: 'Gemini 2.5 Flash for Map phase; Claude for Reduce phase (additional cost).',
+      mapPhase: {
+        keyframeCount,
+        estimatedSegments,
+        estimatedCostPerSegment: ESTIMATED_COST_PER_SEGMENT_USD,
+        estimatedMapCost: Math.round(estimatedMapCost * 1000) / 1000,
+      },
+      reduceCost,
+      estimatedTotalCost: Math.round(estimatedTotalCost * 1000000) / 1000000,
+      currency: "USD",
+      note: "Map: Gemini 2.5 Flash per segment. Reduce: Claude token-based ($3/M input, $15/M output).",
     },
   };
 
