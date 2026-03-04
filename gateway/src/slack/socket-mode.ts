@@ -277,7 +277,6 @@ export class SlackSocketModeClient {
 
     const isAppMention = event.type === "app_mention";
     const isDm = event.type === "message" && dmEvent.channel_type === "im";
-    const isReactionAdded = event.type === "reaction_added";
     const mentionsBot =
       this.config.botUserId &&
       channelEvent.text?.includes(`<@${this.config.botUserId}>`);
@@ -288,7 +287,14 @@ export class SlackSocketModeClient {
       !!channelEvent.thread_ts &&
       this.activeThreads.has(channelEvent.thread_ts);
 
-    // Process app_mention events, DMs, reaction_added, and replies in active bot threads
+    // Only forward reaction_added events on messages in tracked bot threads
+    const reactionEvent = event as SlackReactionAddedEvent;
+    const isReactionAdded =
+      event.type === "reaction_added" &&
+      !!reactionEvent.item?.ts &&
+      this.activeThreads.has(reactionEvent.item.ts);
+
+    // Process app_mention events, DMs, scoped reactions, and replies in active bot threads
     if (!isAppMention && !isDm && !isReactionAdded && !isActiveThreadReply) {
       return;
     }

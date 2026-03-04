@@ -290,6 +290,10 @@ export function normalizeSlackBlockActions(
 
   const callbackData = action.value ?? action.action_id;
   const messageTs = payload.message?.ts;
+  // Use action_ts (unique per click) to prevent dedup collisions when
+  // multiple buttons on the same message are clicked or the same button
+  // is clicked again after a transient failure.
+  const actionTs = action.action_ts ?? envelopeId;
 
   return {
     event: {
@@ -299,7 +303,7 @@ export function normalizeSlackBlockActions(
       message: {
         content: callbackData,
         conversationExternalId: channelId,
-        externalMessageId: `${channelId}:${messageTs ?? envelopeId}`,
+        externalMessageId: `${channelId}:${messageTs ?? envelopeId}:${actionTs}`,
         callbackQueryId: payload.trigger_id,
         callbackData,
       },
