@@ -364,6 +364,7 @@ export class SlackSocketModeClient {
         event as SlackReactionAddedEvent,
         eventId,
         this.config.gatewayConfig,
+        this.config.botUserId,
       );
     } else if (isAppMention) {
       normalized = normalizeSlackAppMention(

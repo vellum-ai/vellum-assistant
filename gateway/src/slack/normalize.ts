@@ -533,10 +533,28 @@ export function normalizeSlackReactionAdded(
   event: SlackReactionAddedEvent,
   eventId: string,
   config: GatewayConfig,
+  botUserId?: string,
 ): NormalizedSlackEvent | null {
   if (!event.user || !event.item?.channel || !event.item?.ts) return null;
+  // Ignore reactions from the bot itself
+  if (botUserId && event.user === botUserId) return null;
 
-  const routing = resolveAssistant(config, event.item.channel, event.user);
+  const channel = event.item.channel;
+
+  // DM reactions should still route via default assistant (same as DM messages).
+  // Only apply fallback to DM channels (D...) — reactions from unrouted public
+  // channels should not bypass explicit routing policy.
+  let routing = resolveAssistant(config, channel, event.user);
+  if (
+    isRejection(routing) &&
+    config.defaultAssistantId &&
+    channel.startsWith("D")
+  ) {
+    routing = {
+      assistantId: config.defaultAssistantId,
+      routeSource: "default" as const,
+    };
+  }
   if (isRejection(routing)) return null;
 
   const callbackData = `reaction:${event.reaction}`;
@@ -548,8 +566,10 @@ export function normalizeSlackReactionAdded(
       receivedAt: new Date().toISOString(),
       message: {
         content: callbackData,
-        conversationExternalId: event.item.channel,
-        externalMessageId: `${event.item.channel}:${event.item.ts}:${event.reaction}`,
+        conversationExternalId: channel,
+        // Include reactor user ID to prevent dedup collisions when multiple
+        // users react with the same emoji on the same message.
+        externalMessageId: `${channel}:${event.item.ts}:${event.reaction}:${event.user}`,
         callbackData,
       },
       actor: {
@@ -563,7 +583,7 @@ export function normalizeSlackReactionAdded(
     },
     routing,
     threadTs: event.item.ts,
-    channel: event.item.channel,
+    channel,
   };
 }
 
