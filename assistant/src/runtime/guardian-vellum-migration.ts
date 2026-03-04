@@ -14,6 +14,7 @@ import { v4 as uuid } from "uuid";
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
+import { getActiveBinding } from "../memory/guardian-bindings.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
@@ -36,6 +37,28 @@ export function ensureVellumGuardianBinding(
       "Vellum guardian binding already exists with principal",
     );
     return guardianResult.contact.principalId;
+  }
+
+  // Fallback: check the legacy channel_guardian_bindings table. On first
+  // startup after the contacts migration, the contacts table may not yet
+  // have the guardian entry. If found, sync it into contacts so downstream
+  // trust resolution (which reads contacts only) sees it immediately.
+  const legacyBinding = getActiveBinding(assistantId, "vellum");
+  if (legacyBinding) {
+    createGuardianBindingContactsFirst({
+      assistantId,
+      channel: "vellum",
+      guardianExternalUserId: legacyBinding.guardianExternalUserId,
+      guardianDeliveryChatId: legacyBinding.guardianDeliveryChatId,
+      guardianPrincipalId: legacyBinding.guardianPrincipalId,
+      verifiedVia: legacyBinding.verifiedVia,
+      metadataJson: legacyBinding.metadataJson,
+    });
+    log.info(
+      { assistantId, guardianPrincipalId: legacyBinding.guardianPrincipalId },
+      "Synced legacy vellum guardian binding into contacts",
+    );
+    return legacyBinding.guardianPrincipalId;
   }
 
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
