@@ -1840,91 +1840,54 @@ describe("Trust Store", () => {
     });
   });
 
-  // ── network_request trust rule matching ────────────────────────
+  // ── proxied bash URL trust rule matching ────────────────────────
 
-  describe("network_request trust rules", () => {
-    test("exact origin rule matches network_request candidates", () => {
-      addRule(
-        "network_request",
-        "network_request:https://api.example.com/*",
-        "everywhere",
-      );
+  describe("proxied bash URL trust rules", () => {
+    const encodedOrigin = "https%3A%2F%2Fapi.example.com";
+    const encodedExact = "https%3A%2F%2Fapi.example.com%2Fv1%2Fdata";
+
+    test("origin rule matches proxied origin candidates", () => {
+      addRule("bash", `proxied_origin:${encodedOrigin}`, "everywhere");
       const rule = findHighestPriorityRule(
-        "network_request",
-        [
-          "network_request:https://api.example.com/v1/data",
-          "network_request:https://api.example.com/*",
-        ],
+        "bash",
+        [`proxied_url:${encodedExact}`, `proxied_origin:${encodedOrigin}`],
         "/tmp",
       );
       expect(rule).not.toBeNull();
       expect(rule!.decision).toBe("allow");
     });
 
-    test("exact url rule matches only that url candidate", () => {
-      addRule(
-        "network_request",
-        "network_request:https://api.example.com/v1/data",
-        "everywhere",
-      );
+    test("exact url rule matches only that proxied url candidate", () => {
+      addRule("bash", `proxied_url:${encodedExact}`, "everywhere");
       const match = findHighestPriorityRule(
-        "network_request",
-        [
-          "network_request:https://api.example.com/v1/data",
-          "network_request:https://api.example.com/*",
-        ],
+        "bash",
+        [`proxied_url:${encodedExact}`, `proxied_origin:${encodedOrigin}`],
         "/tmp",
       );
       expect(match).not.toBeNull();
 
       const noMatch = findHighestPriorityRule(
-        "network_request",
-        ["network_request:https://api.example.com/v2/other"],
+        "bash",
+        ["proxied_url:https%3A%2F%2Fapi.example.com%2Fv2%2Fother"],
         "/tmp",
       );
-      expect(noMatch).toBeNull();
+      expect(
+        noMatch == null || noMatch.pattern !== `proxied_url:${encodedExact}`,
+      ).toBe(true);
     });
 
-    test("globstar rule matches any network_request candidate", () => {
-      // minimatch treats standalone "**" as globstar (matching "/"), but
-      // "network_request:*" uses single "*" which doesn't cross slashes.
-      // The tool field is already filtered by findHighestPriorityRule, so
-      // "**" is the correct catch-all pattern.
-      addRule("network_request", "**", "everywhere");
+    test("single-star wildcard matches any encoded proxied URL candidate", () => {
+      addRule("bash", "proxied_url:*", "everywhere");
       const rule = findHighestPriorityRule(
-        "network_request",
-        ["network_request:https://any-host.example.org/path"],
+        "bash",
+        ["proxied_url:https%3A%2F%2Fany-host.example.org%2Fpath"],
         "/tmp",
       );
       expect(rule).not.toBeNull();
     });
 
-    test("single-star wildcard matches flat candidates only", () => {
-      // "network_request:*" won't match URLs with slashes — consistent
-      // with the behavior of web_fetch:* and browser_navigate:* patterns.
-      addRule("network_request", "network_request:*", "everywhere");
-      const noSlashMatch = findHighestPriorityRule(
-        "network_request",
-        ["network_request:flat-target"],
-        "/tmp",
-      );
-      expect(noSlashMatch).not.toBeNull();
-
-      const slashNoMatch = findHighestPriorityRule(
-        "network_request",
-        ["network_request:https://example.com/path"],
-        "/tmp",
-      );
-      // Single "*" does not match "/" so this URL candidate won't match.
-      expect(slashNoMatch).toBeNull();
-    });
-
-    test("network_request rule does not match web_fetch tool", () => {
-      addRule(
-        "network_request",
-        "network_request:https://api.example.com/*",
-        "everywhere",
-      );
+    test("proxied bash URL rule does not match web_fetch tool", () => {
+      addRule("bash", `proxied_origin:${encodedOrigin}`, "everywhere");
       const rule = findHighestPriorityRule(
         "web_fetch",
         [
@@ -1936,40 +1899,24 @@ describe("Trust Store", () => {
       expect(rule).toBeNull();
     });
 
-    test("web_fetch rule does not match network_request tool", () => {
+    test("web_fetch rule does not match proxied bash URL candidates", () => {
       addRule("web_fetch", "web_fetch:https://api.example.com/*", "everywhere");
       const rule = findHighestPriorityRule(
-        "network_request",
-        [
-          "network_request:https://api.example.com/v1/data",
-          "network_request:https://api.example.com/*",
-        ],
+        "bash",
+        [`proxied_url:${encodedExact}`, `proxied_origin:${encodedOrigin}`],
         "/tmp",
       );
-      expect(rule).toBeNull();
+      expect(
+        rule == null || rule.pattern !== "web_fetch:https://api.example.com/*",
+      ).toBe(true);
     });
 
     test("deny rule takes precedence over allow at same priority", () => {
-      addRule(
-        "network_request",
-        "network_request:https://api.example.com/*",
-        "everywhere",
-        "allow",
-        100,
-      );
-      addRule(
-        "network_request",
-        "network_request:https://api.example.com/*",
-        "everywhere",
-        "deny",
-        100,
-      );
+      addRule("bash", `proxied_origin:${encodedOrigin}`, "everywhere", "allow");
+      addRule("bash", `proxied_origin:${encodedOrigin}`, "everywhere", "deny");
       const rule = findHighestPriorityRule(
-        "network_request",
-        [
-          "network_request:https://api.example.com/v1/data",
-          "network_request:https://api.example.com/*",
-        ],
+        "bash",
+        [`proxied_url:${encodedExact}`, `proxied_origin:${encodedOrigin}`],
         "/tmp",
       );
       expect(rule).not.toBeNull();
@@ -1978,50 +1925,46 @@ describe("Trust Store", () => {
 
     test("higher-priority allow overrides lower-priority deny", () => {
       addRule(
-        "network_request",
-        "network_request:https://api.example.com/*",
+        "bash",
+        `proxied_origin:${encodedOrigin}`,
         "everywhere",
         "deny",
         50,
       );
       addRule(
-        "network_request",
-        "network_request:https://api.example.com/*",
+        "bash",
+        `proxied_origin:${encodedOrigin}`,
         "everywhere",
         "allow",
         100,
       );
       const rule = findHighestPriorityRule(
-        "network_request",
-        [
-          "network_request:https://api.example.com/v1/data",
-          "network_request:https://api.example.com/*",
-        ],
+        "bash",
+        [`proxied_url:${encodedExact}`, `proxied_origin:${encodedOrigin}`],
         "/tmp",
       );
       expect(rule).not.toBeNull();
       expect(rule!.decision).toBe("allow");
     });
 
-    test("scope restricts network_request rule matching", () => {
-      addRule(
-        "network_request",
-        "network_request:https://api.example.com/*",
-        "/home/user/project",
-      );
+    test("scope restricts proxied bash URL rule matching", () => {
+      addRule("bash", `proxied_origin:${encodedOrigin}`, "/home/user/project");
       const inScope = findHighestPriorityRule(
-        "network_request",
-        ["network_request:https://api.example.com/*"],
+        "bash",
+        [`proxied_origin:${encodedOrigin}`],
         "/home/user/project",
       );
       expect(inScope).not.toBeNull();
 
       const outOfScope = findHighestPriorityRule(
-        "network_request",
-        ["network_request:https://api.example.com/*"],
+        "bash",
+        [`proxied_origin:${encodedOrigin}`],
         "/tmp/other",
       );
-      expect(outOfScope).toBeNull();
+      expect(
+        outOfScope == null ||
+          outOfScope.pattern !== `proxied_origin:${encodedOrigin}`,
+      ).toBe(true);
     });
   });
 });

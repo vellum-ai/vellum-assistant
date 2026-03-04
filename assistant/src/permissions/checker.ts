@@ -388,11 +388,7 @@ async function buildCommandCandidates(
     return [`${toolName}:${skillId}`];
   }
 
-  if (
-    toolName === "web_fetch" ||
-    toolName === "browser_navigate" ||
-    toolName === "network_request"
-  ) {
+  if (toolName === "web_fetch" || toolName === "browser_navigate") {
     const rawUrl = getStringField(input, "url").trim();
     const candidates: string[] = [];
 
@@ -542,9 +538,6 @@ async function classifyRiskUncached(
   }
   // All other browser tools are low risk — the browser is sandboxed and user-visible.
   if (toolName.startsWith("browser_")) return RiskLevel.Low;
-  // Proxy-authenticated network requests are Medium risk — they carry injected
-  // credentials and the user should approve the target host/origin.
-  if (toolName === "network_request") return RiskLevel.Medium;
   if (toolName === "skill_load") return RiskLevel.Low;
 
   // Escalate host file mutations targeting skill source paths to High risk.
@@ -856,7 +849,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   host_file_edit: "host file edits",
   web_fetch: "URL fetches",
   browser_navigate: "browser navigations",
-  network_request: "network requests",
 };
 
 function friendlyBasename(filePath: string): string {
@@ -1040,7 +1032,6 @@ const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
   host_file_edit: fileAllowlistStrategy,
   web_fetch: urlAllowlistStrategy,
   browser_navigate: urlAllowlistStrategy,
-  network_request: urlAllowlistStrategy,
   scaffold_managed_skill: managedSkillAllowlistStrategy,
   delete_managed_skill: managedSkillAllowlistStrategy,
   skill_load: skillLoadAllowlistStrategy,

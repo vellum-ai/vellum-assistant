@@ -221,7 +221,6 @@ describe("isWorkspaceScopedInvocation", () => {
       "browser_scroll",
       "browser_screenshot",
       "browser_close",
-      "network_request",
     ];
 
     for (const tool of networkTools) {

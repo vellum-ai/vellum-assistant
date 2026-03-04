@@ -9,7 +9,6 @@
 import { isHttpAuthDisabled } from "../config/env.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import {
-  generateAllowlistOptions,
   generateScopeOptions,
   normalizeWebFetchUrl,
 } from "../permissions/checker.js";
@@ -19,7 +18,7 @@ import {
   addRule,
   findHighestPriorityRule,
 } from "../permissions/trust-store.js";
-import { isAllowDecision } from "../permissions/types.js";
+import { type AllowlistOption, isAllowDecision } from "../permissions/types.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getEffectiveMode } from "../runtime/session-approval-overrides.js";
@@ -321,6 +320,88 @@ export function createToolExecutor(
 
 // ── createProxyApprovalCallback ──────────────────────────────────────
 
+const PROXIED_BASH_URL_PREFIX = "proxied_url:";
+const PROXIED_BASH_ORIGIN_PREFIX = "proxied_origin:";
+
+function encodeProxyRuleValue(value: string): string {
+  // Encode URL values so wildcard patterns (e.g. `proxied_url:*`) don't trip
+  // over minimatch "/" segment semantics.
+  return encodeURIComponent(value);
+}
+
+function buildProxiedBashUrlCandidates(url: string): string[] {
+  const rawUrl = url.trim();
+  const candidates: string[] = [];
+
+  if (rawUrl) {
+    candidates.push(
+      `${PROXIED_BASH_URL_PREFIX}${encodeProxyRuleValue(rawUrl)}`,
+    );
+  }
+
+  const normalized = normalizeWebFetchUrl(rawUrl);
+  if (normalized) {
+    candidates.push(
+      `${PROXIED_BASH_URL_PREFIX}${encodeProxyRuleValue(normalized.href)}`,
+    );
+    candidates.push(
+      `${PROXIED_BASH_ORIGIN_PREFIX}${encodeProxyRuleValue(normalized.origin)}`,
+    );
+  }
+
+  if (candidates.length === 0) {
+    candidates.push(PROXIED_BASH_URL_PREFIX);
+  }
+
+  return [...new Set(candidates)];
+}
+
+function buildProxiedBashAllowlistOptions(url: string): AllowlistOption[] {
+  const rawUrl = url.trim();
+  const normalized = normalizeWebFetchUrl(rawUrl);
+  const exact = normalized?.href ?? rawUrl;
+  const options: AllowlistOption[] = [];
+
+  if (exact) {
+    options.push({
+      label: exact,
+      description: "This exact URL",
+      pattern: `${PROXIED_BASH_URL_PREFIX}${encodeProxyRuleValue(exact)}`,
+    });
+  }
+
+  if (normalized) {
+    const host = normalized.hostname.replace(/^www\./, "");
+    options.push({
+      label: `${normalized.origin}/*`,
+      description: `Any page on ${host}`,
+      pattern: `${PROXIED_BASH_ORIGIN_PREFIX}${encodeProxyRuleValue(
+        normalized.origin,
+      )}`,
+    });
+  }
+
+  options.push({
+    label: `${PROXIED_BASH_URL_PREFIX}*`,
+    description: "All proxied network requests",
+    pattern: `${PROXIED_BASH_URL_PREFIX}*`,
+  });
+
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (seen.has(option.pattern)) return false;
+    seen.add(option.pattern);
+    return true;
+  });
+}
+
+function isProxyScopedBashPattern(pattern: string): boolean {
+  return (
+    pattern.startsWith(PROXIED_BASH_URL_PREFIX) ||
+    pattern.startsWith(PROXIED_BASH_ORIGIN_PREFIX)
+  );
+}
+
 /**
  * Build a proxy approval callback that routes `ask_missing_credential` and
  * `ask_unauthenticated` policy decisions through the existing permission
@@ -335,13 +416,15 @@ export function createProxyApprovalCallback(
     const { decision } = request;
     const { hostname, port, path } = decision.target;
 
-    // Use the standard network_request tool name so trust rules align with
-    // the checker's URL-based candidate generation and allowlist options.
-    const toolName = "network_request";
+    // Route proxy network approvals through bash so there is no separate
+    // direct network tool path.
+    const toolName = "bash";
     const { scheme } = decision.target;
     const url = `${scheme}://${hostname}${port ? ":" + port : ""}${path}`;
 
     const input: Record<string, unknown> = {
+      command: `curl ${url}`,
+      network_mode: "proxied",
       url,
       proxy_session_id: request.sessionId,
     };
@@ -352,23 +435,26 @@ export function createProxyApprovalCallback(
     const riskLevel =
       decision.kind === "ask_missing_credential" ? "high" : "medium";
 
-    // Check trust store before prompting — build candidates that mirror
-    // buildCommandCandidates() in checker.ts for network_request.
-    const candidates: string[] = [`${toolName}:${url}`];
-    const normalized = normalizeWebFetchUrl(url);
-    if (normalized) {
-      candidates.push(`${toolName}:${normalized.href}`);
-      candidates.push(`${toolName}:${normalized.origin}/*`);
-    }
-    candidates.push(`${toolName}:*`);
-    // Deduplicate
-    const uniqueCandidates = [...new Set(candidates)];
+    // Proxied network approvals use URL-scoped bash candidates so persisted
+    // rules cannot accidentally match unrelated shell commands.
+    const uniqueCandidates = buildProxiedBashUrlCandidates(url);
 
-    const existingRule = findHighestPriorityRule(
+    const matchedRule = findHighestPriorityRule(
       toolName,
       uniqueCandidates,
       ctx.workingDir,
     );
+    // Ignore default broad bash allow rules here; proxied network requests
+    // require explicit proxy-scoped rules instead of inheriting generic shell
+    // permissions.
+    const existingRule =
+      matchedRule &&
+      matchedRule.decision === "allow" &&
+      matchedRule.id.startsWith("default:") &&
+      !isProxyScopedBashPattern(matchedRule.pattern)
+        ? null
+        : matchedRule;
+
     if (existingRule && existingRule.decision !== "ask") {
       if (existingRule.decision === "deny") return false;
       // For high-risk proxy decisions, a plain allow rule (without allowHighRisk)
@@ -377,10 +463,7 @@ export function createProxyApprovalCallback(
         return true;
     }
 
-    // Use the checker's built-in allowlist generation for network_request
-    const allowlistOptions = await generateAllowlistOptions("network_request", {
-      url,
-    });
+    const allowlistOptions = buildProxiedBashAllowlistOptions(url);
 
     const scopeOptions = generateScopeOptions(ctx.workingDir);
 

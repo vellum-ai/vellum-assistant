@@ -729,8 +729,12 @@ describe("voice-session-bridge", () => {
         clientHandler({
           type: "confirmation_request",
           requestId: "req-voice-2",
-          toolName: "network_request",
-          input: { url: "https://evil.com" },
+          toolName: "bash",
+          input: {
+            command: "curl https://evil.com",
+            url: "https://evil.com",
+            network_mode: "proxied",
+          },
           riskLevel: "medium",
           allowlistOptions: [],
           scopeOptions: [],

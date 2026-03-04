@@ -180,7 +180,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         details.allowlistOptions?.length
       ) {
         const pattern = details.allowlistOptions[0].pattern;
-        // Non-scoped tools (web_fetch, network_request, etc.) have empty
+        // Non-scoped tools (web_fetch, browser_navigate, etc.) have empty
         // scopeOptions — default to 'everywhere' so approve_always still
         // persists a trust rule instead of silently degrading to one-time.
         const scope = details.scopeOptions?.length

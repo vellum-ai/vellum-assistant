@@ -168,8 +168,8 @@ describe("createProxyApprovalCallback", () => {
   test("skips prompting and returns true when trust store has an allow rule (medium risk)", async () => {
     findHighestPriorityRuleMock.mockReturnValue({
       id: "rule-1",
-      tool: "network_request",
-      pattern: "network_request:https://example.com/*",
+      tool: "bash",
+      pattern: "proxied_origin:https%3A%2F%2Fexample.com",
       scope: "/tmp/test-project",
       decision: "allow" as const,
       priority: 100,
@@ -189,11 +189,44 @@ describe("createProxyApprovalCallback", () => {
     expect(prompterSendToClient).not.toHaveBeenCalled();
   });
 
+  test("ignores default broad bash allow rules and still prompts", async () => {
+    findHighestPriorityRuleMock.mockReturnValue({
+      id: "default:allow-bash-global",
+      tool: "bash",
+      pattern: "**",
+      scope: "everywhere",
+      decision: "allow" as const,
+      priority: 50,
+      createdAt: Date.now(),
+      allowHighRisk: true,
+    });
+
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const originalPrompt = prompter.prompt.bind(prompter);
+    prompter.prompt = async (...args) => {
+      const p = originalPrompt(...args);
+      await new Promise((r) => setTimeout(r, 10));
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
+      const msg = call[0] as { requestId: string };
+      prompter.resolveConfirmation(msg.requestId, "allow");
+      return p;
+    };
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskUnauthenticatedRequest());
+
+    expect(result).toBe(true);
+    expect(prompterSendToClient).toHaveBeenCalled();
+  });
+
   test("high-risk with plain allow rule (no allowHighRisk) falls through to prompt", async () => {
     findHighestPriorityRuleMock.mockReturnValue({
       id: "rule-hr-1",
-      tool: "network_request",
-      pattern: "network_request:https://api.fal.ai:443/*",
+      tool: "bash",
+      pattern: "proxied_origin:https%3A%2F%2Fapi.fal.ai",
       scope: "/tmp/test-project",
       decision: "allow" as const,
       priority: 100,
@@ -227,8 +260,8 @@ describe("createProxyApprovalCallback", () => {
   test("high-risk with allowHighRisk allow rule auto-allows without prompting", async () => {
     findHighestPriorityRuleMock.mockReturnValue({
       id: "rule-hr-2",
-      tool: "network_request",
-      pattern: "network_request:https://api.fal.ai:443/*",
+      tool: "bash",
+      pattern: "proxied_origin:https%3A%2F%2Fapi.fal.ai",
       scope: "/tmp/test-project",
       decision: "allow" as const,
       priority: 100,
@@ -251,8 +284,8 @@ describe("createProxyApprovalCallback", () => {
   test("skips prompting and returns false when trust store has a deny rule", async () => {
     findHighestPriorityRuleMock.mockReturnValue({
       id: "rule-2",
-      tool: "network_request",
-      pattern: "network_request:https://example.com/*",
+      tool: "bash",
+      pattern: "proxied_origin:https%3A%2F%2Fexample.com",
       scope: "/tmp/test-project",
       decision: "deny" as const,
       priority: 100,
@@ -286,8 +319,8 @@ describe("createProxyApprovalCallback", () => {
   test("prompts when trust store has an ask rule", async () => {
     findHighestPriorityRuleMock.mockReturnValue({
       id: "rule-3",
-      tool: "network_request",
-      pattern: "network_request:https://example.com/*",
+      tool: "bash",
+      pattern: "proxied_origin:https%3A%2F%2Fexample.com",
       scope: "/tmp/test-project",
       decision: "ask" as const,
       priority: 100,
@@ -330,7 +363,7 @@ describe("createProxyApprovalCallback", () => {
       prompter.resolveConfirmation(
         msg.requestId,
         "always_allow",
-        "network_request:https://api.fal.ai:443/*",
+        "proxied_origin:https%3A%2F%2Fapi.fal.ai",
         "/tmp/test-project",
       );
       return p;
@@ -341,8 +374,8 @@ describe("createProxyApprovalCallback", () => {
 
     expect(result).toBe(true);
     expect(addRuleMock).toHaveBeenCalledWith(
-      "network_request",
-      "network_request:https://api.fal.ai:443/*",
+      "bash",
+      "proxied_origin:https%3A%2F%2Fapi.fal.ai",
       "/tmp/test-project",
       "allow",
       100,
@@ -364,7 +397,7 @@ describe("createProxyApprovalCallback", () => {
       prompter.resolveConfirmation(
         msg.requestId,
         "always_deny",
-        "network_request:https://example.com/*",
+        "proxied_origin:https%3A%2F%2Fexample.com",
         "everywhere",
       );
       return p;
@@ -375,8 +408,8 @@ describe("createProxyApprovalCallback", () => {
 
     expect(result).toBe(false);
     expect(addRuleMock).toHaveBeenCalledWith(
-      "network_request",
-      "network_request:https://example.com/*",
+      "bash",
+      "proxied_origin:https%3A%2F%2Fexample.com",
       "everywhere",
       "deny",
     );
@@ -397,9 +430,14 @@ describe("createProxyApprovalCallback", () => {
         toolName: string;
         input: Record<string, unknown>;
       };
-      // Verify the confirmation request uses the network_request tool name
-      expect(msg.toolName).toBe("network_request");
+      // Verify the confirmation request uses the bash tool name
+      expect(msg.toolName).toBe("bash");
       expect(msg.input).toHaveProperty("url", "https://api.fal.ai:443/v1/run");
+      expect(msg.input).toHaveProperty("network_mode", "proxied");
+      expect(msg.input).toHaveProperty(
+        "command",
+        "curl https://api.fal.ai:443/v1/run",
+      );
       expect(msg.input).toHaveProperty("matching_patterns", ["*.fal.ai"]);
       prompter.resolveConfirmation(msg.requestId, "allow");
       return p;
@@ -425,8 +463,9 @@ describe("createProxyApprovalCallback", () => {
         input: Record<string, unknown>;
         riskLevel: string;
       };
-      expect(msg.toolName).toBe("network_request");
+      expect(msg.toolName).toBe("bash");
       expect(msg.input).toHaveProperty("url", "https://example.com/data");
+      expect(msg.input).toHaveProperty("network_mode", "proxied");
       expect(msg.riskLevel).toBe("medium");
       prompter.resolveConfirmation(msg.requestId, "deny");
       return p;
@@ -457,7 +496,7 @@ describe("createProxyApprovalCallback", () => {
     await callback(makeAskMissingCredentialRequest());
   });
 
-  test("generates URL-based allowlist options via generateAllowlistOptions", async () => {
+  test("generates URL-based proxied bash allowlist options", async () => {
     const ctx = makeContext();
     const prompterSendToClient = mock(() => {});
     const prompter = new PermissionPrompter(prompterSendToClient);
@@ -471,16 +510,14 @@ describe("createProxyApprovalCallback", () => {
         requestId: string;
         allowlistOptions: Array<{ label: string; pattern: string }>;
       };
-      // The checker's generateAllowlistOptions for network_request produces
-      // URL-based options: exact URL, origin wildcard, and tool wildcard
+      // Proxied bash options include encoded exact URL, encoded origin, and
+      // a proxied-url wildcard.
       const patterns = msg.allowlistOptions.map((o) => o.pattern);
-      // Should include an origin-level wildcard pattern (port 443 is normalized
-      // away by the URL constructor since it's the default HTTPS port)
-      expect(patterns.some((p) => p.includes("https://api.fal.ai/*"))).toBe(
-        true,
+      expect(patterns).toContain(
+        "proxied_url:https%3A%2F%2Fapi.fal.ai%2Fv1%2Frun",
       );
-      // Should include the catch-all globstar wildcard
-      expect(patterns).toContain("**");
+      expect(patterns).toContain("proxied_origin:https%3A%2F%2Fapi.fal.ai");
+      expect(patterns).toContain("proxied_url:*");
       prompter.resolveConfirmation(msg.requestId, "allow");
       return p;
     };
@@ -505,9 +542,7 @@ describe("createProxyApprovalCallback", () => {
       };
       // Port is null — URL should be https://example.com/data (no port)
       const patterns = msg.allowlistOptions.map((o) => o.pattern);
-      expect(patterns.some((p) => p.includes("https://example.com/*"))).toBe(
-        true,
-      );
+      expect(patterns).toContain("proxied_origin:https%3A%2F%2Fexample.com");
       // Should NOT include ":null" in any pattern
       expect(patterns.every((p) => !p.includes(":null"))).toBe(true);
       prompter.resolveConfirmation(msg.requestId, "deny");
@@ -519,9 +554,8 @@ describe("createProxyApprovalCallback", () => {
   });
 
   // ── E2E persistence invariants (PR 32) ──────────────────────────────
-  // These tests verify the proxy approval path CAN save persistent rules,
-  // in contrast to the proxied bash activation path which CANNOT (tested
-  // in tool-executor.test.ts).
+  // These tests verify the proxy approval callback persists proxy-scoped
+  // destination rules when the user chooses an always_* decision.
 
   test("always_allow_high_risk persists rule with allowHighRisk flag", async () => {
     const ctx = makeContext();
@@ -537,7 +571,7 @@ describe("createProxyApprovalCallback", () => {
       prompter.resolveConfirmation(
         msg.requestId,
         "always_allow_high_risk",
-        "network_request:https://api.fal.ai:443/*",
+        "proxied_origin:https%3A%2F%2Fapi.fal.ai",
         "/tmp/test-project",
       );
       return p;
@@ -548,8 +582,8 @@ describe("createProxyApprovalCallback", () => {
 
     expect(result).toBe(true);
     expect(addRuleMock).toHaveBeenCalledWith(
-      "network_request",
-      "network_request:https://api.fal.ai:443/*",
+      "bash",
+      "proxied_origin:https%3A%2F%2Fapi.fal.ai",
       "/tmp/test-project",
       "allow",
       100,
@@ -626,8 +660,8 @@ describe("createProxyApprovalCallback", () => {
     expect(addRuleMock).not.toHaveBeenCalled();
   });
 
-  test("trust store candidates include URL-based patterns for network_request", async () => {
-    // Verify that findHighestPriorityRule is called with network_request
+  test("trust store candidates include encoded proxied URL patterns for bash", async () => {
+    // Verify that findHighestPriorityRule is called with bash
     // tool name and URL-based candidates
     findHighestPriorityRuleMock.mockReturnValue(null);
 
@@ -648,18 +682,18 @@ describe("createProxyApprovalCallback", () => {
     const callback = createProxyApprovalCallback(prompter, ctx);
     await callback(makeAskMissingCredentialRequest());
 
-    // Verify findHighestPriorityRule was called with network_request
+    // Verify findHighestPriorityRule was called with bash
     // and URL-based candidates
     expect(findHighestPriorityRuleMock).toHaveBeenCalledTimes(1);
     const [toolArg, candidatesArg] = findHighestPriorityRuleMock.mock
       .calls[0] as unknown as [string, string[], string];
-    expect(toolArg).toBe("network_request");
-    // Candidates should include URL-based patterns
+    expect(toolArg).toBe("bash");
+    // Candidates should include encoded URL-based proxy patterns.
     expect(
       candidatesArg.some((c: string) =>
-        c.startsWith("network_request:https://api.fal.ai"),
+        c.startsWith("proxied_url:https%3A%2F%2Fapi.fal.ai"),
       ),
     ).toBe(true);
-    expect(candidatesArg).toContain("network_request:*");
+    expect(candidatesArg).toContain("proxied_origin:https%3A%2F%2Fapi.fal.ai");
   });
 });

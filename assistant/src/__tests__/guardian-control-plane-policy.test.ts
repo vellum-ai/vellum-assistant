@@ -223,11 +223,11 @@ describe("isGuardianControlPlaneInvocation", () => {
     });
   });
 
-  describe("network_request tool with guardian endpoint in url", () => {
+  describe("web_fetch tool with guardian endpoint in url", () => {
     for (const path of guardianPaths) {
       test(`detects ${path}`, () => {
         expect(
-          isGuardianControlPlaneInvocation("network_request", {
+          isGuardianControlPlaneInvocation("web_fetch", {
             url: `https://api.vellum.ai${path}`,
           }),
         ).toBe(true);
@@ -236,7 +236,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects proxied local URL", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isGuardianControlPlaneInvocation("web_fetch", {
           url: "http://127.0.0.1:3000/v1/integrations/guardian/challenge",
         }),
       ).toBe(true);
@@ -244,16 +244,14 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("does not match unrelated URLs", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isGuardianControlPlaneInvocation("web_fetch", {
           url: "https://api.example.com/v1/messages",
         }),
       ).toBe(false);
     });
 
     test("handles missing url field gracefully", () => {
-      expect(isGuardianControlPlaneInvocation("network_request", {})).toBe(
-        false,
-      );
+      expect(isGuardianControlPlaneInvocation("web_fetch", {})).toBe(false);
     });
   });
 
@@ -315,7 +313,7 @@ describe("isGuardianControlPlaneInvocation", () => {
   describe("path matching covers proxied and local variants", () => {
     test("matches endpoint with query string", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isGuardianControlPlaneInvocation("web_fetch", {
           url: "https://api.example.com/v1/integrations/guardian/challenge?token=abc",
         }),
       ).toBe(true);
@@ -323,7 +321,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("matches endpoint with trailing slash", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isGuardianControlPlaneInvocation("web_fetch", {
           url: "https://api.example.com/v1/integrations/guardian/outbound/start/",
         }),
       ).toBe(true);
@@ -351,7 +349,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects double-encoded path (%252F encoding)", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isGuardianControlPlaneInvocation("web_fetch", {
           url: "http://localhost:3000/v1/integrations%252Fguardian%252Fchallenge",
         }),
       ).toBe(true);
@@ -368,7 +366,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects triple slashes in path", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isGuardianControlPlaneInvocation("web_fetch", {
           url: "http://localhost:3000/v1///integrations///guardian///status",
         }),
       ).toBe(true);
@@ -385,7 +383,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects ALL CAPS path", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isGuardianControlPlaneInvocation("web_fetch", {
           url: "http://localhost:3000/V1/INTEGRATIONS/GUARDIAN/CHALLENGE",
         }),
       ).toBe(true);
@@ -402,7 +400,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects combined obfuscation: double slashes + URL-encoding", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isGuardianControlPlaneInvocation("web_fetch", {
           url: "http://localhost:3000/v1//integrations%2Fguardian%2Fstatus",
         }),
       ).toBe(true);
@@ -491,7 +489,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       // URL tools pass structured URLs, not shell commands. The fragment detector
       // is bash/host_bash only. For URL tools, we rely on exact/normalized matching.
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isGuardianControlPlaneInvocation("web_fetch", {
           url: "https://api.example.com/v1/messages",
         }),
       ).toBe(false);
@@ -519,7 +517,7 @@ describe("enforceGuardianOnlyPolicy", () => {
 
   test("unverified_channel actor denied for guardian endpoint", () => {
     const result = enforceGuardianOnlyPolicy(
-      "network_request",
+      "web_fetch",
       {
         url: "https://api.example.com/v1/integrations/guardian/challenge",
       },
@@ -613,10 +611,10 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(result.content).toContain("restricted to guardian users");
   });
 
-  test("unverified_channel actor blocked from network_request to guardian endpoint", async () => {
+  test("unverified_channel actor blocked from web_fetch to guardian endpoint", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
-      "network_request",
+      "web_fetch",
       { url: "https://api.example.com/v1/integrations/guardian/challenge" },
       makeContext({ trustClass: "unknown" }),
     );
@@ -730,7 +728,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(result.content).toContain("restricted to guardian users");
   });
 
-  test("all five guardian endpoints are blocked for non-guardian via network_request", async () => {
+  test("all five guardian endpoints are blocked for non-guardian via web_fetch", async () => {
     const endpoints = [
       "/v1/integrations/guardian/challenge",
       "/v1/integrations/guardian/status",
@@ -742,7 +740,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     for (const path of endpoints) {
       const executor = new ToolExecutor(makePrompter());
       const result = await executor.execute(
-        "network_request",
+        "web_fetch",
         { url: `https://api.example.com${path}` },
         makeContext({ trustClass: "trusted_contact" }),
       );

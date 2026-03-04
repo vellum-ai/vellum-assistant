@@ -65,7 +65,6 @@ const NETWORK_TOOLS = new Set([
   "browser_hover",
   "browser_screenshot",
   "browser_close",
-  "network_request",
 ]);
 
 /** Host-level tools — operate outside the sandbox, never workspace-scoped. */

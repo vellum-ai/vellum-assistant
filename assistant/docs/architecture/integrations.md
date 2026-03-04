@@ -219,15 +219,15 @@ The strategy is persisted in the Vellum config file as `twitterOperationStrategy
 
 #### Twitter OAuth2 Specifics
 
-| Aspect | Detail |
-|--------|--------|
-| Auth URL | `https://twitter.com/i/oauth2/authorize` (from provider profile) |
-| Token URL | `https://api.x.com/2/oauth2/token` (from provider profile) |
-| Flow | PKCE (S256), optional client secret, via connect orchestrator |
-| Default scopes | `tweet.read`, `tweet.write`, `users.read`, `offline.access` (from provider profile) |
-| Identity verification | Provider profile `identityVerifier` → `GET https://api.x.com/2/users/me` with Bearer token |
-| Credential names | Canonical: `client_id`, `client_secret`; reads fall back to legacy `oauth_client_id`, `oauth_client_secret` |
-| IPC messages | `oauth_connect_start` / `oauth_connect_result` (generic), plus legacy `twitter_auth_start` / `twitter_auth_status` |
+| Aspect                | Detail                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Auth URL              | `https://twitter.com/i/oauth2/authorize` (from provider profile)                                                   |
+| Token URL             | `https://api.x.com/2/oauth2/token` (from provider profile)                                                         |
+| Flow                  | PKCE (S256), optional client secret, via connect orchestrator                                                      |
+| Default scopes        | `tweet.read`, `tweet.write`, `users.read`, `offline.access` (from provider profile)                                |
+| Identity verification | Provider profile `identityVerifier` → `GET https://api.x.com/2/users/me` with Bearer token                         |
+| Credential names      | Canonical: `client_id`, `client_secret`; reads fall back to legacy `oauth_client_id`, `oauth_client_secret`        |
+| IPC messages          | `oauth_connect_start` / `oauth_connect_result` (generic), plus legacy `twitter_auth_start` / `twitter_auth_status` |
 
 #### Twitter Credential Metadata Structure
 
@@ -254,73 +254,73 @@ When the OAuth2 flow completes, the handler stores credential metadata at `integ
 
 #### Available Twitter Tools
 
-| Tool / Command | Mechanism | Description |
-|----------------|-----------|-------------|
-| `vellum x post` | Strategy router (OAuth or CDP) | Post a tweet. Uses the configured strategy (`auto` by default). |
-| `vellum x reply` | Strategy router (OAuth or CDP) | Reply to a tweet. Uses the configured strategy (`auto` by default). |
-| `vellum x timeline` | CDP | Fetch a user's recent tweets. Browser path only. |
-| `vellum x search` | CDP | Search tweets. Browser path only. |
-| `vellum x home` | CDP | Fetch home timeline. Browser path only. |
-| `vellum x notifications` | CDP | Fetch notifications. Browser path only. |
-| `vellum x bookmarks` | CDP | Fetch bookmarks. Browser path only. |
-| `vellum x likes` | CDP | Fetch a user's liked tweets. Browser path only. |
-| `vellum x followers` | CDP | Fetch a user's followers. Browser path only. |
-| `vellum x following` | CDP | Fetch who a user follows. Browser path only. |
-| `vellum x media` | CDP | Fetch a user's media tweets. Browser path only. |
-| `vellum x strategy` | Config | Get or set the operation strategy (`oauth`, `browser`, `auto`). |
-| `vellum x status` | IPC + local | Check browser session, OAuth connection, and strategy status. |
+| Tool / Command           | Mechanism                      | Description                                                         |
+| ------------------------ | ------------------------------ | ------------------------------------------------------------------- |
+| `vellum x post`          | Strategy router (OAuth or CDP) | Post a tweet. Uses the configured strategy (`auto` by default).     |
+| `vellum x reply`         | Strategy router (OAuth or CDP) | Reply to a tweet. Uses the configured strategy (`auto` by default). |
+| `vellum x timeline`      | CDP                            | Fetch a user's recent tweets. Browser path only.                    |
+| `vellum x search`        | CDP                            | Search tweets. Browser path only.                                   |
+| `vellum x home`          | CDP                            | Fetch home timeline. Browser path only.                             |
+| `vellum x notifications` | CDP                            | Fetch notifications. Browser path only.                             |
+| `vellum x bookmarks`     | CDP                            | Fetch bookmarks. Browser path only.                                 |
+| `vellum x likes`         | CDP                            | Fetch a user's liked tweets. Browser path only.                     |
+| `vellum x followers`     | CDP                            | Fetch a user's followers. Browser path only.                        |
+| `vellum x following`     | CDP                            | Fetch who a user follows. Browser path only.                        |
+| `vellum x media`         | CDP                            | Fetch a user's media tweets. Browser path only.                     |
+| `vellum x strategy`      | Config                         | Get or set the operation strategy (`oauth`, `browser`, `auto`).     |
+| `vellum x status`        | IPC + local                    | Check browser session, OAuth connection, and strategy status.       |
 
 Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`) are requested during the auth flow. The `post` and `reply` operations use these tokens when the OAuth path is selected. Read operations require the browser path.
 
 ### Key Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
-| Shared connect orchestrator | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code |
-| Canonical credential naming | Writes use `client_id`/`client_secret`; reads fall back to legacy `oauth_client_id`/`oauth_client_secret` for backward compatibility |
-| Gateway callback transport | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments. |
-| Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
-| Twitter outside unified messaging | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract |
-| Dual-path Twitter strategy | OAuth is more reliable for posting (no browser session dependency) but only supports post/reply. Browser path supports all operations. `auto` strategy gives the best of both: OAuth when possible, browser as fallback. User can override via `vellum x strategy set`. |
-| Provider auto-selection | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX |
-| Token expiry in credential metadata | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer |
-| Confidence scores on medium-risk tools | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution |
-| Platform-specific extension tools | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface |
-| Twitter identity verification before token storage | OAuth2 tokens are only persisted after a successful `GET /2/users/me` call, preventing storage of invalid or mismatched credentials |
+| Decision                                           | Rationale                                                                                                                                                                                                                                                               |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PKCE by default, optional client_secret            | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh                                                                                                                                        |
+| Shared connect orchestrator                        | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code                        |
+| Canonical credential naming                        | Writes use `client_id`/`client_secret`; reads fall back to legacy `oauth_client_id`/`oauth_client_secret` for backward compatibility                                                                                                                                    |
+| Gateway callback transport                         | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments.                                                       |
+| Unified `MessagingProvider` interface              | All platforms implement the same contract; generic tools work immediately for new providers                                                                                                                                                                             |
+| Twitter outside unified messaging                  | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract                                                                                                                                                     |
+| Dual-path Twitter strategy                         | OAuth is more reliable for posting (no browser session dependency) but only supports post/reply. Browser path supports all operations. `auto` strategy gives the best of both: OAuth when possible, browser as fallback. User can override via `vellum x strategy set`. |
+| Provider auto-selection                            | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX                                                                                                                                                                    |
+| Token expiry in credential metadata                | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer                                                                                                                                                                |
+| Confidence scores on medium-risk tools             | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution                                                                                                                                                                          |
+| Platform-specific extension tools                  | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface                                                                                                                                        |
+| Twitter identity verification before token storage | OAuth2 tokens are only persisted after a successful `GET /2/users/me` call, preventing storage of invalid or mismatched credentials                                                                                                                                     |
 
 ### Source Files
 
-| File | Role |
-|------|------|
-| `assistant/src/security/oauth2.ts` | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange |
-| `assistant/src/security/token-manager.ts` | `withValidToken()` — auto-refresh, 401 retry, expiry buffer |
-| `assistant/src/messaging/provider.ts` | `MessagingProvider` interface |
-| `assistant/src/messaging/provider-types.ts` | Platform-agnostic types (Conversation, Message, SearchResult) |
-| `assistant/src/messaging/registry.ts` | Provider registry: register, lookup, list connected |
-| `assistant/src/messaging/activity-analyzer.ts` | Activity classification for conversations |
-| `assistant/src/messaging/style-analyzer.ts` | Writing style extraction from message corpus |
-| `assistant/src/messaging/draft-store.ts` | Local draft storage (platform/id JSON files) |
-| `assistant/src/messaging/providers/slack/` | Slack adapter, client, types |
-| `assistant/src/messaging/providers/gmail/` | Gmail adapter, client, types |
-| `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/) |
-| `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
-| `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
-| `assistant/src/watcher/providers/github.ts` | GitHub watcher for PRs, issues, review requests, and mentions |
-| `assistant/src/watcher/providers/linear.ts` | Linear watcher for assigned issues, status changes, and @mentions |
-| `assistant/src/oauth/provider-profiles.ts` | Provider profile registry: auth URLs, token URLs, scopes, policies, identity verifiers |
-| `assistant/src/oauth/connect-orchestrator.ts` | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage |
-| `assistant/src/oauth/scope-policy.ts` | Deterministic scope resolution and policy enforcement |
-| `assistant/src/oauth/connect-types.ts` | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult` |
-| `assistant/src/oauth/token-persistence.ts` | Token storage helper: persists tokens, metadata, and runs post-connect hooks |
-| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic OAuth connect IPC handler (`oauth_connect_start` / `oauth_connect_result`) |
-| `assistant/src/daemon/handlers/twitter-auth.ts` | Legacy Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
-| `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol |
-| `assistant/src/twitter/oauth-client.ts` | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()` |
-| `assistant/src/twitter/router.ts` | Strategy router: selects OAuth or browser path based on `twitterOperationStrategy` config |
-| `assistant/src/twitter/session.ts` | Twitter browser session persistence (cookie import/export) |
-| `assistant/src/cli/twitter.ts` | `vellum x` CLI command group (post, reply, strategy, refresh, status, login, logout, and read operations) |
-| `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions |
+| File                                                   | Role                                                                                                      |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `assistant/src/security/oauth2.ts`                     | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange                                    |
+| `assistant/src/security/token-manager.ts`              | `withValidToken()` — auto-refresh, 401 retry, expiry buffer                                               |
+| `assistant/src/messaging/provider.ts`                  | `MessagingProvider` interface                                                                             |
+| `assistant/src/messaging/provider-types.ts`            | Platform-agnostic types (Conversation, Message, SearchResult)                                             |
+| `assistant/src/messaging/registry.ts`                  | Provider registry: register, lookup, list connected                                                       |
+| `assistant/src/messaging/activity-analyzer.ts`         | Activity classification for conversations                                                                 |
+| `assistant/src/messaging/style-analyzer.ts`            | Writing style extraction from message corpus                                                              |
+| `assistant/src/messaging/draft-store.ts`               | Local draft storage (platform/id JSON files)                                                              |
+| `assistant/src/messaging/providers/slack/`             | Slack adapter, client, types                                                                              |
+| `assistant/src/messaging/providers/gmail/`             | Gmail adapter, client, types                                                                              |
+| `assistant/src/config/bundled-skills/messaging/`       | Unified messaging skill (SKILL.md, TOOLS.json, tools/)                                                    |
+| `assistant/src/watcher/providers/slack.ts`             | Slack watcher for DMs, mentions, thread replies                                                           |
+| `assistant/src/watcher/providers/gmail.ts`             | Gmail watcher using History API                                                                           |
+| `assistant/src/watcher/providers/github.ts`            | GitHub watcher for PRs, issues, review requests, and mentions                                             |
+| `assistant/src/watcher/providers/linear.ts`            | Linear watcher for assigned issues, status changes, and @mentions                                         |
+| `assistant/src/oauth/provider-profiles.ts`             | Provider profile registry: auth URLs, token URLs, scopes, policies, identity verifiers                    |
+| `assistant/src/oauth/connect-orchestrator.ts`          | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage        |
+| `assistant/src/oauth/scope-policy.ts`                  | Deterministic scope resolution and policy enforcement                                                     |
+| `assistant/src/oauth/connect-types.ts`                 | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`                            |
+| `assistant/src/oauth/token-persistence.ts`             | Token storage helper: persists tokens, metadata, and runs post-connect hooks                              |
+| `assistant/src/daemon/handlers/oauth-connect.ts`       | Generic OAuth connect IPC handler (`oauth_connect_start` / `oauth_connect_result`)                        |
+| `assistant/src/daemon/handlers/twitter-auth.ts`        | Legacy Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`)                         |
+| `assistant/src/twitter/client.ts`                      | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol                                |
+| `assistant/src/twitter/oauth-client.ts`                | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()`               |
+| `assistant/src/twitter/router.ts`                      | Strategy router: selects OAuth or browser path based on `twitterOperationStrategy` config                 |
+| `assistant/src/twitter/session.ts`                     | Twitter browser session persistence (cookie import/export)                                                |
+| `assistant/src/cli/twitter.ts`                         | `vellum x` CLI command group (post, reply, strategy, refresh, status, login, logout, and read operations) |
+| `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions                                                                    |
 
 ---
 
@@ -332,15 +332,15 @@ The OAuth extensibility layer makes adding a new OAuth provider a declarative op
 
 `assistant/src/oauth/provider-profiles.ts` contains the `PROVIDER_PROFILES` map — a canonical registry of well-known OAuth providers. Each profile (`OAuthProviderProfile`) declares:
 
-| Field | Purpose |
-|-------|---------|
-| `authUrl` / `tokenUrl` | OAuth2 authorization and token endpoints |
-| `defaultScopes` | Scopes requested on every connect attempt |
-| `scopePolicy` | Controls whether additional scopes are allowed (see Scope Policy below) |
-| `callbackTransport` | `'loopback'` (local redirect) or `'gateway'` (public ingress) |
-| `identityVerifier` | Async function that fetches human-readable account info (e.g. `@username`, email) after token exchange |
-| `setup` | Optional metadata for the generic OAuth setup skill (display name, dashboard URL, app type) |
-| `injectionTemplates` | Auto-applied credential injection rules for the script proxy |
+| Field                  | Purpose                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `authUrl` / `tokenUrl` | OAuth2 authorization and token endpoints                                                               |
+| `defaultScopes`        | Scopes requested on every connect attempt                                                              |
+| `scopePolicy`          | Controls whether additional scopes are allowed (see Scope Policy below)                                |
+| `callbackTransport`    | `'loopback'` (local redirect) or `'gateway'` (public ingress)                                          |
+| `identityVerifier`     | Async function that fetches human-readable account info (e.g. `@username`, email) after token exchange |
+| `setup`                | Optional metadata for the generic OAuth setup skill (display name, dashboard URL, app type)            |
+| `injectionTemplates`   | Auto-applied credential injection rules for the script proxy                                           |
 
 Registered providers: `integration:gmail`, `integration:slack`, `integration:notion`, `integration:twitter`. Short aliases (e.g. `gmail`, `twitter`) are resolved via `SERVICE_ALIASES`.
 
@@ -394,17 +394,16 @@ This replaces provider-specific IPC handlers — any provider in the registry ca
 
 ### Key Source Files
 
-| File | Role |
-|------|------|
-| `assistant/src/oauth/provider-profiles.ts` | Provider profile registry and alias resolution |
-| `assistant/src/oauth/scope-policy.ts` | Scope resolution and policy enforcement (pure, no I/O) |
-| `assistant/src/oauth/connect-orchestrator.ts` | Shared connect orchestrator (profile → scopes → flow → tokens) |
-| `assistant/src/oauth/connect-types.ts` | Shared types (`OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`) |
-| `assistant/src/oauth/token-persistence.ts` | Token storage: keychain writes, metadata upsert, post-connect hooks |
-| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` IPC handler |
+| File                                             | Role                                                                            |
+| ------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `assistant/src/oauth/provider-profiles.ts`       | Provider profile registry and alias resolution                                  |
+| `assistant/src/oauth/scope-policy.ts`            | Scope resolution and policy enforcement (pure, no I/O)                          |
+| `assistant/src/oauth/connect-orchestrator.ts`    | Shared connect orchestrator (profile → scopes → flow → tokens)                  |
+| `assistant/src/oauth/connect-types.ts`           | Shared types (`OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`) |
+| `assistant/src/oauth/token-persistence.ts`       | Token storage: keychain writes, metadata upsert, post-connect hooks             |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` IPC handler              |
 
 ---
-
 
 ---
 
@@ -424,8 +423,8 @@ graph TB
 
     subgraph "Permission Check"
         EXECUTOR["ToolExecutor"]
-        PERM["PermissionChecker<br/>classifyRisk → Medium<br/>(proxied bash)"]
-        PROMPT["Prompt user<br/>persistentDecisionsAllowed: false<br/>(no trust rule saving for proxied bash)"]
+        PERM["PermissionChecker<br/>normal bash risk classification<br/>(no proxied-mode special override)"]
+        PROMPT["Prompt user when required<br/>(standard trust-rule flow)"]
     end
 
     subgraph "Sandbox"
@@ -536,18 +535,18 @@ sequenceDiagram
 
 **Policy decisions** are deterministic and structured:
 
-| Decision | Meaning |
-|---|---|
-| `matched` | Exactly one credential template matches the host — inject it |
-| `ambiguous` | Multiple credential templates match — caller must disambiguate |
-| `missing` | Credentials exist but none match this host — no rewrite |
-| `unauthenticated` | No credentials configured for the session |
+| Decision                 | Meaning                                                                    |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `matched`                | Exactly one credential template matches the host — inject it               |
+| `ambiguous`              | Multiple credential templates match — caller must disambiguate             |
+| `missing`                | Credentials exist but none match this host — no rewrite                    |
+| `unauthenticated`        | No credentials configured for the session                                  |
 | `ask_missing_credential` | A known template pattern matches but no credential is bound to the session |
-| `ask_unauthenticated` | Completely unknown host — prompt for unauthenticated access |
+| `ask_unauthenticated`    | Completely unknown host — prompt for unauthenticated access                |
 
-**Trust rule persistence**: The `createProxyApprovalCallback` in `session-tool-setup.ts` is wired into the session startup path and routes policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules use the `network_request` tool name (not `proxy:*`) with URL-based scope patterns (e.g., `https://api.example.com/*`), aligning with the `buildCommandCandidates()` allowlist generation in `checker.ts`.
+**Trust rule persistence**: The `createProxyApprovalCallback` in `session-tool-setup.ts` is wired into the session startup path and routes policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules now use the `bash` tool with proxy-specific URL patterns (`proxied_url:<encoded-url>` and `proxied_origin:<encoded-origin>`), so proxied destination approvals stay isolated from general shell command allowlists.
 
-**Proxied bash permission restriction**: The `ToolExecutor` sets `persistentDecisionsAllowed = false` when the bash tool is invoked with `network_mode: 'proxied'`. This prevents users from saving permanent trust rules for proxied bash commands, since the proxy session's credential scope can change between invocations.
+**Proxied bash approval model**: Proxied network destination approvals are handled by the proxy callback path and persisted as proxy-scoped bash rules. This keeps destination approvals host-aware while preserving the normal bash permission flow for command execution.
 
 ### Session Lifecycle
 
@@ -566,10 +565,10 @@ Each proxy session is bound to a conversation and tracks authorized credential I
 
 The proxy generates and manages a local Certificate Authority for MITM interception:
 
-| Component | Location | Purpose |
-|---|---|---|
-| CA cert | `{dataDir}/proxy-ca/ca.pem` | Self-signed root cert (valid 10 years, permissions 0644) |
-| CA key | `{dataDir}/proxy-ca/ca-key.pem` | CA private key (permissions 0600) |
+| Component  | Location                                   | Purpose                                                  |
+| ---------- | ------------------------------------------ | -------------------------------------------------------- |
+| CA cert    | `{dataDir}/proxy-ca/ca.pem`                | Self-signed root cert (valid 10 years, permissions 0644) |
+| CA key     | `{dataDir}/proxy-ca/ca-key.pem`            | CA private key (permissions 0600)                        |
 | Leaf certs | `{dataDir}/proxy-ca/issued/{hostname}.pem` | Per-hostname certs (cached, verified against current CA) |
 
 `ensureLocalCA()` is idempotent — it only generates the CA if the files do not already exist. Leaf certificates are cached and revalidated via `X509Certificate.checkIssued()` to detect stale certs from a previous CA.
@@ -587,7 +586,7 @@ All proxy logging passes through sanitization helpers (`logging.ts`) that redact
 1. **Credential values never reach the LLM** — The proxy injects credentials at the network layer; the model only sees tool results, never the injected headers or query parameters.
 2. **Minimal MITM surface** — Only hosts matching a credential injection template are MITM-intercepted. All other HTTPS traffic passes through an opaque TCP tunnel.
 3. **CA key isolation** — The CA private key has 0600 permissions and never leaves the host filesystem. Container processes only receive the CA cert via `NODE_EXTRA_CA_CERTS`.
-4. **No persistent trust rules for proxied bash** — `persistentDecisionsAllowed: false` prevents saving trust rules that could auto-allow proxied commands across sessions with different credential scopes.
+4. **Proxy-scoped trust rules for proxied destinations** — destination approvals persist as `proxied_url:` / `proxied_origin:` bash patterns so they do not silently grant unrelated shell command permissions.
 5. **Auditable routing** — Every CONNECT routing decision carries a deterministic `RouteReason` code (`mitm:credential_injection`, `tunnel:no_rewrite`, `tunnel:no_credentials`) for audit and testing.
 
 ### Credential Proxy Injection
@@ -602,20 +601,20 @@ The proxy subsystem intercepts outbound HTTPS requests and injects stored creden
 
 ### Key Source Files
 
-| File | Role |
-|---|---|
-| `assistant/src/tools/network/script-proxy/server.ts` | Proxy server factory — HTTP forwarding, CONNECT handling, MITM dispatch |
-| `assistant/src/tools/network/script-proxy/policy.ts` | Policy engine — evaluates requests against credential templates |
-| `assistant/src/tools/network/script-proxy/mitm-handler.ts` | MITM TLS interception — loopback TLS server, request rewrite, upstream forwarding |
-| `assistant/src/tools/network/script-proxy/connect-tunnel.ts` | Plain CONNECT tunnel — raw TCP bidirectional pipe |
-| `assistant/src/tools/network/script-proxy/http-forwarder.ts` | HTTP proxy forwarder — absolute-URL form forwarding with policy callback |
-| `assistant/src/tools/network/script-proxy/session-manager.ts` | Session lifecycle — create, start, stop, idle timeout, env var generation |
-| `assistant/src/tools/network/script-proxy/certs.ts` | Local CA management — ensureLocalCA, issueLeafCert, getCAPath |
-| `assistant/src/tools/network/script-proxy/logging.ts` | Log sanitization (header/URL redaction) and safe decision trace builders for policy and credential resolution |
-| `assistant/src/tools/network/script-proxy/types.ts` | Type definitions — session, policy decisions, approval callback |
-| `assistant/src/tools/executor.ts` | `persistentDecisionsAllowed` gate — disables trust rule saving for proxied bash |
-| `assistant/src/daemon/session-tool-setup.ts` | `createProxyApprovalCallback` — wired into session startup, uses `network_request` tool name with URL-based trust rules |
-| `assistant/src/permissions/checker.ts` | `network_request` trust rule matching and risk classification (Medium) |
+| File                                                          | Role                                                                                                                                               |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/tools/network/script-proxy/server.ts`          | Proxy server factory — HTTP forwarding, CONNECT handling, MITM dispatch                                                                            |
+| `assistant/src/tools/network/script-proxy/policy.ts`          | Policy engine — evaluates requests against credential templates                                                                                    |
+| `assistant/src/tools/network/script-proxy/mitm-handler.ts`    | MITM TLS interception — loopback TLS server, request rewrite, upstream forwarding                                                                  |
+| `assistant/src/tools/network/script-proxy/connect-tunnel.ts`  | Plain CONNECT tunnel — raw TCP bidirectional pipe                                                                                                  |
+| `assistant/src/tools/network/script-proxy/http-forwarder.ts`  | HTTP proxy forwarder — absolute-URL form forwarding with policy callback                                                                           |
+| `assistant/src/tools/network/script-proxy/session-manager.ts` | Session lifecycle — create, start, stop, idle timeout, env var generation                                                                          |
+| `assistant/src/tools/network/script-proxy/certs.ts`           | Local CA management — ensureLocalCA, issueLeafCert, getCAPath                                                                                      |
+| `assistant/src/tools/network/script-proxy/logging.ts`         | Log sanitization (header/URL redaction) and safe decision trace builders for policy and credential resolution                                      |
+| `assistant/src/tools/network/script-proxy/types.ts`           | Type definitions — session, policy decisions, approval callback                                                                                    |
+| `assistant/src/tools/executor.ts`                             | Tool execution pipeline and lifecycle events for bash/proxied bash invocations                                                                     |
+| `assistant/src/daemon/session-tool-setup.ts`                  | `createProxyApprovalCallback` — wired into session startup, routes proxy destination approvals through `bash` with proxy-scoped URL trust patterns |
+| `assistant/src/permissions/checker.ts`                        | Core trust-rule candidate generation, risk classification, and allowlist option strategies for first-party tools                                   |
 
 ### Runtime Wiring Summary
 
@@ -623,7 +622,7 @@ The proxy subsystem is fully wired, including credential injection. The session 
 
 - **MITM handler config**: `mitmHandler` is configured with the local CA path and a `rewriteCallback` that performs per-credential specificity-based template selection — for each credential it picks the most specific matching header template (exact > wildcard), blocks on same-credential equal-specificity ties or cross-credential ambiguity, and for the winning `header`-type template resolves the secret from secure storage and sets the outbound header. Wildcard patterns (`*.fal.run`) match the bare apex domain (`fal.run`) via apex-inclusive matching.
 - **Policy callback**: `evaluateRequestWithApproval()` is called via the `policyCallback`; for `'matched'` decisions it injects credential headers (reading the secret value at injection time), while `'ambiguous'` decisions are blocked and `'ask_*'` decisions route through the approval callback
-- **Approval callback**: `createProxyApprovalCallback()` from `session-tool-setup.ts` routes approval prompts through the `PermissionPrompter`, using the `network_request` tool name with URL-based trust rules
+- **Approval callback**: `createProxyApprovalCallback()` from `session-tool-setup.ts` routes approval prompts through the `PermissionPrompter`, using the `bash` tool with proxy-scoped URL trust rules
 - **networkMode plumbing**: `shell.ts` passes `{ networkMode }` to `wrapCommand()`, which forwards it to the native backend
 - **Session lifecycle**: `createSession` / `startSession` / `stopSession` with idle timeout and per-conversation limits
 
@@ -690,13 +689,13 @@ graph TB
 
 ### Search Capabilities
 
-| Parameter | Type | Description |
-|---|---|---|
-| `mime_type` | string | MIME type filter with wildcard support (`image/*`, `application/pdf`) |
-| `filename` | string | Case-insensitive substring match on original filename |
-| `recency` | enum | Time-based filter: `last_hour`, `last_24_hours`, `last_7_days`, `last_30_days`, `last_90_days` |
-| `conversation_id` | string | Scope results to attachments in a specific conversation |
-| `limit` | number | Maximum results (default 20, max 100) |
+| Parameter         | Type   | Description                                                                                    |
+| ----------------- | ------ | ---------------------------------------------------------------------------------------------- |
+| `mime_type`       | string | MIME type filter with wildcard support (`image/*`, `application/pdf`)                          |
+| `filename`        | string | Case-insensitive substring match on original filename                                          |
+| `recency`         | enum   | Time-based filter: `last_hour`, `last_24_hours`, `last_7_days`, `last_30_days`, `last_90_days` |
+| `conversation_id` | string | Scope results to attachments in a specific conversation                                        |
+| `limit`           | number | Maximum results (default 20, max 100)                                                          |
 
 ### Materialize Safeguards
 
@@ -707,13 +706,12 @@ graph TB
 
 ### Key Source Files
 
-| File | Role |
-|---|---|
-| `assistant/src/tools/assets/search.ts` | `asset_search` tool — cross-thread attachment metadata search with visibility filtering |
-| `assistant/src/tools/assets/materialize.ts` | `asset_materialize` tool — decode and write attachment to sandbox path |
-| `assistant/src/daemon/media-visibility-policy.ts` | Pure policy module — `isAttachmentVisible()`, `filterVisibleAttachments()` |
-| `assistant/src/memory/schema.ts` | `attachments` and `message_attachments` table schemas |
-| `assistant/src/memory/conversation-store.ts` | `getConversationThreadType()` — thread type lookup for visibility context |
+| File                                              | Role                                                                                    |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `assistant/src/tools/assets/search.ts`            | `asset_search` tool — cross-thread attachment metadata search with visibility filtering |
+| `assistant/src/tools/assets/materialize.ts`       | `asset_materialize` tool — decode and write attachment to sandbox path                  |
+| `assistant/src/daemon/media-visibility-policy.ts` | Pure policy module — `isAttachmentVisible()`, `filterVisibleAttachments()`              |
+| `assistant/src/memory/schema.ts`                  | `attachments` and `message_attachments` table schemas                                   |
+| `assistant/src/memory/conversation-store.ts`      | `getConversationThreadType()` — thread type lookup for visibility context               |
 
 ---
-

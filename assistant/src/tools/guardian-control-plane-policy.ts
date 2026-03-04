@@ -30,7 +30,7 @@ const GUARDIAN_PATH_REGEX = /\/v1\/integrations\/guardian\//;
 const COMMAND_TOOLS = new Set(["bash", "host_bash"]);
 
 /** Tools whose `input.url` (string) may contain guardian endpoint paths. */
-const URL_TOOLS = new Set(["network_request", "web_fetch", "browser_navigate"]);
+const URL_TOOLS = new Set(["web_fetch", "browser_navigate"]);
 
 /**
  * Normalize a string to defeat common URL obfuscation techniques before matching:
