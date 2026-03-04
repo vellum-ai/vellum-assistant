@@ -231,6 +231,21 @@ function buildBlockKitOutput(
     blocks.push({ type: "divider" });
   }
 
+  // Slack Block Kit enforces a 50-block maximum per message.
+  // Truncate and append a summary block when we exceed the limit.
+  const SLACK_BLOCK_LIMIT = 50;
+  if (blocks.length > SLACK_BLOCK_LIMIT) {
+    const overflow = blocks.length - (SLACK_BLOCK_LIMIT - 1);
+    blocks.length = SLACK_BLOCK_LIMIT - 1;
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `_... and ${overflow} more block${overflow !== 1 ? "s" : ""} truncated (some channels omitted). Use \`channel_ids\` to drill into specific channels._`,
+      },
+    });
+  }
+
   return blocks;
 }
 

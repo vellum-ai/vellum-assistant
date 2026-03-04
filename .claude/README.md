@@ -18,7 +18,7 @@ Re-run `setup` after pulling updates to the claude-skills repo.
 
 These commands are specific to vellum-assistant and live in `.claude/skills/<name>/` as local skill directories (NOT symlinks):
 
-- **`/update`** — Pull latest from main, use `vellum ps/sleep/wake` to manage daemon/gateway lifecycle, rebuild/launch the macOS app (`.claude/skills/update/SKILL.md`)
+- **`/update`** — Pull latest from main, use `vellum ps/sleep/wake` to manage assistant/gateway lifecycle, rebuild/launch the macOS app (`.claude/skills/update/SKILL.md`)
 - **`/release`** — Cut a new release by triggering the GitHub Actions release workflow (`.claude/skills/release/SKILL.md`)
 
 The shared-vs-local model:
@@ -39,7 +39,7 @@ Creates and removes isolated git worktrees for parallel development. Used by `/s
 
 ### `scripts/vellum-runtime-tunnel.sh` — SSH tunnel for remote runtime access
 
-Forwards a local TCP port to a remote Vellum runtime HTTP server via SSH. Use this when running the web app in local mode against a remote assistant daemon.
+Forwards a local TCP port to a remote Vellum runtime HTTP server via SSH. Use this when running the web app in local mode against a remote assistant.
 
 ```bash
 # Start a tunnel to a remote host

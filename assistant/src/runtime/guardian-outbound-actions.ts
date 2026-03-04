@@ -368,6 +368,7 @@ function startOutboundSms(
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
     destinationAddress: destination,
+    verificationPurpose: "guardian",
   });
 
   const smsBody = composeVerificationSms(
@@ -460,6 +461,7 @@ function startOutboundTelegram(
       expectedChatId: destination,
       identityBindingStatus: "bound",
       destinationAddress: normalizedDestination,
+      verificationPurpose: "guardian",
     });
 
     const telegramBody = composeVerificationTelegram(
@@ -517,6 +519,7 @@ function startOutboundTelegram(
     identityBindingStatus: "pending_bootstrap",
     destinationAddress: normalizedDestination,
     bootstrapTokenHash,
+    verificationPurpose: "guardian",
   });
 
   const telegramBootstrapUrl = `https://t.me/${botUsername}?start=gv_${bootstrapToken}`;
@@ -592,6 +595,7 @@ function startOutboundVoice(
     expectedExternalUserId: destination,
     destinationAddress: destination,
     codeDigits: 6,
+    verificationPurpose: "guardian",
   });
 
   const now = Date.now();
@@ -711,6 +715,7 @@ function startOutboundSlack(
     expectedChatId: destination,
     identityBindingStatus: "bound",
     destinationAddress: destination,
+    verificationPurpose: "guardian",
   });
 
   const slackBody = composeVerificationSlack(
@@ -831,6 +836,7 @@ export function resendOutbound(
       expectedChatId: destination,
       identityBindingStatus: "bound",
       destinationAddress: destination,
+      verificationPurpose: "guardian",
     });
 
     const telegramBody = composeVerificationTelegram(
@@ -870,6 +876,7 @@ export function resendOutbound(
       expectedExternalUserId: destination,
       destinationAddress: destination,
       codeDigits: 6,
+      verificationPurpose: "guardian",
     });
 
     const now = Date.now();
@@ -906,6 +913,7 @@ export function resendOutbound(
       expectedChatId: destination,
       identityBindingStatus: "bound",
       destinationAddress: destination,
+      verificationPurpose: "guardian",
     });
 
     const slackBody = composeVerificationSlack(
@@ -946,6 +954,7 @@ export function resendOutbound(
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
     destinationAddress: destination,
+    verificationPurpose: "guardian",
   });
 
   const smsBody = composeVerificationSms(GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND, {
