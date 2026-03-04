@@ -143,6 +143,25 @@ export async function handleUpsertContact(
     );
   }
 
+  if (body.channels) {
+    for (const ch of body.channels) {
+      if (ch.status !== undefined && !isChannelStatus(ch.status)) {
+        return httpError(
+          "BAD_REQUEST",
+          `Invalid channel status "${ch.status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
+          400,
+        );
+      }
+      if (ch.policy !== undefined && !isChannelPolicy(ch.policy)) {
+        return httpError(
+          "BAD_REQUEST",
+          `Invalid channel policy "${ch.policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
+          400,
+        );
+      }
+    }
+  }
+
   try {
     const contact = upsertContact({
       id: body.id,
@@ -153,7 +172,11 @@ export async function handleUpsertContact(
       preferredTone: body.preferredTone,
       role: body.role as ContactRole | undefined,
       assistantId,
-      channels: body.channels,
+      channels: body.channels?.map((ch) => ({
+        ...ch,
+        status: ch.status as ChannelStatus | undefined,
+        policy: ch.policy as ChannelPolicy | undefined,
+      })),
     });
     return Response.json(
       { ok: true, contact },
