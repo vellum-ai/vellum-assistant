@@ -62,11 +62,11 @@ export function resolveDestinations(
           channel: "vellum",
           metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         });
-        log.debug('destination resolved', {
+        log.debug({
           channel: 'vellum',
           source: guardianResult ? 'contacts' : 'legacy',
           hasEndpoint: false,
-        });
+        }, 'destination resolved');
         break;
       }
       case "telegram":
@@ -97,11 +97,11 @@ export function resolveDestinations(
             });
           }
         }
-        log.debug('destination resolved', {
+        log.debug({
           channel,
           source: guardianResult?.channel.externalChatId ? 'contacts' : 'legacy',
           hasEndpoint: !!guardianResult?.channel.externalChatId || !!binding?.guardianDeliveryChatId,
-        });
+        }, 'destination resolved');
         break;
       }
       default: {

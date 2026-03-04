@@ -241,10 +241,10 @@ export async function emitNotificationSignal<TEventName extends string>(
     // Step 2: Evaluate the signal through the decision engine
     const connectedChannels = getConnectedChannels(assistantId);
 
-    log.debug('connected channels resolved', {
+    log.debug({
       channels: connectedChannels,
       assistantId,
-    });
+    }, 'connected channels resolved');
 
     let decision = await evaluateSignal(signal, connectedChannels);
 

@@ -169,12 +169,12 @@ export function notifyGuardianOfAccessRequest(
     }
   }
 
-  log.debug('access request guardian resolved', {
+  log.debug({
     sourceChannel,
     source: guardianResolutionSource,
     hasGuardianPrincipal: !!guardianPrincipalId,
     guardianBindingChannel,
-  });
+  }, 'access request guardian resolved');
 
   // The conversationId is assistant-scoped so the dedupe query below only
   // matches requests for the same assistant. Without this, a pending request
