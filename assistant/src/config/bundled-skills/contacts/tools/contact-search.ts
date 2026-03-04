@@ -1,5 +1,7 @@
-import { getGatewayInternalBaseUrl } from "../../../../config/env.js";
-import { mintEdgeRelayToken } from "../../../../runtime/auth/token-service.js";
+import {
+  gatewayGet,
+  GatewayRequestError,
+} from "../../../../runtime/gateway-internal-client.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -56,9 +58,6 @@ export async function executeContactSearch(
   }
 
   try {
-    const gatewayBase = getGatewayInternalBaseUrl();
-    const token = mintEdgeRelayToken();
-
     const params = new URLSearchParams();
     if (query) params.set("query", query);
     if (channelAddress) params.set("channelAddress", channelAddress);
@@ -67,32 +66,9 @@ export async function executeContactSearch(
     if (limit !== undefined) params.set("limit", String(limit));
 
     const qs = params.toString();
-    const url = `${gatewayBase}/v1/contacts${qs ? `?${qs}` : ""}`;
-
-    const resp = await fetch(url, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!resp.ok) {
-      const body = await resp.text();
-      let message = `Gateway request failed (${resp.status})`;
-      try {
-        const parsed = JSON.parse(body) as { error?: string };
-        if (parsed.error) message = parsed.error;
-      } catch {
-        if (body) message = body;
-      }
-      return { content: `Error: ${message}`, isError: true };
-    }
-
-    const data = (await resp.json()) as {
-      ok: boolean;
-      contacts: ContactResponse[];
-    };
+    const data = await gatewayGet<{ ok: boolean; contacts: ContactResponse[] }>(
+      `/v1/contacts${qs ? `?${qs}` : ""}`,
+    );
     const results = data.contacts;
 
     if (results.length === 0) {
@@ -109,6 +85,10 @@ export async function executeContactSearch(
 
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
+    if (err instanceof GatewayRequestError) {
+      const message = err.gatewayError ?? err.message;
+      return { content: `Error: ${message}`, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };
   }
