@@ -29,7 +29,7 @@ import type { ToolExecutor } from "../tools/executor.js";
 import type {
   ProxyApprovalCallback,
   ProxyApprovalRequest,
-} from "../tools/network/script-proxy/index.js";
+} from "@vellumai/outbound-proxy";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type {
   ToolExecutionResult,

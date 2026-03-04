@@ -1,11 +1,4 @@
 export {
-  ensureCombinedCABundle,
-  ensureLocalCA,
-  getCAPath,
-  getCombinedCAPath,
-  issueLeafCert,
-} from './certs.js';
-export {
   createSession,
   getActiveSession,
   getOrStartSession,
@@ -15,12 +8,3 @@ export {
   stopAllSessions,
   stopSession,
 } from './session-manager.js';
-export type {
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-  ProxyEnvVars,
-  ProxySession,
-  ProxySessionConfig,
-  ProxySessionId,
-  ProxySessionStatus,
-} from '@vellumai/outbound-proxy';
