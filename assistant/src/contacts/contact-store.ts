@@ -470,6 +470,37 @@ export function searchContacts(params: {
     return results;
   }
 
+  // Search by channel type alone (no address)
+  if (params.channelType) {
+    const channelRows = db
+      .select({ contactId: contactChannels.contactId })
+      .from(contactChannels)
+      .innerJoin(contacts, eq(contactChannels.contactId, contacts.id))
+      .where(
+        and(
+          or(
+            eq(contacts.assistantId, params.assistantId),
+            isNull(contacts.assistantId),
+          ),
+          eq(contactChannels.type, params.channelType),
+        ),
+      )
+      .all();
+
+    const contactIds = [...new Set(channelRows.map((r) => r.contactId))];
+    if (contactIds.length === 0) return [];
+
+    const results: ContactWithChannels[] = [];
+    for (const id of contactIds) {
+      if (results.length >= limit) break;
+      const contact = getContactInternal(id);
+      if (contact && (!params.role || contact.role === params.role)) {
+        results.push(contact);
+      }
+    }
+    return results;
+  }
+
   // Search by display name and/or relationship
   const conditions = [
     or(
