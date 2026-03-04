@@ -29,6 +29,14 @@ import { DEFAULT_DAEMON_PORT } from "../lib/constants.js";
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
+  // Clean up instance directories created by allocateLocalResources under real homedir
+  // (allocateLocalResources uses homedir() directly, not BASE_DATA_DIR)
+  for (const name of ["instance-a", "instance-b", "probe-test"]) {
+    rmSync(join(homedir(), ".vellum", "instances", name), {
+      recursive: true,
+      force: true,
+    });
+  }
   delete process.env.BASE_DATA_DIR;
 });
 
