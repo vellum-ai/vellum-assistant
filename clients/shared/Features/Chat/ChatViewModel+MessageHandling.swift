@@ -1637,8 +1637,10 @@ extension ChatViewModel {
     }
 
     /// Auto-open generated video clips in the user's default video player.
+    /// Scans the result for a `clipPath` field rather than checking toolName,
+    /// because generate_clip runs inside claude_code (toolName is "claude_code").
     private func autoOpenClipIfNeeded(toolName: String, result: String, isError: Bool) {
-        guard !isError, toolName == "generate_clip" else { return }
+        guard !isError else { return }
         guard let jsonData = result.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
               let clipPath = json["clipPath"] as? String else {
