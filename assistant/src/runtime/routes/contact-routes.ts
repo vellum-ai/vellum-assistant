@@ -124,6 +124,7 @@ export async function handleUpsertContact(
   if (
     body.importance !== undefined &&
     (typeof body.importance !== "number" ||
+      Number.isNaN(body.importance) ||
       body.importance < 0 ||
       body.importance > 1)
   ) {
