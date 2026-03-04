@@ -2,6 +2,7 @@ import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
+import { rawChanges } from "../memory/raw-query.js";
 import {
   assistantContactMetadata,
   contactChannels,
@@ -1088,10 +1089,9 @@ export function getAssistantContactMetadata(
 
 export function deleteAssistantContactMetadata(contactId: string): boolean {
   const db = getDb();
-  const result = db
-    .delete(assistantContactMetadata)
+  db.delete(assistantContactMetadata)
     .where(eq(assistantContactMetadata.contactId, contactId))
     .run();
 
-  return result.changes > 0;
+  return rawChanges() > 0;
 }
