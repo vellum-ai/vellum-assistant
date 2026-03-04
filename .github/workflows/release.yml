@@ -1823,6 +1823,17 @@ jobs:
         working-directory: playwright
         run: bunx playwright install --with-deps chromium
 
+      - name: Symlink vellum CLI into PATH
+        run: |
+          CLI_BINARY="clients/macos/dist/${APP_DISPLAY_NAME}.app/Contents/MacOS/vellum-cli"
+          if [ -f "$CLI_BINARY" ]; then
+            chmod +x "$CLI_BINARY"
+            sudo ln -sf "$(pwd)/$CLI_BINARY" /usr/local/bin/vellum
+            echo "Symlinked vellum CLI: $(vellum --version 2>&1 || echo 'version check failed')"
+          else
+            echo "::warning::Bundled CLI not found at $CLI_BINARY — skipping symlink"
+          fi
+
       - name: Run Playwright tests
         working-directory: playwright
         env:
