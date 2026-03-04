@@ -459,7 +459,7 @@ External users who are not the guardian can gain access to the assistant through
 | `src/runtime/channel-guardian-service.ts`              | Verification challenge lifecycle, identity binding, rate limiting             |
 | `src/runtime/routes/contact-routes.ts`                 | HTTP API handlers for contact and channel management                          |
 | `src/runtime/routes/ingress-routes.ts`                 | HTTP API handlers for invite management                                       |
-| `src/runtime/ingress-service.ts`                       | Business logic for invite operations                                          |
+| `src/runtime/invite-service.ts`                        | Business logic for invite operations                                          |
 | `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
 | `src/memory/channel-guardian-store.ts`                 | Approval request and verification challenge persistence                       |
 | `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
@@ -521,7 +521,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 **Creation flow:**
 
 1. Guardian creates a voice invite via `POST /v1/contacts/invites` with `sourceChannel: "voice"` and `expectedExternalUserId` (E.164 phone).
-2. `ingress-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
+2. `invite-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
 3. The one-time plaintext `voiceCode` is returned in the creation response. The raw token is NOT returned for voice invites — redemption uses the identity-bound code flow exclusively.
 4. Guardian communicates the code to the invitee out-of-band.
 
@@ -550,12 +550,12 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
 | `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
-| `src/runtime/ingress-service.ts`                    | Shared business logic for invite operations (used by both HTTP routes and IPC)                                     |
+| `src/runtime/invite-service.ts`                     | Shared business logic for invite operations (used by both HTTP routes and IPC)                                     |
 | `src/runtime/routes/ingress-routes.ts`              | HTTP API handlers for invite management including voice invite creation and redemption                             |
 | `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
 | `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
 | `src/util/voice-code.ts`                            | Cryptographic voice code generation and SHA-256 hashing                                                            |
-| `src/memory/ingress-invite-store.ts`                | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup                                    |
+| `src/memory/invite-store.ts`                        | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup                                    |
 
 ### Voice Inbound Security Model (Canonical)
 

@@ -337,7 +337,7 @@ Guardian verification and ingress contact management are complementary but indep
 | `src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel                                               |
 | `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation                                             |
 | `src/contacts/contact-store.ts`                 | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                |
-| `src/memory/ingress-invite-store.ts`            | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                   |
+| `src/memory/invite-store.ts`                    | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                   |
 | `src/memory/channel-guardian-store.ts`          | Persistence for guardian bindings, verification challenges, and approval requests                                     |
 | `src/runtime/guardian-outbound-actions.ts`      | Shared business logic for outbound verification (start/resend/cancel)                                                 |
 | `src/runtime/routes/integration-routes.ts`      | HTTP route handlers for outbound guardian verification endpoints                                                      |
@@ -452,7 +452,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 
 | File                                                | Purpose                                                                                                          |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `src/memory/ingress-invite-store.ts`                | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
+| `src/memory/invite-store.ts`                        | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
 | `src/daemon/handlers/config-inbox.ts`               | IPC handlers for invite contract                                                                                 |
 | `src/daemon/ipc-contract/inbox.ts`                  | TypeScript type definitions for ingress IPC messages                                                             |
@@ -462,7 +462,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
-| `src/runtime/ingress-service.ts`                    | Shared business logic for invite and contact operations (HTTP + IPC)                                             |
+| `src/runtime/invite-service.ts`                     | Shared business logic for invite and contact operations (HTTP + IPC)                                             |
 
 ## Database
 
