@@ -7,10 +7,6 @@
  */
 
 import { isHttpAuthDisabled } from "../config/env.js";
-import type {
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-} from "../outbound-proxy/index.js";
 import {
   generateAllowlistOptions,
   generateScopeOptions,
@@ -32,6 +28,8 @@ import { requestComputerControlTool } from "../tools/computer-use/request-comput
 import type { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type {
+  ProxyApprovalCallback,
+  ProxyApprovalRequest,
   ToolExecutionResult,
   ToolLifecycleEventHandler,
 } from "../tools/types.js";
