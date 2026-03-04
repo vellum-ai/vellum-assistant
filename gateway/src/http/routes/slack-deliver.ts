@@ -2,214 +2,289 @@ import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
+import {
+  downloadAttachment,
+  type RuntimeAttachmentMeta,
+} from "../../runtime/client.js";
+import { classifySlackError } from "../../slack/errors.js";
+import type { Block } from "../../slack/block-kit-builder.js";
+import { textToBlocks } from "../../slack/text-to-blocks.js";
 
 const log = getLogger("slack-deliver");
+const MAX_RATE_LIMIT_RETRIES = 3;
+const DEFAULT_RETRY_AFTER_S = 1;
 
-export type SlackApprovalAction = {
-  id: string;
-  label: string;
-};
-
-export type SlackPermissionDetails = {
-  toolName: string;
-  riskLevel: string;
-  toolInput: Record<string, unknown>;
-  requesterIdentifier?: string;
-};
-
-export type SlackApprovalPayload = {
-  requestId: string;
-  actions: SlackApprovalAction[];
-  plainTextFallback: string;
-  permissionDetails?: SlackPermissionDetails;
+type SlackApiResult = {
+  ok: boolean;
+  error?: string;
+  ts?: string;
 };
 
 /**
- * Build Block Kit blocks for an approval prompt.
- *
- * Produces a section block with the prompt text followed by an actions
- * block containing buttons for each approval action. Button values
- * encode `apr:{requestId}:{actionId}` matching the convention used by
- * Telegram and the interactive actions handler.
+ * Call a Slack API method with rate-limit retries. Returns the parsed
+ * JSON body on success, or a ready-made error Response on failure.
  */
-export function buildApprovalBlocks(
-  text: string,
-  approval: SlackApprovalPayload,
-): Array<Record<string, unknown>> {
-  const buttons = approval.actions.map((action) => {
-    const value = `apr:${approval.requestId}:${action.id}`;
-    const button: Record<string, unknown> = {
-      type: "button",
-      text: {
-        type: "plain_text",
-        text: action.label,
-        emoji: true,
+async function callSlackApiWithRetries(
+  url: string,
+  slackBody: Record<string, unknown>,
+  botToken: string,
+  chatId: string,
+  tlog: Pick<ReturnType<typeof getLogger>, "error" | "warn" | "info">,
+): Promise<SlackApiResult | Response> {
+  let lastError: string | undefined;
+
+  for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${botToken}`,
+        "Content-Type": "application/json",
       },
-      action_id: `approval_${action.id}`,
-      value,
-    };
-    if (action.id === "approve_once") {
-      button.style = "primary";
-    } else if (action.id === "reject") {
-      button.style = "danger";
-    }
-    return button;
-  });
-
-  return [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text,
-      },
-    },
-    {
-      type: "actions",
-      block_id: `approval_${approval.requestId}`,
-      elements: buttons,
-    },
-  ];
-}
-
-const RISK_EMOJI: Record<string, string> = {
-  low: "\u{1F7E2}",
-  medium: "\u{1F7E1}",
-  high: "\u{1F534}",
-};
-
-/**
- * Format tool arguments as mrkdwn key-value pairs for display in a
- * Block Kit section. Truncates long values to keep the message readable.
- */
-function formatToolInput(input: Record<string, unknown>): string {
-  const entries = Object.entries(input);
-  if (entries.length === 0) return "_No arguments_";
-  return entries
-    .map(([key, value]) => {
-      const str =
-        typeof value === "string" ? value : (JSON.stringify(value) ?? "");
-      const truncated = str.length > 200 ? str.slice(0, 197) + "..." : str;
-      return `*${key}:* \`${truncated}\``;
-    })
-    .join("\n");
-}
-
-/**
- * Build rich Block Kit blocks for a tool permission request.
- *
- * Renders a detailed card with:
- * - Header block with "Permission Request" title
- * - Section block with tool name and risk level emoji
- * - Section block with tool arguments formatted as key-value pairs
- * - Context block showing requester identity and timestamp
- * - Actions block with Approve/Deny buttons (same `apr:{requestId}:{actionId}` pattern)
- */
-export function buildSlackPermissionRequestBlocks(
-  text: string,
-  approval: SlackApprovalPayload,
-): Array<Record<string, unknown>> {
-  const details = approval.permissionDetails!;
-  const emoji = RISK_EMOJI[details.riskLevel] ?? RISK_EMOJI.medium;
-
-  const buttons = approval.actions.map((action) => {
-    const value = `apr:${approval.requestId}:${action.id}`;
-    const button: Record<string, unknown> = {
-      type: "button",
-      text: {
-        type: "plain_text",
-        text: action.label,
-        emoji: true,
-      },
-      action_id: `approval_${action.id}`,
-      value,
-    };
-    if (action.id === "approve_once") {
-      button.style = "primary";
-    } else if (action.id === "reject") {
-      button.style = "danger";
-    }
-    return button;
-  });
-
-  const blocks: Array<Record<string, unknown>> = [
-    {
-      type: "header",
-      text: {
-        type: "plain_text",
-        text: "Permission Request",
-        emoji: true,
-      },
-    },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `${emoji} *Tool:* \`${details.toolName}\`  |  *Risk:* ${details.riskLevel}`,
-      },
-    },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Arguments*\n${formatToolInput(details.toolInput)}`,
-      },
-    },
-  ];
-
-  // Context block with requester identity and timestamp
-  const contextElements: Array<Record<string, unknown>> = [];
-  if (details.requesterIdentifier) {
-    contextElements.push({
-      type: "mrkdwn",
-      text: `*Requested by:* ${details.requesterIdentifier}`,
+      body: JSON.stringify(slackBody),
     });
+
+    // Handle HTTP-level 429 rate limits
+    if (response.status === 429) {
+      if (attempt >= MAX_RATE_LIMIT_RETRIES) {
+        tlog.error({ chatId }, "Slack rate limit exceeded after retries");
+        return Response.json({ error: "Rate limited" }, { status: 429 });
+      }
+      const retryAfter =
+        parseInt(response.headers.get("Retry-After") ?? "", 10) ||
+        DEFAULT_RETRY_AFTER_S;
+      tlog.warn(
+        { chatId, retryAfter, attempt },
+        "Slack rate limited, retrying",
+      );
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      continue;
+    }
+
+    const data = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      ts?: string;
+    };
+
+    if (!data.ok) {
+      lastError = data.error;
+      const category = classifySlackError(data.error);
+
+      // Retry rate-limited responses from the body
+      if (category === "rate_limit" && attempt < MAX_RATE_LIMIT_RETRIES) {
+        tlog.warn(
+          { chatId, slackError: data.error, attempt },
+          "Slack rate limited (body), retrying",
+        );
+        await new Promise((r) => setTimeout(r, DEFAULT_RETRY_AFTER_S * 1000));
+        continue;
+      }
+
+      tlog.error(
+        { chatId, slackError: data.error, category },
+        "Slack API returned error",
+      );
+
+      if (category === "rate_limit") {
+        return Response.json({ error: "Rate limited" }, { status: 429 });
+      }
+      if (category === "channel_not_found" || category === "not_found") {
+        return Response.json({ error: "Channel not found" }, { status: 404 });
+      }
+      if (category === "permission") {
+        return Response.json({ error: "Permission denied" }, { status: 403 });
+      }
+      // Auth errors use 502 so downstream retry logic treats them as
+      // transient (token rotation, brief credential desync). Permanent
+      // auth failures will exhaust retries and be dead-lettered normally.
+      return Response.json({ error: "Delivery failed" }, { status: 502 });
+    }
+
+    return { ok: true, ts: data.ts };
   }
-  contextElements.push({
-    type: "mrkdwn",
-    text: `<!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toISOString()}>`,
-  });
-  blocks.push({
-    type: "context",
-    elements: contextElements,
-  });
 
-  blocks.push({
-    type: "actions",
-    block_id: `approval_${approval.requestId}`,
-    elements: buttons,
-  });
-
-  return blocks;
+  tlog.error(
+    { chatId, slackError: lastError },
+    "Slack delivery failed after retries",
+  );
+  return Response.json({ error: "Delivery failed" }, { status: 502 });
 }
 
 /**
- * Build Block Kit blocks that show the decision result after an
- * approval has been consumed. Replaces the action buttons with a
- * context line indicating the outcome.
+ * Upload a single file to Slack using the files.uploadV2 flow:
+ * 1. Get an upload URL via files.getUploadURLExternal
+ * 2. POST file content to that URL
+ * 3. Complete the upload via files.completeUploadExternal, sharing to the channel
  */
-export function buildDecisionResultBlocks(
-  originalText: string,
-  decisionLabel: string,
-): Array<Record<string, unknown>> {
-  return [
+async function uploadFileToSlack(
+  config: GatewayConfig,
+  channelId: string,
+  buffer: Buffer,
+  filename: string,
+  threadTs?: string,
+): Promise<void> {
+  const token = config.slackChannelBotToken!;
+
+  // Step 1: Get an upload URL
+  const urlRes = await fetchImpl(
+    "https://slack.com/api/files.getUploadURLExternal",
     {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: originalText,
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/x-www-form-urlencoded",
       },
+      body: new URLSearchParams({
+        filename,
+        length: String(buffer.length),
+      }),
     },
+  );
+
+  const urlData = (await urlRes.json()) as {
+    ok?: boolean;
+    error?: string;
+    upload_url?: string;
+    file_id?: string;
+  };
+
+  if (!urlData.ok || !urlData.upload_url || !urlData.file_id) {
+    throw new Error(
+      `files.getUploadURLExternal failed: ${urlData.error ?? "unknown"}`,
+    );
+  }
+
+  // Step 2: Upload file content to the provided URL
+  const uploadRes = await fetchImpl(urlData.upload_url, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: buffer,
+  });
+
+  if (!uploadRes.ok) {
+    throw new Error(
+      `File upload to Slack failed with status ${uploadRes.status}`,
+    );
+  }
+
+  // Step 3: Complete the upload and share to channel
+  const completeBody: {
+    files: Array<{ id: string; title: string }>;
+    channel_id: string;
+    thread_ts?: string;
+  } = {
+    files: [{ id: urlData.file_id, title: filename }],
+    channel_id: channelId,
+  };
+  if (threadTs) {
+    completeBody.thread_ts = threadTs;
+  }
+
+  const completeRes = await fetchImpl(
+    "https://slack.com/api/files.completeUploadExternal",
     {
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: decisionLabel,
-        },
-      ],
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(completeBody),
     },
-  ];
+  );
+
+  const completeData = (await completeRes.json()) as {
+    ok?: boolean;
+    error?: string;
+  };
+
+  if (!completeData.ok) {
+    throw new Error(
+      `files.completeUploadExternal failed: ${completeData.error ?? "unknown"}`,
+    );
+  }
+}
+
+export async function sendSlackAttachments(
+  config: GatewayConfig,
+  channelId: string,
+  attachments: RuntimeAttachmentMeta[],
+  threadTs?: string,
+): Promise<void> {
+  const failures: string[] = [];
+
+  for (const meta of attachments) {
+    // Skip oversized attachments before downloading when size is known
+    if (
+      meta.sizeBytes !== undefined &&
+      meta.sizeBytes > config.maxAttachmentBytes
+    ) {
+      log.warn(
+        { attachmentId: meta.id, sizeBytes: meta.sizeBytes },
+        "Skipping oversized outbound attachment",
+      );
+      failures.push(meta.filename ?? meta.id);
+      continue;
+    }
+
+    try {
+      const payload = await downloadAttachment(config, meta.id);
+
+      // Hydrate missing metadata from downloaded payload
+      const mimeType =
+        meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
+      const filename = meta.filename ?? payload.filename ?? meta.id;
+      const buffer = Buffer.from(payload.data, "base64");
+      const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? buffer.length;
+
+      // Check size after hydration for ID-only payloads
+      if (sizeBytes > config.maxAttachmentBytes) {
+        log.warn(
+          { attachmentId: meta.id, sizeBytes },
+          "Skipping oversized outbound attachment (detected after download)",
+        );
+        failures.push(filename);
+        continue;
+      }
+
+      await uploadFileToSlack(config, channelId, buffer, filename, threadTs);
+
+      log.debug(
+        { channelId, attachmentId: meta.id, filename, mimeType },
+        "Attachment sent to Slack",
+      );
+    } catch (err) {
+      const displayName = meta.filename ?? meta.id;
+      log.error(
+        { err, attachmentId: meta.id, filename: displayName },
+        "Failed to send attachment to Slack",
+      );
+      failures.push(displayName);
+    }
+  }
+
+  // Send a text fallback for any attachments that failed
+  if (failures.length > 0) {
+    const notice = `${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
+    try {
+      const slackBody: Record<string, string> = {
+        channel: channelId,
+        text: notice,
+      };
+      if (threadTs) {
+        slackBody.thread_ts = threadTs;
+      }
+      await fetchImpl("https://slack.com/api/chat.postMessage", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.slackChannelBotToken!}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(slackBody),
+      });
+    } catch (err) {
+      log.error({ err, channelId }, "Failed to send attachment failure notice");
+    }
+  }
 }
 
 export function createSlackDeliverHandler(
@@ -243,13 +318,16 @@ export function createSlackDeliverHandler(
       chatId?: string;
       to?: string;
       text?: string;
+      blocks?: Block[];
       assistantId?: string;
-      attachments?: unknown[];
-      approval?: SlackApprovalPayload;
-      /** When set, update an existing message instead of posting a new one. */
+      attachments?: RuntimeAttachmentMeta[];
+      ephemeral?: boolean;
+      user?: string;
+      chatAction?: "typing";
+      /** Message timestamp to update instead of posting a new message. */
       updateTs?: string;
-      /** Decision label used when editing the message after approval consumption. */
-      decisionLabel?: string;
+      /** When provided, use chat.update to edit an existing message instead of posting a new one. */
+      messageTs?: string;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -261,13 +339,37 @@ export function createSlackDeliverHandler(
       return Response.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    if (
-      body.attachments &&
-      Array.isArray(body.attachments) &&
-      body.attachments.length > 0
-    ) {
+    const { attachments } = body;
+
+    // Validate attachment array shape
+    if (attachments) {
+      if (!Array.isArray(attachments)) {
+        return Response.json(
+          { error: "attachments must be an array" },
+          { status: 400 },
+        );
+      }
+      for (const att of attachments) {
+        if (att === null || typeof att !== "object" || Array.isArray(att)) {
+          return Response.json(
+            { error: "each attachment must be an object" },
+            { status: 400 },
+          );
+        }
+        if (!att.id || typeof att.id !== "string") {
+          return Response.json(
+            { error: "each attachment must have an id" },
+            { status: 400 },
+          );
+        }
+      }
+    }
+
+    const { chatAction, updateTs } = body;
+
+    if (chatAction !== undefined && chatAction !== "typing") {
       return Response.json(
-        { error: "Slack attachments not supported in MVP" },
+        { error: 'chatAction must be "typing"' },
         { status: 400 },
       );
     }
@@ -279,160 +381,189 @@ export function createSlackDeliverHandler(
       return Response.json({ error: "chatId is required" }, { status: 400 });
     }
 
-    const { text, approval, updateTs, decisionLabel } = body;
+    const { text } = body;
 
-    if (!text || typeof text !== "string") {
-      return Response.json({ error: "text is required" }, { status: 400 });
+    if (!text && !chatAction && (!attachments || attachments.length === 0)) {
+      return Response.json(
+        { error: "text or attachments required" },
+        { status: 400 },
+      );
     }
 
-    // Validate approval payload shape when present.
-    if (approval !== undefined) {
-      if (
-        approval === null ||
-        typeof approval !== "object" ||
-        Array.isArray(approval)
-      ) {
-        return Response.json(
-          { error: "approval must be an object" },
-          { status: 400 },
-        );
-      }
-      if (!approval.requestId || typeof approval.requestId !== "string") {
-        return Response.json(
-          { error: "approval.requestId is required" },
-          { status: 400 },
-        );
-      }
-      if (!Array.isArray(approval.actions) || approval.actions.length === 0) {
-        return Response.json(
-          { error: "approval.actions must be a non-empty array" },
-          { status: 400 },
-        );
-      }
-      for (const action of approval.actions) {
-        if (
-          action === null ||
-          typeof action !== "object" ||
-          Array.isArray(action)
-        ) {
-          return Response.json(
-            { error: "each approval action must be an object" },
-            { status: 400 },
-          );
-        }
-        if (!action.id || typeof action.id !== "string") {
-          return Response.json(
-            { error: "each approval action must have an id" },
-            { status: 400 },
-          );
-        }
-        if (!action.label || typeof action.label !== "string") {
-          return Response.json(
-            { error: "each approval action must have a label" },
-            { status: 400 },
-          );
-        }
-      }
+    if (text !== undefined && typeof text !== "string") {
+      return Response.json({ error: "text must be a string" }, { status: 400 });
+    }
+
+    const isEphemeral = body.ephemeral === true;
+    if (isEphemeral && (!body.user || typeof body.user !== "string")) {
+      return Response.json(
+        { error: "user is required for ephemeral messages" },
+        { status: 400 },
+      );
     }
 
     // Support threading via query param
     const threadTs = new URL(req.url).searchParams.get("threadTs") ?? undefined;
+    const messageTs = body.messageTs ?? updateTs;
+    const isUpdate = typeof messageTs === "string" && messageTs.length > 0;
+
+    // Resolve Block Kit blocks: use provided blocks, or auto-format text
+    const blocks: Block[] =
+      Array.isArray(body.blocks) && body.blocks.length > 0
+        ? body.blocks
+        : textToBlocks(text);
 
     try {
-      // ── Message update path (post-decision edit) ──
-      if (updateTs && typeof updateTs === "string") {
-        const blocks =
-          decisionLabel && typeof decisionLabel === "string"
-            ? buildDecisionResultBlocks(text, decisionLabel)
-            : [{ type: "section", text: { type: "mrkdwn", text } }];
-
-        const updateBody: Record<string, unknown> = {
+      // Typing indicator: post a placeholder message that the runtime can
+      // later update via `updateTs` when the real response is ready.
+      // Slack bots have no native typing indicator API, so this serves as
+      // a lightweight visual cue.
+      if (chatAction === "typing") {
+        const placeholderBody: Record<string, string> = {
           channel: chatId,
-          ts: updateTs,
-          text,
-          blocks,
+          text: "\u2026",
         };
+        if (threadTs) {
+          placeholderBody.thread_ts = threadTs;
+        }
 
-        const response = await fetchImpl("https://slack.com/api/chat.update", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.slackChannelBotToken}`,
-            "Content-Type": "application/json",
+        const response = await fetchImpl(
+          "https://slack.com/api/chat.postMessage",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${config.slackChannelBotToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(placeholderBody),
           },
-          body: JSON.stringify(updateBody),
-        });
+        );
 
         const data = (await response.json()) as {
           ok?: boolean;
           error?: string;
+          ts?: string;
         };
+
         if (!data.ok) {
           tlog.error(
-            { chatId, updateTs, slackError: data.error },
-            "Slack chat.update API returned error",
+            { chatId, slackError: data.error },
+            "Slack API returned error for typing placeholder",
           );
-          return Response.json({ error: "Update failed" }, { status: 502 });
+          return Response.json({ error: "Delivery failed" }, { status: 502 });
         }
 
-        tlog.info({ chatId, updateTs }, "Slack message updated");
-        return Response.json({ ok: true });
-      }
-
-      // ── New message path ──
-      const slackBody: Record<string, unknown> = {
-        channel: chatId,
-        text,
-      };
-      if (threadTs) {
-        slackBody.thread_ts = threadTs;
-      }
-
-      // When an approval payload is present, render Block Kit blocks.
-      // Use the richer permission-specific layout when permission details are available.
-      if (approval) {
-        slackBody.blocks = approval.permissionDetails
-          ? buildSlackPermissionRequestBlocks(text, approval)
-          : buildApprovalBlocks(text, approval);
-      }
-
-      const response = await fetchImpl(
-        "https://slack.com/api/chat.postMessage",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.slackChannelBotToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(slackBody),
-        },
-      );
-
-      const data = (await response.json()) as {
-        ok?: boolean;
-        error?: string;
-        ts?: string;
-      };
-
-      if (!data.ok) {
-        tlog.error(
-          { chatId, slackError: data.error },
-          "Slack API returned error",
+        tlog.info(
+          { chatId, placeholderTs: data.ts, hasThreadTs: !!threadTs },
+          "Slack typing placeholder sent",
         );
-        return Response.json({ error: "Delivery failed" }, { status: 502 });
+
+        if (threadTs && onThreadReply) {
+          onThreadReply(threadTs);
+        }
+
+        // Return the placeholder message ts so the runtime can update it later
+        return Response.json({ ok: true, placeholderTs: data.ts });
+      }
+
+      if (text && typeof text === "string") {
+        const slackBody: Record<string, unknown> = {
+          channel: chatId,
+          // `text` is always required as a fallback for notifications and accessibility
+          text,
+        };
+
+        // Add Block Kit blocks for rich formatting
+        if (blocks.length > 0) {
+          slackBody.blocks = blocks;
+        }
+
+        if (threadTs) {
+          slackBody.thread_ts = threadTs;
+        }
+
+        // Ephemeral messages are only visible to the target user and cannot be
+        // edited or deleted after posting — they are fire-and-forget.
+        if (isEphemeral) {
+          slackBody.user = body.user!;
+        }
+
+        let result: SlackApiResult | Response;
+
+        if (isUpdate) {
+          // chat.update only accepts channel, ts, and text — thread_ts is not
+          // a valid parameter and would cause the call to fail silently.
+          const updateBody: Record<string, string> = {
+            channel: chatId,
+            text,
+            ts: messageTs,
+          };
+          result = await callSlackApiWithRetries(
+            "https://slack.com/api/chat.update",
+            updateBody,
+            config.slackChannelBotToken,
+            chatId,
+            tlog,
+          );
+
+          // Fall back to posting a new message if update fails
+          if (result instanceof Response) {
+            tlog.warn(
+              { chatId, messageTs },
+              "Slack chat.update failed, falling back to chat.postMessage",
+            );
+            result = await callSlackApiWithRetries(
+              "https://slack.com/api/chat.postMessage",
+              slackBody,
+              config.slackChannelBotToken,
+              chatId,
+              tlog,
+            );
+          }
+        } else {
+          const slackMethod = isEphemeral
+            ? "chat.postEphemeral"
+            : "chat.postMessage";
+
+          result = await callSlackApiWithRetries(
+            `https://slack.com/api/${slackMethod}`,
+            slackBody,
+            config.slackChannelBotToken,
+            chatId,
+            tlog,
+          );
+        }
+
+        // If result is a Response, it's an error response — return it directly
+        if (result instanceof Response) {
+          return result;
+        }
+      }
+
+      if (attachments && attachments.length > 0) {
+        await sendSlackAttachments(config, chatId, attachments, threadTs);
       }
 
       tlog.info(
-        { chatId, hasThreadTs: !!threadTs, hasApproval: !!approval },
-        "Slack message sent",
+        {
+          chatId,
+          hasThreadTs: !!threadTs,
+          isUpdate,
+          ephemeral: isEphemeral,
+          hasText: !!text,
+          attachmentCount: attachments?.length ?? 0,
+        },
+        isUpdate ? "Slack message updated" : "Slack message sent",
       );
 
-      // Track the thread so future replies without @mention are forwarded
-      if (threadTs && onThreadReply) {
+      // Track the thread so future replies without @mention are forwarded.
+      // Skip for ephemeral sends — they are user-specific and should not
+      // activate global thread tracking for all participants.
+      if (threadTs && onThreadReply && !isEphemeral) {
         onThreadReply(threadTs);
       }
 
-      // Return the message timestamp so callers can reference it for updates.
-      return Response.json({ ok: true, ts: data.ts });
+      return Response.json({ ok: true });
     } catch (err) {
       tlog.error({ err, chatId }, "Failed to deliver Slack message");
       return Response.json({ error: "Delivery failed" }, { status: 502 });

@@ -1,11 +1,26 @@
-import { searchContacts } from "../../../../contacts/contact-store.js";
-import type { ContactWithChannels } from "../../../../contacts/types.js";
+import { getGatewayInternalBaseUrl } from "../../../../config/env.js";
+import { mintEdgeRelayToken } from "../../../../runtime/auth/token-service.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
-function formatContactSummary(c: ContactWithChannels): string {
+interface ContactChannel {
+  type: string;
+  address: string;
+  isPrimary: boolean;
+}
+
+interface ContactResponse {
+  id: string;
+  displayName: string;
+  relationship: string | null;
+  importance: number;
+  interactionCount: number;
+  channels: ContactChannel[];
+}
+
+function formatContactSummary(c: ContactResponse): string {
   const parts = [`- **${c.displayName}** (ID: ${c.id})`];
   if (c.relationship) parts.push(`  Relationship: ${c.relationship}`);
   parts.push(
@@ -41,13 +56,44 @@ export async function executeContactSearch(
   }
 
   try {
-    const results = searchContacts({
-      query,
-      channelAddress,
-      channelType,
-      relationship,
-      limit,
+    const gatewayBase = getGatewayInternalBaseUrl();
+    const token = mintEdgeRelayToken();
+
+    const params = new URLSearchParams();
+    if (query) params.set("query", query);
+    if (channelAddress) params.set("channelAddress", channelAddress);
+    if (channelType) params.set("channelType", channelType);
+    if (relationship) params.set("relationship", relationship);
+    if (limit !== undefined) params.set("limit", String(limit));
+
+    const qs = params.toString();
+    const url = `${gatewayBase}/v1/contacts${qs ? `?${qs}` : ""}`;
+
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
     });
+
+    if (!resp.ok) {
+      const body = await resp.text();
+      let message = `Gateway request failed (${resp.status})`;
+      try {
+        const parsed = JSON.parse(body) as { error?: string };
+        if (parsed.error) message = parsed.error;
+      } catch {
+        if (body) message = body;
+      }
+      return { content: `Error: ${message}`, isError: true };
+    }
+
+    const data = (await resp.json()) as {
+      ok: boolean;
+      contacts: ContactResponse[];
+    };
+    const results = data.contacts;
 
     if (results.length === 0) {
       return {

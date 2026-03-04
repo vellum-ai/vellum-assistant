@@ -8,7 +8,7 @@ export async function sleep(): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum sleep");
     console.log("");
-    console.log("Stop the daemon, gateway, and outbound-proxy processes.");
+    console.log("Stop the assistant, gateway, and outbound-proxy processes.");
     process.exit(0);
   }
 
@@ -23,9 +23,9 @@ export async function sleep(): Promise<void> {
     socketFile,
   ]);
   if (!daemonStopped) {
-    console.log("Daemon is not running.");
+    console.log("Assistant is not running.");
   } else {
-    console.log("Daemon stopped.");
+    console.log("Assistant stopped.");
   }
 
   // Stop gateway

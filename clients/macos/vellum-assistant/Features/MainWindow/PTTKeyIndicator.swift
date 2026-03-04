@@ -7,7 +7,6 @@ import VellumAssistantShared
 struct PTTKeyIndicator: View {
     /// Watches the raw `activationKey` default to trigger SwiftUI refreshes.
     @AppStorage("activationKey") private var activationKey: String = "fn"
-    @State private var isHovered = false
 
     let onTap: () -> Void
 
@@ -23,30 +22,9 @@ struct PTTKeyIndicator: View {
 
     var body: some View {
         if let keyName = displayName {
-            Button(action: onTap) {
-                HStack(spacing: 4) {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 9))
-                    Text(keyName)
-                        .font(VFont.caption)
-                }
-                .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(
-                    Capsule()
-                        .fill(isHovered ? VColor.surfaceSubtle.opacity(0.8) : VColor.surfaceSubtle)
-                )
-                .overlay(
-                    Capsule()
-                        .strokeBorder(VColor.surfaceBorder, lineWidth: 0.5)
-                )
+            VShortcutTag(keyName, icon: "mic.fill") {
+                onTap()
             }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                isHovered = hovering
-            }
-            .help("Push-to-talk: hold \(keyName)")
         }
     }
 }

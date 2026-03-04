@@ -96,6 +96,7 @@ export type ApprovalDecisionSource =
   | "telegram_button"
   | "whatsapp_button"
   | "slack_button"
+  | "slack_reaction"
   | "plain_text";
 
 /** The structured result of a user's approval decision. */

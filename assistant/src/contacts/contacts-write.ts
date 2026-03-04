@@ -1,9 +1,9 @@
 /**
- * Contacts-first write module.
+ * Contacts write module.
  *
- * All mutations write directly to the contacts table (the authoritative
- * source). The legacy ingress_members and guardian_bindings tables are
- * no longer written to.
+ * All mutations (member upserts, guardian bindings, revocations) write
+ * directly to the contacts table, the single authoritative source for
+ * identity and access-control state.
  */
 
 import type { ChannelId } from "../channels/types.js";
@@ -16,14 +16,16 @@ import {
   findContactChannel,
   findGuardianForChannel,
   getChannelById,
-  getContact,
+  getContactInternal,
   updateChannelLastSeenById,
   updateChannelStatus,
   upsertContact,
 } from "./contact-store.js";
-import type { IngressMember } from "./member-record-shim.js";
-import { contactChannelToMemberRecord } from "./member-record-shim.js";
-import type { ChannelPolicy, ChannelStatus } from "./types.js";
+import type {
+  ChannelPolicy,
+  ChannelStatus,
+  ContactWriteResult,
+} from "./types.js";
 
 const log = getLogger("contacts-write");
 
@@ -54,7 +56,7 @@ function parseDisplayNameFromMetadata(
  * Returns a GuardianBinding-compatible object synthesized from the input params
  * (so callers expecting binding.id still work).
  */
-export function createGuardianBindingContactsFirst(params: {
+export function createGuardianBinding(params: {
   assistantId: string;
   channel: string;
   guardianExternalUserId: string;
@@ -115,7 +117,7 @@ export function createGuardianBindingContactsFirst(params: {
  * Revoke a guardian binding by updating the contacts table.
  * Returns true when a guardian channel was found and revoked, false otherwise.
  */
-export function revokeGuardianBindingContactsFirst(
+export function revokeGuardianBinding(
   assistantId: string,
   channel: string,
 ): boolean {
@@ -133,10 +135,11 @@ export function revokeGuardianBindingContactsFirst(
 // ── Member operations ────────────────────────────────────────────────
 
 /**
- * Upsert an ingress member by writing to the contacts table.
- * Returns an IngressMember synthesized from the contacts data.
+ * Upsert a contact and channel by writing to the contacts table.
+ * Returns the native Contact + ContactChannel, or null if no usable
+ * identity was provided or the lookup failed after upsert.
  */
-export function upsertMemberContactsFirst(params: {
+export function upsertMember(params: {
   sourceChannel: string;
   externalUserId?: string;
   externalChatId?: string;
@@ -147,7 +150,7 @@ export function upsertMemberContactsFirst(params: {
   inviteId?: string;
   createdBySessionId?: string;
   assistantId?: string;
-}): IngressMember {
+}): ContactWriteResult | null {
   let address: string;
 
   if (params.externalUserId) {
@@ -160,26 +163,8 @@ export function upsertMemberContactsFirst(params: {
   } else if (params.externalChatId) {
     address = params.externalChatId;
   } else {
-    // No usable identity — return a minimal fallback record
-    return {
-      id: "",
-      contactId: null,
-      assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-      sourceChannel: params.sourceChannel,
-      externalUserId: params.externalUserId ?? null,
-      externalChatId: params.externalChatId ?? null,
-      displayName: params.displayName ?? null,
-      username: params.username ?? null,
-      status: (params.status as IngressMember["status"]) ?? "pending",
-      policy: (params.policy as IngressMember["policy"]) ?? "allow",
-      inviteId: params.inviteId ?? null,
-      createdBySessionId: params.createdBySessionId ?? null,
-      revokedReason: null,
-      blockedReason: null,
-      lastSeenAt: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+    // No usable identity — cannot create a contact
+    return null;
   }
 
   const displayName = params.displayName ?? params.externalUserId ?? "Unknown";
@@ -193,6 +178,7 @@ export function upsertMemberContactsFirst(params: {
 
   upsertContact({
     displayName,
+    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     channels: [
       {
         type: params.sourceChannel,
@@ -221,43 +207,21 @@ export function upsertMemberContactsFirst(params: {
   emitContactChange();
 
   if (contactResult) {
-    return contactChannelToMemberRecord(
-      contactResult.contact,
-      contactResult.channel,
-    );
+    return { contact: contactResult.contact, channel: contactResult.channel };
   }
 
-  // Fallback: construct minimal IngressMember from params
-  return {
-    id: "",
-    contactId: null,
-    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-    sourceChannel: params.sourceChannel,
-    externalUserId: params.externalUserId ?? null,
-    externalChatId: params.externalChatId ?? null,
-    displayName: params.displayName ?? null,
-    username: params.username ?? null,
-    status: (params.status as IngressMember["status"]) ?? "pending",
-    policy: (params.policy as IngressMember["policy"]) ?? "allow",
-    inviteId: params.inviteId ?? null,
-    createdBySessionId: params.createdBySessionId ?? null,
-    revokedReason: null,
-    blockedReason: null,
-    lastSeenAt: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+  return null;
 }
 
 /**
- * Revoke an ingress member by updating the contacts channel status.
+ * Revoke a contact channel by updating its status.
  * The memberId may be a plain channel ID (internal callers) or a composite
  * contactId:channelId (from the API response format).
  */
-export function revokeMemberContactsFirst(
+export function revokeMember(
   memberId: string,
   reason?: string,
-): IngressMember | null {
+): ContactWriteResult | null {
   const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
 
   const channelRow = getChannelById(channelId);
@@ -270,24 +234,25 @@ export function revokeMemberContactsFirst(
     revokedReason: reason ?? null,
   });
 
-  const contact = getContact(channelRow.contactId);
+  // Use unscoped lookup — the contact was already resolved via channel ID
+  const contact = getContactInternal(channelRow.contactId);
   if (!contact) return null;
   const updatedChannel = contact.channels.find((ch) => ch.id === channelId);
   if (!updatedChannel) return null;
 
   emitContactChange();
-  return contactChannelToMemberRecord(contact, updatedChannel);
+  return { contact, channel: updatedChannel };
 }
 
 /**
- * Block an ingress member by updating the contacts channel status.
+ * Block a contact channel by updating its status.
  * The memberId may be a plain channel ID (internal callers) or a composite
  * contactId:channelId (from the API response format).
  */
-export function blockMemberContactsFirst(
+export function blockMember(
   memberId: string,
   reason?: string,
-): IngressMember | null {
+): ContactWriteResult | null {
   const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
 
   const channelRow = getChannelById(channelId);
@@ -299,18 +264,19 @@ export function blockMemberContactsFirst(
     blockedReason: reason ?? null,
   });
 
-  const contact = getContact(channelRow.contactId);
+  // Use unscoped lookup — the contact was already resolved via channel ID
+  const contact = getContactInternal(channelRow.contactId);
   if (!contact) return null;
   const updatedChannel = contact.channels.find((ch) => ch.id === channelId);
   if (!updatedChannel) return null;
 
   emitContactChange();
-  return contactChannelToMemberRecord(contact, updatedChannel);
+  return { contact, channel: updatedChannel };
 }
 
 /**
  * Update the lastSeenAt timestamp on a contact channel by its ID.
- * Expects a plain channel UUID (IngressMember.id), not the composite API ID.
+ * Expects a plain channel UUID (ContactChannel.id), not the composite API ID.
  */
 export function touchChannelLastSeen(channelId: string): void {
   try {
