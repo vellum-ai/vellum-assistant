@@ -50,10 +50,11 @@ struct AssistantProgressView: View {
 
         // Only enter error phase when ALL tools are done, at least one errored,
         // the model hasn't already produced a text response (i.e. it recovered),
-        // and the model is no longer streaming (it may still recover with text or new tools).
+        // the model is no longer streaming (it may still recover with text or new tools),
+        // and not still processing (composing a response after tools).
         // While tools are still running, individual errors show as failed steps in the
         // expanded list without changing the overall phase.
-        if allComplete && toolCalls.contains(where: { $0.isError }) && !hasText && !isStreaming {
+        if allComplete && toolCalls.contains(where: { $0.isError }) && !hasText && !isStreaming && !isProcessing {
             return .error
         }
 
