@@ -106,7 +106,15 @@ export async function handleUpsertContact(
     responseExpectation?: string;
     preferredTone?: string;
     role?: string;
-    channels?: Array<{ type: string; address: string; isPrimary?: boolean }>;
+    channels?: Array<{
+      type: string;
+      address: string;
+      isPrimary?: boolean;
+      status?: string;
+      policy?: string;
+      externalUserId?: string;
+      externalChatId?: string;
+    }>;
   };
 
   if (
