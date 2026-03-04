@@ -203,8 +203,8 @@ export function upsertMemberContactsFirst(params: {
           status: (params.status as ChannelStatus) ?? undefined,
           policy: (params.policy as ChannelPolicy) ?? undefined,
           inviteId: params.inviteId ?? null,
-          revokedReason: null,
-          blockedReason: null,
+          revokedReason: params.status === 'active' ? null : undefined,
+          blockedReason: params.status === 'active' ? null : undefined,
         },
       ],
     });
