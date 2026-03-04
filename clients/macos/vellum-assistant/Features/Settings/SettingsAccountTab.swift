@@ -120,7 +120,6 @@ struct SettingsAccountTab: View {
 
             VButton(label: "Save", style: .primary, size: .medium) {
                 store.savePlatformBaseUrl(platformUrlText)
-                Task { await store.checkVellumPlatform() }
                 isPlatformUrlFocused = false
                 platformUrlExpanded = false
             }
