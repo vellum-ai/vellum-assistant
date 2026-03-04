@@ -7,10 +7,9 @@
  */
 
 import { mkdir, stat } from "node:fs/promises";
-import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { uploadAttachment } from "../../../../memory/attachments-store.js";
+import { uploadFileBackedAttachment } from "../../../../memory/attachments-store.js";
 import { getMediaAssetById } from "../../../../memory/media-store.js";
 import type {
   ToolContext,
@@ -222,12 +221,14 @@ export async function run(
       )} MB). Registering as attachment...\n`,
     );
 
-    // Read clip file and register as attachment
-    const clipData = await readFile(clipPath);
-    const clipBase64 = clipData.toString("base64");
+    // Register as file-backed attachment (no size limit, no base64 in-memory copy)
     const mimeType = MIME_BY_FORMAT[outputFormat] ?? "video/mp4";
-
-    const attachment = uploadAttachment(clipFilename, mimeType, clipBase64);
+    const attachment = uploadFileBackedAttachment(
+      clipFilename,
+      mimeType,
+      clipPath,
+      clipStat.size,
+    );
 
     context.onOutput?.(`Clip registered as attachment ${attachment.id}.\n`);
 
