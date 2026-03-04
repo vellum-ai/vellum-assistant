@@ -1040,11 +1040,38 @@ function parseAssistantMetadata(
   } as AssistantContactMetadata;
 }
 
+/**
+ * Validate that metadata matches the expected shape for the given species.
+ * Enforces the invariant that makes the discriminated union cast in
+ * parseAssistantMetadata safe.
+ */
+function validateSpeciesMetadata(
+  species: AssistantSpecies,
+  metadata: Record<string, unknown> | null | undefined,
+): void {
+  if (metadata == null) return;
+
+  if (species === "vellum") {
+    if (typeof metadata.assistantId !== "string" || !metadata.assistantId) {
+      throw new Error(
+        'Vellum assistant metadata requires a non-empty "assistantId" string',
+      );
+    }
+    if (typeof metadata.gatewayUrl !== "string" || !metadata.gatewayUrl) {
+      throw new Error(
+        'Vellum assistant metadata requires a non-empty "gatewayUrl" string',
+      );
+    }
+  }
+}
+
 export function upsertAssistantContactMetadata(params: {
   contactId: string;
   species: AssistantSpecies;
   metadata?: Record<string, unknown> | null;
 }): AssistantContactMetadata {
+  validateSpeciesMetadata(params.species, params.metadata);
+
   const db = getDb();
   const metadataJson =
     params.metadata != null ? JSON.stringify(params.metadata) : null;
