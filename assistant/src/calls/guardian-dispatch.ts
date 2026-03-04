@@ -102,12 +102,17 @@ async function dispatchGuardianQuestionInner(
     // level guardian identity. Resolve the principal from the contacts-first
     // path (canonical), falling back to the legacy vellum binding.
     let guardianPrincipalId: string | undefined;
+    let resolvedViaContacts = false;
 
     const guardianResult = findGuardianForChannel("vellum");
-    if (guardianResult) {
-      guardianPrincipalId = guardianResult.contact.principalId ?? undefined;
-    } else {
-      // Legacy fallback: contacts not yet synced
+    if (guardianResult?.contact.principalId) {
+      guardianPrincipalId = guardianResult.contact.principalId;
+      resolvedViaContacts = true;
+    }
+
+    // Legacy fallback: contacts not yet synced, or contact exists but
+    // principalId is null (partial/backfill sync state).
+    if (!guardianPrincipalId) {
       let vellumBinding = getActiveBinding(assistantId, "vellum");
       guardianPrincipalId = vellumBinding?.guardianPrincipalId;
 
@@ -127,8 +132,8 @@ async function dispatchGuardianQuestionInner(
 
     if (!guardianPrincipalId) {
       log.error(
-        { callSessionId, assistantId },
-        "Voice guardian dispatch: no guardianPrincipalId after self-heal — cannot create pending_question",
+        { callSessionId, assistantId, resolvedViaContacts },
+        "Voice guardian dispatch: no guardianPrincipalId after contacts + legacy fallback — cannot create pending_question",
       );
       return;
     }
