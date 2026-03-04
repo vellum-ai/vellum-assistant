@@ -479,7 +479,7 @@ export async function enforceIngressAcl(
           // the guardian made an explicit decision to block them.
           if (
             sourceChannel === "slack" &&
-            resolvedMember.status !== "blocked" &&
+            resolvedMember.channel.status !== "blocked" &&
             (canonicalSenderId ?? rawSenderId)
           ) {
             const slackVerifyResult = initiateSlackVerificationChallenge({
@@ -501,7 +501,9 @@ export async function enforceIngressAcl(
                   actorExternalId: canonicalSenderId ?? rawSenderId,
                   actorDisplayName,
                   actorUsername,
-                  previousMemberStatus: resolvedMember.status,
+                  previousMemberStatus: channelStatusToMemberStatus(
+                    resolvedMember.channel.status,
+                  ),
                 });
               } catch (err) {
                 log.error(
