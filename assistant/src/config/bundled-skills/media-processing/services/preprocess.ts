@@ -495,6 +495,8 @@ export async function preprocessForAsset(
         onProgress?.(
           `Warning: frame extraction failed for ${seg.id}: ${result.stderr.slice(0, 200)}\n`,
         );
+        const segProgress = Math.round(((i + 1) / rawSegments.length) * 80);
+        updateProcessingStage(stage.id, { progress: segProgress });
         continue;
       }
 
