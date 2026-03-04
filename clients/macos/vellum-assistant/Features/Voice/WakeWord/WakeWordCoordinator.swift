@@ -114,7 +114,7 @@ final class WakeWordCoordinator: ObservableObject {
         lastActivationTime = Date()
 
         // 1. Play activation chime and show visual indicator
-        WakeWordFeedback.playActivationChime()
+        VoiceFeedback.playActivationChime()
         activationWindow.show(state: .activated)
 
         // 2. Capture the ChatViewModel NOW (before any async delay) so it matches
@@ -225,7 +225,7 @@ final class WakeWordCoordinator: ObservableObject {
                     if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
                         log.info("Voice mode deactivated — resuming wake word listening after delay")
                         if self.activatedViaWakeWord {
-                            WakeWordFeedback.playDeactivationChime()
+                            VoiceFeedback.playDeactivationChime()
                             self.activationWindow.show(state: .listening)
                         }
                         // Cancel any pending restart before scheduling a new one — rapid

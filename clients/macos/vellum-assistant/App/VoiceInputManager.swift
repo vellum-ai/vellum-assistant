@@ -529,6 +529,7 @@ final class VoiceInputManager {
 
         isRecording = true
         onRecordingStateChanged?(true)
+        VoiceFeedback.playActivationChime()
         if currentMode == .dictation {
             overlayWindow.show(state: .recording)
         }
@@ -692,6 +693,7 @@ final class VoiceInputManager {
     func handleFinalTranscription(_ text: String) {
         switch currentMode {
         case .conversation:
+            VoiceFeedback.playDeactivationChime()
             onTranscription?(text)
         case .dictation:
             guard let context = currentDictationContext else {
@@ -735,6 +737,7 @@ final class VoiceInputManager {
         if mode == "dictation" || mode == "command" {
             DictationTextInserter.insertText(text)
             overlayWindow.showDoneAndDismiss()
+            VoiceFeedback.playDeactivationChime()
         } else if mode == "action" {
             overlayWindow.dismiss()
             log.info("Action mode detected — routing transcription to task submission: \(text, privacy: .public)")
