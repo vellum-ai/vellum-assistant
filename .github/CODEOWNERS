@@ -65,9 +65,13 @@ assistant/src/runtime/channel-invite-transports/voice.ts @alex-nork
 assistant/src/util/voice-code.ts @alex-nork
 gateway/src/twilio/ @alex-nork
 
-# Agent-to-agent / agent-to-person overrides (Harrison) — within tools/, bundled-skills/
+# Agent-to-agent / agent-to-person overrides (Harrison) — within tools/, bundled-skills/, memory/, daemon/
 assistant/src/tools/subagent/ @NgoHarrison
 assistant/src/config/bundled-skills/subagent/ @NgoHarrison
+assistant/src/daemon/handlers/config-inbox.ts @NgoHarrison
+assistant/src/daemon/ipc-contract/inbox.ts @NgoHarrison
+assistant/src/memory/ingress-* @NgoHarrison
+assistant/src/memory/inbox-* @NgoHarrison
 
 # MCP (Vincent) — overrides tools/
 assistant/src/mcp/ @vincent0426
