@@ -1277,14 +1277,14 @@ extension ChatViewModel {
                     }
                 }
             }
-            // Auto-open clip files in the default video player
-            if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
-                autoOpenClipIfNeeded(
-                    toolName: messages[msgIndex].toolCalls[tcIndex].toolName,
-                    result: msg.result,
-                    isError: msg.isError ?? false
-                )
-            }
+            // Auto-open clip files in the default video player.
+            // Use msg.toolName from the event payload (stable) instead of the
+            // matched tool call's toolName (relies on last-incomplete heuristic).
+            autoOpenClipIfNeeded(
+                toolName: msg.toolName,
+                result: msg.result,
+                isError: msg.isError ?? false
+            )
 
             // Tool completed — don't re-show "Thinking..." here. The tool
             // call chip already indicates activity, and the LLM isn't actually
