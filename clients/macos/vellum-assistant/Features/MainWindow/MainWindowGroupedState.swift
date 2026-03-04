@@ -22,6 +22,8 @@ final class SharingState {
     var credentialPollTimer: Timer?
     /// Stashed handler so onDisappear can restore it when polling is active.
     var previousVercelHandler: ((VercelApiConfigResponseMessage) -> Void)?
+    /// Cancellable task that auto-dismisses publishError after a delay.
+    var errorDismissTask: Task<Void, Never>?
 }
 
 /// Sidebar interaction state -- hover, rename, expand/collapse lists, drawer.

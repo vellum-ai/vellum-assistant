@@ -62,7 +62,10 @@ extension MainWindowView {
                 } else if let error = response.error, error != "Cancelled" {
                     sharing.publishError = error
                     // Auto-dismiss error after 5 seconds
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                    sharing.errorDismissTask?.cancel()
+                    sharing.errorDismissTask = Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(5))
+                        guard !Task.isCancelled else { return }
                         if sharing.publishError == error {
                             withAnimation(VAnimation.standard) { sharing.publishError = nil }
                         }

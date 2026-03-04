@@ -505,6 +505,8 @@ struct MainWindowView: View {
         }
         .onDisappear {
             copyThread.cancel()
+            sharing.errorDismissTask?.cancel()
+            sharing.errorDismissTask = nil
             sharing.credentialPollTimer?.invalidate()
             sharing.credentialPollTimer = nil
             sharing.pendingPublish = nil
