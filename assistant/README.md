@@ -432,7 +432,7 @@ Redemption auto-creates a **member** record with an access policy:
 - **`deny`** — Messages are rejected with a refusal notice.
 - **`escalate`** — Messages are held for guardian (owner) approval before processing.
 
-Non-members (senders with no invite redemption) are denied by default. Members can be listed, updated, revoked, or blocked via the `ingress_member` IPC contract.
+Non-members (senders with no invite redemption) are denied by default. Contacts can be listed, updated, revoked, or blocked via the HTTP API (`/v1/contacts` and `/v1/contacts/channels`).
 
 ### Escalation Flow
 
@@ -447,7 +447,6 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | Message Type     | Actions                      | Description                                                              |
 | ---------------- | ---------------------------- | ------------------------------------------------------------------------ |
 | `ingress_invite` | create, list, revoke, redeem | Manage invite tokens (SHA-256 hashed, raw token returned once on create) |
-| `ingress_member` | list, upsert, revoke, block  | Manage member records and access policies                                |
 
 ### Key Modules
 
@@ -455,7 +454,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `src/memory/ingress-invite-store.ts`                | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
-| `src/daemon/handlers/config-inbox.ts`               | IPC handlers for ingress invite and member contracts                                                             |
+| `src/daemon/handlers/config-inbox.ts`               | IPC handlers for ingress invite contract                                                                         |
 | `src/daemon/ipc-contract/inbox.ts`                  | TypeScript type definitions for ingress IPC messages                                                             |
 | `src/runtime/routes/channel-routes.ts`              | ACL enforcement point — member lookup, policy check, escalation creation                                         |
 | `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, member creation, discriminated-union outcomes                         |
@@ -463,7 +462,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
-| `src/runtime/ingress-service.ts`                    | Shared business logic for invite/member operations (HTTP + IPC)                                                  |
+| `src/runtime/ingress-service.ts`                    | Shared business logic for invite and contact operations (HTTP + IPC)                                             |
 
 ## Database
 
