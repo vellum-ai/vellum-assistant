@@ -35,6 +35,18 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../config/env.js", () => ({
+  isHttpAuthDisabled: () => false,
+  getInternalGatewayTarget: () => "http://localhost:7822",
+  getGatewayBaseUrl: () => "http://localhost:7822",
+  getRuntimeProxyBearerToken: () => undefined,
+  getRuntimeGatewayOriginSecret: () => undefined,
+  isHttpAuthDisabledWithoutSafetyGate: () => false,
+  getEnableMonitoring: () => false,
+  checkUnrecognizedEnvVars: () => {},
+  getBaseDataDir: () => testDir,
+}));
+
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   createBinding,
@@ -101,6 +113,8 @@ beforeEach(() => {
   const db = getSqlite();
   db.run("DELETE FROM actor_token_records");
   db.run("DELETE FROM channel_guardian_bindings");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
 });
 
 afterAll(() => {

@@ -78,6 +78,8 @@ function resetTables(): void {
   db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM assistant_ingress_members");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +172,10 @@ describe("trusted contact verification → member activation", () => {
     expect(trust.actorMetadata.displayName).toBe("Jeff");
     expect(trust.actorMetadata.senderDisplayName).toBeUndefined();
     expect(trust.actorMetadata.memberDisplayName).toBe("Jeff");
-    expect(trust.actorMetadata.identifier).toBe("@jeff_handle");
+    // Contacts-first path does not carry username from the member record
+    // (contactChannelToMemberRecord sets username: null), so identifier
+    // falls back to canonicalSenderId when no actorUsername is provided.
+    expect(trust.actorMetadata.identifier).toBe("requester-user-jeff");
   });
 
   test("resolveActorTrust prioritizes member displayName over sender displayName", () => {
@@ -198,8 +203,11 @@ describe("trusted contact verification → member activation", () => {
     expect(trust.actorMetadata.displayName).toBe("Jeff");
     expect(trust.actorMetadata.senderDisplayName).toBe("Jeffrey");
     expect(trust.actorMetadata.memberDisplayName).toBe("Jeff");
-    expect(trust.actorMetadata.username).toBe("jeff_handle");
-    expect(trust.actorMetadata.identifier).toBe("@jeff_handle");
+    // Contacts-first path does not carry username from the member record
+    // (contactChannelToMemberRecord sets username: null), so the sender's
+    // username takes precedence via the fallback chain.
+    expect(trust.actorMetadata.username).toBe("jeffrey_telegram");
+    expect(trust.actorMetadata.identifier).toBe("@jeffrey_telegram");
   });
 
   test("resolveActorTrust falls back to sender metadata when member record matches chat but not sender (group chat)", () => {

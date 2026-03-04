@@ -1093,8 +1093,8 @@ describe("applyRuntimeInjections — injection mode", () => {
     } as ChannelTurnContextParams,
     interfaceTurnContext: {
       turnContext: {
-        userMessageInterface: "telegram",
-        assistantMessageInterface: "telegram",
+        userMessageInterface: "telegram" as const,
+        assistantMessageInterface: "telegram" as const,
       },
       conversationOriginInterface: null,
     },

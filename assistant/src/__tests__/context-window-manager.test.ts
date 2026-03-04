@@ -25,6 +25,13 @@ function makeConfig(
     preserveRecentUserTurns: 2,
     summaryMaxTokens: 128,
     chunkTokens: 80,
+    overflowRecovery: {
+      enabled: true,
+      safetyMarginRatio: 0.05,
+      maxAttempts: 3,
+      interactiveLatestTurnCompression: "summarize",
+      nonInteractiveLatestTurnCompression: "truncate",
+    },
     ...overrides,
   };
 }
@@ -533,9 +540,11 @@ describe("ContextWindowManager", () => {
       minKeepRecentUserTurns: 0,
     });
     expect(result.compacted).toBe(true);
-    // All original messages should be compacted — only the summary remains.
-    expect(result.compactedMessages).toBe(3);
-    expect(result.messages).toHaveLength(1);
+    // With these token budgets the last user turn fits within
+    // targetInputTokens, so pickKeepBoundary stops at keepTurns=1.
+    // Two messages are compacted (u1 + a1) and the last user turn is kept.
+    expect(result.compactedMessages).toBe(2);
+    expect(result.messages).toHaveLength(2);
     expect(getSummaryFromContextMessage(result.messages[0])).toContain(
       "emergency summary",
     );
