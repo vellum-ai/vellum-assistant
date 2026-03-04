@@ -828,6 +828,13 @@ struct DynamicWorkspaceWrapper: View {
 
                 Spacer(minLength: 0)
 
+                Text(surface.title ?? data.preview?.title ?? "App")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(adaptiveColor(light: VColor.textPrimary, dark: VColor.textSecondary))
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
                 // Right: History + Share + Close outlined icon buttons
                 HStack(spacing: VSpacing.sm) {
                     if data.appId != nil {
