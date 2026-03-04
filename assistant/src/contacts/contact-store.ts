@@ -596,6 +596,8 @@ export function mergeContacts(
           keep.responseExpectation ?? merge.responseExpectation,
         preferredTone: keep.preferredTone ?? merge.preferredTone,
         updatedAt: now,
+        // Rebind legacy null-scoped contacts to prevent cross-assistant leakage
+        ...(keep.assistantId == null ? { assistantId } : {}),
       })
       .where(eq(contacts.id, keepId))
       .run();
