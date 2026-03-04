@@ -2166,7 +2166,7 @@ private struct DrawerMenuItem: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: VSpacing.md) {
                     Image(systemName: icon)
                         .font(.system(size: 12, weight: .medium))
