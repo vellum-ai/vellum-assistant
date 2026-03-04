@@ -6,17 +6,22 @@
  * text stubs to shrink the payload before retrying.
  */
 
-import { getSummaryFromContextMessage } from '../context/window-manager.js';
-import type { ContentBlock,Message } from '../providers/types.js';
+import { getSummaryFromContextMessage } from "../context/window-manager.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 
 const RETRY_KEEP_LATEST_MEDIA_BLOCKS = 3;
 const MAX_MEDIA_STUB_TEXT = 2_000;
 
-export function stripMediaPayloadsForRetry(messages: Message[]): { messages: Message[]; modified: boolean; replacedBlocks: number; latestUserIndex: number | null } {
+export function stripMediaPayloadsForRetry(messages: Message[]): {
+  messages: Message[];
+  modified: boolean;
+  replacedBlocks: number;
+  latestUserIndex: number | null;
+} {
   let latestUserIndex: number | null = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (msg.role !== 'user') continue;
+    if (msg.role !== "user") continue;
     if (getSummaryFromContextMessage(msg) != null) continue;
     if (isToolResultOnlyMessage(msg)) continue;
     latestUserIndex = i;
@@ -33,8 +38,10 @@ export function stripMediaPayloadsForRetry(messages: Message[]): { messages: Mes
       // Top-level image blocks are user-uploaded attachments. Keep the latest
       // few (in the most recent user message) and strip older ones so the
       // retry can actually reduce context size when images are the cause.
-      if (block.type === 'image') {
-        const keep = latestUserIndex === msgIndex && keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+      if (block.type === "image") {
+        const keep =
+          latestUserIndex === msgIndex &&
+          keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
         if (keep) {
           keptLatestMediaBlocks += 1;
           nextContent.push(block);
@@ -46,8 +53,10 @@ export function stripMediaPayloadsForRetry(messages: Message[]): { messages: Mes
         continue;
       }
 
-      if (block.type === 'file') {
-        const keep = latestUserIndex === msgIndex && keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+      if (block.type === "file") {
+        const keep =
+          latestUserIndex === msgIndex &&
+          keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
         if (keep) {
           keptLatestMediaBlocks += 1;
           nextContent.push(block);
@@ -59,23 +68,29 @@ export function stripMediaPayloadsForRetry(messages: Message[]): { messages: Mes
         continue;
       }
 
-      if (block.type === 'tool_result' && block.contentBlocks && block.contentBlocks.length > 0) {
+      if (
+        block.type === "tool_result" &&
+        block.contentBlocks &&
+        block.contentBlocks.length > 0
+      ) {
         let toolResultChanged = false;
-        const nextToolContentBlocks: ContentBlock[] = block.contentBlocks.map((cb) => {
-          if (cb.type === 'image') {
-            replacedBlocks += 1;
-            modified = true;
-            toolResultChanged = true;
-            return imageBlockToStub(cb);
-          }
-          if (cb.type === 'file') {
-            replacedBlocks += 1;
-            modified = true;
-            toolResultChanged = true;
-            return fileBlockToStub(cb);
-          }
-          return cb;
-        });
+        const nextToolContentBlocks: ContentBlock[] = block.contentBlocks.map(
+          (cb) => {
+            if (cb.type === "image") {
+              replacedBlocks += 1;
+              modified = true;
+              toolResultChanged = true;
+              return imageBlockToStub(cb);
+            }
+            if (cb.type === "file") {
+              replacedBlocks += 1;
+              modified = true;
+              toolResultChanged = true;
+              return fileBlockToStub(cb);
+            }
+            return cb;
+          },
+        );
         if (toolResultChanged) {
           nextContent.push({ ...block, contentBlocks: nextToolContentBlocks });
         } else {
@@ -97,31 +112,61 @@ export function stripMediaPayloadsForRetry(messages: Message[]): { messages: Mes
   };
 }
 
-function imageBlockToStub(block: Extract<ContentBlock, { type: 'image' }>): Extract<ContentBlock, { type: 'text' }> {
+function imageBlockToStub(
+  block: Extract<ContentBlock, { type: "image" }>,
+): Extract<ContentBlock, { type: "text" }> {
   const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
   return {
-    type: 'text',
+    type: "text",
     text: `[Image omitted from retry context: ${block.source.media_type}, ${sizeBytes} bytes]`,
   };
 }
 
-function fileBlockToStub(block: Extract<ContentBlock, { type: 'file' }>): Extract<ContentBlock, { type: 'text' }> {
+function fileBlockToStub(
+  block: Extract<ContentBlock, { type: "file" }>,
+): Extract<ContentBlock, { type: "text" }> {
   const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
-  const extracted = (block.extracted_text ?? '').trim();
-  const preview = extracted.length > MAX_MEDIA_STUB_TEXT
-    ? `${extracted.slice(0, MAX_MEDIA_STUB_TEXT)}...`
-    : extracted;
+  const extracted = (block.extracted_text ?? "").trim();
+  const preview =
+    extracted.length > MAX_MEDIA_STUB_TEXT
+      ? `${extracted.slice(0, MAX_MEDIA_STUB_TEXT)}...`
+      : extracted;
   return {
-    type: 'text',
-    text: preview.length > 0
-      ? `[File omitted from retry context: ${block.source.filename} (${block.source.media_type}, ${sizeBytes} bytes)]\n${preview}`
-      : `[File omitted from retry context: ${block.source.filename} (${block.source.media_type}, ${sizeBytes} bytes)]`,
+    type: "text",
+    text:
+      preview.length > 0
+        ? `[File omitted from retry context: ${block.source.filename} (${block.source.media_type}, ${sizeBytes} bytes)]\n${preview}`
+        : `[File omitted from retry context: ${block.source.filename} (${block.source.media_type}, ${sizeBytes} bytes)]`,
   };
 }
 
 function isToolResultOnlyMessage(message: Message): boolean {
-  return message.content.length > 0
-    && message.content.every((block) => block.type === 'tool_result');
+  return (
+    message.content.length > 0 &&
+    message.content.every((block) => block.type === "tool_result")
+  );
+}
+
+/**
+ * Count how many media (image/file) content blocks exist across a message
+ * history, both top-level and nested inside tool_result blocks.
+ */
+export function countMediaBlocks(messages: Message[]): number {
+  let count = 0;
+  for (const msg of messages) {
+    for (const block of msg.content) {
+      if (block.type === "image" || block.type === "file") {
+        count++;
+      } else if (block.type === "tool_result" && block.contentBlocks) {
+        for (const cb of block.contentBlocks) {
+          if (cb.type === "image" || cb.type === "file") {
+            count++;
+          }
+        }
+      }
+    }
+  }
+  return count;
 }
 
 /**
@@ -132,13 +177,16 @@ function isToolResultOnlyMessage(message: Message): boolean {
 export async function raceWithTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-): Promise<'completed' | 'timed_out'> {
+): Promise<"completed" | "timed_out"> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const result = await Promise.race([
-      promise.then(() => 'completed' as const, () => 'completed' as const),
-      new Promise<'timed_out'>((resolve) => {
-        timer = setTimeout(() => resolve('timed_out'), timeoutMs);
+      promise.then(
+        () => "completed" as const,
+        () => "completed" as const,
+      ),
+      new Promise<"timed_out">((resolve) => {
+        timer = setTimeout(() => resolve("timed_out"), timeoutMs);
       }),
     ]);
     return result;

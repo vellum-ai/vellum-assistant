@@ -1,4 +1,8 @@
-import type { ContentBlock, ToolResultContent } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolResultContent,
+} from "../providers/types.js";
 
 /**
  * Maximum share of the context window that a single tool result may occupy.
@@ -29,10 +33,7 @@ export const TRUNCATION_SUFFIX =
  * so we get a clean cut. At least `MIN_KEEP_CHARS` characters are always
  * preserved.
  */
-export function truncateToolResultText(
-  text: string,
-  maxChars: number,
-): string {
+export function truncateToolResultText(text: string, maxChars: number): string {
   if (text.length <= maxChars) {
     return text;
   }
@@ -44,8 +45,7 @@ export function truncateToolResultText(
   const threshold = Math.floor(cutPoint * 0.8);
   const lastNewline = text.lastIndexOf("\n", cutPoint);
 
-  const sliceEnd =
-    lastNewline >= threshold ? lastNewline : cutPoint;
+  const sliceEnd = lastNewline >= threshold ? lastNewline : cutPoint;
 
   // If sliceEnd covers the full text, nothing was actually removed — return
   // the original text without appending the suffix.
@@ -125,4 +125,38 @@ export function truncateOversizedToolResults(
   });
 
   return { blocks: mapped, truncatedCount };
+}
+
+/**
+ * Aggressively truncate all tool-result text across an entire message history.
+ *
+ * Unlike `truncateOversizedToolResults` (which operates on a flat block array
+ * for a single turn), this walks every message and truncates tool_result
+ * `.content` strings that exceed `maxChars`. This is used during overflow
+ * recovery where we need to shrink the overall payload, not just individual
+ * oversized results.
+ */
+export function truncateToolResultsAcrossHistory(
+  messages: Message[],
+  maxChars: number,
+): { messages: Message[]; truncatedCount: number } {
+  let truncatedCount = 0;
+
+  const mapped = messages.map((msg) => {
+    let changed = false;
+    const nextContent: ContentBlock[] = msg.content.map((block) => {
+      if (block.type !== "tool_result") return block;
+      const tr = block as ToolResultContent;
+      if (tr.content.length <= maxChars) return block;
+      changed = true;
+      truncatedCount++;
+      return {
+        ...tr,
+        content: truncateToolResultText(tr.content, maxChars),
+      } as ContentBlock;
+    });
+    return changed ? { ...msg, content: nextContent } : msg;
+  });
+
+  return { messages: truncatedCount > 0 ? mapped : messages, truncatedCount };
 }
