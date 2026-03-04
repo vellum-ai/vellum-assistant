@@ -16,6 +16,7 @@ private let log = Logger(
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot
 /// - `~/.vellum/workspace/data/logs/` — daemon rotating log files (assistant-*.log)
 /// - `~/.vellum/daemon-stderr.log` — daemon stderr capture
+/// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 @MainActor
 enum LogExporter {
 
@@ -105,6 +106,17 @@ enum LogExporter {
                 to: tempDir.appendingPathComponent("daemon-stderr.log")
             )
         }
+
+        // 5. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
+        let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
+            ?? URL(fileURLWithPath: home).appendingPathComponent(".config").path
+        let xdgLogDir = URL(fileURLWithPath: xdgConfigHome)
+            .appendingPathComponent("vellum/logs", isDirectory: true)
+        copyDirectoryContents(
+            from: xdgLogDir,
+            to: tempDir.appendingPathComponent("xdg-logs", isDirectory: true),
+            fileManager: fileManager
+        )
 
         // Verify we have at least one file to export
         let collected = try fileManager.contentsOfDirectory(
