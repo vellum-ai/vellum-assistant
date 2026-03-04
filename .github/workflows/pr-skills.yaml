@@ -5,6 +5,8 @@ on:
     types: [synchronize, opened, reopened]
     paths:
       - 'skills/**'
+      - 'scripts/skills/**'
+      - '.github/workflows/pr-skills.yaml'
 
 concurrency:
   group: pr-skills-${{ github.event.pull_request.number }}
@@ -78,4 +80,21 @@ jobs:
           node-version: '22'
 
       - name: Check for cross-skill imports
-        run: node scripts/lint-skill-imports.mjs
+        run: node scripts/skills/lint-skill-imports.mjs
+
+  lint-spec:
+    name: Lint SKILL.md spec compliance
+    needs: discover
+    if: needs.discover.outputs.changed_skills != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate SKILL.md files
+        run: node scripts/skills/lint-skill-spec.mjs

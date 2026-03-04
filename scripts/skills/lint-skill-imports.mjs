@@ -16,7 +16,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SKILLS_DIR = resolve(__dirname, "../skills");
+const SKILLS_DIR = resolve(__dirname, "../../skills");
 
 function getSkillDirs(filter) {
   const entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
