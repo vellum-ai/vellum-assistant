@@ -43,7 +43,7 @@ Comments should explain **why** something is done and provide non-obvious contex
 
 ## Keep the Architecture Diagram up to date
 
-Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update the relevant architecture docs to reflect the change. Keep the root `ARCHITECTURE.md` index aligned, and update impacted domain docs (for example `assistant/ARCHITECTURE.md`, `gateway/ARCHITECTURE.md`, `clients/ARCHITECTURE.md`, or `assistant/docs/architecture/*`). Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
+Whenever you introduce, remove, or significantly modify a service, module, or data flow, update the relevant architecture docs (`ARCHITECTURE.md` index and impacted domain docs). Mermaid diagrams must accurately represent current architecture.
 
 ## Keep AGENTS.md up to date
 
@@ -55,16 +55,7 @@ Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/cla
 
 ## Linear Ticket Hygiene
 
-When working on a task sourced from a Linear ticket (via the Linear MCP), keep the ticket status in sync with your progress:
-
-- **Branch naming**: Include the Linear issue ID in the branch name (e.g., `feat/ABC-123-add-widget`). Linear automatically links branches, commits, and PRs that reference the issue ID.
-- **Commit messages**: Reference the issue ID in commits (e.g., `feat: add widget [ABC-123]`) so Linear links them automatically.
-- **Start of work**: Move the ticket to "In Progress" (or the equivalent active status).
-- **PR created**: Move the ticket to "In Review" if applicable. If you used the issue ID in the branch name, Linear will link the PR automatically — otherwise add the PR link manually.
-- **Work completed / PR merged**: Move the ticket to "Done".
-- **Blocked or abandoned**: Update the ticket status accordingly and leave a comment explaining why.
-
-Treat the Linear ticket as the source of truth for task status. Don't leave tickets in a stale state — if you touched it, update it.
+When working on a Linear ticket, include the issue ID in branch names and commit messages for automatic linking. Keep ticket status in sync: move to In Progress when starting, In Review when PR is created, Done when merged. Don't leave tickets stale.
 
 ## Track merged PRs
 
@@ -75,51 +66,19 @@ Before implementing new functionality do a quick check to see if the new feature
 
 ## Dead Code Removal
 
-Proactively remove unused code during every change. Dead code accumulates quickly and makes the codebase harder to understand, navigate, and modify.
-
-Concretely:
-- **Remove code that your change makes unused.** When refactoring, replacing, or deleting a feature, trace the code you're touching and delete anything that is no longer referenced — functions, classes, imports, files, config entries, test helpers, and type definitions.
-- **Clean up adjacent dead code you encounter.** If you notice unused code near the code you're modifying, remove it in the same PR. Don't leave it for a future cleanup pass.
-- **Delete rather than comment out.** Git history preserves old code. Commented-out code is noise — remove it.
-- **Remove fully-rolled-out feature flags.** When a feature flag is permanently enabled and no longer gating behavior, remove the flag check and the associated conditional branches.
-- **Don't leave "TODO: clean up later" markers.** If code is unused now, remove it now. Deferred cleanup rarely happens.
-- **Check for orphaned files.** After removing a module or capability, verify that no files, tests, scripts, or skill definitions were left behind that only served the removed code.
-
-Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
+Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
 
 ## Extensibility Principle
 
-Vellum is a **general-purpose assistant**, not a single-purpose tool. When adding a new capability (e.g., personalized email responses, context-aware summarization, smart scheduling), build it as a **reusable, extensible primitive** that works across contexts — not a narrow solution wired to one specific use case.
-
-Concretely:
-- Extract the underlying capability (e.g., "personalize text using user context") into a composable building block (skill, tool, or utility) that other features can reuse.
-- Parameterize inputs and outputs rather than hardcoding them to a single workflow.
-- If a capability already exists in a general form, extend it rather than building a parallel special-purpose version.
-- Ask: "If someone wanted this same capability in a different context, would they be able to use what I'm building?" If not, generalize it.
+Vellum is a general-purpose assistant. Build new capabilities as reusable, extensible primitives that work across contexts — not narrow solutions for one use case. Ask: "Could someone reuse this in a different context?" If not, generalize.
 
 ## Code Review Checklist
 
-When reviewing PRs (applies to all reviewers — Codex, Devin, and humans), flag these in addition to standard code quality:
-
-- **Special-purpose capability added:** When a PR introduces a capability that is specific to one use case (e.g., a dedicated Google Cloud OAuth flow for Gmail), flag it for human review — don't reject it. Sometimes special-purpose implementations are the right call (e.g., making a painful setup "magical" requires specificity). The reviewer's job is to surface it so a human can decide whether it should be generalized or is fine as-is.
-- **Duplicate capability:** The PR adds functionality that already exists in a general form elsewhere in the codebase. Suggest reusing the existing implementation.
-- **Missing parameterization:** Inputs, outputs, or behaviors are hardcoded when they should be configurable or context-driven.
+When reviewing PRs, flag: special-purpose capabilities (flag for human review, don't reject), duplicate capabilities (suggest reuse), and missing parameterization (hardcoded values that should be configurable).
 
 ## Human Attention Comments on PRs
 
-After creating a PR, consider whether it contains anything that genuinely warrants focused human review. If it does, leave a single comment highlighting where attention is most needed. This helps humans quickly triage PRs.
-
-**This is not mandatory.** Skip the comment entirely for routine, low-risk PRs that follow existing patterns — don't add noise. Only comment when you believe a human should look closely at specific parts of the diff.
-
-**When to comment:**
-- Architectural decisions or new patterns that set precedent
-- Security-sensitive changes (auth, permissions, secrets, input validation)
-- Complex business logic with subtle edge cases
-- Changes that touch critical paths (data pipelines, payment flows, etc.)
-- Deletions or removals of existing functionality
-- Areas where you are least confident in the implementation
-
-**When to skip:** Routine changes — renaming, formatting, boilerplate, straightforward additions that follow existing patterns exactly, or changes you are fully confident in.
+After creating a PR, consider whether it contains anything that genuinely warrants focused human review — architectural decisions, security-sensitive changes, complex logic, critical path changes, deletions, or areas of low confidence. Skip for routine changes.
 
 **How:** `gh pr comment <number> --body "<comment>"`
 
@@ -128,10 +87,10 @@ After creating a PR, consider whether it contains anything that genuinely warran
 ```
 ## 👀 Where to focus your review
 
-- **<file_path or area>**: <why this needs attention — e.g., "New architectural pattern that sets precedent", "Security-sensitive change to auth flow", "Complex logic with subtle edge cases">
+- **<file_path or area>**: <why this needs attention>
 - ...
 
-**Risk level:** <Medium | High> — <one-sentence explanation of overall risk>
+**Risk level:** <Medium | High> — <one-sentence explanation>
 ```
 
 ## Public API / Webhook Ingress
@@ -140,28 +99,11 @@ All inbound HTTP endpoints must be routed through the gateway (`gateway/`). See 
 
 ## Assistant Identity Boundary
 
-The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`), exported from `assistant/src/runtime/assistant-scope.ts` — for all assistant-scoped storage and routing. Public/external assistant IDs (assigned during hatch, invite links, or platform registration) are an **edge concern** owned by the gateway and platform layers.
-
-**Rules:**
-- Daemon code (`assistant/src/runtime/`, `assistant/src/daemon/`, `assistant/src/memory/`, `assistant/src/approvals/`, `assistant/src/calls/`, `assistant/src/tools/`) must never derive internal scoping from externally-provided assistant IDs. Use `DAEMON_INTERNAL_ASSISTANT_ID` instead.
-- The `normalizeAssistantId()` function (in `util/platform.ts`) is for gateway/platform use only — do not import or call it in daemon scoping modules.
-- The daemon HTTP server uses flat `/v1/<endpoint>` paths. Do not add assistant-scoped routes (`/v1/assistants/:assistantId/...`) to the daemon.
-- Guard tests in `assistant/src/__tests__/assistant-id-boundary-guard.test.ts` enforce these rules.
+The daemon uses `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`) from `assistant/src/runtime/assistant-scope.ts` for all internal scoping. External assistant IDs are a gateway/platform edge concern. Do not import `normalizeAssistantId()` in daemon code, and do not add assistant-scoped routes to the daemon HTTP server. Guard test: `assistant-id-boundary-guard.test.ts`.
 
 ## Assistant Feature Flags
 
-Assistant feature flags are the canonical assistant-scoped flagging mechanism for enabling/disabling assistant behavior across the system. They are declaration-driven and not limited to skills.
-
-- **Canonical key format:** `feature_flags.<flagId>.enabled`. All new code must use this format. The legacy `skills.<id>.enabled` format is no longer supported.
-- **Unified registry:** All declared flags live in the unified feature flag registry at `meta/feature-flags/feature-flag-registry.json`. Each entry has `id`, `scope`, `key`, `label`, `description`, and `defaultEnabled`. Assistant-scope flags are filtered by `scope: "assistant"`. Keys declared in this registry participate in UI exposure and have registry-defined defaults. Undeclared keys still respect persisted config overrides but default to enabled when no override exists.
-- **Resolver:** The canonical resolver in `assistant/src/config/assistant-feature-flags.ts` resolves effective flag state by checking (in order): explicit config overrides (`assistantFeatureFlagValues`), registry defaults (for declared keys), and finally `true` (for undeclared keys with no persisted override).
-- **Gateway API:** The gateway owns the `/v1/feature-flags` REST API for reading and mutating flags. The GET response includes `key`, `label`, `enabled`, `defaultEnabled`, and `description` for each flag. New writes are stored in the `assistantFeatureFlagValues` config section using canonical keys.
-- **Guard tests:** Guard tests enforce:
-  1. All feature flag key literals in production code use the canonical `feature_flags.<id>.enabled` format (not the legacy `skills.<id>.enabled` format).
-  2. All assistant-scope flag keys in the unified registry use the canonical format.
-  3. All literal keys passed to `isAssistantFeatureFlagEnabled()` in production code are declared in the unified registry.
-
-When adding a new assistant feature flag, declare it in the unified registry at `meta/feature-flags/feature-flag-registry.json` with `scope: "assistant"`. When referencing a feature flag in code, always use the canonical key format.
+Feature flags use canonical key format `feature_flags.<flagId>.enabled`. Declare new flags in `meta/feature-flags/feature-flag-registry.json` with `scope: "assistant"`. The resolver in `assistant/src/config/assistant-feature-flags.ts` checks config overrides, then registry defaults, then defaults to enabled. Guard tests enforce format, registry declaration, and canonical keys.
 
 ## LLM Provider Abstraction
 
@@ -195,34 +137,12 @@ Do not add new tool registrations using the `class ____Tool implements Tool` pat
 
 ## Skill Independence
 
-New skills **MUST** be self-contained and portable. A skill should not be tightly coupled to daemon internals, registered tool implementations, repo-specific TypeScript modules, or any other part of this codebase.
-
-Concretely:
-- **No coupling to daemon tools or internals.** Do not reference or depend on registered `Tool` classes, daemon IPC message types, internal TypeScript modules, or any runtime-specific APIs from within a skill. If the daemon were swapped out, the skill should still work.
-- **Stand on your own.** A skill's SKILL.md instructions should be understandable and executable without knowledge of the daemon's implementation. Interact with the system through CLI programs first (especially for config/status retrieval), gateway HTTP APIs only when needed for control-plane actions, or standard Unix tools — not through internal abstractions.
-- **Use a `scripts/` folder for supporting logic.** When a skill needs custom logic beyond what a one-liner CLI command provides, bundle it as an executable script in the skill's `scripts/` directory per the [skill.md spec](https://skill.md). Scripts should be self-contained with inline dependency declarations (PEP 723 for Python, `npm:` specifiers for Deno, auto-install for Bun) so no separate install step is required.
-- **No interactive prompts in scripts.** Agents run in non-interactive shells. Accept all input via CLI flags, environment variables, or stdin. Include `--help` output so the agent can discover the script's interface.
-- **Relative paths only.** Reference scripts, assets, and reference files using paths relative to the skill directory root — never use absolute paths or paths that reach outside the skill directory into the broader repo.
-
-Ask: "Could this skill be copied into a completely different project and still work?" If not, decouple it.
+Skills must be self-contained and portable — no coupling to daemon tools, internals, or repo-specific modules. Use `scripts/` for supporting logic with inline dependencies. No interactive prompts. Relative paths only. Ask: "Could this skill be copied into a different project and still work?"
 
 ## Assistant-Driven Judgement
 
-All judgement calls that affect the user's experience should be made by the assistant through the daemon process — not by hard-coded logic or deterministic heuristics in application code.
-
-Concretely:
-- **Prefer LLM judgement over if/else.** When a decision requires interpreting intent, tone, priority, relevance, or any other subjective quality, route it through the assistant rather than encoding a fixed rule. Hard-coded heuristics are brittle and cannot adapt to context the way the model can.
-- **Reserve deterministic logic for mechanical operations.** Parsing, validation, data transformation, access control, and protocol enforcement are fine as code. The line is: if the decision requires understanding meaning or context, it belongs to the assistant; if it's purely structural or policy-enforced, code is appropriate.
-- **Don't approximate the assistant with heuristics.** If you find yourself writing a cascade of string matches, keyword checks, or scoring functions to simulate what the model would decide, stop — that's a sign the decision should be delegated to the daemon instead.
-- **Treat the daemon as the judgement layer.** The assistant carries user context, preferences, conversation history, and identity. Decisions routed through it benefit from all of that. Decisions made in application code discard it.
-
-When in doubt, ask: "Am I encoding a judgement that the assistant could make better with context?" If yes, route it through the daemon.
+Judgement calls affecting user experience should be made by the assistant through the daemon — not hardcoded heuristics. Reserve deterministic logic for mechanical operations (parsing, validation, access control). If you're writing string matches or scoring functions to approximate what the model would decide, route it through the daemon instead.
 
 ## Release Update Hygiene
 
-When shipping a release that includes user-facing or assistant-facing changes:
-
-1. **Update the template**: Edit `assistant/src/config/templates/UPDATES.md` with freeform markdown describing what changed and how it affects behavior or capabilities.
-2. **Leave empty for no-op releases**: If the release has no relevant changes, keep the template empty or comment-only (lines starting with `_` are stripped).
-3. **Don't modify workspace files directly**: The workspace `UPDATES.md` is managed by the daemon's startup sync — never edit `~/.vellum/workspace/UPDATES.md` manually.
-4. **Checkpoint keys**: `updates:active_releases` and `updates:completed_releases` in the `memory_checkpoints` table track bulletin lifecycle. Don't manipulate these directly.
+When shipping a release with user/assistant-facing changes, update `assistant/src/config/templates/UPDATES.md`. Leave empty for no-op releases. Don't modify `~/.vellum/workspace/UPDATES.md` directly.
