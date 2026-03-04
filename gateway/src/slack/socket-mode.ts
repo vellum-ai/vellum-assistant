@@ -112,6 +112,8 @@ export class SlackSocketModeClient {
           "Resolved Slack bot identity",
         );
       } catch (err) {
+        this.running = false;
+        this.stopDedupCleanup();
         throw new Error("Failed to resolve Slack bot identity via auth.test", {
           cause: err,
         });
