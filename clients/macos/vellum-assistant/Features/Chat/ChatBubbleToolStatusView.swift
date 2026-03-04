@@ -35,16 +35,11 @@ extension ChatBubble {
                 onRehydrate: onRehydrate
             )
             .frame(maxWidth: 520, alignment: .leading)
-        } else if decidedConfirmation != nil || (hasInProgressTools && permissionWasDenied) {
-            // No tool display needed — only show permission chip or denied tool chip.
+        } else if let confirmation = decidedConfirmation {
+            // No tool display needed — only show permission chip.
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
-                    if hasInProgressTools && permissionWasDenied {
-                        compactFailedToolChip
-                    }
-                    if let confirmation = decidedConfirmation {
-                        compactPermissionChip(confirmation)
-                    }
+                    compactPermissionChip(confirmation)
                     Spacer()
                 }
             }
@@ -59,31 +54,6 @@ extension ChatBubble {
         if lower.contains("skill") { return "Applying capabilities" }
         if lower.contains("processing") { return "Processing results" }
         return text
-    }
-
-    /// Failed/denied tool chip — shown when the user denied permission.
-    var compactFailedToolChip: some View {
-        let uniqueNames = Array(Set(message.toolCalls.map(\.toolName))).sorted()
-        let primary = uniqueNames.first ?? "Tool"
-        let label = Self.friendlyRunningLabel(primary) + " failed"
-
-        return HStack(spacing: VSpacing.xs) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 12))
-                .foregroundColor(VColor.error)
-
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-        }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
-        .background(
-            Capsule().fill(VColor.surface)
-        )
-        .overlay(
-            Capsule().stroke(VColor.surfaceBorder, lineWidth: 0.5)
-        )
     }
 
     func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {

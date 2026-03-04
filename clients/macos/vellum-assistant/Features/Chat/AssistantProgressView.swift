@@ -132,12 +132,14 @@ struct AssistantProgressView: View {
             return "Thinking..."
         case .toolRunning:
             if let current = currentCall {
-                return current.reasonDescription
-                    ?? ChatBubble.friendlyRunningLabel(
-                        current.toolName,
-                        inputSummary: current.inputSummary,
-                        buildingStatus: current.buildingStatus
-                    )
+                if let reason = current.reasonDescription, !reason.isEmpty {
+                    return reason
+                }
+                return ChatBubble.friendlyRunningLabel(
+                    current.toolName,
+                    inputSummary: current.inputSummary,
+                    buildingStatus: current.buildingStatus
+                )
             }
             return "Working"
         case .streamingCode:
@@ -194,6 +196,7 @@ struct AssistantProgressView: View {
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
                 processingStartDate = Date()
+                startDate = Date()
             }
         }
         .onAppear {
