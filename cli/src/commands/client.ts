@@ -65,7 +65,8 @@ function parseArgs(): ParsedArgs {
     // Respect active assistant when set, otherwise fall back to latest
     // for backward compatibility with remote-only setups.
     const active = getActiveAssistant();
-    entry = active ? findAssistantByName(active) : loadLatestAssistant();
+    const activeEntry = active ? findAssistantByName(active) : null;
+    entry = activeEntry ?? loadLatestAssistant();
   }
 
   let runtimeUrl =
