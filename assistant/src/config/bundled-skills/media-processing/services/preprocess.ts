@@ -83,7 +83,7 @@ export interface PreprocessOptions {
   segmentDuration?: number;
   deadTimeThreshold?: number;
   sectionConfigPath?: string;
-  skipDeadTime?: boolean;
+  detectDeadTime?: boolean;
   shortEdge?: number;
 }
 
@@ -371,7 +371,7 @@ export async function preprocessForAsset(
     shortEdge: options.shortEdge ?? 480,
   };
 
-  const skipDeadTime = options.skipDeadTime ?? false;
+  const detectDeadTime = options.detectDeadTime ?? false;
 
   const asset = getMediaAssetById(assetId);
   if (!asset) {
@@ -404,10 +404,10 @@ export async function preprocessForAsset(
 
   try {
     // Step 1: Dead-time detection
-    onProgress?.("Detecting dead time with mpdecimate filter...\n");
     let deadTimeRanges: TimeRange[] = [];
 
-    if (skipDeadTime) {
+    if (detectDeadTime) {
+      onProgress?.("Detecting dead time with mpdecimate filter...\n");
       const mpdecimateResult = await spawnWithTimeout(
         [
           "ffmpeg",
