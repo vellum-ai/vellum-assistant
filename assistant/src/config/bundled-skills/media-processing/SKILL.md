@@ -200,13 +200,7 @@ Be specific and factual. Describe what you see, not what you infer happened betw
 
 ### Clip Delivery
 
-After `generate_clip` completes, **always open the clip in the user's default video player** using `host_bash`:
-
-```bash
-open "<clipPath>"
-```
-
-The `clipPath` field in the tool response is the absolute path to the clip file on disk. Present it to the user as: "Here's your clip — opening it now." followed by the `open` command. The clip is saved persistently in the asset's pipeline directory (`pipeline/<assetId>/clips/`) so it remains accessible after playback.
+The `generate_clip` tool automatically opens clips in the user's default video player after extraction. Clips are saved persistently in the asset's pipeline directory (`pipeline/<assetId>/clips/`). The `clipPath` field in the tool response contains the absolute file path.
 
 ## Known Limitations — Vision Analysis
 
