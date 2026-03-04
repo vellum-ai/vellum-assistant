@@ -39,6 +39,7 @@ struct ContactsContainerView: View {
                     contact: contact,
                     daemonClient: daemonClient
                 )
+                .id(contactId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 VStack(spacing: VSpacing.md) {
