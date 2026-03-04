@@ -537,13 +537,20 @@ export function searchContacts(params: {
       .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
       .where(whereClause)
       .orderBy(desc(contacts.importance), desc(contacts.lastInteraction))
-      .limit(limit)
       .all();
 
     const contactIds = [...new Set(rows.map((r) => r.contactId))];
-    return contactIds
-      .map((id) => getContactInternal(id))
-      .filter((c): c is ContactWithChannels => c != null);
+    if (contactIds.length === 0) return [];
+
+    const results: ContactWithChannels[] = [];
+    for (const id of contactIds) {
+      if (results.length >= limit) break;
+      const contact = getContactInternal(id);
+      if (contact) {
+        results.push(contact);
+      }
+    }
+    return results;
   }
 
   const rows = db
