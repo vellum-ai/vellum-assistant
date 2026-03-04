@@ -402,7 +402,7 @@ External users join through **invite tokens**. There are two invite flows:
 
 #### Guardian-Initiated Invite Link Flow (Telegram)
 
-1. **Guardian requests invite** — The guardian asks the assistant (via desktop chat) to create a Telegram invite link. The `guardian-invite-intent.ts` module detects the intent and routes the request into the `trusted-contacts` skill.
+1. **Guardian requests invite** — The guardian asks the assistant (via desktop chat) to create a Telegram invite link. The `guardian-invite-intent.ts` module detects the intent and routes the request into the `contacts` skill.
 2. **Invite creation** — The skill creates an invite token via the ingress HTTP API, looks up the Telegram bot username from the integration config endpoint, and constructs a shareable deep link: `https://t.me/<bot>?start=iv_<token>`.
 3. **Guardian shares link** — The guardian copies the deep link and shares it with the invitee through any messaging channel.
 4. **Invitee redeems** — The invitee clicks the link, which opens Telegram and sends `/start iv_<token>` to the bot. The inbound message handler extracts the token via the transport adapter, redeems it through the invite redemption service, and auto-creates an active member record.
@@ -416,7 +416,7 @@ The invite redemption system uses a three-layer architecture:
 
 - **Core redemption engine** (`invite-redemption-service.ts`) — Channel-agnostic business logic that validates tokens, enforces expiry/use-count/channel-match constraints, handles member reactivation, and returns a discriminated-union `InviteRedemptionOutcome`. Deterministic reply templates (`invite-redemption-templates.ts`) map each outcome to a user-facing message without passing through the LLM.
 - **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable deep links (`buildShareableInvite`) and extract inbound tokens (`extractInboundToken`). Currently only the Telegram adapter is implemented.
-- **Conversational orchestration** (`guardian-invite-intent.ts`) — Pattern-based intent detection that intercepts guardian invite management requests (create, list, revoke) in the session pipeline and forces immediate entry into the `trusted-contacts` skill, bypassing the normal agent loop.
+- **Conversational orchestration** (`guardian-invite-intent.ts`) — Pattern-based intent detection that intercepts guardian invite management requests (create, list, revoke) in the session pipeline and forces immediate entry into the `contacts` skill, bypassing the normal agent loop.
 
 #### Deferred Channel Support
 
@@ -462,7 +462,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                        |
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
-| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `trusted-contacts` skill                  |
+| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
 | `src/runtime/ingress-service.ts`                    | Shared business logic for invite/member operations (HTTP + IPC)                                                  |
 
 ## Database
