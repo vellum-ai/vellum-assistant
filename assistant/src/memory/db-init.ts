@@ -39,6 +39,7 @@ import {
   migrateChannelInboundDeliveredSegments,
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
+  migrateAssistantContactMetadata,
   migrateContactsAssistantId,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
@@ -272,6 +273,9 @@ export function initializeDb(): void {
 
   // 36. Add assistant_id to contacts for per-assistant guardian scoping
   migrateContactsAssistantId(database);
+
+  // 37. Add contact_type to contacts and assistant_contact_metadata table
+  migrateAssistantContactMetadata(database);
 
   validateMigrationState(database);
 

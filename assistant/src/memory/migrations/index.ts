@@ -74,6 +74,7 @@ export { migrateContactChannelsAccessFields } from "./129-contact-channels-acces
 export { migrateContactChannelsTypeChatIdIndex } from "./130-contact-channels-type-ext-chat-id-index.js";
 export { migrateDropLegacyMemberGuardianTables } from "./131-drop-legacy-member-guardian-tables.js";
 export { migrateContactsAssistantId } from "./132-contacts-assistant-id.js";
+export { migrateAssistantContactMetadata } from "./133-assistant-contact-metadata.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
