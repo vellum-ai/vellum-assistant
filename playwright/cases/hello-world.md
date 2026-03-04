@@ -12,7 +12,7 @@ Launch the desktop application and go through the **self-host** onboarding flow 
 ## Steps
 
 1. Launch the App
-2. On the welcome screen, click the "Self-host" button (not "Sign in" — this test uses the self-host flow)
+2. On the welcome screen, click the "Self-host" button
 3. Verify that the API key input is rendered
 4. Enter your Anthropic API key into the input field
 5. Verify that the key was entered
