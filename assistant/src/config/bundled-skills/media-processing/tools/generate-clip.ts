@@ -6,11 +6,9 @@
  * This is a generic media-processing primitive with no domain-specific logic.
  */
 
-import { randomUUID } from "node:crypto";
-import { mkdir, rmdir, stat, unlink } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { uploadAttachment } from "../../../../memory/attachments-store.js";
 import { getMediaAssetById } from "../../../../memory/media-store.js";
@@ -120,8 +118,10 @@ export async function run(
       : endTime + postRoll;
   const clipDuration = clipEnd - clipStart;
 
-  // Prepare output path
-  const clipDir = join(tmpdir(), `vellum-clips-${randomUUID()}`);
+  // Save clips to the asset's pipeline directory so they persist for
+  // attachment delivery (tmpdir files get cleaned up before the sandbox
+  // attachment system can serve them).
+  const clipDir = join(dirname(asset.filePath), "pipeline", assetId, "clips");
   await mkdir(clipDir, { recursive: true });
 
   const clipFilename = `clip-${formatTimestamp(startTime).replace(/:/g, "")}-${formatTimestamp(endTime).replace(/:/g, "")}.${outputFormat}`;
@@ -197,6 +197,7 @@ export async function run(
             preRoll,
             postRoll,
           },
+          clipPath,
           assetId,
         },
         null,
@@ -209,17 +210,5 @@ export async function run(
       content: `Clip generation failed: ${(err as Error).message}`,
       isError: true,
     };
-  } finally {
-    // Clean up temp file and directory
-    try {
-      await unlink(clipPath);
-    } catch {
-      /* ignore */
-    }
-    try {
-      await rmdir(clipDir);
-    } catch {
-      /* ignore */
-    }
   }
 }
