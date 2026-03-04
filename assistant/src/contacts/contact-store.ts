@@ -138,11 +138,25 @@ export function upsertContact(params: {
   // Try to find by channel address to avoid duplicates
   if (!contactId && params.channels && params.channels.length > 0) {
     for (const ch of params.channels) {
-      const existingChannel = db
+      // Primary lookup: match by (type, address)
+      let existingChannel = db
         .select()
         .from(contactChannels)
         .where(and(eq(contactChannels.type, ch.type), eq(contactChannels.address, ch.address.toLowerCase())))
         .get();
+
+      // Fallback: if the address was canonicalized, the old record may still
+      // have the raw (non-canonical) address. Try matching by externalUserId
+      // treated as an address so we update the existing contact instead of
+      // creating a duplicate.
+      if (!existingChannel && ch.externalUserId && ch.externalUserId.toLowerCase() !== ch.address.toLowerCase()) {
+        existingChannel = db
+          .select()
+          .from(contactChannels)
+          .where(and(eq(contactChannels.type, ch.type), eq(contactChannels.address, ch.externalUserId.toLowerCase())))
+          .get();
+      }
+
       if (existingChannel) {
         contactId = existingChannel.contactId;
         const updateSet: Record<string, unknown> = {
@@ -207,7 +221,7 @@ function syncChannels(
     const normalizedAddress = ch.address.toLowerCase();
 
     // Check if this channel already exists for this contact
-    const existing = db
+    let existing = db
       .select()
       .from(contactChannels)
       .where(
@@ -219,8 +233,26 @@ function syncChannels(
       )
       .get();
 
+    // Fallback: the channel may have been stored with a pre-canonicalization
+    // address. Try matching by externalUserId as the address to find it.
+    if (!existing && ch.externalUserId && ch.externalUserId.toLowerCase() !== normalizedAddress) {
+      existing = db
+        .select()
+        .from(contactChannels)
+        .where(
+          and(
+            eq(contactChannels.contactId, contactId),
+            eq(contactChannels.type, ch.type),
+            eq(contactChannels.address, ch.externalUserId.toLowerCase()),
+          ),
+        )
+        .get();
+    }
+
     if (existing) {
       const updateSet: Record<string, unknown> = {};
+      // Migrate address to canonical form if it changed
+      if (existing.address !== normalizedAddress) updateSet.address = normalizedAddress;
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalUserId !== undefined) updateSet.externalUserId = ch.externalUserId;
       if (ch.externalChatId !== undefined) updateSet.externalChatId = ch.externalChatId;
