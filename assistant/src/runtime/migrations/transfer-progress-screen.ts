@@ -146,8 +146,15 @@ function inferFailedPhase(
   if (state.exportResult && !state.importResult) {
     if ("jobId" in state.exportResult) {
       const managed = state.exportResult as ExportManagedResult;
-      // If the managed export completed, the failure was after export (download or import)
       if (managed.status === "complete") {
+        // Export completed but no importResult -- check whether the failure was
+        // during archive download (between export and import) or during import.
+        // Download failures surface as HTTP/transport errors with "download" in
+        // the message; actual import failures would have set importResult.
+        const msg = stepError.message?.toLowerCase() ?? "";
+        if (msg.includes("download") || msg.includes("http")) {
+          return "poll";
+        }
         return "import";
       }
       return "poll";
