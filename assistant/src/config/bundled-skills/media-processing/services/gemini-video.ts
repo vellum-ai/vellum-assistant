@@ -73,6 +73,7 @@ export async function analyzeVideoDirectly(
   options: GeminiVideoOptions,
   filePath: string,
   durationSeconds: number,
+  mimeType: string,
   onProgress?: (msg: string) => void,
 ): Promise<MapOutput> {
   const model = options.model ?? "gemini-2.5-flash";
@@ -102,7 +103,7 @@ export async function analyzeVideoDirectly(
     // Upload the video file
     const uploadResult = await client.files.upload({
       file: filePath,
-      config: { mimeType: "video/mp4" },
+      config: { mimeType },
     });
 
     if (!uploadResult.name || !uploadResult.uri) {
