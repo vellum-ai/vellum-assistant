@@ -171,7 +171,10 @@ struct ContactDetailView: View {
 
     @ViewBuilder
     private func channelActions(for channel: ContactChannelPayload) -> some View {
-        let isProcessing = actionInProgress == channel.id
+        // Disable ALL action buttons while any channel action is in-flight to
+        // serialize updates and prevent response correlation mix-ups.
+        let anyActionInFlight = actionInProgress != nil
+        let isThisChannel = actionInProgress == channel.id
 
         HStack(spacing: VSpacing.sm) {
             switch channel.status {
@@ -180,7 +183,7 @@ struct ContactDetailView: View {
                     label: "Restore Access",
                     style: .secondary,
                     size: .medium,
-                    isDisabled: isProcessing
+                    isDisabled: anyActionInFlight
                 ) {
                     updateChannelStatus(channelId: channel.id, status: "active")
                 }
@@ -189,7 +192,7 @@ struct ContactDetailView: View {
                     label: "Restore Access",
                     style: .secondary,
                     size: .medium,
-                    isDisabled: isProcessing
+                    isDisabled: anyActionInFlight
                 ) {
                     updateChannelStatus(channelId: channel.id, status: "active")
                 }
@@ -198,7 +201,7 @@ struct ContactDetailView: View {
                     label: "Revoke Access",
                     style: .danger,
                     size: .medium,
-                    isDisabled: isProcessing
+                    isDisabled: anyActionInFlight
                 ) {
                     updateChannelStatus(channelId: channel.id, status: "revoked")
                 }
@@ -206,13 +209,13 @@ struct ContactDetailView: View {
                     label: "Block",
                     style: .danger,
                     size: .medium,
-                    isDisabled: isProcessing
+                    isDisabled: anyActionInFlight
                 ) {
                     updateChannelStatus(channelId: channel.id, status: "blocked")
                 }
             }
 
-            if isProcessing {
+            if isThisChannel {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -346,20 +349,22 @@ struct ContactDetailView: View {
 
     private func updateChannelStatus(channelId: String, status: String) {
         guard let daemonClient else { return }
+        guard actionInProgress == nil else { return }
         actionInProgress = channelId
         errorMessage = nil
 
-        do {
-            try daemonClient.sendUpdateContactChannel(channelId: channelId, status: status)
-        } catch {
-            errorMessage = "Failed to update channel: \(error.localizedDescription)"
-            actionInProgress = nil
-            return
-        }
-
-        // Listen for the response and refresh
         Task {
+            // Subscribe before sending so we don't miss fast daemon responses
             let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.sendUpdateContactChannel(channelId: channelId, status: status)
+            } catch {
+                errorMessage = "Failed to update channel: \(error.localizedDescription)"
+                actionInProgress = nil
+                return
+            }
+
             for await message in stream {
                 if case .contactsResponse(let response) = message {
                     if response.success {

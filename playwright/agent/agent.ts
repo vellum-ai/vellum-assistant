@@ -58,7 +58,11 @@ AppleScript tips (avoid common errors):
 - Use "click" and "keystroke" for input, not "set value" on non-editable elements.
 - Ensure proper AppleScript syntax: use "of" for hierarchy, quote strings, and avoid bare ordinal words like "1st", "2nd", "3rd" outside of proper AppleScript context.
 - If an element reference fails with "Invalid index", re-inspect the accessibility tree to find the correct path.
-- Combine inspection and action: you can dump the tree, parse it, AND click a button all in one AppleScript call.`;
+- Combine inspection and action: you can dump the tree, parse it, AND click a button all in one AppleScript call.
+
+TEMPORARY WORKAROUNDS:
+The following are temporary workarounds to unblock e2e development. We hope to remove these once the app catches up.
+- Whenever the App says the AI Provider is rate limiting requests, always wait 60s before clicking Retry.`;
 
 // ── Agent Loop ──────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ProxyApprovalRequest } from "@vellumai/outbound-proxy";
+import type { ProxyApprovalRequest } from "../outbound-proxy/index.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the import of `createProxyApprovalCallback`.

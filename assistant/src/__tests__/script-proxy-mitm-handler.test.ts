@@ -14,7 +14,7 @@ import {
   issueLeafCert,
   type RewriteCallback,
   type RouteDecision,
-} from "@vellumai/outbound-proxy";
+} from "../outbound-proxy/index.js";
 
 let dataDir: string;
 let caDir: string;

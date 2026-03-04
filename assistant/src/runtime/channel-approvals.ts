@@ -112,11 +112,18 @@ function buildPromptFromApprovalInfo(
 export function buildApprovalUIMetadata(
   prompt: ChannelApprovalPrompt,
   info: PendingApprovalInfo,
+  requesterIdentifier?: string,
 ): ApprovalUIMetadata {
   return {
     requestId: info.requestId,
     actions: prompt.actions,
     plainTextFallback: prompt.plainTextFallback,
+    permissionDetails: {
+      toolName: info.toolName,
+      riskLevel: info.riskLevel,
+      toolInput: info.input,
+      ...(requesterIdentifier ? { requesterIdentifier } : {}),
+    },
   };
 }
 
@@ -273,6 +280,7 @@ export function buildGuardianApprovalPrompt(
 const RICH_APPROVAL_CHANNELS: ReadonlySet<string> = new Set([
   "telegram",
   "whatsapp",
+  "slack",
 ]);
 
 /**

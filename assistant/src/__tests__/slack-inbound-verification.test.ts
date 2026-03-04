@@ -97,7 +97,7 @@ mock.module(
   }),
 );
 
-import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { findActiveSession } from "../runtime/channel-guardian-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
@@ -182,10 +182,11 @@ describe("Slack inbound trusted contact verification", () => {
     expect(json.reason).toBe("verification_challenge_sent");
     expect(json.verificationSessionId).toBeDefined();
 
-    // Verification DM was sent to the user
+    // Verification DM was sent to the user and includes the actual code
     expect(slackDmCalls.length).toBe(1);
     expect(slackDmCalls[0].userId).toBe("U0123UNKNOWN");
     expect(slackDmCalls[0].text).toContain("verification");
+    expect(slackDmCalls[0].text).toContain("your code is");
 
     // Channel reply tells user to check DMs
     expect(deliverReplyCalls.length).toBe(1);
@@ -209,7 +210,7 @@ describe("Slack inbound trusted contact verification", () => {
 
   test("guardian is notified of the access attempt alongside verification", async () => {
     // Set up a guardian binding so the notification can target it
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "slack",
       guardianExternalUserId: "U_GUARDIAN",
@@ -255,6 +256,42 @@ describe("Slack inbound trusted contact verification", () => {
 
     // No additional DM was sent
     expect(slackDmCalls.length).toBe(1);
+  });
+
+  test("different Slack user is not suppressed by existing session for another user", async () => {
+    // First message from user A creates a session
+    const req1 = buildSlackInboundRequest({
+      actorExternalId: "U_USER_A",
+      actorDisplayName: "User A",
+    });
+    const resp1 = await handleChannelInbound(
+      req1,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json1 = (await resp1.json()) as Record<string, unknown>;
+    expect(json1.reason).toBe("verification_challenge_sent");
+    expect(slackDmCalls.length).toBe(1);
+    expect(slackDmCalls[0].userId).toBe("U_USER_A");
+
+    // Second message from user B — should get their own challenge
+    const req2 = buildSlackInboundRequest({
+      actorExternalId: "U_USER_B",
+      actorDisplayName: "User B",
+      externalMessageId: `msg-${Date.now()}-user-b`,
+    });
+    const resp2 = await handleChannelInbound(
+      req2,
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json2 = (await resp2.json()) as Record<string, unknown>;
+    expect(json2.reason).toBe("verification_challenge_sent");
+    expect(json2.verificationSessionId).toBeDefined();
+
+    // A second DM was sent — to user B
+    expect(slackDmCalls.length).toBe(2);
+    expect(slackDmCalls[1].userId).toBe("U_USER_B");
   });
 
   test("non-Slack channels still use standard access request flow", async () => {

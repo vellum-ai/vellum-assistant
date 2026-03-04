@@ -61,6 +61,20 @@ export interface ChannelApprovalPrompt {
 // ---------------------------------------------------------------------------
 
 /**
+ * Tool-permission-specific details carried alongside the approval payload.
+ * Channels that support rich UI (e.g. Slack Block Kit) use these fields
+ * to render a detailed permission request card with risk indicators,
+ * tool arguments, and requester identity.
+ */
+export interface PermissionRequestDetails {
+  toolName: string;
+  riskLevel: string;
+  toolInput: Record<string, unknown>;
+  /** Present for guardian-escalated requests to identify who is asking. */
+  requesterIdentifier?: string;
+}
+
+/**
  * Metadata attached to gateway callback payloads so the channel adapter
  * can render approval UI and route the user's decision back to the
  * correct pending interaction.
@@ -69,6 +83,8 @@ export interface ApprovalUIMetadata {
   requestId: string;
   actions: ApprovalActionOption[];
   plainTextFallback: string;
+  /** When present, the approval is a tool permission request with extra context. */
+  permissionDetails?: PermissionRequestDetails;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +95,8 @@ export interface ApprovalUIMetadata {
 export type ApprovalDecisionSource =
   | "telegram_button"
   | "whatsapp_button"
+  | "slack_button"
+  | "slack_reaction"
   | "plain_text";
 
 /** The structured result of a user's approval decision. */

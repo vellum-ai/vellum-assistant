@@ -11,6 +11,11 @@ import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { resolveUserReference } from "../../../config/user-reference.js";
 import type { TrustContext } from "../../../daemon/session-runtime-assembly.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
+import {
+  extractChannelFromCallbackUrl,
+  extractThreadTsFromCallbackUrl,
+  setThreadTs,
+} from "../../../memory/slack-thread-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import {
@@ -123,6 +128,15 @@ export function processChannelMessageInBackground(
           assistantId,
         })
       : undefined;
+
+    // Track Slack thread mapping so replies go to the correct thread
+    if (sourceChannel === "slack" && replyCallbackUrl) {
+      const inboundThreadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
+      const inboundChannel = extractChannelFromCallbackUrl(replyCallbackUrl);
+      if (inboundThreadTs && inboundChannel) {
+        setThreadTs(conversationId, inboundChannel, inboundThreadTs);
+      }
+    }
 
     try {
       const cmdIntent =
