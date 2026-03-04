@@ -22,7 +22,7 @@ import type { ManifestType } from "./vbundle-validator.js";
 // Public types
 // ---------------------------------------------------------------------------
 
-export type ImportAction = "create" | "overwrite" | "unchanged";
+export type ImportAction = "create" | "overwrite" | "unchanged" | "skip";
 
 export interface ImportFileReport {
   /** Archive path (e.g. "data/db/assistant.db") */
@@ -54,6 +54,7 @@ export interface ImportDryRunReport {
     files_to_create: number;
     files_to_overwrite: number;
     files_unchanged: number;
+    files_to_skip: number;
   };
   /** Per-file analysis of what would change */
   files: ImportFileReport[];
@@ -136,7 +137,7 @@ export function analyzeImport(
       });
       files.push({
         path: fileEntry.path,
-        action: "create",
+        action: "skip",
         bundle_size: fileEntry.size,
         bundle_sha256: fileEntry.sha256,
         current_size: null,
@@ -198,10 +199,11 @@ export function analyzeImport(
     files_to_create: files.filter((f) => f.action === "create").length,
     files_to_overwrite: files.filter((f) => f.action === "overwrite").length,
     files_unchanged: files.filter((f) => f.action === "unchanged").length,
+    files_to_skip: files.filter((f) => f.action === "skip").length,
   };
 
   return {
-    can_import: true,
+    can_import: conflicts.length === 0,
     summary,
     files,
     conflicts,

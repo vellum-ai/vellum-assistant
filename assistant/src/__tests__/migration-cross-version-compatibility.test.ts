@@ -350,6 +350,7 @@ interface ImportDryRunResponse {
     files_to_create: number;
     files_to_overwrite: number;
     files_unchanged: number;
+    files_to_skip: number;
   };
   files?: Array<{
     path: string;

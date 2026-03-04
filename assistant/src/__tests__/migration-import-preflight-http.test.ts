@@ -274,6 +274,7 @@ interface ImportDryRunResponse {
     files_to_create: number;
     files_to_overwrite: number;
     files_unchanged: number;
+    files_to_skip: number;
   };
   files: Array<{
     path: string;
@@ -350,10 +351,12 @@ describe("handleMigrationImportPreflight", () => {
       (f) => f.action === "overwrite",
     ).length;
     const unchanged = body.files.filter((f) => f.action === "unchanged").length;
+    const skips = body.files.filter((f) => f.action === "skip").length;
 
     expect(body.summary.files_to_create).toBe(creates);
     expect(body.summary.files_to_overwrite).toBe(overwrites);
     expect(body.summary.files_unchanged).toBe(unchanged);
+    expect(body.summary.files_to_skip).toBe(skips);
   });
 
   test("detects overwrite when bundle db differs from disk", async () => {
@@ -601,7 +604,7 @@ describe("analyzeImport", () => {
     expect(report.summary.files_to_overwrite).toBe(1);
   });
 
-  test("flags unknown archive paths as conflicts", () => {
+  test("flags unknown archive paths as conflicts with skip action", () => {
     const resolver = new DefaultPathResolver(testDbPath, testConfigPath);
 
     const report = analyzeImport({
@@ -625,9 +628,18 @@ describe("analyzeImport", () => {
       pathResolver: resolver,
     });
 
+    expect(report.can_import).toBe(false);
     expect(report.conflicts.length).toBe(1);
     expect(report.conflicts[0].code).toBe("UNKNOWN_ARCHIVE_PATH");
     expect(report.conflicts[0].path).toBe("unknown/extra-file.bin");
+
+    const unknownFile = report.files.find(
+      (f) => f.path === "unknown/extra-file.bin",
+    );
+    expect(unknownFile).toBeDefined();
+    expect(unknownFile!.action).toBe("skip");
+    expect(report.summary.files_to_skip).toBe(1);
+    expect(report.summary.files_to_create).toBe(0);
   });
 
   test("includes manifest in report", () => {
