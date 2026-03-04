@@ -159,13 +159,18 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
 
   if [[ -n "${timeout_cmd}" && ( ${exit_code} -eq 124 || ${exit_code} -eq 137 ) ]]; then
     # timeout killed the process — check if all tests actually passed.
-    # Bun test outputs "(fail)" for failed tests. If no failures found,
-    # treat as pass (open handles prevented clean exit, not a test failure).
+    # Bun test outputs "(fail)" for failed tests and a summary line like
+    # "X pass" when the run completes. Both conditions must hold: no failures
+    # AND a completion marker present. Without the completion marker, the
+    # process was killed mid-run before finishing all tests.
     if grep -q "^(fail)" "${out_file}" 2>/dev/null; then
       echo "${test_file}" >> "${results_dir}/failures"
       echo "  ✗ ${base} (killed after ${per_test_timeout}s — tests failed and process hung)"
-    else
+    elif grep -qE "^[[:space:]]*[0-9]+ pass" "${out_file}" 2>/dev/null; then
       echo "  ⚠ ${base} (tests passed but process hung after ${per_test_timeout}s — likely open handles)"
+    else
+      echo "${test_file}" >> "${results_dir}/failures"
+      echo "  ✗ ${base} (killed after ${per_test_timeout}s — test run did not complete)"
     fi
   elif [[ ${exit_code} -ne 0 ]]; then
     echo "${test_file}" >> "${results_dir}/failures"
