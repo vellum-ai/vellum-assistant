@@ -232,6 +232,7 @@ async function startDaemonFromSource(
     env.BASE_DATA_DIR = resources.instanceDir;
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.VELLUM_DAEMON_SOCKET = resources.socketPath;
+    env.QDRANT_URL = `http://127.0.0.1:${resources.qdrantPort}`;
   }
 
   // Use fd inheritance instead of pipes so the daemon's stdout/stderr survive
@@ -319,6 +320,7 @@ async function startDaemonWatchFromSource(
     env.BASE_DATA_DIR = resources.instanceDir;
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.VELLUM_DAEMON_SOCKET = resources.socketPath;
+    env.QDRANT_URL = `http://127.0.0.1:${resources.qdrantPort}`;
   }
 
   const daemonLogFd = openLogFile("hatch.log");
@@ -686,6 +688,7 @@ export async function startLocalDaemon(
       for (const key of [
         "ANTHROPIC_API_KEY",
         "BASE_DATA_DIR",
+        "QDRANT_URL",
         "RUNTIME_HTTP_PORT",
         "VELLUM_DAEMON_TCP_PORT",
         "VELLUM_DAEMON_TCP_HOST",
@@ -706,6 +709,7 @@ export async function startLocalDaemon(
         daemonEnv.BASE_DATA_DIR = resources.instanceDir;
         daemonEnv.RUNTIME_HTTP_PORT = String(resources.daemonPort);
         daemonEnv.VELLUM_DAEMON_SOCKET = resources.socketPath;
+        daemonEnv.QDRANT_URL = `http://127.0.0.1:${resources.qdrantPort}`;
       }
 
       const daemonLogFd = openLogFile("hatch.log");
