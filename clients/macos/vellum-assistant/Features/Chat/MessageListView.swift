@@ -518,6 +518,7 @@ struct MessageListView: View {
             .overlay(alignment: .bottom) {
                 if (!isNearBottom || !hasReceivedScrollEvent) && !anchorIsVisible {
                     Button(action: {
+                        hasReceivedScrollEvent = true
                         isNearBottom = true
                         withAnimation(VAnimation.fast) {
                             proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -594,6 +595,7 @@ struct MessageListView: View {
             }
             .onChange(of: isSending) {
                 if isSending {
+                    hasReceivedScrollEvent = true
                     isNearBottom = true
                     withAnimation(VAnimation.standard) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
