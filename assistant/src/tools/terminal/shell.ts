@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 
+import { buildCredentialRefTrace } from "@vellumai/outbound-proxy";
+
 import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
@@ -11,7 +13,6 @@ import {
   getOrStartSession,
   getSessionEnv,
 } from "../network/script-proxy/index.js";
-import { buildCredentialRefTrace } from "../network/script-proxy/logging.js";
 import { registerTool } from "../registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -171,9 +172,7 @@ class ShellTool implements Tool {
     // commands share a single session instead of each creating one.
     // Sessions are NOT stopped here — the session manager's idle timer handles
     // cleanup after all commands finish (see resetIdleTimer / stopAllSessions).
-    let proxyEnv:
-      | import("../network/script-proxy/index.js").ProxyEnvVars
-      | null = null;
+    let proxyEnv: import("@vellumai/outbound-proxy").ProxyEnvVars | null = null;
 
     if (networkMode === "proxied") {
       try {

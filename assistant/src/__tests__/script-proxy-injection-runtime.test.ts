@@ -41,8 +41,13 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
   getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
 }));
 
-import { createSession, startSession, stopAllSessions } from '../tools/network/script-proxy/session-manager.js';
 import { createSafeLogEntry, sanitizeHeaders } from "@vellumai/outbound-proxy";
+
+import {
+  createSession,
+  startSession,
+  stopAllSessions,
+} from "../tools/network/script-proxy/session-manager.js";
 
 afterEach(async () => {
   await stopAllSessions();

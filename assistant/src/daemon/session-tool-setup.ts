@@ -6,6 +6,11 @@
  * keeping the constructor body focused on wiring.
  */
 
+import type {
+  ProxyApprovalCallback,
+  ProxyApprovalRequest,
+} from "@vellumai/outbound-proxy";
+
 import { isHttpAuthDisabled } from "../config/env.js";
 import {
   generateAllowlistOptions,
@@ -26,10 +31,6 @@ import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerSessionSender } from "../tools/browser/browser-screencast.js";
 import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import type {
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-} from "@vellumai/outbound-proxy";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type {
   ToolExecutionResult,

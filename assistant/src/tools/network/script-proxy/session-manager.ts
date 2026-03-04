@@ -9,8 +9,6 @@ import {
   ensureLocalCA,
   evaluateRequestWithApproval,
   getCAPath,
-  routeConnection,
-  stripQueryString,
   type PolicyCallback,
   type ProxyApprovalCallback,
   type ProxyEnvVars,
@@ -18,6 +16,8 @@ import {
   type ProxySession,
   type ProxySessionConfig,
   type ProxySessionId,
+  routeConnection,
+  stripQueryString,
 } from "@vellumai/outbound-proxy";
 
 import { getSecureKey } from "../../../security/secure-keys.js";
