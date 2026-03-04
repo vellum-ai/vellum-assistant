@@ -1615,154 +1615,46 @@ struct MainWindowView: View {
                         ScrollView {
                             VStack(spacing: 0) {
                                 ForEach(regularThreads) { thread in
-                                    let isActive = thread.id == threadManager.activeThreadId
-                                    let isHovered = sidebar.isHoveredThread == thread.id
-                                    let hasTrailingIcon = isHovered || sidebar.threadPendingDeletion == thread.id
-                                    let interactionState = threadManager.interactionState(for: thread.id)
-                                    HStack(spacing: VSpacing.xs) {
-                                        // Leading status indicator / pin button slot
-                                        if isHovered {
-                                            Button {
-                                                withAnimation(VAnimation.standard) {
-                                                    if thread.isPinned {
-                                                        threadManager.unpinThread(id: thread.id)
-                                                    } else {
-                                                        threadManager.pinThread(id: thread.id)
-                                                    }
-                                                }
-                                            } label: {
-                                                Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                                                    .font(.system(size: 13, weight: .medium))
-                                                    .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
-                                                    .rotationEffect(.degrees(-45))
-                                                    .frame(width: 20, height: 20)
-                                                    .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                            .transition(.opacity)
-                                            .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
-                                        } else {
-                                            switch interactionState {
-                                            case .processing:
-                                                VBusyIndicator()
-                                                    .frame(width: 20, height: 20)
-                                            case .waitingForInput:
-                                                Image(systemName: "exclamationmark.circle.fill")
-                                                    .font(.system(size: 12))
-                                                    .foregroundColor(VColor.warning)
-                                                    .frame(width: 20, height: 20)
-                                            case .error:
-                                                Image(systemName: "exclamationmark.circle.fill")
-                                                    .font(.system(size: 12))
-                                                    .foregroundColor(VColor.error)
-                                                    .frame(width: 20, height: 20)
+                                    threadItem(thread)
+                                        .padding(.bottom, VSpacing.xxs)
+                                        .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
+                                            if sidebar.dropTargetThreadId == thread.id {
+                                                Rectangle()
+                                                    .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                                    .frame(height: 2)
                                                     .transition(.opacity)
-                                            case .idle:
-                                                if thread.hasUnseenLatestAssistantMessage {
-                                                    Circle()
-                                                        .fill(Color(hex: 0xE86B40))
-                                                        .frame(width: 6, height: 6)
-                                                        .frame(width: 20, height: 20)
-                                                        .transition(.opacity)
-                                                } else if thread.isPinned {
-                                                    Image(systemName: "pin.fill")
-                                                        .font(.system(size: 13, weight: .medium))
-                                                        .foregroundColor(VColor.textMuted)
-                                                        .rotationEffect(.degrees(-45))
-                                                        .frame(width: 20, height: 20)
-                                                        .transition(.opacity)
-                                                } else {
-                                                    Color.clear
-                                                        .frame(width: 20, height: 20)
+                                            }
+                                        }
+                                        .dropDestination(for: String.self) { items, _ in
+                                            sidebar.dropTargetThreadId = nil
+                                            sidebar.draggingThreadId = nil
+                                            guard let droppedId = items.first,
+                                                  let sourceUUID = UUID(uuidString: droppedId),
+                                                  sourceUUID != thread.id else { return false }
+                                            return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
+                                        } isTargeted: { isTargeted in
+                                            if isTargeted && thread.id != sidebar.draggingThreadId {
+                                                sidebar.dropTargetThreadId = thread.id
+                                                if let dragId = sidebar.draggingThreadId {
+                                                    let visible = threadManager.visibleThreads
+                                                    let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
+                                                    let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
+                                                    sidebar.dropIndicatorAtBottom = sIdx < tIdx
                                                 }
+                                            } else if !isTargeted && sidebar.dropTargetThreadId == thread.id {
+                                                sidebar.dropTargetThreadId = nil
                                             }
                                         }
-
-                                        Text(thread.title)
-                                            .font(VFont.body)
-                                            .foregroundColor(VColor.textPrimary)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-
-                                        Spacer()
-                                    }
-                                    .padding(.leading, VSpacing.sm)
-                                    .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
-                                    .padding(.vertical, VSpacing.xs)
-                                    .background {
-                                        if isActive {
-                                            adaptiveColor(light: Moss._100, dark: Moss._700)
-                                        } else if isHovered {
-                                            adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5)
-                                        } else {
-                                            Color.clear
-                                        }
-                                    }
-                                    .animation(VAnimation.fast, value: isHovered)
-                                    .overlay(alignment: .trailing) {
-                                        if sidebar.threadPendingDeletion == thread.id {
-                                            VButton(label: "Confirm", style: .danger, size: .small) {
-                                                threadManager.archiveThread(id: thread.id)
-                                                sidebar.threadPendingDeletion = nil
-                                            }
-                                            .padding(.trailing, VSpacing.xs)
-                                        } else if isHovered {
-                                            Button {
-                                                sidebar.threadPendingDeletion = thread.id
-                                            } label: {
-                                                Image(systemName: "archivebox")
-                                                    .font(.system(size: 13, weight: .medium))
-                                                    .foregroundColor(VColor.textSecondary)
-                                                    .frame(width: 20, height: 20)
-                                                    .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                            .padding(.trailing, VSpacing.xs)
-                                            .accessibilityLabel("Archive \(thread.title)")
-                                        }
-                                    }
-                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        selectThread(thread)
-                                        showThreadSwitcher = false
-                                    }
-                                    .contextMenu {
-                                        Button {
-                                            withAnimation(VAnimation.standard) {
-                                                if thread.isPinned {
-                                                    threadManager.unpinThread(id: thread.id)
-                                                } else {
-                                                    threadManager.pinThread(id: thread.id)
-                                                }
-                                            }
-                                        } label: {
-                                            Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
-                                        }
-                                        Button {
-                                            threadManager.archiveThread(id: thread.id)
-                                        } label: {
-                                            Label("Archive", systemImage: "archivebox")
-                                        }
-                                    }
-                                    .onHover { hovering in
-                                        withAnimation(VAnimation.fast) {
-                                            if hovering {
-                                                sidebar.isHoveredThread = thread.id
-                                            } else if sidebar.isHoveredThread == thread.id {
-                                                sidebar.isHoveredThread = nil
-                                            }
-                                        }
-                                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                    }
                                 }
                             }
-                            .padding(.horizontal, VSpacing.xs)
                         }
                         .frame(maxHeight: 300)
                     }
-                    .frame(width: 240)
+                    .frame(width: 260)
                     .padding(.bottom, VSpacing.sm)
+                    .onChange(of: threadManager.activeThreadId) { _, _ in
+                        showThreadSwitcher = false
+                    }
                     .onChange(of: sidebar.isHoveredThread) { _, newValue in
                         if let pending = sidebar.threadPendingDeletion, newValue != pending {
                             sidebar.threadPendingDeletion = nil
