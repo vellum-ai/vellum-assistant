@@ -171,6 +171,31 @@ export async function run(
       // Stream copy failed — fall back to re-encoding (handles high-bitrate
       // sources, incompatible codecs, and missing keyframes at cut points)
       context.onOutput?.("Stream copy failed, re-encoding clip...\n");
+      // Select codecs based on output format (WebM needs VP9/Opus, MP4/MOV use H.264/AAC)
+      const codecArgs =
+        outputFormat === "webm"
+          ? [
+              "-c:v",
+              "libvpx-vp9",
+              "-b:v",
+              "2M",
+              "-c:a",
+              "libopus",
+              "-b:a",
+              "128k",
+            ]
+          : [
+              "-c:v",
+              "libx264",
+              "-preset",
+              "fast",
+              "-crf",
+              "23",
+              "-c:a",
+              "aac",
+              "-b:a",
+              "128k",
+            ];
       const reencodeArgs = [
         "ffmpeg",
         "-y",
@@ -180,16 +205,7 @@ export async function run(
         asset.filePath,
         "-t",
         String(clipDuration),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-crf",
-        "23",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
+        ...codecArgs,
         "-avoid_negative_ts",
         "make_zero",
         clipPath,
