@@ -10,6 +10,7 @@ import {
   type SlackChannelMessageEvent,
   type NormalizedSlackEvent,
 } from "./normalize.js";
+import { publishAppHome, type AppHomeContext } from "./app-home.js";
 
 const log = getLogger("slack-socket-mode");
 
@@ -25,6 +26,10 @@ export type SlackSocketModeConfig = {
   gatewayConfig: GatewayConfig;
   /** Bot's own Slack user ID, used to ignore the bot's own DMs. */
   botUserId?: string;
+  /** Bot's display name, resolved at startup via auth.test. */
+  botUsername?: string;
+  /** Workspace/team name, resolved at startup via auth.test. */
+  teamName?: string;
 };
 
 /**
@@ -59,20 +64,41 @@ export class SlackSocketModeClient {
     this.running = true;
     this.startDedupCleanup();
 
-    // Resolve bot user ID via auth.test so we can filter the bot's own DMs
+    // Resolve bot identity via auth.test so we can filter the bot's own DMs
+    // and populate the App Home view with connection info
     if (!this.config.botUserId) {
       try {
         const resp = await fetchImpl("https://slack.com/api/auth.test", {
           method: "POST",
           headers: { Authorization: `Bearer ${this.config.botToken}` },
         });
-        const data = (await resp.json()) as { ok: boolean; user_id?: string };
-        if (data.ok && data.user_id) {
-          this.config.botUserId = data.user_id;
-          log.info({ botUserId: data.user_id }, "Resolved Slack bot user ID");
+        const data = (await resp.json()) as {
+          ok: boolean;
+          user_id?: string;
+          user?: string;
+          team?: string;
+        };
+        if (data.ok) {
+          if (data.user_id) {
+            this.config.botUserId = data.user_id;
+          }
+          if (data.user) {
+            this.config.botUsername = data.user;
+          }
+          if (data.team) {
+            this.config.teamName = data.team;
+          }
+          log.info(
+            {
+              botUserId: data.user_id,
+              botUsername: data.user,
+              teamName: data.team,
+            },
+            "Resolved Slack bot identity",
+          );
         }
       } catch (err) {
-        log.warn({ err }, "Failed to resolve bot user ID via auth.test");
+        log.warn({ err }, "Failed to resolve bot identity via auth.test");
       }
     }
 
@@ -182,17 +208,20 @@ export class SlackSocketModeClient {
     return data.url;
   }
 
+  private getAppHomeContext(): AppHomeContext {
+    return {
+      connected: true,
+      botUsername: this.config.botUsername,
+      workspaceName: this.config.teamName,
+    };
+  }
+
   private handleMessage(raw: string): void {
     let envelope: {
       envelope_id?: string;
       type?: string;
-      payload?: {
-        event_id?: string;
-        event?:
-          | SlackAppMentionEvent
-          | SlackDirectMessageEvent
-          | SlackChannelMessageEvent;
-      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      payload?: Record<string, any>;
       reason?: string;
     };
 
@@ -232,13 +261,43 @@ export class SlackSocketModeClient {
       return;
     }
 
+    // Handle interactive payloads (block_actions from App Home buttons)
+    if (envelope.type === "interactive") {
+      this.handleInteractive(envelope.payload);
+      return;
+    }
+
     // Only process events_api envelopes
     if (envelope.type !== "events_api") return;
 
     const eventPayload = envelope.payload;
-    if (!eventPayload?.event || !eventPayload.event_id) return;
+    if (!eventPayload?.event) return;
 
+    // Handle app_home_opened: publish the App Home view for the user
     const event = eventPayload.event;
+    if (event.type === "app_home_opened") {
+      const homeEvent = event as {
+        type: "app_home_opened";
+        user: string;
+        tab?: string;
+      };
+      if (homeEvent.tab === "home" || !homeEvent.tab) {
+        publishAppHome(
+          this.config.botToken,
+          homeEvent.user,
+          this.getAppHomeContext(),
+        ).catch((err) => {
+          log.error(
+            { err, userId: homeEvent.user },
+            "Failed to publish App Home",
+          );
+        });
+      }
+      return;
+    }
+
+    if (!eventPayload.event_id) return;
+
     const dmEvent = event as SlackDirectMessageEvent;
     const channelEvent = event as SlackChannelMessageEvent;
 
@@ -299,6 +358,37 @@ export class SlackSocketModeClient {
     }
 
     this.onEvent(normalized);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private handleInteractive(payload: Record<string, any> | undefined): void {
+    if (!payload) return;
+
+    // Only handle block_actions (from App Home buttons)
+    if (payload.type !== "block_actions") return;
+
+    const userId = payload.user?.id as string | undefined;
+    const actions = payload.actions as
+      | Array<{ action_id: string; value?: string }>
+      | undefined;
+    if (!userId || !actions?.length) return;
+
+    log.info(
+      {
+        userId,
+        actionIds: actions.map((a) => a.action_id),
+      },
+      "Received App Home block_actions",
+    );
+
+    // Re-publish the App Home view to reflect any state changes
+    publishAppHome(
+      this.config.botToken,
+      userId,
+      this.getAppHomeContext(),
+    ).catch((err) => {
+      log.error({ err, userId }, "Failed to update App Home after interaction");
+    });
   }
 
   private scheduleReconnect(): void {
