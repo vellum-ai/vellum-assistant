@@ -10,25 +10,39 @@ final class DictationOverlayWindow {
     private var panel: NSPanel?
     private var iconView: NSView?
     private var label: NSTextField?
+    private var transcriptionLabel: NSTextField?
     private var spinner: NSProgressIndicator?
+    private var currentState: DictationState?
 
-    private func panelWidth(for state: DictationState) -> CGFloat {
+    private static let baseHeight: CGFloat = 40
+    private static let expandedHeight: CGFloat = 72
+    private static let baseWidth: CGFloat = 160
+    private static let maxTranscriptionWidth: CGFloat = 400
+
+    private func panelWidth(for state: DictationState, hasTranscription: Bool = false) -> CGFloat {
+        if hasTranscription { return Self.maxTranscriptionWidth }
         switch state {
         case .transforming: return 280
-        default: return 160
+        default: return Self.baseWidth
         }
     }
 
     func show(state: DictationState) {
+        currentState = state
         let width = panelWidth(for: state)
+        let height = Self.baseHeight
 
         if let panel = panel {
             updateContent(state: state)
+            // Clear transcription when state changes (new recording cycle)
+            transcriptionLabel?.stringValue = ""
 
             if let screen = NSScreen.main {
                 let screenFrame = screen.visibleFrame
                 let x = screenFrame.midX - width / 2
-                let newFrame = NSRect(x: x, y: panel.frame.origin.y, width: width, height: 40)
+                // Pin the top edge so the panel doesn't jump when contracting from expanded height
+                let topY = panel.frame.origin.y + panel.frame.height
+                let newFrame = NSRect(x: x, y: topY - height, width: width, height: height)
                 panel.setFrame(newFrame, display: true, animate: false)
             }
 
@@ -37,7 +51,7 @@ final class DictationOverlayWindow {
             let contentView = buildContentView(state: state)
 
             let newPanel = NSPanel(
-                contentRect: NSRect(x: 0, y: 0, width: width, height: 40),
+                contentRect: NSRect(x: 0, y: 0, width: width, height: height),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
@@ -64,13 +78,39 @@ final class DictationOverlayWindow {
         log.debug("Showing dictation overlay: \(String(describing: state))")
     }
 
+    /// Update the live transcription text shown below the status line.
+    /// Only takes effect while the overlay is in the `.recording` state.
+    func updatePartialTranscription(_ text: String) {
+        guard case .recording = currentState else { return }
+        guard let panel = panel else { return }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        transcriptionLabel?.stringValue = trimmed
+
+        let hasText = !trimmed.isEmpty
+        let width = hasText ? Self.maxTranscriptionWidth : Self.baseWidth
+        let height = hasText ? Self.expandedHeight : Self.baseHeight
+        transcriptionLabel?.isHidden = !hasText
+
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let x = screenFrame.midX - width / 2
+            // Keep the top edge pinned by computing y from the top
+            let topY = panel.frame.origin.y + panel.frame.height
+            let newFrame = NSRect(x: x, y: topY - height, width: width, height: height)
+            panel.setFrame(newFrame, display: true, animate: false)
+        }
+    }
+
     func dismiss() {
         spinner?.stopAnimation(nil)
         panel?.orderOut(nil)
         panel = nil
         iconView = nil
         label = nil
+        transcriptionLabel = nil
         spinner = nil
+        currentState = nil
     }
 
     func showDoneAndDismiss() {
@@ -88,24 +128,32 @@ final class DictationOverlayWindow {
 
         let icon = makeIcon(for: state)
         let text = makeLabel(for: state)
+        let transcription = makeTranscriptionLabel()
 
         icon.translatesAutoresizingMaskIntoConstraints = false
         text.translatesAutoresizingMaskIntoConstraints = false
+        transcription.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(icon)
         container.addSubview(text)
+        container.addSubview(transcription)
 
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            icon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            icon.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
 
             text.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
             text.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
-            text.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            text.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
+
+            transcription.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            transcription.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
+            transcription.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 4),
         ])
 
         self.iconView = icon
         self.label = text
+        self.transcriptionLabel = transcription
 
         return container
     }
@@ -119,10 +167,14 @@ final class DictationOverlayWindow {
             container.addSubview(newIcon)
             NSLayoutConstraint.activate([
                 newIcon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-                newIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                newIcon.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
             ])
             if let lbl = label {
                 lbl.leadingAnchor.constraint(equalTo: newIcon.trailingAnchor, constant: 8).isActive = true
+                lbl.centerYAnchor.constraint(equalTo: newIcon.centerYAnchor).isActive = true
+            }
+            if let transLbl = transcriptionLabel {
+                transLbl.topAnchor.constraint(equalTo: newIcon.bottomAnchor, constant: 4).isActive = true
             }
             oldSpinner?.stopAnimation(nil)
             oldIcon.removeFromSuperview()
@@ -203,6 +255,16 @@ final class DictationOverlayWindow {
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         self.label = field
+        return field
+    }
+
+    private func makeTranscriptionLabel() -> NSTextField {
+        let field = NSTextField(labelWithString: "")
+        field.font = NSFont(name: "Inter", size: 10) ?? NSFont.systemFont(ofSize: 10)
+        field.textColor = NSColor(VColor.textMuted)
+        field.lineBreakMode = .byWordWrapping
+        field.maximumNumberOfLines = 2
+        field.isHidden = true
         return field
     }
 }

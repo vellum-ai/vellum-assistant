@@ -1,7 +1,146 @@
 import type { GatewayConfig } from "../config.js";
+import { fetchImpl } from "../fetch.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 import type { GatewayInboundEvent } from "../types.js";
+
+/**
+ * Resolved Slack user info for populating actor fields.
+ */
+interface SlackUserInfo {
+  displayName: string;
+  username: string;
+}
+
+interface CacheEntry {
+  value: SlackUserInfo;
+  expiresAt: number;
+}
+
+const USER_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const USER_CACHE_MAX_SIZE = 500;
+
+/**
+ * In-memory LRU cache for Slack user info lookups.
+ * Entries expire after TTL and the cache evicts least-recently-used
+ * entries when it exceeds MAX_SIZE.
+ */
+const userInfoCache = new Map<string, CacheEntry>();
+
+function evictExpired(): void {
+  const now = Date.now();
+  for (const [key, entry] of userInfoCache) {
+    if (entry.expiresAt <= now) {
+      userInfoCache.delete(key);
+    }
+  }
+}
+
+function cacheGet(userId: string): SlackUserInfo | undefined {
+  const entry = userInfoCache.get(userId);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    userInfoCache.delete(userId);
+    return undefined;
+  }
+  // Move to end for LRU ordering (Map preserves insertion order)
+  userInfoCache.delete(userId);
+  userInfoCache.set(userId, entry);
+  return entry.value;
+}
+
+function cacheSet(userId: string, value: SlackUserInfo): void {
+  // Evict if over capacity
+  if (userInfoCache.size >= USER_CACHE_MAX_SIZE) {
+    evictExpired();
+    // If still over capacity, evict oldest entry
+    if (userInfoCache.size >= USER_CACHE_MAX_SIZE) {
+      const oldest = userInfoCache.keys().next().value;
+      if (oldest) userInfoCache.delete(oldest);
+    }
+  }
+  userInfoCache.set(userId, {
+    value,
+    expiresAt: Date.now() + USER_CACHE_TTL_MS,
+  });
+}
+
+/**
+ * Resolve a Slack user's display name and username via `users.info`.
+ * Results are cached to avoid repeated API calls.
+ *
+ * Returns undefined on failure — callers should treat display name as
+ * best-effort and proceed without it.
+ */
+export async function resolveSlackUser(
+  userId: string,
+  botToken: string,
+): Promise<SlackUserInfo | undefined> {
+  const cached = cacheGet(userId);
+  if (cached) return cached;
+
+  try {
+    const resp = await fetchImpl(
+      `https://slack.com/api/users.info?user=${encodeURIComponent(userId)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${botToken}` },
+      },
+    );
+    if (!resp.ok) return undefined;
+
+    const data = (await resp.json()) as {
+      ok?: boolean;
+      user?: {
+        name?: string;
+        real_name?: string;
+        profile?: { display_name?: string; real_name?: string };
+      };
+    };
+    if (!data.ok || !data.user) return undefined;
+
+    const displayName =
+      data.user.profile?.display_name ||
+      data.user.real_name ||
+      data.user.profile?.real_name ||
+      data.user.name ||
+      userId;
+    const username = data.user.name || userId;
+
+    const info: SlackUserInfo = { displayName, username };
+    cacheSet(userId, info);
+    return info;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Cache-only user lookup for the hot normalization path.
+ * Returns cached info immediately without making network calls.
+ * Fires off a background fetch to warm the cache for next time.
+ */
+export function resolveSlackUserSync(
+  userId: string,
+  botToken: string,
+): SlackUserInfo | undefined {
+  const cached = cacheGet(userId);
+  if (!cached) {
+    // Fire-and-forget: warm the cache for next time
+    resolveSlackUser(userId, botToken).catch(() => {});
+  }
+  return cached;
+}
+
+/** Exported for testing — clears the user info cache. */
+export function clearUserInfoCache(): void {
+  userInfoCache.clear();
+}
+
+/** Exported for testing — returns current cache size. */
+export function getUserInfoCacheSize(): number {
+  return userInfoCache.size;
+}
 
 /**
  * Slack `app_mention` event shape (subset relevant to normalization).
@@ -34,23 +173,6 @@ export interface SlackDirectMessageEvent {
 }
 
 /**
- * Slack `reaction_added` event shape.
- * Fired when a user adds an emoji reaction to a message.
- */
-export interface SlackReactionAddedEvent {
-  type: "reaction_added";
-  user: string;
-  reaction: string;
-  item: {
-    type: "message";
-    channel: string;
-    ts: string;
-  };
-  item_user?: string;
-  event_ts?: string;
-}
-
-/**
  * Slack `message` event shape for channel/group messages (non-DM).
  * Used to pick up thread replies in threads the bot is already participating in.
  */
@@ -65,6 +187,33 @@ export interface SlackChannelMessageEvent {
   thread_ts?: string;
   client_msg_id?: string;
   event_ts?: string;
+}
+
+/**
+ * Slack `message_changed` event shape — subtype `message_changed` wraps the
+ * edited message in `event.message` and the prior version in
+ * `event.previous_message`.
+ */
+export interface SlackMessageChangedEvent {
+  type: "message";
+  subtype: "message_changed";
+  channel: string;
+  channel_type?: "im" | "channel" | "group" | "mpim";
+  hidden?: boolean;
+  ts: string;
+  event_ts?: string;
+  message: {
+    user?: string;
+    text: string;
+    ts: string;
+    client_msg_id?: string;
+    thread_ts?: string;
+  };
+  previous_message?: {
+    user?: string;
+    text: string;
+    ts: string;
+  };
 }
 
 /**
@@ -103,7 +252,8 @@ export function normalizeSlackDirectMessage(
 ): NormalizedSlackEvent | null {
   // Ignore messages from the bot itself
   if (botUserId && event.user === botUserId) return null;
-  // Ignore message subtypes (edits, deletions, etc.) — only handle plain user messages
+  // Ignore message subtypes (edits, deletions, etc.) — only handle plain user messages.
+  // message_changed is handled separately by normalizeSlackMessageEdit.
   if (event.subtype) return null;
   // user is required for routing
   if (!event.user) return null;
@@ -125,6 +275,13 @@ export function normalizeSlackDirectMessage(
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
+  // Use cache-only lookup to avoid blocking normalization on network calls.
+  // A background fetch warms the cache for subsequent messages from this user.
+  const userInfo =
+    config.slackChannelBotToken && event.user
+      ? resolveSlackUserSync(event.user, config.slackChannelBotToken)
+      : undefined;
+
   return {
     event: {
       version: "v1",
@@ -137,6 +294,10 @@ export function normalizeSlackDirectMessage(
       },
       actor: {
         actorExternalId: event.user,
+        ...(userInfo && {
+          displayName: userInfo.displayName,
+          username: userInfo.username,
+        }),
       },
       source: {
         updateId: eventId,
@@ -173,6 +334,11 @@ export function normalizeSlackChannelMessage(
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
+  const userInfo =
+    config.slackChannelBotToken && event.user
+      ? resolveSlackUserSync(event.user, config.slackChannelBotToken)
+      : undefined;
+
   return {
     event: {
       version: "v1",
@@ -185,6 +351,10 @@ export function normalizeSlackChannelMessage(
       },
       actor: {
         actorExternalId: event.user,
+        ...(userInfo && {
+          displayName: userInfo.displayName,
+          username: userInfo.username,
+        }),
       },
       source: {
         updateId: eventId,
@@ -219,6 +389,11 @@ export function normalizeSlackAppMention(
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
+  const userInfo =
+    config.slackChannelBotToken && event.user
+      ? resolveSlackUserSync(event.user, config.slackChannelBotToken)
+      : undefined;
+
   return {
     event: {
       version: "v1",
@@ -231,6 +406,10 @@ export function normalizeSlackAppMention(
       },
       actor: {
         actorExternalId: event.user,
+        ...(userInfo && {
+          displayName: userInfo.displayName,
+          username: userInfo.username,
+        }),
       },
       source: {
         updateId: eventId,
@@ -244,37 +423,73 @@ export function normalizeSlackAppMention(
 }
 
 /**
- * Normalize a Slack `reaction_added` event into the gateway's canonical
- * inbound event shape. The emoji name is encoded as `callbackData` with
- * the format `reaction:{emoji_name}` so the runtime can map it to an
- * approval action.
- *
- * Returns null if the event cannot be routed or has an unexpected item type.
+ * Slack `block_actions` interactive payload shape (subset relevant to normalization).
+ * Sent when a user clicks a Block Kit interactive element (button, menu, etc.).
  */
-export function normalizeSlackReactionAdded(
-  event: SlackReactionAddedEvent,
-  eventId: string,
+export interface SlackBlockActionsPayload {
+  type: "block_actions";
+  trigger_id: string;
+  user: { id: string; username?: string; name?: string };
+  channel?: { id: string; name?: string };
+  message?: { ts: string; thread_ts?: string; text?: string };
+  actions: Array<{
+    action_id: string;
+    value?: string;
+    type: string;
+    block_id?: string;
+    action_ts?: string;
+  }>;
+}
+
+/**
+ * Slack `reaction_added` event shape.
+ */
+export interface SlackReactionAddedEvent {
+  type: "reaction_added";
+  user: string;
+  reaction: string;
+  item: {
+    type: string;
+    channel: string;
+    ts: string;
+  };
+  item_user?: string;
+  event_ts?: string;
+}
+
+/**
+ * Normalize a Slack `block_actions` interactive payload into the gateway's
+ * canonical inbound event shape, matching Telegram's `callback_query` pattern.
+ *
+ * Uses the first action in the `actions` array. The `callbackData` field is
+ * set to match the Telegram `apr:{requestId}:{actionId}` convention when the
+ * action value follows that pattern, or falls back to the raw action value.
+ *
+ * Returns null if the payload is missing required fields or cannot be routed.
+ */
+export function normalizeSlackBlockActions(
+  payload: SlackBlockActionsPayload,
+  envelopeId: string,
   config: GatewayConfig,
-  botUserId?: string,
 ): NormalizedSlackEvent | null {
-  // Ignore reactions from the bot itself
-  if (botUserId && event.user === botUserId) return null;
-  // Only handle reactions on messages
-  if (event.item.type !== "message") return null;
+  const action = payload.actions?.[0];
+  if (!action) return null;
 
-  const channel = event.item.channel;
+  const userId = payload.user?.id;
+  if (!userId) return null;
 
-  // DM reactions should still route via default assistant (same as DM messages)
-  let routing = resolveAssistant(config, channel, event.user);
-  if (isRejection(routing) && config.defaultAssistantId) {
-    routing = {
-      assistantId: config.defaultAssistantId,
-      routeSource: "default" as const,
-    };
-  }
+  const channelId = payload.channel?.id;
+  if (!channelId) return null;
+
+  const routing = resolveAssistant(config, channelId, userId);
   if (isRejection(routing)) return null;
 
-  const externalMessageId = `${channel}:${event.item.ts}:reaction:${event.reaction}`;
+  const callbackData = action.value ?? action.action_id;
+  const messageTs = payload.message?.ts;
+  // Use action_ts (unique per click) to prevent dedup collisions when
+  // multiple buttons on the same message are clicked or the same button
+  // is clicked again after a transient failure.
+  const actionTs = action.action_ts ?? envelopeId;
 
   return {
     event: {
@@ -282,21 +497,164 @@ export function normalizeSlackReactionAdded(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
-        content: "",
+        content: callbackData,
+        conversationExternalId: channelId,
+        externalMessageId: `${channelId}:${messageTs ?? envelopeId}:${actionTs}`,
+        callbackQueryId: payload.trigger_id,
+        callbackData,
+      },
+      actor: {
+        actorExternalId: userId,
+        username: payload.user.username,
+        displayName: payload.user.name,
+      },
+      source: {
+        updateId: envelopeId,
+        messageId: messageTs,
+      },
+      raw: payload as unknown as Record<string, unknown>,
+    },
+    routing,
+    // Prefer the thread root so follow-up messages land in the original
+    // conversation thread, not a reply's sub-thread.
+    threadTs: payload.message?.thread_ts ?? messageTs ?? envelopeId,
+    channel: channelId,
+  };
+}
+
+/**
+ * Normalize a Slack `reaction_added` event into the gateway's canonical
+ * inbound event shape. The reaction emoji name is placed in `callbackData`
+ * so downstream handlers can process it like a callback action.
+ *
+ * Returns null if the event is missing required fields or cannot be routed.
+ */
+export function normalizeSlackReactionAdded(
+  event: SlackReactionAddedEvent,
+  eventId: string,
+  config: GatewayConfig,
+  botUserId?: string,
+): NormalizedSlackEvent | null {
+  if (!event.user || !event.item?.channel || !event.item?.ts) return null;
+  // Ignore reactions from the bot itself
+  if (botUserId && event.user === botUserId) return null;
+
+  const channel = event.item.channel;
+
+  // DM reactions should still route via default assistant (same as DM messages).
+  // Only apply fallback to DM channels (D...) — reactions from unrouted public
+  // channels should not bypass explicit routing policy.
+  let routing = resolveAssistant(config, channel, event.user);
+  if (
+    isRejection(routing) &&
+    config.defaultAssistantId &&
+    channel.startsWith("D")
+  ) {
+    routing = {
+      assistantId: config.defaultAssistantId,
+      routeSource: "default" as const,
+    };
+  }
+  if (isRejection(routing)) return null;
+
+  const callbackData = `reaction:${event.reaction}`;
+
+  return {
+    event: {
+      version: "v1",
+      sourceChannel: "slack",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content: callbackData,
         conversationExternalId: channel,
-        externalMessageId,
-        callbackData: `reaction:${event.reaction}`,
+        // Include reactor user ID to prevent dedup collisions when multiple
+        // users react with the same emoji on the same message.
+        externalMessageId: `${channel}:${event.item.ts}:${event.reaction}:${event.user}`,
+        callbackData,
       },
       actor: {
         actorExternalId: event.user,
       },
       source: {
         updateId: eventId,
+        messageId: event.item.ts,
       },
       raw: event as unknown as Record<string, unknown>,
     },
     routing,
     threadTs: event.item.ts,
     channel,
+  };
+}
+
+/**
+ * Normalize a Slack `message_changed` event into the gateway's canonical
+ * inbound event shape with `isEdit: true`.
+ *
+ * The edited content lives in `event.message` (not `event.previous_message`).
+ * Uses `event.message.ts` as `source.messageId` so the runtime can correlate
+ * the edit with the original message. The `externalMessageId` is unique per
+ * edit (eventId) to avoid dedup collisions across successive edits.
+ *
+ * Returns null if the event should be ignored (bot's own edits, missing user,
+ * or unroutable channels).
+ */
+export function normalizeSlackMessageEdit(
+  event: SlackMessageChangedEvent,
+  eventId: string,
+  config: GatewayConfig,
+  botUserId?: string,
+): NormalizedSlackEvent | null {
+  const edited = event.message;
+  if (!edited) return null;
+
+  // Ignore edits from the bot itself
+  if (botUserId && edited.user === botUserId) return null;
+  // user is required for routing
+  if (!edited.user) return null;
+
+  // Try channel routing, fall back to default for DMs
+  const isDm = event.channel_type === "im";
+  let routing = resolveAssistant(config, event.channel, edited.user);
+  if (isRejection(routing) && isDm && config.defaultAssistantId) {
+    routing = {
+      assistantId: config.defaultAssistantId,
+      routeSource: "default" as const,
+    };
+  }
+  if (isRejection(routing)) return null;
+
+  const content = stripBotMention(edited.text);
+
+  // Each edit event gets a unique externalMessageId so the dedup pipeline
+  // does not discard subsequent edits of the same Slack message.
+  const externalMessageId = eventId;
+
+  return {
+    event: {
+      version: "v1",
+      sourceChannel: "slack",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content,
+        conversationExternalId: event.channel,
+        externalMessageId,
+        isEdit: true,
+      },
+      actor: {
+        actorExternalId: edited.user,
+      },
+      source: {
+        updateId: eventId,
+        // The original message's ts lets the runtime identify which message was edited
+        messageId: edited.ts,
+        ...(isDm ? {} : { chatType: "channel" }),
+      },
+      raw: event as unknown as Record<string, unknown>,
+    },
+    routing,
+    // Fall back to the original message ts, not the wrapper event ts
+    threadTs: edited.thread_ts ?? edited.ts,
+    channel: event.channel,
   };
 }

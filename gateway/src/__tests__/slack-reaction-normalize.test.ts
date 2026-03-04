@@ -81,7 +81,6 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
     expect(result!.event.message.callbackData).toBe("reaction:+1");
-    expect(result!.event.message.content).toBe("");
     expect(result!.event.actor.actorExternalId).toBe("U001");
     expect(result!.event.message.conversationExternalId).toBe("C123");
     expect(result!.channel).toBe("C123");
@@ -111,19 +110,6 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result).toBeNull();
   });
 
-  test("ignores reactions on non-message items", () => {
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "C123", assistantId: "ast-1" },
-      ],
-    });
-    const event = makeReactionEvent();
-    (event.item as unknown as { type: string }).type = "file";
-    const result = normalizeSlackReactionAdded(event, "ev-4", config);
-
-    expect(result).toBeNull();
-  });
-
   test("returns null for unroutable channels without default", () => {
     const config = makeConfig({ defaultAssistantId: undefined });
     const event = makeReactionEvent();
@@ -132,8 +118,11 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result).toBeNull();
   });
 
-  test("falls back to default assistant for unrouted channels", () => {
-    const config = makeConfig({ defaultAssistantId: "default-ast" });
+  test("falls back to default assistant for unrouted DM channels", () => {
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+    });
     const event = makeReactionEvent({
       item: { type: "message", channel: "D999", ts: "111.222" },
     });
@@ -143,7 +132,20 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result!.channel).toBe("D999");
   });
 
-  test("generates unique externalMessageId including reaction name", () => {
+  test("does not fall back to default assistant for unrouted public channels", () => {
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+    });
+    const event = makeReactionEvent({
+      item: { type: "message", channel: "C999", ts: "111.222" },
+    });
+    const result = normalizeSlackReactionAdded(event, "ev-6b", config);
+
+    expect(result).toBeNull();
+  });
+
+  test("generates unique externalMessageId including reaction name and user", () => {
     const config = makeConfig({
       routingEntries: [
         { type: "conversation_id", key: "C123", assistantId: "ast-1" },
@@ -154,7 +156,25 @@ describe("normalizeSlackReactionAdded", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.message.externalMessageId).toBe(
-      "C123:1234567890.123456:reaction:alarm_clock",
+      "C123:1234567890.123456:alarm_clock:U001",
+    );
+  });
+
+  test("two users reacting same emoji produce different externalMessageIds", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C123", assistantId: "ast-1" },
+      ],
+    });
+    const event1 = makeReactionEvent({ user: "U001" });
+    const event2 = makeReactionEvent({ user: "U002" });
+    const result1 = normalizeSlackReactionAdded(event1, "ev-8a", config);
+    const result2 = normalizeSlackReactionAdded(event2, "ev-8b", config);
+
+    expect(result1).not.toBeNull();
+    expect(result2).not.toBeNull();
+    expect(result1!.event.message.externalMessageId).not.toBe(
+      result2!.event.message.externalMessageId,
     );
   });
 });

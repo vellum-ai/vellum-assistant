@@ -451,9 +451,15 @@ final class VoiceInputManager {
     }
 
     /// Capture frontmost app context (for dictation) and begin recording.
+    /// When Vellum itself is the frontmost app, skip context capture so the
+    /// transcription falls through to the conversation path (auto-submit to chat)
+    /// instead of going through DictationTextInserter which would double-insert.
     private func captureContextAndBeginRecording() {
         if currentMode == .dictation {
-            currentDictationContext = DictationContextCapture.capture()
+            let isVellumFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.vellum.vellum-assistant"
+            if !isVellumFrontmost {
+                currentDictationContext = DictationContextCapture.capture()
+            }
         }
         beginRecording()
     }
@@ -568,17 +574,23 @@ final class VoiceInputManager {
                         log.info("Transcription: \(text, privacy: .public)")
                         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             self.handleFinalTranscription(text)
+                        } else {
+                            VoiceFeedback.playDeactivationChime()
                         }
                         self.recognitionTask = nil
                         self.stopRecording()
                     } else {
                         self.onPartialTranscription?(text)
+                        if self.currentMode == .dictation {
+                            self.overlayWindow.updatePartialTranscription(text)
+                        }
                     }
                 }
 
                 if let error = error {
                     log.error("Recognition error: \(error.localizedDescription)")
                     self.recognitionTask = nil
+                    VoiceFeedback.playDeactivationChime()
                     self.stopRecording()
                 }
             }
@@ -587,6 +599,7 @@ final class VoiceInputManager {
         do {
             audioEngine.prepare()
             try audioEngine.start()
+            VoiceFeedback.playActivationChime()
         } catch {
             log.error("Audio engine failed to start: \(error.localizedDescription)")
             isRecording = false
@@ -689,10 +702,12 @@ final class VoiceInputManager {
     func handleFinalTranscription(_ text: String) {
         switch currentMode {
         case .conversation:
+            VoiceFeedback.playDeactivationChime()
             onTranscription?(text)
         case .dictation:
             guard let context = currentDictationContext else {
                 // No context captured (e.g. continuous recording path) — fall back to conversation
+                VoiceFeedback.playDeactivationChime()
                 onTranscription?(text)
                 return
             }
@@ -721,6 +736,7 @@ final class VoiceInputManager {
             } catch {
                 log.error("Failed to send dictation_request: \(error.localizedDescription)")
                 overlayWindow.dismiss()
+                VoiceFeedback.playDeactivationChime()
                 onTranscription?(text)
             }
         }
@@ -732,8 +748,10 @@ final class VoiceInputManager {
         if mode == "dictation" || mode == "command" {
             DictationTextInserter.insertText(text)
             overlayWindow.showDoneAndDismiss()
+            VoiceFeedback.playDeactivationChime()
         } else if mode == "action" {
             overlayWindow.dismiss()
+            VoiceFeedback.playDeactivationChime()
             log.info("Action mode detected — routing transcription to task submission: \(text, privacy: .public)")
             onActionModeTriggered?(text)
         }

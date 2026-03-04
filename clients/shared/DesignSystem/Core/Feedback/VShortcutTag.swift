@@ -1,0 +1,66 @@
+import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
+
+/// A clickable pill that displays an optional icon + keyboard shortcut hint (e.g. "⌘K", "🎤 fn").
+public struct VShortcutTag: View {
+    public let text: String
+    public var icon: String? = nil
+    public let action: () -> Void
+
+    @State private var isHovered = false
+
+    private let tagColor = Color(hex: 0xA1A096)
+    private let borderColor = Color(hex: 0xE8E6DA)
+
+    public init(_ text: String, icon: String? = nil, action: @escaping () -> Void = {}) {
+        self.text = text
+        self.icon = icon
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.xs) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .medium))
+                }
+                Text(text)
+                    .font(VFont.caption)
+            }
+            .foregroundColor(tagColor)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                Capsule()
+                    .strokeBorder(isHovered ? tagColor.opacity(0.5) : borderColor, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        #if os(macOS)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
+        }
+        #else
+        .onHover { isHovered = $0 }
+        #endif
+        .accessibilityLabel(text)
+    }
+}
+
+#Preview("VShortcutTag") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        HStack(spacing: 12) {
+            VShortcutTag("\u{2318}K")
+            VShortcutTag("fn", icon: "mic.fill")
+            VShortcutTag("\u{2318}G")
+        }
+        .padding()
+    }
+    .frame(width: 400, height: 80)
+}
