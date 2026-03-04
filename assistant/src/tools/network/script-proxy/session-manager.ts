@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { join } from "node:path";
 
+import { getProviderProfile } from "../../../oauth/provider-profiles.js";
 import {
   buildDecisionTrace,
   createProxyServer,
@@ -29,7 +30,10 @@ import {
 } from "../../credentials/host-pattern-match.js";
 import { listCredentialMetadata } from "../../credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
-import { resolveById } from "../../credentials/resolve.js";
+import {
+  resolveById,
+  type ResolvedCredential,
+} from "../../credentials/resolve.js";
 
 const log = getLogger("proxy-session");
 
@@ -61,6 +65,26 @@ const sessions = new Map<ProxySessionId, ManagedSession>();
  * duplicate sessions (check-then-act race).
  */
 const acquireLocks = new Map<string, Promise<ProxySession>>();
+
+/**
+ * Resolve injection templates for a credential.
+ *
+ * Preferred source is credential metadata. For legacy OAuth credentials that
+ * predate provider-level template registration, fall back to well-known
+ * profile templates when this is an access_token credential.
+ */
+function resolveInjectionTemplates(
+  resolved: ResolvedCredential | undefined,
+): CredentialInjectionTemplate[] {
+  if (!resolved) return [];
+  if (resolved.injectionTemplates.length > 0)
+    return resolved.injectionTemplates;
+  if (resolved.field !== "access_token") return [];
+
+  const profile = getProviderProfile(resolved.service);
+  if (!profile?.injectionTemplates?.length) return [];
+  return profile.injectionTemplates;
+}
 
 /** Return a defensive copy so callers cannot mutate internal state. */
 function cloneSession(s: ProxySession): ProxySession {
@@ -153,8 +177,9 @@ export async function startSession(
   const templates = new Map<string, CredentialInjectionTemplate[]>();
   for (const credId of managed.session.credentialIds) {
     const resolved = resolveById(credId);
-    if (resolved?.injectionTemplates?.length) {
-      templates.set(credId, resolved.injectionTemplates);
+    const injectionTemplates = resolveInjectionTemplates(resolved);
+    if (injectionTemplates.length > 0) {
+      templates.set(credId, injectionTemplates);
     }
   }
 
