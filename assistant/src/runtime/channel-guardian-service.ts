@@ -9,6 +9,7 @@
 import { createHash, randomBytes } from "crypto";
 import { v4 as uuid } from "uuid";
 
+import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
   createGuardianBindingContactsFirst,
   revokeGuardianBindingContactsFirst,
@@ -31,7 +32,6 @@ import {
   findPendingChallengeForChannel,
   findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as storeFindSessionByIdentity,
-  getActiveBinding,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
@@ -332,7 +332,7 @@ export function validateAndConsumeChallenge(
   }
 
   // Reject if a different user already holds the guardian binding
-  const existingBinding = getActiveBinding(assistantId, channel);
+  const existingBinding = getGuardianBinding(assistantId, channel);
   if (
     existingBinding &&
     existingBinding.guardianExternalUserId !== actorExternalUserId
@@ -357,7 +357,7 @@ export function validateAndConsumeChallenge(
 
   // Unify all channel bindings onto the canonical (vellum) principal so that
   // cross-channel authorization reduces to strict principal equality.
-  const vellumBinding = getActiveBinding(assistantId, "vellum");
+  const vellumBinding = getGuardianBinding(assistantId, "vellum");
   const canonicalPrincipal =
     vellumBinding?.guardianPrincipalId ?? actorExternalUserId;
 
@@ -378,12 +378,29 @@ export function validateAndConsumeChallenge(
 
 /**
  * Look up the active guardian binding for a given assistant and channel.
+ * Reads from the contacts table via findGuardianForChannel and synthesizes
+ * a GuardianBinding-shaped object for backward compatibility.
  */
 export function getGuardianBinding(
   assistantId: string,
   channel: string,
 ): GuardianBinding | null {
-  return getActiveBinding(assistantId, channel);
+  const result = findGuardianForChannel(channel);
+  if (!result) return null;
+  return {
+    id: result.channel.id,
+    assistantId,
+    channel,
+    guardianExternalUserId: result.channel.externalUserId ?? '',
+    guardianDeliveryChatId: result.channel.externalChatId ?? '',
+    guardianPrincipalId: result.contact.principalId ?? '',
+    status: 'active' as const,
+    verifiedAt: result.channel.verifiedAt ?? 0,
+    verifiedVia: result.channel.verifiedVia ?? '',
+    metadataJson: null,
+    createdAt: result.channel.createdAt,
+    updatedAt: result.channel.updatedAt ?? result.channel.createdAt,
+  };
 }
 
 /**
@@ -395,8 +412,8 @@ export function isGuardian(
   channel: string,
   externalUserId: string,
 ): boolean {
-  const binding = getActiveBinding(assistantId, channel);
-  return binding != null && binding.guardianExternalUserId === externalUserId;
+  const result = findGuardianForChannel(channel);
+  return result != null && result.channel.externalUserId === externalUserId;
 }
 
 /**
