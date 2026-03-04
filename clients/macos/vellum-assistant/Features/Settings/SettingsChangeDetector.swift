@@ -35,7 +35,6 @@ struct SettingsSnapshot {
 
 struct SettingsChange {
     let description: String
-    let chatInstruction: String
 }
 
 struct SettingsChangeDetector {
@@ -44,82 +43,43 @@ struct SettingsChangeDetector {
 
         if before.model != after.model {
             let displayName = SettingsStore.modelDisplayNames[after.model] ?? after.model
-            changes.append(SettingsChange(
-                description: "switched AI model to \(displayName)",
-                chatInstruction: "switch to \(displayName)"
-            ))
+            changes.append(SettingsChange(description: "Model → \(displayName)"))
         }
         if before.userTimezone != after.userTimezone, let tz = after.userTimezone {
-            changes.append(SettingsChange(
-                description: "set timezone to \(tz)",
-                chatInstruction: "set my timezone to \(tz)"
-            ))
+            changes.append(SettingsChange(description: "Timezone → \(tz)"))
         }
         if before.maxSteps != after.maxSteps {
-            changes.append(SettingsChange(
-                description: "changed max steps to \(Int(after.maxSteps))",
-                chatInstruction: "set max steps to \(Int(after.maxSteps))"
-            ))
+            changes.append(SettingsChange(description: "Max steps → \(Int(after.maxSteps))"))
         }
         if !before.mediaEmbedsEnabled && after.mediaEmbedsEnabled {
-            changes.append(SettingsChange(
-                description: "enabled media embeds",
-                chatInstruction: "enable media embeds"
-            ))
+            changes.append(SettingsChange(description: "Media embeds enabled"))
         }
         if !before.hasTelegram && after.hasTelegram {
-            changes.append(SettingsChange(
-                description: "connected Telegram",
-                chatInstruction: "send me a message on Telegram"
-            ))
+            changes.append(SettingsChange(description: "Telegram connected"))
         }
         if !before.hasTwitter && after.hasTwitter {
-            changes.append(SettingsChange(
-                description: "connected Twitter/X",
-                chatInstruction: "post a tweet for me"
-            ))
+            changes.append(SettingsChange(description: "Twitter/X connected"))
         }
         if !before.hasTwilio && after.hasTwilio {
-            changes.append(SettingsChange(
-                description: "set up SMS",
-                chatInstruction: "text me when this task is done"
-            ))
+            changes.append(SettingsChange(description: "SMS set up"))
         }
         if !before.hasSlack && after.hasSlack {
-            changes.append(SettingsChange(
-                description: "connected Slack",
-                chatInstruction: "send a Slack message to #general"
-            ))
+            changes.append(SettingsChange(description: "Slack connected"))
         }
         if !before.hasBraveKey && after.hasBraveKey {
-            changes.append(SettingsChange(
-                description: "added Brave Search API key",
-                chatInstruction: "search the web for..."
-            ))
+            changes.append(SettingsChange(description: "Brave Search key added"))
         }
         if !before.hasPerplexityKey && after.hasPerplexityKey {
-            changes.append(SettingsChange(
-                description: "added Perplexity API key",
-                chatInstruction: "use Perplexity to research..."
-            ))
+            changes.append(SettingsChange(description: "Perplexity key added"))
         }
         if !before.hasElevenLabsKey && after.hasElevenLabsKey {
-            changes.append(SettingsChange(
-                description: "added ElevenLabs API key",
-                chatInstruction: "generate speech saying..."
-            ))
+            changes.append(SettingsChange(description: "ElevenLabs key added"))
         }
         if !before.hasImageGenKey && after.hasImageGenKey {
-            changes.append(SettingsChange(
-                description: "added image generation key",
-                chatInstruction: "generate an image of..."
-            ))
+            changes.append(SettingsChange(description: "Image generation key added"))
         }
         if !before.hasVercelKey && after.hasVercelKey {
-            changes.append(SettingsChange(
-                description: "added Vercel API key",
-                chatInstruction: "deploy my project to Vercel"
-            ))
+            changes.append(SettingsChange(description: "Vercel key added"))
         }
 
         return changes
@@ -127,11 +87,11 @@ struct SettingsChangeDetector {
 
     static func buildNudgeMessage(changes: [SettingsChange]) -> String {
         guard !changes.isEmpty else { return "" }
-        var lines = ["I noticed you updated some settings — you can ask me to make changes like these directly next time:"]
+        var lines = ["**I noticed you made some changes to settings**"]
         for change in changes {
-            lines.append("\u{2022} You \(change.description) — just ask: \"\(change.chatInstruction)\"")
+            lines.append("\u{2022} \(change.description)")
         }
-        lines.append("\nNo need to open settings!")
+        lines.append("\nYou don't need to open Settings — just ask me directly next time!")
         return lines.joined(separator: "\n")
     }
 }

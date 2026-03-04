@@ -73,7 +73,7 @@ struct ChatBubble: View {
         } else if message.isError {
             AnyShapeStyle(VColor.error.opacity(0.1))
         } else if message.isNudge {
-            AnyShapeStyle(VColor.accent.opacity(0.12))
+            AnyShapeStyle(Color.blue.opacity(0.1))
         } else {
             AnyShapeStyle(Color.clear)
         }
@@ -86,7 +86,7 @@ struct ChatBubble: View {
                 .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
         } else if message.isNudge {
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .strokeBorder(VColor.accent.opacity(0.35), lineWidth: 1)
+                .strokeBorder(Color.blue.opacity(0.3), lineWidth: 1)
         }
     }
 
@@ -218,15 +218,15 @@ struct ChatBubble: View {
                         if message.isNudge {
                             ZStack {
                                 Circle()
-                                    .fill(VColor.accent.opacity(0.15))
+                                    .fill(Color.blue.opacity(0.15))
                                     .frame(width: 28, height: 28)
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(VColor.accent)
+                                Image(systemName: "info.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Color.blue)
                             }
                             .overlay(
                                 Circle()
-                                    .strokeBorder(VColor.accent.opacity(0.25), lineWidth: 1)
+                                    .strokeBorder(Color.blue.opacity(0.25), lineWidth: 1)
                             )
                             .offset(x: -(28 + VSpacing.sm), y: 0)
                         } else {
