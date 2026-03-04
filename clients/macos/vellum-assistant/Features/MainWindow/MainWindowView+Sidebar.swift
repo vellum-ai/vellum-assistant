@@ -240,7 +240,13 @@ extension MainWindowView {
                     }
 
                     ForEach(displayedThreads) { thread in
-                        threadItem(thread)
+                        SidebarThreadItem(
+                            thread: thread,
+                            threadManager: threadManager,
+                            windowState: windowState,
+                            sidebar: sidebar,
+                            selectThread: { selectThread(thread) }
+                        )
                             .padding(.bottom, VSpacing.xxs)
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                 if sidebar.dropTargetThreadId == thread.id {
@@ -304,7 +310,13 @@ extension MainWindowView {
                         ForEach(displayedScheduleGroups, id: \.key) { group in
                             if group.threads.count == 1, let thread = group.threads.first {
                                 // Single-thread group: render inline without a disclosure wrapper
-                                threadItem(thread)
+                                SidebarThreadItem(
+                                    thread: thread,
+                                    threadManager: threadManager,
+                                    windowState: windowState,
+                                    sidebar: sidebar,
+                                    selectThread: { selectThread(thread) }
+                                )
                                     .padding(.bottom, VSpacing.xxs)
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                         if sidebar.dropTargetThreadId == thread.id {
@@ -337,7 +349,13 @@ extension MainWindowView {
                                 ) {
                                     VStack(spacing: 0) {
                                         ForEach(group.threads) { thread in
-                                            threadItem(thread)
+                                            SidebarThreadItem(
+                                                thread: thread,
+                                                threadManager: threadManager,
+                                                windowState: windowState,
+                                                sidebar: sidebar,
+                                                selectThread: { selectThread(thread) }
+                                            )
                                                 .padding(.bottom, VSpacing.xxs)
                                                 .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                                     if sidebar.dropTargetThreadId == thread.id {
@@ -558,7 +576,14 @@ extension MainWindowView {
                         ScrollView {
                             VStack(spacing: 0) {
                                 ForEach(regularThreads) { thread in
-                                    threadItem(thread, onSelect: { showThreadSwitcher = false })
+                                    SidebarThreadItem(
+                                        thread: thread,
+                                        threadManager: threadManager,
+                                        windowState: windowState,
+                                        sidebar: sidebar,
+                                        selectThread: { selectThread(thread) },
+                                        onSelect: { showThreadSwitcher = false }
+                                    )
                                         .padding(.bottom, VSpacing.xxs)
                                         .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                             if sidebar.dropTargetThreadId == thread.id {

@@ -13,11 +13,18 @@ import {
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum wake");
+    console.log("Usage: vellum wake [options]");
     console.log("");
     console.log("Start the assistant and gateway processes.");
+    console.log("");
+    console.log("Options:");
+    console.log(
+      "  --watch    Run assistant and gateway in watch mode (hot reload on source changes)",
+    );
     process.exit(0);
   }
+
+  const watch = args.includes("--watch");
 
   const assistants = loadAllAssistants();
   const hasLocal = assistants.some((a) => a.cloud === "local");
@@ -48,7 +55,7 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    await startLocalDaemon();
+    await startLocalDaemon(watch);
   }
 
   // Start gateway (non-desktop only)
@@ -58,12 +65,12 @@ export async function wake(): Promise<void> {
     if (alive) {
       console.log(`Gateway already running (pid ${pid}).`);
     } else {
-      await startGateway();
+      await startGateway(undefined, watch);
     }
   }
 
   // Start outbound proxy
-  await startOutboundProxy();
+  await startOutboundProxy(watch);
 
   console.log("✅ Wake complete.");
 }
