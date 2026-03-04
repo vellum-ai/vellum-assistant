@@ -13,11 +13,13 @@ import {
   upsertMemberContactsFirst,
 } from "../contacts/contacts-write.js";
 import type {
-  IngressMember,
   MemberPolicy,
   MemberStatus,
 } from "../contacts/member-record-shim.js";
-import type { ContactWithChannels } from "../contacts/types.js";
+import type {
+  ContactWithChannels,
+  ContactWriteResult,
+} from "../contacts/types.js";
 import {
   createInvite,
   findByTokenHash,
@@ -132,18 +134,21 @@ function inviteToResponse(
   };
 }
 
-export function memberToResponse(m: IngressMember): MemberResponseData {
+function writeResultToResponse(result: ContactWriteResult): MemberResponseData {
   return {
-    id: m.contactId ? `${m.contactId}:${m.id}` : m.id,
-    sourceChannel: m.sourceChannel,
-    externalUserId: m.externalUserId ?? undefined,
-    externalChatId: m.externalChatId ?? undefined,
-    displayName: m.displayName ?? undefined,
-    username: m.username ?? undefined,
-    status: m.status,
-    policy: m.policy,
-    lastSeenAt: m.lastSeenAt ?? undefined,
-    createdAt: m.createdAt,
+    id: `${result.contact.id}:${result.channel.id}`,
+    sourceChannel: result.channel.type,
+    externalUserId: result.channel.externalUserId ?? undefined,
+    externalChatId: result.channel.externalChatId ?? undefined,
+    displayName: result.contact.displayName,
+    username: undefined,
+    status:
+      result.channel.status === "unverified"
+        ? "pending"
+        : result.channel.status,
+    policy: result.channel.policy,
+    lastSeenAt: result.channel.lastSeenAt ?? undefined,
+    createdAt: result.channel.createdAt,
   };
 }
 
@@ -391,7 +396,7 @@ export function upsertIngressMember(params: {
         "At least one of externalUserId or externalChatId is required for upsert",
     };
   }
-  const member = upsertMemberContactsFirst({
+  const result = upsertMemberContactsFirst({
     assistantId: params.assistantId,
     sourceChannel: params.sourceChannel,
     externalUserId: params.externalUserId,
@@ -401,7 +406,10 @@ export function upsertIngressMember(params: {
     policy: params.policy as MemberPolicy | undefined,
     status: params.status as MemberStatus | undefined,
   });
-  return { ok: true, data: memberToResponse(member) };
+  if (!result) {
+    return { ok: false, error: "Failed to upsert member" };
+  }
+  return { ok: true, data: writeResultToResponse(result) };
 }
 
 export function revokeIngressMember(
@@ -411,11 +419,11 @@ export function revokeIngressMember(
   if (!memberId) {
     return { ok: false, error: "memberId is required for revoke" };
   }
-  const revoked = revokeMemberContactsFirst(memberId, reason);
-  if (!revoked) {
+  const result = revokeMemberContactsFirst(memberId, reason);
+  if (!result) {
     return { ok: false, error: "Member not found or cannot be revoked" };
   }
-  return { ok: true, data: memberToResponse(revoked) };
+  return { ok: true, data: writeResultToResponse(result) };
 }
 
 export function blockIngressMember(
@@ -425,9 +433,9 @@ export function blockIngressMember(
   if (!memberId) {
     return { ok: false, error: "memberId is required for block" };
   }
-  const blocked = blockMemberContactsFirst(memberId, reason);
-  if (!blocked) {
+  const result = blockMemberContactsFirst(memberId, reason);
+  if (!result) {
     return { ok: false, error: "Member not found or already blocked" };
   }
-  return { ok: true, data: memberToResponse(blocked) };
+  return { ok: true, data: writeResultToResponse(result) };
 }

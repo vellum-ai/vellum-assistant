@@ -215,7 +215,7 @@ export function redeemInvite(params: {
     return {
       ok: true,
       type: "redeemed",
-      memberId: reactivated!.id,
+      memberId: reactivated!.channel.id,
       inviteId: invite.id,
     };
   }
@@ -223,11 +223,11 @@ export function redeemInvite(params: {
   // Fresh member creation: upsert into contacts tables and consume an invite
   // use atomically, mirroring the reactivation path above.
   const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
-  let freshMember: ReturnType<typeof upsertMemberContactsFirst> | undefined;
+  let freshResult: ReturnType<typeof upsertMemberContactsFirst> | undefined;
   try {
     getSqlite()
       .transaction(() => {
-        freshMember = upsertMemberContactsFirst({
+        freshResult = upsertMemberContactsFirst({
           assistantId: assistantId ?? invite.assistantId,
           sourceChannel,
           externalUserId,
@@ -258,7 +258,7 @@ export function redeemInvite(params: {
   return {
     ok: true,
     type: "redeemed",
-    memberId: freshMember!.id,
+    memberId: freshResult!.channel.id,
     inviteId: invite.id,
   };
 }
@@ -372,7 +372,7 @@ export function redeemVoiceInviteCode(params: {
   try {
     getSqlite()
       .transaction(() => {
-        const member = upsertMemberContactsFirst({
+        const writeResult = upsertMemberContactsFirst({
           assistantId: invite.assistantId,
           sourceChannel: "voice",
           externalUserId: callerExternalUserId,
@@ -382,7 +382,7 @@ export function redeemVoiceInviteCode(params: {
           policy: "allow",
           inviteId: invite.id,
         });
-        memberId = member.id;
+        memberId = writeResult?.channel.id;
 
         const recorded = recordInviteUse({
           inviteId: invite.id,
