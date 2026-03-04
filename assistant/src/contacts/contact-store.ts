@@ -836,3 +836,24 @@ export function updateChannelLastSeenByExternalId(
     )
     .run();
 }
+
+/**
+ * Update the lastSeenAt timestamp on a contact channel by (type, externalChatId).
+ * Fallback for members that only have a chat ID and no external user ID.
+ */
+export function updateChannelLastSeenByExternalChatId(
+  channelType: string,
+  externalChatId: string,
+): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(contactChannels)
+    .set({ lastSeenAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(contactChannels.type, channelType),
+        eq(contactChannels.externalChatId, externalChatId),
+      ),
+    )
+    .run();
+}
