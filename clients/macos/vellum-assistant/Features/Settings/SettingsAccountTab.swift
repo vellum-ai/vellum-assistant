@@ -12,7 +12,6 @@ struct SettingsAccountTab: View {
 
     // -- Account / Vellum section state --
     @State private var platformUrlText: String = ""
-    @State private var platformUrlExpanded: Bool = false
     @FocusState private var isPlatformUrlFocused: Bool
 
     // -- Assistant Info state (from SettingsAdvancedTab) --
@@ -45,7 +44,6 @@ struct SettingsAccountTab: View {
         .onAppear {
             Task { await authManager.checkSession() }
             store.refreshPlatformConfig()
-            Task { await store.checkVellumPlatform() }
             platformUrlText = store.platformBaseUrl
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
@@ -121,7 +119,6 @@ struct SettingsAccountTab: View {
             VButton(label: "Save", style: .primary, size: .medium) {
                 store.savePlatformBaseUrl(platformUrlText)
                 isPlatformUrlFocused = false
-                platformUrlExpanded = false
             }
             .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
