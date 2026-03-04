@@ -15,14 +15,13 @@ import {
   applyCanonicalGuardianDecision,
 } from '../../approvals/guardian-decision-primitive.js';
 import { isHttpAuthDisabled } from '../../config/env.js';
+import { findGuardianForChannel } from '../../contacts/contact-store.js';
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   isRequestInConversationScope,
   listPendingRequestsByConversationScope,
 } from '../../memory/canonical-guardian-store.js';
-import { getActiveBinding } from '../../memory/guardian-bindings.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import type { AuthContext } from '../auth/types.js';
 import type { ApprovalAction } from '../channel-approval-types.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
@@ -69,12 +68,12 @@ function requireBoundGuardian(authContext: AuthContext): Response | null {
   if (!authContext.actorPrincipalId) {
     return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
   }
-  const binding = getActiveBinding(DAEMON_INTERNAL_ASSISTANT_ID, 'vellum');
-  if (!binding) {
-    // No binding yet -- in pre-bootstrap state, allow through
+  const guardianResult = findGuardianForChannel('vellum');
+  if (!guardianResult) {
+    // No guardian yet — in pre-bootstrap state, allow through
     return null;
   }
-  if (binding.guardianExternalUserId !== authContext.actorPrincipalId) {
+  if ((guardianResult.channel.externalUserId ?? guardianResult.contact.principalId) !== authContext.actorPrincipalId) {
     return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
   }
   return null;

@@ -12,8 +12,8 @@
 
 import { v4 as uuid } from "uuid";
 
+import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
-import { getActiveBinding } from "../memory/guardian-bindings.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
@@ -29,13 +29,13 @@ const log = getLogger("guardian-vellum-migration");
 export function ensureVellumGuardianBinding(
   assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
 ): string {
-  const existing = getActiveBinding(assistantId, "vellum");
-  if (existing) {
+  const guardianResult = findGuardianForChannel("vellum");
+  if (guardianResult && guardianResult.contact.principalId) {
     log.debug(
-      { assistantId, guardianPrincipalId: existing.guardianPrincipalId },
+      { assistantId, guardianPrincipalId: guardianResult.contact.principalId },
       "Vellum guardian binding already exists with principal",
     );
-    return existing.guardianPrincipalId;
+    return guardianResult.contact.principalId;
   }
 
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
