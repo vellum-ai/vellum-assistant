@@ -49,7 +49,10 @@ export async function executeContactMerge(
     ]);
 
     if (keepResult.status === "rejected") {
-      if (keepResult.reason instanceof GatewayRequestError) {
+      if (
+        keepResult.reason instanceof GatewayRequestError &&
+        keepResult.reason.statusCode === 404
+      ) {
         return {
           content: `Error: Contact "${keepId}" not found`,
           isError: true,
@@ -58,7 +61,10 @@ export async function executeContactMerge(
       throw keepResult.reason;
     }
     if (mergeResult.status === "rejected") {
-      if (mergeResult.reason instanceof GatewayRequestError) {
+      if (
+        mergeResult.reason instanceof GatewayRequestError &&
+        mergeResult.reason.statusCode === 404
+      ) {
         return {
           content: `Error: Contact "${mergeId}" not found`,
           isError: true,
