@@ -3,7 +3,7 @@ import { basename, extname } from "node:path";
 
 import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
 import {
-  computeFileHash,
+  computeFileHashStreaming,
   createProcessingStage,
   getMediaAssetByHash,
   type MediaType,
@@ -135,11 +135,10 @@ export async function run(
     };
   }
 
-  // Compute content hash for dedup – uses the same Bun.hash (wyhash) as
-  // media-store.ts so that hashes are consistent across ingest and lookup.
+  // Compute content hash for dedup – streams the file in chunks so that
+  // multi-GB video files don't cause OOM.
   context.onOutput?.("Computing content hash...\n");
-  const fileBytes = await Bun.file(filePath).arrayBuffer();
-  const fileHash = computeFileHash(new Uint8Array(fileBytes));
+  const fileHash = await computeFileHashStreaming(filePath);
 
   // Check for existing asset with same hash
   const existingAsset = getMediaAssetByHash(fileHash);
