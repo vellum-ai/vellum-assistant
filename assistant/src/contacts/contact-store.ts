@@ -483,8 +483,10 @@ export function searchContacts(params: {
 export function listContacts(
   limit = 50,
   role?: ContactRole,
+  opts?: { uncapped?: boolean },
 ): ContactWithChannels[] {
   const db = getDb();
+  const effectiveLimit = opts?.uncapped ? limit : Math.min(limit, 200);
   const rows = db
     .select()
     .from(contacts)
@@ -494,7 +496,7 @@ export function listContacts(
       desc(contacts.importance),
       desc(contacts.lastInteraction),
     )
-    .limit(limit)
+    .limit(effectiveLimit)
     .all();
   return rows.map((r) => withChannels(parseContact(r)));
 }

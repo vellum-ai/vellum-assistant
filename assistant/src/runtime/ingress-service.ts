@@ -22,8 +22,8 @@ import {
   revokeInvite,
 } from "../memory/ingress-invite-store.js";
 import {
-  findMember,
   type IngressMember,
+  listMembers,
   type MemberPolicy,
   type MemberStatus,
 } from "../memory/ingress-member-store.js";
@@ -147,16 +147,49 @@ export function memberToResponse(m: IngressMember): MemberResponseData {
   };
 }
 
+/** Build a lookup key for a legacy ingress member. */
+function memberLookupKey(
+  sourceChannel: string,
+  externalUserId?: string | null,
+  externalChatId?: string | null,
+): string {
+  return `${sourceChannel}|${externalUserId ?? ""}|${externalChatId ?? ""}`;
+}
+
+/** Build a Map keyed by (sourceChannel, externalUserId, externalChatId) for O(1) lookups. */
+function buildLegacyMemberMap(
+  members: IngressMember[],
+): Map<string, IngressMember> {
+  const map = new Map<string, IngressMember>();
+  for (const m of members) {
+    map.set(memberLookupKey(m.sourceChannel, m.externalUserId, m.externalChatId), m);
+    // Also index by userId-only and chatId-only so partial matches work
+    if (m.externalUserId) {
+      map.set(memberLookupKey(m.sourceChannel, m.externalUserId, null), m);
+    }
+    if (m.externalChatId) {
+      map.set(memberLookupKey(m.sourceChannel, null, m.externalChatId), m);
+    }
+  }
+  return map;
+}
+
 function contactToMemberResponse(
   contact: ContactWithChannels,
+  legacyMemberMap: Map<string, IngressMember>,
 ): MemberResponseData[] {
   return contact.channels.map((ch) => {
-    // Look up the legacy ingress member to get the stable ID and username
-    const legacyMember = findMember({
-      sourceChannel: ch.type,
-      externalUserId: ch.externalUserId ?? undefined,
-      externalChatId: ch.externalChatId ?? undefined,
-    });
+    // Look up the legacy ingress member from the pre-loaded map
+    const legacyMember =
+      legacyMemberMap.get(
+        memberLookupKey(ch.type, ch.externalUserId, ch.externalChatId),
+      ) ??
+      (ch.externalUserId
+        ? legacyMemberMap.get(memberLookupKey(ch.type, ch.externalUserId, null))
+        : undefined) ??
+      (ch.externalChatId
+        ? legacyMemberMap.get(memberLookupKey(ch.type, null, ch.externalChatId))
+        : undefined);
 
     return {
       id: legacyMember?.id ?? `${contact.id}:${ch.id}`,
@@ -346,8 +379,18 @@ export function listIngressMembers(params: {
   status?: string;
   policy?: string;
 }): IngressResult<MemberResponseData[]> {
-  const allContacts = listContacts(Number.MAX_SAFE_INTEGER, "contact");
-  const members = allContacts.flatMap(contactToMemberResponse);
+  // Batch-load all legacy ingress members in a single query to avoid N+1
+  // lookups when mapping contacts to member responses.
+  const legacyMembers = listMembers({ assistantId: params.assistantId });
+  const legacyMemberMap = buildLegacyMemberMap(legacyMembers);
+
+  // Use uncapped: true since this internal path needs the full dataset
+  const allContacts = listContacts(Number.MAX_SAFE_INTEGER, "contact", {
+    uncapped: true,
+  });
+  const members = allContacts.flatMap((c) =>
+    contactToMemberResponse(c, legacyMemberMap),
+  );
 
   const filtered = members.filter((m) => {
     if (params.sourceChannel && m.sourceChannel !== params.sourceChannel)
