@@ -100,9 +100,18 @@ function parseSimpleYaml(yaml) {
 
 function stripQuotes(s) {
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s.slice(1, -1);
+    return processEscapes(s.slice(1, -1));
   }
   return s;
+}
+
+/**
+ * Process JSON-style unicode escape sequences (\uXXXX) in a string.
+ */
+function processEscapes(s) {
+  return s.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+    String.fromCharCode(parseInt(hex, 16)),
+  );
 }
 
 // --- Validation Rules ---
