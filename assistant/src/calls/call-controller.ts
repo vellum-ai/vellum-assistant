@@ -204,6 +204,7 @@ export class CallController {
   private abortController: AbortController = new AbortController();
   private currentTurnHandle: VoiceTurnHandle | null = null;
   private currentTurnPromise: Promise<void> | null = null;
+  private destroyed = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;
@@ -457,6 +458,7 @@ export class CallController {
    * Tear down all timers and abort any in-flight work.
    */
   destroy(): void {
+    this.destroyed = true;
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.durationTimer) clearTimeout(this.durationTimer);
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
@@ -468,6 +470,7 @@ export class CallController {
       clearTimeout(this.durationEndTimer);
       this.durationEndTimer = null;
     }
+    this.pendingInstructions = [];
     this.llmRunVersion++;
     this.abortCurrentTurn();
     this.currentTurnPromise = null;
@@ -544,6 +547,7 @@ export class CallController {
   }
 
   private async runTurnInner(content: string): Promise<void> {
+    if (this.destroyed) return;
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
 
@@ -1194,6 +1198,7 @@ export class CallController {
    * Drain any instructions that were queued while the LLM was active.
    */
   private flushPendingInstructions(): void {
+    if (this.destroyed) return;
     if (this.pendingInstructions.length === 0) return;
 
     const parts = this.pendingInstructions.map((instr) =>
@@ -1305,6 +1310,7 @@ export class CallController {
 
   private resetSilenceTimer(): void {
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    if (this.destroyed) return;
     this.silenceTimer = setTimeout(() => {
       // During guardian wait states, the relay heartbeat timer handles
       // periodic updates — suppress the generic "Are you still there?"
