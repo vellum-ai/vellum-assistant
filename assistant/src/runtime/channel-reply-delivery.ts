@@ -1,6 +1,7 @@
 import { renderHistoryContent } from "../daemon/handlers.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
+import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
 
@@ -28,6 +29,12 @@ type DeliverRenderedReplyParams = {
   ephemeral?: boolean;
   /** Channel-specific user ID — required when `ephemeral` is true. */
   user?: string;
+  /** When provided, the first segment will update the existing message
+   *  identified by this ts instead of posting a new one (Slack-specific). */
+  messageTs?: string;
+  /** Called with the ts of the delivered/updated message so callers
+   *  can use it for subsequent updates. */
+  onMessageTs?: (ts: string) => void;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -64,6 +71,8 @@ export async function deliverRenderedReplyViaCallback(
     onSegmentDelivered,
     ephemeral,
     user,
+    messageTs,
+    onMessageTs,
   } = params;
 
   const deliverableSegments = toDeliverableTextSegments(
@@ -75,7 +84,7 @@ export async function deliverRenderedReplyViaCallback(
 
   if (deliverableSegments.length === 0) {
     if (replyAttachments) {
-      await deliverChannelReply(
+      const result: ChannelDeliveryResult = await deliverChannelReply(
         callbackUrl,
         {
           chatId,
@@ -83,16 +92,25 @@ export async function deliverRenderedReplyViaCallback(
           assistantId,
           ephemeral,
           user,
+          messageTs,
         },
         bearerToken,
       );
+      if (result.ts) {
+        onMessageTs?.(result.ts);
+      }
     }
     return;
   }
 
+  // Only the first segment uses messageTs for in-place update;
+  // subsequent segments are posted as new messages.
+  let currentMessageTs = messageTs;
+
   for (let i = startFromSegment; i < deliverableSegments.length; i++) {
     const isLastSegment = i === deliverableSegments.length - 1;
-    await deliverChannelReply(
+    const isFirstSegment = i === startFromSegment;
+    const result: ChannelDeliveryResult = await deliverChannelReply(
       callbackUrl,
       {
         chatId,
@@ -101,9 +119,15 @@ export async function deliverRenderedReplyViaCallback(
         assistantId,
         ephemeral,
         user,
+        messageTs: isFirstSegment ? currentMessageTs : undefined,
       },
       bearerToken,
     );
+
+    if (result.ts) {
+      currentMessageTs = result.ts;
+      onMessageTs?.(result.ts);
+    }
 
     onSegmentDelivered?.(i + 1);
 
@@ -122,6 +146,10 @@ export type DeliverReplyOptions = {
   ephemeral?: boolean;
   /** Channel-specific user ID — required when `ephemeral` is true. */
   user?: string;
+  /** Update an existing message instead of posting a new one. */
+  messageTs?: string;
+  /** Called with the ts of the delivered/updated message. */
+  onMessageTs?: (ts: string) => void;
 };
 
 export async function deliverReplyViaCallback(
@@ -165,6 +193,8 @@ export async function deliverReplyViaCallback(
       onSegmentDelivered: options?.onSegmentDelivered,
       ephemeral: options?.ephemeral,
       user: options?.user,
+      messageTs: options?.messageTs,
+      onMessageTs: options?.onMessageTs,
     });
     break;
   }
