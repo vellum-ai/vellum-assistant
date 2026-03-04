@@ -48,6 +48,11 @@ export interface ContactWithChannels extends Contact {
   channels: ContactChannel[];
 }
 
+export interface ContactWriteResult {
+  contact: ContactWithChannels;
+  channel: ContactChannel;
+}
+
 export const CHANNEL_TYPES = [
   "email",
   "slack",
