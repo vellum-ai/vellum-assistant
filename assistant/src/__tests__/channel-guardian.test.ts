@@ -1243,10 +1243,10 @@ describe("guardian service rate limiting", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 8. Assistant-scoped guardian resolution
+// 8. Channel-scoped guardian resolution
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("assistant-scoped guardian resolution", () => {
+describe("channel-scoped guardian resolution", () => {
   beforeEach(() => {
     resetTables();
   });
