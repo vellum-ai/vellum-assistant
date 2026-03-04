@@ -2,6 +2,12 @@ export const FIREWALL_TAG = "vellum-assistant";
 export const GATEWAY_PORT = process.env.GATEWAY_PORT
   ? Number(process.env.GATEWAY_PORT)
   : 7830;
+
+/** Default ports used as scan start points for multi-instance allocation. */
+export const DEFAULT_DAEMON_PORT = 7821;
+export const DEFAULT_GATEWAY_PORT = 7830;
+export const DEFAULT_QDRANT_PORT = 6333;
+
 export const VALID_REMOTE_HOSTS = ["local", "gcp", "aws", "custom"] as const;
 export type RemoteHost = (typeof VALID_REMOTE_HOSTS)[number];
 export const VALID_SPECIES = ["openclaw", "vellum"] as const;
