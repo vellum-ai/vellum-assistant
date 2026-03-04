@@ -1622,9 +1622,6 @@ struct MainWindowView: View {
                             VStack(spacing: 0) {
                                 ForEach(regularThreads) { thread in
                                     threadItem(thread)
-                                        .simultaneousGesture(TapGesture().onEnded {
-                                            showThreadSwitcher = false
-                                        })
                                         .padding(.bottom, VSpacing.xxs)
                                         .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                             if sidebar.dropTargetThreadId == thread.id {
