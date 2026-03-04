@@ -1,8 +1,9 @@
 export type IngressControlPlaneRoute =
-  | { kind: "listMembers" }
-  | { kind: "upsertMember" }
-  | { kind: "blockMember"; memberId: string }
-  | { kind: "revokeMember"; memberId: string }
+  | { kind: "listContacts" }
+  | { kind: "upsertContact" }
+  | { kind: "getContact"; contactId: string }
+  | { kind: "mergeContacts" }
+  | { kind: "updateContactChannel"; channelId: string }
   | { kind: "listInvites" }
   | { kind: "createInvite" }
   | { kind: "redeemInvite" }
@@ -12,37 +13,43 @@ export function matchIngressControlPlaneRoute(
   pathname: string,
   method: string,
 ): IngressControlPlaneRoute | null {
-  if (pathname === "/v1/ingress/members") {
-    if (method === "GET") return { kind: "listMembers" };
-    if (method === "POST") return { kind: "upsertMember" };
+  // ── Contact CRUD ──
+  if (pathname === "/v1/contacts") {
+    if (method === "GET") return { kind: "listContacts" };
+    if (method === "POST") return { kind: "upsertContact" };
     return null;
   }
 
-  if (pathname === "/v1/ingress/invites") {
+  if (pathname === "/v1/contacts/merge" && method === "POST") {
+    return { kind: "mergeContacts" };
+  }
+
+  // Channel status/policy updates
+  const channelMatch = pathname.match(/^\/v1\/contacts\/channels\/([^/]+)$/);
+  if (channelMatch && method === "PATCH") {
+    return { kind: "updateContactChannel", channelId: channelMatch[1] };
+  }
+
+  // ── Invite routes ──
+  if (pathname === "/v1/contacts/invites") {
     if (method === "GET") return { kind: "listInvites" };
     if (method === "POST") return { kind: "createInvite" };
     return null;
   }
 
-  const memberBlockMatch = pathname.match(
-    /^\/v1\/ingress\/members\/([^/]+)\/block$/,
-  );
-  if (memberBlockMatch && method === "POST") {
-    return { kind: "blockMember", memberId: memberBlockMatch[1] };
-  }
-
-  const memberMatch = pathname.match(/^\/v1\/ingress\/members\/([^/]+)$/);
-  if (memberMatch && method === "DELETE") {
-    return { kind: "revokeMember", memberId: memberMatch[1] };
-  }
-
-  if (pathname === "/v1/ingress/invites/redeem" && method === "POST") {
+  if (pathname === "/v1/contacts/invites/redeem" && method === "POST") {
     return { kind: "redeemInvite" };
   }
 
-  const inviteMatch = pathname.match(/^\/v1\/ingress\/invites\/([^/]+)$/);
+  const inviteMatch = pathname.match(/^\/v1\/contacts\/invites\/([^/]+)$/);
   if (inviteMatch && method === "DELETE") {
     return { kind: "revokeInvite", inviteId: inviteMatch[1] };
+  }
+
+  // Contact by ID — must come after /invites and /merge to avoid false matches
+  const contactIdMatch = pathname.match(/^\/v1\/contacts\/([^/]+)$/);
+  if (contactIdMatch && method === "GET") {
+    return { kind: "getContact", contactId: contactIdMatch[1] };
   }
 
   return null;

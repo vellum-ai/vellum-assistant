@@ -2,7 +2,7 @@
 name: "X"
 description: "Read and post on X (formerly Twitter) via OAuth or browser session"
 user-invocable: true
-metadata: {"vellum": {"emoji": "𝕏"}}
+metadata: { "vellum": { "emoji": "𝕏" } }
 ---
 
 You are an X (formerly Twitter) assistant. Use the `execute_bash` tool to run `vellum x` CLI commands.
@@ -39,9 +39,11 @@ When the strategy is `auto` (the default), the router tries OAuth first for supp
 When the user triggers a Twitter operation and no strategy has been configured yet, follow these steps:
 
 1. **Check current status:**
+
    ```bash
    vellum x status --json
    ```
+
    Look at `oauthConnected`, `browserSessionActive`, `preferredStrategy`, and `strategyConfigured` in the response. If `strategyConfigured` is `false`, the user has not yet chosen a strategy and should be guided through setup.
 
 2. **Present both options with trade-offs:**
@@ -84,7 +86,7 @@ When a Twitter operation fails, follow these steps:
    - `OAuth is not configured` — the user chose OAuth but credentials are not set up.
    - `Twitter API error (401)` — OAuth token may be expired or revoked.
    - `UnsupportedOAuthOperationError` — the requested write operation is not available via OAuth.
-   - `Cannot connect to daemon` — the Vellum daemon is not running.
+   - `Cannot connect to assistant` — the Vellum assistant is not running.
 
 2. **Explain the likely cause clearly** to the user.
 
@@ -94,6 +96,7 @@ When a Twitter operation fails, follow these steps:
    - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `vellum x strategy set browser`.
 
 4. **Offer concrete steps to switch:**
+
    ```bash
    # Switch to the other strategy
    vellum x strategy set <oauth|browser|auto>
@@ -140,54 +143,68 @@ Like `post`, the `reply` command routes through the strategy router and returns 
 Read-only operations always use the browser path directly, regardless of the strategy setting. They work the same whether the strategy is `oauth`, `browser`, or `auto` — the strategy only affects `post` and `reply` commands.
 
 ### User timeline
+
 ```bash
 vellum x timeline <screenName> [--count N]
 ```
+
 Returns `user` and `tweets` array.
 
 ### Single tweet + replies
+
 ```bash
 vellum x tweet <tweetIdOrUrl>
 ```
+
 Returns the focal tweet and its reply thread.
 
 ### Search
+
 ```bash
 vellum x search "query" [--count N] [--product Top|Latest|People|Media]
 ```
 
 ### Home timeline
+
 ```bash
 vellum x home [--count N]
 ```
 
 ### Bookmarks
+
 ```bash
 vellum x bookmarks [--count N]
 ```
 
 ### Notifications
+
 ```bash
 vellum x notifications [--count N]
 ```
+
 Returns `notifications` array with `id`, `message`, `timestamp`, `url`.
 
 ### Likes
+
 ```bash
 vellum x likes <screenName> [--count N]
 ```
 
 ### Followers / Following
+
 ```bash
 vellum x followers <screenName> [--count N]
 vellum x following <screenName> [--count N]
 ```
+
 Returns `user` and `followers`/`following` array (userId, screenName, name).
 
 ### Media
+
 ```bash
 vellum x media <screenName> [--count N]
 ```
+
 Returns tweets that contain media from the user's profile.
 
 ## Workflows

@@ -48,7 +48,7 @@ mock.module("../config/env.js", () => ({
 }));
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   createActorTokenRecord,
@@ -227,7 +227,7 @@ describe("guardian vellum migration", () => {
   });
 
   test("ensureVellumGuardianBinding preserves existing bindings for other channels", () => {
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-user-123",
@@ -449,14 +449,15 @@ describe("resolveLocalIpcAuthContext", () => {
     );
   });
 
-  test("actorPrincipalId is undefined when no vellum binding exists", () => {
+  test("actorPrincipalId is auto-created via self-heal when no vellum binding exists", () => {
     // Reset DB to ensure no binding
     resetDb();
     initializeDb();
 
     const ctx = resolveLocalIpcAuthContext("session-123");
-    // When no binding exists, actorPrincipalId is not set
-    expect(ctx.actorPrincipalId).toBeUndefined();
+    // Self-heal creates a vellum guardian binding automatically
+    expect(ctx.actorPrincipalId).toBeDefined();
+    expect(ctx.actorPrincipalId).toMatch(/^vellum-principal-/);
   });
 
   test("sessionId matches the provided argument", () => {

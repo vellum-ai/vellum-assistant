@@ -82,9 +82,54 @@ describe("normalizeSlackBlockActions", () => {
     expect(result!.event.actor.actorExternalId).toBe("U123");
     expect(result!.event.actor.username).toBe("alice");
     expect(result!.event.actor.displayName).toBe("Alice");
+    expect(result!.event.message.externalMessageId).toBe(
+      "C456:1234567890.123456:1234567890.654321",
+    );
     expect(result!.event.source.messageId).toBe("1234567890.123456");
     expect(result!.channel).toBe("C456");
     expect(result!.threadTs).toBe("1234567890.123456");
+  });
+
+  it("uses thread root timestamp when message is a threaded reply", () => {
+    const config = makeConfig();
+    const payload = makeBlockActionsPayload();
+    // Simulate a button click on a message that lives inside a thread
+    payload.message = {
+      ts: "1234567890.999999",
+      thread_ts: "1234567890.000001",
+      text: "Choose an option",
+    };
+    const result = normalizeSlackBlockActions(payload, "env-thread", config);
+
+    expect(result).not.toBeNull();
+    // threadTs should be the thread root, not the clicked message's ts
+    expect(result!.threadTs).toBe("1234567890.000001");
+  });
+
+  it("falls back to message ts when no thread_ts is present", () => {
+    const config = makeConfig();
+    const payload = makeBlockActionsPayload();
+    const result = normalizeSlackBlockActions(payload, "env-no-thread", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1234567890.123456");
+  });
+
+  it("generates unique externalMessageId per click via action_ts", () => {
+    const config = makeConfig();
+    const payload1 = makeBlockActionsPayload();
+    payload1.actions[0].action_ts = "1000000000.000001";
+    const payload2 = makeBlockActionsPayload();
+    payload2.actions[0].action_ts = "1000000000.000002";
+
+    const result1 = normalizeSlackBlockActions(payload1, "env-same", config);
+    const result2 = normalizeSlackBlockActions(payload2, "env-same", config);
+
+    expect(result1).not.toBeNull();
+    expect(result2).not.toBeNull();
+    expect(result1!.event.message.externalMessageId).not.toBe(
+      result2!.event.message.externalMessageId,
+    );
   });
 
   it("falls back to action_id when value is undefined", () => {
@@ -151,7 +196,7 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result!.event.message.content).toBe("reaction:thumbsup");
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.message.externalMessageId).toBe(
-      "C456:1234567890.123456:thumbsup",
+      "C456:1234567890.123456:thumbsup:U123",
     );
     expect(result!.event.actor.actorExternalId).toBe("U123");
     expect(result!.event.source.messageId).toBe("1234567890.123456");

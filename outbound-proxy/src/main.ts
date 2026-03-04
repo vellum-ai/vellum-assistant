@@ -29,7 +29,6 @@ function log(level: string, msg: string, extra?: Record<string, unknown>): void 
     msg,
     ...extra,
   };
-  // eslint-disable-next-line no-console
   console.log(JSON.stringify(entry));
 }
 
