@@ -10,9 +10,9 @@
  * stub individual functions).
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 // ── File system helpers (self-contained defaults) ──────────────────────
 
@@ -27,7 +27,7 @@ export function ensureDir(dir: string): void {
 export function readTextFileSync(path: string): string | null {
   try {
     if (!existsSync(path)) return null;
-    return readFileSync(path, 'utf-8');
+    return readFileSync(path, "utf-8");
   } catch {
     return null;
   }
@@ -36,7 +36,7 @@ export function readTextFileSync(path: string): string | null {
 // ── Data directory ─────────────────────────────────────────────────────
 
 let _getDataDir: () => string = () =>
-  join(homedir(), '.vellum', 'workspace', 'data');
+  join(homedir(), ".vellum", "workspace", "data");
 
 export function getDataDir(): string {
   return _getDataDir();
