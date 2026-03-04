@@ -684,6 +684,11 @@ export class CallController {
         );
       });
 
+      // Eagerly mark the rejection as handled so runtimes (e.g. bun) don't
+      // flag it as an unhandled rejection when onError fires synchronously
+      // inside the Promise constructor before this await adds its handler.
+      // The await below still re-throws, caught by the outer try-catch.
+      turnComplete.catch(() => {});
       await turnComplete;
       if (!this.isCurrentRun(runVersion)) return;
 
