@@ -222,10 +222,13 @@ function formatDetectionInfo(proc: DetectedProcess): string {
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
 
+  const PROXY_PORT = Number(process.env.PROXY_PORT) || 8080;
+
   const specs: ProcessSpec[] = [
     { name: "daemon", pgrepName: "vellum-daemon", port: RUNTIME_HTTP_PORT, pidFile: join(vellumDir, "vellum.pid") },
     { name: "qdrant", pgrepName: "qdrant", port: QDRANT_PORT, pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid") },
     { name: "gateway", pgrepName: "vellum-gateway", port: GATEWAY_PORT, pidFile: join(vellumDir, "gateway.pid") },
+    { name: "outbound-proxy", pgrepName: "outbound-proxy", port: PROXY_PORT, pidFile: join(vellumDir, "outbound-proxy.pid") },
     { name: "embed-worker", pgrepName: "embed-worker", port: 0, pidFile: join(vellumDir, "embed-worker.pid") },
   ];
 
