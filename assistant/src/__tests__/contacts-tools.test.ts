@@ -1,9 +1,20 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "contacts-tools-test-"));
+
+// Track the gateway URL; updated once the test server starts.
+let testGatewayUrl = "http://127.0.0.1:0";
 
 mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
@@ -33,17 +44,67 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+// The tool implementations now call the gateway over HTTP.
+// Mock the env/token modules and spin up a lightweight test server
+// that delegates to the real route handlers (backed by the test DB).
+mock.module("../config/env.js", () => ({
+  getGatewayInternalBaseUrl: () => testGatewayUrl,
+  getGatewayPort: () => 0,
+}));
+
+mock.module("../runtime/auth/token-service.js", () => ({
+  mintEdgeRelayToken: () => "test-token",
+}));
+
 import type { Database } from "bun:sqlite";
 
 import { executeContactMerge } from "../config/bundled-skills/contacts/tools/contact-merge.js";
 import { executeContactSearch } from "../config/bundled-skills/contacts/tools/contact-search.js";
 import { executeContactUpsert } from "../config/bundled-skills/contacts/tools/contact-upsert.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import {
+  handleGetContact,
+  handleListContacts,
+  handleMergeContacts,
+  handleUpsertContact,
+} from "../runtime/routes/contact-routes.js";
 import type { ToolContext } from "../tools/types.js";
 
 initializeDb();
 
+// ── Lightweight gateway stub ─────────────────────────────────────────────────
+
+const TEST_ASSISTANT_ID = "test-assistant";
+let testServer: ReturnType<typeof Bun.serve>;
+
+beforeAll(() => {
+  testServer = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      const path = url.pathname;
+
+      if (path === "/v1/contacts/merge" && req.method === "POST") {
+        return handleMergeContacts(req, TEST_ASSISTANT_ID);
+      }
+      if (path === "/v1/contacts" && req.method === "GET") {
+        return handleListContacts(url, TEST_ASSISTANT_ID);
+      }
+      if (path === "/v1/contacts" && req.method === "POST") {
+        return handleUpsertContact(req, TEST_ASSISTANT_ID);
+      }
+      const idMatch = path.match(/^\/v1\/contacts\/([^/]+)$/);
+      if (idMatch && req.method === "GET") {
+        return handleGetContact(idMatch[1], TEST_ASSISTANT_ID);
+      }
+      return new Response("Not found", { status: 404 });
+    },
+  });
+  testGatewayUrl = `http://127.0.0.1:${testServer.port}`;
+});
+
 afterAll(() => {
+  testServer?.stop(true);
   resetDb();
   try {
     rmSync(testDir, { recursive: true });

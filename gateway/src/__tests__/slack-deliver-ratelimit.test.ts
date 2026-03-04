@@ -136,7 +136,23 @@ describe("slack-deliver rate limit handling", () => {
     expect(fetchCallCount).toBe(2);
   });
 
-  test("returns 401 for auth errors", async () => {
+  test("returns 429 after exhausting body-level rate limit retries", async () => {
+    fetchMock = mock(async () => {
+      fetchCallCount++;
+      return new Response(
+        JSON.stringify({ ok: false, error: "rate_limited" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const handler = createSlackDeliverHandler(makeConfig());
+    const res = await handler(makeRequest({ chatId: "C123", text: "hello" }));
+    expect(res.status).toBe(429);
+    // 1 initial + 3 retries = 4 total
+    expect(fetchCallCount).toBe(4);
+  });
+
+  test("returns 502 for auth errors (retryable for transient token issues)", async () => {
     fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({ ok: false, error: "invalid_auth" }),
@@ -146,7 +162,7 @@ describe("slack-deliver rate limit handling", () => {
 
     const handler = createSlackDeliverHandler(makeConfig());
     const res = await handler(makeRequest({ chatId: "C123", text: "hello" }));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(502);
   });
 
   test("returns 404 for channel_not_found errors", async () => {

@@ -18,7 +18,7 @@ import { defineConfig } from "@playwright/test";
  * without fullyParallel, all of those tests would land on one shard.
  * With workers=1 per runner, tests still execute sequentially within each shard.
  */
-const workers = parseInt(process.env.PW_WORKERS ?? "1", 10);
+const workers = parseInt(process.env.PW_WORKERS || "1", 10) || 1;
 
 export default defineConfig({
   testDir: "./tests",

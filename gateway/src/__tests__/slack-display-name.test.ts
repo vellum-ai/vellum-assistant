@@ -169,7 +169,7 @@ describe("resolveSlackUser", () => {
 });
 
 describe("normalizeSlackAppMention with display name", () => {
-  test("populates displayName and username when bot token is available", async () => {
+  test("omits displayName on first call (cache miss), populates on second after cache warm", async () => {
     fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
@@ -186,17 +186,53 @@ describe("normalizeSlackAppMention with display name", () => {
 
     const config = makeConfig({ slackChannelBotToken: "xoxb-test" });
     const event = makeEvent({ user: "U_WITH_NAME" });
-    const result = await normalizeSlackAppMention(event, "evt-dn-1", config);
 
+    // First call: cache miss, fires background fetch, no display name yet
+    const result1 = normalizeSlackAppMention(event, "evt-dn-1a", config);
+    expect(result1).not.toBeNull();
+    expect(result1!.event.actor.displayName).toBeUndefined();
+
+    // Wait for background fetch to complete and populate cache
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Second call: cache hit, display name populated
+    const result2 = normalizeSlackAppMention(event, "evt-dn-1b", config);
+    expect(result2).not.toBeNull();
+    expect(result2!.event.actor.displayName).toBe("Test U");
+    expect(result2!.event.actor.username).toBe("testuser");
+  });
+
+  test("populates displayName immediately when cache is pre-warmed", async () => {
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            name: "testuser",
+            real_name: "Test User",
+            profile: { display_name: "Test U" },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const config = makeConfig({ slackChannelBotToken: "xoxb-test" });
+    const event = makeEvent({ user: "U_PREWARM" });
+
+    // Pre-warm the cache with an explicit async call
+    await resolveSlackUser("U_PREWARM", "xoxb-test");
+
+    const result = normalizeSlackAppMention(event, "evt-dn-pw", config);
     expect(result).not.toBeNull();
     expect(result!.event.actor.displayName).toBe("Test U");
     expect(result!.event.actor.username).toBe("testuser");
   });
 
-  test("omits displayName when bot token is not configured", async () => {
+  test("omits displayName when bot token is not configured", () => {
     const config = makeConfig({ slackChannelBotToken: undefined });
     const event = makeEvent();
-    const result = await normalizeSlackAppMention(event, "evt-dn-2", config);
+    const result = normalizeSlackAppMention(event, "evt-dn-2", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.displayName).toBeUndefined();
@@ -210,7 +246,7 @@ describe("normalizeSlackAppMention with display name", () => {
 
     const config = makeConfig({ slackChannelBotToken: "xoxb-test" });
     const event = makeEvent();
-    const result = await normalizeSlackAppMention(event, "evt-dn-3", config);
+    const result = normalizeSlackAppMention(event, "evt-dn-3", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.displayName).toBeUndefined();
