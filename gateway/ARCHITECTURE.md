@@ -568,7 +568,7 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 | Module                                           | Purpose                                                                   |
 | ------------------------------------------------ | ------------------------------------------------------------------------- |
-| `assistant/src/memory/ingress-invite-store.ts`   | CRUD for invite tokens with SHA-256 hashing and expiry                    |
+| `assistant/src/memory/invite-store.ts`           | CRUD for invite tokens with SHA-256 hashing and expiry                    |
 | `assistant/src/contacts/contact-store.ts`        | Contact and channel lookups (findContactChannel, guardian bindings)       |
 | `assistant/src/contacts/contacts-write.ts`       | Contact and channel writes (upsert, policy changes, invite redemption)    |
 | `assistant/src/daemon/handlers/config-inbox.ts`  | IPC handlers for invite and member contracts                              |
