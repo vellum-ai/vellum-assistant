@@ -1737,16 +1737,38 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
 
+  prepare-playwright:
+    name: Prepare Playwright matrix
+    needs: [bump-and-tag]
+    runs-on: ubuntu-latest
+    outputs:
+      shard-matrix: ${{ steps.set-matrix.outputs.matrix }}
+      total-shards: ${{ steps.set-matrix.outputs.total }}
+    steps:
+      - name: Compute shard indices
+        id: set-matrix
+        run: |
+          TOTAL=4
+          INDICES=$(python3 -c "import json; print(json.dumps(list(range(1, int($TOTAL) + 1))))")
+          echo "matrix=$INDICES" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+
   ci-playwright:
-    needs: [bump-and-tag, build-macos-arm64]
+    name: Playwright Tests (${{ matrix.shard }}/${{ needs.prepare-playwright.outputs.total-shards }})
+    needs: [bump-and-tag, build-macos-arm64, prepare-playwright]
     runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
       actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.prepare-playwright.outputs.shard-matrix) }}
     env:
       APP_DISPLAY_NAME: Vellum
+      TOTAL_SHARDS: ${{ needs.prepare-playwright.outputs.total-shards }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -1825,13 +1847,18 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: playwright
-        run: bun run test
+        run: |
+          SHARD_ARGS=""
+          if [ "$TOTAL_SHARDS" -gt 1 ]; then
+            SHARD_ARGS="--shard=${{ matrix.shard }}/$TOTAL_SHARDS"
+          fi
+          bun run test $SHARD_ARGS
 
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: |
             playwright/playwright-report/
             playwright/test-results/

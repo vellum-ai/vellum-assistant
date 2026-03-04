@@ -57,7 +57,7 @@ jobs:
       - name: Compute shard indices
         id: set-matrix
         run: |
-          TOTAL=${{ inputs.shards || 1 }}
+          TOTAL=${{ github.event_name == 'schedule' && 4 || inputs.shards || 1 }}
           INDICES=$(python3 -c "import json; print(json.dumps(list(range(1, int($TOTAL) + 1))))")
           echo "matrix=$INDICES" >> "$GITHUB_OUTPUT"
           echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
