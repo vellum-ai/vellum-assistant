@@ -1,0 +1,108 @@
+name: PR Skills Checks
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened]
+    paths:
+      - 'assistant/src/config/bundled-skills/**'
+      - '.github/workflows/pr-skills.yaml'
+      - 'assistant/scripts/lint-skill-imports.ts'
+
+concurrency:
+  group: pr-skills-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    name: Discover changed skills
+    runs-on: ubuntu-latest
+    outputs:
+      skills: ${{ steps.changed.outputs.skills }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed skill directories
+        id: changed
+        run: |
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          SKILLS_DIR="assistant/src/config/bundled-skills"
+
+          # Get list of changed files under bundled-skills
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- "$SKILLS_DIR")
+
+          if [ -z "$CHANGED_FILES" ]; then
+            # Workflow file or lint script changed — check all skills
+            ALL_SKILLS=$(ls -d "$SKILLS_DIR"/*/ 2>/dev/null \
+              | xargs -I{} basename {} \
+              | grep -v '^_shared$' \
+              | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "skills=$ALL_SKILLS" >> "$GITHUB_OUTPUT"
+          else
+            # Extract unique skill directory names from changed paths
+            SKILLS=$(echo "$CHANGED_FILES" \
+              | sed "s|^$SKILLS_DIR/||" \
+              | cut -d'/' -f1 \
+              | grep -v '^_shared$' \
+              | sort -u \
+              | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "skills=$SKILLS" >> "$GITHUB_OUTPUT"
+          fi
+
+  prettier:
+    name: 'Prettier: ${{ matrix.skill }}'
+    needs: discover
+    if: needs.discover.outputs.skills != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        skill: ${{ fromJson(needs.discover.outputs.skills) }}
+    defaults:
+      run:
+        working-directory: assistant
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prettier check
+        run: bunx prettier --check "src/config/bundled-skills/${{ matrix.skill }}/**"
+
+  lint-imports:
+    name: Lint cross-skill imports
+    needs: discover
+    if: needs.discover.outputs.skills != '[]'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: assistant
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Check for cross-skill imports
+        run: bun run scripts/lint-skill-imports.ts ${{ join(fromJson(needs.discover.outputs.skills), ' ') }}
