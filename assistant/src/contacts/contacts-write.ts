@@ -295,15 +295,26 @@ export function blockMemberContactsFirst(
         : null;
 
       if (canonicalUserId) {
-        const contact = findContactByChannelExternalId(
+        // Try canonical ID first, fall back to raw ID for legacy contacts
+        let contact = findContactByChannelExternalId(
           result.sourceChannel,
           canonicalUserId,
         );
+        let lookupId = canonicalUserId;
+
+        if (!contact && canonicalUserId !== result.externalUserId) {
+          contact = findContactByChannelExternalId(
+            result.sourceChannel,
+            result.externalUserId,
+          );
+          lookupId = result.externalUserId;
+        }
+
         if (contact) {
           const matchingChannel = contact.channels.find(
             (ch) =>
               ch.type === result.sourceChannel &&
-              ch.externalUserId === canonicalUserId,
+              ch.externalUserId === lookupId,
           );
           if (matchingChannel) {
             updateChannelStatus(matchingChannel.id, {
@@ -336,10 +347,19 @@ export function touchChannelLastSeen(memberId: string): void {
           member.externalUserId,
         ) ?? member.externalUserId;
 
+      // Try canonical ID first
       updateChannelLastSeenByExternalId(
         member.sourceChannel,
         canonicalUserId,
       );
+
+      // Also try raw ID for legacy contacts that haven't been rewritten yet
+      if (canonicalUserId !== member.externalUserId) {
+        updateChannelLastSeenByExternalId(
+          member.sourceChannel,
+          member.externalUserId,
+        );
+      }
     }
   } catch (err) {
     log.warn({ err }, "Contacts write failed for touchChannelLastSeen");
