@@ -87,7 +87,7 @@ struct SettingsChangeDetector {
 
     static func buildNudgeMessage(changes: [SettingsChange]) -> String {
         guard !changes.isEmpty else { return "" }
-        let combined = changes.map(\.prompt).joined(separator: ", ")
-        return "**I noticed you made some changes to settings**\nInstead you can ask \"\(combined)\" right here"
+        let bullets = changes.map { "- \($0.prompt)" }.joined(separator: "\n")
+        return "**I noticed you made some changes to settings**\nInstead you can ask just right here:\n\(bullets)"
     }
 }
