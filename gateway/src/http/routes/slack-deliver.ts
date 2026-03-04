@@ -320,6 +320,9 @@ export function createSlackDeliverHandler(
       attachments?: RuntimeAttachmentMeta[];
       ephemeral?: boolean;
       user?: string;
+      chatAction?: "typing";
+      /** Message timestamp to update instead of posting a new message. */
+      updateTs?: string;
       /** When provided, use chat.update to edit an existing message instead of posting a new one. */
       messageTs?: string;
     };
@@ -359,6 +362,15 @@ export function createSlackDeliverHandler(
       }
     }
 
+    const { chatAction, updateTs } = body;
+
+    if (chatAction !== undefined && chatAction !== "typing") {
+      return Response.json(
+        { error: 'chatAction must be "typing"' },
+        { status: 400 },
+      );
+    }
+
     // Accept `chatId` as an alias for `to` so runtime channel callbacks work without translation.
     const chatId = body.chatId ?? body.to;
 
@@ -368,7 +380,7 @@ export function createSlackDeliverHandler(
 
     const { text } = body;
 
-    if (!text && (!attachments || attachments.length === 0)) {
+    if (!text && !chatAction && (!attachments || attachments.length === 0)) {
       return Response.json(
         { error: "text or attachments required" },
         { status: 400 },
@@ -389,10 +401,62 @@ export function createSlackDeliverHandler(
 
     // Support threading via query param
     const threadTs = new URL(req.url).searchParams.get("threadTs") ?? undefined;
-    const { messageTs } = body;
+    const messageTs = body.messageTs ?? updateTs;
     const isUpdate = typeof messageTs === "string" && messageTs.length > 0;
 
     try {
+      // Typing indicator: post a placeholder message that the runtime can
+      // later update via `updateTs` when the real response is ready.
+      // Slack bots have no native typing indicator API, so this serves as
+      // a lightweight visual cue.
+      if (chatAction === "typing") {
+        const placeholderBody: Record<string, string> = {
+          channel: chatId,
+          text: "\u2026",
+        };
+        if (threadTs) {
+          placeholderBody.thread_ts = threadTs;
+        }
+
+        const response = await fetchImpl(
+          "https://slack.com/api/chat.postMessage",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${config.slackChannelBotToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(placeholderBody),
+          },
+        );
+
+        const data = (await response.json()) as {
+          ok?: boolean;
+          error?: string;
+          ts?: string;
+        };
+
+        if (!data.ok) {
+          tlog.error(
+            { chatId, slackError: data.error },
+            "Slack API returned error for typing placeholder",
+          );
+          return Response.json({ error: "Delivery failed" }, { status: 502 });
+        }
+
+        tlog.info(
+          { chatId, placeholderTs: data.ts, hasThreadTs: !!threadTs },
+          "Slack typing placeholder sent",
+        );
+
+        if (threadTs && onThreadReply) {
+          onThreadReply(threadTs);
+        }
+
+        // Return the placeholder message ts so the runtime can update it later
+        return Response.json({ ok: true, placeholderTs: data.ts });
+      }
+
       if (text && typeof text === "string") {
         const slackBody: Record<string, string> = {
           channel: chatId,

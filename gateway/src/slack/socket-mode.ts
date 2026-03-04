@@ -6,11 +6,13 @@ import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
+  normalizeSlackMessageEdit,
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
+  type SlackMessageChangedEvent,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
   type NormalizedSlackEvent,
@@ -226,6 +228,7 @@ export class SlackSocketModeClient {
           | SlackAppMentionEvent
           | SlackDirectMessageEvent
           | SlackChannelMessageEvent
+          | SlackMessageChangedEvent
           | SlackReactionAddedEvent;
         // Interactive payloads are delivered directly as the payload
         type?: string;
@@ -304,14 +307,22 @@ export class SlackSocketModeClient {
     const event = eventPayload.event;
     const dmEvent = event as SlackDirectMessageEvent;
     const channelEvent = event as SlackChannelMessageEvent;
+    const messageChangedEvent = event as SlackMessageChangedEvent;
 
     const isAppMention = event.type === "app_mention";
-    const isDm = event.type === "message" && dmEvent.channel_type === "im";
+    const isMessageChanged =
+      event.type === "message" &&
+      messageChangedEvent.subtype === "message_changed";
+    const isDm =
+      event.type === "message" &&
+      !isMessageChanged &&
+      dmEvent.channel_type === "im";
     const mentionsBot =
       this.config.botUserId &&
       channelEvent.text?.includes(`<@${this.config.botUserId}>`);
     const isActiveThreadReply =
       event.type === "message" &&
+      !isMessageChanged &&
       !isDm &&
       !mentionsBot &&
       !!channelEvent.thread_ts &&
@@ -324,8 +335,14 @@ export class SlackSocketModeClient {
       !!reactionEvent.item?.ts &&
       this.store.hasThread(reactionEvent.item.ts);
 
-    // Process app_mention events, DMs, scoped reactions, and replies in active bot threads
-    if (!isAppMention && !isDm && !isReactionAdded && !isActiveThreadReply) {
+    // Process app_mention events, DMs, message edits, scoped reactions, and replies in active bot threads
+    if (
+      !isAppMention &&
+      !isDm &&
+      !isMessageChanged &&
+      !isReactionAdded &&
+      !isActiveThreadReply
+    ) {
       return;
     }
 
@@ -343,6 +360,7 @@ export class SlackSocketModeClient {
       isAppMention,
       isActiveThreadReply,
       isReactionAdded,
+      isMessageChanged,
       isDm,
     );
   }
@@ -352,11 +370,13 @@ export class SlackSocketModeClient {
       | SlackAppMentionEvent
       | SlackDirectMessageEvent
       | SlackChannelMessageEvent
+      | SlackMessageChangedEvent
       | SlackReactionAddedEvent,
     eventId: string,
     isAppMention: boolean,
     isActiveThreadReply: boolean,
     isReactionAdded: boolean,
+    isMessageChanged: boolean,
     _isDm: boolean,
   ): void {
     let normalized: NormalizedSlackEvent | null;
@@ -372,6 +392,13 @@ export class SlackSocketModeClient {
         event as SlackAppMentionEvent,
         eventId,
         this.config.gatewayConfig,
+      );
+    } else if (isMessageChanged) {
+      normalized = normalizeSlackMessageEdit(
+        event as SlackMessageChangedEvent,
+        eventId,
+        this.config.gatewayConfig,
+        this.config.botUserId,
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(
