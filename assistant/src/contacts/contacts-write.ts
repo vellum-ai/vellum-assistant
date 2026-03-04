@@ -142,9 +142,7 @@ export function revokeGuardianBindingContactsFirst(
     log.warn({ err }, "Contacts write failed for revokeGuardianBinding");
   }
 
-  const result = revokeBinding(assistantId, channel);
-  emitContactChange();
-  return result;
+  return revokeBinding(assistantId, channel);
 }
 
 // ── Member operations ────────────────────────────────────────────────
@@ -265,7 +263,6 @@ export function revokeMemberContactsFirst(
     }
   }
 
-  emitContactChange();
   return result;
 }
 
@@ -326,7 +323,6 @@ export function blockMemberContactsFirst(
     }
   }
 
-  emitContactChange();
   return result;
 }
 
