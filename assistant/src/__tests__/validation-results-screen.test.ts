@@ -194,6 +194,7 @@ function makePreflightSuccess(): ImportPreflightResponse {
       files_to_create: 2,
       files_to_overwrite: 2,
       files_unchanged: 1,
+      files_to_skip: 0,
     },
     files: [
       {
