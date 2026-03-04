@@ -156,39 +156,55 @@ function memberLookupKey(
   return `${sourceChannel}|${externalUserId ?? ""}|${externalChatId ?? ""}`;
 }
 
-/** Build a Map keyed by (sourceChannel, externalUserId, externalChatId) for O(1) lookups. */
-function buildLegacyMemberMap(
-  members: IngressMember[],
-): Map<string, IngressMember> {
-  const map = new Map<string, IngressMember>();
+interface LegacyMemberMaps {
+  /** Full composite key: sourceChannel|externalUserId|externalChatId */
+  exactMap: Map<string, IngressMember>;
+  /** Partial key: sourceChannel|externalUserId */
+  byUserId: Map<string, IngressMember>;
+  /** Partial key: sourceChannel|externalChatId */
+  byChatId: Map<string, IngressMember>;
+}
+
+/**
+ * Build separate maps for exact and partial member lookups.
+ *
+ * Partial-index keys (userId-only, chatId-only) are stored in dedicated maps
+ * so they cannot collide with or overwrite exact-match entries.
+ */
+function buildLegacyMemberMap(members: IngressMember[]): LegacyMemberMaps {
+  const exactMap = new Map<string, IngressMember>();
+  const byUserId = new Map<string, IngressMember>();
+  const byChatId = new Map<string, IngressMember>();
   for (const m of members) {
-    map.set(memberLookupKey(m.sourceChannel, m.externalUserId, m.externalChatId), m);
-    // Also index by userId-only and chatId-only so partial matches work
+    exactMap.set(
+      memberLookupKey(m.sourceChannel, m.externalUserId, m.externalChatId),
+      m,
+    );
     if (m.externalUserId) {
-      map.set(memberLookupKey(m.sourceChannel, m.externalUserId, null), m);
+      byUserId.set(`${m.sourceChannel}|${m.externalUserId}`, m);
     }
     if (m.externalChatId) {
-      map.set(memberLookupKey(m.sourceChannel, null, m.externalChatId), m);
+      byChatId.set(`${m.sourceChannel}|${m.externalChatId}`, m);
     }
   }
-  return map;
+  return { exactMap, byUserId, byChatId };
 }
 
 function contactToMemberResponse(
   contact: ContactWithChannels,
-  legacyMemberMap: Map<string, IngressMember>,
+  maps: LegacyMemberMaps,
 ): MemberResponseData[] {
   return contact.channels.map((ch) => {
-    // Look up the legacy ingress member from the pre-loaded map
+    // Check exact map first, then fall back to partial maps
     const legacyMember =
-      legacyMemberMap.get(
+      maps.exactMap.get(
         memberLookupKey(ch.type, ch.externalUserId, ch.externalChatId),
       ) ??
       (ch.externalUserId
-        ? legacyMemberMap.get(memberLookupKey(ch.type, ch.externalUserId, null))
+        ? maps.byUserId.get(`${ch.type}|${ch.externalUserId}`)
         : undefined) ??
       (ch.externalChatId
-        ? legacyMemberMap.get(memberLookupKey(ch.type, null, ch.externalChatId))
+        ? maps.byChatId.get(`${ch.type}|${ch.externalChatId}`)
         : undefined);
 
     return {
