@@ -4,10 +4,12 @@
  * prevented by address-based dedup in upsertContact.
  */
 
+import type { ChannelId } from "../channels/types.js";
 import type { GuardianBinding } from "../memory/guardian-bindings.js";
 import { listActiveBindingsByAssistant } from "../memory/guardian-bindings.js";
 import type { IngressMember } from "../memory/ingress-member-store.js";
 import { listMembers } from "../memory/ingress-member-store.js";
+import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { upsertContact } from "./contact-store.js";
 import type { ChannelStatus } from "./types.js";
 
@@ -49,6 +51,12 @@ export function syncGuardianBindingsToContacts(assistantId: string): void {
  * Useful for real-time forward-sync after a new binding is created.
  */
 export function syncSingleGuardianBinding(binding: GuardianBinding): void {
+  const canonicalId =
+    canonicalizeInboundIdentity(
+      binding.channel as ChannelId,
+      binding.guardianExternalUserId,
+    ) ?? binding.guardianExternalUserId;
+
   const displayName =
     parseDisplayNameFromMetadata(binding.metadataJson) ??
     binding.guardianExternalUserId;
@@ -60,8 +68,8 @@ export function syncSingleGuardianBinding(binding: GuardianBinding): void {
     channels: [
       {
         type: binding.channel,
-        address: binding.guardianExternalUserId,
-        externalUserId: binding.guardianExternalUserId,
+        address: canonicalId,
+        externalUserId: canonicalId,
         externalChatId: binding.guardianDeliveryChatId,
         status: "active",
         verifiedAt: binding.verifiedAt,
@@ -97,7 +105,21 @@ export function syncSingleMember(member: IngressMember): void {
   const displayName =
     member.displayName ?? member.username ?? member.externalUserId ?? "Unknown";
 
-  const address = member.externalUserId ?? member.externalChatId!;
+  let address: string;
+  let externalUserId: string | null;
+
+  if (member.externalUserId) {
+    const canonicalId =
+      canonicalizeInboundIdentity(
+        member.sourceChannel as ChannelId,
+        member.externalUserId,
+      ) ?? member.externalUserId;
+    address = canonicalId;
+    externalUserId = canonicalId;
+  } else {
+    address = member.externalChatId!;
+    externalUserId = null;
+  }
 
   upsertContact({
     displayName,
@@ -105,7 +127,7 @@ export function syncSingleMember(member: IngressMember): void {
       {
         type: member.sourceChannel,
         address,
-        externalUserId: member.externalUserId,
+        externalUserId,
         externalChatId: member.externalChatId,
         status: member.status as ChannelStatus,
         policy: member.policy as "allow" | "deny" | "escalate",
