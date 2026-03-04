@@ -132,6 +132,10 @@ export async function loadConfig(): Promise<GatewayConfig> {
   const telegramApiBaseUrl =
     process.env.TELEGRAM_API_BASE_URL || "https://api.telegram.org";
 
+  // Port-based routing: each gateway instance reads RUNTIME_HTTP_PORT to
+  // discover its co-located daemon's HTTP port. In multi-instance setups,
+  // the CLI passes a per-instance daemon port so each gateway proxies to
+  // the correct daemon process (see cli/src/lib/local.ts startGateway).
   const runtimePort = process.env.RUNTIME_HTTP_PORT || "7821";
   const assistantRuntimeBaseUrl =
     process.env.ASSISTANT_RUNTIME_BASE_URL || `http://localhost:${runtimePort}`;
