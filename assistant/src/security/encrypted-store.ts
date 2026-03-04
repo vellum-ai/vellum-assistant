@@ -31,7 +31,10 @@ const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32; // bytes (256 bits)
 const IV_LENGTH = 16; // bytes (128 bits)
 const AUTH_TAG_LENGTH = 16; // bytes
-const PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_ITERATIONS =
+  // In tests, PBKDF2 key derivation dominates runtime (~1-2s per file).
+  // 1 iteration is sufficient for correctness; 100k is for brute-force resistance.
+  process.env.BUN_TEST === "1" ? 1 : 100_000;
 const SALT_LENGTH = 32; // bytes
 
 /** On-disk format for the encrypted store. */
