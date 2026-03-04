@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync, renameSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
-import { getDbPath } from "../util/platform.js";
+import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { getDb, getSqlite } from "./db-connection.js";
 import {
   addCoreColumns,
@@ -65,15 +71,28 @@ import {
 // ---------------------------------------------------------------------------
 
 function getTemplateDbPath(): string {
-  // Hash this file's content so the template auto-invalidates when migrations change.
-  const content = readFileSync(new URL(import.meta.url).pathname, "utf-8");
-  const hash = createHash("md5").update(content).digest("hex").slice(0, 12);
-  return join(tmpdir(), `vellum-test-db-template-${hash}.db`);
+  // Hash this file + all migration files so the template auto-invalidates
+  // when any migration changes.
+  const thisFile = new URL(import.meta.url).pathname;
+  const hash = createHash("md5");
+  hash.update(readFileSync(thisFile, "utf-8"));
+  const migrationsDir = join(dirname(thisFile), "migrations");
+  for (const name of readdirSync(migrationsDir).sort()) {
+    if (name.endsWith(".ts")) {
+      hash.update(readFileSync(join(migrationsDir, name), "utf-8"));
+    }
+  }
+  return join(
+    tmpdir(),
+    `vellum-test-db-template-${hash.digest("hex").slice(0, 12)}.db`,
+  );
 }
 
 function tryRestoreTemplate(): boolean {
   const templatePath = getTemplateDbPath();
   if (!existsSync(templatePath)) return false;
+  // getDb() hasn't run yet, so the data directory may not exist.
+  ensureDataDir();
   copyFileSync(templatePath, getDbPath());
   // Open the pre-migrated copy — getDb() will set PRAGMAs but skip migrations.
   getDb();
