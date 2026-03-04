@@ -16,7 +16,7 @@ import {
   findContactChannel,
   findGuardianForChannel,
   getChannelById,
-  getContact,
+  getContactInternal,
   updateChannelLastSeenById,
   updateChannelStatus,
   upsertContact,
@@ -234,10 +234,8 @@ export function revokeMember(
     revokedReason: reason ?? null,
   });
 
-  const contact = getContact(
-    channelRow.contactId,
-    DAEMON_INTERNAL_ASSISTANT_ID,
-  );
+  // Use unscoped lookup — the contact was already resolved via channel ID
+  const contact = getContactInternal(channelRow.contactId);
   if (!contact) return null;
   const updatedChannel = contact.channels.find((ch) => ch.id === channelId);
   if (!updatedChannel) return null;
@@ -266,10 +264,8 @@ export function blockMember(
     blockedReason: reason ?? null,
   });
 
-  const contact = getContact(
-    channelRow.contactId,
-    DAEMON_INTERNAL_ASSISTANT_ID,
-  );
+  // Use unscoped lookup — the contact was already resolved via channel ID
+  const contact = getContactInternal(channelRow.contactId);
   if (!contact) return null;
   const updatedChannel = contact.channels.find((ch) => ch.id === channelId);
   if (!updatedChannel) return null;

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
@@ -99,9 +99,9 @@ interface SyncChannelData {
 
 // ── CRUD ─────────────────────────────────────────────────────────────
 
-/** Internal helper: retrieve a contact by ID without assistantId scoping.
+/** Retrieve a contact by ID without assistantId scoping.
  * Used by functions that have already resolved identity through channel lookups. */
-function getContactInternal(id: string): ContactWithChannels | null {
+export function getContactInternal(id: string): ContactWithChannels | null {
   const db = getDb();
   const row = db.select().from(contacts).where(eq(contacts.id, id)).get();
   if (!row) return null;
@@ -116,7 +116,12 @@ export function getContact(
   const row = db
     .select()
     .from(contacts)
-    .where(and(eq(contacts.id, id), eq(contacts.assistantId, assistantId)))
+    .where(
+      and(
+        eq(contacts.id, id),
+        or(eq(contacts.assistantId, assistantId), isNull(contacts.assistantId)),
+      ),
+    )
     .get();
   if (!row) return null;
   return withChannels(parseContact(row));
@@ -434,12 +439,18 @@ export function searchContacts(params: {
       .where(
         params.channelType
           ? and(
-              eq(contacts.assistantId, params.assistantId),
+              or(
+                eq(contacts.assistantId, params.assistantId),
+                isNull(contacts.assistantId),
+              ),
               eq(contactChannels.type, params.channelType),
               like(contactChannels.address, `%${normalizedAddress}%`),
             )
           : and(
-              eq(contacts.assistantId, params.assistantId),
+              or(
+                eq(contacts.assistantId, params.assistantId),
+                isNull(contacts.assistantId),
+              ),
               like(contactChannels.address, `%${normalizedAddress}%`),
             ),
       )
@@ -460,7 +471,12 @@ export function searchContacts(params: {
   }
 
   // Search by display name and/or relationship
-  const conditions = [eq(contacts.assistantId, params.assistantId)];
+  const conditions = [
+    or(
+      eq(contacts.assistantId, params.assistantId),
+      isNull(contacts.assistantId),
+    )!,
+  ];
   if (params.query) {
     const sanitized = escapeLike(params.query);
     if (!sanitized && !params.relationship && !params.role) return [];
@@ -497,7 +513,9 @@ export function listContacts(
 ): ContactWithChannels[] {
   const db = getDb();
   const effectiveLimit = opts?.uncapped ? limit : Math.min(limit, 200);
-  const conditions = [eq(contacts.assistantId, assistantId)];
+  const conditions = [
+    or(eq(contacts.assistantId, assistantId), isNull(contacts.assistantId))!,
+  ];
   if (role) conditions.push(eq(contacts.role, role));
   const rows = db
     .select()
@@ -534,7 +552,13 @@ export function mergeContacts(
       .select()
       .from(contacts)
       .where(
-        and(eq(contacts.id, keepId), eq(contacts.assistantId, assistantId)),
+        and(
+          eq(contacts.id, keepId),
+          or(
+            eq(contacts.assistantId, assistantId),
+            isNull(contacts.assistantId),
+          ),
+        ),
       )
       .get();
     if (!keep) throw new Error(`Contact "${keepId}" not found`);
@@ -543,7 +567,13 @@ export function mergeContacts(
       .select()
       .from(contacts)
       .where(
-        and(eq(contacts.id, mergeId), eq(contacts.assistantId, assistantId)),
+        and(
+          eq(contacts.id, mergeId),
+          or(
+            eq(contacts.assistantId, assistantId),
+            isNull(contacts.assistantId),
+          ),
+        ),
       )
       .get();
     if (!merge) throw new Error(`Contact "${mergeId}" not found`);
