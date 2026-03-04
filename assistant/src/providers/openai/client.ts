@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
 import { ProviderError } from "../../util/errors.js";
+import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
@@ -196,10 +197,12 @@ export class OpenAIProvider implements Provider {
       };
     } catch (error) {
       if (error instanceof OpenAI.APIError) {
+        const retryAfterMs = extractRetryAfterMs(error.headers);
         throw new ProviderError(
           `${this.providerLabel} API error (${error.status}): ${error.message}`,
           this.name,
           error.status,
+          retryAfterMs !== undefined ? { retryAfterMs } : undefined,
         );
       }
       throw new ProviderError(
