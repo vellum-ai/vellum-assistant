@@ -698,6 +698,7 @@ final class VoiceInputManager {
         case .dictation:
             guard let context = currentDictationContext else {
                 // No context captured (e.g. continuous recording path) — fall back to conversation
+                VoiceFeedback.playDeactivationChime()
                 onTranscription?(text)
                 return
             }
@@ -726,6 +727,7 @@ final class VoiceInputManager {
             } catch {
                 log.error("Failed to send dictation_request: \(error.localizedDescription)")
                 overlayWindow.dismiss()
+                VoiceFeedback.playDeactivationChime()
                 onTranscription?(text)
             }
         }
