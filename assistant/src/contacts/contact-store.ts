@@ -1085,5 +1085,5 @@ export function deleteAssistantContactMetadata(contactId: string): boolean {
     .where(eq(assistantContactMetadata.contactId, contactId))
     .run();
 
-  return result.changes > 0;
+  return (result as unknown as { changes: number }).changes > 0;
 }
