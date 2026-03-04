@@ -1128,16 +1128,9 @@ export class RuntimeHttpServer {
         handler: async ({ req, params, authContext }) =>
           handleUpdateContactChannel(req, params.id, authContext.assistantId),
       },
-      {
-        endpoint: "contacts/:id",
-        method: "GET",
-        policyKey: "contacts",
-        handler: ({ params, authContext }) =>
-          handleGetContact(params.id, authContext.assistantId),
-      },
 
       // ------------------------------------------------------------------
-      // Contacts invites
+      // Contacts invites — must precede contacts/:id to avoid shadowing
       // ------------------------------------------------------------------
       {
         endpoint: "contacts/invites",
@@ -1159,6 +1152,14 @@ export class RuntimeHttpServer {
         method: "DELETE",
         policyKey: "contacts/invites",
         handler: ({ params }) => handleRevokeInvite(params.id),
+      },
+
+      {
+        endpoint: "contacts/:id",
+        method: "GET",
+        policyKey: "contacts",
+        handler: ({ params, authContext }) =>
+          handleGetContact(params.id, authContext.assistantId),
       },
 
       // ------------------------------------------------------------------
