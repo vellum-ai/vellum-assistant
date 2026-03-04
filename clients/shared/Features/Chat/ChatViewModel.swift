@@ -910,6 +910,15 @@ public final class ChatViewModel: ObservableObject {
     }
     #endif
 
+    // MARK: - Synthetic Messages
+
+    /// Injects a synthetic assistant message directly into the chat, without going through the daemon.
+    /// Used for proactive/contextual nudges (e.g., post-settings suggestions).
+    @MainActor public func injectAssistantMessage(_ text: String) {
+        let message = ChatMessage(role: .assistant, text: text, status: .sent)
+        messages.append(message)
+    }
+
     // MARK: - Sending
 
     public func sendMessage(hidden: Bool = false) {
