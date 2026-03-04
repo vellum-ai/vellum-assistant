@@ -170,7 +170,7 @@ export function approvalPrompt(opts: {
     button({
       actionId: `apr:${opts.requestId}:${action.id}`,
       text: action.label,
-      value: `${opts.requestId}:${action.id}`,
+      value: `apr:${opts.requestId}:${action.id}`,
       style: action.style,
     }),
   );
