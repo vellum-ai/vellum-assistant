@@ -448,6 +448,10 @@ export const contactChannels = sqliteTable(
       table.type,
       table.externalUserId,
     ),
+    index("idx_contact_channels_type_ext_chat").on(
+      table.type,
+      table.externalChatId,
+    ),
   ],
 );
 

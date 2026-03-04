@@ -71,6 +71,7 @@ export { migrateBackfillGuardianPrincipalId } from './126-backfill-guardian-prin
 export { migrateGuardianPrincipalIdNotNull } from './127-guardian-principal-id-not-null.js';
 export { migrateContactsRolePrincipal } from './128-contacts-role-principal.js';
 export { migrateContactChannelsAccessFields } from './129-contact-channels-access-fields.js';
+export { migrateContactChannelsTypeChatIdIndex } from './130-contact-channels-type-ext-chat-id-index.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
