@@ -60,6 +60,23 @@ async function callSlackApiWithRetries(
       continue;
     }
 
+    // Handle 5xx server errors with retry
+    if (response.status >= 500) {
+      if (attempt >= MAX_RATE_LIMIT_RETRIES) {
+        tlog.error(
+          { chatId, status: response.status },
+          "Slack 5xx error after retries",
+        );
+        return Response.json({ error: "Delivery failed" }, { status: 502 });
+      }
+      tlog.warn(
+        { chatId, status: response.status, attempt },
+        "Slack 5xx error, retrying",
+      );
+      await new Promise((r) => setTimeout(r, DEFAULT_RETRY_AFTER_S * 1000));
+      continue;
+    }
+
     const data = (await response.json()) as {
       ok?: boolean;
       error?: string;
