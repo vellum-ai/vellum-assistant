@@ -18,4 +18,5 @@ export {
   rawPrepareFrom,
   rawRun,
   rawRunFrom,
+  resetTestTables,
 } from "./raw-query.js";

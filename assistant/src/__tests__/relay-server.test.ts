@@ -185,7 +185,7 @@ import {
   createVerificationSession,
 } from "../memory/channel-guardian-store.js";
 import { addMessage, getMessages } from "../memory/conversation-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { createInvite } from "../memory/ingress-invite-store.js";
 import { conversations } from "../memory/schema.js";
 import {
@@ -252,22 +252,23 @@ function ensureConversation(id: string): void {
 }
 
 function resetTables() {
-  const db = getDb();
-  db.run("DELETE FROM guardian_action_deliveries");
-  db.run("DELETE FROM guardian_action_requests");
-  db.run("DELETE FROM call_pending_questions");
-  db.run("DELETE FROM call_events");
-  db.run("DELETE FROM call_sessions");
-  db.run("DELETE FROM tool_invocations");
-  db.run("DELETE FROM messages");
-  db.run("DELETE FROM conversations");
-  db.run("DELETE FROM assistant_ingress_invites");
-  db.run("DELETE FROM channel_guardian_verification_challenges");
-  db.run("DELETE FROM channel_guardian_rate_limits");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM contact_channels");
-  db.run("DELETE FROM contacts");
+  resetTestTables(
+    "guardian_action_deliveries",
+    "guardian_action_requests",
+    "call_pending_questions",
+    "call_events",
+    "call_sessions",
+    "tool_invocations",
+    "messages",
+    "conversations",
+    "assistant_ingress_invites",
+    "channel_guardian_verification_challenges",
+    "channel_guardian_rate_limits",
+    "canonical_guardian_requests",
+    "canonical_guardian_deliveries",
+    "contact_channels",
+    "contacts",
+  );
   ensuredConvIds = new Set();
 }
 

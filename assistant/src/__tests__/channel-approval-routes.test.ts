@@ -51,7 +51,6 @@ mock.module("../daemon/handlers.js", () => ({
   }),
 }));
 
-
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import type { Session } from "../daemon/session.js";
@@ -65,7 +64,7 @@ import {
   createApprovalRequest,
   getAllPendingApprovalsByGuardianChat,
 } from "../memory/channel-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import {
   conversations,
   externalConversationBindings,
@@ -111,19 +110,20 @@ function ensureConversation(conversationId: string): void {
 }
 
 function resetTables(): void {
-  const db = getDb();
-  db.run("DELETE FROM scoped_approval_grants");
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM channel_guardian_approval_requests");
-  db.run("DELETE FROM channel_guardian_verification_challenges");
-  db.run("DELETE FROM conversation_keys");
-  db.run("DELETE FROM message_runs");
-  db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM messages");
-  db.run("DELETE FROM conversations");
-  db.run("DELETE FROM contact_channels");
-  db.run("DELETE FROM contacts");
+  resetTestTables(
+    "scoped_approval_grants",
+    "canonical_guardian_deliveries",
+    "canonical_guardian_requests",
+    "channel_guardian_approval_requests",
+    "channel_guardian_verification_challenges",
+    "conversation_keys",
+    "message_runs",
+    "channel_inbound_events",
+    "messages",
+    "conversations",
+    "contact_channels",
+    "contacts",
+  );
   channelDeliveryStore.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }

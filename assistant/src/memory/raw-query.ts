@@ -147,3 +147,15 @@ export function rawPrepareFrom(
 ): ReturnType<Database["prepare"]> {
   return getSqliteFrom(db).prepare(sql);
 }
+
+/**
+ * Delete all rows from the given tables in a single transaction.
+ *
+ * Without an explicit transaction, each DELETE is auto-committed with its own
+ * fsync. Batching them saves ~10-20ms per DELETE statement — significant in
+ * test files that clear 10-15 tables in every `beforeEach`.
+ */
+export function resetTestTables(...tables: string[]): void {
+  const deletes = tables.map((t) => `DELETE FROM "${t}"`).join(";\n");
+  getSqlite().exec(`BEGIN;\n${deletes};\nCOMMIT;`);
+}
