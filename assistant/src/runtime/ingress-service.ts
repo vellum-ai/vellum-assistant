@@ -21,7 +21,6 @@ import {
   type MemberPolicy,
   type MemberStatus,
 } from '../memory/ingress-member-store.js';
-import { upsertMemberContactsFirst, revokeMemberContactsFirst, blockMemberContactsFirst } from '../contacts/contacts-write.js';
 import { isValidE164 } from '../util/phone.js';
 import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
 import { getTransport } from './channel-invite-transport.js';

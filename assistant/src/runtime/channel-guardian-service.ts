@@ -9,6 +9,7 @@
 import { createHash,randomBytes } from 'crypto';
 import { v4 as uuid } from 'uuid';
 
+import { createGuardianBindingContactsFirst, revokeGuardianBindingContactsFirst } from '../contacts/contacts-write.js';
 import type { GuardianBinding, IdentityBindingStatus, SessionStatus, VerificationChallenge, VerificationPurpose } from '../memory/channel-guardian-store.js';
 import {
   bindSessionIdentity as storeBindSessionIdentity,
@@ -29,7 +30,6 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
 } from '../memory/channel-guardian-store.js';
-import { createGuardianBindingContactsFirst, revokeGuardianBindingContactsFirst } from '../contacts/contacts-write.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
 
 // ---------------------------------------------------------------------------

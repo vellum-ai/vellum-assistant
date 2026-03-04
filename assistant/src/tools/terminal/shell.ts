@@ -132,7 +132,7 @@ class ShellTool implements Tool {
     // commands share a single session instead of each creating one.
     // Sessions are NOT stopped here — the session manager's idle timer handles
     // cleanup after all commands finish (see resetIdleTimer / stopAllSessions).
-    let proxyEnv: import('../network/script-proxy/types.js').ProxyEnvVars | null = null;
+    let proxyEnv: import('../network/script-proxy/index.js').ProxyEnvVars | null = null;
 
     if (networkMode === 'proxied') {
       try {

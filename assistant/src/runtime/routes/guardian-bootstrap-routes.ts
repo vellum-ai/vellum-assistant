@@ -13,10 +13,10 @@ import { createHash } from 'node:crypto';
 
 import { v4 as uuid } from 'uuid';
 
+import { createGuardianBindingContactsFirst } from '../../contacts/contacts-write.js';
 import {
   getActiveBinding,
 } from '../../memory/guardian-bindings.js';
-import { createGuardianBindingContactsFirst } from '../../contacts/contacts-write.js';
 import { getLogger } from '../../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { mintCredentialPair } from '../auth/credential-service.js';

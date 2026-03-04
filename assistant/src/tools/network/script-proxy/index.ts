@@ -16,6 +16,7 @@ export {
   stopSession,
 } from './session-manager.js';
 export type {
+  PolicyDecision,
   ProxyApprovalCallback,
   ProxyApprovalRequest,
   ProxyEnvVars,

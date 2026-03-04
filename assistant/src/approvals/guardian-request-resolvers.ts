@@ -13,8 +13,8 @@
 
 import { answerCall } from '../calls/call-domain.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { type CanonicalGuardianRequest,getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { upsertMemberContactsFirst } from '../contacts/contacts-write.js';
+import { type CanonicalGuardianRequest,getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { addRule } from '../permissions/trust-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';

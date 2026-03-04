@@ -2,6 +2,15 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { join } from 'node:path';
 
+import {
+  routeConnection,
+  type ProxyApprovalCallback,
+  type ProxyEnvVars,
+  type ProxySession,
+  type ProxySessionConfig,
+  type ProxySessionId,
+} from '@vellumai/outbound-proxy';
+
 import { getSecureKey } from '../../../security/secure-keys.js';
 import { getLogger } from '../../../util/logger.js';
 import { silentlyWithLog } from '../../../util/silently.js';
@@ -15,14 +24,6 @@ import { buildDecisionTrace, stripQueryString } from './logging.js';
 import { evaluateRequestWithApproval } from './policy.js';
 import type { ProxyServerConfig } from './server.js';
 import { createProxyServer } from './server.js';
-import {
-  routeConnection,
-  type ProxyApprovalCallback,
-  type ProxyEnvVars,
-  type ProxySession,
-  type ProxySessionConfig,
-  type ProxySessionId,
-} from '@vellumai/outbound-proxy';
 
 const log = getLogger('proxy-session');
 
