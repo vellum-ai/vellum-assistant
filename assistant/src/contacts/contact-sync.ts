@@ -76,6 +76,7 @@ export function syncSingleGuardianBinding(binding: GuardianBinding): void {
             ? binding.guardianExternalUserId
             : undefined,
         status: "active",
+        revokedReason: null,
         verifiedAt: binding.verifiedAt,
         verifiedVia: binding.verifiedVia,
       },

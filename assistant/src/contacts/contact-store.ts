@@ -116,6 +116,7 @@ interface SyncChannelData {
   verifiedAt?: number | null;
   verifiedVia?: string | null;
   inviteId?: string | null;
+  revokedReason?: string | null;
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────
@@ -347,6 +348,8 @@ function syncChannels(
       if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
       if (ch.verifiedVia !== undefined) updateSet.verifiedVia = ch.verifiedVia;
       if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
+      if (ch.revokedReason !== undefined)
+        updateSet.revokedReason = ch.revokedReason;
 
       if (Object.keys(updateSet).length > 0) {
         updateSet.updatedAt = now;
