@@ -41,10 +41,6 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
 } from "../memory/channel-guardian-store.js";
-import {
-  getActiveBinding,
-  revokeBinding as legacyRevokeBinding,
-} from "../memory/guardian-bindings.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 
 // ---------------------------------------------------------------------------
