@@ -1549,7 +1549,7 @@ struct MainWindowView: View {
                     // Active thread icon — SF Symbol chat bubble matching SidebarNavRow style
                     Image(systemName: "ellipsis.message")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
+                        .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                         .frame(width: 28, height: 28)
                         .accessibilityLabel("Thread: \(activeThread.title)")
 
@@ -1860,7 +1860,7 @@ private struct SidebarPrimaryRow: View {
             HStack(spacing: isExpanded ? VSpacing.xs : 0) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
+                    .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                     .frame(width: 20)
                 Text(label)
                     .font(VFont.bodyMedium)

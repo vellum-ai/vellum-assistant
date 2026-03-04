@@ -82,9 +82,9 @@ public struct VIconButton: View {
 
     private var iconForegroundColor: Color {
         if isActive {
-            return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._300)
+            return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
         }
-        return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
+        return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
     }
 }
 
