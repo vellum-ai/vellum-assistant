@@ -49,10 +49,11 @@ struct AssistantProgressView: View {
         let hasIncompleteTools = hasTools && !allComplete
 
         // Only enter error phase when ALL tools are done, at least one errored,
-        // and the model hasn't already produced a text response (i.e. it recovered).
+        // the model hasn't already produced a text response (i.e. it recovered),
+        // and the model is no longer streaming (it may still recover with text or new tools).
         // While tools are still running, individual errors show as failed steps in the
         // expanded list without changing the overall phase.
-        if allComplete && toolCalls.contains(where: { $0.isError }) && !hasText {
+        if allComplete && toolCalls.contains(where: { $0.isError }) && !hasText && !isStreaming {
             return .error
         }
 
@@ -72,10 +73,10 @@ struct AssistantProgressView: View {
             return .toolRunning
         }
 
-        // All tools done but message still streaming — more tools may come.
-        // Show active state (pulsing dot) rather than "Completed N steps" which
-        // is premature. The green checkmark only shows when the message is truly done.
-        if allComplete && isStreaming {
+        // All tools done but message still streaming with no text yet — more tools
+        // may come. Show active "Thinking" state rather than premature "Completed N steps".
+        // Once text appears, fall through to .complete (which shows warning icon if errors).
+        if allComplete && isStreaming && !hasText {
             return .toolsCompleteThinking
         }
 
@@ -84,8 +85,10 @@ struct AssistantProgressView: View {
             return .processing
         }
 
-        // All done, no errors
-        if allComplete && !isStreaming && !isProcessing {
+        // All done — either message finished (!isStreaming && !isProcessing) or
+        // text is already visible while streaming (user can see the response).
+        // Uses warning icon + "Completed with N errors" if any tools failed.
+        if allComplete && (!isStreaming || hasText) && !isProcessing {
             return .complete
         }
 
