@@ -1546,13 +1546,11 @@ struct MainWindowView: View {
             // MARK: Thread Section (collapsed)
             if let activeThread = threadManager.activeThread {
                 ZStack(alignment: .bottomTrailing) {
-                    // Active thread icon
-                    VThreadIcon(
-                        title: activeThread.title,
-                        size: .medium,
-                        isActive: true,
-                        dotColor: interactionDotColor(for: activeThread)
-                    )
+                    // Active thread icon — SF Symbol chat bubble matching SidebarNavRow style
+                    Image(systemName: "ellipsis.message")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
+                        .frame(width: 28, height: 28)
 
                     // Unseen dot overlay (bottom-right) — shows when any thread has unseen messages
                     if regularThreads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
