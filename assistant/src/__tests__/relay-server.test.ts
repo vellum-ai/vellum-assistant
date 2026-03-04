@@ -177,6 +177,10 @@ import {
   upsertMemberContactsFirst,
 } from "../contacts/contacts-write.js";
 import {
+  createGuardianBindingContactsFirst,
+  upsertMemberContactsFirst,
+} from "../contacts/contacts-write.js";
+import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
@@ -185,10 +189,6 @@ import {
   createVerificationSession,
 } from "../memory/channel-guardian-store.js";
 import { addMessage, getMessages } from "../memory/conversation-store.js";
-import {
-  createGuardianBindingContactsFirst,
-  upsertMemberContactsFirst,
-} from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite } from "../memory/ingress-invite-store.js";
 import { conversations } from "../memory/schema.js";

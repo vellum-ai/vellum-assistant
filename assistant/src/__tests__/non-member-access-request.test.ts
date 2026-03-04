@@ -93,12 +93,12 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 

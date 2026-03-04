@@ -10,7 +10,6 @@ import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { migrateContactsFromLegacyTables } from "../contacts/startup-migration.js";
 import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
@@ -21,6 +20,7 @@ import {
 import { loadConfig } from "../config/loader.js";
 import { ensurePromptFiles } from "../config/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../config/update-bulletin.js";
+import { migrateContactsFromLegacyTables } from "../contacts/startup-migration.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";

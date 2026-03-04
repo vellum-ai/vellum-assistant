@@ -1,10 +1,14 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { describe, expect, test } from "bun:test";
 
-import { describe, expect, test } from 'bun:test';
-
-const ASSISTANT_DIR = join(import.meta.dir, '..', '..');
-const BUNDLED_SKILLS_DIR = join(ASSISTANT_DIR, 'src', 'config', 'bundled-skills');
+const ASSISTANT_DIR = join(import.meta.dir, "..", "..");
+const BUNDLED_SKILLS_DIR = join(
+  ASSISTANT_DIR,
+  "src",
+  "config",
+  "bundled-skills",
+);
 
 function collectSkillFiles(rootDir: string): string[] {
   const pending = [rootDir];
@@ -20,7 +24,7 @@ function collectSkillFiles(rootDir: string): string[] {
         pending.push(fullPath);
         continue;
       }
-      if (entry.isFile() && entry.name === 'SKILL.md') {
+      if (entry.isFile() && entry.name === "SKILL.md") {
         files.push(fullPath);
       }
     }
@@ -36,25 +40,25 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
   bannedSnippets: string[];
 }> = [
   {
-    skillPath: 'guardian-verify-setup/SKILL.md',
+    skillPath: "guardian-verify-setup/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status',
     ],
   },
   {
-    skillPath: 'telegram-setup/SKILL.md',
+    skillPath: "telegram-setup/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config',
     ],
   },
   {
-    skillPath: 'sms-setup/SKILL.md',
+    skillPath: "sms-setup/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance"',
     ],
   },
   {
-    skillPath: 'trusted-contacts/SKILL.md',
+    skillPath: "trusted-contacts/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members',
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites',
@@ -62,39 +66,39 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
     ],
   },
   {
-    skillPath: 'twilio-setup/SKILL.md',
+    skillPath: "twilio-setup/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config"',
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers"',
     ],
   },
   {
-    skillPath: 'phone-calls/SKILL.md',
+    skillPath: "phone-calls/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config"',
     ],
   },
   {
-    skillPath: 'public-ingress/SKILL.md',
+    skillPath: "public-ingress/SKILL.md",
     bannedSnippets: [
-      'security find-generic-password',
-      'secret-tool lookup service vellum-assistant account credential:ngrok:authtoken',
-      'INTERNAL_GATEWAY_BASE_URL',
+      "security find-generic-password",
+      "secret-tool lookup service vellum-assistant account credential:ngrok:authtoken",
+      "INTERNAL_GATEWAY_BASE_URL",
     ],
   },
   {
-    skillPath: 'voice-setup/SKILL.md',
+    skillPath: "voice-setup/SKILL.md",
     bannedSnippets: [
-      'vellum config get elevenlabs.voiceId',
-      'vellum config get calls.enabled',
+      "vellum config get elevenlabs.voiceId",
+      "vellum config get calls.enabled",
     ],
   },
   {
-    skillPath: 'email-setup/SKILL.md',
+    skillPath: "email-setup/SKILL.md",
     bannedSnippets: [
-      'host_bash',
-      'vellum email create',
-      'vellum config set email.address',
+      "host_bash",
+      "vellum email create",
+      "vellum config set email.address",
     ],
   },
 ];
@@ -104,8 +108,8 @@ const KEYCHAIN_ALLOWLIST = new Set<string>([
 ]);
 
 const KEYCHAIN_PATTERNS = [
-  'security find-generic-password',
-  'secret-tool lookup service vellum-assistant account credential:',
+  "security find-generic-password",
+  "secret-tool lookup service vellum-assistant account credential:",
 ];
 
 const HOST_BASH_RETRIEVAL_ALLOWLIST = new Set<string>([
@@ -113,47 +117,49 @@ const HOST_BASH_RETRIEVAL_ALLOWLIST = new Set<string>([
 ]);
 
 const RETRIEVAL_MARKERS = [
-  'vellum integrations ',
-  'vellum config get',
-  'vellum email status',
-  'vellum email inbox list',
-  'vellum email provider get',
+  "vellum integrations ",
+  "vellum config get",
+  "vellum email status",
+  "vellum email inbox list",
+  "vellum email provider get",
 ];
 
-describe('bundled skill retrieval guard', () => {
-  test('migrated skills do not reintroduce direct gateway/keychain retrieval snippets', () => {
+describe("bundled skill retrieval guard", () => {
+  test("migrated skills do not reintroduce direct gateway/keychain retrieval snippets", () => {
     const violations: string[] = [];
 
     for (const rule of GATEWAY_RETRIEVAL_BANLIST) {
       const abs = join(BUNDLED_SKILLS_DIR, rule.skillPath);
-      const content = readFileSync(abs, 'utf-8');
+      const content = readFileSync(abs, "utf-8");
       for (const snippet of rule.bannedSnippets) {
         if (content.includes(snippet)) {
-          violations.push(`${rule.skillPath}: contains banned snippet "${snippet}"`);
+          violations.push(
+            `${rule.skillPath}: contains banned snippet "${snippet}"`,
+          );
         }
       }
     }
 
     if (violations.length > 0) {
       const message = [
-        'Bundled skill retrieval contract regression detected.',
-        'Migrated skills must not reintroduce direct gateway/keychain retrieval snippets.',
-        '',
-        'Violations:',
+        "Bundled skill retrieval contract regression detected.",
+        "Migrated skills must not reintroduce direct gateway/keychain retrieval snippets.",
+        "",
+        "Violations:",
         ...violations.map((v) => `  - ${v}`),
-      ].join('\n');
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
   });
 
-  test('bundled skills do not contain direct keychain lookup instructions', () => {
+  test("bundled skills do not contain direct keychain lookup instructions", () => {
     const violations: string[] = [];
 
     for (const skillFile of ALL_SKILL_FILES) {
-      const rel = relative(ASSISTANT_DIR, skillFile).replaceAll('\\', '/');
+      const rel = relative(ASSISTANT_DIR, skillFile).replaceAll("\\", "/");
       if (KEYCHAIN_ALLOWLIST.has(rel)) continue;
-      const content = readFileSync(skillFile, 'utf-8');
+      const content = readFileSync(skillFile, "utf-8");
       for (const pattern of KEYCHAIN_PATTERNS) {
         if (content.includes(pattern)) {
           violations.push(`${rel}: contains "${pattern}"`);
@@ -163,45 +169,47 @@ describe('bundled skill retrieval guard', () => {
 
     if (violations.length > 0) {
       const message = [
-        'Direct keychain lookup instructions were found in bundled skills.',
-        'Use credential_store and CLI/proxied flows instead.',
-        '',
-        'Violations:',
+        "Direct keychain lookup instructions were found in bundled skills.",
+        "Use credential_store and CLI/proxied flows instead.",
+        "",
+        "Violations:",
         ...violations.map((v) => `  - ${v}`),
-        '',
-        'Add intentional exceptions to KEYCHAIN_ALLOWLIST only when required.',
-      ].join('\n');
+        "",
+        "Add intentional exceptions to KEYCHAIN_ALLOWLIST only when required.",
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
   });
 
-  test('bundled skills do not require host_bash for Vellum CLI retrieval commands', () => {
+  test("bundled skills do not require host_bash for Vellum CLI retrieval commands", () => {
     const violations: string[] = [];
 
     for (const skillFile of ALL_SKILL_FILES) {
-      const rel = relative(ASSISTANT_DIR, skillFile).replaceAll('\\', '/');
+      const rel = relative(ASSISTANT_DIR, skillFile).replaceAll("\\", "/");
       if (HOST_BASH_RETRIEVAL_ALLOWLIST.has(rel)) continue;
-      const content = readFileSync(skillFile, 'utf-8');
-      const hasHostBash = content.includes('host_bash');
+      const content = readFileSync(skillFile, "utf-8");
+      const hasHostBash = content.includes("host_bash");
       if (!hasHostBash) continue;
-      const hasRetrievalMarker = RETRIEVAL_MARKERS.some((marker) => content.includes(marker));
+      const hasRetrievalMarker = RETRIEVAL_MARKERS.some((marker) =>
+        content.includes(marker),
+      );
       if (!hasRetrievalMarker) continue;
       violations.push(
-        `${rel}: contains host_bash with Vellum CLI retrieval markers (${RETRIEVAL_MARKERS.join(', ')})`,
+        `${rel}: contains host_bash with Vellum CLI retrieval markers (${RETRIEVAL_MARKERS.join(", ")})`,
       );
     }
 
     if (violations.length > 0) {
       const message = [
-        'Bundled skills must not require host_bash for Vellum CLI retrieval commands.',
-        'Use sandboxed bash for retrieval flows unless an explicit exception is documented.',
-        '',
-        'Violations:',
+        "Bundled skills must not require host_bash for Vellum CLI retrieval commands.",
+        "Use sandboxed bash for retrieval flows unless an explicit exception is documented.",
+        "",
+        "Violations:",
         ...violations.map((v) => `  - ${v}`),
-        '',
-        'Add intentional exceptions to HOST_BASH_RETRIEVAL_ALLOWLIST only when required.',
-      ].join('\n');
+        "",
+        "Add intentional exceptions to HOST_BASH_RETRIEVAL_ALLOWLIST only when required.",
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
