@@ -44,14 +44,6 @@ mock.module("../security/secret-ingress.js", () => ({
   checkIngressForSecrets: () => ({ blocked: false }),
 }));
 
-// Mock ingress member store: findMember always returns null (non-member),
-// updateLastSeen is a no-op.
-mock.module("../memory/ingress-member-store.js", () => ({
-  findMember: () => null,
-  updateLastSeen: () => {},
-  upsertMember: () => {},
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",

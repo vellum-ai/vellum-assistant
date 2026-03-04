@@ -51,30 +51,7 @@ mock.module("../daemon/handlers.js", () => ({
   }),
 }));
 
-// Mock ingress member store to return an active member for all lookups.
-// The ingress ACL is always-on and requires member records, but approval
-// route tests focus on approval orchestration, not ACL enforcement.
-mock.module("../memory/ingress-member-store.js", () => ({
-  findMember: () => ({
-    id: "member-test-default",
-    assistantId: "self",
-    sourceChannel: "telegram",
-    externalUserId: "telegram-user-default",
-    externalChatId: null,
-    displayName: null,
-    username: null,
-    status: "active",
-    policy: "allow",
-    inviteId: null,
-    createdBySessionId: null,
-    revokedReason: null,
-    blockedReason: null,
-    lastSeenAt: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  }),
-  updateLastSeen: () => {},
-}));
+
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBindingContactsFirst } from "../contacts/contacts-write.js";
 import type { Session } from "../daemon/session.js";
