@@ -210,10 +210,11 @@ export function revokeGuardianForChannel(
     };
   }
 
-  // Look up the member channel BEFORE revoking the guardian binding so the
-  // channel status is still active/pending — revokeGuardianBindingContactsFirst
-  // marks the channel as revoked, which would cause the status guard below to
-  // skip the revoke call.
+  // Revoke the member BEFORE the guardian binding so that
+  // revokeMemberContactsFirst sees the channel as active/pending and sets the
+  // correct revokedReason ("guardian_binding_revoked"). If the guardian binding
+  // is revoked first, the channel is already marked revoked and the member
+  // revocation becomes a no-op (wrong reason or skipped entirely).
   const contactResult = findContactChannel({
     channelType: resolvedChannel,
     externalUserId: bindingBeforeRevoke.guardianExternalUserId,
@@ -223,14 +224,11 @@ export function revokeGuardianForChannel(
     ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
     : null;
 
-  revokeGuardianBindingContactsFirst(assistantId, resolvedChannel);
-
-  // Only revoke active/pending members — a blocked member must not be
-  // downgraded to revoked (revokeMemberContactsFirst has its own guard,
-  // but we check here to make the intent explicit at the call site).
   if (member && (member.status === "active" || member.status === "pending")) {
     revokeMemberContactsFirst(member.id, "guardian_binding_revoked");
   }
+
+  revokeGuardianBindingContactsFirst(assistantId, resolvedChannel);
 
   return {
     success: true,
