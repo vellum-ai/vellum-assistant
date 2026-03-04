@@ -233,6 +233,7 @@ export class DaemonServer {
   private socketPath: string;
   private httpPort: number | undefined;
   private blobSweepTimer: ReturnType<typeof setInterval> | null = null;
+  private unsubscribeContactChange: (() => void) | null = null;
   private static readonly MAX_CONNECTIONS = 50;
   private evictor: SessionEvictor;
 
@@ -420,7 +421,7 @@ export class DaemonServer {
     );
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
-    onContactChange(() => {
+    this.unsubscribeContactChange = onContactChange(() => {
       this.broadcast({ type: "contacts_changed" });
     });
 
@@ -526,6 +527,10 @@ export class DaemonServer {
       this.blobSweepTimer = null;
     }
     this.configWatcher.stop();
+    if (this.unsubscribeContactChange) {
+      this.unsubscribeContactChange();
+      this.unsubscribeContactChange = null;
+    }
     this.auth.cleanupAll();
 
     const serverClosed = new Promise<void>((resolve) => {
