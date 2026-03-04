@@ -20,6 +20,7 @@ import {
   recordInviteUse,
   redeemInvite as storeRedeemInvite,
 } from "../memory/ingress-invite-store.js";
+import { findMember } from "../memory/ingress-member-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { hashVoiceCode } from "../util/voice-code.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -124,14 +125,24 @@ export function redeemInvite(params: {
 
   // Token is valid — now safe to check existing membership without leaking
   // membership status to callers with bogus tokens.
+  const canonicalUserId = externalUserId
+    ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId) ?? externalUserId
+    : undefined;
   const contactResult = findContactChannel({
     channelType: sourceChannel,
-    externalUserId: externalUserId,
+    externalUserId: canonicalUserId,
     externalChatId: externalChatId,
   });
+  // Fall back to legacy assistant_ingress_members table when contacts lookup
+  // misses — contacts may not be synced yet for all members during migration.
   const existingMember = contactResult
     ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
-    : null;
+    : findMember({
+        assistantId: assistantId ?? invite.assistantId,
+        sourceChannel,
+        externalUserId,
+        externalChatId,
+      });
 
   if (existingMember && existingMember.status === "active") {
     return { ok: true, type: "already_member", memberId: existingMember.id };
@@ -316,13 +327,21 @@ export function redeemVoiceInviteCode(params: {
   }
 
   // Check for existing membership
+  const canonicalCallerId =
+    canonicalizeInboundIdentity("voice" as ChannelId, callerExternalUserId) ?? callerExternalUserId;
   const voiceContactResult = findContactChannel({
     channelType: "voice",
-    externalUserId: callerExternalUserId,
+    externalUserId: canonicalCallerId,
   });
+  // Fall back to legacy assistant_ingress_members table when contacts lookup
+  // misses — contacts may not be synced yet for all members during migration.
   const existingMember = voiceContactResult
     ? contactChannelToMemberRecord(voiceContactResult.contact, voiceContactResult.channel)
-    : null;
+    : findMember({
+        assistantId: invite.assistantId,
+        sourceChannel: "voice",
+        externalUserId: callerExternalUserId,
+      });
 
   if (existingMember && existingMember.status === "active") {
     return { ok: true, type: "already_member", memberId: existingMember.id };
