@@ -48,6 +48,7 @@ export function handleListContacts(url: URL, assistantId: string): Response {
       channelAddress: channelAddress ?? undefined,
       channelType: channelType ?? undefined,
       relationship: relationship ?? undefined,
+      role: role ?? undefined,
       limit,
     });
     return Response.json({ ok: true, contacts });

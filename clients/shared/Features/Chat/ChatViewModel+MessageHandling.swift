@@ -1639,11 +1639,21 @@ extension ChatViewModel {
     /// Auto-open generated video clips in the user's default video player.
     /// Scans the result for a `clipPath` field rather than checking toolName,
     /// because generate_clip runs inside claude_code (toolName is "claude_code").
+    /// Restricts to known tool names and validated video extensions to prevent
+    /// arbitrary file opens from untrusted tool results.
+    private static let clipEligibleTools: Set<String> = ["claude_code", "generate_clip"]
+    private static let clipVideoExtensions: Set<String> = ["mp4", "mov", "m4v", "avi", "mkv", "webm"]
+
     private func autoOpenClipIfNeeded(toolName: String, result: String, isError: Bool) {
-        guard !isError else { return }
+        guard !isError, Self.clipEligibleTools.contains(toolName) else { return }
         guard let jsonData = result.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
               let clipPath = json["clipPath"] as? String else {
+            return
+        }
+        let pathExtension = (clipPath as NSString).pathExtension.lowercased()
+        guard Self.clipVideoExtensions.contains(pathExtension) else {
+            log.warning("Clip path has non-video extension '\(pathExtension)', skipping auto-open")
             return
         }
         guard FileManager.default.fileExists(atPath: clipPath) else {
