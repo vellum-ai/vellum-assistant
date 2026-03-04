@@ -192,6 +192,9 @@ export async function run(
 
     context.onOutput?.(`Clip registered as attachment ${attachment.id}.\n`);
 
+    // Auto-open in the user's default video player (fire and forget)
+    spawnWithTimeout(["open", clipPath], 5000).catch(() => {});
+
     return {
       content: JSON.stringify(
         {
