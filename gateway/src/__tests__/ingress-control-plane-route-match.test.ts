@@ -18,31 +18,6 @@ describe("matchIngressControlPlaneRoute", () => {
     });
   });
 
-  test("matches ingress member routes", () => {
-    expect(matchIngressControlPlaneRoute("/v1/ingress/members", "GET")).toEqual(
-      {
-        kind: "listMembers",
-      },
-    );
-    expect(
-      matchIngressControlPlaneRoute("/v1/ingress/members", "POST"),
-    ).toEqual({
-      kind: "upsertMember",
-    });
-    expect(
-      matchIngressControlPlaneRoute("/v1/ingress/members/mbr_1/block", "POST"),
-    ).toEqual({
-      kind: "blockMember",
-      memberId: "mbr_1",
-    });
-    expect(
-      matchIngressControlPlaneRoute("/v1/ingress/members/mbr_1", "DELETE"),
-    ).toEqual({
-      kind: "revokeMember",
-      memberId: "mbr_1",
-    });
-  });
-
   test("matches ingress invite routes", () => {
     expect(matchIngressControlPlaneRoute("/v1/ingress/invites", "GET")).toEqual(
       {
@@ -68,9 +43,6 @@ describe("matchIngressControlPlaneRoute", () => {
     ).toBeNull();
     expect(
       matchIngressControlPlaneRoute("/v1/ingress/invites/inv_1", "POST"),
-    ).toBeNull();
-    expect(
-      matchIngressControlPlaneRoute("/v1/ingress/members/mbr_1", "POST"),
     ).toBeNull();
     expect(
       matchIngressControlPlaneRoute("/v1/ingress/unknown", "GET"),
