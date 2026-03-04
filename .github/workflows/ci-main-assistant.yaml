@@ -80,7 +80,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     timeout-minutes: 15
     defaults:
       run:
@@ -107,6 +107,8 @@ jobs:
 
       - name: Test
         run: bun run test:stable
+        env:
+          TEST_WORKERS: '8'
 
       - name: Track consecutive failures
         if: always()
