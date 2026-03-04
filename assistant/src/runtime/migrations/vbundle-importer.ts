@@ -103,10 +103,16 @@ function generateBackupPath(diskPath: string): string {
 // ---------------------------------------------------------------------------
 
 export interface ImportCommitOptions {
-  /** Raw .vbundle archive bytes */
+  /** Raw .vbundle archive bytes — used only when pre-validated data is not provided. */
   archiveData: Uint8Array;
   /** Resolves archive paths to disk paths */
   pathResolver: PathResolver;
+  /** Pre-validated manifest from a prior validateVBundle call. When provided
+   *  with `preValidatedEntries`, skips internal re-validation to avoid
+   *  holding two copies of decompressed data in memory. */
+  preValidatedManifest?: ManifestType;
+  /** Pre-parsed tar entries from a prior validateVBundle call. */
+  preValidatedEntries?: Map<string, VBundleTarEntry>;
 }
 
 /**
@@ -117,22 +123,36 @@ export interface ImportCommitOptions {
  * re-validated before any state mutation to prevent writing corrupt data.
  */
 export function commitImport(options: ImportCommitOptions): ImportCommitResult {
-  const { archiveData, pathResolver } = options;
+  const {
+    archiveData,
+    pathResolver,
+    preValidatedManifest,
+    preValidatedEntries,
+  } = options;
 
-  // Step 1: Validate the bundle (validation before mutation).
-  // validateVBundle decompresses and parses the tar, returning the entries
-  // alongside the validation result so we avoid a second decompression.
-  const validation = validateVBundle(archiveData);
-  if (!validation.is_valid || !validation.manifest || !validation.entries) {
-    return {
-      ok: false,
-      reason: "validation_failed",
-      errors: validation.errors,
-    };
+  let manifest: ManifestType;
+  let entryMap: Map<string, VBundleTarEntry>;
+
+  if (preValidatedManifest && preValidatedEntries) {
+    // Caller already validated and decompressed — reuse directly
+    manifest = preValidatedManifest;
+    entryMap = preValidatedEntries;
+  } else {
+    // Validate the bundle (validation before mutation).
+    // validateVBundle decompresses and parses the tar, returning the entries
+    // alongside the validation result so we avoid a second decompression.
+    const validation = validateVBundle(archiveData);
+    if (!validation.is_valid || !validation.manifest || !validation.entries) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        errors: validation.errors,
+      };
+    }
+
+    manifest = validation.manifest;
+    entryMap = validation.entries;
   }
-
-  const manifest = validation.manifest;
-  const entryMap: Map<string, VBundleTarEntry> = validation.entries;
 
   // Step 2: Write files to disk with backups
   const importedFiles: ImportedFileReport[] = [];
@@ -153,7 +173,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         backup_path: null,
       });
       warnings.push(
-        `Skipped "${fileEntry.path}": no known disk target for this archive path`
+        `Skipped "${fileEntry.path}": no known disk target for this archive path`,
       );
       continue;
     }
@@ -171,7 +191,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         backup_path: null,
       });
       warnings.push(
-        `Skipped "${fileEntry.path}": declared in manifest but not found in archive`
+        `Skipped "${fileEntry.path}": declared in manifest but not found in archive`,
       );
       continue;
     }
@@ -197,7 +217,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
             importedFiles,
             manifest,
             warnings,
-            backupsCreated
+            backupsCreated,
           ),
         };
       }
@@ -222,7 +242,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
             importedFiles,
             manifest,
             warnings,
-            backupsCreated
+            backupsCreated,
           ),
         };
       }
@@ -242,7 +262,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
           importedFiles,
           manifest,
           warnings,
-          backupsCreated
+          backupsCreated,
         ),
       };
     }
@@ -255,12 +275,12 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       if (writtenSha256 !== fileEntry.sha256) {
         warnings.push(
           `Post-write integrity warning for "${fileEntry.path}": ` +
-            `expected SHA-256 ${fileEntry.sha256}, got ${writtenSha256}`
+            `expected SHA-256 ${fileEntry.sha256}, got ${writtenSha256}`,
         );
       }
     } catch {
       warnings.push(
-        `Could not verify post-write integrity for "${fileEntry.path}"`
+        `Could not verify post-write integrity for "${fileEntry.path}"`,
       );
     }
 
@@ -301,7 +321,7 @@ function buildPartialReport(
   files: ImportedFileReport[],
   manifest: ManifestType,
   warnings: string[],
-  backupsCreated: number
+  backupsCreated: number,
 ): ImportCommitReport {
   return {
     success: false,
