@@ -497,22 +497,31 @@ extension MainWindowView {
 
             // MARK: Thread Section (collapsed)
             if let activeThread = threadManager.activeThread {
-                ZStack(alignment: .bottomTrailing) {
-                    // Active thread icon — SF Symbol chat bubble matching SidebarNavRow style
-                    Image(systemName: "ellipsis.message")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
-                        .frame(width: 28, height: 28)
-                        .accessibilityLabel("Thread: \(activeThread.title)")
+                Button {
+                    guard regularThreads.count > 1 else { return }
+                    threadSwitcherHoverTask?.cancel()
+                    threadSwitcherHoverTask = nil
+                    showThreadSwitcher.toggle()
+                } label: {
+                    ZStack(alignment: .bottomTrailing) {
+                        // Active thread icon — SF Symbol chat bubble matching SidebarNavRow style
+                        Image(systemName: "ellipsis.message")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                            .frame(width: 28, height: 28)
 
-                    // Unseen dot overlay (bottom-right) — shows when any thread has unseen messages
-                    if regularThreads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
-                        Circle()
-                            .fill(Color(hex: 0xE86B40))
-                            .frame(width: 8, height: 8)
-                            .offset(x: 4, y: 4)
+                        // Unseen dot overlay (bottom-right) — shows when any thread has unseen messages
+                        if regularThreads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+                            Circle()
+                                .fill(Color(hex: 0xE86B40))
+                                .frame(width: 8, height: 8)
+                                .offset(x: 4, y: 4)
+                        }
                     }
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Switch threads: \(activeThread.title)")
+                .accessibilityValue(regularThreads.count > 1 ? "\(regularThreads.count) threads" : "")
                 .onDisappear {
                     threadSwitcherHoverTask?.cancel()
                     threadSwitcherHoverTask = nil
@@ -520,15 +529,8 @@ extension MainWindowView {
                     threadSwitcherDismissTask = nil
                     showThreadSwitcher = false
                 }
-                .contentShape(Rectangle())
                 .if(regularThreads.count > 1) { view in
                     view.pointerCursor()
-                }
-                .onTapGesture {
-                    guard regularThreads.count > 1 else { return }
-                    threadSwitcherHoverTask?.cancel()
-                    threadSwitcherHoverTask = nil
-                    showThreadSwitcher.toggle()
                 }
                 .onHover { hovering in
                     guard regularThreads.count > 1 else { return }
