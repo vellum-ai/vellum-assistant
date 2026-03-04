@@ -16,8 +16,7 @@ import {
   findContactByChannelExternalId,
   findGuardianForChannel,
 } from "../contacts/contact-store.js";
-import type { IngressMember } from "../contacts/member-record-shim.js";
-import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
+import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
@@ -36,11 +35,11 @@ export type { TrustContext } from "../daemon/session-runtime-assembly.js";
  * - `'guardian'`: The sender matches the active guardian binding for this
  *   (assistant, channel). Guardians have full control-plane access and
  *   self-approve tool invocations.
- * - `'trusted_contact'`: The sender is an active ingress member (not the
- *   guardian). Trusted contacts can invoke tools but require guardian
- *   approval for sensitive operations.
- * - `'unknown'`: The sender has no member record, no identity could be
- *   established, or the sender is an inactive/revoked member. Unknown
+ * - `'trusted_contact'`: The sender is an active contact with a channel
+ *   (not the guardian). Trusted contacts can invoke tools but require
+ *   guardian approval for sensitive operations.
+ * - `'unknown'`: The sender has no contact record, no identity could be
+ *   established, or the sender is an inactive/revoked contact. Unknown
  *   actors are fail-closed with no escalation path.
  */
 export type TrustClass = "guardian" | "trusted_contact" | "unknown";
@@ -74,8 +73,11 @@ export interface ActorTrustContext {
   } | null;
   /** Canonical principal ID from the guardian binding. */
   guardianPrincipalId?: string;
-  /** Ingress member record, if any, for this sender. */
-  memberRecord: IngressMember | null;
+  /** Resolved contact + channel for this sender, if any. */
+  memberRecord: {
+    contact: ContactWithChannels;
+    channel: ContactChannel;
+  } | null;
   /** Trust classification. */
   trustClass: TrustClass;
   /** Assistant-facing metadata for downstream consumption. */
@@ -116,7 +118,7 @@ export interface ResolveActorTrustInput {
  * 1. Canonicalize the sender identity (E.164 for phone channels, trimmed ID otherwise).
  * 2. Look up the guardian binding for (assistantId, channel).
  * 3. Compare canonical sender identity to the guardian binding.
- * 4. Look up the ingress member record using the canonical identity.
+ * 4. Look up the contact record using the canonical identity.
  * 5. Classify: guardian > trusted_contact (active member) > unknown.
  */
 export function resolveActorTrust(
@@ -207,7 +209,7 @@ export function resolveActorTrust(
   );
 
   // --- Member lookup via contacts ---
-  let memberRecord: IngressMember | null = null;
+  let memberRecord: ActorTrustContext["memberRecord"] = null;
   const contactMatch = findContactByChannelExternalId(
     input.sourceChannel,
     canonicalSenderId,
@@ -219,10 +221,7 @@ export function resolveActorTrust(
         ch.externalUserId === canonicalSenderId,
     );
     if (matchingChannel) {
-      memberRecord = contactChannelToMemberRecord(
-        contactMatch,
-        matchingChannel,
-      );
+      memberRecord = { contact: contactMatch, channel: matchingChannel };
     }
   }
   log.debug(
@@ -238,24 +237,20 @@ export function resolveActorTrust(
   // current sender to avoid misidentification in group chats.
   // Canonicalize the stored member ID to handle formatting variance (e.g.
   // phone numbers stored without E.164 normalization).
-  const memberMatchesSender = memberRecord?.externalUserId
+  const memberMatchesSender = memberRecord?.channel.externalUserId
     ? canonicalizeInboundIdentity(
         input.sourceChannel,
-        memberRecord.externalUserId,
+        memberRecord.channel.externalUserId,
       ) === canonicalSenderId
     : false;
 
-  const memberUsername =
-    memberMatchesSender &&
-    typeof memberRecord?.username === "string" &&
-    memberRecord.username.trim().length > 0
-      ? memberRecord.username.trim()
-      : undefined;
+  // ContactChannel has no username field — the shim always set it to null.
+  const memberUsername = undefined;
   const memberDisplayName =
     memberMatchesSender &&
-    typeof memberRecord?.displayName === "string" &&
-    memberRecord.displayName.trim().length > 0
-      ? memberRecord.displayName.trim()
+    typeof memberRecord?.contact.displayName === "string" &&
+    memberRecord.contact.displayName.trim().length > 0
+      ? memberRecord.contact.displayName.trim()
       : undefined;
   // Prefer member profile metadata over transient sender metadata so guardian-
   // curated contact details are canonical for assistant-facing identity —
@@ -273,7 +268,7 @@ export function resolveActorTrust(
   } else if (
     memberMatchesSender &&
     memberRecord &&
-    memberRecord.status === "active"
+    memberRecord.channel.status === "active"
   ) {
     trustClass = "trusted_contact";
   } else {

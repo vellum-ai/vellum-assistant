@@ -734,7 +734,7 @@ export function registerCompletionsCommand(program: Command): void {
         trust: ["list", "remove", "clear"],
         memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
         hooks: ["list", "enable", "disable", "install", "remove"],
-        contacts: ["list", "get", "merge"],
+        contacts: ["list", "invites", "get", "merge"],
         autonomy: ["get", "set"],
       };
       const topLevel = [

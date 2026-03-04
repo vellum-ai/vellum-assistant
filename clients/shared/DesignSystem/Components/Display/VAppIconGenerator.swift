@@ -1,26 +1,8 @@
 import SwiftUI
 
-/// Deterministic icon generator that assigns an SF Symbol and gradient color pair
+/// Deterministic icon generator that assigns an SF Symbol
 /// based on a stable hash of the app name. Same name always produces the same icon.
 public enum VAppIconGenerator {
-
-    // MARK: - Gradient Palettes
-
-    /// Curated gradient color pairs covering a range of hues.
-    public static let gradientPalettes: [[String]] = [
-        ["#7C3AED", "#4F46E5"],  // violet
-        ["#059669", "#10B981"],  // emerald
-        ["#D97706", "#F59E0B"],  // amber
-        ["#E11D48", "#F43F5E"],  // rose
-        ["#4338CA", "#6366F1"],  // indigo
-        ["#0284C7", "#38BDF8"],  // sky
-        ["#EA580C", "#FB923C"],  // orange
-        ["#0D9488", "#2DD4BF"],  // teal
-        ["#DB2777", "#F472B6"],  // pink
-        ["#65A30D", "#84CC16"],  // lime
-        ["#0891B2", "#22D3EE"],  // cyan
-        ["#475569", "#94A3B8"],  // slate
-    ]
 
     // MARK: - SF Symbols
 
@@ -60,17 +42,13 @@ public enum VAppIconGenerator {
 
     // MARK: - Generation
 
-    /// Deterministic pick of SF Symbol and gradient colors based on a stable hash of the app name.
+    /// Deterministic pick of SF Symbol based on a stable hash of the app name.
     /// The optional `type` parameter is mixed into the hash for additional differentiation.
-    public static func generate(from name: String, type: String? = nil) -> (sfSymbol: String, colors: [String]) {
+    public static func generate(from name: String, type: String? = nil) -> String {
         let seed = type != nil ? "\(name):\(type!)" : name
         let hash = stableHash(seed)
-
         let symbolIndex = Int(hash % UInt64(symbols.count))
-        // Use a different part of the hash for palette selection to avoid correlation
-        let paletteIndex = Int((hash / UInt64(symbols.count)) % UInt64(gradientPalettes.count))
-
-        return (sfSymbol: symbols[symbolIndex], colors: gradientPalettes[paletteIndex])
+        return symbols[symbolIndex]
     }
 
     /// Simple stable hash — FNV-1a 64-bit. Deterministic and consistent across runs.
@@ -97,13 +75,14 @@ public enum VAppIconGenerator {
                 GridItem(.adaptive(minimum: 80), spacing: VSpacing.lg)
             ], spacing: VSpacing.lg) {
                 ForEach(sampleApps, id: \.self) { app in
-                    let result = VAppIconGenerator.generate(from: app)
+                    let symbol = VAppIconGenerator.generate(from: app)
                     VStack(spacing: VSpacing.sm) {
-                        VAppIcon(
-                            sfSymbol: result.sfSymbol,
-                            gradientColors: result.colors,
-                            size: .medium
-                        )
+                        Image(systemName: symbol)
+                            .font(.system(size: 28, weight: .medium))
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 64, height: 64)
+                            .background(Moss._100)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         Text(app)
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)

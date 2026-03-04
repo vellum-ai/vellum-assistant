@@ -1,6 +1,6 @@
 # Vellum Assistant Runtime
 
-Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
+Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
 
 ## Architecture
 
@@ -39,19 +39,19 @@ cp .env.example .env
 
 ## Configuration
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | Yes | — | Anthropic Claude API key |
-| `OPENAI_API_KEY` | No | — | OpenAI API key |
-| `GEMINI_API_KEY` | No | — | Google Gemini API key |
-| `OLLAMA_API_KEY` | No | — | API key for authenticated Ollama deployments |
-| `OLLAMA_BASE_URL` | No | `http://127.0.0.1:11434/v1` | Ollama base URL |
-| `RUNTIME_HTTP_PORT` | No | — | Enable the HTTP server (required for gateway/web) |
-| `VELLUM_DAEMON_SOCKET` | No | `~/.vellum/vellum.sock` | Override the daemon socket path |
+| Variable               | Required | Default                     | Description                                       |
+| ---------------------- | -------- | --------------------------- | ------------------------------------------------- |
+| `ANTHROPIC_API_KEY`    | Yes      | —                           | Anthropic Claude API key                          |
+| `OPENAI_API_KEY`       | No       | —                           | OpenAI API key                                    |
+| `GEMINI_API_KEY`       | No       | —                           | Google Gemini API key                             |
+| `OLLAMA_API_KEY`       | No       | —                           | API key for authenticated Ollama deployments      |
+| `OLLAMA_BASE_URL`      | No       | `http://127.0.0.1:11434/v1` | Ollama base URL                                   |
+| `RUNTIME_HTTP_PORT`    | No       | —                           | Enable the HTTP server (required for gateway/web) |
+| `VELLUM_DAEMON_SOCKET` | No       | `~/.vellum/vellum.sock`     | Override the assistant socket path                |
 
 ## Update Bulletin
 
-When a release includes relevant updates, the daemon materializes release notes from the bundled `src/config/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
+When a release includes relevant updates, the assistant materializes release notes from the bundled `src/config/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
 
 **For release maintainers:** Update `assistant/src/config/templates/UPDATES.md` with release notes before each relevant release. Leave the template empty (or comment-only) for releases with no user/assistant-facing changes.
 
@@ -59,19 +59,19 @@ When a release includes relevant updates, the daemon materializes release notes 
 
 ### Lifecycle management (recommended)
 
-Use the `vellum` CLI to manage daemon and gateway processes:
+Use the `vellum` CLI to manage assistant and gateway processes:
 
 ```bash
-vellum wake    # start daemon + gateway from current checkout
+vellum wake    # start assistant + gateway from current checkout
 vellum ps      # list assistants and per-assistant process status
-vellum sleep   # stop daemon + gateway (directory-agnostic)
+vellum sleep   # stop assistant + gateway (directory-agnostic)
 ```
 
 > **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically.
 
 ### Development: raw bun commands
 
-For low-level development (e.g., working on the daemon itself):
+For low-level development (e.g., working on the assistant runtime itself):
 
 ```bash
 bun run src/index.ts daemon start   # start daemon only
@@ -81,18 +81,18 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 
 ### CLI commands
 
-| Command | Description |
-|---------|-------------|
-| `vellum wake` | Start daemon + gateway from current checkout |
-| `vellum sleep` | Stop daemon + gateway processes |
-| `vellum ps` | List assistants and per-assistant process status |
-| `vellum` | Launch interactive CLI session |
-| `vellum dev` | Run daemon with auto-restart on file changes |
-| `vellum sessions list\|new\|export\|clear` | Manage conversation sessions |
-| `vellum config set\|get\|list` | Manage configuration |
-| `vellum keys set\|list\|delete` | Manage API keys in secure storage |
-| `vellum trust list\|remove\|clear` | Manage trust rules |
-| `vellum doctor` | Run diagnostic checks |
+| Command                                    | Description                                      |
+| ------------------------------------------ | ------------------------------------------------ |
+| `vellum wake`                              | Start assistant + gateway from current checkout  |
+| `vellum sleep`                             | Stop assistant + gateway processes               |
+| `vellum ps`                                | List assistants and per-assistant process status |
+| `vellum`                                   | Launch interactive CLI session                   |
+| `vellum dev`                               | Run assistant with auto-restart on file changes  |
+| `vellum sessions list\|new\|export\|clear` | Manage conversation sessions                     |
+| `vellum config set\|get\|list`             | Manage configuration                             |
+| `vellum keys set\|list\|delete`            | Manage API keys in secure storage                |
+| `vellum trust list\|remove\|clear`         | Manage trust rules                               |
+| `vellum doctor`                            | Run diagnostic checks                            |
 
 ## Project Structure
 
@@ -164,14 +164,14 @@ Channels that do not support rich inline approval UI (e.g., inline keyboards) re
 
 ### Key modules
 
-| File | Purpose |
-|------|---------|
-| `src/runtime/channel-approvals.ts` | Orchestration: `getChannelApprovalPrompt`, `buildApprovalUIMetadata`, `handleChannelDecision`, `buildReminderPrompt` |
+| File                                     | Purpose                                                                                                                           |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-approvals.ts`       | Orchestration: `getChannelApprovalPrompt`, `buildApprovalUIMetadata`, `handleChannelDecision`, `buildReminderPrompt`              |
 | `src/runtime/channel-approval-parser.ts` | Plain-text decision parser — matches phrases like `yes`, `approve`, `always`, `no`, `reject`, `deny`, `cancel` (case-insensitive) |
-| `src/runtime/channel-approval-types.ts` | Shared types: `ApprovalAction`, `ChannelApprovalPrompt`, `ApprovalUIMetadata`, `ApprovalDecisionResult` |
-| `src/runtime/routes/channel-routes.ts` | Integration point: `handleApprovalInterception` and `processChannelMessageWithApprovals` in the channel inbound handler |
-| `src/runtime/gateway-client.ts` | `deliverApprovalPrompt()` — sends the approval payload (text + UI metadata) to the gateway for rendering |
-| `src/memory/runs-store.ts` | `getPendingConfirmationsByConversation` — queries runs in `needs_confirmation` state |
+| `src/runtime/channel-approval-types.ts`  | Shared types: `ApprovalAction`, `ChannelApprovalPrompt`, `ApprovalUIMetadata`, `ApprovalDecisionResult`                           |
+| `src/runtime/routes/channel-routes.ts`   | Integration point: `handleApprovalInterception` and `processChannelMessageWithApprovals` in the channel inbound handler           |
+| `src/runtime/gateway-client.ts`          | `deliverApprovalPrompt()` — sends the approval payload (text + UI metadata) to the gateway for rendering                          |
+| `src/memory/runs-store.ts`               | `getPendingConfirmationsByConversation` — queries runs in `needs_confirmation` state                                              |
 
 ### Enabling
 
@@ -179,14 +179,14 @@ Channel approvals are always enabled for channel traffic when orchestrator + cal
 
 ### Guardian-Specific Behavior
 
-Guardian actor-role *classification* (determining whether a sender is guardian, non-guardian, or unverified) runs unconditionally. Guardian *enforcement* for non-guardian/unverified actors (`forceStrictSideEffects`, fail-closed denial for unverified channels, and approval prompt routing to guardians) is always active when orchestrator + callback context are available.
+Guardian actor-role _classification_ (determining whether a sender is guardian, non-guardian, or unverified) runs unconditionally. Guardian _enforcement_ for non-guardian/unverified actors (`forceStrictSideEffects`, fail-closed denial for unverified channels, and approval prompt routing to guardians) is always active when orchestrator + callback context are available.
 
-| Flag / Behavior | Description |
-|-----------------|-------------|
-| `forceStrictSideEffects` | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval. |
-| **Fail-closed no-binding** | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured. |
-| **Fail-closed no-identity** | When `actorExternalId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet). |
-| **Guardian-only approval** | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny. |
+| Flag / Behavior                | Description                                                                                                                                                                                                                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `forceStrictSideEffects`       | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval.                                                                                                                                                        |
+| **Fail-closed no-binding**     | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured.                                                                                            |
+| **Fail-closed no-identity**    | When `actorExternalId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet).                                                                                                                                                         |
+| **Guardian-only approval**     | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny.                                                                                                                                                                      |
 | **Expired approval auto-deny** | A proactive sweep runs every 60 seconds to find expired guardian approval requests (30-minute TTL). Expired approvals are auto-denied, and both the requester and guardian are notified. If a non-guardian interacts before the sweep runs, the expiry is also detected reactively. |
 
 ### Ingress Boundary Guarantees (Gateway-Only Mode)
@@ -210,27 +210,27 @@ Twilio is the shared telephony provider for both voice calls and SMS messaging. 
 
 The runtime exposes a RESTful HTTP API for Twilio configuration, credential management, phone number operations, and SMS compliance:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/integrations/twilio/config` | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned) |
-| POST | `/v1/integrations/twilio/credentials` | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file) |
-| DELETE | `/v1/integrations/twilio/credentials` | Removes stored credentials. Preserves the phone number in both config and secure key so re-entering credentials resumes working without reassigning the number. |
-| GET | `/v1/integrations/twilio/numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
-| POST | `/v1/integrations/twilio/numbers/provision` | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available. |
-| POST | `/v1/integrations/twilio/numbers/assign` | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available |
-| POST | `/v1/integrations/twilio/numbers/release` | Releases a phone number from the Twilio account and clears local references |
-| GET | `/v1/integrations/twilio/sms/compliance` | Returns SMS compliance posture: number type (toll-free vs 10DLC) and toll-free verification status |
-| POST | `/v1/integrations/twilio/sms/compliance/tollfree` | Submits a new toll-free verification request |
-| PATCH | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Updates an existing toll-free verification by SID |
-| DELETE | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Deletes a toll-free verification by SID |
-| POST | `/v1/integrations/twilio/sms/test` | Sends a test SMS and polls for delivery status |
-| POST | `/v1/integrations/twilio/sms/doctor` | Runs comprehensive SMS health diagnostics |
+| Method | Path                                                   | Description                                                                                                                                                     |
+| ------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/integrations/twilio/config`                       | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned)                                                                               |
+| POST   | `/v1/integrations/twilio/credentials`                  | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file)                                                                   |
+| DELETE | `/v1/integrations/twilio/credentials`                  | Removes stored credentials. Preserves the phone number in both config and secure key so re-entering credentials resumes working without reassigning the number. |
+| GET    | `/v1/integrations/twilio/numbers`                      | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS)                                                                     |
+| POST   | `/v1/integrations/twilio/numbers/provision`            | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available.                        |
+| POST   | `/v1/integrations/twilio/numbers/assign`               | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available                                                          |
+| POST   | `/v1/integrations/twilio/numbers/release`              | Releases a phone number from the Twilio account and clears local references                                                                                     |
+| GET    | `/v1/integrations/twilio/sms/compliance`               | Returns SMS compliance posture: number type (toll-free vs 10DLC) and toll-free verification status                                                              |
+| POST   | `/v1/integrations/twilio/sms/compliance/tollfree`      | Submits a new toll-free verification request                                                                                                                    |
+| PATCH  | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Updates an existing toll-free verification by SID                                                                                                               |
+| DELETE | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Deletes a toll-free verification by SID                                                                                                                         |
+| POST   | `/v1/integrations/twilio/sms/test`                     | Sends a test SMS and polls for delivery status                                                                                                                  |
+| POST   | `/v1/integrations/twilio/sms/doctor`                   | Runs comprehensive SMS health diagnostics                                                                                                                       |
 
 All endpoints are JWT-authenticated (require a valid JWT with appropriate scopes). Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/integrations/twilio/*` routes.
 
 ### Ingress Webhook Reconciliation
 
-When the public ingress URL is changed via the Settings UI (`ingress_config` set action), the daemon automatically reconciles Twilio webhooks in addition to triggering a Telegram webhook reconcile on the gateway. If all of the following conditions are met, the daemon pushes updated webhook URLs (voice, status callback, SMS) to Twilio:
+When the public ingress URL is changed via the Settings UI (`ingress_config` set action), the assistant automatically reconciles Twilio webhooks in addition to triggering a Telegram webhook reconcile on the gateway. If all of the following conditions are met, the assistant pushes updated webhook URLs (voice, status callback, SMS) to Twilio:
 
 1. Ingress is being **enabled** (not disabled)
 2. Twilio **credentials** are configured (Account SID + Auth Token in secure storage)
@@ -271,7 +271,7 @@ The channel guardian service generates verification challenge instructions with 
 ### Operator Notes
 
 - **Verification input format:** Channel verification accepts a bare code reply only (6-digit numeric for identity-bound sessions; 64-char hex for unbound inbound/bootstrap compatibility).
-- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the daemon returns `already_bound`. This prevents accidental guardian replacement.
+- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the assistant returns `already_bound`. This prevents accidental guardian replacement.
 - **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
 
 ### Vellum Guardian Identity (Actor Tokens)
@@ -282,7 +282,7 @@ The vellum channel (macOS, iOS, CLI) uses JWTs to bind guardian identity to HTTP
 - **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
 - **IPC fallback**: Local IPC (Unix socket) connections resolve identity server-side via `resolveLocalIpcGuardianContext()` without requiring a JWT.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
-- **Startup migration**: On daemon start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
+- **Startup migration**: On assistant start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
 
 ## Guardian Verification and Ingress ACL
 
@@ -292,7 +292,7 @@ This section documents the end-to-end flow from guardian verification through in
 
 Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
 
-1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the daemon. The daemon generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
+1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
 2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram or SMS).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
 4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.
@@ -303,7 +303,7 @@ Rate limiting protects against brute-force attempts: 5 invalid attempts within 1
 
 The ingress ACL runs at the top of the channel inbound handler, before guardian role resolution and message processing. When `actorExternalId` is present, the handler enforces this decision chain:
 
-1. **Member lookup** — Look up the sender in `assistant_ingress_members` by `(sourceChannel, actorExternalId)` or `(sourceChannel, conversationExternalId)`. The DB uses `externalUserId` and `externalChatId` column names internally.
+1. **Contact lookup** — Look up the sender in the contacts table via `findContactChannel` by `(channelType, externalUserId)` or `(channelType, externalChatId)`.
 2. **Non-member denial** — If no member record exists, the message is denied with `not_a_member`.
 3. **Status check** — If the member exists but is not `active` (e.g., `revoked` or `blocked`), the message is denied.
 4. **Policy check** — The member's `policy` field determines routing:
@@ -323,24 +323,24 @@ When a member's policy is `escalate`:
 
 ### How the Systems Connect
 
-Guardian verification and ingress membership are complementary but independent systems:
+Guardian verification and ingress contact management are complementary but independent systems:
 
-- **Guardian verification** establishes *who controls the assistant* on a given channel. The guardian can approve sensitive actions, approve escalated messages, and is the trust anchor.
-- **Ingress membership** controls *who can interact with the assistant* on a given channel. Members are created via invite redemption, not via guardian verification.
+- **Guardian verification** establishes _who controls the assistant_ on a given channel. The guardian can approve sensitive actions, approve escalated messages, and is the trust anchor.
+- **Ingress contacts** control _who can interact with the assistant_ on a given channel. Contacts are created via invite redemption, not via guardian verification.
 - **Dependency**: Escalation requires a guardian binding — if no guardian has been verified for the channel, `escalate` policy messages are denied. This means guardian verification must precede any escalation-based access control.
 
 ### Key Modules
 
-| File | Purpose |
-|------|---------|
-| `src/runtime/channel-guardian-service.ts` | Challenge lifecycle: `createVerificationChallenge`, `validateAndConsumeChallenge`, `getGuardianBinding`, `isGuardian` |
-| `src/runtime/trust-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel |
-| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation |
-| `src/memory/ingress-member-store.ts` | Member CRUD: `findMember`, `upsertMember`, `revokeMember`, `blockMember` |
-| `src/memory/ingress-invite-store.ts` | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record) |
-| `src/memory/channel-guardian-store.ts` | Persistence for guardian bindings, verification challenges, and approval requests |
-| `src/runtime/guardian-outbound-actions.ts` | Shared business logic for outbound verification (start/resend/cancel) |
-| `src/runtime/routes/integration-routes.ts` | HTTP route handlers for outbound guardian verification endpoints |
+| File                                            | Purpose                                                                                                               |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-guardian-service.ts`       | Challenge lifecycle: `createVerificationChallenge`, `validateAndConsumeChallenge`, `getGuardianBinding`, `isGuardian` |
+| `src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel                                               |
+| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation                                             |
+| `src/contacts/contact-store.ts`                 | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                |
+| `src/memory/ingress-invite-store.ts`            | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                   |
+| `src/memory/channel-guardian-store.ts`          | Persistence for guardian bindings, verification challenges, and approval requests                                     |
+| `src/runtime/guardian-outbound-actions.ts`      | Shared business logic for outbound verification (start/resend/cancel)                                                 |
+| `src/runtime/routes/integration-routes.ts`      | HTTP route handlers for outbound guardian verification endpoints                                                      |
 
 ### Chat-Initiated Guardian Verification
 
@@ -353,11 +353,11 @@ Guardian verification can also be initiated through normal desktop chat. When th
 
 **Outbound HTTP Endpoints** (exposed via the gateway API and forwarded to the runtime):
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/integrations/guardian/outbound/start` | POST | Start outbound verification. Body: `{ channel, destination?, assistantId?, rebind? }` |
-| `/v1/integrations/guardian/outbound/resend` | POST | Resend verification code. Body: `{ channel, assistantId? }` |
-| `/v1/integrations/guardian/outbound/cancel` | POST | Cancel active session. Body: `{ channel, assistantId? }` |
+| Endpoint                                    | Method | Description                                                                           |
+| ------------------------------------------- | ------ | ------------------------------------------------------------------------------------- |
+| `/v1/integrations/guardian/outbound/start`  | POST   | Start outbound verification. Body: `{ channel, destination?, assistantId?, rebind? }` |
+| `/v1/integrations/guardian/outbound/resend` | POST   | Resend verification code. Body: `{ channel, assistantId? }`                           |
+| `/v1/integrations/guardian/outbound/cancel` | POST   | Cancel active session. Body: `{ channel, assistantId? }`                              |
 
 These endpoints share the same business logic as the IPC-based verification flow via `guardian-outbound-actions.ts`. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly.
 
@@ -369,10 +369,10 @@ Channel readiness is exposed via HTTP control-plane endpoints that provide a uni
 
 ### Channel Readiness HTTP Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/channels/readiness` | Returns readiness snapshots for the specified channel (query param `channel`, optional) or all channels. Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
-| POST | `/v1/channels/readiness/refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. Body: `{ channel?: ChannelId, includeRemote?: boolean }` |
+| Method | Path                             | Description                                                                                                                                                                                            |
+| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/v1/channels/readiness`         | Returns readiness snapshots for the specified channel (query param `channel`, optional) or all channels. Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
+| POST   | `/v1/channels/readiness/refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. Body: `{ channel?: ChannelId, includeRemote?: boolean }`                                              |
 
 All endpoints are bearer-authenticated. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/channels/readiness*` routes.
 
@@ -383,11 +383,11 @@ All endpoints are bearer-authenticated. Skills and clients should call the gatew
 
 ### Key modules
 
-| File | Purpose |
-|------|---------|
-| `src/runtime/channel-readiness-types.ts` | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe` |
-| `src/runtime/channel-readiness-service.ts` | Service class with probe registration, cached readiness evaluation, and built-in SMS/Telegram probes |
-| `src/runtime/routes/channel-readiness-routes.ts` | HTTP route handlers for `/v1/channels/readiness` and `/v1/channels/readiness/refresh` |
+| File                                             | Purpose                                                                                              |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-readiness-types.ts`         | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe`        |
+| `src/runtime/channel-readiness-service.ts`       | Service class with probe registration, cached readiness evaluation, and built-in SMS/Telegram probes |
+| `src/runtime/routes/channel-readiness-routes.ts` | HTTP route handlers for `/v1/channels/readiness` and `/v1/channels/readiness/refresh`                |
 
 ## Ingress Membership + Escalation
 
@@ -402,7 +402,7 @@ External users join through **invite tokens**. There are two invite flows:
 
 #### Guardian-Initiated Invite Link Flow (Telegram)
 
-1. **Guardian requests invite** — The guardian asks the assistant (via desktop chat) to create a Telegram invite link. The `guardian-invite-intent.ts` module detects the intent and routes the request into the `trusted-contacts` skill.
+1. **Guardian requests invite** — The guardian asks the assistant (via desktop chat) to create a Telegram invite link. The `guardian-invite-intent.ts` module detects the intent and routes the request into the `contacts` skill.
 2. **Invite creation** — The skill creates an invite token via the ingress HTTP API, looks up the Telegram bot username from the integration config endpoint, and constructs a shareable deep link: `https://t.me/<bot>?start=iv_<token>`.
 3. **Guardian shares link** — The guardian copies the deep link and shares it with the invitee through any messaging channel.
 4. **Invitee redeems** — The invitee clicks the link, which opens Telegram and sends `/start iv_<token>` to the bot. The inbound message handler extracts the token via the transport adapter, redeems it through the invite redemption service, and auto-creates an active member record.
@@ -416,7 +416,7 @@ The invite redemption system uses a three-layer architecture:
 
 - **Core redemption engine** (`invite-redemption-service.ts`) — Channel-agnostic business logic that validates tokens, enforces expiry/use-count/channel-match constraints, handles member reactivation, and returns a discriminated-union `InviteRedemptionOutcome`. Deterministic reply templates (`invite-redemption-templates.ts`) map each outcome to a user-facing message without passing through the LLM.
 - **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable deep links (`buildShareableInvite`) and extract inbound tokens (`extractInboundToken`). Currently only the Telegram adapter is implemented.
-- **Conversational orchestration** (`guardian-invite-intent.ts`) — Pattern-based intent detection that intercepts guardian invite management requests (create, list, revoke) in the session pipeline and forces immediate entry into the `trusted-contacts` skill, bypassing the normal agent loop.
+- **Conversational orchestration** (`guardian-invite-intent.ts`) — Pattern-based intent detection that intercepts guardian invite management requests (create, list, revoke) in the session pipeline and forces immediate entry into the `contacts` skill, bypassing the normal agent loop.
 
 #### Deferred Channel Support
 
@@ -432,7 +432,7 @@ Redemption auto-creates a **member** record with an access policy:
 - **`deny`** — Messages are rejected with a refusal notice.
 - **`escalate`** — Messages are held for guardian (owner) approval before processing.
 
-Non-members (senders with no invite redemption) are denied by default. Members can be listed, updated, revoked, or blocked via the `ingress_member` IPC contract.
+Non-members (senders with no invite redemption) are denied by default. Contacts can be listed, updated, revoked, or blocked via the HTTP API (`/v1/contacts` and `/v1/contacts/channels`).
 
 ### Escalation Flow
 
@@ -444,26 +444,25 @@ If no guardian binding exists, escalation fails closed — the message is denied
 
 ### IPC Contracts
 
-| Message Type | Actions | Description |
-|---|---|---|
+| Message Type     | Actions                      | Description                                                              |
+| ---------------- | ---------------------------- | ------------------------------------------------------------------------ |
 | `ingress_invite` | create, list, revoke, redeem | Manage invite tokens (SHA-256 hashed, raw token returned once on create) |
-| `ingress_member` | list, upsert, revoke, block | Manage member records and access policies |
 
 ### Key Modules
 
-| File | Purpose |
-|------|---------|
-| `src/memory/ingress-invite-store.ts` | CRUD for invite tokens with SHA-256 hashing and expiry |
-| `src/memory/ingress-member-store.ts` | CRUD for ingress members with policy enforcement |
-| `src/daemon/handlers/config-inbox.ts` | IPC handlers for ingress invite and member contracts |
-| `src/daemon/ipc-contract/inbox.ts` | TypeScript type definitions for ingress IPC messages |
-| `src/runtime/routes/channel-routes.ts` | ACL enforcement point — member lookup, policy check, escalation creation |
-| `src/runtime/invite-redemption-service.ts` | Core redemption engine — token validation, member creation, discriminated-union outcomes |
-| `src/runtime/invite-redemption-templates.ts` | Deterministic reply templates for each redemption outcome |
-| `src/runtime/channel-invite-transport.ts` | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel |
+| File                                                | Purpose                                                                                                          |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `src/memory/ingress-invite-store.ts`                | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
+| `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
+| `src/daemon/handlers/config-inbox.ts`               | IPC handlers for invite contract                                                                                 |
+| `src/daemon/ipc-contract/inbox.ts`                  | TypeScript type definitions for ingress IPC messages                                                             |
+| `src/runtime/routes/channel-routes.ts`              | ACL enforcement point — member lookup, policy check, escalation creation                                         |
+| `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, member creation, discriminated-union outcomes                         |
+| `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                        |
+| `src/runtime/channel-invite-transport.ts`           | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
-| `src/daemon/guardian-invite-intent.ts` | Intent detection — routes guardian invite management requests into the `trusted-contacts` skill |
-| `src/runtime/ingress-service.ts` | Shared business logic for invite/member operations (HTTP + IPC) |
+| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
+| `src/runtime/ingress-service.ts`                    | Shared business logic for invite and contact operations (HTTP + IPC)                                             |
 
 ## Database
 
@@ -496,12 +495,12 @@ The image runs as non-root user `assistant` (uid 1001) and exposes port `3001`.
 
 ### Guardian and gateway-origin issues
 
-| Symptom | Cause | Resolution |
-|---------|-------|------------|
-| 403 `FORBIDDEN` on `/channels/inbound` | JWT does not have `svc_gateway` principal type or `ingress.write` scope | Ensure the gateway is minting JWTs with the `gateway_ingress_v1` scope profile when forwarding channel inbound requests. |
-| Non-guardian actions silently denied | No guardian binding for the channel. The system is fail-closed for unverified channels. | Run the guardian verification flow from the desktop UI to bind a guardian. |
-| Guardian approval expired | The 30-minute TTL elapsed. The proactive sweep auto-denied the approval and notified both parties. | The requester must re-trigger the action. |
-| `forceStrictSideEffects` unexpectedly active | The sender is classified as `non-guardian` or `unverified_channel` | Verify the sender's `actorExternalId` matches the guardian binding, or set up a guardian binding for the channel. |
+| Symptom                                      | Cause                                                                                              | Resolution                                                                                                               |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 403 `FORBIDDEN` on `/channels/inbound`       | JWT does not have `svc_gateway` principal type or `ingress.write` scope                            | Ensure the gateway is minting JWTs with the `gateway_ingress_v1` scope profile when forwarding channel inbound requests. |
+| Non-guardian actions silently denied         | No guardian binding for the channel. The system is fail-closed for unverified channels.            | Run the guardian verification flow from the desktop UI to bind a guardian.                                               |
+| Guardian approval expired                    | The 30-minute TTL elapsed. The proactive sweep auto-denied the approval and notified both parties. | The requester must re-trigger the action.                                                                                |
+| `forceStrictSideEffects` unexpectedly active | The sender is classified as `non-guardian` or `unverified_channel`                                 | Verify the sender's `actorExternalId` matches the guardian binding, or set up a guardian binding for the channel.        |
 
 ### Invalid RRULE set expressions
 

@@ -7,13 +7,13 @@
  * - guardian-rate-limits.ts — verification rate limiting
  *
  * Guardian binding types (GuardianBinding, BindingStatus) are defined locally
- * here after the deletion of the legacy guardian-bindings.ts store.
+ * here.
  *
  * This file re-exports everything for backward compatibility.
  */
 
 // ---------------------------------------------------------------------------
-// Guardian binding types (formerly in guardian-bindings.ts)
+// Guardian binding types
 // ---------------------------------------------------------------------------
 
 export type BindingStatus = "active" | "revoked";

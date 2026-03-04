@@ -16,6 +16,7 @@ import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
+import { SlackAdapter } from "./adapters/slack.js";
 import { SmsAdapter } from "./adapters/sms.js";
 import { TelegramAdapter } from "./adapters/telegram.js";
 import {
@@ -61,7 +62,11 @@ export function registerBroadcastFn(fn: BroadcastFn): void {
 
 function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
-    const adapters = [new TelegramAdapter(), new SmsAdapter()];
+    const adapters = [
+      new TelegramAdapter(),
+      new SmsAdapter(),
+      new SlackAdapter(),
+    ];
     if (registeredBroadcastFn) {
       adapters.unshift(new VellumAdapter(registeredBroadcastFn));
     }
@@ -109,7 +114,8 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         channels.push(channel);
         break;
       case "telegram":
-      case "sms": {
+      case "sms":
+      case "slack": {
         // A binding-based channel is connected when the guardian has an
         // active channel entry with a valid delivery endpoint. The
         // externalChatId check ensures we don't report a channel as
@@ -117,6 +123,17 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         // delivery address the destination-resolver needs.
         const guardian = findGuardianForChannel(channel, assistantId);
         if (guardian && guardian.channel.externalChatId) {
+          channels.push(channel);
+        }
+        break;
+      }
+      case "slack": {
+        // Slack bindings can originate from shared channels (app_mention).
+        // Only consider Slack connected when the stored chat ID is a DM
+        // channel (D-prefixed) to prevent leaking notifications.
+        const slackGuardian = findGuardianForChannel("slack", assistantId);
+        const chatId = slackGuardian?.channel.externalChatId;
+        if (slackGuardian && chatId && chatId.startsWith("D")) {
           channels.push(channel);
         }
         break;

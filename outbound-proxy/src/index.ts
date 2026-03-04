@@ -70,11 +70,10 @@ export type { HealthServerOptions } from './health.js';
 
 // Logging/diagnostics
 export {
-  buildCredentialRefTrace,
   buildDecisionTrace,
   createSafeLogEntry,
   sanitizeHeaders,
   sanitizeUrl,
   stripQueryString,
 } from './logging.js';
-export type { CredentialRefTrace, ProxyDecisionTrace } from './logging.js';
+export type { ProxyDecisionTrace } from './logging.js';

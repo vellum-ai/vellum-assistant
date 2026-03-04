@@ -264,7 +264,7 @@ export function initializeDb(): void {
   // 33. Add verification and access-control columns to contact_channels
   migrateContactChannelsAccessFields(database);
 
-  // 34. Composite index on (type, external_chat_id) for updateChannelLastSeenByExternalChatId
+  // 34. Composite index on (type, external_chat_id) for contact channel lookups
   migrateContactChannelsTypeChatIdIndex(database);
 
   // 35. Safety-sync remaining legacy data then drop assistant_ingress_members and channel_guardian_bindings
