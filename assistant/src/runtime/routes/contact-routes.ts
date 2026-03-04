@@ -9,23 +9,33 @@
  */
 
 import {
+  getAssistantContactMetadata,
   getChannelById,
   getContact,
   listContacts,
   mergeContacts,
   searchContacts,
   updateChannelStatus,
+  upsertAssistantContactMetadata,
   upsertContact,
 } from "../../contacts/contact-store.js";
 import type {
+  AssistantSpecies,
   ChannelPolicy,
   ChannelStatus,
   ContactRole,
+  ContactType,
 } from "../../contacts/types.js";
 import { httpError } from "../http-errors.js";
 
+const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
+const VALID_ASSISTANT_SPECIES: readonly AssistantSpecies[] = [
+  "vellum",
+  "openclaw",
+];
+
 /**
- * GET /v1/contacts?limit=50&role=guardian
+ * GET /v1/contacts?limit=50&role=guardian&contactType=human
  *
  * Also supports search query params: query, channelAddress, channelType, relationship.
  * When any search param is provided, delegates to searchContacts() instead of listContacts().
@@ -33,13 +43,26 @@ import { httpError } from "../http-errors.js";
 export function handleListContacts(url: URL, assistantId: string): Response {
   const limit = Number(url.searchParams.get("limit") ?? 50);
   const role = url.searchParams.get("role") as ContactRole | null;
+  const contactTypeParam = url.searchParams.get("contactType");
   const query = url.searchParams.get("query");
   const channelAddress = url.searchParams.get("channelAddress");
   const channelType = url.searchParams.get("channelType");
   const relationship = url.searchParams.get("relationship");
 
+  if (contactTypeParam && !isContactType(contactTypeParam)) {
+    return httpError(
+      "BAD_REQUEST",
+      `Invalid contactType "${contactTypeParam}". Must be one of: ${VALID_CONTACT_TYPES.join(", ")}`,
+      400,
+    );
+  }
+
   const hasSearchParams =
     query || channelAddress || channelType || relationship;
+
+  const contactType = contactTypeParam
+    ? (contactTypeParam as ContactType)
+    : undefined;
 
   if (hasSearchParams) {
     const contacts = searchContacts({
@@ -49,12 +72,18 @@ export function handleListContacts(url: URL, assistantId: string): Response {
       channelType: channelType ?? undefined,
       relationship: relationship ?? undefined,
       role: role ?? undefined,
+      contactType,
       limit,
     });
     return Response.json({ ok: true, contacts });
   }
 
-  const contacts = listContacts(assistantId, limit, role ?? undefined);
+  const contacts = listContacts(
+    assistantId,
+    limit,
+    role ?? undefined,
+    contactType,
+  );
   return Response.json({ ok: true, contacts });
 }
 
@@ -69,7 +98,15 @@ export function handleGetContact(
   if (!contact) {
     return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
   }
-  return Response.json({ ok: true, contact });
+  const assistantMeta =
+    contact.contactType === "assistant"
+      ? getAssistantContactMetadata(contact.id)
+      : undefined;
+  return Response.json({
+    ok: true,
+    contact,
+    assistantMetadata: assistantMeta ?? undefined,
+  });
 }
 
 /**
@@ -107,6 +144,14 @@ const VALID_CHANNEL_POLICIES: readonly ChannelPolicy[] = [
   "escalate",
 ];
 
+function isContactType(value: string): value is ContactType {
+  return (VALID_CONTACT_TYPES as readonly string[]).includes(value);
+}
+
+function isAssistantSpecies(value: string): value is AssistantSpecies {
+  return (VALID_ASSISTANT_SPECIES as readonly string[]).includes(value);
+}
+
 function isChannelStatus(value: string): value is ChannelStatus {
   return (VALID_CHANNEL_STATUSES as readonly string[]).includes(value);
 }
@@ -116,7 +161,7 @@ function isChannelPolicy(value: string): value is ChannelPolicy {
 }
 
 /**
- * POST /v1/contacts { displayName, id?, relationship?, importance?, ... }
+ * POST /v1/contacts { displayName, id?, relationship?, importance?, contactType?, assistantMetadata?, ... }
  */
 export async function handleUpsertContact(
   req: Request,
@@ -130,6 +175,11 @@ export async function handleUpsertContact(
     responseExpectation?: string;
     preferredTone?: string;
     role?: string;
+    contactType?: string;
+    assistantMetadata?: {
+      species: string;
+      metadata?: Record<string, unknown>;
+    };
     channels?: Array<{
       type: string;
       address: string;
@@ -167,6 +217,47 @@ export async function handleUpsertContact(
     );
   }
 
+  if (body.contactType !== undefined && !isContactType(body.contactType)) {
+    return httpError(
+      "BAD_REQUEST",
+      `Invalid contactType "${body.contactType}". Must be one of: ${VALID_CONTACT_TYPES.join(", ")}`,
+      400,
+    );
+  }
+
+  if (body.contactType === "assistant") {
+    if (!body.assistantMetadata) {
+      return httpError(
+        "BAD_REQUEST",
+        'assistantMetadata is required when contactType is "assistant"',
+        400,
+      );
+    }
+    if (!isAssistantSpecies(body.assistantMetadata.species)) {
+      return httpError(
+        "BAD_REQUEST",
+        `Invalid species "${body.assistantMetadata.species}". Must be one of: ${VALID_ASSISTANT_SPECIES.join(", ")}`,
+        400,
+      );
+    }
+  }
+
+  if (body.contactType === "human" && body.assistantMetadata) {
+    return httpError(
+      "BAD_REQUEST",
+      'assistantMetadata must not be provided when contactType is "human"',
+      400,
+    );
+  }
+
+  if (body.assistantMetadata && !body.contactType) {
+    return httpError(
+      "BAD_REQUEST",
+      'contactType must be "assistant" when assistantMetadata is provided',
+      400,
+    );
+  }
+
   if (body.channels) {
     if (!Array.isArray(body.channels)) {
       return httpError("BAD_REQUEST", "channels must be an array", 400);
@@ -198,6 +289,7 @@ export async function handleUpsertContact(
       responseExpectation: body.responseExpectation,
       preferredTone: body.preferredTone,
       role: body.role as ContactRole | undefined,
+      contactType: body.contactType as ContactType | undefined,
       assistantId,
       channels: body.channels?.map((ch) => ({
         ...ch,
@@ -205,6 +297,15 @@ export async function handleUpsertContact(
         policy: ch.policy as ChannelPolicy | undefined,
       })),
     });
+
+    if (body.assistantMetadata) {
+      upsertAssistantContactMetadata({
+        contactId: contact.id,
+        species: body.assistantMetadata.species as AssistantSpecies,
+        metadata: body.assistantMetadata.metadata ?? null,
+      });
+    }
+
     return Response.json(
       { ok: true, contact },
       { status: contact.created ? 201 : 200 },

@@ -34,7 +34,6 @@ struct ChatBubble: View {
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
-    @State var stepsExpanded = false
     /// Injected from the parent instead of observing the shared singleton directly.
     /// This avoids every ChatBubble in the list re-rendering whenever the overlay
     /// manager publishes any change (the "thundering herd" problem).

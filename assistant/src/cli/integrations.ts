@@ -112,6 +112,9 @@ function readVoiceConfig(): {
   };
 }
 
+// CLI-specific gateway helper — uses GATEWAY_AUTH_TOKEN / INTERNAL_GATEWAY_BASE_URL
+// env vars for out-of-process access. See runtime/gateway-internal-client.ts for
+// daemon-internal usage which mints fresh tokens and uses GATEWAY_INTERNAL_BASE_URL.
 async function gatewayGet(path: string): Promise<unknown> {
   const gatewayBase = resolveGatewayBaseUrl();
   const token = getGatewayToken();

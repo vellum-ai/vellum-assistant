@@ -417,6 +417,7 @@ export const contacts = sqliteTable("contacts", {
   role: text("role").notNull().default("contact"), // 'guardian' | 'contact'
   principalId: text("principal_id"), // internal auth principal (nullable)
   assistantId: text("assistant_id"), // which assistant this guardian is for (nullable, daemon default is DAEMON_INTERNAL_ASSISTANT_ID)
+  contactType: text("contact_type").notNull().default("human"), // 'human' | 'assistant'
 });
 
 export const contactChannels = sqliteTable(
@@ -454,6 +455,17 @@ export const contactChannels = sqliteTable(
       table.externalChatId,
     ),
   ],
+);
+
+export const assistantContactMetadata = sqliteTable(
+  "assistant_contact_metadata",
+  {
+    contactId: text("contact_id")
+      .primaryKey()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    species: text("species").notNull(), // 'vellum' | 'openclaw'
+    metadata: text("metadata"), // JSON blob for species-specific fields
+  },
 );
 
 // ── Triage Results ───────────────────────────────────────────────────

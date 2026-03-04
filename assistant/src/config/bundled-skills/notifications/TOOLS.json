@@ -65,6 +65,10 @@
           "confidence": {
             "type": "number",
             "description": "Confidence score (0-1) for this action"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["message", "confidence"]

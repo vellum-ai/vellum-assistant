@@ -369,15 +369,35 @@ export class SlackSocketModeClient {
       this.store.hasThread(reactionEvent.item.ts);
 
     // Process app_mention events, DMs, message edits, scoped reactions, and replies in active bot threads
-    if (
-      !isAppMention &&
-      !isDm &&
-      !isMessageChanged &&
-      !isReactionAdded &&
-      !isActiveThreadReply
-    ) {
+    const matchedFilter = isAppMention
+      ? "app_mention"
+      : isDm
+        ? "dm"
+        : isMessageChanged
+          ? "message_changed"
+          : isReactionAdded
+            ? "reaction_added"
+            : isActiveThreadReply
+              ? "active_thread_reply"
+              : null;
+
+    if (!matchedFilter) {
       return;
     }
+
+    log.info(
+      {
+        eventId: eventPayload.event_id,
+        filter: matchedFilter,
+        type: event.type,
+        channelType: (event as { channel_type?: string }).channel_type,
+        channel: (event as { channel?: string }).channel,
+        subtype: (event as { subtype?: string }).subtype,
+        user: (event as { user?: string }).user,
+        hasThreadTs: !!(event as { thread_ts?: string }).thread_ts,
+      },
+      "Slack event accepted by filter",
+    );
 
     // Deduplicate on event_id
     const eventId = eventPayload.event_id;
@@ -410,7 +430,7 @@ export class SlackSocketModeClient {
     isActiveThreadReply: boolean,
     isReactionAdded: boolean,
     isMessageChanged: boolean,
-    _isDm: boolean,
+    isDm: boolean,
   ): void {
     let normalized: NormalizedSlackEvent | null;
     if (isReactionAdded) {
@@ -440,13 +460,23 @@ export class SlackSocketModeClient {
         this.config.gatewayConfig,
         this.config.botUserId,
       );
-    } else {
+    } else if (isDm) {
       normalized = normalizeSlackDirectMessage(
         event as SlackDirectMessageEvent,
         eventId,
         this.config.gatewayConfig,
         this.config.botUserId,
       );
+    } else {
+      log.warn(
+        {
+          eventId,
+          type: event.type,
+          channel: (event as { channel?: string }).channel,
+        },
+        "Slack event passed filter but no normalizer matched — dropping",
+      );
+      return;
     }
 
     if (!normalized) {

@@ -374,7 +374,7 @@ struct ChatGallerySection: View {
             // MARK: - Progress Indicators
             GallerySectionHeader(
                 title: "Progress Indicators",
-                description: "TypingIndicatorView, LiveToolProgressView, RunningIndicator"
+                description: "TypingIndicatorView, AssistantProgressView, RunningIndicator"
             )
 
             VCard {
@@ -390,10 +390,10 @@ struct ChatGallerySection: View {
 
                     Divider().background(VColor.surfaceBorder)
 
-                    Text("LiveToolProgressView — macOS only (clients/macos/)")
+                    Text("AssistantProgressView — macOS only (clients/macos/)")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
-                    Text("Shows live progress for running tool calls with a spinning indicator and step list. Not available in the shared gallery because it depends on macOS-only imports.")
+                    Text("Unified container for all tool progress states. Smoothly morphs between thinking, running, streaming code, and completed phases. Not available in the shared gallery because it depends on macOS-only imports.")
                         .font(VFont.small)
                         .foregroundColor(VColor.textMuted)
 
