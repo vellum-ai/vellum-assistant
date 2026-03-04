@@ -8,6 +8,9 @@
 
 import { type Block, BlockKitBuilder } from "./block-kit-builder.js";
 
+/** Slack mrkdwn text sections have a 3000-character limit. */
+const SLACK_MRKDWN_MAX_LENGTH = 3000;
+
 /**
  * Convert a markdown/plain-text string into an array of Block Kit blocks.
  *
@@ -36,12 +39,12 @@ export function textToBlocks(text: string): Block[] {
       // Wrap in triple backticks for Slack mrkdwn rendering
       const lang = segment.lang ? segment.lang : "";
       const codeText = "```" + lang + "\n" + segment.content + "\n```";
-      builder.section(codeText);
+      addSectionChunks(builder, codeText);
     } else if (segment.type === "header") {
       builder.header(segment.content);
     } else {
       // Convert markdown formatting to Slack mrkdwn
-      builder.section(markdownToMrkdwn(segment.content));
+      addSectionChunks(builder, markdownToMrkdwn(segment.content));
     }
   }
 
@@ -94,7 +97,7 @@ function splitIntoSegments(text: string): Segment[] {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
-    const fenceMatch = line.match(/^```(\w*)\s*$/);
+    const fenceMatch = line.match(/^```([^\s`]*)\s*$/);
 
     if (fenceMatch) {
       flushText();
@@ -125,6 +128,70 @@ function splitIntoSegments(text: string): Segment[] {
 
   flushText();
   return segments;
+}
+
+// ---------------------------------------------------------------------------
+// Block length guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Add one or more section blocks for `text`, splitting at line boundaries
+ * when the content exceeds Slack's 3000-char mrkdwn limit.
+ */
+function addSectionChunks(builder: BlockKitBuilder, text: string): void {
+  if (text.length <= SLACK_MRKDWN_MAX_LENGTH) {
+    builder.section(text);
+    return;
+  }
+
+  const chunks = splitTextAtLimit(text, SLACK_MRKDWN_MAX_LENGTH);
+  for (let j = 0; j < chunks.length; j++) {
+    if (j > 0) builder.divider();
+    builder.section(chunks[j]);
+  }
+}
+
+/**
+ * Split `text` into chunks that each fit within `maxLen`, preferring to
+ * break at newline boundaries. Falls back to hard-splitting mid-line only
+ * when a single line exceeds the limit.
+ */
+function splitTextAtLimit(text: string, maxLen: number): string[] {
+  const lines = text.split("\n");
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const line of lines) {
+    const candidate = current.length === 0 ? line : current + "\n" + line;
+
+    if (candidate.length <= maxLen) {
+      current = candidate;
+    } else {
+      // Flush what we have so far
+      if (current.length > 0) {
+        chunks.push(current);
+        current = "";
+      }
+
+      // If a single line exceeds the limit, hard-split it
+      if (line.length > maxLen) {
+        let remaining = line;
+        while (remaining.length > maxLen) {
+          chunks.push(remaining.slice(0, maxLen));
+          remaining = remaining.slice(maxLen);
+        }
+        current = remaining;
+      } else {
+        current = line;
+      }
+    }
+  }
+
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+
+  return chunks;
 }
 
 // ---------------------------------------------------------------------------

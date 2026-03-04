@@ -17,12 +17,15 @@ import {
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
-import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
-import { contactChannelToMemberRecord } from "../contacts/member-record-shim.js";
+import {
+  createGuardianBinding,
+  revokeGuardianBinding,
+  upsertMember,
+} from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
-import { findActiveVoiceInvites } from "../memory/ingress-invite-store.js";
+import { findActiveVoiceInvites } from "../memory/invite-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
@@ -40,7 +43,7 @@ import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/guardian-verification-templates.js";
-import { redeemVoiceInviteCode } from "../runtime/ingress-service.js";
+import { redeemVoiceInviteCode } from "../runtime/invite-service.js";
 import { parseJsonSafe } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -714,7 +717,7 @@ export class RelayConnection {
         // an explicit decision to block them. This must be checked before
         // invite redemption so a blocked caller cannot bypass the block by
         // redeeming an active invite.
-        if (actorTrust.memberRecord?.status === "blocked") {
+        if (actorTrust.memberRecord?.channel.status === "blocked") {
           log.info(
             {
               callSessionId: this.callSessionId,
@@ -792,12 +795,12 @@ export class RelayConnection {
       // Members with policy: 'deny' have status: 'active' so resolveActorTrust
       // classifies them as trusted_contact, but the guardian has explicitly
       // denied their access. Block them the same way the text-channel path does.
-      if (actorTrust.memberRecord?.policy === "deny") {
+      if (actorTrust.memberRecord?.channel.policy === "deny") {
         log.info(
           {
             callSessionId: this.callSessionId,
             from: msg.from,
-            memberId: actorTrust.memberRecord.id,
+            channelId: actorTrust.memberRecord.channel.id,
             trustClass: actorTrust.trustClass,
           },
           "Inbound voice ACL: member policy deny",
@@ -806,8 +809,8 @@ export class RelayConnection {
         recordCallEvent(this.callSessionId, "inbound_acl_denied", {
           from: msg.from,
           trustClass: actorTrust.trustClass,
-          memberId: actorTrust.memberRecord.id,
-          memberPolicy: actorTrust.memberRecord.policy,
+          channelId: actorTrust.memberRecord.channel.id,
+          memberPolicy: actorTrust.memberRecord.channel.policy,
         });
 
         this.sendTextToken(
@@ -832,12 +835,12 @@ export class RelayConnection {
       // Members with policy: 'escalate' require guardian approval, but a live
       // voice call cannot be paused for async approval. Fail-closed by denying
       // the call with an appropriate message — mirrors the deny block above.
-      if (actorTrust.memberRecord?.policy === "escalate") {
+      if (actorTrust.memberRecord?.channel.policy === "escalate") {
         log.info(
           {
             callSessionId: this.callSessionId,
             from: msg.from,
-            memberId: actorTrust.memberRecord.id,
+            channelId: actorTrust.memberRecord.channel.id,
             trustClass: actorTrust.trustClass,
           },
           "Inbound voice ACL: member policy escalate — cannot hold live call for guardian approval",
@@ -846,8 +849,8 @@ export class RelayConnection {
         recordCallEvent(this.callSessionId, "inbound_acl_denied", {
           from: msg.from,
           trustClass: actorTrust.trustClass,
-          memberId: actorTrust.memberRecord.id,
-          memberPolicy: actorTrust.memberRecord.policy,
+          channelId: actorTrust.memberRecord.channel.id,
+          memberPolicy: actorTrust.memberRecord.channel.policy,
         });
 
         this.sendTextToken(
@@ -984,7 +987,7 @@ export class RelayConnection {
 
     if (!params.skipMemberActivation) {
       try {
-        upsertMemberContactsFirst({
+        upsertMember({
           assistantId,
           sourceChannel: "voice",
           externalUserId: fromNumber,
@@ -1191,7 +1194,6 @@ export class RelayConnection {
     );
 
     if (result.success) {
-      // Guardian binding was created by validateAndConsumeChallenge
       this.connectionState = "connected";
       this.guardianVerificationActive = false;
       this.verificationAttempts = 0;
@@ -1202,12 +1204,53 @@ export class RelayConnection {
         : "guardian_voice_verification_succeeded";
 
       recordCallEvent(this.callSessionId, eventName, {
-        bindingId: "bindingId" in result ? result.bindingId : undefined,
+        verificationType: result.verificationType,
       });
       log.info(
         { callSessionId: this.callSessionId, isOutbound },
         "Guardian voice verification succeeded",
       );
+
+      // Create the guardian binding now that verification succeeded.
+      if (result.verificationType === "guardian") {
+        const existingBinding = getGuardianBinding(
+          this.guardianChallengeAssistantId,
+          "voice",
+        );
+        if (
+          existingBinding &&
+          existingBinding.guardianExternalUserId !==
+            this.guardianVerificationFromNumber
+        ) {
+          log.warn(
+            {
+              callSessionId: this.callSessionId,
+              existingGuardian: existingBinding.guardianExternalUserId,
+            },
+            "Guardian binding conflict: another user already holds the voice binding",
+          );
+        } else {
+          revokeGuardianBinding(this.guardianChallengeAssistantId, "voice");
+
+          // Unify all channel bindings onto the canonical (vellum) principal
+          const vellumBinding = getGuardianBinding(
+            this.guardianChallengeAssistantId,
+            "vellum",
+          );
+          const canonicalPrincipal =
+            vellumBinding?.guardianPrincipalId ??
+            this.guardianVerificationFromNumber;
+
+          createGuardianBinding({
+            assistantId: this.guardianChallengeAssistantId,
+            channel: "voice",
+            guardianExternalUserId: this.guardianVerificationFromNumber,
+            guardianDeliveryChatId: this.guardianVerificationFromNumber,
+            guardianPrincipalId: canonicalPrincipal,
+            verifiedVia: "challenge",
+          });
+        }
+      }
 
       if (isOutbound) {
         // Outbound guardian verification: play success and hang up.
@@ -1258,19 +1301,58 @@ export class RelayConnection {
           fromNumber: this.guardianVerificationFromNumber,
         });
       } else {
-        // Inbound guardian verification: proceed to normal call flow
+        // Inbound guardian verification: create/update binding, then proceed
+        // to normal call flow. Mirrors the binding creation logic in
+        // verification-intercept.ts for the inbound channel path.
+        const guardianAssistantId = this.guardianChallengeAssistantId;
+        const callerNumber = this.guardianVerificationFromNumber;
+
+        const existingBinding = getGuardianBinding(
+          guardianAssistantId,
+          "voice",
+        );
+        if (
+          existingBinding &&
+          existingBinding.guardianExternalUserId !== callerNumber
+        ) {
+          log.warn(
+            {
+              sourceChannel: "voice",
+              existingGuardian: existingBinding.guardianExternalUserId,
+            },
+            "Guardian binding conflict: another user already holds the voice channel binding",
+          );
+        } else {
+          revokeGuardianBinding(guardianAssistantId, "voice");
+
+          // Resolve canonical principal from the vellum channel binding
+          // so all channel bindings share a single principal identity.
+          const vellumBinding = getGuardianBinding(
+            guardianAssistantId,
+            "vellum",
+          );
+          const canonicalPrincipal =
+            vellumBinding?.guardianPrincipalId ?? callerNumber;
+
+          createGuardianBinding({
+            assistantId: guardianAssistantId,
+            channel: "voice",
+            guardianExternalUserId: callerNumber,
+            guardianDeliveryChatId: callerNumber,
+            guardianPrincipalId: canonicalPrincipal,
+            verifiedVia: "challenge",
+          });
+        }
+
         if (this.controller) {
           const verifiedActorTrust = resolveActorTrust({
-            assistantId: this.guardianChallengeAssistantId,
+            assistantId: guardianAssistantId,
             sourceChannel: "voice",
-            conversationExternalId: this.guardianVerificationFromNumber,
-            actorExternalId: this.guardianVerificationFromNumber,
+            conversationExternalId: callerNumber,
+            actorExternalId: callerNumber,
           });
           this.controller.setTrustContext(
-            toTrustContext(
-              verifiedActorTrust,
-              this.guardianVerificationFromNumber,
-            ),
+            toTrustContext(verifiedActorTrust, callerNumber),
           );
           this.startNormalCallFlow(this.controller, true);
         }
@@ -1558,6 +1640,11 @@ export class RelayConnection {
     // Delay the first heartbeat by the estimated TTS playback duration so
     // the initial hold message finishes before any heartbeat fires.
     this.heartbeatSequence = 0;
+    // Set the wait start time now so scheduleNextHeartbeat() always has a
+    // valid reference point — even if the TTS delay timer is cancelled early
+    // (e.g. by handleWaitStatePrompt when the caller speaks during playback).
+    // The callback below re-stamps it to exclude the TTS delay if it fires.
+    this.accessRequestWaitStartedAt = Date.now();
     this.accessRequestHeartbeatTimer = setTimeout(() => {
       this.accessRequestWaitStartedAt = Date.now();
       this.scheduleNextHeartbeat();
@@ -1775,14 +1862,12 @@ export class RelayConnection {
           externalUserId: fromNumber,
           externalChatId: fromNumber,
         });
-        const member = contactResult
-          ? contactChannelToMemberRecord(
-              contactResult.contact,
-              contactResult.channel,
-            )
-          : null;
-        if (member && member.status === "active" && member.policy === "allow") {
-          requesterMemberId = member.id;
+        if (
+          contactResult &&
+          contactResult.channel.status === "active" &&
+          contactResult.channel.policy === "allow"
+        ) {
+          requesterMemberId = contactResult.channel.id;
         }
       } catch (err) {
         log.warn(
@@ -1895,7 +1980,7 @@ export class RelayConnection {
 
   /**
    * Validate an entered invite code against active voice invites for the
-   * caller. On success, create/activate the ingress member and transition
+   * caller. On success, create/activate the contact and transition
    * to the normal call flow. On failure, allow retries up to max attempts.
    */
   private attemptInviteCodeRedemption(enteredCode: string): void {

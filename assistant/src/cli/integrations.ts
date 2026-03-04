@@ -1,20 +1,20 @@
-import type { Command } from 'commander';
+import type { Command } from "commander";
 
-import { DEFAULT_ELEVENLABS_VOICE_ID } from '../config/elevenlabs-schema.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { loadRawConfig } from '../config/loader.js';
+import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/elevenlabs-schema.js";
+import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { loadRawConfig } from "../config/loader.js";
 import {
   initAuthSigningKey,
   isSigningKeyInitialized,
   loadOrCreateSigningKey,
   mintEdgeRelayToken,
-} from '../runtime/auth/token-service.js';
+} from "../runtime/auth/token-service.js";
 
-type IngressChannel = 'telegram' | 'voice' | 'sms';
-type GuardianChannel = 'telegram' | 'voice' | 'sms';
+type IngressChannel = "telegram" | "voice" | "sms";
+type GuardianChannel = "telegram" | "voice" | "sms";
 
 function asRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
   return value as Record<string, unknown>;
@@ -32,7 +32,9 @@ function shouldOutputJson(cmd: Command): boolean {
 function writeOutput(cmd: Command, payload: unknown): void {
   const compact = shouldOutputJson(cmd);
   process.stdout.write(
-    compact ? JSON.stringify(payload) + '\n' : JSON.stringify(payload, null, 2) + '\n',
+    compact
+      ? JSON.stringify(payload) + "\n"
+      : JSON.stringify(payload, null, 2) + "\n",
   );
 }
 
@@ -53,13 +55,13 @@ function toQueryString(params: Record<string, string | undefined>): string {
     if (value) query.set(key, value);
   }
   const encoded = query.toString();
-  return encoded ? `?${encoded}` : '';
+  return encoded ? `?${encoded}` : "";
 }
 
 function resolveGatewayBaseUrl(): string {
   const injectedGatewayBase = process.env.INTERNAL_GATEWAY_BASE_URL?.trim();
   if (injectedGatewayBase && injectedGatewayBase.length > 0) {
-    return injectedGatewayBase.replace(/\/+$/, '');
+    return injectedGatewayBase.replace(/\/+$/, "");
   }
   return getGatewayInternalBaseUrl();
 }
@@ -72,13 +74,13 @@ function readIngressConfig(): {
 } {
   const raw = loadRawConfig();
   const ingress = asRecord(raw.ingress);
-  const configuredUrl = typeof ingress.publicBaseUrl === 'string'
-    ? ingress.publicBaseUrl.trim()
-    : '';
-  const explicitEnabled = typeof ingress.enabled === 'boolean'
-    ? ingress.enabled
-    : undefined;
-  const enabled = explicitEnabled ?? (configuredUrl.length > 0);
+  const configuredUrl =
+    typeof ingress.publicBaseUrl === "string"
+      ? ingress.publicBaseUrl.trim()
+      : "";
+  const explicitEnabled =
+    typeof ingress.enabled === "boolean" ? ingress.enabled : undefined;
+  const enabled = explicitEnabled ?? configuredUrl.length > 0;
 
   return {
     success: true,
@@ -98,9 +100,8 @@ function readVoiceConfig(): {
   const raw = loadRawConfig();
   const calls = asRecord(raw.calls);
   const elevenlabs = asRecord(raw.elevenlabs);
-  const configuredVoiceId = typeof elevenlabs.voiceId === 'string'
-    ? elevenlabs.voiceId.trim()
-    : '';
+  const configuredVoiceId =
+    typeof elevenlabs.voiceId === "string" ? elevenlabs.voiceId.trim() : "";
 
   return {
     success: true,
@@ -116,9 +117,9 @@ async function gatewayGet(path: string): Promise<unknown> {
   const token = getGatewayToken();
 
   const response = await fetch(`${gatewayBase}${path}`, {
-    method: 'GET',
+    method: "GET",
     headers: {
-      Accept: 'application/json',
+      Accept: "application/json",
       Authorization: `Bearer ${token}`,
     },
   });
@@ -135,9 +136,10 @@ async function gatewayGet(path: string): Promise<unknown> {
   }
 
   if (!response.ok) {
-    const message = typeof parsed === 'object' && parsed && 'error' in parsed
-      ? String((parsed as { error?: unknown }).error)
-      : `Gateway request failed (${response.status})`;
+    const message =
+      typeof parsed === "object" && parsed && "error" in parsed
+        ? String((parsed as { error?: unknown }).error)
+        : `Gateway request failed (${response.status})`;
     throw new Error(`${message} [${response.status}]`);
   }
 
@@ -158,126 +160,151 @@ async function runRead(
   }
 }
 
+export function registerContactsCommand(program: Command): void {
+  const contacts = program
+    .command("contacts")
+    .description("Manage and query the contact graph")
+    .option("--json", "Machine-readable compact JSON output");
+
+  contacts
+    .command("list")
+    .description("List contacts (calls /v1/contacts)")
+    .option("--role <role>", "Filter by role")
+    .option("--limit <limit>", "Maximum number of contacts to return")
+    .option("--query <query>", "Search query to filter contacts")
+    .action(
+      async (
+        opts: {
+          role?: string;
+          limit?: string;
+          query?: string;
+        },
+        cmd: Command,
+      ) => {
+        const query = toQueryString({
+          role: opts.role,
+          limit: opts.limit,
+          query: opts.query,
+        });
+        await runRead(cmd, async () => gatewayGet(`/v1/contacts${query}`));
+      },
+    );
+
+  contacts
+    .command("invites")
+    .description("List contact invites")
+    .option("--source-channel <sourceChannel>", "Filter by source channel")
+    .option("--status <status>", "Filter by invite status")
+    .action(
+      async (
+        opts: { sourceChannel?: IngressChannel; status?: string },
+        cmd: Command,
+      ) => {
+        const query = toQueryString({
+          sourceChannel: opts.sourceChannel,
+          status: opts.status,
+        });
+        await runRead(cmd, async () =>
+          gatewayGet(`/v1/contacts/invites${query}`),
+        );
+      },
+    );
+}
+
 export function registerIntegrationsCommand(program: Command): void {
   const integrations = program
-    .command('integrations')
-    .description('Read integration and ingress status through the gateway API')
-    .option('--json', 'Machine-readable compact JSON output');
+    .command("integrations")
+    .description("Read integration and ingress status through the gateway API")
+    .option("--json", "Machine-readable compact JSON output");
 
   const telegram = integrations
-    .command('telegram')
-    .description('Telegram integration status');
+    .command("telegram")
+    .description("Telegram integration status");
 
   telegram
-    .command('config')
-    .description('Get Telegram integration configuration status')
+    .command("config")
+    .description("Get Telegram integration configuration status")
     .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () => gatewayGet('/v1/integrations/telegram/config'));
+      await runRead(cmd, async () =>
+        gatewayGet("/v1/integrations/telegram/config"),
+      );
     });
 
   const guardian = integrations
-    .command('guardian')
-    .description('Guardian verification status');
+    .command("guardian")
+    .description("Guardian verification status");
 
   guardian
-    .command('status')
-    .description('Get guardian status for a channel')
-    .option('--channel <channel>', 'Channel: telegram|voice|sms', 'voice')
+    .command("status")
+    .description("Get guardian status for a channel")
+    .option("--channel <channel>", "Channel: telegram|voice|sms", "voice")
     .action(async (opts: { channel?: GuardianChannel }, cmd: Command) => {
-      const channel = opts.channel ?? 'voice';
+      const channel = opts.channel ?? "voice";
       await runRead(cmd, async () =>
-        gatewayGet(`/v1/integrations/guardian/status${toQueryString({ channel })}`));
+        gatewayGet(
+          `/v1/integrations/guardian/status${toQueryString({ channel })}`,
+        ),
+      );
     });
 
   const twilio = integrations
-    .command('twilio')
-    .description('Twilio integration status');
+    .command("twilio")
+    .description("Twilio integration status");
 
   twilio
-    .command('config')
-    .description('Get Twilio credential and phone number status')
+    .command("config")
+    .description("Get Twilio credential and phone number status")
     .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () => gatewayGet('/v1/integrations/twilio/config'));
+      await runRead(cmd, async () =>
+        gatewayGet("/v1/integrations/twilio/config"),
+      );
     });
 
   twilio
-    .command('numbers')
-    .description('List Twilio incoming phone numbers')
+    .command("numbers")
+    .description("List Twilio incoming phone numbers")
     .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () => gatewayGet('/v1/integrations/twilio/numbers'));
+      await runRead(cmd, async () =>
+        gatewayGet("/v1/integrations/twilio/numbers"),
+      );
     });
 
-  const twilioSms = twilio
-    .command('sms')
-    .description('Twilio SMS status');
+  const twilioSms = twilio.command("sms").description("Twilio SMS status");
 
   twilioSms
-    .command('compliance')
-    .description('Get Twilio SMS compliance status')
+    .command("compliance")
+    .description("Get Twilio SMS compliance status")
     .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () => gatewayGet('/v1/integrations/twilio/sms/compliance'));
+      await runRead(cmd, async () =>
+        gatewayGet("/v1/integrations/twilio/sms/compliance"),
+      );
     });
 
   twilio
-    .command('sms-compliance')
+    .command("sms-compliance")
     .description('Alias for "vellum integrations twilio sms compliance"')
     .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () => gatewayGet('/v1/integrations/twilio/sms/compliance'));
+      await runRead(cmd, async () =>
+        gatewayGet("/v1/integrations/twilio/sms/compliance"),
+      );
     });
 
   const ingress = integrations
-    .command('ingress')
-    .description('Trusted contact membership and invite status');
+    .command("ingress")
+    .description("Trusted contact membership and invite status");
 
   ingress
-    .command('config')
-    .description('Get public ingress URL and local gateway target')
+    .command("config")
+    .description("Get public ingress URL and local gateway target")
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () => readIngressConfig());
     });
 
-  ingress
-    .command('members')
-    .description('List trusted ingress members')
-    .option('--assistant-id <assistantId>', 'Filter by assistant ID')
-    .option('--source-channel <sourceChannel>', 'Filter by source channel')
-    .option('--status <status>', 'Filter by member status')
-    .option('--policy <policy>', 'Filter by policy')
-    .action(async (opts: {
-      assistantId?: string;
-      sourceChannel?: IngressChannel;
-      status?: string;
-      policy?: string;
-    }, cmd: Command) => {
-      const query = toQueryString({
-        assistantId: opts.assistantId,
-        sourceChannel: opts.sourceChannel,
-        status: opts.status,
-        policy: opts.policy,
-      });
-      await runRead(cmd, async () => gatewayGet(`/v1/ingress/members${query}`));
-    });
-
-  ingress
-    .command('invites')
-    .description('List trusted ingress invites')
-    .option('--source-channel <sourceChannel>', 'Filter by source channel')
-    .option('--status <status>', 'Filter by invite status')
-    .action(async (opts: { sourceChannel?: IngressChannel; status?: string }, cmd: Command) => {
-      const query = toQueryString({
-        sourceChannel: opts.sourceChannel,
-        status: opts.status,
-      });
-      await runRead(cmd, async () => gatewayGet(`/v1/ingress/invites${query}`));
-    });
-
-  const voice = integrations
-    .command('voice')
-    .description('Voice setup status');
+  const voice = integrations.command("voice").description("Voice setup status");
 
   voice
-    .command('config')
-    .description('Get voice and call readiness config')
+    .command("config")
+    .description("Get voice and call readiness config")
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () => readVoiceConfig());
     });

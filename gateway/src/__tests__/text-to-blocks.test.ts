@@ -19,7 +19,7 @@ describe("textToBlocks", () => {
     expect(blocks).toHaveLength(3); // header, divider, section
     expect(blocks[0]).toEqual({
       type: "header",
-      text: { type: "plain_text", text: "Welcome" },
+      text: { type: "plain_text", text: "Welcome", emoji: true },
     });
     expect(blocks[1]).toEqual({ type: "divider" });
     expect(blocks[2]).toEqual({
@@ -110,5 +110,55 @@ describe("textToBlocks", () => {
       "divider",
       "section",
     ]);
+  });
+
+  test("parses code fence languages with special characters (c++, c#, f#)", () => {
+    const input = "```c++\nint main() {}\n```";
+    const blocks = textToBlocks(input);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toEqual({
+      type: "section",
+      text: { type: "mrkdwn", text: "```c++\nint main() {}\n```" },
+    });
+
+    const input2 = "```c#\nConsole.WriteLine();\n```";
+    const blocks2 = textToBlocks(input2);
+    expect(blocks2).toHaveLength(1);
+    expect(blocks2[0]).toEqual({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "```c#\nConsole.WriteLine();\n```",
+      },
+    });
+  });
+
+  test("splits oversized text sections at 3000-char limit", () => {
+    // Build a string with many lines that exceeds 3000 chars total
+    const line = "x".repeat(100) + "\n";
+    const longText = line.repeat(40).trimEnd(); // 40 * 101 = 4040 chars
+    const blocks = textToBlocks(longText);
+
+    // Should be split into multiple sections with dividers between them
+    expect(blocks.length).toBeGreaterThanOrEqual(3); // at least 2 sections + 1 divider
+    for (const block of blocks) {
+      if (block.type === "section") {
+        expect(block.text.text.length).toBeLessThanOrEqual(3000);
+      }
+    }
+  });
+
+  test("splits oversized code block at 3000-char limit", () => {
+    const codeLine = "console.log('hello');\n";
+    // ~22 chars per line, need >3000 chars total including fences
+    const codeContent = codeLine.repeat(150).trimEnd(); // ~3300 chars
+    const input = "```js\n" + codeContent + "\n```";
+    const blocks = textToBlocks(input);
+
+    for (const block of blocks) {
+      if (block.type === "section") {
+        expect(block.text.text.length).toBeLessThanOrEqual(3000);
+      }
+    }
   });
 });
