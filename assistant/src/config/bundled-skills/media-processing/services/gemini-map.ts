@@ -308,8 +308,15 @@ export async function mapSegments(
 
   // Process all segments with concurrency limiting
   const promises = segments.map(async (segment) => {
-    // Resumability: check for existing result file (keyed by segment + config hash)
-    const resultPath = join(mapResultsDir, `${segment.id}-${configHash}.json`);
+    // Resumability: check for existing result file (keyed by segment + config + transcript hash)
+    const segContentHash = createHash("sha256")
+      .update(segment.transcript ?? "")
+      .digest("hex")
+      .slice(0, 8);
+    const resultPath = join(
+      mapResultsDir,
+      `${segment.id}-${configHash}-${segContentHash}.json`,
+    );
     if (await fileExists(resultPath)) {
       try {
         const existingData = await readFile(resultPath, "utf-8");
