@@ -27,7 +27,7 @@ export type ApprovalRequestStatus =
 export interface GuardianApprovalRequest {
   id: string;
   runId: string;
-  requestId: string | null;
+  requestId: string;
   conversationId: string;
   assistantId: string;
   channel: string;
@@ -55,7 +55,7 @@ function rowToApprovalRequest(
   return {
     id: row.id,
     runId: row.runId,
-    requestId: row.requestId ?? null,
+    requestId: row.requestId ?? row.runId,
     conversationId: row.conversationId,
     assistantId: row.assistantId,
     channel: row.channel,
@@ -129,6 +129,7 @@ export function createApprovalRequest(params: {
   return rowToApprovalRequest(row);
 }
 
+/** @deprecated Prefer `getPendingApprovalForRequest()` — runId-based lookup will be removed once all rows have requestId populated. */
 export function getPendingApprovalForRun(
   runId: string,
 ): GuardianApprovalRequest | null {
@@ -176,6 +177,8 @@ export function getPendingApprovalForRequest(
  * regardless of whether it has expired. Used by the non-guardian gate to
  * detect expired-but-unresolved approvals that should still block the
  * requester from self-approving.
+ *
+ * @deprecated Prefer `getUnresolvedApprovalForRequest()` — runId-based lookup will be removed once all rows have requestId populated.
  */
 export function getUnresolvedApprovalForRun(
   runId: string,

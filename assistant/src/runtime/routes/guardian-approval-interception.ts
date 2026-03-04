@@ -305,7 +305,7 @@ export async function handleApprovalInterception(
           allowedActions: guardianAllowedActions,
           role: "guardian",
           pendingApprovals: effectivePending.map((a) => ({
-            requestId: a.requestId ?? a.runId,
+            requestId: a.requestId!,
             toolName: a.toolName,
           })),
           userMessage: content,
@@ -355,7 +355,7 @@ export async function handleApprovalInterception(
         // provided, otherwise use the single guardian approval.
         const targetApproval = engineResult.targetRequestId
           ? (allGuardianPending.find(
-              (a) => (a.requestId ?? a.runId) === engineResult.targetRequestId,
+              (a) => a.requestId === engineResult.targetRequestId,
             ) ?? guardianApproval)
           : guardianApproval;
 
