@@ -865,7 +865,7 @@ struct MainWindowView: View {
     }
 
     @ViewBuilder
-    private func threadItem(_ thread: ThreadModel) -> some View {
+    private func threadItem(_ thread: ThreadModel, onSelect: (() -> Void)? = nil) -> some View {
         let isSelected: Bool = {
             switch windowState.selection {
             case .panel:
@@ -979,6 +979,7 @@ struct MainWindowView: View {
         }
         .onTapGesture {
             selectThread(thread)
+            onSelect?()
         }
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Thread: \(thread.title)")
@@ -1622,15 +1623,8 @@ struct MainWindowView: View {
                         ScrollView {
                             VStack(spacing: 0) {
                                 ForEach(regularThreads) { thread in
-                                    threadItem(thread)
+                                    threadItem(thread, onSelect: { showThreadSwitcher = false })
                                         .padding(.bottom, VSpacing.xxs)
-                                        .simultaneousGesture(TapGesture().onEnded {
-                                            // Only dismiss for same-thread taps. Different-thread taps
-                                            // are handled by onChange(of: activeThreadId).
-                                            if thread.id == threadManager.activeThreadId {
-                                                showThreadSwitcher = false
-                                            }
-                                        })
                                         .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                             if sidebar.dropTargetThreadId == thread.id {
                                                 Rectangle()
