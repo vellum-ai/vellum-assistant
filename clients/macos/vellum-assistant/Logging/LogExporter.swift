@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import os
+import UniformTypeIdentifiers
 
 private let log = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
@@ -54,7 +56,8 @@ enum LogExporter {
     }
 
     /// Builds a tar.gz archive containing all discoverable log files.
-    private static func buildArchive(destination: URL) async throws {
+    /// Runs file I/O and the tar process off the main actor to avoid blocking the UI.
+    private nonisolated static func buildArchive(destination: URL) async throws {
         let fileManager = FileManager.default
         let tempDir = fileManager.temporaryDirectory
             .appendingPathComponent("vellum-log-export-\(UUID().uuidString)", isDirectory: true)
@@ -114,24 +117,36 @@ enum LogExporter {
         }
 
         // Create tar.gz using /usr/bin/tar
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = [
-            "czf",
-            destination.path,
-            "-C", tempDir.path,
-            ".",
-        ]
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            process.arguments = [
+                "czf",
+                destination.path,
+                "-C", tempDir.path,
+                ".",
+            ]
 
-        let pipe = Pipe()
-        process.standardError = pipe
+            let pipe = Pipe()
+            process.standardError = pipe
 
-        try process.run()
-        process.waitUntilExit()
+            process.terminationHandler = { proc in
+                if proc.terminationStatus == 0 {
+                    continuation.resume()
+                } else {
+                    let stderr = String(
+                        data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                        encoding: .utf8
+                    ) ?? ""
+                    continuation.resume(throwing: ExportError.tarFailed(stderr))
+                }
+            }
 
-        guard process.terminationStatus == 0 else {
-            let stderr = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw ExportError.tarFailed(stderr)
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
         }
     }
 
