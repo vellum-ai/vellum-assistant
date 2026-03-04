@@ -301,32 +301,6 @@ export function registerIntegrationsCommand(program: Command): void {
     });
 
   ingress
-    .command("members")
-    .description(
-      "[Deprecated: use 'vellum contacts list'] List trusted contacts",
-    )
-    .option("--limit <limit>", "Maximum number of contacts to return")
-    .option("--role <role>", "Filter by role (default: contact)")
-    .action(
-      async (
-        opts: {
-          limit?: string;
-          role?: string;
-        },
-        cmd: Command,
-      ) => {
-        process.stderr.write(
-          "⚠️  'vellum integrations ingress members' is deprecated. Use 'vellum contacts list' instead.\n",
-        );
-        const query = toQueryString({
-          role: opts.role ?? "contact",
-          limit: opts.limit,
-        });
-        await runRead(cmd, async () => gatewayGet(`/v1/contacts${query}`));
-      },
-    );
-
-  ingress
     .command("invites")
     .description(
       "[Deprecated: use 'vellum contacts invites'] List trusted ingress invites",
