@@ -105,6 +105,10 @@ struct AssistantProgressView: View {
         toolCalls.filter(\.isComplete).count
     }
 
+    private var hasAnyErrors: Bool {
+        toolCalls.contains(where: { $0.isError })
+    }
+
     private var isAllAppTools: Bool {
         let appToolNames: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
         return !toolCalls.isEmpty && toolCalls.allSatisfy { appToolNames.contains($0.toolName) }
@@ -141,6 +145,10 @@ struct AssistantProgressView: View {
         case .processing:
             return ChatBubble.friendlyProcessingLabel(processingStatusText)
         case .complete:
+            if hasAnyErrors {
+                let errorCount = toolCalls.filter(\.isError).count
+                return "Completed with \(errorCount) error\(errorCount == 1 ? "" : "s")"
+            }
             if isAllAppTools {
                 return "Built your app"
             }
@@ -240,9 +248,9 @@ struct AssistantProgressView: View {
     private var statusIcon: some View {
         switch phase {
         case .complete:
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: hasAnyErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .font(.system(size: 12))
-                .foregroundColor(VColor.success)
+                .foregroundColor(hasAnyErrors ? VColor.warning : VColor.success)
         case .error:
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 12))
