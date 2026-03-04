@@ -13,12 +13,10 @@ import {
   upsertMemberContactsFirst,
 } from "../contacts/contacts-write.js";
 import type {
-  MemberPolicy,
-  MemberStatus,
-} from "../contacts/member-record-shim.js";
-import type {
   ContactWithChannels,
   ContactWriteResult,
+  MemberPolicy,
+  MemberStatus,
 } from "../contacts/types.js";
 import {
   createInvite,

@@ -3,7 +3,7 @@ import * as net from "node:net";
 import type { ChannelId } from "../../channels/types.js";
 import { findContactChannel } from "../../contacts/contact-store.js";
 import { revokeMemberContactsFirst } from "../../contacts/contacts-write.js";
-import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
+import type { ChannelStatus } from "../../contacts/types.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
@@ -218,12 +218,19 @@ export function revokeGuardianForChannel(
     externalUserId: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
-  const member = contactResult
-    ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
-    : null;
 
-  if (member && (member.status === "active" || member.status === "pending")) {
-    revokeMemberContactsFirst(member.id, "guardian_binding_revoked");
+  if (contactResult) {
+    const channelStatus: ChannelStatus = contactResult.channel.status;
+    if (
+      channelStatus === "active" ||
+      channelStatus === "pending" ||
+      channelStatus === "unverified"
+    ) {
+      revokeMemberContactsFirst(
+        contactResult.channel.id,
+        "guardian_binding_revoked",
+      );
+    }
   }
 
   revokeBinding(assistantId, resolvedChannel);

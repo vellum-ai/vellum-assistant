@@ -165,9 +165,9 @@ describe("trusted contact verification → member activation", () => {
     expect(trust.actorMetadata.displayName).toBe("Jeff");
     expect(trust.actorMetadata.senderDisplayName).toBeUndefined();
     expect(trust.actorMetadata.memberDisplayName).toBe("Jeff");
-    // Contacts-first path does not carry username from the member record
-    // (contactChannelToMemberRecord sets username: null), so identifier
-    // falls back to canonicalSenderId when no actorUsername is provided.
+    // Contacts-first path does not carry username from the contact channel,
+    // so identifier falls back to canonicalSenderId when no actorUsername
+    // is provided.
     expect(trust.actorMetadata.identifier).toBe("requester-user-jeff");
   });
 
@@ -195,9 +195,8 @@ describe("trusted contact verification → member activation", () => {
     expect(trust.actorMetadata.displayName).toBe("Jeff");
     expect(trust.actorMetadata.senderDisplayName).toBe("Jeffrey");
     expect(trust.actorMetadata.memberDisplayName).toBe("Jeff");
-    // Contacts-first path does not carry username from the member record
-    // (contactChannelToMemberRecord sets username: null), so the sender's
-    // username takes precedence via the fallback chain.
+    // Contacts-first path does not carry username from the contact channel,
+    // so the sender's username takes precedence via the fallback chain.
     expect(trust.actorMetadata.username).toBe("jeffrey_telegram");
     expect(trust.actorMetadata.identifier).toBe("@jeffrey_telegram");
   });
