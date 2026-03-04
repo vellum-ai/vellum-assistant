@@ -14,7 +14,10 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { spawnWithTimeout } from "../../../../util/spawn.js";
+import {
+  FFPROBE_TIMEOUT_MS,
+  spawnWithTimeout,
+} from "../../../../util/spawn.js";
 
 // ---------------------------------------------------------------------------
 // MIME detection
@@ -83,7 +86,7 @@ async function extractDuration(filePath: string): Promise<number | null> {
         "csv=p=0",
         filePath,
       ],
-      15_000,
+      FFPROBE_TIMEOUT_MS,
     );
     if (result.exitCode !== 0) return null;
     const duration = parseFloat(result.stdout.trim());
