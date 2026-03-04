@@ -172,3 +172,4 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 
 ## Maintenance
 - Refresh this guidance after major Apple OS or SwiftUI releases (for example, post-WWDC).
+- **When fixing a bug, consider whether the root cause represents a generalizable pitfall.** If an API was misused in a way that compiled but caused runtime crashes, freezes, or subtle misbehavior — and another developer or agent could plausibly make the same mistake — add a rule to the relevant section of this file (or the pitfalls table). This file is the team's collective memory for hard-won lessons; keeping it current prevents repeat bugs.
