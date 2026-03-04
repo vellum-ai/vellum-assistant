@@ -20,7 +20,7 @@ import {
 } from "../../../../memory/media-store.js";
 import {
   FFMPEG_PREPROCESS_TIMEOUT_MS,
-  FFPROBE_TIMEOUT_MS,
+  FFMPEG_PALETTE_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../../../util/spawn.js";
 import { transcribeSegmentAudio } from "./audio-transcribe.js";
@@ -312,7 +312,7 @@ async function extractDominantColors(framePath: string): Promise<string[]> {
       "null",
       "-",
     ],
-    FFPROBE_TIMEOUT_MS,
+    FFMPEG_PALETTE_TIMEOUT_MS,
   );
 
   // Fallback: return empty if analysis fails
