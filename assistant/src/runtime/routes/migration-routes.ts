@@ -141,7 +141,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       checkpoint: () => {
         try {
           const dbPath = getDbPath();
-          const db = new Database(dbPath, { readonly: true });
+          const db = new Database(dbPath);
           try {
             db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
           } finally {

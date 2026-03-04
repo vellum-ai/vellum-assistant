@@ -737,7 +737,7 @@ describe("executeTransferStep", () => {
     expect(result.steps.transfer.error?.retryable).toBe(true);
   });
 
-  test("import failure — sets error with reason", async () => {
+  test("import failure — sets error with validation_failed reason", async () => {
     const failResponse: ImportCommitResponse = {
       success: false,
       reason: "validation_failed",
