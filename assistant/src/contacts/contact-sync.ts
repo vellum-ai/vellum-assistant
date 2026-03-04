@@ -71,7 +71,10 @@ export function syncSingleGuardianBinding(binding: GuardianBinding): void {
         address: canonicalId,
         externalUserId: canonicalId,
         externalChatId: binding.guardianDeliveryChatId,
-        legacyAddress: binding.guardianExternalUserId !== canonicalId ? binding.guardianExternalUserId : undefined,
+        legacyAddress:
+          binding.guardianExternalUserId !== canonicalId
+            ? binding.guardianExternalUserId
+            : undefined,
         status: "active",
         verifiedAt: binding.verifiedAt,
         verifiedVia: binding.verifiedVia,

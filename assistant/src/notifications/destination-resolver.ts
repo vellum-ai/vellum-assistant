@@ -13,11 +13,11 @@
  *   sourced from the guardian contact's channel record (or legacy binding).
  */
 
-import { isNotificationDeliverable } from '../channels/config.js';
-import type { ChannelId } from '../channels/types.js';
-import { findGuardianForChannel } from '../contacts/contact-store.js';
-import { getActiveBinding } from '../memory/channel-guardian-store.js';
-import type { ChannelDestination, NotificationChannel } from './types.js';
+import { isNotificationDeliverable } from "../channels/config.js";
+import type { ChannelId } from "../channels/types.js";
+import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { getActiveBinding } from "../memory/channel-guardian-store.js";
+import type { ChannelDestination, NotificationChannel } from "./types.js";
 
 /**
  * Resolve destination information for each requested channel.
@@ -40,29 +40,29 @@ export function resolveDestinations(
     // NotificationChannel — TypeScript cannot infer this from the runtime
     // guard, so we narrow with a switch over known deliverable values.
     switch (channel as NotificationChannel) {
-      case 'vellum': {
+      case "vellum": {
         // Vellum delivery is local IPC — no external endpoint required.
         // Include the guardianPrincipalId so the adapter can annotate
         // guardian-sensitive notifications for scoped delivery.
-        const guardianResult = findGuardianForChannel('vellum');
+        const guardianResult = findGuardianForChannel("vellum");
         const metadata: Record<string, unknown> = {};
         if (guardianResult) {
           metadata.guardianPrincipalId = guardianResult.contact.principalId;
         } else {
           // Legacy fallback: contacts not yet synced
-          const vellumBinding = getActiveBinding(assistantId, 'vellum');
+          const vellumBinding = getActiveBinding(assistantId, "vellum");
           if (vellumBinding) {
             metadata.guardianPrincipalId = vellumBinding.guardianExternalUserId;
           }
         }
-        result.set('vellum', {
-          channel: 'vellum',
+        result.set("vellum", {
+          channel: "vellum",
           metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         });
         break;
       }
-      case 'telegram':
-      case 'sms': {
+      case "telegram":
+      case "sms": {
         const guardianResult = findGuardianForChannel(channel);
         if (guardianResult) {
           result.set(channel as NotificationChannel, {

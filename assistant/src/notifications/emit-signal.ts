@@ -9,31 +9,40 @@
  * propagated unless `throwOnError` is enabled.
  */
 
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
-import { getDeliverableChannels } from '../channels/config.js';
-import { findGuardianForChannel } from '../contacts/contact-store.js';
-import { getActiveBinding } from '../memory/channel-guardian-store.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { getLogger } from '../util/logger.js';
-import { type BroadcastFn, VellumAdapter } from './adapters/macos.js';
-import { SmsAdapter } from './adapters/sms.js';
-import { TelegramAdapter } from './adapters/telegram.js';
-import { NotificationBroadcaster,type ThreadCreatedInfo } from './broadcaster.js';
-import { enforceRoutingIntent, evaluateSignal } from './decision-engine.js';
-import { updateDecision } from './decisions-store.js';
-import { type DeterministicCheckContext, runDeterministicChecks } from './deterministic-checks.js';
-import { createEvent, updateEventDedupeKey } from './events-store.js';
-import { dispatchDecision } from './runtime-dispatch.js';
+import { getDeliverableChannels } from "../channels/config.js";
+import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { getActiveBinding } from "../memory/channel-guardian-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getLogger } from "../util/logger.js";
+import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
+import { SmsAdapter } from "./adapters/sms.js";
+import { TelegramAdapter } from "./adapters/telegram.js";
+import {
+  NotificationBroadcaster,
+  type ThreadCreatedInfo,
+} from "./broadcaster.js";
+import { enforceRoutingIntent, evaluateSignal } from "./decision-engine.js";
+import { updateDecision } from "./decisions-store.js";
+import {
+  type DeterministicCheckContext,
+  runDeterministicChecks,
+} from "./deterministic-checks.js";
+import { createEvent, updateEventDedupeKey } from "./events-store.js";
+import { dispatchDecision } from "./runtime-dispatch.js";
 import type {
   AttentionHints,
   NotificationContextPayload,
   NotificationSignal,
   RoutingIntent,
-} from './signal.js';
-import type { NotificationChannel, NotificationDeliveryResult } from './types.js';
+} from "./signal.js";
+import type {
+  NotificationChannel,
+  NotificationDeliveryResult,
+} from "./types.js";
 
-const log = getLogger('emit-signal');
+const log = getLogger("emit-signal");
 
 // ── Broadcaster singleton ──────────────────────────────────────────────
 
@@ -53,10 +62,7 @@ export function registerBroadcastFn(fn: BroadcastFn): void {
 
 function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
-    const adapters = [
-      new TelegramAdapter(),
-      new SmsAdapter(),
-    ];
+    const adapters = [new TelegramAdapter(), new SmsAdapter()];
     if (registeredBroadcastFn) {
       adapters.unshift(new VellumAdapter(registeredBroadcastFn));
     }
@@ -69,15 +75,18 @@ function getBroadcaster(): NotificationBroadcaster {
       const broadcastFn = registeredBroadcastFn;
       broadcasterInstance.setOnThreadCreated((info) => {
         broadcastFn({
-          type: 'notification_thread_created',
+          type: "notification_thread_created",
           conversationId: info.conversationId,
           title: info.title,
           sourceEventName: info.sourceEventName,
           targetGuardianPrincipalId: info.targetGuardianPrincipalId,
         });
         log.info(
-          { conversationId: info.conversationId, guardianScoped: info.targetGuardianPrincipalId != null },
-          'Emitted notification_thread_created push event',
+          {
+            conversationId: info.conversationId,
+            guardianScoped: info.targetGuardianPrincipalId != null,
+          },
+          "Emitted notification_thread_created push event",
         );
       });
     }
@@ -95,17 +104,20 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
   // runtime. We iterate over the broad type and narrow via the switch.
   for (const channel of getDeliverableChannels()) {
     switch (channel) {
-      case 'vellum':
+      case "vellum":
         // Vellum is always considered connected (IPC socket is always
         // available when the daemon is running).
         channels.push(channel);
         break;
-      case 'telegram':
-      case 'sms':
+      case "telegram":
+      case "sms":
         // A binding-based channel is connected when the guardian has an
         // active channel entry of this type. Fall back to legacy binding
         // check if contacts are not yet synced.
-        if (findGuardianForChannel(channel) || getActiveBinding(assistantId, channel)) {
+        if (
+          findGuardianForChannel(channel) ||
+          getActiveBinding(assistantId, channel)
+        ) {
           channels.push(channel);
         }
         break;
@@ -186,7 +198,8 @@ export async function emitNotificationSignal<TEventName extends string>(
     sourceChannel: params.sourceChannel,
     sourceSessionId: params.sourceSessionId,
     sourceEventName: params.sourceEventName,
-    contextPayload: (params.contextPayload ?? {}) as NotificationContextPayload<TEventName>,
+    contextPayload: (params.contextPayload ??
+      {}) as NotificationContextPayload<TEventName>,
     attentionHints: params.attentionHints,
     routingIntent: params.routingIntent,
     routingHints: params.routingHints,
@@ -207,12 +220,15 @@ export async function emitNotificationSignal<TEventName extends string>(
     });
 
     if (!eventRow) {
-      log.info({ signalId, dedupeKey: params.dedupeKey }, 'Signal deduplicated at event store level');
+      log.info(
+        { signalId, dedupeKey: params.dedupeKey },
+        "Signal deduplicated at event store level",
+      );
       return {
         signalId,
         deduplicated: true,
         dispatched: false,
-        reason: 'Signal deduplicated at event store level',
+        reason: "Signal deduplicated at event store level",
         deliveryResults: [],
       };
     }
@@ -224,7 +240,11 @@ export async function emitNotificationSignal<TEventName extends string>(
 
     // Step 2.5: Enforce routing intent policy (fire-time guard)
     const preEnforcementDecision = decision;
-    decision = enforceRoutingIntent(decision, signal.routingIntent, connectedChannels);
+    decision = enforceRoutingIntent(
+      decision,
+      signal.routingIntent,
+      connectedChannels,
+    );
 
     // Re-persist the decision if routing intent enforcement changed it,
     // so the stored decision row matches what is actually dispatched.
@@ -240,7 +260,10 @@ export async function emitNotificationSignal<TEventName extends string>(
           },
         });
       } catch (err) {
-        log.warn({ err, signalId }, 'Failed to re-persist decision after routing intent enforcement');
+        log.warn(
+          { err, signalId },
+          "Failed to re-persist decision after routing intent enforcement",
+        );
       }
     }
 
@@ -251,7 +274,10 @@ export async function emitNotificationSignal<TEventName extends string>(
       try {
         updateEventDedupeKey(signalId, decision.dedupeKey);
       } catch (err) {
-        log.warn({ err, signalId }, 'Failed to persist decision dedupeKey to event row');
+        log.warn(
+          { err, signalId },
+          "Failed to persist decision dedupeKey to event row",
+        );
       }
     }
 
@@ -260,12 +286,16 @@ export async function emitNotificationSignal<TEventName extends string>(
       const checkContext: DeterministicCheckContext = {
         connectedChannels,
       };
-      const checkResult = await runDeterministicChecks(signal, decision, checkContext);
+      const checkResult = await runDeterministicChecks(
+        signal,
+        decision,
+        checkContext,
+      );
 
       if (!checkResult.passed) {
         log.info(
           { signalId, reason: checkResult.reason },
-          'Signal blocked by deterministic checks',
+          "Signal blocked by deterministic checks",
         );
         return {
           signalId,
@@ -287,7 +317,9 @@ export async function emitNotificationSignal<TEventName extends string>(
       signal,
       decision,
       broadcaster,
-      params.onThreadCreated ? { onThreadCreated: params.onThreadCreated } : undefined,
+      params.onThreadCreated
+        ? { onThreadCreated: params.onThreadCreated }
+        : undefined,
     );
 
     log.info(
@@ -297,7 +329,7 @@ export async function emitNotificationSignal<TEventName extends string>(
         dispatched: dispatchResult.dispatched,
         reason: dispatchResult.reason,
       },
-      'Signal pipeline complete',
+      "Signal pipeline complete",
     );
     return {
       signalId,
@@ -310,7 +342,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error(
       { err: errMsg, signalId, sourceEventName: params.sourceEventName },
-      'Signal pipeline failed',
+      "Signal pipeline failed",
     );
     if (params.throwOnError) {
       throw err instanceof Error ? err : new Error(errMsg);

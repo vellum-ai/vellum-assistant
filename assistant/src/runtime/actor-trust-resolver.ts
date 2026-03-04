@@ -13,20 +13,24 @@
  * - `unknown`: sender has no matching contact or no identity could be established.
  */
 
-import type { ChannelId } from '../channels/types.js';
-import { findContactByChannelExternalId, findGuardianForChannel } from '../contacts/contact-store.js';
-import type { ContactChannel, ContactWithChannels } from '../contacts/types.js';
-import type { TrustContext } from '../daemon/session-runtime-assembly.js';
-import type { IngressMember } from '../memory/ingress-member-store.js';
-import { findMember } from '../memory/ingress-member-store.js';
-import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
-import { getLogger } from '../util/logger.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
-import { getGuardianBinding } from './channel-guardian-service.js';
+import type { ChannelId } from "../channels/types.js";
+import {
+  findContactByChannelExternalId,
+  findGuardianForChannel,
+  hasContacts,
+} from "../contacts/contact-store.js";
+import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { IngressMember } from "../memory/ingress-member-store.js";
+import { findMember } from "../memory/ingress-member-store.js";
+import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { getGuardianBinding } from "./channel-guardian-service.js";
 
-const log = getLogger('actor-trust-resolver');
+const log = getLogger("actor-trust-resolver");
 
-export type { TrustContext } from '../daemon/session-runtime-assembly.js';
+export type { TrustContext } from "../daemon/session-runtime-assembly.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,7 +49,7 @@ export type { TrustContext } from '../daemon/session-runtime-assembly.js';
  *   established, or the sender is an inactive/revoked member. Unknown
  *   actors are fail-closed with no escalation path.
  */
-export type TrustClass = 'guardian' | 'trusted_contact' | 'unknown';
+export type TrustClass = "guardian" | "trusted_contact" | "unknown";
 /**
  * Reason an actor was denied access during trust resolution.
  *
@@ -54,7 +58,7 @@ export type TrustClass = 'guardian' | 'trusted_contact' | 'unknown';
  * - `'no_identity'`: The inbound message carried no usable identity fields
  *   (e.g. missing external user ID), so the sender could not be identified.
  */
-export type DenialReason = 'no_binding' | 'no_identity';
+export type DenialReason = "no_binding" | "no_identity";
 
 /**
  * Fully resolved trust context from the actor trust resolver.
@@ -129,7 +133,18 @@ function contactChannelToMemberRecord(
     externalChatId: channel.externalChatId,
     displayName: contact.displayName,
     username: null,
-    status: channel.status === 'active' ? 'active' : channel.status === 'pending' ? 'pending' : channel.status === 'unverified' ? 'pending' : channel.status === 'revoked' ? 'revoked' : channel.status === 'blocked' ? 'blocked' : 'active',
+    status:
+      channel.status === "active"
+        ? "active"
+        : channel.status === "pending"
+          ? "pending"
+          : channel.status === "unverified"
+            ? "pending"
+            : channel.status === "revoked"
+              ? "revoked"
+              : channel.status === "blocked"
+                ? "blocked"
+                : "active",
     policy: channel.policy,
     inviteId: channel.inviteId,
     createdBySessionId: null,
@@ -154,27 +169,37 @@ function contactChannelToMemberRecord(
  * 4. Look up the ingress member record using the canonical identity.
  * 5. Classify: guardian > trusted_contact (active member) > unknown.
  */
-export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustContext {
+export function resolveActorTrust(
+  input: ResolveActorTrustInput,
+): ActorTrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
-  const rawUserId = typeof input.actorExternalId === 'string' && input.actorExternalId.trim().length > 0
-    ? input.actorExternalId.trim()
-    : undefined;
+  const rawUserId =
+    typeof input.actorExternalId === "string" &&
+    input.actorExternalId.trim().length > 0
+      ? input.actorExternalId.trim()
+      : undefined;
 
-  const senderUsername = typeof input.actorUsername === 'string' && input.actorUsername.trim().length > 0
-    ? input.actorUsername.trim()
-    : undefined;
+  const senderUsername =
+    typeof input.actorUsername === "string" &&
+    input.actorUsername.trim().length > 0
+      ? input.actorUsername.trim()
+      : undefined;
 
-  const senderDisplayName = typeof input.actorDisplayName === 'string' && input.actorDisplayName.trim().length > 0
-    ? input.actorDisplayName.trim()
-    : undefined;
+  const senderDisplayName =
+    typeof input.actorDisplayName === "string" &&
+    input.actorDisplayName.trim().length > 0
+      ? input.actorDisplayName.trim()
+      : undefined;
 
   // Canonical identity: normalize phone-like channels to E.164.
   const canonicalSenderId = rawUserId
     ? canonicalizeInboundIdentity(input.sourceChannel, rawUserId)
     : null;
 
-  const identifier = senderUsername ? `@${senderUsername}` : canonicalSenderId ?? undefined;
+  const identifier = senderUsername
+    ? `@${senderUsername}`
+    : (canonicalSenderId ?? undefined);
 
   // No identity at all => unknown
   if (!canonicalSenderId) {
@@ -183,7 +208,7 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
       guardianBindingMatch: null,
       guardianPrincipalId: undefined,
       memberRecord: null,
-      trustClass: 'unknown',
+      trustClass: "unknown",
       actorMetadata: {
         identifier,
         displayName: senderDisplayName,
@@ -191,30 +216,42 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
         memberDisplayName: undefined,
         username: senderUsername,
         channel: input.sourceChannel,
-        trustStatus: 'unknown',
+        trustStatus: "unknown",
       },
-      denialReason: 'no_identity',
+      denialReason: "no_identity",
     };
   }
 
+  // Skip contacts-first queries when the contacts table is empty.
+  // This avoids two JOIN queries per trust resolution call when no
+  // contact-sync has happened yet (fresh install, test environments).
+  const useContacts = hasContacts();
+
   // --- Guardian lookup: contacts-first, legacy fallback ---
-  const guardianResult = findGuardianForChannel(input.sourceChannel);
-  let guardianBindingMatch: ActorTrustContext['guardianBindingMatch'] = null;
+  const guardianResult = useContacts
+    ? findGuardianForChannel(input.sourceChannel)
+    : null;
+  let guardianBindingMatch: ActorTrustContext["guardianBindingMatch"] = null;
   let guardianPrincipalId: string | undefined;
   let isGuardian = false;
 
   if (guardianResult) {
     // Contacts-based guardian resolution
-    const { contact: guardianContact, channel: guardianChannel } = guardianResult;
+    const { contact: guardianContact, channel: guardianChannel } =
+      guardianResult;
     const canonicalGuardianId = guardianChannel.externalUserId
-      ? canonicalizeInboundIdentity(input.sourceChannel, guardianChannel.externalUserId)
+      ? canonicalizeInboundIdentity(
+          input.sourceChannel,
+          guardianChannel.externalUserId,
+        )
       : null;
     guardianBindingMatch = {
-      guardianExternalUserId: guardianChannel.externalUserId ?? '',
+      guardianExternalUserId: guardianChannel.externalUserId ?? "",
       guardianDeliveryChatId: guardianChannel.externalChatId,
     };
     guardianPrincipalId = guardianContact.principalId ?? undefined;
-    isGuardian = canonicalGuardianId != null && canonicalGuardianId === canonicalSenderId;
+    isGuardian =
+      canonicalGuardianId != null && canonicalGuardianId === canonicalSenderId;
   } else {
     // Legacy fallback: guardian binding not yet synced to contacts
     const binding = getGuardianBinding(assistantId, input.sourceChannel);
@@ -224,27 +261,41 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
         guardianDeliveryChatId: binding.guardianDeliveryChatId,
       };
       guardianPrincipalId = binding.guardianPrincipalId;
-      const canonicalGuardianId = canonicalizeInboundIdentity(input.sourceChannel, binding.guardianExternalUserId);
+      const canonicalGuardianId = canonicalizeInboundIdentity(
+        input.sourceChannel,
+        binding.guardianExternalUserId,
+      );
       isGuardian = canonicalGuardianId === canonicalSenderId;
     }
   }
 
-  log.debug('trust-resolver guardian lookup', {
+  log.debug("trust-resolver guardian lookup", {
     channel: input.sourceChannel,
-    source: guardianResult ? 'contacts' : 'legacy',
+    source: guardianResult ? "contacts" : "legacy",
     found: !!guardianBindingMatch,
   });
 
   // --- Member lookup: contacts-first, legacy fallback ---
   let memberRecord: IngressMember | null = null;
-  const contactMatch = findContactByChannelExternalId(input.sourceChannel, canonicalSenderId);
-  if (contactMatch) {
-    // Find the specific channel entry matching the sender's channel type + canonical ID
-    const matchingChannel = contactMatch.channels.find(
-      (ch) => ch.type === input.sourceChannel && ch.externalUserId === canonicalSenderId,
+  let contactMatch: ContactWithChannels | null = null;
+  if (useContacts) {
+    contactMatch = findContactByChannelExternalId(
+      input.sourceChannel,
+      canonicalSenderId,
     );
-    if (matchingChannel) {
-      memberRecord = contactChannelToMemberRecord(contactMatch, matchingChannel);
+    if (contactMatch) {
+      // Find the specific channel entry matching the sender's channel type + canonical ID
+      const matchingChannel = contactMatch.channels.find(
+        (ch) =>
+          ch.type === input.sourceChannel &&
+          ch.externalUserId === canonicalSenderId,
+      );
+      if (matchingChannel) {
+        memberRecord = contactChannelToMemberRecord(
+          contactMatch,
+          matchingChannel,
+        );
+      }
     }
   }
   if (!memberRecord) {
@@ -257,10 +308,10 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
     });
   }
 
-  log.debug('trust-resolver member lookup', {
+  log.debug("trust-resolver member lookup", {
     channel: input.sourceChannel,
     canonicalSenderId,
-    source: contactMatch ? 'contacts' : 'legacy',
+    source: contactMatch ? "contacts" : "legacy",
     found: !!memberRecord,
   });
 
@@ -270,36 +321,51 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
   // Canonicalize the stored member ID to handle formatting variance (e.g.
   // phone numbers stored without E.164 normalization).
   const memberMatchesSender = memberRecord?.externalUserId
-    ? canonicalizeInboundIdentity(input.sourceChannel, memberRecord.externalUserId) === canonicalSenderId
+    ? canonicalizeInboundIdentity(
+        input.sourceChannel,
+        memberRecord.externalUserId,
+      ) === canonicalSenderId
     : false;
 
-  const memberUsername = memberMatchesSender && typeof memberRecord?.username === 'string' && memberRecord.username.trim().length > 0
-    ? memberRecord.username.trim()
-    : undefined;
-  const memberDisplayName = memberMatchesSender && typeof memberRecord?.displayName === 'string' && memberRecord.displayName.trim().length > 0
-    ? memberRecord.displayName.trim()
-    : undefined;
+  const memberUsername =
+    memberMatchesSender &&
+    typeof memberRecord?.username === "string" &&
+    memberRecord.username.trim().length > 0
+      ? memberRecord.username.trim()
+      : undefined;
+  const memberDisplayName =
+    memberMatchesSender &&
+    typeof memberRecord?.displayName === "string" &&
+    memberRecord.displayName.trim().length > 0
+      ? memberRecord.displayName.trim()
+      : undefined;
   // Prefer member profile metadata over transient sender metadata so guardian-
   // curated contact details are canonical for assistant-facing identity —
   // but only when the member record actually belongs to the current sender.
   const resolvedUsername = memberUsername ?? senderUsername;
   const resolvedDisplayName = memberDisplayName ?? senderDisplayName;
-  const resolvedIdentifier = resolvedUsername ? `@${resolvedUsername}` : canonicalSenderId ?? undefined;
+  const resolvedIdentifier = resolvedUsername
+    ? `@${resolvedUsername}`
+    : (canonicalSenderId ?? undefined);
 
   // Trust classification
   let trustClass: TrustClass;
   if (isGuardian) {
-    trustClass = 'guardian';
-  } else if (memberMatchesSender && memberRecord && memberRecord.status === 'active') {
-    trustClass = 'trusted_contact';
+    trustClass = "guardian";
+  } else if (
+    memberMatchesSender &&
+    memberRecord &&
+    memberRecord.status === "active"
+  ) {
+    trustClass = "trusted_contact";
   } else {
-    trustClass = 'unknown';
+    trustClass = "unknown";
   }
 
   // Denial reason for legacy compatibility
   let denialReason: DenialReason | undefined;
   if (!isGuardian && !guardianBindingMatch) {
-    denialReason = 'no_binding';
+    denialReason = "no_binding";
   }
 
   return {
@@ -333,14 +399,19 @@ export function toTrustContext(
   ctx: ActorTrustContext,
   conversationExternalId: string,
 ): TrustContext {
-  const canonicalGuardianExternalUserId = ctx.guardianBindingMatch?.guardianExternalUserId
-    ? canonicalizeInboundIdentity(ctx.actorMetadata.channel, ctx.guardianBindingMatch.guardianExternalUserId) ?? undefined
+  const canonicalGuardianExternalUserId = ctx.guardianBindingMatch
+    ?.guardianExternalUserId
+    ? (canonicalizeInboundIdentity(
+        ctx.actorMetadata.channel,
+        ctx.guardianBindingMatch.guardianExternalUserId,
+      ) ?? undefined)
     : undefined;
   return {
     sourceChannel: ctx.actorMetadata.channel,
     trustClass: ctx.trustClass,
-    guardianChatId: ctx.guardianBindingMatch?.guardianDeliveryChatId ??
-      (ctx.trustClass === 'guardian' ? conversationExternalId : undefined),
+    guardianChatId:
+      ctx.guardianBindingMatch?.guardianDeliveryChatId ??
+      (ctx.trustClass === "guardian" ? conversationExternalId : undefined),
     guardianExternalUserId: canonicalGuardianExternalUserId,
     guardianPrincipalId: ctx.guardianPrincipalId,
     requesterIdentifier: ctx.actorMetadata.identifier,
