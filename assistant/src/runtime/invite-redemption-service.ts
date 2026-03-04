@@ -18,7 +18,6 @@ import {
   hashToken,
   markInviteExpired,
   recordInviteUse,
-  redeemInvite as storeRedeemInvite,
 } from "../memory/ingress-invite-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { hashVoiceCode } from "../util/voice-code.js";
@@ -125,7 +124,10 @@ export function redeemInvite(params: {
   // Token is valid — now safe to check existing membership without leaking
   // membership status to callers with bogus tokens.
   const canonicalUserId = externalUserId
-    ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId) ?? externalUserId
+    ? (canonicalizeInboundIdentity(
+        sourceChannel as ChannelId,
+        externalUserId,
+      ) ?? externalUserId)
     : undefined;
   const contactResult = findContactChannel({
     channelType: sourceChannel,
@@ -149,9 +151,8 @@ export function redeemInvite(params: {
 
   // Inactive member reactivation: when the user already has a member record
   // in a non-active state (revoked/pending), reactivate it via upsertMember
-  // and consume an invite use atomically. Falling through to storeRedeemInvite
-  // would try to INSERT a new member row, hitting the unique-key constraint
-  // on the members table.
+  // and consume an invite use atomically. The fresh-member path below also
+  // uses upsertMemberContactsFirst to keep contacts in sync.
   if (existingMember) {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
@@ -219,30 +220,46 @@ export function redeemInvite(params: {
     };
   }
 
-  // Delegate to the store-level redeem which handles token lookup, expiry,
-  // use-count, and transactional member creation. Channel enforcement is
-  // applied by passing sourceChannel so the store checks it.
-  const result = storeRedeemInvite({
-    rawToken,
-    sourceChannel,
-    externalUserId,
-    externalChatId,
-    displayName,
-    username,
-  });
+  // Fresh member creation: upsert into contacts tables and consume an invite
+  // use atomically, mirroring the reactivation path above.
+  const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
+  let freshMember: ReturnType<typeof upsertMemberContactsFirst> | undefined;
+  try {
+    getSqlite()
+      .transaction(() => {
+        freshMember = upsertMemberContactsFirst({
+          assistantId: assistantId ?? invite.assistantId,
+          sourceChannel,
+          externalUserId,
+          externalChatId,
+          displayName,
+          username,
+          status: "active",
+          policy: "allow",
+          inviteId: invite.id,
+        });
 
-  if ("error" in result) {
-    const mapped = STORE_ERROR_TO_REASON[result.error];
-    if (mapped) return mapped;
-    // Fallback for any unrecognized store error
-    return { ok: false, reason: "invalid_token" };
+        const recorded = recordInviteUse({
+          inviteId: invite.id,
+          externalUserId,
+          externalChatId,
+        });
+
+        if (!recorded) throw STALE_INVITE_FRESH;
+      })
+      .immediate();
+  } catch (err) {
+    if (err === STALE_INVITE_FRESH) {
+      return { ok: false, reason: "invalid_token" };
+    }
+    throw err;
   }
 
   return {
     ok: true,
     type: "redeemed",
-    memberId: result.member.id,
-    inviteId: result.invite.id,
+    memberId: freshMember!.id,
+    inviteId: invite.id,
   };
 }
 
@@ -320,13 +337,17 @@ export function redeemVoiceInviteCode(params: {
 
   // Check for existing membership
   const canonicalCallerId =
-    canonicalizeInboundIdentity("voice" as ChannelId, callerExternalUserId) ?? callerExternalUserId;
+    canonicalizeInboundIdentity("voice" as ChannelId, callerExternalUserId) ??
+    callerExternalUserId;
   const voiceContactResult = findContactChannel({
     channelType: "voice",
     externalUserId: canonicalCallerId,
   });
   const existingMember = voiceContactResult
-    ? contactChannelToMemberRecord(voiceContactResult.contact, voiceContactResult.channel)
+    ? contactChannelToMemberRecord(
+        voiceContactResult.contact,
+        voiceContactResult.channel,
+      )
     : null;
 
   if (existingMember && existingMember.status === "active") {

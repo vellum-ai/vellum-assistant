@@ -270,7 +270,7 @@ for (const config of CHANNEL_CONFIGS) {
         verificationPurpose: "trusted_contact",
       });
 
-      const result = validateAndConsumeChallenge(
+      const challengeResult = validateAndConsumeChallenge(
         "self",
         config.channel,
         session.secret,
@@ -280,9 +280,9 @@ for (const config of CHANNEL_CONFIGS) {
         "Test Requester",
       );
 
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.verificationType).toBe("trusted_contact");
+      expect(challengeResult.success).toBe(true);
+      if (challengeResult.success) {
+        expect(challengeResult.verificationType).toBe("trusted_contact");
       }
 
       upsertMemberContactsFirst({
