@@ -7,8 +7,6 @@ import {
   initSigningKey,
 } from "./auth/token-service.js";
 import { validateEdgeToken } from "./auth/token-exchange.js";
-import { resolveScopeProfile } from "./auth/scopes.js";
-import type { Scope } from "./auth/types.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig, isSlackChannelConfigured } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
@@ -55,6 +53,11 @@ import {
   type SlackSocketModeClient,
 } from "./slack/socket-mode.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
+import {
+  createAuthMiddleware,
+  wrapWithAuthFailureTracking,
+} from "./http/middleware/auth.js";
+import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
@@ -212,36 +215,14 @@ function main() {
         return Response.json({ status: "ok" });
       }
 
-      // Rate-limit check for auth-protected, pairing, and unauthenticated
-      // endpoints that forward to the runtime (OAuth callback is publicly
-      // reachable and forwards every valid-looking request).
-      const isRateLimitedRoute =
-        url.pathname === "/integrations/status" ||
-        url.pathname === "/deliver/telegram" ||
-        url.pathname === "/deliver/sms" ||
-        url.pathname === "/deliver/whatsapp" ||
-        url.pathname === "/deliver/slack" ||
-        url.pathname.startsWith("/pairing/") ||
-        url.pathname === "/webhooks/oauth/callback" ||
-        (url.pathname.startsWith("/v1/") &&
-          url.pathname !== "/v1/calls/twilio/voice-webhook" &&
-          url.pathname !== "/v1/calls/twilio/status" &&
-          url.pathname !== "/v1/calls/twilio/connect-action" &&
-          url.pathname !== "/v1/browser-relay" &&
-          url.pathname !== "/v1/calls/relay");
-      if (isRateLimitedRoute) {
-        const clientIp = getClientIp(req, svr, config.trustProxy);
-        if (authRateLimiter.isBlocked(clientIp)) {
-          log.warn(
-            { ip: clientIp, path: url.pathname },
-            "Auth rate limit exceeded",
-          );
-          return Response.json(
-            { error: "Too many failed attempts. Try again later." },
-            { status: 429, headers: { "Retry-After": "60" } },
-          );
-        }
-      }
+      const resolveClientIp = () => getClientIp(req, svr, config.trustProxy);
+
+      const rateLimitResponse = checkAuthRateLimit(
+        url,
+        authRateLimiter,
+        resolveClientIp(),
+      );
+      if (rateLimitResponse) return rateLimitResponse;
 
       // Attach a trace ID to every non-healthcheck request for
       // end-to-end correlation across webhook → runtime → reply.
@@ -271,13 +252,11 @@ function main() {
             { status: 503 },
           );
         }
-        const res = await handleTelegramDeliver(tracedReq);
-        if (res.status === 401) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-        }
-        return res;
+        return wrapWithAuthFailureTracking(
+          handleTelegramDeliver,
+          authRateLimiter,
+          resolveClientIp,
+        )(tracedReq);
       }
 
       if (
@@ -306,13 +285,11 @@ function main() {
       }
 
       if (url.pathname === "/deliver/sms") {
-        const res = await handleSmsDeliver(tracedReq);
-        if (res.status === 401) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-        }
-        return res;
+        return wrapWithAuthFailureTracking(
+          handleSmsDeliver,
+          authRateLimiter,
+          resolveClientIp,
+        )(tracedReq);
       }
 
       if (url.pathname === "/webhooks/whatsapp") {
@@ -332,13 +309,11 @@ function main() {
             { status: 503 },
           );
         }
-        const res = await handleWhatsAppDeliver(tracedReq);
-        if (res.status === 401) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-        }
-        return res;
+        return wrapWithAuthFailureTracking(
+          handleWhatsAppDeliver,
+          authRateLimiter,
+          resolveClientIp,
+        )(tracedReq);
       }
 
       if (url.pathname === "/deliver/slack") {
@@ -348,13 +323,11 @@ function main() {
             { status: 503 },
           );
         }
-        const res = await handleSlackDeliver(tracedReq);
-        if (res.status === 401) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-        }
-        return res;
+        return wrapWithAuthFailureTracking(
+          handleSlackDeliver,
+          authRateLimiter,
+          resolveClientIp,
+        )(tracedReq);
       }
 
       if (
@@ -378,85 +351,37 @@ function main() {
         url.pathname === "/webhooks/oauth/callback" &&
         tracedReq.method === "GET"
       ) {
-        const res = await handleOAuthCallback(tracedReq);
-        if (res.status === 400) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-        }
-        return res;
+        return wrapWithAuthFailureTracking(
+          handleOAuthCallback,
+          authRateLimiter,
+          resolveClientIp,
+          [400],
+        )(tracedReq);
       }
 
-      /**
-       * Validate a JWT bearer token (aud=vellum-gateway) for client-facing routes.
-       * Returns null on success, or a Response to short-circuit with.
-       */
-      function requireEdgeAuth(): Response | null {
-        const authHeader = tracedReq.headers.get("authorization");
-        if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
-        const token = authHeader.slice(7);
-        const result = validateEdgeToken(token);
-        if (!result.ok) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
-        return null;
-      }
-
-      /**
-       * Validate a JWT bearer token and check that its scope profile
-       * includes a specific scope. Returns null on success.
-       */
-      function requireEdgeAuthWithScope(scope: Scope): Response | null {
-        const authHeader = tracedReq.headers.get("authorization");
-        if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
-        const token = authHeader.slice(7);
-        const result = validateEdgeToken(token);
-        if (!result.ok) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
-        const scopes = resolveScopeProfile(result.claims.scope_profile);
-        if (!scopes.has(scope)) {
-          return Response.json({ error: "Forbidden" }, { status: 403 });
-        }
-        return null;
-      }
+      const { requireEdgeAuth, requireEdgeAuthWithScope } =
+        createAuthMiddleware(authRateLimiter, resolveClientIp);
 
       // ── Runtime health proxy ──
       if (url.pathname === "/v1/health" && req.method === "GET") {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
         return runtimeHealthProxy.handleRuntimeHealth(tracedReq);
       }
 
       // ── Brain graph proxy ──
       if (url.pathname === "/v1/brain-graph" && req.method === "GET") {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
         return brainGraphProxy.handleBrainGraph(tracedReq);
       }
       if (url.pathname === "/v1/brain-graph-ui" && req.method === "GET") {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
         return brainGraphProxy.handleBrainGraphUI(tracedReq);
       }
       if (url.pathname === "/v1/home-base-ui" && req.method === "GET") {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
         return brainGraphProxy.handleHomeBaseUI(tracedReq);
       }
@@ -474,7 +399,7 @@ function main() {
         (url.pathname === "/v1/integrations/telegram/setup" &&
           req.method === "POST")
       ) {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
 
         if (
@@ -507,7 +432,7 @@ function main() {
         req.method,
       );
       if (ingressRoute) {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
 
         switch (ingressRoute.kind) {
@@ -544,7 +469,7 @@ function main() {
         url.pathname === "/v1/integrations/guardian/vellum/bootstrap" &&
         req.method === "POST"
       ) {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
         return guardianControlPlaneProxy.handleGuardianVellumBootstrap(
           tracedReq,
@@ -566,7 +491,7 @@ function main() {
         (url.pathname === "/v1/integrations/guardian/outbound/cancel" &&
           req.method === "POST")
       ) {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
 
         if (url.pathname === "/v1/integrations/guardian/challenge") {
@@ -607,17 +532,13 @@ function main() {
       ) {
         const authHeader = tracedReq.headers.get("authorization");
         if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
+          authRateLimiter.recordFailure(resolveClientIp());
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         const token = authHeader.slice(7);
         const result = validateEdgeToken(token, { allowExpired: true });
         if (!result.ok) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
+          authRateLimiter.recordFailure(resolveClientIp());
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         return guardianControlPlaneProxy.handleGuardianRefresh(tracedReq);
@@ -648,7 +569,7 @@ function main() {
         (url.pathname === "/v1/integrations/twilio/sms/doctor" &&
           req.method === "POST")
       ) {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
 
         if (
@@ -713,7 +634,7 @@ function main() {
         tollfreeVerificationMatch &&
         (req.method === "PATCH" || req.method === "DELETE")
       ) {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
 
         const verificationSid = decodeURIComponent(
@@ -737,7 +658,7 @@ function main() {
         (url.pathname === "/v1/channels/readiness/refresh" &&
           req.method === "POST")
       ) {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
 
         if (url.pathname === "/v1/channels/readiness" && req.method === "GET") {
@@ -747,7 +668,7 @@ function main() {
       }
 
       if (url.pathname === "/integrations/status" && req.method === "GET") {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
         return Response.json({
           email: {
@@ -759,36 +680,37 @@ function main() {
       // ── Pairing proxy ──
       // Register requires bearer auth (privileged operation from CLI/macOS)
       if (url.pathname === "/pairing/register" && tracedReq.method === "POST") {
-        const authError = requireEdgeAuth();
+        const authError = requireEdgeAuth(tracedReq);
         if (authError) return authError;
         return pairingProxy.handlePairingRegister(tracedReq);
       }
       // Request and status are unauthenticated at the gateway (secret-gated)
       // Record auth failures when the daemon rejects the pairing secret
       if (url.pathname === "/pairing/request" && tracedReq.method === "POST") {
-        const res = await pairingProxy.handlePairingRequest(tracedReq);
-        if (res.status === 401 || res.status === 403) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-        }
-        return res;
+        return wrapWithAuthFailureTracking(
+          pairingProxy.handlePairingRequest,
+          authRateLimiter,
+          resolveClientIp,
+          [401, 403],
+        )(tracedReq);
       }
       if (url.pathname === "/pairing/status" && tracedReq.method === "GET") {
-        const res = await pairingProxy.handlePairingStatus(tracedReq);
-        if (res.status === 401 || res.status === 403) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-        }
-        return res;
+        return wrapWithAuthFailureTracking(
+          pairingProxy.handlePairingStatus,
+          authRateLimiter,
+          resolveClientIp,
+          [401, 403],
+        )(tracedReq);
       }
 
       // ── Feature flags API ──
       // Feature flag access is scope-based: actor_client_v1 includes
       // feature_flags.read/write. No separate feature flag token needed.
       if (url.pathname === "/v1/feature-flags" && req.method === "GET") {
-        const authError = requireEdgeAuthWithScope("feature_flags.read");
+        const authError = requireEdgeAuthWithScope(
+          tracedReq,
+          "feature_flags.read",
+        );
         if (authError) return authError;
         return handleFeatureFlagsGet(tracedReq);
       }
@@ -797,7 +719,10 @@ function main() {
         /^\/v1\/feature-flags\/(.+)$/,
       );
       if (featureFlagPatchMatch && req.method === "PATCH") {
-        const authError = requireEdgeAuthWithScope("feature_flags.write");
+        const authError = requireEdgeAuthWithScope(
+          tracedReq,
+          "feature_flags.write",
+        );
         if (authError) return authError;
         let flagKey: string;
         try {
@@ -812,16 +737,11 @@ function main() {
       }
 
       if (handleRuntimeProxy) {
-        const res = await handleRuntimeProxy(
-          tracedReq,
-          getClientIp(req, svr, config.trustProxy),
-        );
-        if (res.status === 401) {
-          authRateLimiter.recordFailure(
-            getClientIp(req, svr, config.trustProxy),
-          );
-        }
-        return res;
+        return wrapWithAuthFailureTracking(
+          (r) => handleRuntimeProxy(r, resolveClientIp()),
+          authRateLimiter,
+          resolveClientIp,
+        )(tracedReq);
       }
 
       return Response.json(
