@@ -273,6 +273,7 @@ export function buildGuardianApprovalPrompt(
 const RICH_APPROVAL_CHANNELS: ReadonlySet<string> = new Set([
   "telegram",
   "whatsapp",
+  "slack",
 ]);
 
 /**

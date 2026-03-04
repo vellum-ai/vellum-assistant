@@ -13,8 +13,11 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createSlackDeliverHandler } =
-  await import("../http/routes/slack-deliver.js");
+const {
+  createSlackDeliverHandler,
+  buildApprovalBlocks,
+  buildDecisionResultBlocks,
+} = await import("../http/routes/slack-deliver.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -110,6 +113,15 @@ beforeEach(() => {
 
       // Slack API response
       if (url.includes("slack.com/api/chat.postMessage")) {
+        return new Response(
+          JSON.stringify({ ok: true, ts: "1700000000.000100" }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      if (url.includes("slack.com/api/chat.update")) {
         return new Response(JSON.stringify({ ok: true }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -286,5 +298,172 @@ describe("slack-deliver endpoint", () => {
     );
     expect(slackCall).toBeDefined();
     expect((slackCall!.body as any).thread_ts).toBeUndefined();
+  });
+
+  test("sends Block Kit blocks when approval payload is present", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Allow shell?",
+      approval: {
+        requestId: "req-abc",
+        actions: [
+          { id: "approve_once", label: "Approve once" },
+          { id: "reject", label: "Reject" },
+        ],
+        plainTextFallback: "Reply yes or no.",
+      },
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; ts: string };
+    expect(body.ok).toBe(true);
+    expect(body.ts).toBe("1700000000.000100");
+
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(slackCall).toBeDefined();
+    const slackBody = slackCall!.body as any;
+    expect(slackBody.blocks).toBeDefined();
+    expect(slackBody.blocks).toHaveLength(2);
+    expect(slackBody.blocks[0].type).toBe("section");
+    expect(slackBody.blocks[1].type).toBe("actions");
+    expect(slackBody.blocks[1].elements).toHaveLength(2);
+    expect(slackBody.blocks[1].elements[0].value).toBe(
+      "apr:req-abc:approve_once",
+    );
+    expect(slackBody.blocks[1].elements[0].style).toBe("primary");
+    expect(slackBody.blocks[1].elements[1].value).toBe("apr:req-abc:reject");
+    expect(slackBody.blocks[1].elements[1].style).toBe("danger");
+  });
+
+  test("returns 400 when approval is present but requestId is missing", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Allow shell?",
+      approval: {
+        actions: [{ id: "approve_once", label: "Approve once" }],
+        plainTextFallback: "Reply yes or no.",
+      },
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("requestId");
+  });
+
+  test("returns 400 when approval actions is empty", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Allow shell?",
+      approval: {
+        requestId: "req-abc",
+        actions: [],
+        plainTextFallback: "Reply yes or no.",
+      },
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("non-empty array");
+  });
+
+  test("uses chat.update when updateTs is provided", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Allow shell?",
+      updateTs: "1700000000.000100",
+      decisionLabel: "Approved",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const updateCall = fetchCalls.find((c) => c.url.includes("chat.update"));
+    expect(updateCall).toBeDefined();
+    const updateBody = updateCall!.body as any;
+    expect(updateBody.channel).toBe("C123");
+    expect(updateBody.ts).toBe("1700000000.000100");
+    expect(updateBody.blocks).toBeDefined();
+    // Should have a section block and a context block with the decision label
+    expect(updateBody.blocks[0].type).toBe("section");
+    expect(updateBody.blocks[1].type).toBe("context");
+    expect(updateBody.blocks[1].elements[0].text).toBe("Approved");
+  });
+
+  test("does not call chat.postMessage when updateTs is provided", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Allow shell?",
+      updateTs: "1700000000.000100",
+    });
+    await handler(req);
+
+    const postCall = fetchCalls.find((c) => c.url.includes("chat.postMessage"));
+    expect(postCall).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Block Kit builder unit tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("buildApprovalBlocks", () => {
+  test("generates section and actions blocks with correct button values", () => {
+    const blocks = buildApprovalBlocks("Allow shell?", {
+      requestId: "req-123",
+      actions: [
+        { id: "approve_once", label: "Approve once" },
+        { id: "approve_10m", label: "Allow 10 min" },
+        { id: "approve_always", label: "Approve always" },
+        { id: "reject", label: "Reject" },
+      ],
+      plainTextFallback: "Reply yes or no.",
+    });
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].type).toBe("section");
+    expect((blocks[0].text as any).text).toBe("Allow shell?");
+
+    const actions = blocks[1] as any;
+    expect(actions.type).toBe("actions");
+    expect(actions.block_id).toBe("approval_req-123");
+    expect(actions.elements).toHaveLength(4);
+
+    // Approve once gets primary style
+    expect(actions.elements[0].value).toBe("apr:req-123:approve_once");
+    expect(actions.elements[0].style).toBe("primary");
+    expect(actions.elements[0].text.text).toBe("Approve once");
+
+    // Approve 10m has no style override
+    expect(actions.elements[1].value).toBe("apr:req-123:approve_10m");
+    expect(actions.elements[1].style).toBeUndefined();
+
+    // Approve always has no style override
+    expect(actions.elements[2].value).toBe("apr:req-123:approve_always");
+    expect(actions.elements[2].style).toBeUndefined();
+
+    // Reject gets danger style
+    expect(actions.elements[3].value).toBe("apr:req-123:reject");
+    expect(actions.elements[3].style).toBe("danger");
+  });
+});
+
+describe("buildDecisionResultBlocks", () => {
+  test("replaces action blocks with context block showing decision", () => {
+    const blocks = buildDecisionResultBlocks(
+      "Allow shell?",
+      "Approved by user",
+    );
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].type).toBe("section");
+    expect((blocks[0].text as any).text).toBe("Allow shell?");
+    expect(blocks[1].type).toBe("context");
+    expect((blocks[1].elements as any[])[0].text).toBe("Approved by user");
   });
 });

@@ -1,6 +1,8 @@
 import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
+import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
+import type { RouteResult } from "../routing/types.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
@@ -192,6 +194,20 @@ export class SlackSocketModeClient {
           | SlackAppMentionEvent
           | SlackDirectMessageEvent
           | SlackChannelMessageEvent;
+        // interactive envelope fields (block_actions)
+        type?: string;
+        user?: { id?: string; username?: string; name?: string };
+        channel?: { id?: string };
+        actions?: Array<{
+          action_id?: string;
+          value?: string;
+          block_id?: string;
+        }>;
+        message?: {
+          ts?: string;
+          text?: string;
+        };
+        trigger_id?: string;
       };
       reason?: string;
     };
@@ -229,6 +245,12 @@ export class SlackSocketModeClient {
       // Reconnect immediately (attempt 0 = minimal backoff)
       this.reconnectAttempt = 0;
       this.scheduleReconnect();
+      return;
+    }
+
+    // Handle interactive payloads (block_actions from approval buttons)
+    if (envelope.type === "interactive") {
+      this.handleInteractivePayload(envelope.payload);
       return;
     }
 
@@ -298,6 +320,130 @@ export class SlackSocketModeClient {
       return;
     }
 
+    this.onEvent(normalized);
+  }
+
+  /**
+   * Normalize a Slack `block_actions` interactive payload into a
+   * `NormalizedSlackEvent` with `callbackData` set, so the runtime's
+   * approval interception pipeline can parse `apr:{requestId}:{actionId}`.
+   */
+  private handleInteractivePayload(
+    payload:
+      | {
+          type?: string;
+          user?: { id?: string; username?: string; name?: string };
+          channel?: { id?: string };
+          actions?: Array<{
+            action_id?: string;
+            value?: string;
+            block_id?: string;
+          }>;
+          message?: { ts?: string; text?: string };
+          trigger_id?: string;
+        }
+      | undefined,
+  ): void {
+    if (!payload || payload.type !== "block_actions") return;
+
+    const userId = payload.user?.id;
+    const channelId = payload.channel?.id;
+    const action = payload.actions?.[0];
+    if (!userId || !channelId || !action?.value) return;
+
+    // Only process approval-related callbacks
+    const callbackData = action.value;
+    if (!callbackData.startsWith("apr:")) {
+      log.debug(
+        { callbackData, channelId },
+        "Ignoring non-approval block_actions payload",
+      );
+      return;
+    }
+
+    const messageTs = payload.message?.ts;
+
+    // Build a dedup key from the action value + message ts to prevent
+    // double-processing if Slack retries the interactive payload.
+    const dedupKey = `interactive:${callbackData}:${messageTs ?? "no-ts"}`;
+    if (this.dedupMap.has(dedupKey)) {
+      log.debug({ dedupKey }, "Duplicate interactive payload, skipping");
+      return;
+    }
+    this.dedupMap.set(dedupKey, Date.now());
+
+    const routing = resolveAssistant(
+      this.config.gatewayConfig,
+      channelId,
+      userId,
+    );
+    if (isRejection(routing)) {
+      // DMs are always directed at the bot, so fall back to default assistant
+      if (this.config.gatewayConfig.defaultAssistantId) {
+        const defaultRouting = {
+          assistantId: this.config.gatewayConfig.defaultAssistantId,
+          routeSource: "default" as const,
+        };
+        this.emitInteractiveEvent(
+          channelId,
+          userId,
+          callbackData,
+          messageTs,
+          payload,
+          defaultRouting,
+        );
+      } else {
+        log.info(
+          { channelId, userId },
+          "block_actions dropped: no route and no default assistant",
+        );
+      }
+      return;
+    }
+
+    this.emitInteractiveEvent(
+      channelId,
+      userId,
+      callbackData,
+      messageTs,
+      payload,
+      routing,
+    );
+  }
+
+  private emitInteractiveEvent(
+    channelId: string,
+    userId: string,
+    callbackData: string,
+    messageTs: string | undefined,
+    rawPayload: Record<string, unknown>,
+    routing: RouteResult,
+  ): void {
+    const eventId = `interactive:${channelId}:${Date.now()}`;
+    const normalized: NormalizedSlackEvent = {
+      event: {
+        version: "v1",
+        sourceChannel: "slack",
+        receivedAt: new Date().toISOString(),
+        message: {
+          content: callbackData,
+          conversationExternalId: channelId,
+          externalMessageId: eventId,
+          callbackData,
+        },
+        actor: {
+          actorExternalId: userId,
+        },
+        source: {
+          updateId: eventId,
+          messageId: messageTs,
+        },
+        raw: rawPayload as Record<string, unknown>,
+      },
+      routing,
+      threadTs: messageTs ?? `${channelId}:${Date.now()}`,
+      channel: channelId,
+    };
     this.onEvent(normalized);
   }
 
