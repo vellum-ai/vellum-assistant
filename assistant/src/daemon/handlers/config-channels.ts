@@ -214,7 +214,10 @@ export function revokeGuardianForChannel(
     externalUserId: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
-  if (member) {
+  // Only revoke active/pending members — a blocked member must not be
+  // downgraded to revoked (revokeMemberContactsFirst has its own guard,
+  // but we check here to make the intent explicit at the call site).
+  if (member && (member.status === "active" || member.status === "pending")) {
     revokeMemberContactsFirst(member.id, "guardian_binding_revoked");
   }
 
