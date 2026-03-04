@@ -375,24 +375,32 @@ struct ComposerView: View {
     }
 
     /// Handles Return key press: send vs insert newline depending on mode.
+    ///
+    /// Only the four semantic modifiers (Shift, Command, Control, Option) are
+    /// considered when deciding whether the user pressed a "plain" Return.
+    /// Non-semantic flags like `.capsLock` and `.numericPad` are ignored so
+    /// that Caps Lock being on or pressing Return on the numeric keypad still
+    /// behaves as a plain Return.
     private func handleReturnKeyPress(modifiers: EventModifiers) -> KeyPress.Result {
+        let semanticModifiers = modifiers.intersection([.shift, .command, .control, .option])
+
         // Shift+Enter always inserts a newline
-        if modifiers.contains(.shift) { return .ignored }
+        if semanticModifiers.contains(.shift) { return .ignored }
 
         if cmdEnterToSend {
             // In Cmd+Enter mode: Cmd+Enter sends, plain Enter inserts newline.
             // Cmd+Enter as a key equivalent is handled by ComposerFocusBridge's
             // event monitor; if it also reaches here, handle it.
-            if modifiers.contains(.command) {
+            if semanticModifiers.contains(.command) {
                 performSendAction()
                 return .handled
             }
-            if modifiers.isEmpty { return .ignored } // plain Enter inserts newline
+            if semanticModifiers.isEmpty { return .ignored } // plain Enter inserts newline
             return .handled // consume other modifier+Return combos silently
         }
 
-        // Default mode: plain Enter sends, any modifier combo is consumed silently
-        if !modifiers.isEmpty { return .handled }
+        // Default mode: plain Enter sends, any semantic modifier combo is consumed silently
+        if !semanticModifiers.isEmpty { return .handled }
         performSendAction()
         return .handled
     }
