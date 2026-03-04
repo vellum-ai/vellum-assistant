@@ -40,7 +40,6 @@ import {
 import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createIngressControlPlaneProxyHandler } from "./http/routes/ingress-control-plane-proxy.js";
-import { matchIngressControlPlaneRoute } from "./http/routes/ingress-control-plane-route-match.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
@@ -53,11 +52,8 @@ import {
   type SlackSocketModeClient,
 } from "./slack/socket-mode.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
-import {
-  createAuthMiddleware,
-  wrapWithAuthFailureTracking,
-} from "./http/middleware/auth.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
+import { createRouter, type RouteDefinition } from "./http/router.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
@@ -157,6 +153,488 @@ function main() {
     ? createRuntimeProxyHandler(config)
     : null;
 
+  // Helper to reject when an integration isn't configured
+  const requireConfigured = (
+    check: () => boolean,
+    name: string,
+  ): (() => Response | null) => {
+    return () => {
+      if (!check()) {
+        return Response.json(
+          { error: `${name} integration not configured` },
+          { status: 503 },
+        );
+      }
+      return null;
+    };
+  };
+
+  const requireTelegram = requireConfigured(isTelegramConfigured, "Telegram");
+  const requireWhatsApp = requireConfigured(isWhatsAppConfigured, "WhatsApp");
+  const requireSlack = requireConfigured(
+    () => !!config.slackChannelBotToken,
+    "Slack",
+  );
+
+  // ── Route table ──
+  // Routes are matched top-to-bottom. The first match wins.
+  // Auth middleware is applied declaratively per route — no manual
+  // requireEdgeAuth/wrapWithAuthFailureTracking calls needed.
+  const routes: RouteDefinition[] = [
+    // ── Internal ──
+    {
+      path: "/internal/telegram/reconcile",
+      handler: (req) => handleTelegramReconcile(req),
+    },
+
+    // ── Webhooks (unauthenticated, validated by provider-specific mechanisms) ──
+    {
+      path: "/webhooks/telegram",
+      precondition: requireTelegram,
+      handler: (req) => handleTelegramWebhook(req),
+    },
+    {
+      path: "/webhooks/twilio/voice",
+      handler: (req) => handleTwilioVoiceWebhook(req),
+    },
+    {
+      path: "/v1/calls/twilio/voice-webhook",
+      handler: (req) => handleTwilioVoiceWebhook(req),
+    },
+    {
+      path: "/webhooks/twilio/status",
+      handler: (req) => handleTwilioStatusWebhook(req),
+    },
+    {
+      path: "/v1/calls/twilio/status",
+      handler: (req) => handleTwilioStatusWebhook(req),
+    },
+    {
+      path: "/webhooks/twilio/connect-action",
+      handler: (req) => handleTwilioConnectActionWebhook(req),
+    },
+    {
+      path: "/v1/calls/twilio/connect-action",
+      handler: (req) => handleTwilioConnectActionWebhook(req),
+    },
+    {
+      path: "/webhooks/twilio/sms",
+      handler: (req) => handleTwilioSmsWebhook(req),
+    },
+    {
+      path: "/webhooks/whatsapp",
+      precondition: requireWhatsApp,
+      handler: (req) => handleWhatsAppWebhook(req),
+    },
+    {
+      path: "/webhooks/oauth/callback",
+      method: "GET",
+      auth: "track-failures",
+      trackFailureStatuses: [400],
+      handler: (req) => handleOAuthCallback(req),
+    },
+
+    // ── Deliver routes (token-tracked) ──
+    {
+      path: "/deliver/telegram",
+      precondition: requireTelegram,
+      auth: "track-failures",
+      handler: (req) => handleTelegramDeliver(req),
+    },
+    {
+      path: "/deliver/sms",
+      auth: "track-failures",
+      handler: (req) => handleSmsDeliver(req),
+    },
+    {
+      path: "/deliver/whatsapp",
+      precondition: requireWhatsApp,
+      auth: "track-failures",
+      handler: (req) => handleWhatsAppDeliver(req),
+    },
+    {
+      path: "/deliver/slack",
+      precondition: requireSlack,
+      auth: "track-failures",
+      handler: (req) => handleSlackDeliver(req),
+    },
+
+    // ── Pairing (mixed auth) ──
+    {
+      path: "/pairing/register",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => pairingProxy.handlePairingRegister(req),
+    },
+    {
+      path: "/pairing/request",
+      method: "POST",
+      auth: "track-failures",
+      trackFailureStatuses: [401, 403],
+      handler: (req) => pairingProxy.handlePairingRequest(req),
+    },
+    {
+      path: "/pairing/status",
+      method: "GET",
+      auth: "track-failures",
+      trackFailureStatuses: [401, 403],
+      handler: (req) => pairingProxy.handlePairingStatus(req),
+    },
+
+    // ── Runtime health ──
+    {
+      path: "/v1/health",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => runtimeHealthProxy.handleRuntimeHealth(req),
+    },
+
+    // ── Brain graph ──
+    {
+      path: "/v1/brain-graph",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => brainGraphProxy.handleBrainGraph(req),
+    },
+    {
+      path: "/v1/brain-graph-ui",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => brainGraphProxy.handleBrainGraphUI(req),
+    },
+    {
+      path: "/v1/home-base-ui",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => brainGraphProxy.handleHomeBaseUI(req),
+    },
+
+    // ── Telegram control plane ──
+    {
+      path: "/v1/integrations/telegram/config",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => telegramControlPlaneProxy.handleGetTelegramConfig(req),
+    },
+    {
+      path: "/v1/integrations/telegram/config",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => telegramControlPlaneProxy.handleSetTelegramConfig(req),
+    },
+    {
+      path: "/v1/integrations/telegram/config",
+      method: "DELETE",
+      auth: "edge",
+      handler: (req) =>
+        telegramControlPlaneProxy.handleClearTelegramConfig(req),
+    },
+    {
+      path: "/v1/integrations/telegram/commands",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        telegramControlPlaneProxy.handleSetTelegramCommands(req),
+    },
+    {
+      path: "/v1/integrations/telegram/setup",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => telegramControlPlaneProxy.handleSetupTelegram(req),
+    },
+
+    // ── Ingress control plane ──
+    {
+      path: "/v1/ingress/members",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleListMembers(req),
+    },
+    {
+      path: "/v1/ingress/members",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleUpsertMember(req),
+    },
+    {
+      path: /^\/v1\/ingress\/members\/([^/]+)\/block$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) =>
+        ingressControlPlaneProxy.handleBlockMember(req, params[0]),
+    },
+    {
+      path: /^\/v1\/ingress\/members\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) =>
+        ingressControlPlaneProxy.handleRevokeMember(req, params[0]),
+    },
+    {
+      path: "/v1/ingress/invites",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleListInvites(req),
+    },
+    {
+      path: "/v1/ingress/invites",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleCreateInvite(req),
+    },
+    {
+      path: "/v1/ingress/invites/redeem",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleRedeemInvite(req),
+    },
+    {
+      path: /^\/v1\/ingress\/invites\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) =>
+        ingressControlPlaneProxy.handleRevokeInvite(req, params[0]),
+    },
+
+    // ── Guardian control plane ──
+    {
+      path: "/v1/integrations/guardian/vellum/bootstrap",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        guardianControlPlaneProxy.handleGuardianVellumBootstrap(req),
+    },
+    {
+      path: "/v1/integrations/guardian/challenge",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        guardianControlPlaneProxy.handleCreateGuardianChallenge(req),
+    },
+    {
+      path: "/v1/integrations/guardian/status",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => guardianControlPlaneProxy.handleGetGuardianStatus(req),
+    },
+    {
+      path: "/v1/integrations/guardian/revoke",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => guardianControlPlaneProxy.handleRevokeGuardian(req),
+    },
+    {
+      path: "/v1/integrations/guardian/outbound/start",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        guardianControlPlaneProxy.handleStartGuardianOutbound(req),
+    },
+    {
+      path: "/v1/integrations/guardian/outbound/resend",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        guardianControlPlaneProxy.handleResendGuardianOutbound(req),
+    },
+    {
+      path: "/v1/integrations/guardian/outbound/cancel",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        guardianControlPlaneProxy.handleCancelGuardianOutbound(req),
+    },
+
+    // ── Guardian refresh (custom auth: accepts expired JWTs) ──
+    // The refresh endpoint's purpose is to obtain a new access token,
+    // so rejecting expired tokens would create a deadlock once the JWT
+    // expires. Signature, audience, and policy epoch are still verified
+    // — only the expiration check is relaxed.
+    {
+      path: "/v1/integrations/guardian/vellum/refresh",
+      method: "POST",
+      auth: "custom",
+      handler: (req) => {
+        const authHeader = req.headers.get("authorization");
+        if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+          authRateLimiter.recordFailure(resolveClientIp());
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const token = authHeader.slice(7);
+        const result = validateEdgeToken(token, { allowExpired: true });
+        if (!result.ok) {
+          authRateLimiter.recordFailure(resolveClientIp());
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        return guardianControlPlaneProxy.handleGuardianRefresh(req);
+      },
+    },
+
+    // ── Twilio control plane ──
+    {
+      path: "/v1/integrations/twilio/config",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => twilioControlPlaneProxy.handleGetTwilioConfig(req),
+    },
+    {
+      path: "/v1/integrations/twilio/credentials",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => twilioControlPlaneProxy.handleSetTwilioCredentials(req),
+    },
+    {
+      path: "/v1/integrations/twilio/credentials",
+      method: "DELETE",
+      auth: "edge",
+      handler: (req) =>
+        twilioControlPlaneProxy.handleClearTwilioCredentials(req),
+    },
+    {
+      path: "/v1/integrations/twilio/numbers",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => twilioControlPlaneProxy.handleListTwilioNumbers(req),
+    },
+    {
+      path: "/v1/integrations/twilio/numbers/provision",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        twilioControlPlaneProxy.handleProvisionTwilioNumber(req),
+    },
+    {
+      path: "/v1/integrations/twilio/numbers/assign",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => twilioControlPlaneProxy.handleAssignTwilioNumber(req),
+    },
+    {
+      path: "/v1/integrations/twilio/numbers/release",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => twilioControlPlaneProxy.handleReleaseTwilioNumber(req),
+    },
+    {
+      path: "/v1/integrations/twilio/sms/compliance",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => twilioControlPlaneProxy.handleGetSmsCompliance(req),
+    },
+    {
+      path: "/v1/integrations/twilio/sms/compliance/tollfree",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        twilioControlPlaneProxy.handleSubmitTollfreeVerification(req),
+    },
+    {
+      path: /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
+      method: "PATCH",
+      auth: "edge",
+      handler: (req, params) =>
+        twilioControlPlaneProxy.handleUpdateTollfreeVerification(
+          req,
+          decodeURIComponent(params[0]),
+        ),
+    },
+    {
+      path: /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) =>
+        twilioControlPlaneProxy.handleDeleteTollfreeVerification(
+          req,
+          decodeURIComponent(params[0]),
+        ),
+    },
+    {
+      path: "/v1/integrations/twilio/sms/test",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => twilioControlPlaneProxy.handleSmsSendTest(req),
+    },
+    {
+      path: "/v1/integrations/twilio/sms/doctor",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => twilioControlPlaneProxy.handleSmsDoctor(req),
+    },
+
+    // ── Channel readiness ──
+    {
+      path: "/v1/channels/readiness",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => channelReadinessProxy.handleGetChannelReadiness(req),
+    },
+    {
+      path: "/v1/channels/readiness/refresh",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        channelReadinessProxy.handleRefreshChannelReadiness(req),
+    },
+
+    // ── Integration status ──
+    {
+      path: "/integrations/status",
+      method: "GET",
+      auth: "edge",
+      handler: () =>
+        Response.json({
+          email: { address: config.assistantEmail ?? null },
+        }),
+    },
+
+    // ── Feature flags (scope-protected) ──
+    {
+      path: "/v1/feature-flags",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "feature_flags.read",
+      handler: (req) => handleFeatureFlagsGet(req),
+    },
+    {
+      path: /^\/v1\/feature-flags\/(.+)$/,
+      method: "PATCH",
+      auth: "edge-scoped",
+      scope: "feature_flags.write",
+      handler: (req, params) => {
+        let flagKey: string;
+        try {
+          flagKey = decodeURIComponent(params[0]);
+        } catch {
+          return Response.json(
+            { error: "Invalid flag key encoding" },
+            { status: 400 },
+          );
+        }
+        return handleFeatureFlagsPatch(req, flagKey);
+      },
+    },
+  ];
+
+  // The runtime proxy catch-all is only added when the proxy is enabled.
+  // It must be last so that all specific routes are checked first.
+  if (handleRuntimeProxy) {
+    routes.push({
+      path: /^\//, // match everything
+      auth: "track-failures",
+      handler: (req) => handleRuntimeProxy(req, resolveClientIp()),
+    });
+  }
+
+  // `resolveClientIp` is a lazy getter that is set per-request in the
+  // fetch handler. Declared here so that the guardian refresh custom
+  // auth handler and the runtime proxy catch-all can reference it.
+  let resolveClientIp: () => string;
+
+  const router = createRouter(routes, {
+    authRateLimiter,
+    getClientIp: () => resolveClientIp(),
+  });
+
   const server = Bun.serve({
     port: config.port,
     idleTimeout: 0,
@@ -200,6 +678,8 @@ function main() {
       svr.timeout(req, 1800);
       const url = new URL(req.url);
 
+      // ── Pre-router: health/readiness probes ──
+      // These bypass rate limiting and tracing for minimal overhead.
       if (url.pathname === "/healthz") {
         return Response.json({ status: "ok" });
       }
@@ -215,7 +695,9 @@ function main() {
         return Response.json({ status: "ok" });
       }
 
-      const resolveClientIp = () => getClientIp(req, svr, config.trustProxy);
+      // Set the per-request IP resolver for use by auth middleware and
+      // custom auth handlers in the route table.
+      resolveClientIp = () => getClientIp(req, svr, config.trustProxy);
 
       const rateLimitResponse = checkAuthRateLimit(
         url,
@@ -224,525 +706,34 @@ function main() {
       );
       if (rateLimitResponse) return rateLimitResponse;
 
-      // Attach a trace ID to every non-healthcheck request for
-      // end-to-end correlation across webhook → runtime → reply.
-      const traceId = req.headers.get("x-trace-id") || generateTraceId();
-      const headers = new Headers(req.headers);
-      headers.set("x-trace-id", traceId);
-      const tracedReq = new Request(req, { headers });
-
-      if (url.pathname === "/internal/telegram/reconcile") {
-        return handleTelegramReconcile(tracedReq);
-      }
-
-      if (url.pathname === "/webhooks/telegram") {
-        if (!isTelegramConfigured()) {
-          return Response.json(
-            { error: "Telegram integration not configured" },
-            { status: 503 },
-          );
-        }
-        return handleTelegramWebhook(tracedReq);
-      }
-
-      if (url.pathname === "/deliver/telegram") {
-        if (!isTelegramConfigured()) {
-          return Response.json(
-            { error: "Telegram integration not configured" },
-            { status: 503 },
-          );
-        }
-        return wrapWithAuthFailureTracking(
-          handleTelegramDeliver,
-          authRateLimiter,
-          resolveClientIp,
-        )(tracedReq);
-      }
-
-      if (
-        url.pathname === "/webhooks/twilio/voice" ||
-        url.pathname === "/v1/calls/twilio/voice-webhook"
-      ) {
-        return handleTwilioVoiceWebhook(tracedReq);
-      }
-
-      if (
-        url.pathname === "/webhooks/twilio/status" ||
-        url.pathname === "/v1/calls/twilio/status"
-      ) {
-        return handleTwilioStatusWebhook(tracedReq);
-      }
-
-      if (
-        url.pathname === "/webhooks/twilio/connect-action" ||
-        url.pathname === "/v1/calls/twilio/connect-action"
-      ) {
-        return handleTwilioConnectActionWebhook(tracedReq);
-      }
-
-      if (url.pathname === "/webhooks/twilio/sms") {
-        return handleTwilioSmsWebhook(tracedReq);
-      }
-
-      if (url.pathname === "/deliver/sms") {
-        return wrapWithAuthFailureTracking(
-          handleSmsDeliver,
-          authRateLimiter,
-          resolveClientIp,
-        )(tracedReq);
-      }
-
-      if (url.pathname === "/webhooks/whatsapp") {
-        if (!isWhatsAppConfigured()) {
-          return Response.json(
-            { error: "WhatsApp integration not configured" },
-            { status: 503 },
-          );
-        }
-        return handleWhatsAppWebhook(tracedReq);
-      }
-
-      if (url.pathname === "/deliver/whatsapp") {
-        if (!isWhatsAppConfigured()) {
-          return Response.json(
-            { error: "WhatsApp integration not configured" },
-            { status: 503 },
-          );
-        }
-        return wrapWithAuthFailureTracking(
-          handleWhatsAppDeliver,
-          authRateLimiter,
-          resolveClientIp,
-        )(tracedReq);
-      }
-
-      if (url.pathname === "/deliver/slack") {
-        if (!config.slackChannelBotToken) {
-          return Response.json(
-            { error: "Slack integration not configured" },
-            { status: 503 },
-          );
-        }
-        return wrapWithAuthFailureTracking(
-          handleSlackDeliver,
-          authRateLimiter,
-          resolveClientIp,
-        )(tracedReq);
-      }
-
+      // ── Pre-router: WebSocket upgrades ──
+      // Bun's WS upgrade needs `server.upgrade()` which doesn't return
+      // a Response, so these can't go through the route table.
       if (
         url.pathname === "/webhooks/twilio/relay" ||
         url.pathname === "/v1/calls/relay"
       ) {
         const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
-        // If upgrade was handled, Bun doesn't need a response
         return undefined as unknown as Response;
       }
 
       if (config.runtimeProxyEnabled && url.pathname === "/v1/browser-relay") {
         const upgradeResult = handleBrowserRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
-        // If upgrade was handled, Bun doesn't need a response
         return undefined as unknown as Response;
       }
 
-      if (
-        url.pathname === "/webhooks/oauth/callback" &&
-        tracedReq.method === "GET"
-      ) {
-        return wrapWithAuthFailureTracking(
-          handleOAuthCallback,
-          authRateLimiter,
-          resolveClientIp,
-          [400],
-        )(tracedReq);
-      }
+      // Attach a trace ID to every non-healthcheck request for
+      // end-to-end correlation across webhook -> runtime -> reply.
+      const traceId = req.headers.get("x-trace-id") || generateTraceId();
+      const headers = new Headers(req.headers);
+      headers.set("x-trace-id", traceId);
+      const tracedReq = new Request(req, { headers });
 
-      const { requireEdgeAuth, requireEdgeAuthWithScope } =
-        createAuthMiddleware(authRateLimiter, resolveClientIp);
-
-      // ── Runtime health proxy ──
-      if (url.pathname === "/v1/health" && req.method === "GET") {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-        return runtimeHealthProxy.handleRuntimeHealth(tracedReq);
-      }
-
-      // ── Brain graph proxy ──
-      if (url.pathname === "/v1/brain-graph" && req.method === "GET") {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-        return brainGraphProxy.handleBrainGraph(tracedReq);
-      }
-      if (url.pathname === "/v1/brain-graph-ui" && req.method === "GET") {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-        return brainGraphProxy.handleBrainGraphUI(tracedReq);
-      }
-      if (url.pathname === "/v1/home-base-ui" && req.method === "GET") {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-        return brainGraphProxy.handleHomeBaseUI(tracedReq);
-      }
-
-      // ── Telegram integration control-plane proxy ──
-      if (
-        (url.pathname === "/v1/integrations/telegram/config" &&
-          req.method === "GET") ||
-        (url.pathname === "/v1/integrations/telegram/config" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/telegram/config" &&
-          req.method === "DELETE") ||
-        (url.pathname === "/v1/integrations/telegram/commands" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/telegram/setup" &&
-          req.method === "POST")
-      ) {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-
-        if (
-          url.pathname === "/v1/integrations/telegram/config" &&
-          req.method === "GET"
-        ) {
-          return telegramControlPlaneProxy.handleGetTelegramConfig(tracedReq);
-        }
-        if (
-          url.pathname === "/v1/integrations/telegram/config" &&
-          req.method === "POST"
-        ) {
-          return telegramControlPlaneProxy.handleSetTelegramConfig(tracedReq);
-        }
-        if (
-          url.pathname === "/v1/integrations/telegram/config" &&
-          req.method === "DELETE"
-        ) {
-          return telegramControlPlaneProxy.handleClearTelegramConfig(tracedReq);
-        }
-        if (url.pathname === "/v1/integrations/telegram/commands") {
-          return telegramControlPlaneProxy.handleSetTelegramCommands(tracedReq);
-        }
-        return telegramControlPlaneProxy.handleSetupTelegram(tracedReq);
-      }
-
-      // ── Ingress members/invites control-plane proxy ──
-      const ingressRoute = matchIngressControlPlaneRoute(
-        url.pathname,
-        req.method,
-      );
-      if (ingressRoute) {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-
-        switch (ingressRoute.kind) {
-          case "listMembers":
-            return ingressControlPlaneProxy.handleListMembers(tracedReq);
-          case "upsertMember":
-            return ingressControlPlaneProxy.handleUpsertMember(tracedReq);
-          case "blockMember":
-            return ingressControlPlaneProxy.handleBlockMember(
-              tracedReq,
-              ingressRoute.memberId,
-            );
-          case "revokeMember":
-            return ingressControlPlaneProxy.handleRevokeMember(
-              tracedReq,
-              ingressRoute.memberId,
-            );
-          case "listInvites":
-            return ingressControlPlaneProxy.handleListInvites(tracedReq);
-          case "createInvite":
-            return ingressControlPlaneProxy.handleCreateInvite(tracedReq);
-          case "redeemInvite":
-            return ingressControlPlaneProxy.handleRedeemInvite(tracedReq);
-          case "revokeInvite":
-            return ingressControlPlaneProxy.handleRevokeInvite(
-              tracedReq,
-              ingressRoute.inviteId,
-            );
-        }
-      }
-
-      // ── Guardian vellum bootstrap (actor token) ──
-      if (
-        url.pathname === "/v1/integrations/guardian/vellum/bootstrap" &&
-        req.method === "POST"
-      ) {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-        return guardianControlPlaneProxy.handleGuardianVellumBootstrap(
-          tracedReq,
-        );
-      }
-
-      // ── Guardian verification control-plane proxy ──
-      if (
-        (url.pathname === "/v1/integrations/guardian/challenge" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/guardian/status" &&
-          req.method === "GET") ||
-        (url.pathname === "/v1/integrations/guardian/revoke" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/guardian/outbound/start" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/guardian/outbound/resend" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/guardian/outbound/cancel" &&
-          req.method === "POST")
-      ) {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-
-        if (url.pathname === "/v1/integrations/guardian/challenge") {
-          return guardianControlPlaneProxy.handleCreateGuardianChallenge(
-            tracedReq,
-          );
-        }
-        if (url.pathname === "/v1/integrations/guardian/status") {
-          return guardianControlPlaneProxy.handleGetGuardianStatus(tracedReq);
-        }
-        if (url.pathname === "/v1/integrations/guardian/revoke") {
-          return guardianControlPlaneProxy.handleRevokeGuardian(tracedReq);
-        }
-        if (url.pathname === "/v1/integrations/guardian/outbound/start") {
-          return guardianControlPlaneProxy.handleStartGuardianOutbound(
-            tracedReq,
-          );
-        }
-        if (url.pathname === "/v1/integrations/guardian/outbound/resend") {
-          return guardianControlPlaneProxy.handleResendGuardianOutbound(
-            tracedReq,
-          );
-        }
-        return guardianControlPlaneProxy.handleCancelGuardianOutbound(
-          tracedReq,
-        );
-      }
-
-      // ── Guardian vellum refresh proxy ──
-      // Accept expired-but-otherwise-valid JWTs on the refresh path.
-      // The refresh endpoint's purpose is to obtain a new access token,
-      // so rejecting expired tokens here would create a deadlock once
-      // the JWT expires. Signature, audience, and policy epoch are still
-      // verified — only the expiration check is relaxed.
-      if (
-        url.pathname === "/v1/integrations/guardian/vellum/refresh" &&
-        req.method === "POST"
-      ) {
-        const authHeader = tracedReq.headers.get("authorization");
-        if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-          authRateLimiter.recordFailure(resolveClientIp());
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
-        const token = authHeader.slice(7);
-        const result = validateEdgeToken(token, { allowExpired: true });
-        if (!result.ok) {
-          authRateLimiter.recordFailure(resolveClientIp());
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
-        return guardianControlPlaneProxy.handleGuardianRefresh(tracedReq);
-      }
-
-      // ── Twilio integration control-plane proxy ──
-      if (
-        (url.pathname === "/v1/integrations/twilio/config" &&
-          req.method === "GET") ||
-        (url.pathname === "/v1/integrations/twilio/credentials" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/twilio/credentials" &&
-          req.method === "DELETE") ||
-        (url.pathname === "/v1/integrations/twilio/numbers" &&
-          req.method === "GET") ||
-        (url.pathname === "/v1/integrations/twilio/numbers/provision" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/twilio/numbers/assign" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/twilio/numbers/release" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/twilio/sms/compliance" &&
-          req.method === "GET") ||
-        (url.pathname === "/v1/integrations/twilio/sms/compliance/tollfree" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/twilio/sms/test" &&
-          req.method === "POST") ||
-        (url.pathname === "/v1/integrations/twilio/sms/doctor" &&
-          req.method === "POST")
-      ) {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-
-        if (
-          url.pathname === "/v1/integrations/twilio/config" &&
-          req.method === "GET"
-        ) {
-          return twilioControlPlaneProxy.handleGetTwilioConfig(tracedReq);
-        }
-        if (
-          url.pathname === "/v1/integrations/twilio/credentials" &&
-          req.method === "POST"
-        ) {
-          return twilioControlPlaneProxy.handleSetTwilioCredentials(tracedReq);
-        }
-        if (
-          url.pathname === "/v1/integrations/twilio/credentials" &&
-          req.method === "DELETE"
-        ) {
-          return twilioControlPlaneProxy.handleClearTwilioCredentials(
-            tracedReq,
-          );
-        }
-        if (
-          url.pathname === "/v1/integrations/twilio/numbers" &&
-          req.method === "GET"
-        ) {
-          return twilioControlPlaneProxy.handleListTwilioNumbers(tracedReq);
-        }
-        if (url.pathname === "/v1/integrations/twilio/numbers/provision") {
-          return twilioControlPlaneProxy.handleProvisionTwilioNumber(tracedReq);
-        }
-        if (url.pathname === "/v1/integrations/twilio/numbers/assign") {
-          return twilioControlPlaneProxy.handleAssignTwilioNumber(tracedReq);
-        }
-        if (url.pathname === "/v1/integrations/twilio/numbers/release") {
-          return twilioControlPlaneProxy.handleReleaseTwilioNumber(tracedReq);
-        }
-        if (
-          url.pathname === "/v1/integrations/twilio/sms/compliance" &&
-          req.method === "GET"
-        ) {
-          return twilioControlPlaneProxy.handleGetSmsCompliance(tracedReq);
-        }
-        if (
-          url.pathname === "/v1/integrations/twilio/sms/compliance/tollfree"
-        ) {
-          return twilioControlPlaneProxy.handleSubmitTollfreeVerification(
-            tracedReq,
-          );
-        }
-        if (url.pathname === "/v1/integrations/twilio/sms/test") {
-          return twilioControlPlaneProxy.handleSmsSendTest(tracedReq);
-        }
-        return twilioControlPlaneProxy.handleSmsDoctor(tracedReq);
-      }
-
-      // ── Twilio tollfree verification dynamic path routes ──
-      const tollfreeVerificationMatch = url.pathname.match(
-        /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
-      );
-      if (
-        tollfreeVerificationMatch &&
-        (req.method === "PATCH" || req.method === "DELETE")
-      ) {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-
-        const verificationSid = decodeURIComponent(
-          tollfreeVerificationMatch[1],
-        );
-        if (req.method === "PATCH") {
-          return twilioControlPlaneProxy.handleUpdateTollfreeVerification(
-            tracedReq,
-            verificationSid,
-          );
-        }
-        return twilioControlPlaneProxy.handleDeleteTollfreeVerification(
-          tracedReq,
-          verificationSid,
-        );
-      }
-
-      // ── Channel readiness proxy ──
-      if (
-        (url.pathname === "/v1/channels/readiness" && req.method === "GET") ||
-        (url.pathname === "/v1/channels/readiness/refresh" &&
-          req.method === "POST")
-      ) {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-
-        if (url.pathname === "/v1/channels/readiness" && req.method === "GET") {
-          return channelReadinessProxy.handleGetChannelReadiness(tracedReq);
-        }
-        return channelReadinessProxy.handleRefreshChannelReadiness(tracedReq);
-      }
-
-      if (url.pathname === "/integrations/status" && req.method === "GET") {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-        return Response.json({
-          email: {
-            address: config.assistantEmail ?? null,
-          },
-        });
-      }
-
-      // ── Pairing proxy ──
-      // Register requires bearer auth (privileged operation from CLI/macOS)
-      if (url.pathname === "/pairing/register" && tracedReq.method === "POST") {
-        const authError = requireEdgeAuth(tracedReq);
-        if (authError) return authError;
-        return pairingProxy.handlePairingRegister(tracedReq);
-      }
-      // Request and status are unauthenticated at the gateway (secret-gated)
-      // Record auth failures when the daemon rejects the pairing secret
-      if (url.pathname === "/pairing/request" && tracedReq.method === "POST") {
-        return wrapWithAuthFailureTracking(
-          pairingProxy.handlePairingRequest,
-          authRateLimiter,
-          resolveClientIp,
-          [401, 403],
-        )(tracedReq);
-      }
-      if (url.pathname === "/pairing/status" && tracedReq.method === "GET") {
-        return wrapWithAuthFailureTracking(
-          pairingProxy.handlePairingStatus,
-          authRateLimiter,
-          resolveClientIp,
-          [401, 403],
-        )(tracedReq);
-      }
-
-      // ── Feature flags API ──
-      // Feature flag access is scope-based: actor_client_v1 includes
-      // feature_flags.read/write. No separate feature flag token needed.
-      if (url.pathname === "/v1/feature-flags" && req.method === "GET") {
-        const authError = requireEdgeAuthWithScope(
-          tracedReq,
-          "feature_flags.read",
-        );
-        if (authError) return authError;
-        return handleFeatureFlagsGet(tracedReq);
-      }
-
-      const featureFlagPatchMatch = url.pathname.match(
-        /^\/v1\/feature-flags\/(.+)$/,
-      );
-      if (featureFlagPatchMatch && req.method === "PATCH") {
-        const authError = requireEdgeAuthWithScope(
-          tracedReq,
-          "feature_flags.write",
-        );
-        if (authError) return authError;
-        let flagKey: string;
-        try {
-          flagKey = decodeURIComponent(featureFlagPatchMatch[1]);
-        } catch {
-          return Response.json(
-            { error: "Invalid flag key encoding" },
-            { status: 400 },
-          );
-        }
-        return handleFeatureFlagsPatch(tracedReq, flagKey);
-      }
-
-      if (handleRuntimeProxy) {
-        return wrapWithAuthFailureTracking(
-          (r) => handleRuntimeProxy(r, resolveClientIp()),
-          authRateLimiter,
-          resolveClientIp,
-        )(tracedReq);
-      }
+      // ── Route table dispatch ──
+      const response = router(tracedReq, url);
+      if (response !== null) return response;
 
       return Response.json(
         { error: "Not found", source: "gateway" },
