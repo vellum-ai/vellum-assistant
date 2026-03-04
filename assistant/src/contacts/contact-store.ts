@@ -13,31 +13,6 @@ import type {
   ContactWithChannels,
 } from "./types.js";
 
-// ── Contacts-populated cache ─────────────────────────────────────────
-// Tracks whether the contacts table has any rows. Callers can skip
-// expensive contacts-first queries when the table is known to be empty
-// (e.g., before first contact-sync). Invalidated on upsert/delete.
-
-let contactsPopulatedCache: boolean | null = null;
-
-/** Returns true if the contacts table has at least one row. Cached. */
-export function hasContacts(): boolean {
-  if (contactsPopulatedCache != null) return contactsPopulatedCache;
-  const db = getDb();
-  const row = db
-    .select({ n: sql<number>`1` })
-    .from(contacts)
-    .limit(1)
-    .get();
-  contactsPopulatedCache = row != null;
-  return contactsPopulatedCache;
-}
-
-/** Invalidate the contacts-populated cache (call after inserts/deletes). */
-export function invalidateContactsCache(): void {
-  contactsPopulatedCache = null;
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /** Strip LIKE metacharacters so user input is matched literally.
@@ -294,7 +269,6 @@ export function upsertContact(params: {
       updatedAt: now,
     })
     .run();
-  invalidateContactsCache();
 
   if (params.channels) {
     syncChannels(contactId, params.channels, now);

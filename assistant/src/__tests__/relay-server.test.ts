@@ -177,10 +177,10 @@ import {
   resolveCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import {
-  createBinding,
   createChallenge,
   createVerificationSession,
 } from "../memory/channel-guardian-store.js";
+import { createBinding } from "../memory/guardian-bindings.js";
 import { addMessage, getMessages } from "../memory/conversation-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite } from "../memory/ingress-invite-store.js";

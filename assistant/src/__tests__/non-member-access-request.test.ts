@@ -97,7 +97,7 @@ import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
-import { createBinding } from "../memory/channel-guardian-store.js";
+import { createBinding } from "../memory/guardian-bindings.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";

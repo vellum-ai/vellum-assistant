@@ -24,7 +24,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { invalidateContactsCache } from "../contacts/contact-store.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   handleBlockMember,
@@ -53,7 +52,6 @@ function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");
   getSqlite().run("DELETE FROM contact_channels");
   getSqlite().run("DELETE FROM contacts");
-  invalidateContactsCache();
 }
 
 // ---------------------------------------------------------------------------

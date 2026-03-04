@@ -127,7 +127,6 @@ import {
   bindSessionIdentity as _storeBindSessionIdentity,
   consumeChallenge,
   createApprovalRequest,
-  createBinding,
   createChallenge,
   createVerificationSession,
   findActiveSession as storeFindActiveSession,
@@ -135,17 +134,20 @@ import {
   findPendingChallengeForChannel,
   findSessionByBootstrapTokenHash as _storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as _storeFindSessionByIdentity,
-  getActiveBinding,
   getPendingApprovalByGuardianChat,
   getPendingApprovalForRun,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
-  revokeBinding,
   updateApprovalDecision,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-guardian-store.js";
+import {
+  createBinding,
+  getActiveBinding,
+  revokeBinding,
+} from "../memory/guardian-bindings.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { channelGuardianVerificationChallenges } from "../memory/schema.js";
 import {
