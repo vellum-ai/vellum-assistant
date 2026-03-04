@@ -8,6 +8,30 @@ mock.module("../config/env.js", () => ({
   isMonitoringEnabled: () => false,
 }));
 
+mock.module("../runtime/local-actor-identity.js", () => ({
+  resolveLocalIpcTrustContext: () => ({
+    trustClass: "guardian",
+    sourceChannel: "vellum",
+    guardianPrincipalId: "local-principal",
+  }),
+  resolveLocalIpcAuthContext: () => ({
+    scope: "ipc_v1",
+    actorPrincipalId: "local-principal",
+  }),
+}));
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    daemon: { standaloneRecording: false },
+    secretDetection: {
+      enabled: true,
+      blockIngress: true,
+      customPatterns: [],
+      entropyThreshold: 3.5,
+    },
+  }),
+}));
+
 const { handleUserMessage } = await import("../daemon/handlers/sessions.js");
 
 describe("handleUserMessage secret redirect continuation", () => {
@@ -56,6 +80,8 @@ describe("handleUserMessage secret redirect continuation", () => {
       setCommandIntent: () => {},
       updateClient: () => {},
       emitActivityState: () => {},
+      hasAnyPendingConfirmation: () => false,
+      hasPendingConfirmation: () => false,
       processMessage: (
         content: string,
         _attachments: unknown[],
