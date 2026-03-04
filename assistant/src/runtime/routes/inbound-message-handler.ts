@@ -31,7 +31,9 @@ import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
 import { recordConversationSeenSignal } from "../../memory/conversation-attention-store.js";
 import * as conversationStore from "../../memory/conversation-store.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import { findMember } from "../../memory/ingress-member-store.js";
+import { findContactChannel } from "../../contacts/contact-store.js";
+import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
+import type { IngressMember } from "../../memory/ingress-member-store.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
@@ -255,7 +257,7 @@ export async function handleChannelInbound(
   // ── Ingress ACL enforcement ──
   // Track the resolved member so the escalate branch can reference it after
   // recordInbound (where we have a conversationId).
-  let resolvedMember: ReturnType<typeof findMember> = null;
+  let resolvedMember: IngressMember | null = null;
 
   // Verification codes must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
@@ -297,12 +299,14 @@ export async function handleChannelInbound(
     // Whitespace-only senders (hasSenderIdentityClaim=true but
     // canonicalSenderId=null) skip the lookup and fall into the deny path.
     if (canonicalSenderId) {
-      resolvedMember = findMember({
-        assistantId: canonicalAssistantId,
-        sourceChannel,
+      const contactResult = findContactChannel({
+        channelType: sourceChannel,
         externalUserId: canonicalSenderId,
         externalChatId: conversationExternalId,
       });
+      resolvedMember = contactResult
+        ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
+        : null;
     }
 
     if (!resolvedMember) {
@@ -1014,15 +1018,17 @@ export async function handleChannelInbound(
       : "failed";
 
     if (verifyResult.success) {
-      const existingMember =
+      const existingContactResult =
         (canonicalSenderId ?? rawSenderId)
-          ? findMember({
-              assistantId: canonicalAssistantId,
-              sourceChannel,
+          ? findContactChannel({
+              channelType: sourceChannel,
               externalUserId: canonicalSenderId ?? rawSenderId!,
               externalChatId: conversationExternalId,
             })
           : null;
+      const existingMember = existingContactResult
+        ? contactChannelToMemberRecord(existingContactResult.contact, existingContactResult.channel)
+        : null;
       const memberMatchesSender = existingMember?.externalUserId
         ? canonicalizeInboundIdentity(
             sourceChannel,
