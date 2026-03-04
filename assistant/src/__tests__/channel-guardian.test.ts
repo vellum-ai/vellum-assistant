@@ -145,11 +145,6 @@ import {
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import {
-  createBinding,
-  getActiveBinding,
-  revokeBinding,
-} from "../memory/guardian-bindings.js";
 import { channelGuardianVerificationChallenges } from "../memory/schema.js";
 import {
   bindSessionIdentity as serviceBindSessionIdentity,
@@ -185,7 +180,6 @@ afterAll(() => {
 
 function resetTables(): void {
   const db = getDb();
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM channel_guardian_verification_challenges");
   db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM channel_guardian_rate_limits");
@@ -196,125 +190,6 @@ function resetTables(): void {
   voiceCallInitCalls.length = 0;
   mockBotUsername = "test_bot";
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 1. Guardian Binding CRUD (Store)
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("guardian binding CRUD", () => {
-  beforeEach(() => {
-    resetTables();
-  });
-
-  test("createBinding creates an active binding with correct fields", () => {
-    const binding = createBinding({
-      assistantId: "asst-1",
-      channel: "telegram",
-      guardianExternalUserId: "user-42",
-      guardianPrincipalId: "user-42",
-      guardianDeliveryChatId: "chat-42",
-    });
-
-    expect(binding.id).toBeDefined();
-    expect(binding.assistantId).toBe("asst-1");
-    expect(binding.channel).toBe("telegram");
-    expect(binding.guardianExternalUserId).toBe("user-42");
-    expect(binding.guardianDeliveryChatId).toBe("chat-42");
-    expect(binding.status).toBe("active");
-    expect(binding.verifiedVia).toBe("challenge");
-    expect(binding.verifiedAt).toBeGreaterThan(0);
-    expect(binding.createdAt).toBeGreaterThan(0);
-    expect(binding.updatedAt).toBeGreaterThan(0);
-  });
-
-  test("getActiveBinding returns the active binding", () => {
-    createBinding({
-      assistantId: "asst-1",
-      channel: "telegram",
-      guardianExternalUserId: "user-42",
-      guardianPrincipalId: "user-42",
-      guardianDeliveryChatId: "chat-42",
-    });
-
-    const found = getActiveBinding("asst-1", "telegram");
-    expect(found).not.toBeNull();
-    expect(found!.guardianExternalUserId).toBe("user-42");
-  });
-
-  test("getActiveBinding returns null when no binding exists", () => {
-    const found = getActiveBinding("asst-1", "telegram");
-    expect(found).toBeNull();
-  });
-
-  test("getActiveBinding returns null for different assistant", () => {
-    createBinding({
-      assistantId: "asst-1",
-      channel: "telegram",
-      guardianExternalUserId: "user-42",
-      guardianPrincipalId: "user-42",
-      guardianDeliveryChatId: "chat-42",
-    });
-
-    const found = getActiveBinding("asst-2", "telegram");
-    expect(found).toBeNull();
-  });
-
-  test("getActiveBinding returns null for different channel", () => {
-    createBinding({
-      assistantId: "asst-1",
-      channel: "telegram",
-      guardianExternalUserId: "user-42",
-      guardianPrincipalId: "user-42",
-      guardianDeliveryChatId: "chat-42",
-    });
-
-    const found = getActiveBinding("asst-1", "slack");
-    expect(found).toBeNull();
-  });
-
-  test("revokeBinding transitions active binding to revoked", () => {
-    createBinding({
-      assistantId: "asst-1",
-      channel: "telegram",
-      guardianExternalUserId: "user-42",
-      guardianPrincipalId: "user-42",
-      guardianDeliveryChatId: "chat-42",
-    });
-
-    const result = revokeBinding("asst-1", "telegram");
-    expect(result).toBe(true);
-
-    const found = getActiveBinding("asst-1", "telegram");
-    expect(found).toBeNull();
-  });
-
-  test("revokeBinding returns false when no active binding exists", () => {
-    const result = revokeBinding("asst-1", "telegram");
-    expect(result).toBe(false);
-  });
-
-  test("revokeBinding does not affect bindings on other channels", () => {
-    createBinding({
-      assistantId: "asst-1",
-      channel: "telegram",
-      guardianExternalUserId: "user-42",
-      guardianPrincipalId: "user-42",
-      guardianDeliveryChatId: "chat-42",
-    });
-    createBinding({
-      assistantId: "asst-1",
-      channel: "slack",
-      guardianExternalUserId: "user-99",
-      guardianPrincipalId: "user-99",
-      guardianDeliveryChatId: "chat-99",
-    });
-
-    revokeBinding("asst-1", "telegram");
-
-    expect(getActiveBinding("asst-1", "telegram")).toBeNull();
-    expect(getActiveBinding("asst-1", "slack")).not.toBeNull();
-  });
-});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 2. Verification Challenge Lifecycle (Store)

@@ -2,13 +2,40 @@
  * Re-export hub for channel guardian store modules.
  *
  * The implementation has been split into focused modules:
- * - guardian-bindings.ts    — channel binding CRUD
  * - guardian-verification.ts — verification challenge/session management
  * - guardian-approvals.ts   — approval request tracking
  * - guardian-rate-limits.ts — verification rate limiting
  *
+ * Guardian binding types (GuardianBinding, BindingStatus) are defined locally
+ * here after the deletion of the legacy guardian-bindings.ts store.
+ *
  * This file re-exports everything for backward compatibility.
  */
+
+// ---------------------------------------------------------------------------
+// Guardian binding types (formerly in guardian-bindings.ts)
+// ---------------------------------------------------------------------------
+
+export type BindingStatus = "active" | "revoked";
+
+export interface GuardianBinding {
+  id: string;
+  assistantId: string;
+  channel: string;
+  guardianExternalUserId: string;
+  guardianDeliveryChatId: string;
+  guardianPrincipalId: string;
+  status: BindingStatus;
+  verifiedAt: number;
+  verifiedVia: string;
+  metadataJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// Re-exports from focused modules
+// ---------------------------------------------------------------------------
 
 export {
   type ApprovalRequestStatus,
@@ -32,13 +59,6 @@ export {
   resolveApprovalRequest,
   updateApprovalDecision,
 } from "./guardian-approvals.js";
-export {
-  type BindingStatus,
-  createBinding,
-  getActiveBinding,
-  type GuardianBinding,
-  revokeBinding,
-} from "./guardian-bindings.js";
 export {
   getRateLimit,
   recordInvalidAttempt,

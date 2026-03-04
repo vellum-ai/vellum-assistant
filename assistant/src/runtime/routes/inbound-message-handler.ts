@@ -33,7 +33,7 @@ import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
 import { recordConversationSeenSignal } from "../../memory/conversation-attention-store.js";
 import * as conversationStore from "../../memory/conversation-store.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import type { IngressMember } from "../../memory/ingress-member-store.js";
+import type { IngressMember } from "../../contacts/member-record-shim.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";

@@ -7,8 +7,8 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import type { GuardianBinding } from "../memory/guardian-bindings.js";
-import type { IngressMember } from "../memory/ingress-member-store.js";
+import type { GuardianBinding } from "../memory/channel-guardian-store.js";
+import type { IngressMember } from "./member-record-shim.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";

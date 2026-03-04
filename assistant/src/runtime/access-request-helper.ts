@@ -24,7 +24,7 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
-import type { MemberStatus } from "../memory/ingress-member-store.js";
+import type { MemberStatus } from "../contacts/member-record-shim.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { getLogger } from "../util/logger.js";

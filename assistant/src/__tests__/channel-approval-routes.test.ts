@@ -140,7 +140,6 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM channel_guardian_verification_challenges");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM message_runs");
   db.run("DELETE FROM channel_inbound_events");

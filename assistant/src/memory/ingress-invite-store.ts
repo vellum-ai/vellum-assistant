@@ -12,7 +12,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
-import { assistantIngressInvites, assistantIngressMembers } from "./schema.js";
+import { assistantIngressInvites } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,25 +41,6 @@ export interface IngressInvite {
   // Display metadata for personalized voice prompts (null for non-voice invites)
   friendName: string | null;
   guardianName: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface IngressMember {
-  id: string;
-  assistantId: string;
-  sourceChannel: string;
-  externalUserId: string | null;
-  externalChatId: string | null;
-  displayName: string | null;
-  username: string | null;
-  status: string;
-  policy: string;
-  inviteId: string | null;
-  createdBySessionId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-  lastSeenAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -105,29 +86,6 @@ function rowToInvite(
     voiceCodeDigits: row.voiceCodeDigits,
     friendName: row.friendName,
     guardianName: row.guardianName,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function rowToMember(
-  row: typeof assistantIngressMembers.$inferSelect,
-): IngressMember {
-  return {
-    id: row.id,
-    assistantId: row.assistantId,
-    sourceChannel: row.sourceChannel,
-    externalUserId: row.externalUserId,
-    externalChatId: row.externalChatId,
-    displayName: row.displayName,
-    username: row.username,
-    status: row.status,
-    policy: row.policy,
-    inviteId: row.inviteId,
-    createdBySessionId: row.createdBySessionId,
-    revokedReason: row.revokedReason,
-    blockedReason: row.blockedReason,
-    lastSeenAt: row.lastSeenAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -249,114 +207,6 @@ export function revokeInvite(inviteId: string): IngressInvite | null {
     .run();
 
   return rowToInvite({ ...existing, status: "revoked", updatedAt: now });
-}
-
-// ---------------------------------------------------------------------------
-// redeemInvite
-// ---------------------------------------------------------------------------
-
-export interface RedeemError {
-  error: string;
-}
-
-export function redeemInvite(params: {
-  rawToken: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  displayName?: string;
-  username?: string;
-  sourceChannel?: string;
-}): { invite: IngressInvite; member: IngressMember } | RedeemError {
-  const db = getDb();
-  const now = Date.now();
-  const tokenH = hashToken(params.rawToken);
-
-  const invite = db
-    .select()
-    .from(assistantIngressInvites)
-    .where(eq(assistantIngressInvites.tokenHash, tokenH))
-    .get();
-
-  if (!invite) {
-    return { error: "invite_not_found" };
-  }
-
-  if (invite.status !== "active") {
-    return { error: `invite_${invite.status}` };
-  }
-
-  if (invite.expiresAt <= now) {
-    // Mark as expired for future lookups
-    db.update(assistantIngressInvites)
-      .set({ status: "expired", updatedAt: now })
-      .where(eq(assistantIngressInvites.id, invite.id))
-      .run();
-    return { error: "invite_expired" };
-  }
-
-  if (invite.useCount >= invite.maxUses) {
-    return { error: "invite_max_uses_reached" };
-  }
-
-  // Enforce channel-scoped redemption: when the caller specifies a channel, it
-  // must match the channel the invite was created for.
-  if (params.sourceChannel && params.sourceChannel !== invite.sourceChannel) {
-    return { error: "invite_channel_mismatch" };
-  }
-
-  const newUseCount = invite.useCount + 1;
-  const newStatus = newUseCount >= invite.maxUses ? "redeemed" : "active";
-
-  // Update invite in a transaction with member creation
-  const memberId = randomUUID();
-  const sourceChannel = params.sourceChannel ?? invite.sourceChannel;
-
-  const memberRow = {
-    id: memberId,
-    assistantId: invite.assistantId,
-    sourceChannel,
-    externalUserId: params.externalUserId ?? null,
-    externalChatId: params.externalChatId ?? null,
-    displayName: params.displayName ?? null,
-    username: params.username ?? null,
-    status: "active" as const,
-    policy: "allow" as const,
-    inviteId: invite.id,
-    createdBySessionId: null,
-    revokedReason: null,
-    blockedReason: null,
-    lastSeenAt: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  db.transaction((tx) => {
-    tx.update(assistantIngressInvites)
-      .set({
-        useCount: newUseCount,
-        status: newStatus,
-        redeemedByExternalUserId: params.externalUserId ?? null,
-        redeemedByExternalChatId: params.externalChatId ?? null,
-        redeemedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(assistantIngressInvites.id, invite.id))
-      .run();
-
-    tx.insert(assistantIngressMembers).values(memberRow).run();
-  });
-
-  const updatedInvite: IngressInvite = {
-    ...rowToInvite(invite),
-    useCount: newUseCount,
-    status: newStatus as InviteStatus,
-    redeemedByExternalUserId: params.externalUserId ?? null,
-    redeemedByExternalChatId: params.externalChatId ?? null,
-    redeemedAt: now,
-    updatedAt: now,
-  };
-
-  return { invite: updatedInvite, member: rowToMember(memberRow) };
 }
 
 // ---------------------------------------------------------------------------

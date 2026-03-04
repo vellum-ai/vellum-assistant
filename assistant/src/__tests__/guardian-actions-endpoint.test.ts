@@ -121,7 +121,6 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM channel_guardian_approval_requests");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM conversations");
   mockApplyCanonicalGuardianDecision.mockClear();
 }

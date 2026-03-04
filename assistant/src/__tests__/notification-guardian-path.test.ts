@@ -138,7 +138,6 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM guardian_action_deliveries");
   db.run("DELETE FROM guardian_action_requests");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM call_pending_questions");
   db.run("DELETE FROM call_events");
   db.run("DELETE FROM call_sessions");

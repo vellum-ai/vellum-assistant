@@ -15,18 +15,18 @@ import {
 import type { ContactWithChannels } from "../contacts/types.js";
 import {
   createInvite,
+  findByTokenHash,
+  hashToken,
   type IngressInvite,
   type InviteStatus,
   listInvites,
-  redeemInvite,
   revokeInvite,
 } from "../memory/ingress-invite-store.js";
-import {
-  type IngressMember,
-  listMembers,
-  type MemberPolicy,
-  type MemberStatus,
-} from "../memory/ingress-member-store.js";
+import type {
+  IngressMember,
+  MemberPolicy,
+  MemberStatus,
+} from "../contacts/member-record-shim.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { getTransport } from "./channel-invite-transport.js";
@@ -147,79 +147,21 @@ export function memberToResponse(m: IngressMember): MemberResponseData {
   };
 }
 
-/** Build a lookup key for a legacy ingress member. */
-function memberLookupKey(
-  sourceChannel: string,
-  externalUserId?: string | null,
-  externalChatId?: string | null,
-): string {
-  return `${sourceChannel}|${externalUserId ?? ""}|${externalChatId ?? ""}`;
-}
-
-interface LegacyMemberMaps {
-  /** Full composite key: sourceChannel|externalUserId|externalChatId */
-  exactMap: Map<string, IngressMember>;
-  /** Partial key: sourceChannel|externalUserId */
-  byUserId: Map<string, IngressMember>;
-  /** Partial key: sourceChannel|externalChatId */
-  byChatId: Map<string, IngressMember>;
-}
-
-/**
- * Build separate maps for exact and partial member lookups.
- *
- * Partial-index keys (userId-only, chatId-only) are stored in dedicated maps
- * so they cannot collide with or overwrite exact-match entries.
- */
-function buildLegacyMemberMap(members: IngressMember[]): LegacyMemberMaps {
-  const exactMap = new Map<string, IngressMember>();
-  const byUserId = new Map<string, IngressMember>();
-  const byChatId = new Map<string, IngressMember>();
-  for (const m of members) {
-    exactMap.set(
-      memberLookupKey(m.sourceChannel, m.externalUserId, m.externalChatId),
-      m,
-    );
-    if (m.externalUserId) {
-      byUserId.set(`${m.sourceChannel}|${m.externalUserId}`, m);
-    }
-    if (m.externalChatId) {
-      byChatId.set(`${m.sourceChannel}|${m.externalChatId}`, m);
-    }
-  }
-  return { exactMap, byUserId, byChatId };
-}
-
 function contactToMemberResponse(
   contact: ContactWithChannels,
-  maps: LegacyMemberMaps,
 ): MemberResponseData[] {
-  return contact.channels.map((ch) => {
-    // Check exact map first, then fall back to partial maps
-    const legacyMember =
-      maps.exactMap.get(
-        memberLookupKey(ch.type, ch.externalUserId, ch.externalChatId),
-      ) ??
-      (ch.externalUserId
-        ? maps.byUserId.get(`${ch.type}|${ch.externalUserId}`)
-        : undefined) ??
-      (ch.externalChatId
-        ? maps.byChatId.get(`${ch.type}|${ch.externalChatId}`)
-        : undefined);
-
-    return {
-      id: `${contact.id}:${ch.id}`,
-      sourceChannel: ch.type,
-      externalUserId: ch.externalUserId ?? undefined,
-      externalChatId: ch.externalChatId ?? undefined,
-      displayName: contact.displayName,
-      username: legacyMember?.username ?? undefined,
-      status: ch.status,
-      policy: ch.policy,
-      lastSeenAt: ch.lastSeenAt ?? undefined,
-      createdAt: ch.createdAt,
-    };
-  });
+  return contact.channels.map((ch) => ({
+    id: `${contact.id}:${ch.id}`,
+    sourceChannel: ch.type,
+    externalUserId: ch.externalUserId ?? undefined,
+    externalChatId: ch.externalChatId ?? undefined,
+    displayName: contact.displayName,
+    username: undefined,
+    status: ch.status,
+    policy: ch.policy,
+    lastSeenAt: ch.lastSeenAt ?? undefined,
+    createdAt: ch.createdAt,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -345,16 +287,33 @@ export function redeemIngressInvite(params: {
   if (!params.token) {
     return { ok: false, error: "token is required for redeem" };
   }
-  const result = redeemInvite({
+  if (!params.sourceChannel) {
+    return { ok: false, error: "sourceChannel is required for redeem" };
+  }
+  const outcome = redeemInviteTyped({
     rawToken: params.token,
+    sourceChannel: params.sourceChannel,
     externalUserId: params.externalUserId,
     externalChatId: params.externalChatId,
-    sourceChannel: params.sourceChannel,
   });
-  if ("error" in result) {
-    return { ok: false, error: result.error };
+  if (!outcome.ok) {
+    return { ok: false, error: outcome.reason };
   }
-  return { ok: true, data: inviteToResponse(result.invite) };
+  // For already_member, look up the invite by token hash to build the response
+  if (outcome.type === "already_member") {
+    const inv = findByTokenHash(hashToken(params.token));
+    if (!inv) {
+      return { ok: false, error: "Invite not found after redemption" };
+    }
+    return { ok: true, data: inviteToResponse(inv) };
+  }
+  // Fetch the invite to build the response
+  const invites = listInvites({});
+  const inv = invites.find((i) => i.id === outcome.inviteId);
+  if (!inv) {
+    return { ok: false, error: "Invite not found after redemption" };
+  }
+  return { ok: true, data: inviteToResponse(inv) };
 }
 
 // ---------------------------------------------------------------------------
@@ -395,18 +354,11 @@ export function listIngressMembers(params: {
   status?: string;
   policy?: string;
 }): IngressResult<MemberResponseData[]> {
-  // Batch-load all legacy ingress members in a single query to avoid N+1
-  // lookups when mapping contacts to member responses.
-  const legacyMembers = listMembers({ assistantId: params.assistantId });
-  const legacyMemberMap = buildLegacyMemberMap(legacyMembers);
-
   // Use uncapped: true since this internal path needs the full dataset
   const allContacts = listContacts(Number.MAX_SAFE_INTEGER, "contact", {
     uncapped: true,
   });
-  const members = allContacts.flatMap((c) =>
-    contactToMemberResponse(c, legacyMemberMap),
-  );
+  const members = allContacts.flatMap((c) => contactToMemberResponse(c));
 
   const filtered = members.filter((m) => {
     if (params.sourceChannel && m.sourceChannel !== params.sourceChannel)

@@ -290,7 +290,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     db.run("DELETE FROM conversation_keys");
     db.run("DELETE FROM canonical_guardian_deliveries");
     db.run("DELETE FROM canonical_guardian_requests");
-    db.run("DELETE FROM channel_guardian_bindings");
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
     pendingInteractions.clear();

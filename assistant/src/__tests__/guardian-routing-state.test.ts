@@ -93,13 +93,11 @@ afterAll(() => {
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
-  db.run("DELETE FROM assistant_ingress_members");
   db.run("DELETE FROM external_conversation_bindings");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");

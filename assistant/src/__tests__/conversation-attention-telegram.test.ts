@@ -105,7 +105,6 @@ function resetTables(): void {
   db.delete(conversationAssistantAttentionState).run();
   db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM channel_guardian_verification_challenges");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM message_runs");
   db.run("DELETE FROM channel_inbound_events");
@@ -320,10 +319,10 @@ describe("Telegram callback seen signals", () => {
       },
     });
 
-    // Create a guardian binding so approval can be handled
-    const { createBinding } =
-      await import("../memory/channel-guardian-store.js");
-    createBinding({
+    // Create a guardian binding (via contacts) so approval can be handled
+    const { createGuardianBindingContactsFirst } =
+      await import("../contacts/contacts-write.js");
+    createGuardianBindingContactsFirst({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",

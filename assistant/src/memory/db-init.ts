@@ -42,6 +42,7 @@ import {
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
+  migrateDropLegacyMemberGuardianTables,
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
   migrateVoiceInviteColumns,
@@ -200,6 +201,9 @@ export function initializeDb(): void {
 
   // 34. Composite index on (type, external_chat_id) for updateChannelLastSeenByExternalChatId
   migrateContactChannelsTypeChatIdIndex(database);
+
+  // 35. Safety-sync remaining legacy data then drop assistant_ingress_members and channel_guardian_bindings
+  migrateDropLegacyMemberGuardianTables(database);
 
   validateMigrationState(database);
 }

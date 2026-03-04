@@ -261,10 +261,8 @@ function resetTables() {
   db.run("DELETE FROM tool_invocations");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
-  db.run("DELETE FROM assistant_ingress_members");
   db.run("DELETE FROM assistant_ingress_invites");
   db.run("DELETE FROM channel_guardian_verification_challenges");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM canonical_guardian_deliveries");

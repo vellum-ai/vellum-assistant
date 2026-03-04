@@ -3,7 +3,7 @@
  *
  * When a requester successfully verifies their identity (enters the correct
  * 6-digit code from an identity-bound outbound session), the system should:
- * 1. Upsert an active member record in assistant_ingress_members
+ * 1. Upsert an active member record (contact + contact_channel)
  * 2. Allow subsequent messages through the ACL check
  * 3. Scope the member correctly (no cross-assistant leakage)
  * 4. Reactivate previously revoked members on re-verification
@@ -75,9 +75,7 @@ afterAll(() => {
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_guardian_verification_challenges");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM channel_guardian_rate_limits");
-  db.run("DELETE FROM assistant_ingress_members");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
 }

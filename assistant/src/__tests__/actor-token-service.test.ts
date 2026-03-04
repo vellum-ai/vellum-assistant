@@ -110,7 +110,6 @@ beforeEach(() => {
   initializeDb();
   const db = getSqlite();
   db.run("DELETE FROM actor_token_records");
-  db.run("DELETE FROM channel_guardian_bindings");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
 });

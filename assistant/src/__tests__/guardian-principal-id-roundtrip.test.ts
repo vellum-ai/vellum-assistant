@@ -33,10 +33,6 @@ import {
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import {
-  createBinding,
-  getActiveBinding,
-} from "../memory/guardian-bindings.js";
 
 initializeDb();
 
@@ -44,7 +40,6 @@ function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM channel_guardian_bindings");
 }
 
 describe("guardianPrincipalId roundtrip", () => {
@@ -59,42 +54,6 @@ describe("guardianPrincipalId roundtrip", () => {
     } catch {
       // best-effort cleanup
     }
-  });
-
-  // ── channel_guardian_bindings ────────────────────────────────────────
-
-  describe("channel_guardian_bindings", () => {
-    test("creates binding with guardianPrincipalId and reads it back", () => {
-      const binding = createBinding({
-        assistantId: "self",
-        channel: "telegram",
-        guardianExternalUserId: "tg-user-123",
-        guardianDeliveryChatId: "tg-chat-123",
-        guardianPrincipalId: "principal-abc-def",
-      });
-
-      expect(binding.guardianPrincipalId).toBe("principal-abc-def");
-
-      const fetched = getActiveBinding("self", "telegram");
-      expect(fetched).not.toBeNull();
-      expect(fetched!.guardianPrincipalId).toBe("principal-abc-def");
-    });
-
-    test("guardianPrincipalId is always persisted (non-null)", () => {
-      const binding = createBinding({
-        assistantId: "self",
-        channel: "sms",
-        guardianExternalUserId: "sms-user-456",
-        guardianDeliveryChatId: "sms-chat-456",
-        guardianPrincipalId: "sms-user-456",
-      });
-
-      expect(binding.guardianPrincipalId).toBe("sms-user-456");
-
-      const fetched = getActiveBinding("self", "sms");
-      expect(fetched).not.toBeNull();
-      expect(fetched!.guardianPrincipalId).toBe("sms-user-456");
-    });
   });
 
   // ── canonical_guardian_requests ──────────────────────────────────────

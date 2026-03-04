@@ -72,6 +72,7 @@ export { migrateGuardianPrincipalIdNotNull } from "./127-guardian-principal-id-n
 export { migrateContactsRolePrincipal } from "./128-contacts-role-principal.js";
 export { migrateContactChannelsAccessFields } from "./129-contact-channels-access-fields.js";
 export { migrateContactChannelsTypeChatIdIndex } from "./130-contact-channels-type-ext-chat-id-index.js";
+export { migrateDropLegacyMemberGuardianTables } from "./131-drop-legacy-member-guardian-tables.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
