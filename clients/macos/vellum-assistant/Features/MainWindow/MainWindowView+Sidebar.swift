@@ -491,10 +491,18 @@ extension MainWindowView {
                     showThreadSwitcher.toggle()
                 } label: {
                     ZStack(alignment: .bottomTrailing) {
-                        Image(systemName: "ellipsis.message")
-                            .font(.system(size: 13, weight: .medium))
+                        Text(switcher.badgeText)
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
-                            .frame(width: 28, height: 28)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+                            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .fill(windowState.isShowingChat && threadManager.activeThread != nil
+                                        ? Color(hex: 0xD4DFD0)
+                                        : Color(hex: 0xE8E6DA))
+                            )
 
                         if switcher.switchTargets.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                             Circle()
@@ -505,85 +513,21 @@ extension MainWindowView {
                     }
                 }
                 .buttonStyle(.plain)
+                .padding(.horizontal, VSpacing.xs)
                 .accessibilityLabel(switcher.accessibilityLabel)
                 .accessibilityValue(switcher.accessibilityValue)
                 .onDisappear {
                     showThreadSwitcher = false
                 }
                 .pointerCursor()
-                .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("\(switcher.switchTargets.count) threads")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                            .padding(.leading, VSpacing.md)
-                            .padding(.trailing, VSpacing.sm)
-                            .padding(.top, VSpacing.md)
-                            .padding(.bottom, VSpacing.sm)
-
-                        VColor.divider
-                            .frame(height: 1)
-                            .padding(.horizontal, VSpacing.xs)
-                            .padding(.bottom, VSpacing.sm)
-
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                ForEach(switcher.switchTargets) { thread in
-                                    SidebarThreadItem(
-                                        thread: thread,
-                                        threadManager: threadManager,
-                                        windowState: windowState,
-                                        sidebar: sidebar,
-                                        selectThread: { selectThread(thread) },
-                                        onSelect: { showThreadSwitcher = false }
-                                    )
-                                        .padding(.bottom, SidebarLayoutMetrics.listRowGap)
-                                        .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                            if sidebar.dropTargetThreadId == thread.id {
-                                                Rectangle()
-                                                    .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
-                                                    .frame(height: 2)
-                                                    .transition(.opacity)
-                                            }
-                                        }
-                                        .dropDestination(for: String.self) { items, _ in
-                                            sidebar.dropTargetThreadId = nil
-                                            sidebar.draggingThreadId = nil
-                                            guard let droppedId = items.first,
-                                                  let sourceUUID = UUID(uuidString: droppedId),
-                                                  sourceUUID != thread.id else { return false }
-                                            return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
-                                        } isTargeted: { isTargeted in
-                                            if isTargeted && thread.id != sidebar.draggingThreadId {
-                                                sidebar.dropTargetThreadId = thread.id
-                                                if let dragId = sidebar.draggingThreadId {
-                                                    let visible = threadManager.visibleThreads
-                                                    let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                                                    let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
-                                                    sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                                                }
-                                            } else if !isTargeted && sidebar.dropTargetThreadId == thread.id {
-                                                sidebar.dropTargetThreadId = nil
-                                            }
-                                        }
-                                }
-                            }
-                        }
-                        .frame(maxHeight: 300)
+                .background(GeometryReader { proxy in
+                    Color.clear.onAppear {
+                        threadSwitcherTriggerFrame = proxy.frame(in: .named("coreLayout"))
                     }
-                    .frame(width: 220)
-                    .padding(.bottom, VSpacing.sm)
-                    .background(VColor.backgroundSubtle)
-                    .onChange(of: threadManager.activeThreadId) { _, _ in
-                        showThreadSwitcher = false
+                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
+                        threadSwitcherTriggerFrame = newFrame
                     }
-                    .onDisappear {
-                        if sidebar.isHoveredThread != nil {
-                            sidebar.isHoveredThread = nil
-                        }
-                        sidebar.threadPendingDeletion = nil
-                    }
-                }
+                })
             }
 
             Spacer()
