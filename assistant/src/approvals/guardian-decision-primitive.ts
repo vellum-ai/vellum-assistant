@@ -507,7 +507,7 @@ export async function applyCanonicalGuardianDecision(
   const resolved = resolveCanonicalGuardianRequest(requestId, "pending", {
     status: targetStatus,
     answerText: userText,
-    decidedByExternalUserId: actorContext.externalUserId,
+    decidedByExternalUserId: actorContext.actorExternalUserId,
     decidedByPrincipalId: actorContext.guardianPrincipalId,
   });
 
@@ -574,7 +574,7 @@ export async function applyCanonicalGuardianDecision(
       request: resolved,
       actorChannel: actorContext.channel,
       guardianExternalUserId:
-        actorContext.externalUserId ??
+        actorContext.actorExternalUserId ??
         resolved.guardianExternalUserId ??
         undefined,
     });
