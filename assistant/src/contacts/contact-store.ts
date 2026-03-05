@@ -731,6 +731,7 @@ export function mergeContacts(
     tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
   });
 
+  emitContactChange();
   return getContactInternal(keepId)!;
 }
 
