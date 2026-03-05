@@ -377,7 +377,7 @@ struct ContactDetailView: View {
 
                 // Large monospaced invite code for readability
                 Text(inviteCode)
-                    .font(.system(size: 28, weight: .medium, design: .monospaced))
+                    .font(VFont.inviteCode)
                     .foregroundColor(VColor.textPrimary)
                     .tracking(4)
                     .padding(.vertical, VSpacing.xs)
