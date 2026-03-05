@@ -20,6 +20,7 @@ set -euo pipefail
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
+#   VELLUM_ASSISTANT_PLATFORM_URL  Override managed sign-in platform URL for app launches
 
 # ---------------------------------------------------------------------------
 # swift_with_retry — run a swift command with retries for transient SPM
@@ -534,6 +535,20 @@ for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
 done
 
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
+LSE_ENVIRONMENT_PLIST=""
+if [ -n "${VELLUM_ASSISTANT_PLATFORM_URL:-}" ]; then
+    PLATFORM_URL_OVERRIDE="${VELLUM_ASSISTANT_PLATFORM_URL%/}"
+    echo "Embedding app platform URL override: $PLATFORM_URL_OVERRIDE"
+    LSE_ENVIRONMENT_PLIST=$(cat <<EOF
+    <key>LSEnvironment</key>
+    <dict>
+        <key>VELLUM_ASSISTANT_PLATFORM_URL</key>
+        <string>$PLATFORM_URL_OVERRIDE</string>
+    </dict>
+EOF
+)
+fi
+
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -559,6 +574,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>en</string>
     <key>LSUIElement</key>
     <true/>
+    $LSE_ENVIRONMENT_PLIST
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSApplicationCategoryType</key>
