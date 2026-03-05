@@ -21,23 +21,7 @@ mock.module("../logger.js", () => ({
     }),
 }));
 
-// ---------------------------------------------------------------------------
-// Mock execFileSync — intercept keychain CLI calls
-// ---------------------------------------------------------------------------
-
-let execFileSyncMock: ReturnType<typeof mock>;
-
-mock.module("node:child_process", () => {
-  execFileSyncMock = mock(() => {
-    throw new Error("not found");
-  });
-  return { execFileSync: execFileSyncMock };
-});
-
-import {
-  readTelegramCredentials,
-  readKeychainCredential,
-} from "../credential-reader.js";
+import { readTelegramCredentials } from "../credential-reader.js";
 
 // ---------------------------------------------------------------------------
 // Temp directory for metadata / encrypted store fixtures
@@ -129,18 +113,9 @@ function writeEncryptedStore(entries: Record<string, string>): void {
   writeFileSync(storePath, JSON.stringify(store));
 }
 
-const originalPlatform = process.platform;
-
 beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
   logCalls.length = 0;
-  execFileSyncMock.mockReset();
-  // Default: execFileSync throws with exit code 44 (errSecItemNotFound)
-  execFileSyncMock.mockImplementation(() => {
-    const err = new Error("not found") as Error & { status: number };
-    err.status = 44;
-    throw err;
-  });
 });
 
 afterEach(() => {
@@ -150,18 +125,13 @@ afterEach(() => {
   } catch {
     // best-effort cleanup
   }
-  // Restore platform in case a test changed it
-  Object.defineProperty(process, "platform", {
-    value: originalPlatform,
-    writable: true,
-  });
 });
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("readTelegramCredentials: encrypted store only (existing behavior)", () => {
+describe("readTelegramCredentials", () => {
   test("returns null when metadata file does not exist", () => {
     const result = readTelegramCredentials();
     expect(result).toBeNull();
@@ -173,79 +143,22 @@ describe("readTelegramCredentials: encrypted store only (existing behavior)", ()
     expect(result).toBeNull();
   });
 
-  test("returns null when metadata exists but secrets are missing from both backends", () => {
+  test("returns null when metadata exists but secrets are missing from encrypted store", () => {
     writeMetadata([
       { service: "telegram", field: "bot_token" },
       { service: "telegram", field: "webhook_secret" },
     ]);
 
-    // Keychain returns nothing (throws), encrypted store has no file
     const result = readTelegramCredentials();
     expect(result).toBeNull();
   });
-});
 
-describe("readTelegramCredentials: keychain on macOS", () => {
-  beforeEach(() => {
-    Object.defineProperty(process, "platform", {
-      value: "darwin",
-      writable: true,
-    });
-  });
-
-  test("returns credentials from keychain when available on macOS", () => {
+  test("returns credentials from encrypted store", () => {
     writeMetadata([
       { service: "telegram", field: "bot_token" },
       { service: "telegram", field: "webhook_secret" },
     ]);
 
-    // Simulate keychain returning credentials
-    execFileSyncMock.mockImplementation((_cmd: string, args: string[]) => {
-      const aIdx = (args as string[]).indexOf("-a");
-      const account = (args as string[])[aIdx + 1];
-      if (account === "credential:telegram:bot_token") return "kc-bot-token\n";
-      if (account === "credential:telegram:webhook_secret")
-        return "kc-webhook-secret\n";
-      throw new Error("not found");
-    });
-
-    const result = readTelegramCredentials();
-    expect(result).toEqual({
-      botToken: "kc-bot-token",
-      webhookSecret: "kc-webhook-secret",
-    });
-  });
-
-  test("prefers keychain over encrypted store on macOS", () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    // Keychain returns credentials — encrypted store should not be consulted
-    execFileSyncMock.mockImplementation((_cmd: string, args: string[]) => {
-      const aIdx = (args as string[]).indexOf("-a");
-      const account = (args as string[])[aIdx + 1];
-      if (account === "credential:telegram:bot_token")
-        return "keychain-token\n";
-      if (account === "credential:telegram:webhook_secret")
-        return "keychain-secret\n";
-      throw new Error("not found");
-    });
-
-    const result = readTelegramCredentials();
-    expect(result).not.toBeNull();
-    expect(result!.botToken).toBe("keychain-token");
-    expect(result!.webhookSecret).toBe("keychain-secret");
-  });
-
-  test("falls back to encrypted store when keychain has no credentials", () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    // Keychain throws (credential not found) — fall through to encrypted store.
     writeEncryptedStore({
       "credential:telegram:bot_token": "enc-bot-token",
       "credential:telegram:webhook_secret": "enc-webhook-secret",
@@ -259,142 +172,21 @@ describe("readTelegramCredentials: keychain on macOS", () => {
   });
 });
 
-describe("readTelegramCredentials: non-macOS platforms", () => {
-  test("skips keychain on non-macOS and uses encrypted store", () => {
-    Object.defineProperty(process, "platform", {
-      value: "linux",
-      writable: true,
-    });
-
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    // readKeychainCredential should return undefined on linux
-    const keychainResult = readKeychainCredential(
-      "credential:telegram:bot_token",
-    );
-    expect(keychainResult).toBeUndefined();
-
-    // execFileSync should NOT have been called since platform is not darwin
-    expect(execFileSyncMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("readTelegramCredentials: neither backend has credentials", () => {
-  test("returns null when both keychain and encrypted store have nothing", () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    // Keychain throws, encrypted store file doesn't exist
-    const result = readTelegramCredentials();
-    expect(result).toBeNull();
-  });
-});
-
-describe("readKeychainCredential", () => {
-  beforeEach(() => {
-    Object.defineProperty(process, "platform", {
-      value: "darwin",
-      writable: true,
-    });
-  });
-
-  test("returns credential value from keychain on macOS", () => {
-    execFileSyncMock.mockImplementation(() => "my-secret-value\n");
-
-    const result = readKeychainCredential("credential:telegram:bot_token");
-    expect(result).toBe("my-secret-value");
-  });
-
-  test("returns undefined when keychain item not found (exit code 44)", () => {
-    execFileSyncMock.mockImplementation(() => {
-      const err = new Error(
-        "security: SecKeychainSearchCopyNext: The specified item could not be found",
-      ) as Error & { status: number };
-      err.status = 44;
-      throw err;
-    });
-
-    const result = readKeychainCredential("credential:telegram:bot_token");
-    expect(result).toBeUndefined();
-  });
-
-  test("returns undefined for transient keychain errors (non-44 exit code)", () => {
-    execFileSyncMock.mockImplementation(() => {
-      const err = new Error(
-        "security: The user name or passphrase you entered is not correct.",
-      ) as Error & { status: number };
-      err.status = 51;
-      throw err;
-    });
-
-    // Should still return undefined (graceful fallback), but logs a warning
-    const result = readKeychainCredential("credential:telegram:bot_token");
-    expect(result).toBeUndefined();
-  });
-
-  test("returns undefined on non-darwin platforms", () => {
-    Object.defineProperty(process, "platform", {
-      value: "linux",
-      writable: true,
-    });
-
-    const result = readKeychainCredential("credential:telegram:bot_token");
-    expect(result).toBeUndefined();
-    expect(execFileSyncMock).not.toHaveBeenCalled();
-  });
-
-  test("passes correct service name and account to security CLI", () => {
-    execFileSyncMock.mockImplementation(() => "value\n");
-
-    readKeychainCredential("credential:telegram:bot_token");
-
-    expect(execFileSyncMock).toHaveBeenCalledWith(
-      "security",
-      [
-        "find-generic-password",
-        "-s",
-        "vellum-assistant",
-        "-a",
-        "credential:telegram:bot_token",
-        "-w",
-      ],
-      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
-    );
-  });
-});
-
 describe("log output: no plaintext secrets", () => {
-  beforeEach(() => {
-    Object.defineProperty(process, "platform", {
-      value: "darwin",
-      writable: true,
-    });
-  });
-
   test("log messages never contain secret values", () => {
     writeMetadata([
       { service: "telegram", field: "bot_token" },
       { service: "telegram", field: "webhook_secret" },
     ]);
 
-    execFileSyncMock.mockImplementation((_cmd: string, args: string[]) => {
-      const aIdx = (args as string[]).indexOf("-a");
-      const account = (args as string[])[aIdx + 1];
-      if (account === "credential:telegram:bot_token")
-        return "SUPER_SECRET_TOKEN_123\n";
-      if (account === "credential:telegram:webhook_secret")
-        return "SUPER_SECRET_WEBHOOK_456\n";
-      throw new Error("not found");
+    writeEncryptedStore({
+      "credential:telegram:bot_token": "SUPER_SECRET_TOKEN_123",
+      "credential:telegram:webhook_secret": "SUPER_SECRET_WEBHOOK_456",
     });
 
     const result = readTelegramCredentials();
 
-    // Verify credentials were actually returned (mock is working)
+    // Verify credentials were actually returned
     expect(result).not.toBeNull();
     expect(result!.botToken).toBe("SUPER_SECRET_TOKEN_123");
 
