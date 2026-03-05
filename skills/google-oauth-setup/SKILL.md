@@ -1,11 +1,12 @@
 ---
 name: "google-oauth-setup"
 description: "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation"
-user-invocable: true
-credential-setup-for: "gmail"
 compatibility: "Requires browser automation and public ingress for OAuth callback"
 metadata:
   emoji: "🔑"
+  vellum:
+    user-invocable: true
+    credential-setup-for: "gmail"
 ---
 
 You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect.
