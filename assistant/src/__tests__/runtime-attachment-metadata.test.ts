@@ -290,7 +290,18 @@ describe("WhatsApp channel ingress attachment resolution", () => {
     });
   }
 
-  const noopProcessMessage = mock(async () => ({ messageId: "msg-1" }));
+  // Create a real message in the DB so the background dispatch's
+  // linkMessage(eventId, userMessageId) FK constraint is satisfied.
+  const noopProcessMessage = mock(
+    async (conversationId: string, content: string) => {
+      const msg = await conversationStore.addMessage(
+        conversationId,
+        "user",
+        content,
+      );
+      return { messageId: msg.id };
+    },
+  );
 
   beforeEach(() => {
     resetIngressTables();
