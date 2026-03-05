@@ -53,7 +53,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p .perf-baselines
-          swift test --package-path clients --filter MarkdownPerformanceTests 2>&1 | tee .perf-baselines/results.log
+          swift test --package-path clients --filter 'MarkdownPerformanceTests|MessageListAnchorPerformanceTests' 2>&1 | tee .perf-baselines/results.log
 
       - name: Compare baselines
         env:
