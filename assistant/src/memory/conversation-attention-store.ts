@@ -412,7 +412,7 @@ export function listConversationAttention(
     );
   }
 
-  const query = db
+  let query = db
     .select({
       conversationId: conversationAssistantAttentionState.conversationId,
       assistantId: conversationAssistantAttentionState.assistantId,
@@ -437,11 +437,16 @@ export function listConversationAttention(
       createdAt: conversationAssistantAttentionState.createdAt,
       updatedAt: conversationAssistantAttentionState.updatedAt,
     })
-    .from(conversationAssistantAttentionState)
-    .innerJoin(
+    .from(conversationAssistantAttentionState);
+
+  // Only join conversations table when filtering by source or sourceChannel
+  if (source || sourceChannel) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    query = (query as any).innerJoin(
       conversations,
       eq(conversationAssistantAttentionState.conversationId, conversations.id),
     );
+  }
 
   const rows = query
     .where(and(...conditions))
