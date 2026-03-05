@@ -184,7 +184,7 @@ function isChannelPolicy(value: string): value is ChannelPolicy {
 }
 
 /**
- * POST /v1/contacts { displayName, id?, relationship?, importance?, contactType?, assistantMetadata?, ... }
+ * POST /v1/contacts { displayName, id?, notes?, contactType?, assistantMetadata?, ... }
  */
 export async function handleUpsertContact(
   req: Request,
@@ -193,10 +193,7 @@ export async function handleUpsertContact(
   const body = (await req.json()) as {
     id?: string;
     displayName?: string;
-    relationship?: string;
-    importance?: number;
-    responseExpectation?: string;
-    preferredTone?: string;
+    notes?: string;
     role?: string;
     contactType?: string;
     assistantMetadata?: {
@@ -222,20 +219,6 @@ export async function handleUpsertContact(
     return httpError(
       "BAD_REQUEST",
       "displayName is required and must be a non-empty string",
-      400,
-    );
-  }
-
-  if (
-    body.importance !== undefined &&
-    (typeof body.importance !== "number" ||
-      Number.isNaN(body.importance) ||
-      body.importance < 0 ||
-      body.importance > 1)
-  ) {
-    return httpError(
-      "BAD_REQUEST",
-      "importance must be a number between 0 and 1",
       400,
     );
   }
