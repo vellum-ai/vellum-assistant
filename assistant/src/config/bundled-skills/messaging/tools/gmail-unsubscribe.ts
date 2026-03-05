@@ -13,7 +13,12 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok, pinnedHttpsRequest } from "./shared.js";
+import {
+  assertPlatformEnabled,
+  err,
+  ok,
+  pinnedHttpsRequest,
+} from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
