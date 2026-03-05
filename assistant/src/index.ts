@@ -22,6 +22,7 @@ import {
   registerDoctorCommand,
   registerSessionsCommand,
 } from "./cli/core-commands.js";
+import { registerCredentialsCommand } from "./cli/credentials.js";
 import { registerEmailCommand } from "./cli/email.js";
 import { registerInfluencerCommand } from "./cli/influencer.js";
 import {
@@ -42,6 +43,7 @@ registerDefaultAction(program);
 registerDevCommand(program);
 registerSessionsCommand(program);
 registerConfigCommand(program);
+registerCredentialsCommand(program);
 registerKeysCommand(program);
 registerTrustCommand(program);
 registerMemoryCommand(program);
