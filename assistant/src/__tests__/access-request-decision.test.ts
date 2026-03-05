@@ -331,4 +331,77 @@ describe("access request notification delivery", () => {
     expect(text).toContain("unable to deliver");
     expect(text).toContain("try again");
   });
+
+  test("slack approval notification is sent as DM using requesterExternalUserId", async () => {
+    await notifyRequesterOfApproval({
+      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      requesterChatId: "C12345-channel",
+      requesterExternalUserId: "U98765-user",
+      channel: "slack",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    const call = deliverReplyCalls[0];
+    // Should target the user ID (DM) not the channel
+    expect(call.payload.chatId).toBe("U98765-user");
+  });
+
+  test("slack denial notification is sent as DM using requesterExternalUserId", async () => {
+    await notifyRequesterOfDenial({
+      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      requesterChatId: "C12345-channel",
+      requesterExternalUserId: "U98765-user",
+      channel: "slack",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    const call = deliverReplyCalls[0];
+    expect(call.payload.chatId).toBe("U98765-user");
+  });
+
+  test("slack delivery failure notification is sent as DM using requesterExternalUserId", async () => {
+    await notifyRequesterOfDeliveryFailure({
+      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      requesterChatId: "C12345-channel",
+      requesterExternalUserId: "U98765-user",
+      channel: "slack",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    const call = deliverReplyCalls[0];
+    expect(call.payload.chatId).toBe("U98765-user");
+  });
+
+  test("non-slack channels still use requesterChatId", async () => {
+    await notifyRequesterOfApproval({
+      replyCallbackUrl: "http://localhost:7830/deliver/telegram",
+      requesterChatId: "chat-123",
+      requesterExternalUserId: "user-456",
+      channel: "telegram",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    expect(deliverReplyCalls[0].payload.chatId).toBe("chat-123");
+  });
+
+  test("slack without requesterExternalUserId falls back to requesterChatId", async () => {
+    await notifyRequesterOfApproval({
+      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      requesterChatId: "C12345-channel",
+      channel: "slack",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    expect(deliverReplyCalls[0].payload.chatId).toBe("C12345-channel");
+  });
 });

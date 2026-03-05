@@ -142,6 +142,23 @@ export async function deliverVerificationCodeToGuardian(params: {
 }
 
 /**
+ * Resolve the delivery target for requester notifications. On Slack,
+ * posting to a user ID (rather than the originating channel) delivers
+ * the message as a DM, which is less disruptive than replying in a
+ * shared channel.
+ */
+function resolveRequesterTarget(params: {
+  channel?: string;
+  requesterChatId: string;
+  requesterExternalUserId?: string;
+}): string {
+  if (params.channel === "slack" && params.requesterExternalUserId) {
+    return params.requesterExternalUserId;
+  }
+  return params.requesterChatId;
+}
+
+/**
  * Notify the requester that the guardian has approved their access request
  * and they should enter the verification code they receive from the guardian.
  */
@@ -150,16 +167,20 @@ export async function notifyRequesterOfApproval(params: {
   requesterChatId: string;
   assistantId: string;
   bearerToken?: string;
+  channel?: string;
+  requesterExternalUserId?: string;
 }): Promise<void> {
   const text =
     "Your access request has been approved! " +
     "Please enter the 6-digit verification code you receive from the guardian.";
 
+  const targetChatId = resolveRequesterTarget(params);
+
   try {
     await deliverChannelReply(
       params.replyCallbackUrl,
       {
-        chatId: params.requesterChatId,
+        chatId: targetChatId,
         text,
         assistantId: params.assistantId,
       },
@@ -183,16 +204,20 @@ export async function notifyRequesterOfDeliveryFailure(params: {
   requesterChatId: string;
   assistantId: string;
   bearerToken?: string;
+  channel?: string;
+  requesterExternalUserId?: string;
 }): Promise<void> {
   const text =
     "Your access request was approved, but we were unable to " +
     "deliver the verification code. Please try again later.";
 
+  const targetChatId = resolveRequesterTarget(params);
+
   try {
     await deliverChannelReply(
       params.replyCallbackUrl,
       {
-        chatId: params.requesterChatId,
+        chatId: targetChatId,
         text,
         assistantId: params.assistantId,
       },
@@ -214,14 +239,18 @@ export async function notifyRequesterOfDenial(params: {
   requesterChatId: string;
   assistantId: string;
   bearerToken?: string;
+  channel?: string;
+  requesterExternalUserId?: string;
 }): Promise<void> {
   const text = "Your access request has been denied by the guardian.";
+
+  const targetChatId = resolveRequesterTarget(params);
 
   try {
     await deliverChannelReply(
       params.replyCallbackUrl,
       {
-        chatId: params.requesterChatId,
+        chatId: targetChatId,
         text,
         assistantId: params.assistantId,
       },

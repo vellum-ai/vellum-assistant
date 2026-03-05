@@ -789,6 +789,8 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       assistantId,
       bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
     });
 
     // Emit both guardian_decision and denied signals so all lifecycle
@@ -863,6 +865,8 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       assistantId,
       bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
     });
   } else {
     // Let the requester know something went wrong without revealing details
@@ -871,6 +875,8 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       assistantId,
       bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
     });
   }
 
