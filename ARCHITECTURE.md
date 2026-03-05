@@ -13,6 +13,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Assistant integrations deep dive | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md) |
 | Assistant scheduling deep dive | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md) |
 | Assistant security deep dive | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md) |
+| macOS keychain broker | [`assistant/docs/architecture/keychain-broker.md`](assistant/docs/architecture/keychain-broker.md) |
 | Gateway SMS parity checklist | [`gateway/docs/sms-twilio-parity-checklist.md`](gateway/docs/sms-twilio-parity-checklist.md) |
 | Trusted contact access design | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md) |
 | Trusted contacts operator runbook | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md) |
@@ -248,7 +249,8 @@ graph TB
     end
 
     subgraph "macOS Local Storage"
-        KEYCHAIN["Keychain<br/>API key storage"]
+        KEYCHAIN["Keychain<br/>(via broker SecItem*)"]
+        ENC_STORE["Encrypted Store<br/>(~/.vellum/protected/keys.enc)"]
         USERDEFAULTS["UserDefaults<br/>preferences / state"]
         APP_SUPPORT["~/Library/App Support/<br/>vellum-assistant/"]
         APPS_DATA["~/.vellum/workspace/data/apps/<br/>app JSON + pages"]
@@ -411,9 +413,9 @@ graph TB
     HANDLERS -->|"integration_connect"| INT_REGISTRY
     INT_REGISTRY --> INT_OAUTH
     INT_OAUTH -->|"open_url"| IPC_SERVER
-    INT_OAUTH -->|"store tokens"| KEYCHAIN
+    INT_OAUTH -->|"store tokens"| ENC_STORE
     GMAIL_TOOLS --> INT_TOKEN
-    INT_TOKEN -->|"auto-refresh"| KEYCHAIN
+    INT_TOKEN -->|"auto-refresh"| ENC_STORE
     INT_TOKEN --> GMAIL_CLIENT
 
     %% Skill tool data flow
