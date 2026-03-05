@@ -358,10 +358,16 @@ export function findActiveVoiceInvites(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Find an active invite by its 6-digit invite code hash.
- * Used by the channel-agnostic code redemption flow.
+ * Find an active invite by its 6-digit invite code hash, scoped to a specific
+ * source channel. Channel scoping is required because 6-digit codes are drawn
+ * from a small keyspace and can collide across channels — without it, `.get()`
+ * could return an arbitrary match, leading to nondeterministic redemption or
+ * false channel-mismatch failures downstream.
  */
-export function findByInviteCodeHash(hash: string): IngressInvite | undefined {
+export function findByInviteCodeHash(
+  hash: string,
+  sourceChannel: string,
+): IngressInvite | null {
   const db = getDb();
 
   const row = db
@@ -370,10 +376,11 @@ export function findByInviteCodeHash(hash: string): IngressInvite | undefined {
     .where(
       and(
         eq(assistantIngressInvites.inviteCodeHash, hash),
+        eq(assistantIngressInvites.sourceChannel, sourceChannel),
         eq(assistantIngressInvites.status, "active"),
       ),
     )
     .get();
 
-  return row ? rowToInvite(row) : undefined;
+  return row ? rowToInvite(row) : null;
 }

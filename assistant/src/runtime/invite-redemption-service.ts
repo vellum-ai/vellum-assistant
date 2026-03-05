@@ -444,7 +444,7 @@ export function redeemInviteByCode(params: {
   }
 
   const codeHash = hashVoiceCode(code);
-  const invite = findByInviteCodeHash(codeHash);
+  const invite = findByInviteCodeHash(codeHash, sourceChannel);
 
   if (!invite) {
     return { ok: false, reason: "invalid_token" };
@@ -463,12 +463,6 @@ export function redeemInviteByCode(params: {
 
   if (invite.useCount >= invite.maxUses) {
     return { ok: false, reason: "max_uses_reached" };
-  }
-
-  // Enforce channel match: the invite must belong to the channel the caller
-  // is redeeming from.
-  if (sourceChannel !== invite.sourceChannel) {
-    return { ok: false, reason: "channel_mismatch" };
   }
 
   // Code is valid — now safe to check existing membership without leaking
