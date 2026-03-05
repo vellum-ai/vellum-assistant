@@ -100,8 +100,11 @@ extension AppDelegate {
                 services.reconfigureDaemonClient(config: config)
                 log.info("Configured local HTTP transport (localHttpEnabled flag) on port \(port)")
             } else {
-                // Reset to default socket transport in case the previous assistant used HTTP.
-                services.reconfigureDaemonClient(config: .default)
+                // Use the specific assistant's socket path so switching between
+                // local instances connects to the correct daemon.
+                let socketPath = assistant?.socketPath ?? DaemonClient.resolveSocketPath()
+                let config = DaemonConfig(socketPath: socketPath)
+                services.reconfigureDaemonClient(config: config)
             }
             return
         }
