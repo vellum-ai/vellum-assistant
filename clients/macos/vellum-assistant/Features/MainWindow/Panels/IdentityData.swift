@@ -217,6 +217,8 @@ struct LockfileAssistant {
     let zone: String?
     let instanceId: String?
     let hatchedAt: String?
+    let gatewayPort: Int?
+    let socketPath: String?
 
     /// Whether this assistant is running remotely (not on the local machine).
     var isRemote: Bool {
@@ -285,6 +287,7 @@ struct LockfileAssistant {
 
         return sorted.compactMap { entry -> LockfileAssistant? in
             guard let assistantId = entry["assistantId"] as? String else { return nil }
+            let resources = entry["resources"] as? [String: Any]
             return LockfileAssistant(
                 assistantId: assistantId,
                 runtimeUrl: entry["runtimeUrl"] as? String,
@@ -294,7 +297,9 @@ struct LockfileAssistant {
                 region: entry["region"] as? String,
                 zone: entry["zone"] as? String,
                 instanceId: entry["instanceId"] as? String,
-                hatchedAt: entry["hatchedAt"] as? String
+                hatchedAt: entry["hatchedAt"] as? String,
+                gatewayPort: resources?["gatewayPort"] as? Int,
+                socketPath: resources?["socketPath"] as? String
             )
         }
     }
