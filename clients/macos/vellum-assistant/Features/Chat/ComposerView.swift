@@ -428,7 +428,6 @@ struct ComposerView: View {
         }
     }
 
-
     @ViewBuilder
     private var composerActionButtons: some View {
         HStack(spacing: 2) {

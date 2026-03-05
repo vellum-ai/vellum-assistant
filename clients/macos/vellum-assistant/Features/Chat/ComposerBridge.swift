@@ -113,7 +113,7 @@ struct ComposerFocusBridge: NSViewRepresentable {
 
                 // Cmd+Return send when cmdEnterToSend is enabled.
                 // All other Return routing is handled by SwiftUI's .onSubmit
-                // + NSEvent.modifierFlags in ComposerView.handleSubmit().
+                // on the TextField in ComposerView.
                 let isReturn = event.keyCode == 36 || event.keyCode == 76
                 if isReturn, self.parent.cmdEnterToSend, modifiers == [.command] {
                     self.parent.onSend()
