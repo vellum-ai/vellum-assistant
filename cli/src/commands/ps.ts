@@ -244,7 +244,8 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
       name: "outbound-proxy",
       pgrepName: "outbound-proxy",
       port: PROXY_PORT,
-      pidFile: join(vellumDir, "outbound-proxy.pid"),
+      // Outbound proxy is a shared singleton — always use the global PID path
+      pidFile: join(homedir(), ".vellum", "outbound-proxy.pid"),
     },
     {
       name: "embed-worker",

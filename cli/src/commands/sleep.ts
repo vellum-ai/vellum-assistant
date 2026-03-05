@@ -63,9 +63,10 @@ export async function sleep(): Promise<void> {
   // have a running daemon — the proxy is a global singleton shared by all
   // instances.
   const otherLocalRunning = loadAllAssistants().some((other) => {
-    if (other.cloud !== "local" || !other.resources) return false;
+    if (other.cloud !== "local") return false;
     if (other.assistantId === entry.assistantId) return false;
-    return isProcessAlive(other.resources.pidFile).alive;
+    const otherRes = other.resources ?? defaultLocalResources();
+    return isProcessAlive(otherRes.pidFile).alive;
   });
 
   if (otherLocalRunning) {
