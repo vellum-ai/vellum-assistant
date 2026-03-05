@@ -401,15 +401,37 @@ async function retryableWhatsAppRawFetch(
     }
 
     if (!isRetryable(response.status) && !response.ok) {
+      const body = await response.text().catch(() => "");
+      let errorMessage: string | undefined;
+      try {
+        const data = JSON.parse(body) as WhatsAppApiErrorResponse;
+        errorMessage = data.error?.message;
+      } catch {
+        // Response body is not JSON — include raw text if available
+      }
       throw new Error(
-        `WhatsApp ${operation} failed with status ${response.status}`,
+        errorMessage
+          ? `WhatsApp ${operation} failed: ${errorMessage}`
+          : body
+            ? `WhatsApp ${operation} failed with status ${response.status}: ${body}`
+            : `WhatsApp ${operation} failed with status ${response.status}`,
       );
     }
 
     if (isRetryable(response.status)) {
       lastRetryAfter = response.headers.get("retry-after");
+      const body = await response.text().catch(() => "");
+      let errorMessage: string | undefined;
+      try {
+        const data = JSON.parse(body) as WhatsAppApiErrorResponse;
+        errorMessage = data.error?.message;
+      } catch {
+        // Response body is not JSON
+      }
       lastError = new Error(
-        `WhatsApp ${operation} failed with status ${response.status}`,
+        errorMessage
+          ? `WhatsApp ${operation} failed: ${errorMessage}`
+          : `WhatsApp ${operation} failed with status ${response.status}`,
       );
       log.warn(
         {
