@@ -40,7 +40,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 ### Gmail
 
-1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
+1. **Try connecting directly first.** Call `vellum credentials` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
 2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Load the **google-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
    - Call `skill_load` with `skill: "google-oauth-setup"` to load the dependency skill.
    - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
@@ -49,11 +49,11 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
      - **confirmLabel:** "Get Started"
      - **cancelLabel:** "Not Now"
    - If the user confirms, briefly acknowledge (e.g., "Setting up Gmail now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.
-3. **If the user provides a client_id directly in chat:** Call `credential_store` with `action: "oauth2_connect"`, `service: "gmail"`, and `client_id: "<their value>"`. Include `client_secret` too if they provide one. Everything else is auto-filled.
+3. **If the user provides a client_id directly in chat:** Call `vellum credentials` with `action: "oauth2_connect"`, `service: "gmail"`, and `client_id: "<their value>"`. Include `client_secret` too if they provide one. Everything else is auto-filled.
 
 ### Slack
 
-1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "slack"`. The tool auto-fills Slack's OAuth endpoints and looks up any previously stored client credentials.
+1. **Try connecting directly first.** Call `vellum credentials` with `action: "oauth2_connect"` and `service: "slack"`. The tool auto-fills Slack's OAuth endpoints and looks up any previously stored client credentials.
 2. **If it fails because no client_id is found:** The user needs to create a Slack App first. Load the **slack-oauth-setup** skill:
    - Call `skill_load` with `skill: "slack-oauth-setup"` to load the dependency skill.
    - Tell the user Slack isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
@@ -62,7 +62,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
      - **confirmLabel:** "Get Started"
      - **cancelLabel:** "Not Now"
    - Wait for the user to confirm before proceeding with the setup guide. If they decline, acknowledge and let them know they can set it up later.
-3. **If the user provides client_id and client_secret directly in chat:** Call `credential_store` with `action: "oauth2_connect"`, `service: "slack"`, `client_id`, and `client_secret`. Everything else is auto-filled. Note: Slack always requires a client_secret.
+3. **If the user provides client_id and client_secret directly in chat:** Call `vellum credentials` with `action: "oauth2_connect"`, `service: "slack"`, `client_id`, and `client_secret`. Everything else is auto-filled. Note: Slack always requires a client_secret.
 
 ### Telegram
 
@@ -96,7 +96,7 @@ The guardian-verify-setup skill handles the full outbound verification flow for 
 
 When a messaging tool fails with a token or authorization error:
 
-1. **Try to reconnect silently.** Call `credential_store` with `action: "oauth2_connect"` and the appropriate `service`. This often resolves expired tokens automatically.
+1. **Try to reconnect silently.** Call `vellum credentials` with `action: "oauth2_connect"` and the appropriate `service`. This often resolves expired tokens automatically.
 2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Gmail needs to be reconnected — let me set that up") and immediately follow the connection setup flow for that platform (e.g., install and load **google-oauth-setup** for Gmail). The user came to you to get something done, not to troubleshoot OAuth — make it seamless.
 3. **Never try alternative approaches.** Don't use bash, curl, browser automation, or any workaround. If the messaging tools can't do it, the reconnection flow is the answer.
 4. **Never expose error details.** The user doesn't need to see error messages about tokens, OAuth, or API failures. Translate errors into plain language.

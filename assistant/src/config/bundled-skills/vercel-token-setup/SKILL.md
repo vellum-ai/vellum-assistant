@@ -3,7 +3,7 @@ name: "Vercel Token Setup"
 description: "Set up a Vercel API token for publishing apps using browser automation"
 includes: ["browser"]
 credential-setup-for: "vercel:api_token"
-metadata: {"vellum": {"emoji": "▲"}}
+metadata: { "vellum": { "emoji": "▲" } }
 ---
 
 You are helping your user set up a Vercel API token so they can publish apps to the web.
@@ -28,6 +28,7 @@ Tell the user:
 > **Setting up Vercel API Token**
 >
 > Since I can't automate the browser from here, I'll walk you through each step with direct links. You'll need:
+>
 > 1. A Vercel account (free tier works)
 > 2. About 2 minutes
 >
@@ -63,7 +64,7 @@ Tell the user:
 Present the secure prompt:
 
 ```
-credential_store prompt:
+vellum credentials prompt:
   service: "vercel"
   field: "api_token"
   label: "Vercel API Token"
@@ -74,7 +75,7 @@ credential_store prompt:
 Wait for the user to complete the prompt. Once received, store it:
 
 ```
-credential_store store:
+vellum credentials store:
   service: "vercel"
   field: "api_token"
   value: "<the token the user provided>"
@@ -117,7 +118,7 @@ If **two or more steps** require manual fallback, abandon the automated flow ent
 These actions are technically impossible in the browser automation environment:
 
 - **Downloading files.** `browser_click` on a Download button does not save files to disk.
-- **Reading the token value from a screenshot.** The token IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot — it is too easy to misread characters, and the value must be exact. Always use the `credential_store prompt` approach to let the user copy-paste it accurately.
+- **Reading the token value from a screenshot.** The token IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot — it is too easy to misread characters, and the value must be exact. Always use the `vellum credentials prompt` approach to let the user copy-paste it accurately.
 - **Clipboard operations.** You cannot copy/paste via browser automation.
 
 ## Step 1: Single Upfront Confirmation
@@ -127,6 +128,7 @@ Tell the user:
 > **Setting up your Vercel API token so we can publish your app...**
 >
 > Here's what will happen:
+>
 > 1. **A browser opens** to your Vercel account settings
 > 2. **You sign in** (if not already signed in)
 > 3. **I create the token** — you just watch
@@ -143,6 +145,7 @@ If the user declines, acknowledge and stop. No further confirmations are needed 
 Navigate to `https://vercel.com/account/tokens`.
 
 Take a screenshot and snapshot to check the page state:
+
 - **Sign-in page:** Tell the user: "Please sign in to your Vercel account in the browser." Then auto-detect sign-in completion by polling screenshots every 5-10 seconds. Check if the current URL has moved away from the login/sign-in page to the tokens page. Do NOT ask the user to "let me know when you're done" — detect it automatically. Once sign-in is detected, tell the user: "Signed in! Creating your API token now..."
 - **Already signed in:** Tell the user: "Already signed in — creating your API token now..." and continue immediately.
 
@@ -155,6 +158,7 @@ Take a screenshot and snapshot to check the page state:
 Take a screenshot and snapshot. Find and click the button to create a new token (typically labeled "Create" or "Create Token").
 
 On the creation form:
+
 - Token name: **"Vellum Assistant"**
 - Scope: Select **"Full Account"** (or the broadest scope available)
 - Expiration: Select the longest option available, or **"No Expiration"** if offered
@@ -171,10 +175,11 @@ On the creation form:
 After token creation, Vercel shows the token value **once**. You MUST follow this exact sequence — **no improvisation**:
 
 1. Tell the user: "Your token has been created! Please copy the token value shown on screen and paste it into the secure prompt below."
-2. **IMMEDIATELY** present a `credential_store prompt` for the token. This is your ONLY next action.
+2. **IMMEDIATELY** present a `vellum credentials prompt` for the token. This is your ONLY next action.
 3. Wait for the user to paste the token.
 
 **Absolute prohibitions during this step:**
+
 - Do NOT try to read the token value from the screenshot. It must come from the user via secure prompt to ensure accuracy.
 - Do NOT navigate away from the page until the user has pasted the token.
 - Do NOT click any download or copy buttons.
@@ -182,7 +187,7 @@ After token creation, Vercel shows the token value **once**. You MUST follow thi
 Present the secure prompt:
 
 ```
-credential_store prompt:
+vellum credentials prompt:
   service: "vercel"
   field: "api_token"
   label: "Vercel API Token"
@@ -193,7 +198,7 @@ credential_store prompt:
 Wait for the user to complete the prompt. Once received, store it:
 
 ```
-credential_store store:
+vellum credentials store:
   service: "vercel"
   field: "api_token"
   value: "<the token the user provided>"
@@ -201,7 +206,7 @@ credential_store store:
   allowedDomains: ["api.vercel.com"]
 ```
 
-**Verify:** `credential_store list` shows `api_token` for `vercel`.
+**Verify:** `vellum credentials list` shows `api_token` for `vercel`.
 
 ## Step 5: Done!
 

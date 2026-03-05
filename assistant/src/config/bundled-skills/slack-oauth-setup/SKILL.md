@@ -3,7 +3,7 @@ name: "Slack OAuth Setup"
 description: "Create Slack App and OAuth credentials for Slack integration using browser automation"
 user-invocable: true
 includes: ["browser"]
-metadata: {"vellum": {"emoji": "🔑"}}
+metadata: { "vellum": { "emoji": "🔑" } }
 ---
 
 You are helping your user create a Slack App and OAuth credentials so the Messaging integration can connect to their Slack workspace. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.
@@ -13,6 +13,7 @@ You are helping your user create a Slack App and OAuth credentials so the Messag
 ## Before You Start
 
 Tell the user:
+
 - "I'll walk you through creating a Slack App so Vellum can connect to your workspace. The whole process takes a few minutes."
 - "I'll be automating the Slack API website in the browser — you'll be able to see everything I'm doing."
 - "I'll ask for your approval before each major step, so nothing happens without your say-so."
@@ -25,6 +26,7 @@ Tell the user: "First, let me open the Slack API dashboard."
 Use `browser_navigate` to go to `https://api.slack.com/apps`.
 
 Take a `browser_screenshot` to show the user what loaded, then take a `browser_snapshot` to check the page state:
+
 - **If a sign-in page appears:** Tell the user "Please sign in to your Slack account in the browser window. Let me know when you're done." Wait for their confirmation, then take another snapshot.
 - **If the apps dashboard loads:** Tell the user "Slack API dashboard is loaded. Let's create your app!" and continue to Step 2.
 
@@ -39,6 +41,7 @@ Take a `browser_screenshot` to show the user what loaded, then take a `browser_s
 Wait for the user to approve. If they decline, explain that the app is required for OAuth and offer to try again or cancel.
 
 Once approved:
+
 1. Click "Create New App"
 2. Select "From scratch"
 3. Enter app name: "Vellum Assistant"
@@ -74,6 +77,7 @@ Tell the user: "App created! Now let's configure the permissions it needs."
 Wait for the user to approve.
 
 Once approved:
+
 1. Navigate to "OAuth & Permissions" in the left sidebar (or go to the app's OAuth page directly)
 2. Scroll to "User Token Scopes"
 3. Add each scope listed above using the "Add an OAuth Scope" button
@@ -89,13 +93,14 @@ Navigate to the "OAuth & Permissions" page if not already there.
 Before entering the redirect URL, resolve the exact value from the well-known OAuth config:
 
 ```
-credential_store describe:
+vellum credentials describe:
   service: "integration:slack"
 ```
 
 Read the `redirectUri` field from that response and use it exactly as shown.
 
 In the "Redirect URLs" section:
+
 1. If `redirectUri` says "automatic", skip adding a redirect URL for this provider.
 2. If `redirectUri` mentions "not currently configured" / `GATEWAY_BASE_URL` / `INGRESS_PUBLIC_BASE_URL`, stop and ask the user to configure public ingress first.
 3. Otherwise, click "Add New Redirect URL" and enter the `redirectUri` value exactly as returned.
@@ -110,6 +115,7 @@ Tell the user: "Redirect URL configured using the redirect URI from Vellum's Sla
 Navigate to "Basic Information" in the left sidebar.
 
 Use `browser_extract` to read:
+
 1. **Client ID** from the "App Credentials" section
 2. **Client Secret** — click "Show" first, then extract the value
 
@@ -121,7 +127,7 @@ Tell the user: "Credentials extracted! Now let's connect your Slack workspace."
 
 Tell the user: "Opening Slack authorization so you can grant Vellum access to your workspace. You'll see a Slack consent page — just click 'Allow'."
 
-Use the `credential_store` tool to connect Slack via OAuth2:
+Use the `vellum credentials` tool to connect Slack via OAuth2:
 
 ```
 action: "oauth2_connect"
@@ -143,6 +149,7 @@ Once connected, tell the user:
 "**Slack is connected!** You're all set. You can now read channels, search messages, send messages, and manage your Slack workspace through Vellum. Try asking me to check your unread Slack messages!"
 
 Summarize what was accomplished:
+
 - Created a Slack App called "Vellum Assistant"
 - Configured User Token Scopes for reading, writing, and searching
 - Set up the OAuth redirect URL from the Slack OAuth profile

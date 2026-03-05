@@ -96,7 +96,7 @@ Tell the user to navigate to **Settings > Basic Information > App-Level Tokens**
 
 **Immediately** collect the app token securely:
 
-- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
+- Call `vellum credentials` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
 
 **IMPORTANT — Secure credential collection only:** Never accept tokens pasted in plaintext chat. If the user pastes a token in the conversation, inform them that for security reasons you cannot use tokens shared in chat and must collect it through the secure prompt instead.
 
@@ -106,7 +106,7 @@ Tell the user to navigate to **Settings > Install App** in the sidebar, then cli
 
 After installation, collect the bot token securely:
 
-- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "Paste the Bot User OAuth Token shown after installing"`
+- Call `vellum credentials` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "Paste the Bot User OAuth Token shown after installing"`
 
 **IMPORTANT — Secure credential collection only:** Never accept tokens pasted in plaintext chat. Always collect through the secure prompt.
 
@@ -193,7 +193,7 @@ Tell the user: "Your Slack bot is now connected! Open **Settings > Channels** to
 | App creation            | Manual (one-click)           | User clicks manifest URL, selects workspace, creates          |
 | App token generation    | Manual                       | User generates in Slack settings (can't be automated)         |
 | App installation        | Manual                       | User clicks "Install to Workspace"                            |
-| Token collection        | Manual (secure prompt)       | Via `credential_store` — never plaintext                      |
+| Token collection        | Manual (secure prompt)       | Via `vellum credentials` — never plaintext                    |
 | Token validation        | Automated                    | `auth.test` validates bot token on submission                 |
 | Socket Mode connection  | Automated                    | Gateway connects when tokens are stored                       |
 | Routing                 | Automated (single-assistant) | CLI sets defaults                                             |

@@ -180,17 +180,17 @@ If the user wants a specific call to appear as coming from their own phone numbe
 **To configure a user phone number:**
 
 ```
-credential_store action=store service=twilio field=user_phone_number value=+14155559999
+vellum credentials set twilio user_phone_number +14155559999
 ```
 
 **To use it for a specific call**, pass `caller_identity_mode: 'user_number'` when calling `call_start` — see the Making Outbound Calls section for examples. User-number mode cannot be set as a global default; it must be requested explicitly per call.
 
 ### Configuration reference
 
-| Setting                                     | Description                                                                                      | Default   |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------- |
-| `calls.callerIdentity.allowPerCallOverride` | Whether per-call mode selection is allowed                                                       | `true`    |
-| `calls.callerIdentity.userNumber`           | Optional E.164 phone number for user-number mode (alternative to storing via `credential_store`) | _(empty)_ |
+| Setting                                     | Description                                                                                        | Default   |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------- |
+| `calls.callerIdentity.allowPerCallOverride` | Whether per-call mode selection is allowed                                                         | `true`    |
+| `calls.callerIdentity.userNumber`           | Optional E.164 phone number for user-number mode (alternative to storing via `vellum credentials`) | _(empty)_ |
 
 ## DTMF Callee Verification
 
@@ -236,21 +236,21 @@ Users who have an ElevenLabs account and API key (e.g., from the **voice-setup**
 To check if the user has an API key stored:
 
 ```bash
-credential_store action=get service=elevenlabs field=api_key
+vellum credentials get elevenlabs api_key
 ```
 
 If they have a key and want to browse voices, fetch the voice list:
 
 ```bash
 curl -s "https://api.elevenlabs.io/v2/voices?category=premade&page_size=50" \
-  -H "xi-api-key: <api_key_from_credential_store>" | python3 -m json.tool
+  -H "xi-api-key: <api_key_from_vellum_credentials>" | python3 -m json.tool
 ```
 
 To search for a specific voice style:
 
 ```bash
 curl -s "https://api.elevenlabs.io/v2/voices?search=warm+female&page_size=10" \
-  -H "xi-api-key: <api_key_from_credential_store>" | python3 -m json.tool
+  -H "xi-api-key: <api_key_from_vellum_credentials>" | python3 -m json.tool
 ```
 
 After the user picks a voice, set the shared voice ID:

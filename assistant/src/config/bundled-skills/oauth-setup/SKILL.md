@@ -3,7 +3,7 @@ name: "OAuth Setup"
 description: "Connect any OAuth service — create app credentials and authorize via browser automation"
 user-invocable: true
 includes: ["browser"]
-metadata: {"vellum": {"emoji": "🔑"}}
+metadata: { "vellum": { "emoji": "🔑" } }
 ---
 
 You are helping the user connect an OAuth-based service to Vellum. This is a generic setup flow that works for any provider with a well-known OAuth config.
@@ -16,7 +16,8 @@ You will be given a `service` name (e.g., "discord", "linear", "spotify"). If no
 
 ## Step 1: Read the service config
 
-Use `credential_store` with `action: "describe"` and `service: "<name>"` to get the well-known OAuth config. This returns:
+Use `vellum credentials` with `action: "describe"` and `service: "<name>"` to get the well-known OAuth config. This returns:
+
 - `scopes` — permissions to request
 - `redirectUri` — the callback URL to register
 - `callbackTransport` — loopback or gateway
@@ -24,6 +25,7 @@ Use `credential_store` with `action: "describe"` and `service: "<name>"` to get 
 - `authUrl` / `tokenUrl` — OAuth endpoints
 
 It may also include a `setup` object with rich metadata:
+
 - `setup.displayName` — the provider's name
 - `setup.dashboardUrl` — where to create the app
 - `setup.appType` — what kind of app to create
@@ -62,6 +64,7 @@ The provider has OAuth config (endpoints, scopes) but no setup automation metada
 ### Step 3: Tell the user what's happening
 
 Tell the user:
+
 - "I'll walk you through creating a {setup.appType} so Vellum can connect to {setup.displayName}. The whole process takes a few minutes."
 - "I'll be automating the {setup.displayName} developer dashboard in the browser — you'll be able to see everything I'm doing."
 - "I'll ask for your approval before each major step, so nothing happens without your say-so."
@@ -71,6 +74,7 @@ Tell the user:
 Use `browser_navigate` to go to `setup.dashboardUrl`.
 
 Take a `browser_screenshot` and `browser_snapshot`:
+
 - **If a sign-in page appears:** Tell the user to sign in and wait for confirmation.
 - **If the dashboard loads:** Continue to Step 5.
 
@@ -79,6 +83,7 @@ Take a `browser_screenshot` and `browser_snapshot`:
 **Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` explaining what you're about to create.
 
 Once approved:
+
 1. Find and click the "Create App" / "New Application" / "New Integration" button (adapt to the provider's UI)
 2. Name it "Vellum Assistant"
 3. Follow any guidance from `setup.notes`
@@ -97,6 +102,7 @@ Take a `browser_screenshot` after adding all scopes.
 ### Step 7: Set redirect URL
 
 Check the `redirectUri` from the config:
+
 - If it mentions "not currently configured", `GATEWAY_BASE_URL`, or `INGRESS_PUBLIC_BASE_URL` — the user needs a public gateway URL configured. Check if one is set; if not, load the `public-ingress` skill first.
 - If it says "automatic" — skip this step entirely (no redirect URI needed).
 - Otherwise, enter the `redirectUri` exactly as provided.
@@ -108,6 +114,7 @@ Take a `browser_snapshot` to confirm.
 Navigate to the app's credentials/settings section.
 
 Use `browser_extract` to read:
+
 1. **Client ID** (or equivalent)
 2. **Client Secret** (if `requiresClientSecret` is true) — click "Show"/"Reveal" first if needed
 
@@ -117,12 +124,13 @@ Use `browser_extract` to read:
 
 Tell the user you're opening the authorization page.
 
-Use `credential_store` with:
+Use `vellum credentials` with:
+
 ```
 action: "oauth2_connect"
 service: "<service name>"
 client_id: "<extracted client ID>"
-client_secret: "<extracted client secret>"  (if required)
+client_secret: "<redacted>"  (if required)
 ```
 
 Everything else (endpoints, scopes, params) is auto-filled from the well-known config. Wait for the flow to complete.
@@ -130,6 +138,7 @@ Everything else (endpoints, scopes, params) is auto-filled from the well-known c
 ## Step 9: Celebrate!
 
 Once connected, tell the user:
+
 - If `setup` is present: "**{setup.displayName} is connected!** You're all set."
 - If `setup` is absent: "**{service} is connected!** You're all set."
 
