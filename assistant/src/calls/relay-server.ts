@@ -56,7 +56,6 @@ import { finalizeCall } from "./finalize-call.js";
 import {
   classifyWaitUtterance,
   emitAccessRequestCallbackHandoff,
-  getHeartbeatMessage,
   scheduleNextHeartbeat,
 } from "./relay-access-wait.js";
 import { routeSetup } from "./relay-setup-router.js";
@@ -1661,14 +1660,9 @@ export class RelayConnection {
     }
   }
 
-  private getHeartbeatMessage(): string {
-    const seq = this.heartbeatSequence++;
-    return getHeartbeatMessage(seq, this.resolveGuardianLabel());
-  }
-
   private scheduleNextHeartbeat(): void {
     this.accessRequestHeartbeatTimer = scheduleNextHeartbeat({
-      accessRequestWaitActive: this.accessRequestWaitActive,
+      isWaitActive: () => this.accessRequestWaitActive,
       accessRequestWaitStartedAt: this.accessRequestWaitStartedAt,
       callSessionId: this.callSessionId,
       consumeSequence: () => this.heartbeatSequence++,

@@ -126,7 +126,7 @@ export function getHeartbeatMessage(
 // ── Heartbeat scheduling ─────────────────────────────────────────────
 
 export interface ScheduleNextHeartbeatParams {
-  accessRequestWaitActive: boolean;
+  isWaitActive: () => boolean;
   accessRequestWaitStartedAt: number;
   callSessionId: string;
   /** Called to get the current sequence number and advance it. */
@@ -146,7 +146,7 @@ export interface ScheduleNextHeartbeatParams {
 export function scheduleNextHeartbeat(
   params: ScheduleNextHeartbeatParams,
 ): ReturnType<typeof setTimeout> | null {
-  if (!params.accessRequestWaitActive) return null;
+  if (!params.isWaitActive()) return null;
 
   const elapsed = Date.now() - params.accessRequestWaitStartedAt;
   const initialWindow = getGuardianWaitUpdateInitialWindowMs();
@@ -164,7 +164,7 @@ export function scheduleNextHeartbeat(
         );
 
   return setTimeout(() => {
-    if (!params.accessRequestWaitActive) return;
+    if (!params.isWaitActive()) return;
 
     const seq = params.consumeSequence();
     const guardianLabel = params.resolveGuardianLabel();
