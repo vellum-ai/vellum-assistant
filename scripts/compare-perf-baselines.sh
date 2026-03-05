@@ -29,13 +29,16 @@ baseline_dir     = sys.argv[4]
 update_baseline  = sys.argv[5].lower() == "true"
 
 # Parse XCTest timing lines. Format (macOS XCTest via swift test):
-#   Test Case '-[Suite.ClassName testMethodName]' measured [Time, seconds] average: N.NNN, ...
+#   Test Case '-[Suite.ClassName testMethodName]' measured [Clock Monotonic Time, s] average: N.NNN, ...
 #
-# After the closing ']' the output includes a single quote "'" before the
-# whitespace and "measured". The regex accounts for that trailing quote so
-# the pattern matches real swift-test output rather than silently finding nothing.
+# The metric type varies across Xcode versions — older: "[Time, seconds]",
+# newer (Xcode 15+): "[Clock Monotonic Time, s]".  After the closing ']' of the
+# test name the output includes a single-quote "'" before the space and "measured".
+# We track "Clock Monotonic Time" (wall clock) and fall back to any "Time, seconds"
+# line.  Multiple metric lines appear per test; the first matching one wins so
+# subsequent CPU-cycles/instructions lines don't overwrite the wall-time result.
 pattern = re.compile(
-    r"-\[(?:[^\]]*\s+)?(\w+)\]['\"]*\s+measured \[Time, seconds\] average:\s+([0-9.]+)"
+    r"-\[(?:[^\]]*\s+)?(\w+)\]['\"]*\s+measured \[(?:Clock Monotonic Time, s|Time, seconds)\] average:\s+([0-9.]+)"
 )
 
 results = {}
