@@ -121,7 +121,7 @@ extension MainWindowView {
             let previousHandler = daemonClient.onBundleAppResponse
             daemonClient.onBundleAppResponse = { response in
                 daemonClient.onBundleAppResponse = previousHandler
-                sharing.shareFileURL = URL(fileURLWithPath: response.bundlePath)
+                sharing.shareFileURL = Self.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
                 sharing.isBundling = false
                 sharing.showSharePicker = true
             }
@@ -132,6 +132,26 @@ extension MainWindowView {
                 sharing.isBundling = false
                 daemonClient.onBundleAppResponse = previousHandler
             }
+        }
+    }
+
+    /// Creates a hardlink with a clean display name for the share sheet.
+    /// Falls back to the original path if linking fails.
+    static func cleanBundleURL(bundlePath: String, appName: String) -> URL {
+        let originalURL = URL(fileURLWithPath: bundlePath)
+        let cleanName = appName
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { return originalURL }
+
+        let cleanURL = originalURL.deletingLastPathComponent().appendingPathComponent("\(cleanName).vellum")
+        try? FileManager.default.removeItem(at: cleanURL)
+        do {
+            try FileManager.default.linkItem(at: originalURL, to: cleanURL)
+            return cleanURL
+        } catch {
+            return originalURL
         }
     }
 }

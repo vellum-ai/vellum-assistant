@@ -726,9 +726,10 @@ struct GeneratedPanel: View {
         isBundling = true
 
         Task { @MainActor in
+            let previousHandler = daemonClient.onBundleAppResponse
             daemonClient.onBundleAppResponse = { response in
-                let url = URL(fileURLWithPath: response.bundlePath)
-                self.shareFileURL = url
+                daemonClient.onBundleAppResponse = previousHandler
+                self.shareFileURL = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
                 self.isBundling = false
                 self.showShareSheet = true
             }
@@ -738,6 +739,7 @@ struct GeneratedPanel: View {
             } catch {
                 isBundling = false
                 sharingAppId = nil
+                daemonClient.onBundleAppResponse = previousHandler
             }
         }
     }
