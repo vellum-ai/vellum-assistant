@@ -3,6 +3,7 @@ import VellumAssistantShared
 
 struct DrawerMenuView: View {
     let onSettings: () -> Void
+    let onUsage: () -> Void
     let onDebug: () -> Void
     let onLogOut: () -> Void
     var body: some View {
@@ -15,6 +16,11 @@ struct DrawerMenuView: View {
                 .padding(.vertical, VSpacing.xs)
 
             DrawerMenuItem(icon: "gearshape", label: String(localized: "Settings"), description: String(localized: "Ask the assistant to help you with any settings you wish to change"), action: onSettings)
+
+            VColor.surfaceBorder.frame(height: 1)
+                .padding(.vertical, VSpacing.xs)
+
+            DrawerMenuItem(icon: "chart.bar", label: String(localized: "Usage"), action: onUsage)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)

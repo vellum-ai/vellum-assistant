@@ -12,6 +12,7 @@ struct MainWindowView: View {
     /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
     /// itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
+    let usageDashboardStore: UsageDashboardStore
     @ObservedObject var windowState: MainWindowState
     @State private var selectedThreadId: UUID?
     @State var sharing = SharingState()
@@ -58,12 +59,13 @@ struct MainWindowView: View {
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.conversationZoomManager = conversationZoomManager
         self.traceStore = traceStore
+        self.usageDashboardStore = usageDashboardStore
         self.daemonClient = daemonClient
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
@@ -534,6 +536,10 @@ struct MainWindowView: View {
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.settings)
+                            },
+                            onUsage: {
+                                sidebar.showPreferencesDrawer = false
+                                windowState.selection = .panel(.usageDashboard)
                             },
                             onDebug: {
                                 sidebar.showPreferencesDrawer = false

@@ -2,31 +2,19 @@ import SwiftUI
 import VellumAssistantShared
 
 struct UsageDashboardPanel: View {
-    let daemonClient: DaemonClient
+    let store: UsageDashboardStore
     var onClose: () -> Void
-
-    @State private var store: UsageDashboardStore?
 
     var body: some View {
         VSidePanel(title: "Usage", onClose: onClose, pinnedContent: {
-            if let store {
-                timeRangeStrip(store: store)
-                Divider().background(VColor.surfaceBorder)
-            }
+            timeRangeStrip(store: store)
+            Divider().background(VColor.surfaceBorder)
         }) {
-            if let store {
-                contentView(store: store)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            contentView(store: store)
         }
         .onAppear {
-            if store == nil {
-                store = UsageDashboardStore(client: daemonClient)
-            }
             Task {
-                await store?.refresh()
+                await store.refresh()
             }
         }
     }
@@ -322,7 +310,7 @@ struct UsageDashboardPanel: View {
 #Preview {
     ZStack {
         VColor.background.ignoresSafeArea()
-        UsageDashboardPanel(daemonClient: DaemonClient(), onClose: {})
+        UsageDashboardPanel(store: UsageDashboardStore(client: DaemonClient()), onClose: {})
     }
     .frame(width: 400, height: 600)
 }
