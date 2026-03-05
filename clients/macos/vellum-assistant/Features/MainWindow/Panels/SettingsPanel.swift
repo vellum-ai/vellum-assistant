@@ -1083,7 +1083,7 @@ private struct SettingsNavRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
-                .background(isSelected ? VColor.hoverOverlay.opacity(0.08) : (isHovered ? VColor.hoverOverlay.opacity(0.04) : Color.clear))
+                .background(isSelected ? VColor.navActive : (isHovered ? VColor.navHover : Color.clear))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .contentShape(Rectangle())
         }

@@ -38,7 +38,7 @@ struct SidebarPrimaryRow: View {
             .padding(.vertical, VSpacing.sm)
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
             .background(
-                (isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
+                (isActive ? VColor.navActive : isHovered ? VColor.navHover : .clear)
                     .animation(VAnimation.fast, value: isHovered)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
