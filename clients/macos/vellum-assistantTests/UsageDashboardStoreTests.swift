@@ -424,6 +424,56 @@ struct UsageDashboardStoreRaceTests {
     }
 
     @Test @MainActor
+    func refreshDoesNotOverwriteBreakdownFromConcurrentSelectGroupBy() async {
+        let client = DelayedMockUsageClient()
+        let store = UsageDashboardStore(client: client)
+
+        // Launch refresh() — it fetches totals, daily, and breakdown
+        let refreshTask = Task { @MainActor in await store.refresh() }
+        await Self.yieldUntil {
+            client.totalsContinuations.count >= 1
+            && client.dailyContinuations.count >= 1
+            && client.breakdownContinuations.count >= 1
+        }
+
+        // While refresh() is in flight, user changes group-by dimension
+        let groupByTask = Task { @MainActor in await store.selectGroupBy(.provider) }
+        await Self.yieldUntil { client.breakdownContinuations.count >= 2 }
+
+        // Complete selectGroupBy's breakdown first (the newer request)
+        client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "provider-fresh"))
+        await groupByTask.value
+
+        if case .loaded(let breakdown) = store.breakdownState {
+            #expect(breakdown.breakdown[0].group == "provider-fresh")
+        } else {
+            Issue.record("Expected .loaded state after selectGroupBy completes")
+        }
+
+        // Now complete refresh()'s fetches — its breakdown should be discarded
+        // because selectGroupBy() incremented breakdownGeneration
+        client.totalsContinuations[0].resume(returning: Self.makeTotals(inputTokens: 42))
+        client.dailyContinuations[0].resume(returning: Self.makeDaily())
+        client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "model-stale"))
+        await refreshTask.value
+
+        // Totals and daily from refresh() should still land (no newer refresh invalidated them)
+        if case .loaded(let totals) = store.totalsState {
+            #expect(totals.totalInputTokens == 42)
+        } else {
+            Issue.record("Expected totals to be loaded from refresh()")
+        }
+
+        // Breakdown must still be the selectGroupBy result, not overwritten by refresh()
+        if case .loaded(let breakdown) = store.breakdownState {
+            #expect(breakdown.breakdown[0].group == "provider-fresh",
+                    "refresh() must not overwrite breakdown set by concurrent selectGroupBy()")
+        } else {
+            Issue.record("Breakdown was overwritten by stale refresh()")
+        }
+    }
+
+    @Test @MainActor
     func staleSelectGroupByResultsAreDiscarded() async {
         let client = DelayedMockUsageClient()
         let store = UsageDashboardStore(client: client)

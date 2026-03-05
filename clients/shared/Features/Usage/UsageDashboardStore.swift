@@ -87,7 +87,9 @@ public final class UsageDashboardStore {
     /// Load all usage data (totals, daily, breakdown) for the currently selected range.
     public func refresh() async {
         refreshGeneration &+= 1
-        let capturedGeneration = refreshGeneration
+        let capturedRefreshGen = refreshGeneration
+        breakdownGeneration &+= 1
+        let capturedBreakdownGen = breakdownGeneration
 
         let range = selectedRange.epochMillisRange()
 
@@ -105,24 +107,26 @@ public final class UsageDashboardStore {
         let daily = await dailyResult
         let breakdown = await breakdownResult
 
-        guard capturedGeneration == refreshGeneration else { return }
+        if capturedRefreshGen == refreshGeneration {
+            if let totals {
+                totalsState = .loaded(totals)
+            } else {
+                totalsState = .failed("Failed to load usage totals")
+            }
 
-        if let totals {
-            totalsState = .loaded(totals)
-        } else {
-            totalsState = .failed("Failed to load usage totals")
+            if let daily {
+                dailyState = .loaded(daily)
+            } else {
+                dailyState = .failed("Failed to load daily usage")
+            }
         }
 
-        if let daily {
-            dailyState = .loaded(daily)
-        } else {
-            dailyState = .failed("Failed to load daily usage")
-        }
-
-        if let breakdown {
-            breakdownState = .loaded(breakdown)
-        } else {
-            breakdownState = .failed("Failed to load usage breakdown")
+        if capturedBreakdownGen == breakdownGeneration {
+            if let breakdown {
+                breakdownState = .loaded(breakdown)
+            } else {
+                breakdownState = .failed("Failed to load usage breakdown")
+            }
         }
     }
 
