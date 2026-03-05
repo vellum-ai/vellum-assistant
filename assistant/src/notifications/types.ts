@@ -61,9 +61,6 @@ export interface ChannelDeliveryPayload {
   /** Delivery audit record ID — passed through to the client for ack correlation. */
   deliveryId?: string;
   sourceEventName: string;
-  /** Originating assistant — used by channel adapters that need assistant-specific
-   *  routing (e.g. SMS outbound number selection via the gateway). */
-  assistantId?: string;
   copy: RenderedChannelCopy;
   deepLinkTarget?: Record<string, unknown>;
 }

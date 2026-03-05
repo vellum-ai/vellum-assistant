@@ -78,4 +78,10 @@ export const slackInviteAdapter: ChannelInviteAdapter = {
       channelHandle: `@${botInfo.botUsername}`,
     };
   },
+
+  resolveChannelHandle(): string | undefined {
+    const botInfo = resolveSlackBotInfo();
+    if (!botInfo) return undefined;
+    return `@${botInfo.botUsername}`;
+  },
 };

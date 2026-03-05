@@ -235,7 +235,6 @@ export async function handleVerificationIntercept(
         sourceEventName: "ingress.trusted_contact.activated",
         sourceChannel,
         sourceSessionId: conversationId,
-        assistantId: canonicalAssistantId,
         attentionHints: {
           requiresAction: false,
           urgency: "low",

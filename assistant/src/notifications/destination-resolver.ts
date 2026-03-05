@@ -14,6 +14,7 @@
 import { isNotificationDeliverable } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDestination, NotificationChannel } from "./types.js";
 
@@ -28,7 +29,6 @@ const log = getLogger("destination-resolver");
  * resolved (e.g. no Telegram binding configured) are omitted from the result.
  */
 export function resolveDestinations(
-  assistantId: string,
   channels: readonly (ChannelId | NotificationChannel)[],
 ): Map<NotificationChannel, ChannelDestination> {
   const result = new Map<NotificationChannel, ChannelDestination>();
@@ -44,7 +44,10 @@ export function resolveDestinations(
         // Vellum delivery is local IPC — no external endpoint required.
         // Include the guardianPrincipalId so the adapter can annotate
         // guardian-sensitive notifications for scoped delivery.
-        const guardianResult = findGuardianForChannel("vellum", assistantId);
+        const guardianResult = findGuardianForChannel(
+          "vellum",
+          DAEMON_INTERNAL_ASSISTANT_ID,
+        );
         const metadata: Record<string, unknown> = {};
         if (guardianResult) {
           metadata.guardianPrincipalId = guardianResult.contact.principalId;
@@ -66,7 +69,10 @@ export function resolveDestinations(
       case "telegram":
       case "sms":
       case "slack": {
-        const guardianResult = findGuardianForChannel(channel, assistantId);
+        const guardianResult = findGuardianForChannel(
+          channel,
+          DAEMON_INTERNAL_ASSISTANT_ID,
+        );
         if (guardianResult && guardianResult.channel.externalChatId) {
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
@@ -87,7 +93,10 @@ export function resolveDestinations(
         break;
       }
       case "slack": {
-        const guardianResult = findGuardianForChannel("slack", assistantId);
+        const guardianResult = findGuardianForChannel(
+          "slack",
+          DAEMON_INTERNAL_ASSISTANT_ID,
+        );
         const chatId = guardianResult?.channel.externalChatId;
         // Slack bindings can originate from app_mention in shared channels.
         // Only route notifications to DM channels (IDs starting with "D")

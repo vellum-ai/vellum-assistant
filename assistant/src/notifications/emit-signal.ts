@@ -100,7 +100,7 @@ function getBroadcaster(): NotificationBroadcaster {
 
 // ── Connected channels resolution ──────────────────────────────────────
 
-function getConnectedChannels(assistantId: string): NotificationChannel[] {
+function getConnectedChannels(): NotificationChannel[] {
   const channels: NotificationChannel[] = [];
 
   // getDeliverableChannels() returns ChannelId[] but every returned channel
@@ -120,7 +120,10 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         // externalChatId check ensures we don't report a channel as
         // connected when the contacts record exists but lacks the
         // delivery address the destination-resolver needs.
-        const guardian = findGuardianForChannel(channel, assistantId);
+        const guardian = findGuardianForChannel(
+          channel,
+          DAEMON_INTERNAL_ASSISTANT_ID,
+        );
         if (guardian && guardian.channel.externalChatId) {
           channels.push(channel);
         }
@@ -130,7 +133,10 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         // Slack bindings can originate from shared channels (app_mention).
         // Only consider Slack connected when the stored chat ID is a DM
         // channel (D-prefixed) to prevent leaking notifications.
-        const slackGuardian = findGuardianForChannel("slack", assistantId);
+        const slackGuardian = findGuardianForChannel(
+          "slack",
+          DAEMON_INTERNAL_ASSISTANT_ID,
+        );
         const chatId = slackGuardian?.channel.externalChatId;
         if (slackGuardian && chatId && chatId.startsWith("D")) {
           channels.push(channel);
@@ -156,8 +162,6 @@ export interface EmitSignalParams<TEventName extends string = string> {
   sourceChannel: string;
   /** Session or conversation ID from the source context. */
   sourceSessionId: string;
-  /** Logical assistant ID (defaults to 'self'). */
-  assistantId?: string;
   /** Attention hints for the decision engine. */
   attentionHints: AttentionHints;
   /** Arbitrary context payload passed to the decision engine. */
@@ -205,11 +209,9 @@ export async function emitNotificationSignal<TEventName extends string>(
   params: EmitSignalParams<TEventName>,
 ): Promise<EmitSignalResult> {
   const signalId = uuid();
-  const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
   const signal: NotificationSignal<TEventName> = {
     signalId,
-    assistantId,
     createdAt: Date.now(),
     sourceChannel: params.sourceChannel,
     sourceSessionId: params.sourceSessionId,
@@ -226,7 +228,6 @@ export async function emitNotificationSignal<TEventName extends string>(
     // Step 1: Persist the event
     const eventRow = createEvent({
       id: signalId,
-      assistantId,
       sourceEventName: params.sourceEventName,
       sourceChannel: params.sourceChannel,
       sourceSessionId: params.sourceSessionId,
@@ -250,12 +251,11 @@ export async function emitNotificationSignal<TEventName extends string>(
     }
 
     // Step 2: Evaluate the signal through the decision engine
-    const connectedChannels = getConnectedChannels(assistantId);
+    const connectedChannels = getConnectedChannels();
 
     log.debug(
       {
         channels: connectedChannels,
-        assistantId,
       },
       "connected channels resolved",
     );

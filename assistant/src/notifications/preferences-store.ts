@@ -7,17 +7,17 @@
  * resolution.
  */
 
-import { desc, eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
 import { notificationPreferences } from "../memory/schema.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 
 // ── Row type ────────────────────────────────────────────────────────────
 
 export interface NotificationPreferenceRow {
   id: string;
-  assistantId: string;
   preferenceText: string;
   appliesWhenJson: string; // serialised JSON
   priority: number;
@@ -30,7 +30,6 @@ function rowToPreference(
 ): NotificationPreferenceRow {
   return {
     id: row.id,
-    assistantId: row.assistantId,
     preferenceText: row.preferenceText,
     appliesWhenJson: row.appliesWhenJson,
     priority: row.priority,
@@ -52,7 +51,6 @@ export interface AppliesWhenConditions {
 // ── Create ──────────────────────────────────────────────────────────────
 
 export interface CreatePreferenceParams {
-  assistantId: string;
   preferenceText: string;
   appliesWhen?: AppliesWhenConditions;
   priority?: number;
@@ -66,7 +64,7 @@ export function createPreference(
 
   const row = {
     id: uuid(),
-    assistantId: params.assistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     preferenceText: params.preferenceText,
     appliesWhenJson: JSON.stringify(params.appliesWhen ?? {}),
     priority: params.priority ?? 0,
@@ -81,15 +79,12 @@ export function createPreference(
 
 // ── List ────────────────────────────────────────────────────────────────
 
-export function listPreferences(
-  assistantId: string,
-): NotificationPreferenceRow[] {
+export function listPreferences(): NotificationPreferenceRow[] {
   const db = getDb();
 
   const rows = db
     .select()
     .from(notificationPreferences)
-    .where(eq(notificationPreferences.assistantId, assistantId))
     .orderBy(desc(notificationPreferences.priority))
     .all();
 

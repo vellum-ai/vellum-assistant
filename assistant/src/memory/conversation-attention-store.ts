@@ -9,6 +9,7 @@
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
 import {
   conversationAssistantAttentionState,
@@ -32,7 +33,6 @@ export type Confidence = "explicit" | "inferred";
 export interface AttentionEvent {
   id: string;
   conversationId: string;
-  assistantId: string;
   sourceChannel: string;
   signalType: SignalType;
   confidence: Confidence;
@@ -45,7 +45,6 @@ export interface AttentionEvent {
 
 export interface AttentionState {
   conversationId: string;
-  assistantId: string;
   latestAssistantMessageId: string | null;
   latestAssistantMessageAt: number | null;
   lastSeenAssistantMessageId: string | null;
@@ -68,7 +67,6 @@ function rowToEvent(
   return {
     id: row.id,
     conversationId: row.conversationId,
-    assistantId: row.assistantId,
     sourceChannel: row.sourceChannel,
     signalType: row.signalType as SignalType,
     confidence: row.confidence as Confidence,
@@ -81,11 +79,13 @@ function rowToEvent(
 }
 
 function rowToState(
-  row: typeof conversationAssistantAttentionState.$inferSelect,
+  row: Omit<
+    typeof conversationAssistantAttentionState.$inferSelect,
+    "assistantId"
+  >,
 ): AttentionState {
   return {
     conversationId: row.conversationId,
-    assistantId: row.assistantId,
     latestAssistantMessageId: row.latestAssistantMessageId,
     latestAssistantMessageAt: row.latestAssistantMessageAt,
     lastSeenAssistantMessageId: row.lastSeenAssistantMessageId,
@@ -109,11 +109,10 @@ function rowToState(
  */
 export function projectAssistantMessage(params: {
   conversationId: string;
-  assistantId: string;
   messageId: string;
   messageAt: number;
 }): void {
-  const { conversationId, assistantId, messageId, messageAt } = params;
+  const { conversationId, messageId, messageAt } = params;
   const db = getDb();
   const now = Date.now();
 
@@ -129,7 +128,7 @@ export function projectAssistantMessage(params: {
     db.insert(conversationAssistantAttentionState)
       .values({
         conversationId,
-        assistantId,
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         latestAssistantMessageId: messageId,
         latestAssistantMessageAt: messageAt,
         lastSeenAssistantMessageId: null,
@@ -175,7 +174,6 @@ export function projectAssistantMessage(params: {
  */
 export function recordConversationSeenSignal(params: {
   conversationId: string;
-  assistantId: string;
   sourceChannel: string;
   signalType: SignalType;
   confidence: Confidence;
@@ -186,7 +184,6 @@ export function recordConversationSeenSignal(params: {
 }): AttentionEvent {
   const {
     conversationId,
-    assistantId,
     sourceChannel,
     signalType,
     confidence,
@@ -205,7 +202,7 @@ export function recordConversationSeenSignal(params: {
   const event: typeof conversationAttentionEvents.$inferInsert = {
     id: eventId,
     conversationId,
-    assistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     sourceChannel,
     signalType,
     confidence,
@@ -252,7 +249,7 @@ export function recordConversationSeenSignal(params: {
       tx.insert(conversationAssistantAttentionState)
         .values({
           conversationId,
-          assistantId,
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
           latestAssistantMessageId: latestMsgId,
           latestAssistantMessageAt: latestMsgAt,
           lastSeenAssistantMessageId: latestMsgId,
@@ -348,7 +345,6 @@ export function getAttentionStateByConversationIds(
 export type AttentionFilterState = "seen" | "unseen" | "all";
 
 export interface ListConversationAttentionParams {
-  assistantId: string;
   state?: AttentionFilterState;
   sourceChannel?: string;
   source?: string;
@@ -364,7 +360,6 @@ export function listConversationAttention(
   params: ListConversationAttentionParams,
 ): AttentionState[] {
   const {
-    assistantId,
     state: filterState = "all",
     sourceChannel,
     source,
@@ -373,9 +368,8 @@ export function listConversationAttention(
   } = params;
 
   const db = getDb();
-  const conditions = [
-    eq(conversationAssistantAttentionState.assistantId, assistantId),
-  ];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const conditions: any[] = [];
 
   if (sourceChannel) {
     conditions.push(eq(conversations.originChannel, sourceChannel));
@@ -415,7 +409,6 @@ export function listConversationAttention(
   let query = db
     .select({
       conversationId: conversationAssistantAttentionState.conversationId,
-      assistantId: conversationAssistantAttentionState.assistantId,
       latestAssistantMessageId:
         conversationAssistantAttentionState.latestAssistantMessageId,
       latestAssistantMessageAt:
@@ -448,8 +441,7 @@ export function listConversationAttention(
     );
   }
 
-  const rows = query
-    .where(and(...conditions))
+  const rows = (conditions.length > 0 ? query.where(and(...conditions)) : query)
     .orderBy(desc(conversationAssistantAttentionState.latestAssistantMessageAt))
     .limit(limit)
     .all();

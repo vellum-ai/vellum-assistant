@@ -115,7 +115,6 @@ export function runSecretIngressCheck(params: SecretIngressCheckParams): void {
           : "User sent media attachment";
       recordConversationSeenSignal({
         conversationId,
-        assistantId: canonicalAssistantId,
         signalType: "telegram_inbound_message",
         confidence: "inferred",
         sourceChannel: "telegram",

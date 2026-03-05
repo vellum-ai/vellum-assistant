@@ -6,7 +6,6 @@ import {
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
 import { updateDeliveryClientOutcome } from "../../notifications/deliveries-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import type { ClientMessage } from "../ipc-protocol.js";
 import {
   handleRideShotgunStart,
@@ -120,7 +119,6 @@ const inlineHandlers = defineHandlers({
     try {
       recordConversationSeenSignal({
         conversationId: msg.conversationId,
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         sourceChannel: msg.sourceChannel,
         signalType: msg.signalType as SignalType,
         confidence: msg.confidence as Confidence,

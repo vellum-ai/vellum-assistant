@@ -23,7 +23,7 @@ mock.module("../util/logger.js", () => ({
 
 // Mock destination-resolver to return a destination for every requested channel
 mock.module("../notifications/destination-resolver.js", () => ({
-  resolveDestinations: (_assistantId: string, channels: string[]) => {
+  resolveDestinations: (channels: string[]) => {
     const m = new Map();
     for (const ch of channels) {
       m.set(ch, { channel: ch, endpoint: `mock-${ch}` });
@@ -84,7 +84,6 @@ function makeSignal(
 ): NotificationSignal {
   return {
     signalId: "sig-broadcast-001",
-    assistantId: "self",
     createdAt: Date.now(),
     sourceChannel: "scheduler",
     sourceSessionId: "sess-001",

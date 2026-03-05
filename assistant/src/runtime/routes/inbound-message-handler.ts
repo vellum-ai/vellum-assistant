@@ -501,7 +501,6 @@ export async function handleChannelInbound(
                 : body.callbackData!;
             recordConversationSeenSignal({
               conversationId: result.conversationId,
-              assistantId: canonicalAssistantId,
               signalType: `${sourceChannel}_callback` as SignalType,
               confidence: "inferred",
               sourceChannel,
@@ -515,7 +514,6 @@ export async function handleChannelInbound(
                 : trimmedContent;
             recordConversationSeenSignal({
               conversationId: result.conversationId,
-              assistantId: canonicalAssistantId,
               signalType: `${sourceChannel}_inbound_message` as SignalType,
               confidence: "inferred",
               sourceChannel,
@@ -554,7 +552,6 @@ export async function handleChannelInbound(
               : body.callbackData!;
           recordConversationSeenSignal({
             conversationId: result.conversationId,
-            assistantId: canonicalAssistantId,
             signalType: `${sourceChannel}_callback` as SignalType,
             confidence: "inferred",
             sourceChannel,

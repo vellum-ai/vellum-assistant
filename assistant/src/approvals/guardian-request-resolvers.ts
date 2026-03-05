@@ -393,7 +393,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceEventName: "ingress.trusted_contact.guardian_decision",
           sourceChannel: channel,
           sourceSessionId: request.conversationId ?? "",
-          assistantId,
           attentionHints: {
             requiresAction: false,
             urgency: "medium",
@@ -408,7 +407,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceEventName: "ingress.trusted_contact.denied",
           sourceChannel: channel,
           sourceSessionId: request.conversationId ?? "",
-          assistantId,
           attentionHints: {
             requiresAction: false,
             urgency: "low",
@@ -582,7 +580,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceEventName: "ingress.trusted_contact.verification_sent",
           sourceChannel: channel,
           sourceSessionId: request.conversationId ?? "",
-          assistantId,
           attentionHints: {
             requiresAction: false,
             urgency: "low",

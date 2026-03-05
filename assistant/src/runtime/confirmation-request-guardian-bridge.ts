@@ -146,7 +146,6 @@ export function bridgeConfirmationRequestToGuardian(
     sourceEventName: "guardian.question",
     sourceChannel,
     sourceSessionId: conversationId,
-    assistantId,
     attentionHints: {
       requiresAction: true,
       urgency: "high",

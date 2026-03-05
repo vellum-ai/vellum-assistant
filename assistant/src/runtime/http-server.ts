@@ -811,7 +811,6 @@ export class RuntimeHttpServer {
           try {
             recordConversationSeenSignal({
               conversationId,
-              assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
               sourceChannel: (body.sourceChannel as string) ?? "vellum",
               signalType: ((body.signalType as string) ??
                 "macos_conversation_opened") as SignalType,

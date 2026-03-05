@@ -224,7 +224,6 @@ export function notifyGuardianOfAccessRequest(
     sourceEventName: "ingress.access_request",
     sourceChannel,
     sourceSessionId: `access-req-${sourceChannel}-${actorExternalId}`,
-    assistantId: canonicalAssistantId,
     attentionHints: {
       requiresAction: true,
       urgency: "high",

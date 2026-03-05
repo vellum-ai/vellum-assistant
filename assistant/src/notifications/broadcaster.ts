@@ -77,10 +77,7 @@ export class NotificationBroadcaster {
     decision: NotificationDecision,
     options?: BroadcastDecisionOptions,
   ): Promise<NotificationDeliveryResult[]> {
-    const destinations = resolveDestinations(
-      signal.assistantId,
-      decision.selectedChannels,
-    );
+    const destinations = resolveDestinations(decision.selectedChannels);
 
     // Ensure vellum is processed first so the notification_thread_created IPC
     // push fires immediately, before slower channel sends (e.g. Telegram 30s
@@ -271,7 +268,6 @@ export class NotificationBroadcaster {
       const payload: ChannelDeliveryPayload = {
         deliveryId,
         sourceEventName: signal.sourceEventName,
-        assistantId: signal.assistantId,
         copy,
         deepLinkTarget,
       };
@@ -291,7 +287,6 @@ export class NotificationBroadcaster {
           createDelivery({
             id: deliveryId,
             notificationDecisionId: persistedDecisionId,
-            assistantId: signal.assistantId,
             channel,
             destination: destinationLabel,
             status: "pending",

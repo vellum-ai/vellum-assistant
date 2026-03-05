@@ -434,13 +434,11 @@ export async function drainQueue(
   // Fire-and-forget: detect notification preferences in the queued message
   // and persist any that are found, mirroring the logic in processMessage.
   if (session.assistantId) {
-    const aid = session.assistantId;
     extractPreferences(resolvedContent)
       .then((result) => {
         if (!result.detected) return;
         for (const pref of result.preferences) {
           createPreference({
-            assistantId: aid,
             preferenceText: pref.preferenceText,
             appliesWhen: pref.appliesWhen,
             priority: pref.priority,
@@ -735,13 +733,11 @@ export async function processMessage(
   // and persist any that are found. Runs in the background so it doesn't
   // block the main conversation flow.
   if (session.assistantId) {
-    const aid = session.assistantId;
     extractPreferences(resolvedContent)
       .then((result) => {
         if (!result.detected) return;
         for (const pref of result.preferences) {
           createPreference({
-            assistantId: aid,
             preferenceText: pref.preferenceText,
             appliesWhen: pref.appliesWhen,
             priority: pref.priority,

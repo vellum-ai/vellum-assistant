@@ -205,7 +205,6 @@ async function dispatchGuardianQuestionInner(
       sourceEventName: "guardian.question",
       sourceChannel: "voice",
       sourceSessionId: callSessionId,
-      assistantId,
       attentionHints: {
         requiresAction: true,
         urgency: "high",

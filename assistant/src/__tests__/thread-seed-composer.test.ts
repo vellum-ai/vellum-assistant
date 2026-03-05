@@ -25,7 +25,6 @@ function makeSignal(
 ): NotificationSignal {
   return {
     signalId: "sig-seed-001",
-    assistantId: "self",
     createdAt: Date.now(),
     sourceChannel: "scheduler",
     sourceSessionId: "sess-1",

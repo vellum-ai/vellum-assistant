@@ -47,4 +47,8 @@ export const emailInviteAdapter: ChannelInviteAdapter = {
       channelHandle: address,
     };
   },
+
+  resolveChannelHandle(): string | undefined {
+    return resolveAssistantEmailAddress();
+  },
 };

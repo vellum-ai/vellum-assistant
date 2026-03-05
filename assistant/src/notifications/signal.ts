@@ -27,7 +27,6 @@ export type NotificationContextPayload<TEventName extends string = string> =
 
 export interface NotificationSignal<TEventName extends string = string> {
   signalId: string;
-  assistantId: string;
   createdAt: number; // epoch ms
   sourceChannel: string; // free-form: 'vellum', 'telegram', 'voice', 'scheduler', etc.
   sourceSessionId: string;

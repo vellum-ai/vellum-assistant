@@ -85,7 +85,6 @@ function makeSignal(
 ): NotificationSignal {
   return {
     signalId: "sig-test",
-    assistantId: "self",
     createdAt: Date.now(),
     sourceChannel: "scheduler",
     sourceSessionId: "sess-1",

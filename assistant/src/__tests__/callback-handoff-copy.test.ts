@@ -15,7 +15,6 @@ function buildSignal(
 ): NotificationSignal {
   return {
     signalId: "test-signal-1",
-    assistantId: "self",
     createdAt: Date.now(),
     sourceChannel: "voice",
     sourceSessionId: "test-session-1",
