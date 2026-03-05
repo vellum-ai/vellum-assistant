@@ -1113,9 +1113,15 @@ public final class SettingsStore: ObservableObject {
     /// can fire before async credential bootstrap completes.
     private func syncAllKeysToDaemon() {
         Task {
-            // Wait for the JWT to be populated; on reconnect the async
+            // In managed mode, auth is handled by SessionTokenManager — no actor token needed.
+            // In local mode, wait for the JWT to be populated; on reconnect the async
             // credential bootstrap may still be in-flight.
-            guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let isManagedMode = connectedId
+                .flatMap { LockfileAssistant.loadByName($0) }?.isManaged ?? false
+            if !isManagedMode {
+                guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
+            }
 
             let apiKeyProviders: [(String, String?)] = [
                 ("anthropic", APIKeyManager.getKey()),

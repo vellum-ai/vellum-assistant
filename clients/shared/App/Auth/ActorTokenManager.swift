@@ -128,6 +128,7 @@ public enum ActorTokenManager {
         let deadline = CFAbsoluteTimeGetCurrent() + timeout
         while CFAbsoluteTimeGetCurrent() < deadline {
             try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return nil }
             if let token = getToken(), !token.isEmpty { return token }
         }
         return nil
