@@ -219,6 +219,7 @@ async function startDaemonFromSource(
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
+    env.GATEWAY_PORT = String(resources.gatewayPort);
     env.VELLUM_DAEMON_SOCKET = resources.socketPath;
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
@@ -308,6 +309,7 @@ async function startDaemonWatchFromSource(
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
+    env.GATEWAY_PORT = String(resources.gatewayPort);
     env.VELLUM_DAEMON_SOCKET = resources.socketPath;
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
@@ -714,6 +716,7 @@ export async function startLocalDaemon(
       if (resources) {
         daemonEnv.BASE_DATA_DIR = resources.instanceDir;
         daemonEnv.RUNTIME_HTTP_PORT = String(resources.daemonPort);
+        daemonEnv.GATEWAY_PORT = String(resources.gatewayPort);
         daemonEnv.VELLUM_DAEMON_SOCKET = resources.socketPath;
         daemonEnv.QDRANT_HTTP_PORT = String(resources.qdrantPort);
         delete daemonEnv.QDRANT_URL;
