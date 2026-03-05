@@ -73,6 +73,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var pairingApprovalWindow: PairingApprovalWindow?
     /// Window shown during first-launch bootstrap when daemon is slow to start.
     var bootstrapInterstitialWindow: NSWindow?
+    var crashReportWindow: NSWindow?
     /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
     var bootstrapRetryTask: Task<Void, Never>?
     /// Tracks the most recent failure kind during bootstrap retries so that
@@ -145,6 +146,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             options.tracesSampleRate = 0.1
             options.sendDefaultPii = false
         }
+
+        // Surface any crash log from the previous session so the user can send
+        // it. Also records this launch timestamp for the next session's check.
+        checkForPreviousCrash()
 
         // Migration: remove legacy ios-pairing-enabled flag file.
         // The old "Enable iOS Pairing" toggle created this file to expose
