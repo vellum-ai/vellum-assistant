@@ -64,6 +64,66 @@ final class RideShotgunSessionTests: XCTestCase {
         XCTAssertNotEqual(RideShotgunSession.State.failed("a"), .failed("b"))
     }
 
+    // MARK: - Failed State (Bootstrap Failure)
+
+    @MainActor
+    func testFailedStateStoresErrorMessage() {
+        let state = RideShotgunSession.State.failed("CDP bootstrap timed out")
+        if case .failed(let message) = state {
+            XCTAssertEqual(message, "CDP bootstrap timed out")
+        } else {
+            XCTFail("Expected .failed state")
+        }
+    }
+
+    @MainActor
+    func testFailedStateIsDistinctFromCancelledAndComplete() {
+        let failed = RideShotgunSession.State.failed("browser not found")
+        XCTAssertNotEqual(failed, .cancelled)
+        XCTAssertNotEqual(failed, .complete)
+        XCTAssertNotEqual(failed, .idle)
+        XCTAssertNotEqual(failed, .starting)
+        XCTAssertNotEqual(failed, .capturing)
+        XCTAssertNotEqual(failed, .summarizing)
+    }
+
+    @MainActor
+    func testFailedStatesWithDifferentMessagesAreNotEqual() {
+        let a = RideShotgunSession.State.failed("timeout")
+        let b = RideShotgunSession.State.failed("connection refused")
+        XCTAssertNotEqual(a, b)
+    }
+
+    @MainActor
+    func testFailedStatesWithSameMessageAreEqual() {
+        let a = RideShotgunSession.State.failed("bootstrap failed")
+        let b = RideShotgunSession.State.failed("bootstrap failed")
+        XCTAssertEqual(a, b)
+    }
+
+    @MainActor
+    func testSessionTransitionToFailedPreservesErrorMessage() {
+        // Verify that when a session enters .failed, the associated message is
+        // accessible and the session's data properties remain at defaults (no
+        // partial results).
+        let session = RideShotgunSession(durationSeconds: 60)
+        session.state = .failed("Chrome DevTools connection refused")
+        XCTAssertEqual(session.state, .failed("Chrome DevTools connection refused"))
+        XCTAssertEqual(session.summary, "", "Summary should remain empty on failure")
+        XCTAssertEqual(session.observationCount, 0, "Observation count should remain zero on failure")
+        XCTAssertNil(session.recordingId, "Recording ID should remain nil on failure")
+    }
+
+    @MainActor
+    func testCancelProducesCancelledNotFailed() {
+        // Ensures cancel() transitions to .cancelled, not .failed, so the UI
+        // can distinguish user-initiated cancellation from bootstrap errors.
+        let session = RideShotgunSession(durationSeconds: 60)
+        session.cancel()
+        XCTAssertEqual(session.state, .cancelled)
+        XCTAssertNotEqual(session.state, .failed(""))
+    }
+
     // MARK: - AmbientAgent Learn Session (No CDP Pre-launch Assumption)
 
     @MainActor
