@@ -672,8 +672,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 **Public API:**
 
 - `isAssistantFeatureFlagEnabled(key, config)` — full resolver with the canonical key
-- `isAssistantSkillEnabled(skillId, config)` — convenience wrapper that constructs `feature_flags.<skillId>.enabled` and delegates
-- `isSkillFeatureEnabled(skillId, config)` — deprecated legacy wrapper in `config/skill-state.ts`
+- `skillFlagKey(skillId)` — derives the canonical flag key for a skill, respecting overrides (in `config/skill-state.ts`)
 
 **Skill-gating guarantee:** For skills that are explicitly mapped to declared assistant flags, when the flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
 
@@ -685,24 +684,24 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
 
-All five enforcement points use `isAssistantSkillEnabled()` from `config/assistant-feature-flags.ts` for consistency.
+All five enforcement points use `isAssistantFeatureFlagEnabled(skillFlagKey(skillId), config)` for consistency.
 
 **Migration path:** The legacy `skills.<id>.enabled` key format is no longer supported. All code must use the canonical `feature_flags.<id>.enabled` format. Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 
-| File                                            | Purpose                                                                                                                                  |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `isAssistantSkillEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader |
-| `src/config/skill-state.ts`                     | `isSkillFeatureEnabled()` (deprecated wrapper) — delegates to canonical resolver; `resolveSkillStates()` — enforcement point 1           |
-| `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                                            |
-| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                        |
-| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                                              |
-| `src/config/schema.ts`                          | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema)                                      |
-| `src/config/types.ts`                           | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical)                                                |
-| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses                                                              |
-| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                       |
-| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                      |
+| File                                            | Purpose                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader        |
+| `src/config/skill-state.ts`                     | `skillFlagKey()` — derives canonical flag key for skills; `resolveSkillStates()` — enforcement point 1             |
+| `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                      |
+| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                  |
+| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                        |
+| `src/config/schema.ts`                          | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema)                |
+| `src/config/types.ts`                           | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical)                          |
+| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses                                        |
+| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
+| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                |
 
 ---
 

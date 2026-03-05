@@ -90,7 +90,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 const { buildSystemPrompt } = await import("../config/system-prompt.js");
 const { isAssistantFeatureFlagEnabled } =
   await import("../config/assistant-feature-flags.js");
-const { isSkillFeatureEnabled } = await import("../config/skill-state.js");
+const { skillFlagKey } = await import("../config/skill-state.js");
 
 // ---------------------------------------------------------------------------
 // Setup / Teardown
@@ -301,18 +301,22 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 });
 
-describe("legacy isSkillFeatureEnabled backward compat", () => {
-  test("delegates to the canonical resolver", () => {
+describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
+  test("resolves skill flag via canonical path", () => {
     const config = {
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     } as any;
 
-    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
+    expect(
+      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+    ).toBe(false);
   });
 
   test("disabled when no override set (registry default is false)", () => {
     const config = {} as any;
 
-    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
+    expect(
+      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+    ).toBe(false);
   });
 });
