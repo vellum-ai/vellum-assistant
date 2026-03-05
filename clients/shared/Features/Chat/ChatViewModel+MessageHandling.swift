@@ -1612,12 +1612,21 @@ extension ChatViewModel {
             for i in messages.indices {
                 guard messages[i].confirmation?.requestId == msg.requestId else { continue }
                 confirmationToolName = messages[i].confirmation?.toolName
-                // The assistant message owning the tool calls is the one before the confirmation message.
-                if i > messages.startIndex {
-                    let before = messages.index(before: i)
-                    if messages[before].role == .assistant {
-                        precedingAssistantId = messages[before].id
+                // Walk backwards past other confirmation messages to find the
+                // tool-bearing assistant message. With parallel confirmations the
+                // order is [assistant(A), confirm2, confirm1], so looking only one
+                // message back would hit confirm2 instead of assistant(A).
+                var searchIdx = i
+                while searchIdx > messages.startIndex {
+                    searchIdx = messages.index(before: searchIdx)
+                    let candidate = messages[searchIdx]
+                    if candidate.role == .assistant && !candidate.toolCalls.isEmpty {
+                        precedingAssistantId = candidate.id
+                        break
                     }
+                    // Skip past confirmation messages (assistant messages with .confirmation set)
+                    if candidate.role == .assistant && candidate.confirmation != nil { continue }
+                    break
                 }
                 switch msg.state {
                 case "approved":
