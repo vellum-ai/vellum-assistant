@@ -474,6 +474,38 @@ describe("downloadWhatsAppFile", () => {
     expect(result.filename).toBe("1234567890.pdf");
   });
 
+  test("strips MIME parameters when inferring filename extension", async () => {
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+      if (url.includes("graph.facebook.com")) {
+        return new Response(
+          JSON.stringify({
+            url: MEDIA_URL,
+            mime_type: "audio/ogg; codecs=opus",
+            sha256: "abc",
+            file_size: 3,
+            id: MEDIA_ID,
+          }),
+        );
+      }
+
+      return new Response(new Uint8Array([0x01, 0x02, 0x03]), {
+        headers: { "Content-Type": "audio/ogg; codecs=opus" },
+      });
+    });
+
+    const result = await downloadWhatsAppFile(makeConfig(), MEDIA_ID);
+
+    expect(result.mimeType).toBe("audio/ogg; codecs=opus");
+    expect(result.filename).toBe("1234567890.ogg");
+  });
+
   test("throws when WhatsApp credentials are not configured", async () => {
     const config = makeConfig({
       whatsappAccessToken: undefined,

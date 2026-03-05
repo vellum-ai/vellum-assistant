@@ -33,7 +33,8 @@ const MIME_EXTENSIONS: Record<string, string> = {
 };
 
 function inferFilename(mediaId: string, mimeType: string): string {
-  const ext = MIME_EXTENSIONS[mimeType];
+  const baseMime = mimeType.split(";")[0].trim();
+  const ext = MIME_EXTENSIONS[baseMime];
   const base = mediaId.slice(0, 12);
   return ext ? `${base}.${ext}` : base;
 }
