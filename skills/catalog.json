@@ -13,7 +13,6 @@
       "id": "twilio-setup",
       "name": "twilio-setup",
       "description": "Configure Twilio credentials and phone numbers for voice calls and SMS messaging",
-      "emoji": "📱",
       "compatibility": "Requires public ingress for Twilio webhooks (voice, SMS, status callbacks)"
     },
     {
