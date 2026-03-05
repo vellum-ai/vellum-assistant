@@ -62,6 +62,12 @@ struct ContactDetailView: View {
             currentContact = contact
             if contact.role == "guardian" {
                 startGuardianCountdownTimer()
+                // Refresh guardian verification state for all supported channels
+                // so the view shows current status even if the user hasn't visited
+                // the Channels settings tab yet.
+                for channel in Self.guardianSupportedChannels {
+                    store?.refreshChannelGuardianStatus(channel: channel)
+                }
             }
         }
         .onDisappear {
@@ -974,6 +980,61 @@ struct ContactDetailView: View {
                         status: "unverified",
                         policy: "allow"
                     )
+                ]
+            )
+        )
+        .frame(width: 500, height: 700)
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Guardian Contact") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        ContactDetailView(
+            contact: ContactPayload(
+                id: "contact-guardian",
+                displayName: "Guardian",
+                role: "guardian",
+                notes: "Primary guardian contact for verification flows.",
+                contactType: "human",
+                lastInteraction: Date().timeIntervalSince1970 * 1000 - 1_800_000,
+                interactionCount: 8,
+                channels: [
+                    ContactChannelPayload(
+                        id: "ch-g1",
+                        type: "telegram",
+                        address: "@guardian_bot",
+                        isPrimary: true,
+                        status: "active",
+                        policy: "allow",
+                        verifiedAt: Int(Date().timeIntervalSince1970 * 1000) - 86_400_000,
+                        verifiedVia: "telegram"
+                    ),
+                    ContactChannelPayload(
+                        id: "ch-g2",
+                        type: "sms",
+                        address: "+15551234567",
+                        isPrimary: false,
+                        status: "active",
+                        policy: "allow"
+                    ),
+                    ContactChannelPayload(
+                        id: "ch-g3",
+                        type: "voice",
+                        address: "+15551234567",
+                        isPrimary: false,
+                        status: "pending",
+                        policy: "allow"
+                    ),
+                    ContactChannelPayload(
+                        id: "ch-g4",
+                        type: "slack",
+                        address: "#guardian-alerts",
+                        isPrimary: false,
+                        status: "unverified",
+                        policy: "restrict"
+                    ),
                 ]
             )
         )
