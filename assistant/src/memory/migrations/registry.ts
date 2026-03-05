@@ -123,8 +123,14 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
       "Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id after backfill",
   },
   {
-    key: "backfill_contact_interaction_stats",
+    key: "migration_contacts_notes_column_v1",
     version: 17,
+    description:
+      "Consolidate relationship/importance/response_expectation/preferred_tone into a single notes TEXT column, then drop the legacy columns",
+  },
+  {
+    key: "backfill_contact_interaction_stats",
+    version: 18,
     description:
       "Backfill contacts.last_interaction from the max lastSeenAt across each contact's channels",
   },
