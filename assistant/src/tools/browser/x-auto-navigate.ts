@@ -71,17 +71,22 @@ class MiniCDP {
   }
 }
 
+export interface NavigateXPagesOptions {
+  abortSignal?: { aborted: boolean };
+  cdpBaseUrl?: string;
+}
+
 /**
  * Navigate Chrome through X.com pages to trigger GraphQL calls.
  * The NetworkRecorder should already be attached and capturing.
  *
- * @param abortSignal Optional signal to stop navigation early.
+ * @param options Optional configuration for abort and CDP base URL.
  * @returns List of step labels that completed successfully.
  */
 export async function navigateXPages(
-  abortSignal?: { aborted: boolean },
-  cdpBaseUrl: string = DEFAULT_CDP_BASE,
+  options?: NavigateXPagesOptions,
 ): Promise<string[]> {
+  const { abortSignal, cdpBaseUrl = DEFAULT_CDP_BASE } = options ?? {};
   let wsUrl: string | null = null;
   try {
     const res = await fetch(`${cdpBaseUrl}/json/list`);
