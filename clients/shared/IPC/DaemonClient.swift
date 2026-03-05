@@ -4,6 +4,12 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonClient")
 
+/// Shared signpost log for IPC instrumentation (Points of Interest lane in Instruments).
+private let ipcLog = OSLog(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: .pointsOfInterest
+)
+
 #if os(macOS)
 private func expandHomePath(_ path: String) -> String {
     if path == "~" {
@@ -700,6 +706,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Throws `SendError.notConnected` when the connection is nil so callers can
     /// distinguish a silently-dropped message from a successful write.
     public func send<T: Encodable>(_ message: T) throws {
+        os_signpost(.begin, log: ipcLog, name: "daemonIPCSend")
+        defer { os_signpost(.end, log: ipcLog, name: "daemonIPCSend") }
+
         if let override = sendOverride {
             try override(message)
             return
@@ -1936,6 +1945,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         #if os(macOS)
         if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
+            let sid = OSSignpostID(log: ipcLog)
+            os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
+            defer { os_signpost(.end, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid) }
             return try await httpTransport.getFeatureFlags(featureFlagToken: token)
         }
 
@@ -1943,6 +1955,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         guard let request = buildLocalRequest(target: .gateway, path: "v1/feature-flags", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL
         }
+
+        let sid = OSSignpostID(log: ipcLog)
+        os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
+        defer { os_signpost(.end, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid) }
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -1956,6 +1972,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         guard let httpTransport else {
             throw FeatureFlagError.requestFailed(0)
         }
+        let sid = OSSignpostID(log: ipcLog)
+        os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
+        defer { os_signpost(.end, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid) }
         return try await httpTransport.getFeatureFlags(featureFlagToken: token)
         #endif
     }
@@ -1980,6 +1999,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // points at localhost (the runtime), which does NOT serve feature-flag
         // routes — so we must fall through to the local gateway path below.
         if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
+            let sid = OSSignpostID(log: ipcLog)
+            os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
+            defer { os_signpost(.end, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid) }
             try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
             return
         }
@@ -1994,6 +2016,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let body: [String: Any] = ["enabled": enabled]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
+        let sid = OSSignpostID(log: ipcLog)
+        os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
+        defer { os_signpost(.end, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid) }
+
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -2004,6 +2030,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         guard let httpTransport else {
             throw FeatureFlagError.requestFailed(0)
         }
+        let sid = OSSignpostID(log: ipcLog)
+        os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
+        defer { os_signpost(.end, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid) }
         try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
         #endif
     }
