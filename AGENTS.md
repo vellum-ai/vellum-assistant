@@ -33,6 +33,15 @@ cd assistant && bun test src/path/to/changed.test.ts
 cd assistant && bun run lint
 ```
 
+## Testing
+
+The full test suite is large and will hang or timeout if run unscoped. **Never run `bun test` without specifying file paths.**
+
+- After making changes, run only the tests relevant to what you changed:
+  `cd assistant && bun test src/path/to/file.test.ts`
+- To run tests matching a pattern: `cd assistant && bun test --grep "pattern"`
+- Use `bunx tsc --noEmit` for full-project type-checking instead of running all tests.
+
 ## Keep the README up to date
 
 Whenever you modify, add, or remove a slash command in `.claude/commands/`, you MUST update `README.md` to reflect the change. The README's "Slash Commands" section should always match the current set of commands. Update the TLDR description if the command's purpose changed, add new entries for new commands, and remove entries for deleted commands.
