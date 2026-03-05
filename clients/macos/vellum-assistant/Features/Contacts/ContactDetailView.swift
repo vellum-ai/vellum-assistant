@@ -698,6 +698,12 @@ struct ContactDetailView: View {
         guard !trimmedName.isEmpty else { return }
         let trimmedNotes = editedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let originalNotes = displayContact.notes ?? ""
+        if trimmedName == displayContact.displayName && trimmedNotes == originalNotes {
+            isEditing = false
+            return
+        }
+
         isSaving = true
         errorMessage = nil
         do {
