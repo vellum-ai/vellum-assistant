@@ -29,6 +29,13 @@ function isRetryable(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
+// Auth/permission errors are transient — a token rotation or permission fix
+// can resolve them within Meta's retry window. These should NOT be treated as
+// non-retryable so the webhook returns 500 and Meta retries the delivery.
+function isAuthError(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
 function computeDelay(
   attempt: number,
   initialBackoffMs: number,
@@ -91,11 +98,17 @@ async function retryableWhatsAppFetch<T>(
       const data = (await response
         .json()
         .catch(() => ({}))) as WhatsAppApiErrorResponse;
-      throw new WhatsAppNonRetryableError(
-        data.error?.message
-          ? `WhatsApp ${operation} failed: ${data.error.message}`
-          : `WhatsApp ${operation} failed with status ${response.status}`,
-      );
+      const message = data.error?.message
+        ? `WhatsApp ${operation} failed: ${data.error.message}`
+        : `WhatsApp ${operation} failed with status ${response.status}`;
+
+      // Auth/permission errors (401/403) are transient — propagate as regular
+      // errors so the webhook returns 500 and Meta retries within its window.
+      // Other 4xx errors (400 invalid media, 404 expired) are terminal.
+      if (isAuthError(response.status)) {
+        throw new Error(message);
+      }
+      throw new WhatsAppNonRetryableError(message);
     }
 
     if (isRetryable(response.status)) {
@@ -413,13 +426,16 @@ async function retryableWhatsAppRawFetch(
       } catch {
         // Response body is not JSON — include raw text if available
       }
-      throw new WhatsAppNonRetryableError(
-        errorMessage
-          ? `WhatsApp ${operation} failed: ${errorMessage}`
-          : body
-            ? `WhatsApp ${operation} failed with status ${response.status}: ${body}`
-            : `WhatsApp ${operation} failed with status ${response.status}`,
-      );
+      const message = errorMessage
+        ? `WhatsApp ${operation} failed: ${errorMessage}`
+        : body
+          ? `WhatsApp ${operation} failed with status ${response.status}: ${body}`
+          : `WhatsApp ${operation} failed with status ${response.status}`;
+
+      if (isTerminalMediaFailure(response.status)) {
+        throw new WhatsAppNonRetryableError(message);
+      }
+      throw new Error(message);
     }
 
     if (isRetryable(response.status)) {
