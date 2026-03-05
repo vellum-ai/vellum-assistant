@@ -14,7 +14,7 @@
 
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { resolveScopeProfile } from "../scopes.js";
@@ -56,9 +56,13 @@ describe("route policy coverage", () => {
     const routePolicySrc = readFileSync(routePolicyPath, "utf-8");
 
     // Collect all source files to scan for endpoint literals: http-server.ts
-    // plus every route module under routes/. Pre-auth route modules (those
-    // containing "pre-auth endpoint") are excluded because they are handled
-    // before JWT auth and are not composed into buildRouteTable().
+    // plus every route module under routes/. Pre-auth route modules are
+    // excluded because they are handled before JWT auth and are not composed
+    // into buildRouteTable().
+    const PRE_AUTH_ROUTE_MODULES = new Set([
+      "guardian-bootstrap-routes.ts",
+      "guardian-refresh-routes.ts",
+    ]);
     const allSources = [httpServerSrc];
     try {
       const routeFiles = execSync(`ls "${routeModulesDir}"/*.ts`, {
@@ -68,9 +72,8 @@ describe("route policy coverage", () => {
         .split("\n")
         .filter((f) => f.length > 0);
       for (const filePath of routeFiles) {
-        const src = readFileSync(filePath, "utf-8");
-        if (src.includes("pre-auth endpoint")) continue;
-        allSources.push(src);
+        if (PRE_AUTH_ROUTE_MODULES.has(basename(filePath))) continue;
+        allSources.push(readFileSync(filePath, "utf-8"));
       }
     } catch {
       // No route modules found — only inline routes will be covered.
