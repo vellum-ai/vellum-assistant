@@ -12,6 +12,7 @@
  *   6. `description` constraints: 1-1024 chars, non-empty.
  *   7. Optional `compatibility`: 1-500 chars if present.
  *   8. Frontmatter is followed by Markdown body content.
+ *   9. No unknown frontmatter fields (only spec + Vellum extensions allowed).
  *
  * Usage:
  *   node scripts/skills/lint-skill-spec.mjs [skill-name ...]
@@ -228,6 +229,27 @@ function validateSkill(skillName) {
       (e) => `skills/${skillName}/SKILL.md: ${e}`,
     ),
   );
+
+  // 5. Check for unknown fields
+  const knownFields = new Set([
+    "name",
+    "description",
+    "license",
+    "compatibility",
+    "metadata",
+    "allowed-tools",
+    // Vellum extensions
+    "user-invocable",
+    "credential-setup-for",
+  ]);
+  for (const key of Object.keys(frontmatter)) {
+    if (!knownFields.has(key)) {
+      errors.push(
+        `skills/${skillName}/SKILL.md: Unknown frontmatter field "${key}". ` +
+          `Allowed fields: ${[...knownFields].join(", ")}.`,
+      );
+    }
+  }
 
   return errors;
 }
