@@ -51,7 +51,8 @@ with open(results_log) as f:
         m = pattern.search(line)
         if m:
             test_name = m.group(1) or m.group(2)
-            results[test_name] = float(m.group(3))
+            if test_name not in results:  # first match wins (wall-time before CPU-cycles lines)
+                results[test_name] = float(m.group(3))
 
 if not results:
     print("ERROR: No XCTest performance measurements found in log.")
