@@ -65,7 +65,7 @@ export async function execute(
   const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
   // The AppleScript:
-  // 1. Finds the Secure Credential panel window (smallest window, or by "Secure Credential" text)
+  // 1. Finds the Secure Credential panel window (scans all windows for "Secure Credential" header, smallest match wins)
   // 2. Finds the text field via `entire contents` (reliable regardless of nesting)
   // 3. Types the env var value
   // 4. Clicks Save (last button in the panel, or by accessibility identifier)
@@ -80,28 +80,15 @@ tell application "System Events"
     delay 0.5
 
     -- Find the Secure Credential panel window.
-    -- Strategy: pick the smallest window (the panel is ~400x270, main window is much larger).
+    -- Strategy: scan all windows for the "Secure Credential" header text.
+    -- Among matching windows, prefer the smallest (the panel is ~400x270).
     set credentialWindow to missing value
     set smallestArea to 9999999
     repeat with w in windows
       try
-        set winSize to size of w
-        set winW to item 1 of winSize
-        set winH to item 2 of winSize
-        set winArea to winW * winH
-        if winArea < smallestArea then
-          set smallestArea to winArea
-          set credentialWindow to w
-        end if
-      end try
-    end repeat
-
-    -- Verify we actually found a credential panel by checking for the header text
-    if credentialWindow is not missing value then
-      try
-        set allElems to entire contents of credentialWindow
         set foundHeader to false
-        repeat with elem in allElems
+        set wElems to entire contents of w
+        repeat with elem in wElems
           try
             if class of elem is static text then
               if value of elem is "Secure Credential" then
@@ -111,11 +98,18 @@ tell application "System Events"
             end if
           end try
         end repeat
-        if not foundHeader then
-          set credentialWindow to missing value
+        if foundHeader then
+          set winSize to size of w
+          set winW to item 1 of winSize
+          set winH to item 2 of winSize
+          set winArea to winW * winH
+          if winArea < smallestArea then
+            set smallestArea to winArea
+            set credentialWindow to w
+          end if
         end if
       end try
-    end if
+    end repeat
 
     if credentialWindow is missing value then
       error "Could not find a Secure Credential panel window"
