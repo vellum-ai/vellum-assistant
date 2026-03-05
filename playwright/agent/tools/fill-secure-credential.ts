@@ -68,7 +68,7 @@ export async function execute(
   // 1. Finds the Secure Credential panel window (scans all windows for "Secure Credential" header, smallest match wins)
   // 2. Finds the text field via `entire contents` (reliable regardless of nesting)
   // 3. Types the env var value
-  // 4. Clicks Save (last button in the panel, or by accessibility identifier)
+  // 4. Clicks Save (by accessibility identifier, or by name "Save")
   //
   // The panel's actual hierarchy is:
   //   window > group > scroll area > text field
@@ -142,8 +142,7 @@ tell application "System Events"
     delay 0.3
 
     -- Click the Save button.
-    -- The Save button is the last button in the panel content.
-    -- We search entire contents and pick the last button (Cancel comes first, Save last).
+    -- We search entire contents for a button with the accessibility identifier or name "Save".
     set clickedSave to false
 
     -- Strategy 1: Find button by accessibility identifier
@@ -157,20 +156,19 @@ tell application "System Events"
       end try
     end repeat
 
-    -- Strategy 2: Click the last button in the panel (Save is always last)
+    -- Strategy 2: Find button by name/title "Save"
     if not clickedSave then
-      set lastBtn to missing value
       repeat with elem in allElems
         try
           if class of elem is button then
-            set lastBtn to elem
+            if name of elem is "Save" or title of elem is "Save" then
+              click elem
+              set clickedSave to true
+              exit repeat
+            end if
           end if
         end try
       end repeat
-      if lastBtn is not missing value then
-        click lastBtn
-        set clickedSave to true
-      end if
     end if
 
     if not clickedSave then
