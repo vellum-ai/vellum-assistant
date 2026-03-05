@@ -62,11 +62,11 @@ export async function downloadWhatsAppFile(
 
   const detected = await fileTypeFromBuffer(new Uint8Array(buffer));
 
-  // Prefer the MIME type from Meta metadata, then hint, then detected, then Content-Type header
+  // Prefer the MIME type from Meta metadata, then detected (trusted), then hint (untrusted), then Content-Type header
   const mimeType =
     meta.mime_type ||
-    hint?.mimeType ||
     detected?.mime ||
+    hint?.mimeType ||
     response.headers.get("Content-Type")?.split(";")[0].trim() ||
     "application/octet-stream";
 
