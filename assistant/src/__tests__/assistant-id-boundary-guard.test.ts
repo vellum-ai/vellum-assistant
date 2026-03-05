@@ -18,6 +18,8 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
  *  - No assistant-scoped route handlers in the daemon HTTP server
  *  - No hardcoded `'self'` string for assistant scoping (use the constant)
  *  - The constant itself equals `'self'`
+ *  - No `assistantId` columns in daemon SQLite schema definitions
+ *  - No `assistantId` parameter in daemon store function signatures
  */
 
 // ---------------------------------------------------------------------------
@@ -464,6 +466,154 @@ describe("assistant ID boundary", () => {
         probeContextMatch[1],
         "ChannelProbeContext must not contain assistantId",
       ).not.toContain("assistantId");
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Rule (f): No assistantId columns in daemon SQLite schema definitions
+  //
+  // The daemon is assistant-agnostic — it uses DAEMON_INTERNAL_ASSISTANT_ID
+  // implicitly. Schema files must not define assistantId columns, which would
+  // re-introduce assistant-scoped storage in the daemon layer.
+  // -------------------------------------------------------------------------
+
+  test("no assistantId columns in daemon SQLite schema definitions", () => {
+    const repoRoot = getRepoRoot();
+
+    // Scan all Drizzle schema files for assistantId column definitions.
+    // The Drizzle ORM pattern is `assistantId: text(` for defining a text
+    // column named assistantId.
+    const schemaGlobs = [
+      "assistant/src/memory/schema/*.ts",
+      "assistant/src/memory/schema/**/*.ts",
+    ];
+
+    let grepOutput = "";
+    try {
+      grepOutput = execFileSync(
+        "git",
+        ["grep", "-nE", "assistantId\\s*:\\s*text\\(", "--", ...schemaGlobs],
+        { encoding: "utf-8", cwd: repoRoot },
+      ).trim();
+    } catch (err) {
+      // Exit code 1 means no matches — happy path
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
+      throw err;
+    }
+
+    const lines = grepOutput.split("\n").filter((l) => l.length > 0);
+    const violations = lines.filter((line) => {
+      // Allow comments
+      const parts = line.split(":");
+      const content = parts.slice(2).join(":").trim();
+      if (
+        content.startsWith("//") ||
+        content.startsWith("*") ||
+        content.startsWith("/*")
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    if (violations.length > 0) {
+      const message = [
+        "Found `assistantId` column definitions in daemon SQLite schema files.",
+        "`assistantId` columns are not allowed in daemon schema — the daemon uses",
+        "`DAEMON_INTERNAL_ASSISTANT_ID` implicitly and is assistant-agnostic.",
+        "",
+        "Violations:",
+        ...violations.map((v) => `  - ${v}`),
+      ].join("\n");
+
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Rule (g): No assistantId parameter in daemon store function signatures
+  //
+  // Store functions in the daemon layer must not accept assistantId as a
+  // parameter. The daemon is assistant-agnostic — all assistant scoping
+  // uses DAEMON_INTERNAL_ASSISTANT_ID internally.
+  // -------------------------------------------------------------------------
+
+  test("no assistantId parameter in daemon store function signatures", () => {
+    const repoRoot = getRepoRoot();
+
+    // Scan store files for exported function signatures that include
+    // assistantId as a parameter. This covers memory stores, contact stores,
+    // notification stores, credential/token stores, and call stores.
+    const storeGlobs = [
+      "assistant/src/memory/*.ts",
+      "assistant/src/contacts/*.ts",
+      "assistant/src/notifications/*.ts",
+      "assistant/src/runtime/auth/credential-service.ts",
+      "assistant/src/runtime/actor-token-store.ts",
+      "assistant/src/runtime/actor-refresh-token-store.ts",
+      "assistant/src/calls/call-store.ts",
+    ];
+
+    // Match exported function declarations/expressions with assistantId in
+    // their parameter lists. Patterns:
+    //   export function foo(assistantId
+    //   export function foo(bar, assistantId
+    //   export async function foo(assistantId
+    //   export const foo = (assistantId
+    //   export const foo = async (assistantId
+    // We use a broad pattern that catches assistantId appearing after an
+    // opening paren in an export context.
+    const pattern =
+      "export\\s+(async\\s+)?function\\s+\\w+\\s*\\([^)]*assistantId|export\\s+const\\s+\\w+\\s*=\\s*(async\\s+)?\\([^)]*assistantId";
+
+    let grepOutput = "";
+    try {
+      grepOutput = execFileSync(
+        "git",
+        ["grep", "-nE", pattern, "--", ...storeGlobs],
+        { encoding: "utf-8", cwd: repoRoot },
+      ).trim();
+    } catch (err) {
+      // Exit code 1 means no matches — happy path
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
+      throw err;
+    }
+
+    const allLines = grepOutput.split("\n").filter((l) => l.length > 0);
+    const violations = allLines.filter((line) => {
+      const filePath = line.split(":")[0];
+      if (isTestFile(filePath)) return false;
+      if (isMigrationFile(filePath)) return false;
+
+      // Allow comments
+      const parts = line.split(":");
+      const content = parts.slice(2).join(":").trim();
+      if (
+        content.startsWith("//") ||
+        content.startsWith("*") ||
+        content.startsWith("/*")
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (violations.length > 0) {
+      const message = [
+        "Found daemon store functions with `assistantId` in their parameter signatures.",
+        "Store functions must not accept `assistantId` — the daemon is assistant-agnostic",
+        "and uses `DAEMON_INTERNAL_ASSISTANT_ID` implicitly.",
+        "",
+        "Violations:",
+        ...violations.map((v) => `  - ${v}`),
+      ].join("\n");
+
+      expect(violations, message).toEqual([]);
     }
   });
 });
