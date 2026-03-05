@@ -802,8 +802,10 @@ public struct IPCConfirmationStateChanged: Codable, Sendable {
     public let causedByRequestId: String?
     /// Normalized user text for analytics/debug (e.g. "approve", "deny").
     public let decisionText: String?
+    /// The tool_use block ID this confirmation applies to, for disambiguating parallel tool calls.
+    public let toolUseId: String?
 
-    public init(type: String, sessionId: String, requestId: String, state: String, source: String, causedByRequestId: String? = nil, decisionText: String? = nil) {
+    public init(type: String, sessionId: String, requestId: String, state: String, source: String, causedByRequestId: String? = nil, decisionText: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.requestId = requestId
@@ -811,6 +813,7 @@ public struct IPCConfirmationStateChanged: Codable, Sendable {
         self.source = source
         self.causedByRequestId = causedByRequestId
         self.decisionText = decisionText
+        self.toolUseId = toolUseId
     }
 }
 

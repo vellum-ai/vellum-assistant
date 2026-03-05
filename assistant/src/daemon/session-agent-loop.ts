@@ -252,6 +252,7 @@ export interface AgentLoopSessionContext {
     requestId: string,
     state: string,
     toolName?: string,
+    toolUseId?: string,
   ) => void;
 
   getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
@@ -467,11 +468,19 @@ export async function runAgentLoopImpl(
 
     // Register confirmation outcome tracker so the agent loop can link
     // confirmation decisions to tool_use_ids for persistence.
-    ctx.onConfirmationOutcome = (requestId, confirmationState, toolName) => {
+    ctx.onConfirmationOutcome = (
+      requestId,
+      confirmationState,
+      toolName,
+      toolUseId,
+    ) => {
       if (confirmationState === "pending") {
-        // At "pending" time, currentToolUseId is the tool awaiting confirmation
-        if (state.currentToolUseId) {
-          state.requestIdToToolUseId.set(requestId, state.currentToolUseId);
+        // Use the toolUseId passed from the prompter (which knows which tool
+        // requested confirmation) instead of the ambient state.currentToolUseId,
+        // which is unreliable when multiple tools execute in parallel.
+        const resolvedToolUseId = toolUseId ?? state.currentToolUseId;
+        if (resolvedToolUseId) {
+          state.requestIdToToolUseId.set(requestId, resolvedToolUseId);
         }
       } else if (
         confirmationState === "approved" ||

@@ -135,6 +135,7 @@ export function createToolExecutor(
   name: string,
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
+  toolUseId?: string,
 ) => Promise<ToolExecutionResult> {
   // Register the session's sendToClient for browser screencast surface messages
   registerSessionSender(ctx.conversationId, (msg) => ctx.sendToClient(msg));
@@ -143,6 +144,7 @@ export function createToolExecutor(
     name: string,
     input: Record<string, unknown>,
     onOutput?: (chunk: string) => void,
+    toolUseId?: string,
   ) => {
     if (isDoordashCommand(name, input)) {
       markDoordashStepInProgress(ctx, input);
@@ -172,6 +174,7 @@ export function createToolExecutor(
       allowedToolNames: ctx.allowedToolNames,
       memoryScopeId: ctx.memoryPolicy.scopeId,
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
+      toolUseId,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }

@@ -37,14 +37,23 @@ extension ChatViewModel {
         }
     }
 
-    /// Stamp confirmation decision on the most recent incomplete tool call matching the tool name.
-    private func stampConfirmationOnToolCall(toolName: String, decision: ToolConfirmationState) {
+    /// Stamp confirmation decision on the tool call matching the toolUseId (preferred) or tool name (fallback).
+    private func stampConfirmationOnToolCall(toolName: String, decision: ToolConfirmationState, toolUseId: String? = nil) {
         guard let assistantId = currentAssistantMessageId,
               let msgIdx = messages.firstIndex(where: { $0.id == assistantId }) else { return }
-        // Find the last tool call that matches the tool name and lacks a confirmation decision
-        if let tcIdx = messages[msgIdx].toolCalls.lastIndex(where: {
-            $0.toolName == toolName && $0.confirmationDecision == nil
-        }) {
+        // Prefer matching by toolUseId for correctness when multiple calls share the same name
+        let tcIdx: Int?
+        if let toolUseId = toolUseId {
+            tcIdx = messages[msgIdx].toolCalls.firstIndex(where: {
+                $0.toolUseId == toolUseId
+            })
+        } else {
+            // Fallback: match by tool name (ambiguous when duplicates exist)
+            tcIdx = messages[msgIdx].toolCalls.lastIndex(where: {
+                $0.toolName == toolName && $0.confirmationDecision == nil
+            })
+        }
+        if let tcIdx = tcIdx {
             messages[msgIdx].toolCalls[tcIdx].confirmationDecision = decision
             // Use the tool category from the confirmation data as the label
             let label = ToolConfirmationData(requestId: "", toolName: toolName, riskLevel: "").toolCategory
@@ -1621,7 +1630,7 @@ extension ChatViewModel {
             // preceding assistant message so it survives thread switches.
             if let toolName = confirmationToolName,
                let state = mapConfirmationState(msg.state) {
-                stampConfirmationOnToolCall(toolName: toolName, decision: state)
+                stampConfirmationOnToolCall(toolName: toolName, decision: state, toolUseId: msg.toolUseId)
             }
 
         case .assistantActivityState(let msg):

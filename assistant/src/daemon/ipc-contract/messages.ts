@@ -242,6 +242,8 @@ export interface ConfirmationStateChanged {
   causedByRequestId?: string;
   /** Normalized user text for analytics/debug (e.g. "approve", "deny"). */
   decisionText?: string;
+  /** The tool_use block ID this confirmation applies to, for disambiguating parallel tool calls. */
+  toolUseId?: string;
 }
 
 /**
