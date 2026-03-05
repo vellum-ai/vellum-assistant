@@ -29,6 +29,12 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../config/loader.js", () => ({
   loadRawConfig: () => mockRawConfig,
+  getConfig: () => {
+    const raw = mockRawConfig ?? {};
+    const wa = (raw.whatsapp ?? {}) as Record<string, unknown>;
+    return { whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" } };
+  },
+  invalidateConfigCache: () => {},
 }));
 
 mock.module("../security/secure-keys.js", () => ({

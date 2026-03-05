@@ -11,10 +11,16 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be set up before importing the adapter
 // ---------------------------------------------------------------------------
 
-let mockRawConfig: Record<string, unknown> | undefined;
+let mockWhatsAppPhoneNumber: string | undefined;
+let mockGetConfigThrows = false;
 
 mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockRawConfig,
+  loadRawConfig: () => ({}),
+  getConfig: () => {
+    if (mockGetConfigThrows) throw new Error("config not found");
+    return { whatsapp: { phoneNumber: mockWhatsAppPhoneNumber ?? "" } };
+  },
+  invalidateConfigCache: () => {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -30,7 +36,8 @@ import { resolveWhatsAppDisplayNumber } from "../runtime/channel-invite-transpor
 
 describe("whatsapp invite adapter", () => {
   beforeEach(() => {
-    mockRawConfig = undefined;
+    mockWhatsAppPhoneNumber = undefined;
+    mockGetConfigThrows = false;
   });
 
   test("adapter is registered for the whatsapp channel", () => {
@@ -42,13 +49,13 @@ describe("whatsapp invite adapter", () => {
   // -------------------------------------------------------------------------
 
   test("returns configured phone number from workspace config", () => {
-    mockRawConfig = { whatsapp: { phoneNumber: "+15551234567" } };
+    mockWhatsAppPhoneNumber = "+15551234567";
     const handle = whatsappInviteAdapter.resolveChannelHandle!();
     expect(handle).toBe("+15551234567");
   });
 
   test("resolveWhatsAppDisplayNumber returns configured number", () => {
-    mockRawConfig = { whatsapp: { phoneNumber: "+15559876543" } };
+    mockWhatsAppPhoneNumber = "+15559876543";
     expect(resolveWhatsAppDisplayNumber()).toBe("+15559876543");
   });
 
@@ -57,21 +64,18 @@ describe("whatsapp invite adapter", () => {
   // -------------------------------------------------------------------------
 
   test("returns undefined when whatsapp config is missing", () => {
-    mockRawConfig = {};
     const handle = whatsappInviteAdapter.resolveChannelHandle!();
     expect(handle).toBeUndefined();
   });
 
   test("returns undefined when phoneNumber is empty string", () => {
-    mockRawConfig = { whatsapp: { phoneNumber: "" } };
+    mockWhatsAppPhoneNumber = "";
     const handle = whatsappInviteAdapter.resolveChannelHandle!();
     expect(handle).toBeUndefined();
   });
 
   test("returns undefined when config loading throws", () => {
-    mockRawConfig = undefined;
-    // Simulate loadRawConfig throwing by setting it to something that
-    // will cause our mock to return undefined (the try/catch handles this)
+    mockGetConfigThrows = true;
     const handle = whatsappInviteAdapter.resolveChannelHandle!();
     expect(handle).toBeUndefined();
   });
