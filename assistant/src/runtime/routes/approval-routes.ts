@@ -16,6 +16,7 @@ import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
 
 const log = getLogger("approval-routes");
@@ -316,4 +317,35 @@ export function handleListPendingInteractions(
         }
       : null,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function approvalRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "confirm",
+      method: "POST",
+      handler: async ({ req, authContext }) => handleConfirm(req, authContext),
+    },
+    {
+      endpoint: "secret",
+      method: "POST",
+      handler: async ({ req, authContext }) => handleSecret(req, authContext),
+    },
+    {
+      endpoint: "trust-rules",
+      method: "POST",
+      handler: async ({ req, authContext }) =>
+        handleTrustRule(req, authContext),
+    },
+    {
+      endpoint: "pending-interactions",
+      method: "GET",
+      handler: ({ url, authContext }) =>
+        handleListPendingInteractions(url, authContext),
+    },
+  ];
 }

@@ -8,6 +8,7 @@
 import { getLogger } from "../../util/logger.js";
 import { rotateCredentials } from "../auth/credential-service.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("guardian-refresh");
 
@@ -71,4 +72,23 @@ export async function handleGuardianRefresh(req: Request): Promise<Response> {
     log.error({ err }, "Guardian refresh failed");
     return httpError("INTERNAL_ERROR", "Internal server error", 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * Guardian refresh is a pre-auth endpoint (handled before JWT auth in
+ * http-server.ts), so these definitions are exported for completeness but
+ * are not added to the authenticated route table.
+ */
+export function guardianRefreshRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "integrations/guardian/vellum/refresh",
+      method: "POST",
+      handler: async ({ req }) => handleGuardianRefresh(req),
+    },
+  ];
 }

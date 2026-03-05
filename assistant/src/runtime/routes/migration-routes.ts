@@ -18,6 +18,7 @@ import { resetDb } from "../../memory/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { getDbPath, getWorkspaceConfigPath } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 import { buildExportVBundle } from "../migrations/vbundle-builder.js";
 import {
   analyzeImport,
@@ -431,4 +432,33 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       500,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function migrationRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "migrations/validate",
+      method: "POST",
+      handler: async ({ req }) => handleMigrationValidate(req),
+    },
+    {
+      endpoint: "migrations/export",
+      method: "POST",
+      handler: async ({ req }) => handleMigrationExport(req),
+    },
+    {
+      endpoint: "migrations/import-preflight",
+      method: "POST",
+      handler: async ({ req }) => handleMigrationImportPreflight(req),
+    },
+    {
+      endpoint: "migrations/import",
+      method: "POST",
+      handler: async ({ req }) => handleMigrationImport(req),
+    },
+  ];
 }

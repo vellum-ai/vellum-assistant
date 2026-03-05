@@ -21,6 +21,7 @@ import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("global-search");
 
@@ -263,4 +264,18 @@ export async function handleGlobalSearch(url: URL): Promise<Response> {
 
   const response: GlobalSearchResponse = { query, results };
   return Response.json(response);
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function globalSearchRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "search/global",
+      method: "GET",
+      handler: async ({ url }) => handleGlobalSearch(url),
+    },
+  ];
 }

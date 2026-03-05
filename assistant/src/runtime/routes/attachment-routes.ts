@@ -10,6 +10,7 @@ import {
   validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 /** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
@@ -219,4 +220,35 @@ export function handleGetAttachmentContent(
       "Accept-Ranges": "bytes",
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function attachmentRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "attachments",
+      method: "POST",
+      handler: async ({ req }) => handleUploadAttachment(req),
+    },
+    {
+      endpoint: "attachments",
+      method: "DELETE",
+      handler: async ({ req }) => handleDeleteAttachment(req),
+    },
+    {
+      endpoint: "attachments/:id/content",
+      method: "GET",
+      policyKey: "attachments/content",
+      handler: ({ req, params }) => handleGetAttachmentContent(params.id, req),
+    },
+    {
+      endpoint: "attachments/:id",
+      method: "GET",
+      policyKey: "attachments",
+      handler: ({ params }) => handleGetAttachment(params.id),
+    },
+  ];
 }

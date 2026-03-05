@@ -11,6 +11,7 @@ import { getMemoryJobCounts } from "../../memory/jobs-store.js";
 import { getProviderDebugStatus } from "../../providers/registry.js";
 import { countSchedules } from "../../schedule/schedule-store.js";
 import { getDbPath } from "../../util/platform.js";
+import type { RouteDefinition } from "../http-router.js";
 
 /** Process start time — used to calculate uptime. */
 const startedAt = Date.now();
@@ -72,4 +73,18 @@ export function handleDebug(): Response {
     },
     timestamp: new Date(now).toISOString(),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function debugRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "debug",
+      method: "GET",
+      handler: () => handleDebug(),
+    },
+  ];
 }

@@ -54,6 +54,7 @@ import {
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../guardian-verification-templates.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
 const VALID_ASSISTANT_SPECIES: readonly AssistantSpecies[] = [
@@ -682,4 +683,56 @@ export async function handleVerifyContactChannel(
     `Verification is not supported for channel type "${channel.type}"`,
     400,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function contactRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "contacts",
+      method: "GET",
+      handler: ({ url, authContext }) =>
+        handleListContacts(url, authContext.assistantId),
+    },
+    {
+      endpoint: "contacts",
+      method: "POST",
+      handler: async ({ req, authContext }) =>
+        handleUpsertContact(req, authContext.assistantId),
+    },
+    {
+      endpoint: "contacts/merge",
+      method: "POST",
+      handler: async ({ req, authContext }) =>
+        handleMergeContacts(req, authContext.assistantId),
+    },
+    {
+      endpoint: "contacts/channels/:id",
+      method: "PATCH",
+      policyKey: "contacts/channels",
+      handler: async ({ req, params, authContext }) =>
+        handleUpdateContactChannel(req, params.id, authContext.assistantId),
+    },
+    {
+      endpoint: "contacts/:contactId/channels/:channelId/verify",
+      method: "POST",
+      policyKey: "contacts/channels",
+      handler: async ({ params, authContext }) =>
+        handleVerifyContactChannel(
+          params.contactId,
+          params.channelId,
+          authContext.assistantId,
+        ),
+    },
+    {
+      endpoint: "contacts/:id",
+      method: "GET",
+      policyKey: "contacts",
+      handler: ({ params, authContext }) =>
+        handleGetContact(params.id, authContext.assistantId),
+    },
+  ];
 }

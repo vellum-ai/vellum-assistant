@@ -12,6 +12,7 @@ import { getApp } from "../../memory/app-store.js";
 import * as sharedAppLinksStore from "../../memory/shared-app-links-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
 
@@ -198,4 +199,36 @@ export function handleDeleteSharedApp(shareToken: string): Response {
     return httpError("NOT_FOUND", "Shared app not found", 404);
   }
   return Response.json({ success: true });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function appRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "apps/share",
+      method: "POST",
+      handler: async ({ req }) => handleShareApp(req),
+    },
+    {
+      endpoint: "apps/shared/:token/metadata",
+      method: "GET",
+      policyKey: "apps/shared/metadata",
+      handler: ({ params }) => handleGetSharedAppMetadata(params.token),
+    },
+    {
+      endpoint: "apps/shared/:token",
+      method: "GET",
+      policyKey: "apps/shared",
+      handler: ({ params }) => handleDownloadSharedApp(params.token),
+    },
+    {
+      endpoint: "apps/shared/:token",
+      method: "DELETE",
+      policyKey: "apps/shared",
+      handler: ({ params }) => handleDeleteSharedApp(params.token),
+    },
+  ];
 }

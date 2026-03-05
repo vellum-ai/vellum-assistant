@@ -39,6 +39,7 @@ import type { AuthContext } from "../auth/types.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 import type {
   ApprovalConversationGenerator,
   RuntimeAttachmentMetadata,
@@ -887,4 +888,51 @@ export function handleSearchConversations(url: URL): Response {
   });
 
   return Response.json({ query, results });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function conversationRouteDefinitions(deps: {
+  interfacesDir: string | null;
+  sendMessageDeps: SendMessageDeps;
+  approvalConversationGenerator?: ApprovalConversationGenerator;
+  suggestionCache: Map<string, string>;
+  suggestionInFlight: Map<string, Promise<string | null>>;
+}): RouteDefinition[] {
+  return [
+    {
+      endpoint: "messages",
+      method: "GET",
+      handler: ({ url }) => handleListMessages(url, deps.interfacesDir),
+    },
+    {
+      endpoint: "messages",
+      method: "POST",
+      handler: async ({ req, authContext }) =>
+        handleSendMessage(
+          req,
+          {
+            sendMessageDeps: deps.sendMessageDeps,
+            approvalConversationGenerator: deps.approvalConversationGenerator,
+          },
+          authContext,
+        ),
+    },
+    {
+      endpoint: "search",
+      method: "GET",
+      handler: ({ url }) => handleSearchConversations(url),
+    },
+    {
+      endpoint: "suggestion",
+      method: "GET",
+      handler: async ({ url }) =>
+        handleGetSuggestion(url, {
+          suggestionCache: deps.suggestionCache,
+          suggestionInFlight: deps.suggestionInFlight,
+        }),
+    },
+  ];
 }

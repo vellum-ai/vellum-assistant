@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { getBaseDataDir } from "../../config/env-registry.js";
 import { getWorkspacePromptPath, readLockfile } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 interface DiskSpaceInfo {
   path: string;
@@ -230,4 +231,23 @@ export function handleGetIdentity(): Response {
     createdAt,
     originSystem,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function identityRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "health",
+      method: "GET",
+      handler: () => handleHealth(),
+    },
+    {
+      endpoint: "identity",
+      method: "GET",
+      handler: () => handleGetIdentity(),
+    },
+  ];
 }
