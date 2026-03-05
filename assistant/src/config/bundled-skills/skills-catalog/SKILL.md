@@ -1,11 +1,11 @@
 ---
 name: "Skills Catalog"
-description: "Discover bundled skills and search/install skills from the Vellum catalog and Clawhub"
+description: "Discover bundled skills and search/install community skills from Clawhub"
 user-invocable: true
 metadata: { "vellum": { "emoji": "🧩" } }
 ---
 
-You can help the user discover what skills are available and find new skills to extend the assistant's capabilities.
+You can help the user discover what skills are available and find community skills to extend the assistant's capabilities.
 
 ## Bundled skills (first-party)
 
@@ -17,28 +17,6 @@ skill_load skill=<skill-id>
 
 The skill catalog shown in the system prompt lists all bundled skills with their IDs. When a user asks about capabilities, refer to this list to find relevant bundled skills and load them as needed.
 
-## Vellum catalog skills
-
-Additional first-party skills are published in the Vellum catalog and can be discovered and installed using the `vellum` CLI.
-
-### Listing available skills
-
-```bash
-vellum skills list
-```
-
-Returns all skills available in the Vellum catalog with their IDs, names, and descriptions.
-
-### Installing a skill
-
-```bash
-vellum skills install <skill-id>
-```
-
-Downloads and installs the skill to `~/.vellum/workspace/skills/<skill-id>/`. If the skill includes a `package.json`, dependencies are installed automatically. Once installed, load it with `skill_load` like any other skill.
-
-Use `--overwrite` to replace an already-installed skill (e.g. to update it).
-
 ## Community skills (Clawhub)
 
 Community skills are published on Clawhub and can be searched, inspected, and installed on demand using the `clawhub` CLI via bash.
@@ -49,7 +27,7 @@ Community skills are published on Clawhub and can be searched, inspected, and in
 npx clawhub search "<query>" --limit 10
 ```
 
-Returns matching skills with their slug, version, and name. Use this when the user asks for a capability not covered by bundled or Vellum catalog skills.
+Returns matching skills with their slug, version, and name. Use this when the user asks for a capability not covered by bundled skills.
 
 To browse trending/popular skills without a specific query:
 
@@ -83,10 +61,9 @@ Once installed, the skill appears in `~/.vellum/workspace/skills/<slug>/` and ca
    - Load any that match with `skill_load`
 
 2. **User wants a capability not covered by bundled skills** — "Can you do X?"
-   - List available Vellum catalog skills with `vellum skills list`
-   - If a match is found, install it with `vellum skills install <skill-id>`
-   - If not found in the Vellum catalog, search community skills with `npx clawhub search "<query>"`
+   - Search with `npx clawhub search "<query>"`
    - Optionally inspect promising results with `npx clawhub inspect <slug> --json`
+   - Present matching results with descriptions and install counts
    - Install the chosen skill with `npx clawhub install <slug> --force --workdir ~/.vellum/workspace`
    - Load it with `skill_load`
 
@@ -95,7 +72,7 @@ Once installed, the skill appears in `~/.vellum/workspace/skills/<slug>/` and ca
 ## Notes
 
 - Bundled skills are always available and do not need installation
-- Vellum catalog and community skills are installed to `~/.vellum/workspace/skills/<id>/`
-- After installing a skill, it is auto-enabled and immediately loadable
+- Community skills are installed to `~/.vellum/workspace/skills/<slug>/`
+- After installing a community skill, it is auto-enabled and immediately loadable
 - Skills can be enabled or disabled via feature flags without uninstalling them
-- Run `npx clawhub --help` to discover additional Clawhub CLI options
+- Run `npx clawhub --help` to discover additional CLI options
