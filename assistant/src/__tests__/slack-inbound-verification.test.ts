@@ -187,7 +187,6 @@ describe("Slack inbound trusted contact verification", () => {
   test("guardian is notified of the access attempt alongside verification", async () => {
     // Set up a guardian binding so the notification can target it
     createGuardianBinding({
-      assistantId: "self",
       channel: "slack",
       guardianExternalUserId: "U_GUARDIAN",
       guardianDeliveryChatId: "D_GUARDIAN_DM",

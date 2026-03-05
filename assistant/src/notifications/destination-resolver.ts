@@ -14,7 +14,6 @@
 import { isNotificationDeliverable } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDestination, NotificationChannel } from "./types.js";
 
@@ -44,10 +43,7 @@ export function resolveDestinations(
         // Vellum delivery is local IPC — no external endpoint required.
         // Include the guardianPrincipalId so the adapter can annotate
         // guardian-sensitive notifications for scoped delivery.
-        const guardianResult = findGuardianForChannel(
-          "vellum",
-          DAEMON_INTERNAL_ASSISTANT_ID,
-        );
+        const guardianResult = findGuardianForChannel("vellum");
         const metadata: Record<string, unknown> = {};
         if (guardianResult) {
           metadata.guardianPrincipalId = guardianResult.contact.principalId;
@@ -67,12 +63,8 @@ export function resolveDestinations(
         break;
       }
       case "telegram":
-      case "sms":
-      case "slack": {
-        const guardianResult = findGuardianForChannel(
-          channel,
-          DAEMON_INTERNAL_ASSISTANT_ID,
-        );
+      case "sms": {
+        const guardianResult = findGuardianForChannel(channel);
         if (guardianResult && guardianResult.channel.externalChatId) {
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
@@ -93,10 +85,7 @@ export function resolveDestinations(
         break;
       }
       case "slack": {
-        const guardianResult = findGuardianForChannel(
-          "slack",
-          DAEMON_INTERNAL_ASSISTANT_ID,
-        );
+        const guardianResult = findGuardianForChannel("slack");
         const chatId = guardianResult?.channel.externalChatId;
         // Slack bindings can originate from app_mention in shared channels.
         // Only route notifications to DM channels (IDs starting with "D")

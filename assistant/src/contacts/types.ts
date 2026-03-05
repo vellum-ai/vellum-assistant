@@ -44,7 +44,6 @@ export interface Contact {
    * identified by channel address instead.
    */
   principalId: string | null;
-  assistantId: string | null;
 }
 
 export type ChannelStatus =

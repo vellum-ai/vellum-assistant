@@ -189,7 +189,6 @@ describe("non-member access request notification", () => {
   test("guardian is notified when a non-member messages and a guardian binding exists", async () => {
     // Set up a guardian binding for this channel
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -235,7 +234,6 @@ describe("non-member access request notification", () => {
 
   test("no duplicate approval requests for repeated messages from same non-member", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -306,7 +304,6 @@ describe("non-member access request notification", () => {
   test("cross-channel fallback: SMS guardian binding resolves for Telegram access request", async () => {
     // Only an SMS guardian binding exists — no Telegram binding
     createGuardianBinding({
-      assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "guardian-sms-user",
       guardianDeliveryChatId: "guardian-sms-chat",
@@ -342,7 +339,6 @@ describe("non-member access request notification", () => {
 
   test("no notification when actorExternalId is absent", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -419,7 +415,6 @@ describe("access-request-helper unit tests", () => {
   test("notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing", () => {
     // Only SMS binding exists
     createGuardianBinding({
-      assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "guardian-sms",
       guardianDeliveryChatId: "sms-chat",
@@ -455,7 +450,6 @@ describe("access-request-helper unit tests", () => {
   test("notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback", () => {
     // Both Telegram and SMS bindings exist
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-tg",
       guardianDeliveryChatId: "tg-chat",
@@ -463,7 +457,6 @@ describe("access-request-helper unit tests", () => {
       verifiedVia: "test",
     });
     createGuardianBinding({
-      assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "guardian-sms",
       guardianDeliveryChatId: "sms-chat",

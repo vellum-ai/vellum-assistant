@@ -108,10 +108,7 @@ export function notifyGuardianOfAccessRequest(
     "none";
 
   // Try contacts-first: source channel
-  const sourceGuardian = findGuardianForChannel(
-    sourceChannel,
-    canonicalAssistantId,
-  );
+  const sourceGuardian = findGuardianForChannel(sourceChannel);
   if (sourceGuardian) {
     guardianExternalUserId = sourceGuardian.channel.externalUserId;
     guardianPrincipalId = sourceGuardian.contact.principalId;
@@ -119,7 +116,7 @@ export function notifyGuardianOfAccessRequest(
     guardianResolutionSource = "contacts";
   } else {
     // Try contacts-first: any active guardian channel
-    const allGuardianChannels = listGuardianChannels(canonicalAssistantId);
+    const allGuardianChannels = listGuardianChannels();
     if (allGuardianChannels && allGuardianChannels.channels.length > 0) {
       const fallbackChannel = allGuardianChannels.channels[0];
       guardianExternalUserId = fallbackChannel.externalUserId;
@@ -146,10 +143,7 @@ export function notifyGuardianOfAccessRequest(
       "No guardian principal for access request — self-healing vellum binding",
     );
     const healedPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
-    const vellumGuardian = findGuardianForChannel(
-      "vellum",
-      canonicalAssistantId,
-    );
+    const vellumGuardian = findGuardianForChannel("vellum");
     if (vellumGuardian) {
       guardianExternalUserId =
         vellumGuardian.channel.externalUserId ?? guardianExternalUserId;

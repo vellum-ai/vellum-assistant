@@ -41,7 +41,7 @@ export function resolveLocalIpcTrustContext(
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
   // Try contacts-first for the vellum guardian channel
-  const guardianResult = findGuardianForChannel("vellum", assistantId);
+  const guardianResult = findGuardianForChannel("vellum");
   if (guardianResult && guardianResult.contact.principalId) {
     const guardianPrincipalId = guardianResult.contact.principalId;
     const trustCtx = resolveTrustContext({
@@ -93,10 +93,7 @@ export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
   const authContext = buildIpcAuthContext(sessionId);
 
   // Enrich with the guardian principal ID from contacts-first path
-  const guardianResult = findGuardianForChannel(
-    "vellum",
-    authContext.assistantId,
-  );
+  const guardianResult = findGuardianForChannel("vellum");
   if (guardianResult && guardianResult.contact.principalId) {
     return {
       ...authContext,

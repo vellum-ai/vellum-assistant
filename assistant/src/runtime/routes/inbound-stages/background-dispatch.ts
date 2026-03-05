@@ -507,10 +507,7 @@ export function startTrustedContactApprovalNotifier(params: {
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
-          const guardian = findGuardianForChannel(
-            sourceChannel,
-            assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-          );
+          const guardian = findGuardianForChannel(sourceChannel);
           const guardianName = resolveGuardianName(
             guardian?.contact.displayName,
           );

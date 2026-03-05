@@ -1,7 +1,6 @@
 import { getContact } from "../../contacts/contact-store.js";
 import { createFollowUp } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function formatFollowUp(f: FollowUp): string {
@@ -63,7 +62,7 @@ export async function executeFollowupCreate(
 
   // Validate contact exists if provided
   if (contactId) {
-    const contact = getContact(contactId, DAEMON_INTERNAL_ASSISTANT_ID);
+    const contact = getContact(contactId);
     if (!contact) {
       return {
         content: `Error: Contact "${contactId}" not found`,

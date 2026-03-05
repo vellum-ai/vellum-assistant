@@ -13,7 +13,6 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
 import { SlackAdapter } from "./adapters/slack.js";
@@ -120,10 +119,7 @@ function getConnectedChannels(): NotificationChannel[] {
         // externalChatId check ensures we don't report a channel as
         // connected when the contacts record exists but lacks the
         // delivery address the destination-resolver needs.
-        const guardian = findGuardianForChannel(
-          channel,
-          DAEMON_INTERNAL_ASSISTANT_ID,
-        );
+        const guardian = findGuardianForChannel(channel);
         if (guardian && guardian.channel.externalChatId) {
           channels.push(channel);
         }
@@ -133,10 +129,7 @@ function getConnectedChannels(): NotificationChannel[] {
         // Slack bindings can originate from shared channels (app_mention).
         // Only consider Slack connected when the stored chat ID is a DM
         // channel (D-prefixed) to prevent leaking notifications.
-        const slackGuardian = findGuardianForChannel(
-          "slack",
-          DAEMON_INTERNAL_ASSISTANT_ID,
-        );
+        const slackGuardian = findGuardianForChannel("slack");
         const chatId = slackGuardian?.channel.externalChatId;
         if (slackGuardian && chatId && chatId.startsWith("D")) {
           channels.push(channel);

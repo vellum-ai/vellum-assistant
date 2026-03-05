@@ -282,12 +282,8 @@ function resetTables() {
   ensuredConvIds = new Set();
 }
 
-function addTrustedVoiceContact(
-  phoneNumber: string,
-  assistantId: string = "self",
-): void {
+function addTrustedVoiceContact(phoneNumber: string): void {
   upsertMember({
-    assistantId,
     sourceChannel: "voice",
     externalUserId: phoneNumber,
     externalChatId: phoneNumber,
@@ -1471,7 +1467,6 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
@@ -1520,14 +1515,13 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550009999",
       guardianDeliveryChatId: "+15550009999",
       guardianPrincipalId: "+15550009999",
       verifiedVia: "test",
     });
-    addTrustedVoiceContact("+15550002222", "self");
+    addTrustedVoiceContact("+15550002222");
 
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Hello there."]),
@@ -1574,7 +1568,6 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
@@ -1625,7 +1618,6 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-guardian-user",
       guardianDeliveryChatId: "tg-guardian-chat",
@@ -1846,7 +1838,7 @@ describe("relay-server", () => {
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Welcome to the line."]),
     );
-    addTrustedVoiceContact("+15559999999", "self");
+    addTrustedVoiceContact("+15559999999");
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -2055,7 +2047,6 @@ describe("relay-server", () => {
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      assistantId: "self",
       sourceChannel: "voice",
       maxUses: 1,
       expectedExternalUserId: "+15558887777",
@@ -2129,7 +2120,6 @@ describe("relay-server", () => {
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      assistantId: "self",
       sourceChannel: "voice",
       maxUses: 1,
       expectedExternalUserId: "+15558886666",
@@ -2455,7 +2445,6 @@ describe("relay-server", () => {
 
     // Create a blocked member
     upsertMember({
-      assistantId: "self",
       sourceChannel: "voice",
       externalUserId: "+15558881111",
       externalChatId: "+15558881111",
@@ -4018,7 +4007,6 @@ describe("relay-server", () => {
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      assistantId: "self",
       sourceChannel: "voice",
       maxUses: 1,
       expectedExternalUserId: "+15557776666",
@@ -4093,7 +4081,6 @@ describe("relay-server", () => {
 
     // Create a guardian binding with a different displayName
     createGuardianBinding({
-      assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15559990001",
       guardianDeliveryChatId: "+15559990001",
@@ -4139,7 +4126,6 @@ describe("relay-server", () => {
 
     // Create a guardian binding with a displayName
     createGuardianBinding({
-      assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15559990002",
       guardianDeliveryChatId: "+15559990002",

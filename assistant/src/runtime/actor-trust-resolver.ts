@@ -181,10 +181,7 @@ export function resolveActorTrust(
   }
 
   // --- Guardian lookup ---
-  const guardianResult = findGuardianForChannel(
-    input.sourceChannel,
-    input.assistantId,
-  );
+  const guardianResult = findGuardianForChannel(input.sourceChannel);
   let guardianBindingMatch: ActorTrustContext["guardianBindingMatch"] = null;
   let guardianPrincipalId: string | undefined;
   let isGuardian = false;

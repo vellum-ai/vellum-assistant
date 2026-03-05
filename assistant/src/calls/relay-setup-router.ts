@@ -191,7 +191,6 @@ export function routeSetup(ctx: SetupContext): {
     let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
     try {
       voiceInvites = findActiveVoiceInvites({
-        assistantId,
         expectedExternalUserId: ctx.from,
       });
     } catch (err) {

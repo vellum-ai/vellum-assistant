@@ -452,7 +452,6 @@ const accessRequestResolver: GuardianRequestResolver = {
     if (channel === "voice") {
       try {
         upsertMember({
-          assistantId,
           sourceChannel: "voice",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,
