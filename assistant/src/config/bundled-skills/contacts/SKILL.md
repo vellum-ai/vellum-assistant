@@ -10,7 +10,7 @@ Manage the user's contacts, relationship graph, access control (trusted contacts
 ## Prerequisites
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
-- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/contacts/channels`, `/v1/contacts/invites`, and `/v1/integrations/telegram/config` on the gateway, never the assistant runtime port directly.
+- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/contacts/channels`, `/v1/contacts/invites`, `/v1/channels/readiness`, and `/v1/integrations/telegram/config` on the gateway, never the assistant runtime port directly.
 - The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable for control-plane `curl` requests.
 
 ## Contact Management
@@ -200,6 +200,23 @@ curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/channels/<channel_id>" 
 
 Replace `<channel_id>` with the channel's `id` from the contact's `channels` array (visible in `GET /v1/contacts` or `vellum contacts list --json` output).
 
+## Channel Readiness
+
+Before creating an invite for any channel, check whether that channel is ready to accept messages. Creating an invite for an unready channel produces an unusable invite — the invitee redeems the code but cannot actually reach the assistant.
+
+```bash
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/channels/readiness" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+```
+
+The response contains `{ ok: true, snapshots: [...] }` where each snapshot has:
+
+- `channel` -- the channel type (e.g., `telegram`, `email`, `whatsapp`, `sms`, `slack`, `voice`)
+- `ready` -- boolean indicating whether the channel is fully operational
+- `checks` -- array of prerequisite checks, each with `name`, `passed` (boolean), and `detail` (human-readable explanation)
+
+If the target channel's `ready` field is `false`, do **not** create the invite. Instead, tell the guardian which prerequisites are missing (from the `checks` array with `passed: false`) so they can resolve them first.
+
 ## Invite Links
 
 Invite links let the guardian share a link or code that automatically grants access when used. Telegram invites use a deep link; voice invites use a phone number + numeric code; email, WhatsApp, SMS, and Slack invites use a 6-digit code that the invitee sends to the assistant on the respective channel.
@@ -342,6 +359,8 @@ If the user provides a phone number without the `+` country code prefix, ask the
 
 Use this when the guardian wants to invite someone to message the assistant via email. Email invites use a 6-digit code — the invitee sends the code to the assistant's email address to redeem access.
 
+**Before creating the invite**, check channel readiness (see [Channel Readiness](#channel-readiness)). If the `email` channel is not ready, tell the guardian what prerequisites are missing instead of creating an unusable invite.
+
 ```bash
 INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
   -H "Content-Type: application/json" \
@@ -376,6 +395,8 @@ If the assistant's email address is not available (AgentMail not configured), te
 ### Create a WhatsApp invite
 
 Use this when the guardian wants to invite someone to message the assistant on WhatsApp. WhatsApp invites use a 6-digit code — the invitee sends the code to the assistant's WhatsApp number to redeem access.
+
+**Before creating the invite**, check channel readiness (see [Channel Readiness](#channel-readiness)). If the `whatsapp` channel is not ready, tell the guardian what prerequisites are missing instead of creating an unusable invite.
 
 ```bash
 INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
@@ -414,6 +435,8 @@ If the assistant's WhatsApp integration is not configured at all (Meta WhatsApp 
 
 Use this when the guardian wants to invite someone to message the assistant via SMS. SMS invites use a 6-digit code — the invitee texts the code to the assistant's phone number to redeem access.
 
+**Before creating the invite**, check channel readiness (see [Channel Readiness](#channel-readiness)). If the `sms` channel is not ready, tell the guardian what prerequisites are missing instead of creating an unusable invite.
+
 ```bash
 INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
   -H "Content-Type: application/json" \
@@ -434,6 +457,8 @@ The response follows the same shape as email and WhatsApp invites (`inviteCode`,
 ### Create a Slack invite
 
 Use this when the guardian wants to invite someone to message the assistant on Slack. Slack invites use a 6-digit code -- the invitee sends the code as a direct message to the assistant's Slack bot to redeem access.
+
+**Before creating the invite**, check channel readiness (see [Channel Readiness](#channel-readiness)). If the `slack` channel is not ready, tell the guardian what prerequisites are missing instead of creating an unusable invite.
 
 ```bash
 INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
