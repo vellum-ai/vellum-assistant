@@ -11,7 +11,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok } from "./shared.js";
+import { assertPlatformEnabled, err, ok } from "./shared.js";
 
 const FOLLOW_UP_LABEL_NAME = "Follow-up";
 
@@ -35,6 +35,7 @@ export async function run(
   }
 
   try {
+    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       switch (action) {

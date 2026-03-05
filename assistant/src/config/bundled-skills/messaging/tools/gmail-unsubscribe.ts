@@ -32,6 +32,7 @@ export async function run(
   }
 
   try {
+    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       const message = await getMessage(token, messageId, "metadata", [

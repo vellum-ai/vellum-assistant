@@ -8,7 +8,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok } from "./shared.js";
+import { assertPlatformEnabled, err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -23,6 +23,7 @@ export async function run(
   if (!filename) return err("filename is required.");
 
   try {
+    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       const attachment = await getAttachment(token, messageId, attachmentId);

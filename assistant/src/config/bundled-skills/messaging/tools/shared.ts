@@ -51,7 +51,9 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
 }
 
 function autoSelectProvider(): MessagingProvider {
-  const connected = getConnectedProviders();
+  const connected = getConnectedProviders().filter((p) =>
+    isPlatformEnabled(p.id),
+  );
   if (connected.length === 1) return connected[0];
   if (connected.length === 0) {
     throw new Error(
@@ -65,7 +67,13 @@ function autoSelectProvider(): MessagingProvider {
   );
 }
 
-function assertPlatformEnabled(platformId: string): void {
+function isPlatformEnabled(platformId: string): boolean {
+  const flagKey = PLATFORM_FLAG_KEYS[platformId];
+  if (!flagKey) return true;
+  return isAssistantFeatureFlagEnabled(flagKey, getConfig());
+}
+
+export function assertPlatformEnabled(platformId: string): void {
   const flagKey = PLATFORM_FLAG_KEYS[platformId];
   if (!flagKey) return; // no flag declared → allowed
   if (!isAssistantFeatureFlagEnabled(flagKey, getConfig())) {

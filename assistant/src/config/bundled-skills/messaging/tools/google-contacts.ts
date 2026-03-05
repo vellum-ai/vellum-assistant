@@ -9,7 +9,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok } from "./shared.js";
+import { assertPlatformEnabled, err, ok } from "./shared.js";
 
 function formatContact(person: Person): Record<string, unknown> {
   const name = person.names?.[0];
@@ -37,6 +37,7 @@ export async function run(
   }
 
   try {
+    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       switch (action) {

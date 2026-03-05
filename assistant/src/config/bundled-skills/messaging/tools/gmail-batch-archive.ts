@@ -6,7 +6,7 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { getSenderMessageIds } from "./scan-result-store.js";
-import { err, ok } from "./shared.js";
+import { assertPlatformEnabled, err, ok } from "./shared.js";
 
 const BATCH_MODIFY_LIMIT = 1000;
 
@@ -42,6 +42,7 @@ export async function run(
   }
 
   try {
+    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       for (let i = 0; i < messageIds.length; i += BATCH_MODIFY_LIMIT) {

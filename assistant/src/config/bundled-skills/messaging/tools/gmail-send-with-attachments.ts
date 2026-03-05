@@ -9,7 +9,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok } from "./shared.js";
+import { assertPlatformEnabled, err, ok } from "./shared.js";
 
 const MIME_MAP: Record<string, string> = {
   ".pdf": "application/pdf",
@@ -66,6 +66,7 @@ export async function run(
     return err("attachment_paths is required and must not be empty.");
 
   try {
+    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       const attachments = await Promise.all(

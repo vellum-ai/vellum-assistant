@@ -16,7 +16,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok } from "./shared.js";
+import { assertPlatformEnabled, err, ok } from "./shared.js";
 
 const FOLLOW_UP_LABEL_NAME = "Follow-up";
 
@@ -47,6 +47,7 @@ export async function run(
   const query = (input.query as string) ?? "is:unread in:inbox";
 
   try {
+    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       const listResp = await listMessages(token, query, maxResults);

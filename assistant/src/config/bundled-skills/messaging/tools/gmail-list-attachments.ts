@@ -6,7 +6,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok } from "./shared.js";
+import { assertPlatformEnabled, err, ok } from "./shared.js";
 
 interface AttachmentInfo {
   partId: string;
@@ -50,6 +50,7 @@ export async function run(
   }
 
   try {
+    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       const message = await getMessage(token, messageId, "full");
