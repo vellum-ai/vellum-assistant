@@ -7,7 +7,9 @@
  * the conversation was newly created or reused.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { PairingOptions } from "../notifications/conversation-pairing.js";
 
 // -- Mocks (must be declared before importing modules that depend on them) ----
 
@@ -18,12 +20,129 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Mock destination-resolver for broadcaster tests
+mock.module("../notifications/destination-resolver.js", () => ({
+  resolveDestinations: (channels: string[]) => {
+    const m = new Map();
+    for (const ch of channels) {
+      m.set(ch, { channel: ch, endpoint: `mock-${ch}` });
+    }
+    return m;
+  },
+}));
+
+// Mock deliveries-store to avoid DB access
+mock.module("../notifications/deliveries-store.js", () => ({
+  createDelivery: () => {},
+  updateDeliveryStatus: () => {},
+  findDeliveryByDecisionAndChannel: () => undefined,
+}));
+
+// Configurable mock for conversation-pairing
+let nextPairingResult:
+  | import("../notifications/conversation-pairing.js").PairingResult
+  | null = null;
+let pairingCallCount = 0;
+
+mock.module("../notifications/conversation-pairing.js", () => ({
+  pairDeliveryWithConversation: async (
+    _signal: unknown,
+    _channel: string,
+    _copy: unknown,
+    _options?: PairingOptions,
+  ) => {
+    if (nextPairingResult) {
+      const result = nextPairingResult;
+      nextPairingResult = null;
+      return result;
+    }
+    const id = `mock-conv-${++pairingCallCount}`;
+    return {
+      conversationId: id,
+      messageId: `mock-msg-${pairingCallCount}`,
+      strategy: "start_new_conversation" as const,
+      createdNewConversation: true,
+      threadDecisionFallbackUsed: false,
+    };
+  },
+}));
+
 import type { ServerMessage } from "../daemon/ipc-contract.js";
 import { VellumAdapter } from "../notifications/adapters/macos.js";
+import { NotificationBroadcaster } from "../notifications/broadcaster.js";
+import type { NotificationSignal } from "../notifications/signal.js";
+import type {
+  ChannelAdapter,
+  ChannelDeliveryPayload,
+  ChannelDestination,
+  DeliveryResult,
+  NotificationChannel,
+  NotificationDecision,
+} from "../notifications/types.js";
+
+// -- Helpers -----------------------------------------------------------------
+
+function makeSignal(
+  overrides?: Partial<NotificationSignal>,
+): NotificationSignal {
+  return {
+    signalId: "sig-deeplink-001",
+    createdAt: Date.now(),
+    sourceChannel: "scheduler",
+    sourceSessionId: "sess-001",
+    sourceEventName: "test.event",
+    contextPayload: {},
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+    ...overrides,
+  };
+}
+
+function makeDecision(
+  overrides?: Partial<NotificationDecision>,
+): NotificationDecision {
+  return {
+    shouldNotify: true,
+    selectedChannels: ["vellum"],
+    reasoningSummary: "Deep-link test decision",
+    renderedCopy: {
+      vellum: { title: "Test Alert", body: "Something happened" },
+    },
+    dedupeKey: "deeplink-test-001",
+    confidence: 0.9,
+    fallbackUsed: false,
+    ...overrides,
+  };
+}
+
+class MockAdapter implements ChannelAdapter {
+  readonly channel: NotificationChannel;
+  sent: ChannelDeliveryPayload[] = [];
+
+  constructor(channel: NotificationChannel) {
+    this.channel = channel;
+  }
+
+  async send(
+    payload: ChannelDeliveryPayload,
+    _dest: ChannelDestination,
+  ): Promise<DeliveryResult> {
+    this.sent.push(payload);
+    return { success: true };
+  }
+}
 
 // -- Tests -------------------------------------------------------------------
 
 describe("notification deep-link metadata", () => {
+  beforeEach(() => {
+    nextPairingResult = null;
+  });
+
   describe("VellumAdapter", () => {
     test("broadcasts notification_intent with deepLinkMetadata from payload", async () => {
       const messages: ServerMessage[] = [];
@@ -336,6 +455,135 @@ describe("notification deep-link metadata", () => {
           .deepLinkMetadata as Record<string, unknown>;
         expect(metadata.conversationId).toBe(boundConvId);
       }
+    });
+  });
+
+  // ── NotificationBroadcaster deep-link injection ──────────────────────
+  //
+  // These tests exercise the production code path where the broadcaster
+  // calls pairDeliveryWithConversation() and merges the pairing result's
+  // conversationId/messageId into deepLinkTarget before passing to the
+  // adapter. This catches regressions that the adapter-only tests above
+  // would miss (e.g. broadcaster stops merging pairing results).
+
+  describe("NotificationBroadcaster deep-link injection", () => {
+    test("broadcaster merges pairing conversationId into deepLinkTarget for vellum", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+
+      nextPairingResult = {
+        conversationId: "conv-paired-abc",
+        messageId: "msg-paired-abc",
+        strategy: "start_new_conversation" as const,
+        createdNewConversation: true,
+        threadDecisionFallbackUsed: false,
+      };
+
+      const signal = makeSignal();
+      const decision = makeDecision();
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(vellumAdapter.sent).toHaveLength(1);
+      const deepLink = vellumAdapter.sent[0].deepLinkTarget;
+      expect(deepLink).toBeDefined();
+      expect(deepLink!.conversationId).toBe("conv-paired-abc");
+    });
+
+    test("broadcaster merges pairing messageId into deepLinkTarget for vellum", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+
+      nextPairingResult = {
+        conversationId: "conv-paired-def",
+        messageId: "msg-paired-def",
+        strategy: "start_new_conversation" as const,
+        createdNewConversation: true,
+        threadDecisionFallbackUsed: false,
+      };
+
+      const signal = makeSignal();
+      const decision = makeDecision();
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(vellumAdapter.sent).toHaveLength(1);
+      const deepLink = vellumAdapter.sent[0].deepLinkTarget;
+      expect(deepLink).toBeDefined();
+      expect(deepLink!.messageId).toBe("msg-paired-def");
+    });
+
+    test("reused conversation deep-link points to the reused conversationId", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+
+      nextPairingResult = {
+        conversationId: "conv-reused-xyz",
+        messageId: "msg-reused-xyz",
+        strategy: "start_new_conversation" as const,
+        createdNewConversation: false,
+        threadDecisionFallbackUsed: false,
+      };
+
+      const signal = makeSignal();
+      const decision = makeDecision({
+        threadActions: {
+          vellum: {
+            action: "reuse_existing",
+            conversationId: "conv-original-placeholder",
+          },
+        },
+      });
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(vellumAdapter.sent).toHaveLength(1);
+      const deepLink = vellumAdapter.sent[0].deepLinkTarget;
+      expect(deepLink).toBeDefined();
+      // The deep-link should use the pairing result, not the original placeholder
+      expect(deepLink!.conversationId).toBe("conv-reused-xyz");
+    });
+
+    test("deep-link conversationId is stable across multiple deliveries to the same reused conversation", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+
+      const stableConvId = "conv-stable-reuse-001";
+
+      // First delivery
+      nextPairingResult = {
+        conversationId: stableConvId,
+        messageId: "msg-delivery-1",
+        strategy: "start_new_conversation" as const,
+        createdNewConversation: false,
+        threadDecisionFallbackUsed: false,
+      };
+
+      await broadcaster.broadcastDecision(makeSignal(), makeDecision());
+
+      // Second delivery — same conversation reused via binding-key
+      nextPairingResult = {
+        conversationId: stableConvId,
+        messageId: "msg-delivery-2",
+        strategy: "start_new_conversation" as const,
+        createdNewConversation: false,
+        threadDecisionFallbackUsed: false,
+      };
+
+      await broadcaster.broadcastDecision(makeSignal(), makeDecision());
+
+      expect(vellumAdapter.sent).toHaveLength(2);
+
+      const deepLink1 = vellumAdapter.sent[0].deepLinkTarget;
+      const deepLink2 = vellumAdapter.sent[1].deepLinkTarget;
+
+      // Both deliveries point to the same stable conversation
+      expect(deepLink1!.conversationId).toBe(stableConvId);
+      expect(deepLink2!.conversationId).toBe(stableConvId);
+
+      // But each has a distinct messageId for scroll targeting
+      expect(deepLink1!.messageId).toBe("msg-delivery-1");
+      expect(deepLink2!.messageId).toBe("msg-delivery-2");
     });
   });
 });
