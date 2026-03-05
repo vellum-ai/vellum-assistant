@@ -249,9 +249,7 @@ struct GeneratedPanel: View {
 
         return HStack(spacing: VSpacing.md) {
             // Icon / Preview thumbnail
-            if let preview,
-               let data = Data(base64Encoded: preview),
-               let nsImage = NSImage(data: data) {
+            if let nsImage = AppPreviewImageStore.image(appId: item.id, base64: preview) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)

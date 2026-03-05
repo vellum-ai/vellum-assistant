@@ -41,6 +41,28 @@ final class SidebarInteractionState {
     var expandedScheduleGroups: Set<String> = []
     var showAllApps: Bool = false
     var showPreferencesDrawer: Bool = false
+
+    /// Updates thread hover state and clears stale pending-deletion when hover
+    /// moves to a different thread. Centralises the invariant so callers don't
+    /// need to coordinate.
+    func setThreadHover(threadId: UUID?, hovering: Bool) {
+        if hovering {
+            // Moving to a new thread clears pending archive of the old one
+            if let pending = threadPendingDeletion, pending != threadId {
+                threadPendingDeletion = nil
+            }
+            isHoveredThread = threadId
+        } else {
+            if isHoveredThread == threadId {
+                isHoveredThread = nil
+            }
+            // Leaving a pending-deletion thread clears the confirmation
+            if threadPendingDeletion == threadId {
+                threadPendingDeletion = nil
+            }
+        }
+    }
+
     /// Thread ID that is currently the drop target during a drag-and-drop reorder.
     var dropTargetThreadId: UUID?
     /// Thread ID currently being dragged (set on drag start, cleared on drop).

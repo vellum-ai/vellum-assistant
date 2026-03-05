@@ -134,9 +134,7 @@ struct AppsGridView: View {
                 // Preview thumbnail or icon placeholder — all corners rounded.
                 // Use a sized container with .overlay so .fill images don't overflow.
                 Group {
-                    if let preview,
-                       let data = Data(base64Encoded: preview),
-                       let nsImage = NSImage(data: data) {
+                    if let nsImage = AppPreviewImageStore.image(appId: app.id, base64: preview) {
                         Color.clear
                             .aspectRatio(16.0 / 10.0, contentMode: .fit)
                             .overlay(
