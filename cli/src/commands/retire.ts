@@ -73,9 +73,10 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   // Only stop it if no other local assistants still have a running daemon.
   const outboundProxyPidFile = join(homedir(), ".vellum", "outbound-proxy.pid");
   const otherLocalRunning = loadAllAssistants().some((other) => {
-    if (other.cloud !== "local" || !other.resources) return false;
+    if (other.cloud !== "local") return false;
     if (other.assistantId === name) return false;
-    return isProcessAlive(other.resources.pidFile).alive;
+    const otherRes = other.resources ?? defaultLocalResources();
+    return isProcessAlive(otherRes.pidFile).alive;
   });
   if (!otherLocalRunning) {
     await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");

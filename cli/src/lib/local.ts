@@ -1213,4 +1213,8 @@ export async function stopLocalProcesses(
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
+
+  // Outbound proxy is a shared singleton — always use the global PID path
+  const outboundProxyPidFile = join(homedir(), ".vellum", "outbound-proxy.pid");
+  await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
 }

@@ -241,12 +241,21 @@ export async function allocateLocalResources(
   // to prevent binding collisions when both are woken.
   const reservedPorts: number[] = [];
   for (const entry of loadAllAssistants()) {
-    if (entry.cloud !== "local" || !entry.resources) continue;
-    reservedPorts.push(
-      entry.resources.daemonPort,
-      entry.resources.gatewayPort,
-      entry.resources.qdrantPort,
-    );
+    if (entry.cloud !== "local") continue;
+    if (entry.resources) {
+      reservedPorts.push(
+        entry.resources.daemonPort,
+        entry.resources.gatewayPort,
+        entry.resources.qdrantPort,
+      );
+    } else {
+      // Legacy entries without resources use the default ports
+      reservedPorts.push(
+        DEFAULT_DAEMON_PORT,
+        DEFAULT_GATEWAY_PORT,
+        DEFAULT_QDRANT_PORT,
+      );
+    }
   }
 
   // Allocate ports sequentially to avoid overlapping ranges assigning the

@@ -218,6 +218,7 @@ function formatDetectionInfo(proc: DetectedProcess): string {
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const resources = entry.resources ?? defaultLocalResources();
   const vellumDir = join(resources.instanceDir, ".vellum");
+  const PROXY_PORT = Number(process.env.PROXY_PORT) || 7829;
 
   const specs: ProcessSpec[] = [
     {
@@ -237,6 +238,13 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
       pgrepName: "vellum-gateway",
       port: resources.gatewayPort,
       pidFile: join(vellumDir, "gateway.pid"),
+    },
+    {
+      name: "outbound-proxy",
+      pgrepName: "outbound-proxy",
+      port: PROXY_PORT,
+      // Outbound proxy is a shared singleton — always use the global PID path
+      pidFile: join(homedir(), ".vellum", "outbound-proxy.pid"),
     },
     {
       name: "embed-worker",
