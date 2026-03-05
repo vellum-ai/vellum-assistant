@@ -232,6 +232,13 @@ async function startLearnSession(
           continue;
         }
 
+        if (m.type === "ride_shotgun_error") {
+          clearTimeout(timeoutHandle);
+          socket.destroy();
+          reject(new Error((m as { message: string }).message));
+          continue;
+        }
+
         if (m.type === "ride_shotgun_result") {
           clearTimeout(timeoutHandle);
           socket.destroy();
