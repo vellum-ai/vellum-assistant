@@ -46,6 +46,7 @@ function inferFilename(mediaId: string, mimeType: string): string {
 export async function downloadWhatsAppFile(
   config: GatewayConfig,
   mediaId: string,
+  hint?: { fileName?: string; mimeType?: string },
 ): Promise<DownloadedFile> {
   const meta = await getWhatsAppMediaMetadata(config, mediaId);
 
@@ -54,14 +55,15 @@ export async function downloadWhatsAppFile(
 
   const detected = await fileTypeFromBuffer(new Uint8Array(buffer));
 
-  // Prefer the MIME type from Meta metadata, then detected, then Content-Type header
+  // Prefer the MIME type from Meta metadata, then hint, then detected, then Content-Type header
   const mimeType =
     meta.mime_type ||
+    hint?.mimeType ||
     detected?.mime ||
     response.headers.get("Content-Type")?.split(";")[0].trim() ||
     "application/octet-stream";
 
-  const filename = inferFilename(mediaId, mimeType);
+  const filename = hint?.fileName || inferFilename(mediaId, mimeType);
   const data = Buffer.from(buffer).toString("base64");
 
   return { filename, mimeType, data };
