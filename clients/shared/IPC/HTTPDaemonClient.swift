@@ -122,6 +122,15 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
+    /// The local session ID used by the client (set from the synthetic session_info).
+    /// Used to remap the daemon's internal conversation ID to the client's session ID
+    /// so that ChatViewModel's belongsToSession() filter passes.
+    private var activeLocalSessionId: String?
+
+    /// The daemon's internal conversation ID, learned from the first SSE event.
+    /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
+    private var remoteSessionId: String?
+
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
@@ -487,12 +496,20 @@ public final class HTTPTransport {
 
                     if line.hasPrefix("data: ") {
                         dataBuffer += String(line.dropFirst(6))
-                    } else if line.isEmpty && !dataBuffer.isEmpty {
-                        // End of SSE event — parse accumulated data
-                        self.parseSSEData(dataBuffer)
-                        dataBuffer = ""
+                    } else {
+                        // Any non-data line (event:, id:, empty, heartbeat) flushes
+                        // the accumulated data buffer. AsyncLineSequence skips empty
+                        // lines, so we can't rely on line.isEmpty as the SSE spec
+                        // event boundary.
+                        if !dataBuffer.isEmpty {
+                            self.parseSSEData(dataBuffer)
+                            dataBuffer = ""
+                        }
                     }
-                    // Skip event:, id:, retry: lines — we only need data:
+                }
+                // Flush any remaining data at end of stream
+                if !dataBuffer.isEmpty {
+                    self.parseSSEData(dataBuffer)
                 }
             } catch {
                 if !Task.isCancelled {
@@ -507,7 +524,28 @@ public final class HTTPTransport {
     }
 
     private func parseSSEData(_ data: String) {
-        guard let jsonData = data.data(using: .utf8) else { return }
+        // Remap the daemon's internal session/conversation ID to the client's
+        // local session ID so that ChatViewModel.belongsToSession() passes.
+        // The daemon assigns its own UUID via getOrCreateConversation(), which
+        // differs from the correlationId the client uses as sessionId.
+        var jsonString = data
+        if let localId = activeLocalSessionId {
+            if remoteSessionId == nil {
+                // Learn the daemon's session ID from the first event envelope.
+                if let eventData = data.data(using: .utf8),
+                   let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
+                   let eventSessionId = envelope.sessionId,
+                   eventSessionId != localId {
+                    remoteSessionId = eventSessionId
+                    log.info("Learned remote sessionId \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
+                }
+            }
+            if let remoteId = remoteSessionId {
+                jsonString = jsonString.replacingOccurrences(of: remoteId, with: localId)
+            }
+        }
+
+        guard let jsonData = jsonString.data(using: .utf8) else { return }
 
         do {
             let event = try decoder.decode(AssistantEvent.self, from: jsonData)
@@ -554,6 +592,8 @@ public final class HTTPTransport {
             // acts as the session. Emit a synthetic session_info so ChatViewModel
             // records the session ID.
             let sessionId = msg.correlationId ?? UUID().uuidString
+            activeLocalSessionId = sessionId
+            remoteSessionId = nil  // Reset — will be learned from the first SSE event
             let info = ServerMessage.sessionInfo(
                 SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
             )
