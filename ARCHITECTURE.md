@@ -64,7 +64,7 @@ Each named instance gets its own directory tree under `~/.vellum/instances/<name
 └── ...                           # Legacy single-instance files (default instance)
 ```
 
-The legacy single-instance layout (`~/.vellum/` directly) continues to work as the default. Named instances are only created via `vellum hatch local --name <name>`.
+The legacy single-instance layout (`~/.vellum/` directly) continues to work as the default. Named instances are created via `vellum hatch --name <name>` (the `--name` flag triggers multi-instance isolation).
 
 ### Isolation Model
 
@@ -135,7 +135,7 @@ CLI commands resolve which instance to target via `resolveTargetAssistant()`:
 
 ### Mixed Local/Remote
 
-The lockfile can contain both local and remote entries. Remote entries (cloud providers) carry connection metadata (`runtimeUrl`, `bearerToken`, etc.) but no `resources`. Lifecycle commands (`wake`, `sleep`, `retire`) only operate on local instances.
+The lockfile can contain both local and remote entries. Remote entries (cloud providers) carry connection metadata (`runtimeUrl`, `bearerToken`, etc.) but no `resources`. `wake` and `sleep` only operate on local instances (they error for remote entries). `retire` works on both local and remote instances, using cloud-specific teardown for GCP/AWS/custom entries.
 
 ## System Overview
 
