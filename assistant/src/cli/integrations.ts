@@ -141,6 +141,42 @@ async function gatewayGet(path: string): Promise<unknown> {
   return parsed;
 }
 
+async function gatewayPost(path: string, body: unknown): Promise<unknown> {
+  const gatewayBase = getGatewayInternalBaseUrl();
+  const token = getGatewayToken();
+
+  const response = await fetch(`${gatewayBase}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const rawBody = await response.text();
+  let parsed: unknown = { ok: false, error: rawBody };
+
+  if (rawBody.length > 0) {
+    try {
+      parsed = JSON.parse(rawBody) as unknown;
+    } catch {
+      parsed = { ok: false, error: rawBody };
+    }
+  }
+
+  if (!response.ok) {
+    const message =
+      typeof parsed === "object" && parsed && "error" in parsed
+        ? String((parsed as { error?: unknown }).error)
+        : `Gateway request failed (${response.status})`;
+    throw new Error(`${message} [${response.status}]`);
+  }
+
+  return parsed;
+}
+
 async function runRead(
   cmd: Command,
   reader: () => Promise<unknown>,
@@ -182,6 +218,26 @@ export function registerContactsCommand(program: Command): void {
           query: opts.query,
         });
         await runRead(cmd, async () => gatewayGet(`/v1/contacts${query}`));
+      },
+    );
+
+  contacts
+    .command("get <id>")
+    .description("Get a contact by ID")
+    .action(async (id: string, _opts: unknown, cmd: Command) => {
+      await runRead(cmd, async () =>
+        gatewayGet(`/v1/contacts/${encodeURIComponent(id)}`),
+      );
+    });
+
+  contacts
+    .command("merge <keepId> <mergeId>")
+    .description("Merge two contacts")
+    .action(
+      async (keepId: string, mergeId: string, _opts: unknown, cmd: Command) => {
+        await runRead(cmd, async () =>
+          gatewayPost("/v1/contacts/merge", { keepId, mergeId }),
+        );
       },
     );
 
