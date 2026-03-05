@@ -19,9 +19,11 @@ import * as getText from "./get-text";
 import * as goto from "./goto";
 import * as httpRequest from "./http-request";
 import * as launchApp from "./launch-app";
+import * as readChatMessages from "./read-chat-messages";
 import * as reportResult from "./report-result";
 import * as runShell from "./run-shell";
 import * as screenshot from "./screenshot";
+import * as sendChatMessage from "./send-chat-message";
 import * as typeEnvVar from "./type-env-var";
 import * as waitTool from "./wait";
 import type { ToolContext, ToolHandlerResult, ToolModule } from "./types";
@@ -42,9 +44,11 @@ const TOOLS: ToolModule[] = [
   goto,
   httpRequest,
   launchApp,
+  readChatMessages,
   reportResult,
   runShell,
   screenshot,
+  sendChatMessage,
   typeEnvVar,
   waitTool,
 ];
