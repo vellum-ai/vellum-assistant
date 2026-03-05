@@ -2,6 +2,7 @@
 
 - **Skills must be self-contained and portable**
   - Use `scripts/` for supporting logic with inline dependencies
+  - When including code assets, utilities, or tools, load the [scripts best practices specification](https://agentskills.io/skill-creation/using-scripts.md) first
   - Do not install CLIs into Vellum or the host system; provide instructions for users to install external packages if needed
   - Do not create new assistant tools and reference them from SKILL.md — this couples skills to Vellum internals and breaks compatibility with other agent systems
 
