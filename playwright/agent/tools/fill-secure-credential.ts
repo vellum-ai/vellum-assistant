@@ -12,8 +12,8 @@
  *        match the SwiftUI `.accessibilityIdentifier("secure-credential-save")`
  *      - Strategy 2: Name/title — checks `name of elem` / `title of elem` for "Save",
  *        backed by explicit `.accessibilityLabel("Save")` on the SwiftUI button
- *      - Strategy 3: Positional fallback — clicks the last button in the scroll area,
- *        since Save is always the rightmost button in the HStack
+ *      - Strategy 3: Positional fallback — clicks the first non-Cancel button,
+ *        skipping buttons whose AXIdentifier is "secure-credential-cancel"
  *
  * The secret value is never returned in the tool result.
  */
@@ -180,20 +180,23 @@ tell application "System Events"
       end repeat
     end if
 
-    -- Strategy 3: Positional fallback — click the last button (Save is always rightmost)
+    -- Strategy 3: Positional fallback — click the first non-Cancel button.
+    -- The AX tree order is: Cancel, Save, [Send Once]. Taking the last button
+    -- would pick "Send Once" when allowOneTimeSend is true, so we skip Cancel
+    -- (identified by AXIdentifier) and take the first remaining button (Save).
     if not clickedSave then
-      set lastButton to missing value
       repeat with elem in allElems
         try
           if class of elem is button then
-            set lastButton to elem
+            set elemId to value of attribute "AXIdentifier" of elem
+            if elemId is not "secure-credential-cancel" then
+              click elem
+              set clickedSave to true
+              exit repeat
+            end if
           end if
         end try
       end repeat
-      if lastButton is not missing value then
-        click lastButton
-        set clickedSave to true
-      end if
     end if
 
     if not clickedSave then

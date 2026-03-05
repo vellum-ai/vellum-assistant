@@ -43,7 +43,6 @@ struct ComposerView: View {
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     @FocusState private var composerFocus: Bool
     @State private var isComposerFocused = false
-    @State private var contentHeight: CGFloat = 34
 
     @State var showSlashMenu = false
     @State var slashFilter = ""
@@ -161,8 +160,7 @@ struct ComposerView: View {
         // visible text coloring.
         if hasSlashHighlight {
             Text(slashHighlightedText(font: font))
-                .lineLimit(1...)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1...11)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
@@ -175,8 +173,7 @@ struct ComposerView: View {
             + Text(ghostSuffix)
                 .font(font)
                 .foregroundColor(VColor.textSecondary.opacity(0.55)))
-                .lineLimit(1...)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1...11)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
@@ -191,7 +188,7 @@ struct ComposerView: View {
             text: $inputText,
             axis: .vertical
         )
-        .lineLimit(1...)
+        .lineLimit(1...11)
         .textFieldStyle(.plain)
         .font(font)
         .foregroundColor(hasSlashHighlight ? .clear : VColor.textPrimary)
@@ -251,36 +248,32 @@ struct ComposerView: View {
         let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
         let hasSlashHighlight = slashCommandRange != nil
 
-        return ScrollView(.vertical, showsIndicators: false) {
-            ZStack(alignment: .leading) {
-                composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-                composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-            }
-            // minHeight keeps single-line text vertically centered in the
-            // compact row; .leading alignment pins text to the left edge.
-            .frame(maxWidth: .infinity, minHeight: composerCompactHeight, alignment: .leading)
-            // Reserve trailing space so text wraps before reaching the
-            // overlaid action buttons (attach + send/mic ≈ 70pt wide).
-            .padding(.trailing, 70)
-            // Measure content height BEFORE the conditional bottom padding
-            // so expansion state isn't inflated by its own padding.
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: ComposerEditorHeightKey.self, value: geo.size.height)
-                }
-            )
-            // Reserve bottom space so the last visible line isn't hidden
-            // behind the buttons when the composer is expanded.
-            .padding(.bottom, isComposerExpanded ? composerActionButtonSize : 0)
+        return ZStack(alignment: .leading) {
+            composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
+            composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
         }
+        // minHeight keeps single-line text vertically centered in the
+        // compact row; .leading alignment pins text to the left edge.
+        .frame(maxWidth: .infinity, minHeight: composerCompactHeight, alignment: .leading)
+        // Reserve trailing space so text wraps before reaching the
+        // overlaid action buttons (attach + send/mic ≈ 70pt wide).
+        .padding(.trailing, 70)
+        // Measure rendered height so ChatView can compute the bottom
+        // safe-area inset. With bounded lineLimit the TextField auto-grows
+        // and scrolls natively — no ScrollView or manual frame sizing needed.
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: ComposerEditorHeightKey.self, value: geo.size.height)
+            }
+        )
         .onPreferenceChange(ComposerEditorHeightKey.self) { newHeight in
-            contentHeight = newHeight
             editorContentHeight = min(max(newHeight, composerCompactHeight), composerMaxHeight)
             isComposerExpanded = newHeight > composerCompactHeight
         }
-        .scrollBounceBehavior(.basedOnSize)
+        // Reserve bottom space so the last visible line isn't hidden
+        // behind the buttons when the composer is expanded.
+        .padding(.bottom, isComposerExpanded ? composerActionButtonSize : 0)
         .accessibilityLabel("Message")
-        .frame(height: min(max(contentHeight, composerCompactHeight), composerMaxHeight), alignment: .topLeading)
         .frame(maxWidth: .infinity)
         .background(
             ComposerFocusBridge(
