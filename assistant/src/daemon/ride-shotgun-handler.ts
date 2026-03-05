@@ -427,6 +427,10 @@ export async function handleRideShotgunStart(
 
   // Set timeout for duration expiry
   session.timeoutHandle = setTimeout(() => {
+    if (!activeRecorders.has(watchId) && !session.bootstrapFailureReason) {
+      session.bootstrapFailureReason =
+        "session timed out before recording could start.";
+    }
     completeSession(session);
   }, durationSeconds * 1000);
 
