@@ -12,7 +12,9 @@ export async function checkBrowserRuntime(): Promise<BrowserRuntimeStatus> {
   let chromium: { executablePath: () => string };
   try {
     const pw = await import("playwright");
-    chromium = pw.chromium;
+    // In compiled Bun binaries, CJS→ESM interop may place named exports
+    // under .default instead of at the top level of the module namespace.
+    chromium = pw.chromium ?? (pw.default as typeof pw | undefined)?.chromium;
   } catch {
     return {
       playwrightAvailable: false,
