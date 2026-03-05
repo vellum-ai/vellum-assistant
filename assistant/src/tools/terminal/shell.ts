@@ -10,7 +10,6 @@ import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
   getSessionEnv,
-  TRUSTED_HOSTS,
 } from "../network/script-proxy/index.js";
 import { registerTool } from "../registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
@@ -180,18 +179,16 @@ class ShellTool implements Tool {
         ? { ...config.sandbox, enabled: context.sandboxOverride }
         : config.sandbox;
 
-    // Acquire a proxy session.
-    //
-    // - "proxied" mode: full proxy with credential injection.
-    // - "off" mode: a lightweight "platform-only" proxy that allows traffic
-    //   only to platform.vellum.ai (e.g. for `vellum skills list`).
+    // Acquire a proxy session.  The policy engine always allows trusted
+    // hosts (*.vellum.ai, localhost) so commands like `vellum skills list`
+    // work even in network_mode="off".  For "proxied" mode, credential
+    // injection also kicks in.
     //
     // `getOrStartSession` serializes per-conversation so concurrent commands
     // share a single session instead of each creating one.
     // Sessions are NOT stopped here — the session manager's idle timer handles
     // cleanup after all commands finish (see resetIdleTimer / stopAllSessions).
     let proxyEnv: ProxyEnvVars | null = null;
-    const allowedHosts = networkMode === "off" ? TRUSTED_HOSTS : undefined;
 
     try {
       const { session } = await getOrStartSession(
@@ -200,15 +197,14 @@ class ShellTool implements Tool {
         undefined,
         getDataDir(),
         context.proxyApprovalCallback,
-        { allowedHosts },
       );
       proxyEnv = getSessionEnv(session.id);
     } catch (err) {
       log.error({ err }, "Failed to start proxy session");
-      // For platform-only sessions, failing to start the proxy is non-fatal —
-      // the command simply won't be able to reach the platform API, which is
+      // For network_mode="off", failing to start the proxy is non-fatal —
+      // the command simply won't be able to reach trusted hosts, which is
       // the same behavior as before this change.
-      if (!allowedHosts) {
+      if (networkMode === "proxied") {
         return {
           content: `Error: failed to start proxy session — ${
             err instanceof Error ? err.message : String(err)

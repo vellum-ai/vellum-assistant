@@ -43,16 +43,31 @@ const DEFAULT_CONFIG: ProxySessionConfig = {
 };
 
 /**
- * Hosts that are trusted by default and always reachable, even when
- * `network_mode="off"`. When a proxy session is created with
- * `allowedHosts` set to this value, only requests targeting these hosts
- * are allowed through; everything else is blocked.
+ * Host patterns that are trusted by default and always allowed through the
+ * proxy policy engine, regardless of session configuration. Supports exact
+ * matches (e.g. `"localhost"`) and wildcard subdomain patterns (e.g.
+ * `"*.vellum.ai"` matches `platform.vellum.ai`, `dev-platform.vellum.ai`,
+ * etc.).
  */
-export const TRUSTED_HOSTS: ReadonlySet<string> = new Set([
-  "platform.vellum.ai",
-  "dev-platform.vellum.ai",
-  "localhost",
-]);
+const TRUSTED_HOST_PATTERNS: readonly string[] = ["*.vellum.ai", "localhost"];
+
+/**
+ * Returns `true` when `hostname` matches any entry in
+ * {@link TRUSTED_HOST_PATTERNS}.
+ */
+function isTrustedHost(hostname: string): boolean {
+  for (const pattern of TRUSTED_HOST_PATTERNS) {
+    if (pattern.startsWith("*.")) {
+      const suffix = pattern.slice(1); // e.g. ".vellum.ai"
+      if (hostname.endsWith(suffix) || hostname === pattern.slice(2)) {
+        return true;
+      }
+    } else if (hostname === pattern) {
+      return true;
+    }
+  }
+  return false;
+}
 
 interface ManagedSession {
   session: ProxySession;
@@ -67,12 +82,6 @@ interface ManagedSession {
   stopPromise: Promise<void> | null;
   /** Path to the combined CA bundle, set only when ensureCombinedCABundle succeeds. */
   combinedCABundlePath: string | null;
-  /**
-   * When set, only requests targeting hosts in this set are allowed through
-   * the proxy; everything else is blocked. When `null`, the full policy
-   * engine is consulted (normal proxied mode).
-   */
-  allowedHosts: ReadonlySet<string> | null;
 }
 
 const sessions = new Map<ProxySessionId, ManagedSession>();
@@ -134,7 +143,6 @@ export function createSession(
   config?: Partial<ProxySessionConfig>,
   dataDir?: string,
   approvalCallback?: ProxyApprovalCallback,
-  options?: { allowedHosts?: ReadonlySet<string> },
 ): ProxySession {
   const merged: ProxySessionConfig = { ...DEFAULT_CONFIG, ...config };
 
@@ -166,7 +174,6 @@ export function createSession(
     listenHost: "127.0.0.1",
     stopPromise: null,
     combinedCABundlePath: null,
-    allowedHosts: options?.allowedHosts ?? null,
   });
 
   return cloneSession(session);
@@ -329,15 +336,11 @@ export async function startSession(
     reqPath: string,
     scheme: "http" | "https",
   ) => {
-    // Restricted sessions only allow traffic to their allowedHosts set.
-    // Everything else is blocked without even consulting the policy engine.
-    if (managed.allowedHosts) {
-      if (managed.allowedHosts.has(hostname)) {
-        log.debug({ hostname }, "Restricted session: allowing trusted host");
-        return {};
-      }
-      log.debug({ hostname }, "Restricted session: blocking non-trusted host");
-      return null;
+    // Trusted hosts are always allowed through the proxy, regardless of
+    // session configuration or credential state.
+    if (isTrustedHost(hostname)) {
+      log.debug({ hostname }, "Allowing trusted host");
+      return {};
     }
 
     const decision = evaluateRequestWithApproval(
@@ -533,21 +536,16 @@ export async function getOrStartSession(
   config?: Partial<ProxySessionConfig>,
   dataDir?: string,
   approvalCallback?: ProxyApprovalCallback,
-  options?: { listenHost?: string; allowedHosts?: ReadonlySet<string> },
+  options?: { listenHost?: string },
 ): Promise<{ session: ProxySession; created: boolean }> {
   const requestedHost = options?.listenHost ?? "127.0.0.1";
-  const requestedAllowedHosts = options?.allowedHosts ?? null;
 
-  // Fast path — session already active with matching credentials, listen host,
-  // and allowedHosts, no lock needed.
+  // Fast path — session already active with matching credentials and listen
+  // host, no lock needed.
   const existing = getActiveSession(conversationId);
   if (existing && credentialIdsMatch(existing.credentialIds, credentialIds)) {
     const managed = sessions.get(existing.id);
-    if (
-      managed &&
-      managed.listenHost === requestedHost &&
-      managed.allowedHosts === requestedAllowedHosts
-    ) {
+    if (managed && managed.listenHost === requestedHost) {
       return { session: existing, created: false };
     }
   }
@@ -566,17 +564,13 @@ export async function getOrStartSession(
     const session = await inflight;
     if (credentialIdsMatch(session.credentialIds, credentialIds)) {
       const m = sessions.get(session.id);
-      if (
-        m &&
-        m.listenHost === requestedHost &&
-        m.allowedHosts === requestedAllowedHosts
-      ) {
+      if (m && m.listenHost === requestedHost) {
         return { session, created: false };
       }
     }
-    // Credential, listenHost, or allowedHosts mismatch — tear down and loop
-    // back to re-check whether another waiter has already started a
-    // replacement session.
+    // Credential or listenHost mismatch — tear down and loop back to
+    // re-check whether another waiter has already started a replacement
+    // session.
     await stopSession(session.id);
   }
 
@@ -589,8 +583,7 @@ export async function getOrStartSession(
       if (
         credentialIdsMatch(recheck.credentialIds, credentialIds) &&
         m &&
-        m.listenHost === requestedHost &&
-        m.allowedHosts === requestedAllowedHosts
+        m.listenHost === requestedHost
       ) {
         return { session: recheck, created: false };
       }
@@ -603,9 +596,6 @@ export async function getOrStartSession(
       config,
       dataDir,
       approvalCallback,
-      requestedAllowedHosts
-        ? { allowedHosts: requestedAllowedHosts }
-        : undefined,
     );
     const started = await startSession(session.id, options);
     return { session: started, created: true };

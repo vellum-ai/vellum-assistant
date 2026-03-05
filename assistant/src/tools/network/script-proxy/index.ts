@@ -7,5 +7,4 @@ export {
   startSession,
   stopAllSessions,
   stopSession,
-  TRUSTED_HOSTS,
 } from "./session-manager.js";
