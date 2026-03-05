@@ -24,7 +24,7 @@ import {
   getPendingChallenge,
   resolveBootstrapToken,
 } from "../../channel-guardian-service.js";
-import { getTransport } from "../../channel-invite-transport.js";
+import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import { redeemInvite } from "../../invite-redemption-service.js";
 import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
@@ -146,8 +146,8 @@ export async function enforceIngressAcl(
     !Array.isArray(rawCommandIntentForAcl)
       ? (rawCommandIntentForAcl as Record<string, unknown>)
       : undefined;
-  const inviteTransport = getTransport(sourceChannel);
-  const inviteToken = inviteTransport?.extractInboundToken({
+  const inviteAdapter = getInviteAdapterRegistry().get(sourceChannel);
+  const inviteToken = inviteAdapter?.extractInboundToken?.({
     commandIntent: commandIntentForAcl,
     content: trimmedContent,
     sourceMetadata,

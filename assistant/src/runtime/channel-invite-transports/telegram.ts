@@ -1,5 +1,5 @@
 /**
- * Telegram channel invite transport adapter.
+ * Telegram channel invite adapter.
  *
  * Builds `https://t.me/<botUsername>?start=iv_<token>` deep links and
  * extracts invite tokens from `/start iv_<token>` command payloads.
@@ -10,10 +10,9 @@
 
 import type { ChannelId } from "../../channels/types.js";
 import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
-import {
-  type ChannelInviteTransport,
-  type InviteSharePayload,
-  registerTransport,
+import type {
+  ChannelInviteAdapter,
+  InviteShareLink,
 } from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
@@ -44,16 +43,16 @@ function getTelegramBotUsername(): string | undefined {
 const INVITE_TOKEN_PREFIX = "iv_";
 
 // ---------------------------------------------------------------------------
-// Transport implementation
+// Adapter implementation
 // ---------------------------------------------------------------------------
 
-export const telegramInviteTransport: ChannelInviteTransport = {
+export const telegramInviteAdapter: ChannelInviteAdapter = {
   channel: "telegram" as ChannelId,
 
-  buildShareableInvite(params: {
+  buildShareLink(params: {
     rawToken: string;
     sourceChannel: ChannelId;
-  }): InviteSharePayload {
+  }): InviteShareLink {
     const botUsername = getTelegramBotUsername();
     if (!botUsername) {
       throw new Error(
@@ -105,7 +104,8 @@ export const telegramInviteTransport: ChannelInviteTransport = {
 };
 
 // ---------------------------------------------------------------------------
-// Auto-register on import
+// Backward-compatible alias
 // ---------------------------------------------------------------------------
 
-registerTransport(telegramInviteTransport);
+/** @deprecated Use `telegramInviteAdapter` instead. */
+export const telegramInviteTransport = telegramInviteAdapter;

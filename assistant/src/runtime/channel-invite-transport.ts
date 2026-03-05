@@ -1,13 +1,15 @@
 /**
- * Channel invite transport abstraction.
+ * Channel invite adapter abstraction.
  *
- * Defines a transport interface for building shareable invite links and
- * extracting inbound invite tokens from channel-specific payloads. Each
- * channel (Telegram, SMS, Slack, etc.) registers an adapter that knows
- * how to construct deep links and parse incoming tokens for that channel.
+ * Defines an adapter interface for building shareable invite links,
+ * extracting inbound invite tokens, and generating guardian instructions
+ * from channel-specific payloads. Each channel (Telegram, voice, etc.)
+ * registers an adapter that knows how to handle invite flows for that
+ * channel.
  *
- * The transport layer is intentionally thin: it handles URL construction
- * and token extraction only. Redemption logic lives in
+ * All methods are optional: a channel that only provides
+ * `buildGuardianInstruction` (e.g. SMS) is a valid adapter. The adapter
+ * layer is intentionally thin — redemption logic lives in
  * `invite-redemption-service.ts`.
  */
 
@@ -17,71 +19,142 @@ import type { ChannelId } from "../channels/types.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface InviteSharePayload {
+export interface InviteShareLink {
   /** The full URL the recipient can open to redeem the invite. */
   url: string;
   /** Human-readable text suitable for display alongside the link. */
   displayText: string;
 }
 
-export interface ChannelInviteTransport {
-  /** The channel this transport handles. */
+export interface ChannelInviteAdapter {
+  /** The channel this adapter handles. */
   channel: ChannelId;
 
   /**
-   * Build a shareable invite payload (URL + display text) from a raw token.
-   *
-   * The raw token is the base64url-encoded secret returned by
-   * `invite-store.createInvite`. The transport wraps it in a
-   * channel-specific deep link so the recipient can redeem the invite
-   * by clicking/tapping the link.
+   * Build a channel-specific shareable link (e.g. Telegram deep link).
+   * Optional — not all channels support link-based invites.
    */
-  buildShareableInvite(params: {
+  buildShareLink?(params: {
     rawToken: string;
     sourceChannel: ChannelId;
-  }): InviteSharePayload;
+  }): InviteShareLink;
 
   /**
-   * Extract an invite token from an inbound channel message.
-   *
-   * Returns the raw token string (without the `iv_` prefix) if the
-   * message contains a valid invite token, or `undefined` otherwise.
+   * Extract a channel-specific invite token from an inbound message
+   * (e.g. Telegram `/start iv_<token>`). Optional — only needed for
+   * channels with link-based invites.
    */
-  extractInboundToken(params: {
+  extractInboundToken?(params: {
     commandIntent?: Record<string, unknown>;
     content: string;
     sourceMetadata?: Record<string, unknown>;
   }): string | undefined;
+
+  /**
+   * Build guardian instruction text for this channel. Optional — falls
+   * back to generic instruction if not implemented.
+   */
+  buildGuardianInstruction?(params: {
+    inviteCode: string;
+    contactName?: string;
+  }): string;
 }
+
+// ---------------------------------------------------------------------------
+// Backward-compatible type aliases
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use `ChannelInviteAdapter` instead. */
+export type ChannelInviteTransport = ChannelInviteAdapter;
+
+/** @deprecated Use `InviteShareLink` instead. */
+export type InviteSharePayload = InviteShareLink;
 
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
-const registry = new Map<ChannelId, ChannelInviteTransport>();
+export class InviteAdapterRegistry {
+  private adapters = new Map<ChannelId, ChannelInviteAdapter>();
 
-/**
- * Register a channel invite transport. Overwrites any previously registered
- * transport for the same channel.
- */
-export function registerTransport(transport: ChannelInviteTransport): void {
-  registry.set(transport.channel, transport);
+  /**
+   * Register a channel invite adapter. Overwrites any previously
+   * registered adapter for the same channel.
+   */
+  register(adapter: ChannelInviteAdapter): void {
+    this.adapters.set(adapter.channel, adapter);
+  }
+
+  /**
+   * Look up the registered adapter for a channel. Returns `undefined`
+   * when no adapter has been registered for the given channel.
+   */
+  get(channel: ChannelId): ChannelInviteAdapter | undefined {
+    return this.adapters.get(channel);
+  }
+
+  /** Return all registered adapters. */
+  getAll(): ChannelInviteAdapter[] {
+    return Array.from(this.adapters.values());
+  }
+
+  /**
+   * Reset the registry. Intended for tests only.
+   * @internal
+   */
+  _reset(): void {
+    this.adapters.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Singleton registry + backward-compatible free functions
+// ---------------------------------------------------------------------------
+
+import { telegramInviteAdapter } from "./channel-invite-transports/telegram.js";
+import { voiceInviteAdapter } from "./channel-invite-transports/voice.js";
+
+/** Create a registry instance with built-in adapters registered. */
+export function createInviteAdapterRegistry(): InviteAdapterRegistry {
+  const registry = new InviteAdapterRegistry();
+  registry.register(telegramInviteAdapter);
+  registry.register(voiceInviteAdapter);
+  return registry;
 }
 
 /**
- * Look up the registered transport for a channel. Returns `undefined` when
- * no transport has been registered for the given channel.
+ * Module-level singleton registry, created eagerly so callers that
+ * import the free functions continue to work without changes.
+ */
+const defaultRegistry = createInviteAdapterRegistry();
+
+/** Return the module-level singleton registry. */
+export function getInviteAdapterRegistry(): InviteAdapterRegistry {
+  return defaultRegistry;
+}
+
+/**
+ * Register a channel invite adapter on the default registry.
+ * @deprecated Prefer `getInviteAdapterRegistry().register(adapter)`.
+ */
+export function registerTransport(transport: ChannelInviteAdapter): void {
+  defaultRegistry.register(transport);
+}
+
+/**
+ * Look up the registered adapter for a channel on the default registry.
+ * @deprecated Prefer `getInviteAdapterRegistry().get(channel)`.
  */
 export function getTransport(
   channel: ChannelId,
-): ChannelInviteTransport | undefined {
-  return registry.get(channel);
+): ChannelInviteAdapter | undefined {
+  return defaultRegistry.get(channel);
 }
 
 /**
- * Reset the registry. Intended for tests only.
+ * Reset the default registry. Intended for tests only.
  * @internal
  */
 export function _resetRegistry(): void {
-  registry.clear();
+  defaultRegistry._reset();
 }

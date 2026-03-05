@@ -17,19 +17,19 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 import {
   _resetRegistry,
-  type ChannelInviteTransport,
+  type ChannelInviteAdapter,
+  getInviteAdapterRegistry,
   getTransport,
   registerTransport,
 } from "../runtime/channel-invite-transport.js";
-// Importing the Telegram module auto-registers the transport
-import { telegramInviteTransport } from "../runtime/channel-invite-transports/telegram.js";
+import { telegramInviteAdapter } from "../runtime/channel-invite-transports/telegram.js";
 
 describe("channel-invite-transport", () => {
   beforeEach(() => {
     _resetRegistry();
     mockBotUsername = "test_invite_bot";
     // Re-register after reset so Telegram tests work
-    registerTransport(telegramInviteTransport);
+    registerTransport(telegramInviteAdapter);
   });
 
   // =========================================================================
@@ -37,46 +37,58 @@ describe("channel-invite-transport", () => {
   // =========================================================================
 
   describe("registry", () => {
-    test("returns the Telegram transport for telegram channel", () => {
-      const transport = getTransport("telegram");
-      expect(transport).toBeDefined();
-      expect(transport!.channel).toBe("telegram");
+    test("returns the Telegram adapter for telegram channel", () => {
+      const adapter = getTransport("telegram");
+      expect(adapter).toBeDefined();
+      expect(adapter!.channel).toBe("telegram");
     });
 
     test("returns undefined for an unregistered channel", () => {
-      const transport = getTransport("sms");
-      expect(transport).toBeUndefined();
+      const adapter = getTransport("sms");
+      expect(adapter).toBeUndefined();
     });
 
-    test("overwrites a previously registered transport for the same channel", () => {
-      const custom: ChannelInviteTransport = {
+    test("overwrites a previously registered adapter for the same channel", () => {
+      const custom: ChannelInviteAdapter = {
         channel: "telegram",
-        buildShareableInvite: () => ({ url: "custom", displayText: "custom" }),
+        buildShareLink: () => ({ url: "custom", displayText: "custom" }),
         extractInboundToken: () => undefined,
       };
       registerTransport(custom);
-      const transport = getTransport("telegram");
+      const adapter = getTransport("telegram");
       expect(
-        transport!.buildShareableInvite({
+        adapter!.buildShareLink!({
           rawToken: "x",
           sourceChannel: "telegram",
         }).url,
       ).toBe("custom");
     });
 
-    test("_resetRegistry clears all transports", () => {
+    test("_resetRegistry clears all adapters", () => {
       _resetRegistry();
       expect(getTransport("telegram")).toBeUndefined();
+    });
+
+    test("getInviteAdapterRegistry returns the singleton registry", () => {
+      const registry = getInviteAdapterRegistry();
+      expect(registry.get("telegram")).toBeDefined();
+    });
+
+    test("registry.getAll returns all registered adapters", () => {
+      const registry = getInviteAdapterRegistry();
+      const all = registry.getAll();
+      expect(all.length).toBeGreaterThanOrEqual(1);
+      expect(all.some((a) => a.channel === "telegram")).toBe(true);
     });
   });
 
   // =========================================================================
-  // Telegram adapter — buildShareableInvite
+  // Telegram adapter — buildShareLink
   // =========================================================================
 
-  describe("telegram buildShareableInvite", () => {
+  describe("telegram buildShareLink", () => {
     test("produces a valid Telegram deep link", () => {
-      const result = telegramInviteTransport.buildShareableInvite!({
+      const result = telegramInviteAdapter.buildShareLink!({
         rawToken: "abc123_test-token",
         sourceChannel: "telegram",
       });
@@ -90,11 +102,11 @@ describe("channel-invite-transport", () => {
     });
 
     test("deep link is deterministic for the same token", () => {
-      const a = telegramInviteTransport.buildShareableInvite!({
+      const a = telegramInviteAdapter.buildShareLink!({
         rawToken: "tok1",
         sourceChannel: "telegram",
       });
-      const b = telegramInviteTransport.buildShareableInvite!({
+      const b = telegramInviteAdapter.buildShareLink!({
         rawToken: "tok1",
         sourceChannel: "telegram",
       });
@@ -104,7 +116,7 @@ describe("channel-invite-transport", () => {
 
     test("uses the configured bot username", () => {
       mockBotUsername = "my_custom_bot";
-      const result = telegramInviteTransport.buildShareableInvite!({
+      const result = telegramInviteAdapter.buildShareLink!({
         rawToken: "token",
         sourceChannel: "telegram",
       });
@@ -118,7 +130,7 @@ describe("channel-invite-transport", () => {
       delete process.env.TELEGRAM_BOT_USERNAME;
       try {
         expect(() =>
-          telegramInviteTransport.buildShareableInvite!({
+          telegramInviteAdapter.buildShareLink!({
             rawToken: "token",
             sourceChannel: "telegram",
           }),
@@ -133,7 +145,7 @@ describe("channel-invite-transport", () => {
       const prev = process.env.TELEGRAM_BOT_USERNAME;
       process.env.TELEGRAM_BOT_USERNAME = "env_bot";
       try {
-        const result = telegramInviteTransport.buildShareableInvite!({
+        const result = telegramInviteAdapter.buildShareLink!({
           rawToken: "token",
           sourceChannel: "telegram",
         });
@@ -154,7 +166,7 @@ describe("channel-invite-transport", () => {
 
   describe("telegram extractInboundToken", () => {
     test("extracts token from structured commandIntent", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "start", payload: "iv_abc123" },
         content: "/start iv_abc123",
       });
@@ -162,7 +174,7 @@ describe("channel-invite-transport", () => {
     });
 
     test("extracts base64url token from commandIntent", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "start", payload: "iv_YWJjMTIz-_test" },
         content: "/start iv_YWJjMTIz-_test",
       });
@@ -170,7 +182,7 @@ describe("channel-invite-transport", () => {
     });
 
     test("returns undefined when commandIntent has no payload", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "start" },
         content: "/start",
       });
@@ -178,7 +190,7 @@ describe("channel-invite-transport", () => {
     });
 
     test("returns undefined when commandIntent payload has wrong prefix (gv_)", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "start", payload: "gv_abc123" },
         content: "/start gv_abc123",
       });
@@ -186,7 +198,7 @@ describe("channel-invite-transport", () => {
     });
 
     test("returns undefined when commandIntent payload has no prefix", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "start", payload: "abc123" },
         content: "/start abc123",
       });
@@ -194,7 +206,7 @@ describe("channel-invite-transport", () => {
     });
 
     test("returns undefined when commandIntent type is not start", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "help", payload: "iv_abc123" },
         content: "/help iv_abc123",
       });
@@ -202,7 +214,7 @@ describe("channel-invite-transport", () => {
     });
 
     test("returns undefined when commandIntent payload is iv_ with empty token", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "start", payload: "iv_" },
         content: "/start iv_",
       });
@@ -210,7 +222,7 @@ describe("channel-invite-transport", () => {
     });
 
     test("returns undefined when commandIntent payload is iv_ with whitespace-only token", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "start", payload: "iv_   " },
         content: "/start iv_   ",
       });
@@ -218,49 +230,49 @@ describe("channel-invite-transport", () => {
     });
 
     test("extracts token from raw content fallback", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         content: "/start iv_abc123",
       });
       expect(token).toBe("abc123");
     });
 
     test("extracts token from raw content with extra whitespace", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         content: "/start   iv_token123",
       });
       expect(token).toBe("token123");
     });
 
     test("returns undefined for empty content", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         content: "",
       });
       expect(token).toBeUndefined();
     });
 
     test("returns undefined for content without /start", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         content: "hello world",
       });
       expect(token).toBeUndefined();
     });
 
     test("returns undefined for /start without iv_ prefix in content", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         content: "/start gv_abc123",
       });
       expect(token).toBeUndefined();
     });
 
     test("returns undefined for malformed /start with only iv_ in content", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         content: "/start iv_",
       });
       expect(token).toBeUndefined();
     });
 
     test("prefers commandIntent over raw content", () => {
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "start", payload: "iv_from_intent" },
         content: "/start iv_from_content",
       });
@@ -269,7 +281,7 @@ describe("channel-invite-transport", () => {
 
     test("returns undefined when commandIntent rejects, even if content has token", () => {
       // commandIntent present but payload has wrong prefix
-      const token = telegramInviteTransport.extractInboundToken({
+      const token = telegramInviteAdapter.extractInboundToken!({
         commandIntent: { type: "start", payload: "gv_abc123" },
         content: "/start iv_valid_token",
       });
