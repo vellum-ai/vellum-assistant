@@ -1619,7 +1619,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Omits the `id` field to trigger creation instead of update.
     /// Routes through `HTTPTransport` when available so that managed-mode
     /// URL paths and auth headers are applied correctly. Falls back to the
-    /// local gateway (port 7830) for socket-based connections.
+    /// local daemon HTTP server for socket-based connections.
     public func createContact(
         displayName: String,
         relationship: String? = nil,
@@ -1635,16 +1635,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             )
         }
 
-        #if os(macOS)
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
+        guard let local = resolveLocalDaemonHTTPEndpoint() else { return nil }
 
-        guard let url = URL(string: "\(baseURL)/v1/contacts") else { return nil }
+        guard let url = URL(string: "\(local.baseURL)/v1/contacts") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = readHttpToken(), !token.isEmpty {
+        if let token = local.bearerToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -1669,9 +1666,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         let decoded = try JSONDecoder().decode(UpsertResponse.self, from: data)
         return decoded.contact
-        #else
-        return nil
-        #endif
     }
 
     /// Send a verification code to a contact's channel via the gateway.
