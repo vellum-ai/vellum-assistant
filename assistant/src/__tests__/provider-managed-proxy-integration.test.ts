@@ -38,13 +38,13 @@ import { initializeProviders, listProviders } from "../providers/registry.js";
 const PLATFORM_BASE = "https://platform.example.com";
 const MANAGED_API_KEY = "ast-managed-key-123";
 
-const MANAGED_PROVIDERS = [
+const MANAGED_PROVIDERS: string[] = [
   "openai",
   "anthropic",
   "gemini",
   "fireworks",
   "openrouter",
-] as const;
+];
 
 function enableManagedProxy() {
   mockManagedEnabled = true;
@@ -81,7 +81,7 @@ describe("managed proxy integration — credential precedence", () => {
   describe("user keys present → providers use direct connections (not proxy)", () => {
     test.each(MANAGED_PROVIDERS)(
       "%s registers when user key is provided regardless of managed context",
-      (provider) => {
+      (provider: string) => {
         enableManagedProxy();
         initializeProviders({
           apiKeys: userKeysFor(provider),
@@ -122,7 +122,7 @@ describe("managed proxy integration — credential precedence", () => {
   describe("user keys absent + managed context available → providers use managed proxy", () => {
     test.each(MANAGED_PROVIDERS)(
       "%s registers via managed fallback when no user key",
-      (provider) => {
+      (provider: string) => {
         enableManagedProxy();
         initializeProviders({
           apiKeys: {},
@@ -151,7 +151,7 @@ describe("managed proxy integration — credential precedence", () => {
   describe("neither user keys nor managed context → providers not initialized", () => {
     test.each(MANAGED_PROVIDERS)(
       "%s is NOT registered when no user key and no managed context",
-      (provider) => {
+      (provider: string) => {
         disableManagedProxy();
         initializeProviders({
           apiKeys: {},
