@@ -35,7 +35,7 @@ extension AppDelegate {
             state: state,
             daemonClient: daemonClient,
             authManager: authManager,
-            managedBootstrapEnabled: isCurrentAssistantManaged,
+            managedBootstrapEnabled: true,
             onComplete: { [weak self] in
                 self?.proceedToApp()
             },
