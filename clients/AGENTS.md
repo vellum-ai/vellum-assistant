@@ -67,8 +67,8 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 | Multi-line text input | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
 | Auto-growing height | `.lineLimit(1...N)` | Manual height sync + frame clamping |
-| Return-to-send in chat input | `TextField(axis: .vertical)` + `.onSubmit { send() }` | Custom `.onKeyPress(.return)` or AppKit event monitor for Return routing |
-| Newline in chat input | Native Option+Return / Shift+Return (free with `.onSubmit`) | Manual `insertText("\n")` or `insertNewlineIgnoringFieldEditor` via AppKit bridge |
+| Return-to-send in chat input | AppKit event monitor consuming plain Return → send callback | `.onKeyPress(.return)` (returning `.ignored` doesn't reach the TextField) or `.onSubmit` (fires on Shift+Return too, breaking newline) |
+| Newline on Shift/Option+Return | AppKit event monitor consuming event + `insertText("\\n")` on field editor | Passing the event through to the field editor (triggers "end editing" and selects all text) |
 | Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
 | Attributed/colored text display | `AttributedString` + `Text` overlay | `layoutManager.addTemporaryAttributes` |
 | File drag-drop | `.onDrop(of: [.fileURL])` | `performDragOperation` override |
@@ -78,6 +78,7 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 **When AppKit bridges are still needed** (keep them minimal — only AppKit-specific logic, no business logic or layout):
 - Intercepting `Cmd+V` for image paste detection (pasteboard inspection not available in SwiftUI)
 - Intercepting `Cmd+Enter` as a key equivalent before the field editor consumes it
+- Routing all Return-key events in chat inputs (send vs newline). SwiftUI's `.onKeyPress(.return)` returning `.ignored` does not pass the event back to the TextField, and `.onSubmit` fires on Shift+Return too (breaking newline insertion). The AppKit monitor must consume all Return events and use `NSTextView.insertText("\n")` on the field editor for newline cases — never pass Return through to the field editor, which triggers "end editing" and selects all text.
 - Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
 - Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
 

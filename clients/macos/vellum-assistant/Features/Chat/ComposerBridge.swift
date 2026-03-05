@@ -36,12 +36,17 @@ struct ComposerEditorHeightKey: PreferenceKey {
 ///   keystrokes auto-focus the composer when nothing else is focused.
 /// - Registers the composer container view for click-away-to-blur detection.
 /// - Intercepts Cmd+V when the pasteboard contains image content.
-/// - Intercepts Cmd+Enter for send when cmdEnterToSend is enabled.
+/// - Routes all Return-key events: sends the message or inserts a newline
+///   depending on `cmdEnterToSend`. Events are always consumed (never passed
+///   through to the field editor) to avoid macOS field-editor quirks where
+///   Shift+Return triggers "end editing" and selects all text.
+///   Default mode: plain Return sends; Shift/Option+Return inserts newline.
+///   Cmd+Enter mode: Cmd+Return sends; all other Returns insert newline.
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
     let cmdEnterToSend: Bool
     let onImagePaste: () -> Void
-    let onCmdEnterSend: () -> Void
+    let onSend: () -> Void
     let onRedirectKeystroke: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -110,12 +115,36 @@ struct ComposerFocusBridge: NSViewRepresentable {
                     return nil
                 }
 
-                // Cmd+Enter -> send (when cmdEnterToSend is enabled)
-                if self.parent.cmdEnterToSend,
-                   modifiers == [.command],
-                   event.keyCode == 36 || event.keyCode == 76 {
-                    self.parent.onCmdEnterSend()
-                    return nil
+                // Return key routing — all Return events are consumed here
+                // (never passed to the field editor) to avoid macOS quirks
+                // where modified-Return triggers "end editing" and selects
+                // all text. For newlines we insert directly via the field
+                // editor's insertText method.
+                let isReturn = event.keyCode == 36 || event.keyCode == 76
+                if isReturn {
+                    if self.parent.cmdEnterToSend {
+                        // Cmd+Enter mode: Cmd+Return sends.
+                        if modifiers == [.command] {
+                            self.parent.onSend()
+                            return nil
+                        }
+                        // Everything else inserts a newline.
+                        Self.insertNewline(in: event.window)
+                        return nil
+                    } else {
+                        // Default mode: plain Return sends.
+                        if modifiers.isEmpty {
+                            self.parent.onSend()
+                            return nil
+                        }
+                        // Shift+Return, Option+Return → newline.
+                        if modifiers == [.shift] || modifiers == [.option] {
+                            Self.insertNewline(in: event.window)
+                            return nil
+                        }
+                        // Other modifier combos (Cmd+Return, etc.) → ignore.
+                        return nil
+                    }
                 }
 
                 // Let zoom shortcuts propagate instead of being consumed
@@ -134,6 +163,13 @@ struct ComposerFocusBridge: NSViewRepresentable {
             if let monitor = eventMonitor {
                 NSEvent.removeMonitor(monitor)
                 eventMonitor = nil
+            }
+        }
+
+        /// Inserts a newline at the cursor position in the window's field editor.
+        static func insertNewline(in window: NSWindow?) {
+            if let textView = window?.firstResponder as? NSTextView {
+                textView.insertText("\n", replacementRange: textView.selectedRange())
             }
         }
 

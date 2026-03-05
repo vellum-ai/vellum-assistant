@@ -177,7 +177,7 @@ struct ComposerView: View {
         // visible text coloring.
         if hasSlashHighlight {
             Text(slashHighlightedText(font: font))
-                .lineLimit(1...100)
+                .lineLimit(1...)
                 .fixedSize(horizontal: false, vertical: true)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -191,7 +191,7 @@ struct ComposerView: View {
             + Text(ghostSuffix)
                 .font(font)
                 .foregroundColor(VColor.textSecondary.opacity(0.55)))
-                .lineLimit(1...100)
+                .lineLimit(1...)
                 .fixedSize(horizontal: false, vertical: true)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -207,16 +207,13 @@ struct ComposerView: View {
             text: $inputText,
             axis: .vertical
         )
-        .lineLimit(1...100)
+        .lineLimit(1...)
         .textFieldStyle(.plain)
         .font(font)
         .foregroundColor(hasSlashHighlight ? .clear : VColor.textPrimary)
         .tint(VColor.accent)
         .focused($composerFocus)
         .disabled(!hasAPIKey)
-        .onSubmit {
-            performSendAction()
-        }
         .onKeyPress(.tab, phases: .down) { press in
             if !press.modifiers.contains(.shift), showSlashMenu {
                 handleSlashNavigation(.tab)
@@ -286,7 +283,7 @@ struct ComposerView: View {
                 isFocused: composerFocus,
                 cmdEnterToSend: cmdEnterToSend,
                 onImagePaste: onPaste,
-                onCmdEnterSend: {
+                onSend: {
                     performSendAction()
                 },
                 onRedirectKeystroke: { chars in
@@ -410,10 +407,9 @@ struct ComposerView: View {
         }
     }
 
-    /// Shared send logic used by `.onSubmit` (native Return-to-send) and the
-    /// AppKit `ComposerFocusBridge` Cmd+Enter interception. Keeps the two paths
-    /// in sync so slash-menu selection, ghost-text acceptance, and
-    /// pending-confirmation approval all work regardless of how "send" is triggered.
+    /// Shared send logic used by the AppKit `ComposerFocusBridge` Return-key
+    /// routing. Keeps slash-menu selection, ghost-text acceptance, and
+    /// pending-confirmation approval all working regardless of how "send" is triggered.
     private func performSendAction() {
         inputText = inputText.replacingOccurrences(
             of: "\\n$", with: "", options: .regularExpression
