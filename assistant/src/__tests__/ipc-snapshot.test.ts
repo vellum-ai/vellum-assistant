@@ -101,10 +101,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: "usage_request",
     sessionId: "sess-001",
   },
-  sandbox_set: {
-    type: "sandbox_set",
-    enabled: true,
-  },
   cu_session_create: {
     type: "cu_session_create",
     sessionId: "cu-sess-001",

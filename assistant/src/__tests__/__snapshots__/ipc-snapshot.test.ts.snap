@@ -145,13 +145,6 @@ exports[`IPC message snapshots ClientMessage types usage_request serializes to e
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types sandbox_set serializes to expected JSON 1`] = `
-{
-  "enabled": true,
-  "type": "sandbox_set",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types cu_session_create serializes to expected JSON 1`] = `
 {
   "screenHeight": 1080,

@@ -3455,16 +3455,6 @@ public struct IPCRideShotgunStop: Codable, Sendable {
     }
 }
 
-public struct IPCSandboxSetRequest: Codable, Sendable {
-    public let type: String
-    public let enabled: Bool
-
-    public init(type: String, enabled: Bool) {
-        self.type = type
-        self.enabled = enabled
-    }
-}
-
 public struct IPCScheduleRemove: Codable, Sendable {
     public let type: String
     public let id: String

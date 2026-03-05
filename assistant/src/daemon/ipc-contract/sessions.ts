@@ -141,11 +141,6 @@ export interface UsageRequest {
   sessionId: string;
 }
 
-export interface SandboxSetRequest {
-  type: "sandbox_set";
-  enabled: boolean;
-}
-
 export interface SessionsClearRequest {
   type: "sessions_clear";
 }
@@ -421,7 +416,6 @@ export type _SessionsClientMessages =
   | UndoRequest
   | RegenerateRequest
   | UsageRequest
-  | SandboxSetRequest
   | SessionListRequest
   | SessionCreateRequest
   | SessionSwitchRequest

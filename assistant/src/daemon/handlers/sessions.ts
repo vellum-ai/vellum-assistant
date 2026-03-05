@@ -60,7 +60,6 @@ import type {
   MessageContentRequest,
   RegenerateRequest,
   ReorderThreadsRequest,
-  SandboxSetRequest,
   SecretResponse,
   ServerMessage,
   SessionCreateRequest,
@@ -1823,17 +1822,6 @@ export function handleUsageRequest(
   });
 }
 
-export function handleSandboxSet(
-  msg: SandboxSetRequest,
-  _socket: net.Socket,
-  _ctx: HandlerContext,
-): void {
-  log.warn(
-    { enabled: msg.enabled },
-    "Received deprecated sandbox_set message. Runtime sandbox overrides are ignored.",
-  );
-}
-
 export function handleDeleteQueuedMessage(
   msg: DeleteQueuedMessage,
   socket: net.Socket,
@@ -1999,7 +1987,6 @@ export const sessionHandlers = defineHandlers({
   undo: handleUndo,
   regenerate: handleRegenerate,
   usage_request: handleUsageRequest,
-  sandbox_set: handleSandboxSet,
   conversation_search: handleConversationSearch,
   reorder_threads: handleReorderThreads,
 });

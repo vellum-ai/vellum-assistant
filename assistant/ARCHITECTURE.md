@@ -883,7 +883,7 @@ graph LR
         C5["user_message<br/>text, attachments"]
         C6["confirmation_response<br/>decision"]
         C7["cancel / undo"]
-        C8["model_get / model_set<br/>sandbox_set (deprecated no-op)"]
+        C8["model_get / model_set"]
         C9["ping"]
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]

@@ -123,7 +123,6 @@
     "reorder_threads",
     "ride_shotgun_start",
     "ride_shotgun_stop",
-    "sandbox_set",
     "schedule_remove",
     "schedule_run_now",
     "schedule_toggle",
