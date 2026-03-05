@@ -258,6 +258,10 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
                 const downloaded = await downloadWhatsAppFile(
                   config,
                   att.fileId,
+                  {
+                    fileName: att.fileName,
+                    mimeType: att.mimeType,
+                  },
                 );
                 return uploadAttachment(config, downloaded);
               }),

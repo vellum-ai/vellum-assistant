@@ -404,6 +404,73 @@ describe("downloadWhatsAppFile", () => {
     );
   });
 
+  test("uses hint.fileName when provided instead of inferred name", async () => {
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+      if (url.includes("graph.facebook.com")) {
+        return new Response(
+          JSON.stringify({
+            url: MEDIA_URL,
+            mime_type: "application/pdf",
+            sha256: "abc",
+            file_size: 4,
+            id: MEDIA_ID,
+          }),
+        );
+      }
+
+      return new Response(new Uint8Array([0x25, 0x50, 0x44, 0x46]), {
+        headers: { "Content-Type": "application/pdf" },
+      });
+    });
+
+    const result = await downloadWhatsAppFile(makeConfig(), MEDIA_ID, {
+      fileName: "invoice.pdf",
+    });
+
+    expect(result.filename).toBe("invoice.pdf");
+    expect(result.mimeType).toBe("application/pdf");
+  });
+
+  test("uses hint.mimeType when Meta metadata is empty", async () => {
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+      if (url.includes("graph.facebook.com")) {
+        return new Response(
+          JSON.stringify({
+            url: MEDIA_URL,
+            mime_type: "",
+            sha256: "abc",
+            file_size: 3,
+            id: MEDIA_ID,
+          }),
+        );
+      }
+
+      // Unrecognizable bytes so file-type detection fails
+      return new Response(new Uint8Array([0x01, 0x02, 0x03]));
+    });
+
+    const result = await downloadWhatsAppFile(makeConfig(), MEDIA_ID, {
+      mimeType: "application/pdf",
+    });
+
+    expect(result.mimeType).toBe("application/pdf");
+    expect(result.filename).toBe("1234567890.pdf");
+  });
+
   test("throws when WhatsApp credentials are not configured", async () => {
     const config = makeConfig({
       whatsappAccessToken: undefined,
