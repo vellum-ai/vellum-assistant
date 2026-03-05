@@ -1119,6 +1119,8 @@ public final class HTTPTransport {
             let token: String?
             let share: SharePayload?
             let status: String
+            let inviteCode: String?
+            let guardianInstruction: String?
         }
         struct SharePayload: Decodable {
             let url: String
@@ -1215,8 +1217,9 @@ public final class HTTPTransport {
         sourceChannel: String,
         note: String? = nil,
         maxUses: Int? = nil,
+        contactName: String? = nil,
         isRetry: Bool = false
-    ) async throws -> (inviteId: String, token: String, shareUrl: String?)? {
+    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?)? {
         guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
 
         var request = URLRequest(url: url)
@@ -1227,6 +1230,7 @@ public final class HTTPTransport {
         var body: [String: Any] = ["sourceChannel": sourceChannel]
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
+        if let contactName { body["contactName"] = contactName }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -1235,7 +1239,7 @@ public final class HTTPTransport {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, isRetry: true)
+                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, isRetry: true)
                 }
                 return nil
             }
@@ -1244,7 +1248,7 @@ public final class HTTPTransport {
 
         let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
         guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url)
+        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction)
     }
 
     // MARK: - Channel Verification
