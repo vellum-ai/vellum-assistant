@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { renameSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
 
@@ -40,10 +40,14 @@ function extractHostFromUrl(url: string): string {
   }
 }
 
-async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
-  console.log("\u{1F5D1}\ufe0f  Stopping local daemon...\n");
+function getBaseDir(): string {
+  return process.env.BASE_DATA_DIR?.trim() || homedir();
+}
 
-  const vellumDir = join(homedir(), ".vellum");
+async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
+  console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
+
+  const vellumDir = join(getBaseDir(), ".vellum");
 
   // Stop daemon via PID file
   const daemonPidFile = join(vellumDir, "vellum.pid");
@@ -52,13 +56,10 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     socketFile,
   ]);
 
-  // Stop gateway via PID file
+  // Stop gateway via PID file — use a longer timeout because the gateway has a
+  // configurable drain window (GATEWAY_SHUTDOWN_DRAIN_MS, default 5s) before it exits.
   const gatewayPidFile = join(vellumDir, "gateway.pid");
-  await stopProcessByPidFile(gatewayPidFile, "gateway");
-
-  // Stop outbound proxy via PID file
-  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
-  await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
+  await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 
   // If the PID file didn't track a running daemon, scan for orphaned
   // daemon processes that may have been started without writing a PID.
@@ -66,11 +67,20 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     await stopOrphanedDaemonProcesses();
   }
 
-  // Move ~/.vellum out of the way so the path is immediately available for the
-  // next hatch, then kick off the tar archive in the background.
+  // Move the data directory out of the way so the path is immediately available
+  // for the next hatch, then kick off the tar archive in the background.
   const archivePath = getArchivePath(name);
   const metadataPath = getMetadataPath(name);
   const stagingDir = `${archivePath}.staging`;
+
+  if (!existsSync(vellumDir)) {
+    console.log(`   No data directory at ${vellumDir} — nothing to archive.`);
+    console.log("\u2705 Local instance retired.");
+    return;
+  }
+
+  // Ensure the retired archive directory exists before attempting the rename
+  mkdirSync(dirname(stagingDir), { recursive: true });
 
   try {
     renameSync(vellumDir, stagingDir);

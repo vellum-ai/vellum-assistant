@@ -75,7 +75,7 @@ export interface TrustContext {
   requesterDisplayName?: string;
   /** Raw sender display name as provided by the channel transport. */
   requesterSenderDisplayName?: string;
-  /** Guardian-managed member display name from ingress membership. */
+  /** Guardian-managed display name from the contact record. */
   requesterMemberDisplayName?: string;
   /** Canonical external user ID of the requester (the current actor). */
   requesterExternalUserId?: string;
@@ -103,18 +103,22 @@ export interface InboundActorContext {
   actorDisplayName?: string;
   /** Raw sender display name as provided by the channel transport. */
   actorSenderDisplayName?: string;
-  /** Guardian-managed member display name from ingress membership. */
+  /** Guardian-managed display name from the contact record. */
   actorMemberDisplayName?: string;
   /** Trust classification: guardian, trusted_contact, or unknown. */
   trustClass: "guardian" | "trusted_contact" | "unknown";
   /** Guardian identity for this (assistant, channel) binding. */
   guardianIdentity?: string;
-  /** Member status when the actor has an ingress member record. */
+  /** Member status when the actor has a contact record. */
   memberStatus?: string;
-  /** Member policy when the actor has an ingress member record. */
+  /** Member policy when the actor has a contact record. */
   memberPolicy?: string;
   /** Denial reason when access is blocked. */
   denialReason?: string;
+  /** Free-text notes about this contact. */
+  contactNotes?: string;
+  /** Number of prior interactions with this contact. */
+  contactInteractionCount?: number;
 }
 
 /**
@@ -159,6 +163,9 @@ export function inboundActorContextFromTrust(
       : undefined,
     memberPolicy: ctx.memberRecord?.channel.policy ?? undefined,
     denialReason: ctx.denialReason,
+    contactNotes: ctx.memberRecord?.contact.notes ?? undefined,
+    contactInteractionCount:
+      ctx.memberRecord?.contact.interactionCount ?? undefined,
   };
 }
 
@@ -390,24 +397,6 @@ export interface ActiveSurfaceContext {
   currentPage?: string;
   /** Pre-fetched list of files in the app directory. */
   appFiles?: string[];
-}
-
-/**
- * Append a memory-conflict clarification instruction to the last user message.
- */
-export function injectClarificationRequestIntoUserMessage(
-  message: Message,
-  question: string,
-): Message {
-  const instruction = [
-    "[Memory clarification request]",
-    `Ask this once in your response: ${question}`,
-    "After asking, continue helping with the current request.",
-  ].join("\n");
-  return {
-    ...message,
-    content: [...message.content, { type: "text", text: `\n\n${instruction}` }],
-  };
 }
 
 const MAX_CONTEXT_LENGTH = 100_000;
@@ -791,6 +780,14 @@ export function buildInboundActorContextBlock(
     lines.push(`member_policy: ${ctx.memberPolicy}`);
   }
   lines.push(`denial_reason: ${ctx.denialReason ?? "none"}`);
+  // Contact metadata — only included when the sender has a contact record
+  // with non-default values.
+  if (ctx.contactNotes) {
+    lines.push(`contact_notes: ${ctx.contactNotes}`);
+  }
+  if (ctx.contactInteractionCount != null && ctx.contactInteractionCount > 0) {
+    lines.push(`contact_interaction_count: ${ctx.contactInteractionCount}`);
+  }
   if (
     ctx.actorMemberDisplayName &&
     ctx.actorSenderDisplayName &&
@@ -1050,9 +1047,9 @@ export function stripInjectedContext(
  * - `'full'` (default): all injections are applied.
  * - `'minimal'`: only safety-critical context is injected (channel turn,
  *   interface turn, inbound actor, non-interactive marker, voice call
- *   control, channel capabilities, soft conflict). High-token optional
- *   blocks (workspace top-level, temporal, channel command, active surface)
- *   are skipped to reduce context pressure.
+ *   control, channel capabilities). High-token optional blocks (workspace
+ *   top-level, temporal, channel command, active surface) are skipped to
+ *   reduce context pressure.
  */
 export type InjectionMode = "full" | "minimal";
 
@@ -1065,7 +1062,6 @@ export type InjectionMode = "full" | "minimal";
 export function applyRuntimeInjections(
   runMessages: Message[],
   options: {
-    softConflictInstruction?: string | null;
     activeSurface?: ActiveSurfaceContext | null;
     workspaceTopLevelContext?: string | null;
     channelCapabilities?: ChannelCapabilities | null;
@@ -1109,19 +1105,6 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectVoiceCallControlContext(userTail, options.voiceCallControlPrompt),
-      ];
-    }
-  }
-
-  if (options.softConflictInstruction) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectClarificationRequestIntoUserMessage(
-          userTail,
-          options.softConflictInstruction,
-        ),
       ];
     }
   }

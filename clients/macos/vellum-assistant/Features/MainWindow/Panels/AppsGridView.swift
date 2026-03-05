@@ -134,9 +134,7 @@ struct AppsGridView: View {
                 // Preview thumbnail or icon placeholder — all corners rounded.
                 // Use a sized container with .overlay so .fill images don't overflow.
                 Group {
-                    if let preview,
-                       let data = Data(base64Encoded: preview),
-                       let nsImage = NSImage(data: data) {
+                    if let nsImage = AppPreviewImageStore.image(appId: app.id, base64: preview) {
                         Color.clear
                             .aspectRatio(16.0 / 10.0, contentMode: .fit)
                             .overlay(
@@ -187,6 +185,7 @@ struct AppsGridView: View {
                                 }
                                 try? daemonClient.sendAppDelete(appId: app.id)
                                 appListManager.removeApp(id: app.id)
+                                AppPreviewImageStore.remove(appId: app.id)
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
@@ -199,14 +198,15 @@ struct AppsGridView: View {
                         .menuIndicator(.hidden)
                     }
                     .fixedSize()
-                    .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
                     .accessibilityLabel("App actions")
                     .padding(VSpacing.sm)
+                    .contentShape(Rectangle())
+                    .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
                     .opacity(isHovered ? 1 : 0)
                     .allowsHitTesting(isHovered)
                     .animation(VAnimation.fast, value: isHovered)
                 }
-                .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+
 
                 // Name + date below the image
                 VStack(alignment: .leading, spacing: 2) {

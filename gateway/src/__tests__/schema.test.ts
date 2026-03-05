@@ -64,12 +64,13 @@ describe("/schema route", () => {
     expect(body.paths["/v1/integrations/telegram/config"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/commands"]).toBeDefined();
     expect(body.paths["/v1/integrations/telegram/setup"]).toBeDefined();
-    expect(body.paths["/v1/ingress/members"]).toBeDefined();
-    expect(body.paths["/v1/ingress/members/{memberId}"]).toBeDefined();
-    expect(body.paths["/v1/ingress/members/{memberId}/block"]).toBeDefined();
-    expect(body.paths["/v1/ingress/invites"]).toBeDefined();
-    expect(body.paths["/v1/ingress/invites/redeem"]).toBeDefined();
-    expect(body.paths["/v1/ingress/invites/{inviteId}"]).toBeDefined();
+    expect(body.paths["/v1/contacts"]).toBeDefined();
+    expect(body.paths["/v1/contacts/merge"]).toBeDefined();
+    expect(body.paths["/v1/contacts/channels/{channelId}"]).toBeDefined();
+    expect(body.paths["/v1/contacts/{contactId}"]).toBeDefined();
+    expect(body.paths["/v1/contacts/invites"]).toBeDefined();
+    expect(body.paths["/v1/contacts/invites/redeem"]).toBeDefined();
+    expect(body.paths["/v1/contacts/invites/{inviteId}"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/challenge"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/status"]).toBeDefined();
     expect(
@@ -169,25 +170,5 @@ describe("buildSchema()", () => {
         "Optional Telegram chat action to emit (currently only `typing`)",
     });
     expect(telegramDeliver.anyOf).toContainEqual({ required: ["chatAction"] });
-  });
-
-  test("ingress member block request body is optional", () => {
-    const schema = buildSchema() as {
-      paths: Record<
-        string,
-        {
-          post?: {
-            requestBody?: {
-              required?: boolean;
-            };
-          };
-        }
-      >;
-    };
-
-    const ingressMemberBlockPost =
-      schema.paths["/v1/ingress/members/{memberId}/block"]?.post;
-    expect(ingressMemberBlockPost).toBeDefined();
-    expect(ingressMemberBlockPost?.requestBody?.required).toBe(false);
   });
 });

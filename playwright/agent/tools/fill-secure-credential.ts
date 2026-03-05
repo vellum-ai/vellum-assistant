@@ -65,172 +65,118 @@ export async function execute(
   const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
   // The AppleScript:
-  // 1. Finds the Secure Credential panel window (identified by containing
-  //    a text field with accessibility identifier "secure-credential-input")
-  // 2. Focuses the secure text field and types the value
-  // 3. Clicks the Save button (identified by "secure-credential-save")
+  // 1. Finds the Secure Credential panel window (smallest window, or by "Secure Credential" text)
+  // 2. Finds the text field via `entire contents` (reliable regardless of nesting)
+  // 3. Types the env var value
+  // 4. Clicks Save (last button in the panel, or by accessibility identifier)
+  //
+  // The panel's actual hierarchy is:
+  //   window > group > scroll area > text field
+  //   window > group > scroll area > button (Cancel, Save)
   const script = `
 tell application "System Events"
   tell process "${processName}"
     set frontmost to true
-    delay 0.3
+    delay 0.5
 
-    -- Find the window containing the secure credential input.
-    -- The panel shows up as a window in the accessibility hierarchy.
+    -- Find the Secure Credential panel window.
+    -- Strategy: pick the smallest window (the panel is ~400x270, main window is much larger).
     set credentialWindow to missing value
+    set smallestArea to 9999999
     repeat with w in windows
       try
-        -- Look for the secure text field with our accessibility identifier
-        set secureFields to every text field of w whose description contains "secure-credential-input"
-        if (count of secureFields) > 0 then
+        set winSize to size of w
+        set winW to item 1 of winSize
+        set winH to item 2 of winSize
+        set winArea to winW * winH
+        if winArea < smallestArea then
+          set smallestArea to winArea
           set credentialWindow to w
-          exit repeat
-        end if
-      end try
-      try
-        -- Also check for UI elements that might be group-wrapped
-        set secureFields to every text field of every group of w whose description contains "secure-credential-input"
-        if (count of secureFields) > 0 then
-          set credentialWindow to w
-          exit repeat
         end if
       end try
     end repeat
 
-    if credentialWindow is missing value then
-      -- Fallback: look for any window with "Secure Credential" static text
-      repeat with w in windows
-        try
-          set allText to value of every static text of every group of every scroll area of w
-          -- Flatten and check for our header text
-          repeat with textGroup in allText
-            repeat with t in textGroup
-              if t as text contains "Secure Credential" then
-                set credentialWindow to w
+    -- Verify we actually found a credential panel by checking for the header text
+    if credentialWindow is not missing value then
+      try
+        set allElems to entire contents of credentialWindow
+        set foundHeader to false
+        repeat with elem in allElems
+          try
+            if class of elem is static text then
+              if value of elem is "Secure Credential" then
+                set foundHeader to true
                 exit repeat
               end if
-            end repeat
-            if credentialWindow is not missing value then exit repeat
-          end repeat
-        end try
-        if credentialWindow is not missing value then exit repeat
-      end repeat
+            end if
+          end try
+        end repeat
+        if not foundHeader then
+          set credentialWindow to missing value
+        end if
+      end try
     end if
 
     if credentialWindow is missing value then
       error "Could not find a Secure Credential panel window"
     end if
 
-    -- Focus and type into the secure text field.
-    -- Try multiple strategies to find the input field.
+    -- Find and fill the text field using entire contents (works regardless of nesting depth).
     set foundField to false
-
-    -- Strategy 1: Direct text field on the window
-    try
-      set tf to first text field of credentialWindow whose description contains "secure-credential-input"
-      set focused of tf to true
-      delay 0.2
-      set value of tf to "${escaped}"
-      set foundField to true
-    end try
-
-    -- Strategy 2: Text field inside a group
-    if not foundField then
+    set allElems to entire contents of credentialWindow
+    repeat with elem in allElems
       try
-        set allGroups to every group of credentialWindow
-        repeat with g in allGroups
-          try
-            set tf to first text field of g whose description contains "secure-credential-input"
-            set focused of tf to true
-            delay 0.2
-            set value of tf to "${escaped}"
-            set foundField to true
-            exit repeat
-          end try
-        end repeat
+        if class of elem is text field then
+          click elem
+          delay 0.3
+          set focused of elem to true
+          delay 0.2
+          -- Clear any existing content
+          keystroke "a" using command down
+          delay 0.1
+          set value of elem to "${escaped}"
+          set foundField to true
+          exit repeat
+        end if
       end try
-    end if
-
-    -- Strategy 3: Deep search inside scroll areas and groups
-    if not foundField then
-      try
-        set scrollAreas to every scroll area of credentialWindow
-        repeat with sa in scrollAreas
-          try
-            set allGroups to every group of sa
-            repeat with g in allGroups
-              try
-                set tf to first text field of g whose description contains "secure-credential-input"
-                set focused of tf to true
-                delay 0.2
-                set value of tf to "${escaped}"
-                set foundField to true
-                exit repeat
-              end try
-            end repeat
-          end try
-          if foundField then exit repeat
-        end repeat
-      end try
-    end if
-
-    -- Strategy 4: Just try the first text field in the window
-    if not foundField then
-      try
-        set tf to first text field of credentialWindow
-        click tf
-        delay 0.2
-        keystroke "${escaped}"
-        set foundField to true
-      end try
-    end if
+    end repeat
 
     if not foundField then
-      error "Could not find or focus the secure text field"
+      error "Could not find or focus the text field in the Secure Credential panel"
     end if
 
     delay 0.3
 
-    -- Click the Save button
+    -- Click the Save button.
+    -- The Save button is the last button in the panel content.
+    -- We search entire contents and pick the last button (Cancel comes first, Save last).
     set clickedSave to false
-    try
-      set saveBtn to first button of credentialWindow whose description contains "secure-credential-save"
-      click saveBtn
-      set clickedSave to true
-    end try
 
-    if not clickedSave then
-      -- Fallback: look for a button named "Save"
+    -- Strategy 1: Find button by accessibility identifier
+    repeat with elem in allElems
       try
-        set allButtons to every button of credentialWindow
-        repeat with btn in allButtons
-          if name of btn is "Save" or title of btn is "Save" then
-            click btn
-            set clickedSave to true
-            exit repeat
+        if class of elem is button and description of elem contains "secure-credential-save" then
+          click elem
+          set clickedSave to true
+          exit repeat
+        end if
+      end try
+    end repeat
+
+    -- Strategy 2: Click the last button in the panel (Save is always last)
+    if not clickedSave then
+      set lastBtn to missing value
+      repeat with elem in allElems
+        try
+          if class of elem is button then
+            set lastBtn to elem
           end if
-        end repeat
-      end try
-    end if
-
-    -- Deep search inside groups for Save button
-    if not clickedSave then
-      try
-        set allGroups to every group of credentialWindow
-        repeat with g in allGroups
-          try
-            set allButtons to every button of g
-            repeat with btn in allButtons
-              if name of btn is "Save" or description of btn contains "secure-credential-save" then
-                click btn
-                set clickedSave to true
-                exit repeat
-              end if
-            end repeat
-          end try
-          if clickedSave then exit repeat
-        end repeat
-      end try
+        end try
+      end repeat
+      if lastBtn is not missing value then
+        click lastBtn
+        set clickedSave to true
+      end if
     end if
 
     if not clickedSave then

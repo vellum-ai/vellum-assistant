@@ -533,7 +533,7 @@ function sendDaemonMessage(
 
     const timeoutHandle = setTimeout(() => {
       socket.destroy();
-      reject(new Error("Daemon request timed out after 10s"));
+      reject(new Error("Request timed out after 10s"));
     }, 10_000);
     timeoutHandle.unref();
 
@@ -550,7 +550,7 @@ function sendDaemonMessage(
       clearTimeout(timeoutHandle);
       reject(
         new Error(
-          `Cannot connect to daemon: ${err.message}. Is the daemon running?`,
+          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
         ),
       );
     });
@@ -567,7 +567,7 @@ function sendDaemonMessage(
           } else {
             clearTimeout(timeoutHandle);
             socket.destroy();
-            reject(new Error("Daemon authentication failed"));
+            reject(new Error("Authentication failed"));
           }
           continue;
         }
@@ -579,7 +579,8 @@ function sendDaemonMessage(
           socket.destroy();
           reject(
             new Error(
-              (m as { message?: string }).message ?? "Daemon returned an error",
+              (m as { message?: string }).message ??
+                "Assistant returned an error",
             ),
           );
           return;
@@ -761,7 +762,7 @@ async function startLearnSession(
     socket.on("error", (err) => {
       reject(
         new Error(
-          `Cannot connect to daemon: ${err.message}. Is the daemon running?`,
+          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
         ),
       );
     });
@@ -803,7 +804,7 @@ async function startLearnSession(
           } else {
             clearTimeout(timeoutHandle);
             socket.destroy();
-            reject(new Error("Daemon authentication failed"));
+            reject(new Error("Authentication failed"));
           }
           continue;
         }

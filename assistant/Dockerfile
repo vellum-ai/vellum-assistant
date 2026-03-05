@@ -16,16 +16,21 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
-# Copy package files
-COPY package.json bun.lock ./
+# Install assistant and CLI dependencies first for cache reuse
+COPY assistant/package.json assistant/bun.lock ./assistant/
+RUN cd /app/assistant && bun install --frozen-lockfile
 
-# Install dependencies
-RUN bun install --frozen-lockfile
+COPY cli/package.json cli/bun.lock ./cli/
+RUN cd /app/cli && bun install --frozen-lockfile
+
+# Copy source
+COPY assistant ./assistant
+COPY cli ./cli
 
 # Final stage
 FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS runner
 
-WORKDIR /app
+WORKDIR /app/assistant
 
 # Install runtime dependencies for Playwright and tree-sitter
 RUN apt-get update && apt-get install -y \
@@ -46,6 +51,10 @@ RUN apt-get update && apt-get install -y \
 # Copy bun binary from builder instead of re-installing
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
+
+# Install a vellum CLI launcher backed by the bundled local cli package
+RUN printf '#!/usr/bin/env sh\nexec bun run /app/cli/src/index.ts "$@"\n' > /usr/local/bin/vellum && \
+    chmod +x /usr/local/bin/vellum
 
 # Create non-root user that also has sudo access so it can like install stuff
 RUN groupadd --system --gid 1001 assistant && \
@@ -94,9 +103,6 @@ ENV IS_CONTAINERIZED=true
 
 # Copy from builder
 COPY --from=builder /app /app
-
-# Copy source
-COPY . .
 
 # Run the daemon + http server
 CMD ["bun", "run", "src/daemon/main.ts"]

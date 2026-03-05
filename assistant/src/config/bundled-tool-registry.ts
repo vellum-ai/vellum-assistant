@@ -146,6 +146,7 @@ import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update
 // ── slack ────────────────────────────────────────────────────────────────────
 import * as slackAddReaction from "./bundled-skills/slack/tools/slack-add-reaction.js";
 import * as slackChannelDetails from "./bundled-skills/slack/tools/slack-channel-details.js";
+import * as slackChannelPermissions from "./bundled-skills/slack/tools/slack-channel-permissions.js";
 import * as slackConfigureChannels from "./bundled-skills/slack/tools/slack-configure-channels.js";
 import * as slackDeleteMessage from "./bundled-skills/slack/tools/slack-delete-message.js";
 import * as slackLeaveChannel from "./bundled-skills/slack/tools/slack-leave-channel.js";
@@ -174,8 +175,6 @@ import * as watcherDelete from "./bundled-skills/watcher/tools/watcher-delete.js
 import * as watcherDigest from "./bundled-skills/watcher/tools/watcher-digest.js";
 import * as watcherList from "./bundled-skills/watcher/tools/watcher-list.js";
 import * as watcherUpdate from "./bundled-skills/watcher/tools/watcher-update.js";
-// ── weather ──────────────────────────────────────────────────────────────────
-import * as getWeather from "./bundled-skills/weather/tools/get-weather.js";
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
@@ -345,6 +344,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["slack:tools/slack-add-reaction.ts", slackAddReaction],
   ["slack:tools/slack-delete-message.ts", slackDeleteMessage],
   ["slack:tools/slack-leave-channel.ts", slackLeaveChannel],
+  ["slack:tools/slack-channel-permissions.ts", slackChannelPermissions],
 
   // subagent
   ["subagent:tools/subagent-spawn.ts", subagentSpawn],
@@ -373,7 +373,4 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["watcher:tools/watcher-update.ts", watcherUpdate],
   ["watcher:tools/watcher-delete.ts", watcherDelete],
   ["watcher:tools/watcher-digest.ts", watcherDigest],
-
-  // weather
-  ["weather:tools/get-weather.ts", getWeather],
 ]);

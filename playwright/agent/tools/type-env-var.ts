@@ -59,13 +59,25 @@ export async function execute(
   // fields to prevent accidental exposure of sensitive values.
   // Uses macOS Accessibility (System Events) to check the focused UI element's
   // role — "AXSecureTextField" corresponds to password/secret inputs.
+  //
+  // NOTE: `focused UI element` is a problematic AppleScript construct that
+  // causes compilation errors on some macOS versions. We use the AXFocusedUIElement
+  // attribute instead, and check across all windows since the popup may not be window 1.
   const checkScript = `
 tell application "System Events"
   tell process "${processName}"
     try
-      set focusedEl to focused UI element of window 1
-      set elRole to role of focusedEl
-      return elRole
+      -- Check each window for a focused element (popup may not be window 1)
+      repeat with w in windows
+        try
+          set focusedEl to value of attribute "AXFocusedUIElement" of w
+          if focusedEl is not missing value then
+            set elRole to value of attribute "AXRole" of focusedEl
+            return elRole
+          end if
+        end try
+      end repeat
+      return "unknown"
     on error
       return "unknown"
     end try
@@ -80,11 +92,11 @@ end tell
       timeout: 10_000,
     }).trim();
 
-    if (role !== "AXSecureTextField") {
+    if (role !== "AXSecureTextField" && role !== "AXTextField") {
       return {
         result: {
           success: false,
-          data: `Cannot type environment variable ${envVar}: the focused element is not a password or secret input field (role: ${role})`,
+          data: `Cannot type environment variable ${envVar}: the focused element is not a text input field (role: ${role}). Use fill_secure_credential instead for Secure Credential popups.`,
         },
       };
     }

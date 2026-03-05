@@ -135,7 +135,6 @@ const TEST_CONFIG = {
       enabled: true,
       gateMode: "soft" as const,
       relevanceThreshold: 0.2,
-      reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 250,
     },
     profile: {
@@ -397,7 +396,7 @@ describe("Memory lifecycle E2E regression", () => {
           confidence: 0.88,
           importance: 0.8,
           fingerprint: "fp-item-ui-existing",
-          verificationState: "assistant_inferred",
+          verificationState: "user_reported",
           scopeId: "default",
           firstSeenAt: now + 30,
           lastSeenAt: now + 30,
@@ -413,7 +412,7 @@ describe("Memory lifecycle E2E regression", () => {
           confidence: 0.84,
           importance: 0.8,
           fingerprint: "fp-item-ui-candidate",
-          verificationState: "assistant_inferred",
+          verificationState: "user_reported",
           scopeId: "default",
           firstSeenAt: now + 31,
           lastSeenAt: now + 31,
@@ -432,23 +431,25 @@ describe("Memory lifecycle E2E regression", () => {
     });
 
     const conflictGate = new ConflictGate();
-    const firstGateDecision = await conflictGate.evaluate(
+
+    // First evaluation: conflict remains pending; evaluate returns void (no
+    // user-facing output — conflict handling is fully internal)
+    const firstResult = await conflictGate.evaluate(
       "Need react roadmap update today",
       TEST_CONFIG.memory.conflicts,
     );
-    expect(firstGateDecision).not.toBeNull();
-    expect(firstGateDecision?.relevant).toBe(true);
-    expect(firstGateDecision?.question).toContain("React");
+    expect(firstResult).toBeUndefined();
 
     const pendingAfterFirstGate = getConflictById(gatedConflict.id);
     expect(pendingAfterFirstGate?.status).toBe("pending_clarification");
-    expect(pendingAfterFirstGate?.lastAskedAt).not.toBeNull();
 
-    const secondGateDecision = await conflictGate.evaluate(
+    // Second evaluation: clarification-like reply resolves the conflict
+    // internally; still no user-facing prompt is produced
+    const secondResult = await conflictGate.evaluate(
       "Use the new renderer going forward.",
       TEST_CONFIG.memory.conflicts,
     );
-    expect(secondGateDecision).toBeNull();
+    expect(secondResult).toBeUndefined();
 
     const resolvedAfterSecondGate = getConflictById(gatedConflict.id);
     expect(resolvedAfterSecondGate?.status).toBe("resolved_keep_candidate");
@@ -477,7 +478,7 @@ describe("Memory lifecycle E2E regression", () => {
           confidence: 0.83,
           importance: 0.7,
           fingerprint: "fp-item-runtime-existing",
-          verificationState: "assistant_inferred",
+          verificationState: "user_reported",
           scopeId: "default",
           firstSeenAt: now + 200,
           lastSeenAt: now + 200,
@@ -493,7 +494,7 @@ describe("Memory lifecycle E2E regression", () => {
           confidence: 0.81,
           importance: 0.7,
           fingerprint: "fp-item-runtime-candidate",
-          verificationState: "assistant_inferred",
+          verificationState: "user_reported",
           scopeId: "default",
           firstSeenAt: now + 201,
           lastSeenAt: now + 201,

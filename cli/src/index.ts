@@ -18,6 +18,7 @@ import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { retire } from "./commands/retire";
+import { skills } from "./commands/skills";
 import { sleep } from "./commands/sleep";
 import { ssh } from "./commands/ssh";
 import { tunnel } from "./commands/tunnel";
@@ -36,6 +37,7 @@ const commands = {
   ps,
   recover,
   retire,
+  skills,
   sleep,
   ssh,
   tunnel,
@@ -97,10 +99,11 @@ async function main() {
     );
     console.log("  recover  Restore a previously retired local assistant");
     console.log("  retire   Delete an assistant instance");
-    console.log("  sleep    Stop the daemon process");
+    console.log("  skills   Browse and install skills from the Vellum catalog");
+    console.log("  sleep    Stop the assistant process");
     console.log("  ssh      SSH into a remote assistant instance");
     console.log("  tunnel   Create a tunnel for a locally hosted assistant");
-    console.log("  wake     Start the daemon and gateway");
+    console.log("  wake     Start the assistant and gateway");
     console.log("  whoami   Show current logged-in user");
     process.exit(0);
   }

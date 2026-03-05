@@ -541,7 +541,9 @@ export async function processMessage(
       messageText: trimmedContent,
       channel: "vellum",
       actor: {
-        externalUserId: session.trustContext?.guardianExternalUserId,
+        actorPrincipalId:
+          session.trustContext?.guardianPrincipalId ?? undefined,
+        actorExternalUserId: session.trustContext?.guardianExternalUserId,
         channel: "vellum",
         guardianPrincipalId:
           session.trustContext?.guardianPrincipalId ?? undefined,

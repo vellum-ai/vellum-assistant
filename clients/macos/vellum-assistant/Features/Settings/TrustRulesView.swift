@@ -248,7 +248,7 @@ private struct TrustRuleFormView: View {
 
                 TextField("Pattern", text: $pattern, prompt: Text("e.g., git *"))
 
-                VToggle(isOn: $isEverywhere, label: "Everywhere", size: .medium)
+                VToggle(isOn: $isEverywhere, label: "Everywhere")
                 if !isEverywhere {
                     TextField("Scope", text: $scope, prompt: Text("e.g., /Users/me/project"))
                 }

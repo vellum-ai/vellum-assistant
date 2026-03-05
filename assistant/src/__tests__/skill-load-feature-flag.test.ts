@@ -154,7 +154,7 @@ describe("skill_load feature flag enforcement", () => {
     expect(result.content).toContain("Skill: Hatch New Assistant");
   });
 
-  test("loads skill normally when flag key is absent (defaults to enabled)", async () => {
+  test("rejects skill when flag key is absent (registry defaults to disabled)", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
       "Hatch New Assistant",
@@ -172,7 +172,8 @@ describe("skill_load feature flag enforcement", () => {
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Skill: Hatch New Assistant");
+    // hatch-new-assistant is declared in the registry with defaultEnabled: false
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("disabled by feature flag");
   });
 });

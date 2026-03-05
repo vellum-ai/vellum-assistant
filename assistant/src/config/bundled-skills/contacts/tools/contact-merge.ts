@@ -1,11 +1,26 @@
 import {
-  getContact,
-  mergeContacts,
-} from "../../../../contacts/contact-store.js";
+  gatewayGet,
+  gatewayPost,
+  GatewayRequestError,
+} from "../../../../runtime/gateway-internal-client.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+
+interface ContactChannel {
+  type: string;
+  address: string;
+  isPrimary: boolean;
+}
+
+interface ContactResponse {
+  id: string;
+  displayName: string;
+  notes: string | null;
+  interactionCount: number;
+  channels: ContactChannel[];
+}
 
 export async function executeContactMerge(
   input: Record<string, unknown>,
@@ -21,19 +36,51 @@ export async function executeContactMerge(
     return { content: "Error: merge_id is required", isError: true };
   }
 
-  // Show what will be merged for clarity
-  const keepContact = getContact(keepId);
-  const mergeContact = getContact(mergeId);
-
-  if (!keepContact) {
-    return { content: `Error: Contact "${keepId}" not found`, isError: true };
-  }
-  if (!mergeContact) {
-    return { content: `Error: Contact "${mergeId}" not found`, isError: true };
-  }
-
   try {
-    const merged = mergeContacts(keepId, mergeId);
+    // Validate both contacts exist before merging
+    const [keepResult, mergeResult] = await Promise.allSettled([
+      gatewayGet<{ ok: boolean; contact: ContactResponse }>(
+        `/v1/contacts/${keepId}`,
+      ),
+      gatewayGet<{ ok: boolean; contact: ContactResponse }>(
+        `/v1/contacts/${mergeId}`,
+      ),
+    ]);
+
+    if (keepResult.status === "rejected") {
+      if (
+        keepResult.reason instanceof GatewayRequestError &&
+        keepResult.reason.statusCode === 404
+      ) {
+        return {
+          content: `Error: Contact "${keepId}" not found`,
+          isError: true,
+        };
+      }
+      throw keepResult.reason;
+    }
+    if (mergeResult.status === "rejected") {
+      if (
+        mergeResult.reason instanceof GatewayRequestError &&
+        mergeResult.reason.statusCode === 404
+      ) {
+        return {
+          content: `Error: Contact "${mergeId}" not found`,
+          isError: true,
+        };
+      }
+      throw mergeResult.reason;
+    }
+
+    const keepContact = keepResult.value.contact;
+    const mergeContact = mergeResult.value.contact;
+
+    // Execute the merge
+    const { data: resultData } = await gatewayPost<{
+      ok: boolean;
+      contact: ContactResponse;
+    }>("/v1/contacts/merge", { keepId, mergeId });
+    const merged = resultData.contact;
 
     const channelList = merged.channels
       .map(
@@ -48,9 +95,8 @@ export async function executeContactMerge(
         ``,
         `Surviving contact (${merged.id}):`,
         `  Name: ${merged.displayName}`,
-        `  Importance: ${merged.importance.toFixed(2)}`,
         `  Interactions: ${merged.interactionCount}`,
-        merged.relationship ? `  Relationship: ${merged.relationship}` : null,
+        merged.notes ? `  Notes: ${merged.notes}` : null,
         merged.channels.length > 0 ? `  Channels:\n${channelList}` : null,
         ``,
         `Deleted contact: ${mergeContact.displayName} (${mergeId})`,

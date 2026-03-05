@@ -82,10 +82,7 @@ interface ContactChannel {
 interface Contact {
   id: string;
   displayName: string;
-  relationship: string | null;
-  importance: number;
-  responseExpectation: string | null;
-  preferredTone: string | null;
+  notes: string | null;
   lastInteraction: number | null;
   interactionCount: number;
   channels: ContactChannel[];
@@ -109,10 +106,7 @@ function formatContact(c: Contact): string {
   const lines = [
     `  ID:           ${c.id}`,
     `  Name:         ${c.displayName}`,
-    `  Relationship: ${c.relationship ?? "(none)"}`,
-    `  Importance:   ${c.importance.toFixed(2)}`,
-    `  Response:     ${c.responseExpectation ?? "(none)"}`,
-    `  Tone:         ${c.preferredTone ?? "(none)"}`,
+    `  Notes:        ${c.notes ?? "(none)"}`,
     `  Interactions: ${c.interactionCount}`,
   ];
   if (c.lastInteraction) {
@@ -136,7 +130,7 @@ function printUsage(): void {
   console.log("Usage: vellum contacts <subcommand> [options]");
   console.log("");
   console.log("Subcommands:");
-  console.log("  list [--limit N]               List all contacts");
+  console.log("  list [--limit N] [--role ROLE]  List all contacts");
   console.log("  get <id>                       Get a contact by ID");
   console.log("  merge <keepId> <mergeId>       Merge two contacts");
   console.log("");
@@ -161,7 +155,9 @@ export async function contacts(): Promise<void> {
   switch (subcommand) {
     case "list": {
       const limit = getFlagValue(args, "--limit") ?? "50";
-      const data = (await apiGet(`contacts?limit=${limit}`)) as {
+      const role = getFlagValue(args, "--role");
+      const query = `contacts?limit=${limit}${role ? `&role=${encodeURIComponent(role)}` : ""}`;
+      const data = (await apiGet(query)) as {
         ok: boolean;
         contacts: Contact[];
       };

@@ -13,7 +13,7 @@
     "test:ci:xcode": "bun run scripts/agent-ci.ts --xcode"
   },
   "devDependencies": {
-    "@playwright/test": "^1.50.0"
+    "@playwright/test": "^1.58.2"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

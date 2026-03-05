@@ -189,9 +189,9 @@ describe("guardian grant minting on tool-approval decisions", () => {
 
   beforeEach(() => {
     resetTables();
-    deliverSpy = spyOn(gatewayClient, "deliverChannelReply").mockResolvedValue(
-      undefined,
-    );
+    deliverSpy = spyOn(gatewayClient, "deliverChannelReply").mockResolvedValue({
+      ok: true,
+    });
     composeSpy = spyOn(
       approvalMessageComposer,
       "composeApprovalMessageGenerative",
@@ -593,9 +593,9 @@ describe("approval interception trust-class regression coverage", () => {
 
   beforeEach(() => {
     resetTables();
-    deliverSpy = spyOn(gatewayClient, "deliverChannelReply").mockResolvedValue(
-      undefined,
-    );
+    deliverSpy = spyOn(gatewayClient, "deliverChannelReply").mockResolvedValue({
+      ok: true,
+    });
     composeSpy = spyOn(
       approvalMessageComposer,
       "composeApprovalMessageGenerative",

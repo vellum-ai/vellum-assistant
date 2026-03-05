@@ -1,24 +1,32 @@
 /**
- * Guardian verification code intercept stage: validates and consumes
- * verification codes, upserts member records, and delivers deterministic
- * template-driven replies.
+ * Verification code intercept stage: validates and consumes verification
+ * codes, applies role-specific side effects (guardian binding creation,
+ * trusted-contact activation signals), upserts member records, and delivers
+ * deterministic template-driven replies.
+ *
+ * This is the dispatch point for channel-based post-verification side
+ * effects. Voice verification has its own dispatch in relay-server.ts.
+ * Both guardian and trusted-contact flows converge here after
+ * validateAndConsumeChallenge() returns success.
  *
  * Verification code messages are short-circuited here and NEVER enter the
  * agent pipeline. This prevents verification codes from producing
  * agent-generated copy.
- *
- * Extracted from inbound-message-handler.ts to keep the top-level handler
- * focused on orchestration.
  */
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
-import { upsertMember } from "../../../contacts/contacts-write.js";
+import {
+  createGuardianBinding,
+  revokeGuardianBinding,
+  upsertMember,
+} from "../../../contacts/contacts-write.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   findActiveSession,
+  getGuardianBinding,
   getPendingChallenge,
   validateAndConsumeChallenge,
 } from "../../channel-guardian-service.js";
@@ -147,6 +155,65 @@ export async function handleVerificationIntercept(
       username: actorUsername,
     });
 
+    // Guardian-specific side effect: create/update the guardian binding.
+    // This was previously inside validateAndConsumeChallenge but is now
+    // handled here so both verification types have symmetric dispatch.
+    if (verifyResult.verificationType === "guardian") {
+      // Reject if a different user already holds the guardian binding
+      const existingBinding = getGuardianBinding(
+        canonicalAssistantId,
+        sourceChannel,
+      );
+      if (
+        existingBinding &&
+        existingBinding.guardianExternalUserId !==
+          (canonicalSenderId ?? rawSenderId)
+      ) {
+        // Edge case: another user already bound. Log and skip binding creation.
+        // The upsertMember above already succeeded, so the sender is a known contact,
+        // but they won't get guardian role.
+        log.warn(
+          {
+            sourceChannel,
+            existingGuardian: existingBinding.guardianExternalUserId,
+          },
+          "Guardian binding conflict: another user already holds this channel binding",
+        );
+      } else {
+        // Revoke any existing active binding before creating a new one (same-user re-verification)
+        revokeGuardianBinding(canonicalAssistantId, sourceChannel);
+
+        const metadata: Record<string, string> = {};
+        if (actorUsername && actorUsername.trim().length > 0) {
+          metadata.username = actorUsername.trim();
+        }
+        if (actorDisplayName && actorDisplayName.trim().length > 0) {
+          metadata.displayName = actorDisplayName.trim();
+        }
+
+        // Unify all channel bindings onto the canonical (vellum) principal
+        const vellumBinding = getGuardianBinding(
+          canonicalAssistantId,
+          "vellum",
+        );
+        const canonicalPrincipal =
+          vellumBinding?.guardianPrincipalId ??
+          canonicalSenderId ??
+          rawSenderId;
+
+        createGuardianBinding({
+          assistantId: canonicalAssistantId,
+          channel: sourceChannel,
+          guardianExternalUserId: canonicalSenderId ?? rawSenderId,
+          guardianDeliveryChatId: conversationExternalId,
+          guardianPrincipalId: canonicalPrincipal,
+          verifiedVia: "challenge",
+          metadataJson:
+            Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
+        });
+      }
+    }
+
     const verifyLogLabel =
       verifyResult.verificationType === "trusted_contact"
         ? "Trusted contact verified"
@@ -196,17 +263,12 @@ export async function handleVerificationIntercept(
     if (!verifyResult.success) {
       replyText = composeChannelVerifyReply(
         GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED,
-        {
-          failureReason: stripVerificationFailurePrefix(verifyResult.reason),
-        },
-      );
-    } else if (verifyResult.verificationType === "trusted_contact") {
-      replyText = composeChannelVerifyReply(
-        GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS,
+        { failureReason: stripVerificationFailurePrefix(verifyResult.reason) },
       );
     } else {
       replyText = composeChannelVerifyReply(
         GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS,
+        { verificationType: verifyResult.verificationType },
       );
     }
     try {

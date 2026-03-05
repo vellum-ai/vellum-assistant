@@ -1,8 +1,10 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
+import { isToolAllowedInChannel } from "../config/channel-permission-profiles.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
+import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -127,10 +129,6 @@ export async function waitForInlineGrant(
     "Inline grant wait timed out — no guardian decision within budget",
   );
   return { outcome: "timeout", requestId: escalationRequestId };
-}
-
-function isUntrustedTrustClass(role: ToolContext["trustClass"]): boolean {
-  return role === "trusted_contact" || role === "unknown";
 }
 
 function requiresGuardianApprovalForActor(
@@ -363,6 +361,52 @@ export class ToolApprovalHandler {
         errorCategory: "tool_failure",
       });
       return { allowed: false, result: { content: msg, isError: true } };
+    }
+
+    // Enforce channel-scoped permission profiles (deterministic gate).
+    // When the session originates from a Slack channel with a configured
+    // permission profile, blocked tools and category restrictions are
+    // enforced here rather than relying on model compliance with hints.
+    if (
+      context.executionChannel === "slack" &&
+      context.channelPermissionChannelId
+    ) {
+      if (
+        !isToolAllowedInChannel(
+          context.channelPermissionChannelId,
+          name,
+          tool.category,
+        )
+      ) {
+        const msg = `Tool "${name}" is not allowed in this channel per channel permission policy.`;
+        log.warn(
+          {
+            toolName: name,
+            channelId: context.channelPermissionChannelId,
+            category: tool.category,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            reason: "channel_permission_policy",
+          },
+          "Channel permission policy blocked tool invocation",
+        );
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent({
+          type: "permission_denied",
+          toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: "deny",
+          reason: msg,
+          durationMs,
+        });
+        return { allowed: false, result: { content: msg, isError: true } };
+      }
     }
 
     // All policy gates passed. Now consume the scoped grant if one is

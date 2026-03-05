@@ -509,11 +509,6 @@ export const MemoryConflictsConfigSchema = z.object({
   gateMode: z
     .enum(["soft"], { error: 'memory.conflicts.gateMode must be "soft"' })
     .default("soft"),
-  reaskCooldownTurns: z
-    .number({ error: "memory.conflicts.reaskCooldownTurns must be a number" })
-    .int("memory.conflicts.reaskCooldownTurns must be an integer")
-    .positive("memory.conflicts.reaskCooldownTurns must be a positive integer")
-    .default(3),
   resolverLlmTimeoutMs: z
     .number({ error: "memory.conflicts.resolverLlmTimeoutMs must be a number" })
     .int("memory.conflicts.resolverLlmTimeoutMs must be an integer")
@@ -526,11 +521,6 @@ export const MemoryConflictsConfigSchema = z.object({
     .min(0, "memory.conflicts.relevanceThreshold must be >= 0")
     .max(1, "memory.conflicts.relevanceThreshold must be <= 1")
     .default(0.3),
-  askOnIrrelevantTurns: z
-    .boolean({
-      error: "memory.conflicts.askOnIrrelevantTurns must be a boolean",
-    })
-    .default(false),
   conflictableKinds: z
     .array(
       z.enum(VALID_MEMORY_ITEM_KINDS, {

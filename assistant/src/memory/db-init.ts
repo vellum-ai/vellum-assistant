@@ -32,6 +32,8 @@ import {
   createSequenceTables,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
+  migrateAssistantContactMetadata,
+  migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
@@ -40,6 +42,7 @@ import {
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
   migrateContactsAssistantId,
+  migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
   migrateDropLegacyMemberGuardianTables,
@@ -272,6 +275,15 @@ export function initializeDb(): void {
 
   // 36. Add assistant_id to contacts for per-assistant guardian scoping
   migrateContactsAssistantId(database);
+
+  // 37. Add contact_type to contacts and assistant_contact_metadata table
+  migrateAssistantContactMetadata(database);
+
+  // 38. Consolidate contact metadata columns into single notes field
+  migrateContactsNotesColumn(database);
+
+  // 39. Backfill contact interaction stats from channel lastSeenAt
+  migrateBackfillContactInteractionStats(database);
 
   validateMigrationState(database);
 

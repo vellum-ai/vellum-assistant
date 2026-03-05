@@ -845,7 +845,7 @@ async function startLearnSession(
     socket.on("error", (err) => {
       reject(
         new Error(
-          `Cannot connect to daemon: ${err.message}. Is the daemon running?`,
+          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
         ),
       );
     });
@@ -887,7 +887,7 @@ async function startLearnSession(
           } else {
             clearTimeout(timeoutHandle);
             socket.destroy();
-            reject(new Error("Daemon authentication failed"));
+            reject(new Error("Authentication failed"));
           }
           continue;
         }

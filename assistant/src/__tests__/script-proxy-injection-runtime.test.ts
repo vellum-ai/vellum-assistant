@@ -41,8 +41,10 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
   getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
 }));
 
-import { createSafeLogEntry, sanitizeHeaders } from "@vellumai/outbound-proxy";
-
+import {
+  createSafeLogEntry,
+  sanitizeHeaders,
+} from "../outbound-proxy/index.js";
 import {
   createSession,
   startSession,

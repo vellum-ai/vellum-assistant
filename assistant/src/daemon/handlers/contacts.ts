@@ -6,6 +6,7 @@ import {
   updateChannelStatus,
 } from "../../contacts/contact-store.js";
 import type { ContactWithChannels } from "../../contacts/types.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import type {
   ContactChannelPayload,
   ContactPayload,
@@ -37,8 +38,8 @@ function toContactPayload(contact: ContactWithChannels): ContactPayload {
     id: contact.id,
     displayName: contact.displayName,
     role: contact.role,
-    relationship: contact.relationship ?? undefined,
-    importance: contact.importance,
+    notes: contact.notes ?? undefined,
+    contactType: contact.contactType ?? undefined,
     lastInteraction: contact.lastInteraction ?? undefined,
     interactionCount: contact.interactionCount,
     channels: contact.channels.map(toChannelPayload),
@@ -53,7 +54,11 @@ export function handleContacts(
   try {
     switch (msg.action) {
       case "list": {
-        const results = listContacts(msg.limit ?? 50, msg.role);
+        const results = listContacts(
+          DAEMON_INTERNAL_ASSISTANT_ID,
+          msg.limit ?? 50,
+          msg.role,
+        );
         ctx.send(socket, {
           type: "contacts_response",
           success: true,
@@ -71,7 +76,7 @@ export function handleContacts(
           });
           return;
         }
-        const contact = getContact(msg.contactId);
+        const contact = getContact(msg.contactId, DAEMON_INTERNAL_ASSISTANT_ID);
         if (!contact) {
           ctx.send(socket, {
             type: "contacts_response",
@@ -122,7 +127,10 @@ export function handleContacts(
           return;
         }
         // Return the parent contact with all channels so the client has the full picture
-        const parentContact = getContact(updated.contactId);
+        const parentContact = getContact(
+          updated.contactId,
+          DAEMON_INTERNAL_ASSISTANT_ID,
+        );
         ctx.send(socket, {
           type: "contacts_response",
           success: true,

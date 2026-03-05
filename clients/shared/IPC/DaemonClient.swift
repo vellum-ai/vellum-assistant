@@ -1318,20 +1318,52 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Local Daemon HTTP Helpers
 
-    /// Resolves the base URL and bearer token for the daemon's local HTTP server.
-    /// Returns `nil` when no local HTTP port is configured.
-    private func resolveLocalDaemonHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
-        guard let port = httpPort else { return nil }
-        let baseURL = "http://localhost:\(port)"
-        let tokenPath = resolveHttpTokenPath()
-        let bearerToken: String?
-        do {
-            bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            log.error("Failed to read HTTP bearer token from \(tokenPath, privacy: .private): \(error)")
-            bearerToken = nil
+    /// Which local server a request should target.
+    private enum LocalHTTPTarget {
+        /// The daemon runtime HTTP server (port from httpPort, default 7821).
+        case daemon
+        /// The gateway server (port from GATEWAY_PORT env, default 7830).
+        case gateway
+    }
+
+    /// Build an authenticated URLRequest for a local HTTP endpoint.
+    ///
+    /// Token resolution order:
+    /// 1. `tokenOverride` (for callers that need a specific token, e.g. feature-flag token)
+    /// 2. JWT from `ActorTokenManager.getToken()`
+    /// 3. Legacy file-based token from `readHttpToken()`
+    ///
+    /// Returns `nil` when the required port is unavailable.
+    private func buildLocalRequest(
+        target: LocalHTTPTarget,
+        path: String,
+        method: String = "GET",
+        timeout: TimeInterval = 10,
+        tokenOverride: String? = nil
+    ) -> URLRequest? {
+        let baseURL: String
+        switch target {
+        case .daemon:
+            guard let port = httpPort else { return nil }
+            baseURL = "http://localhost:\(port)"
+        case .gateway:
+            let port = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+                .flatMap(Int.init) ?? 7830
+            baseURL = "http://127.0.0.1:\(port)"
         }
-        return (baseURL, bearerToken)
+
+        guard let url = URL(string: "\(baseURL)/\(path)") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = timeout
+
+        let token = tokenOverride
+            ?? ActorTokenManager.getToken()
+            ?? readHttpToken()
+        if let token, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
     }
 
     // MARK: - Integrations Status
@@ -1357,7 +1389,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             bearerToken = httpTransport.bearerToken
         } else if let gatewayBaseURL {
             baseURL = gatewayBaseURL
-            bearerToken = readHttpToken()
+            bearerToken = ActorTokenManager.getToken() ?? readHttpToken()
         } else {
             return nil
         }
@@ -1384,24 +1416,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Uses `httpTransport` for remote assistants or `httpPort` for local connections.
     /// Returns the file content as a string, or `nil` if the file does not exist.
     public func fetchInterfaceFile(path: String) async -> String? {
-        let baseURL: String
-        let bearerToken: String?
+        let request: URLRequest
 
         if let httpTransport {
-            baseURL = httpTransport.baseURL
-            bearerToken = httpTransport.bearerToken
-        } else if let local = resolveLocalDaemonHTTPEndpoint() {
-            baseURL = local.baseURL
-            bearerToken = local.bearerToken
+            guard let url = URL(string: "\(httpTransport.baseURL)/v1/interfaces/\(path)") else { return nil }
+            var r = URLRequest(url: url)
+            r.timeoutInterval = 5
+            if let token = httpTransport.bearerToken, !token.isEmpty {
+                r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            request = r
+        } else if let r = buildLocalRequest(target: .daemon, path: "v1/interfaces/\(path)", timeout: 5) {
+            request = r
         } else {
             return nil
-        }
-
-        guard let url = URL(string: "\(baseURL)/v1/interfaces/\(path)") else { return nil }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 5
-        if let token = bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
         do {
@@ -1520,6 +1548,29 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Contacts Management
 
+    /// Response from the channel verification endpoint.
+    public struct ChannelVerificationResult: Decodable {
+        public let ok: Bool
+        public let verificationSessionId: String?
+        public let expiresAt: Int?
+        public let sendCount: Int?
+        public let telegramBootstrapUrl: String?
+        public let error: String?
+    }
+
+    /// A channel to attach when creating a new contact.
+    public struct NewContactChannel: Codable {
+        public let type: String
+        public let address: String
+        public let isPrimary: Bool
+
+        public init(type: String, address: String, isPrimary: Bool = false) {
+            self.type = type
+            self.address = address
+            self.isPrimary = isPrimary
+        }
+    }
+
     /// Request the list of all contacts from the daemon, optionally filtered by role.
     public func sendListContacts(role: String? = nil, limit: Int? = nil) throws {
         try send(ContactsRequestMessage(action: "list", role: role, limit: limit))
@@ -1533,6 +1584,166 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Update a contact channel's status and/or policy.
     public func sendUpdateContactChannel(channelId: String, status: String? = nil, policy: String? = nil, reason: String? = nil) throws {
         try send(ContactsRequestMessage(action: "update_channel", channelId: channelId, status: status, policy: policy, reason: reason))
+    }
+
+    /// Update a contact's metadata via the HTTP API (`POST /v1/contacts`).
+    /// Routes through `HTTPTransport` when available so that managed-mode
+    /// URL paths (`/v1/assistants/{id}/contacts/`) and auth headers
+    /// (`X-Session-Token`) are applied correctly. Falls back to the local
+    /// daemon HTTP server for socket-based connections.
+    public func updateContact(
+        contactId: String,
+        displayName: String,
+        notes: String? = nil
+    ) async throws -> ContactPayload? {
+        // Delegate to HTTPTransport when active — it handles buildURL/applyAuth
+        // for both runtimeFlat and platformAssistantProxy route modes.
+        if let httpTransport {
+            return try await httpTransport.updateContactAndReturn(
+                contactId: contactId,
+                displayName: displayName,
+                notes: notes
+            )
+        }
+
+        // Local daemon path: direct HTTP call using the runtime server port.
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/contacts", method: "POST") else { return nil }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body: [String: Any] = ["id": contactId, "displayName": displayName]
+        if let notes { body["notes"] = notes }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...201).contains(http.statusCode) else { return nil }
+
+        struct UpsertResponse: Decodable {
+            let ok: Bool
+            let contact: ContactPayload
+        }
+        let decoded = try JSONDecoder().decode(UpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
+    /// Create a new contact via the HTTP API (`POST /v1/contacts`).
+    /// Omits the `id` field to trigger creation instead of update.
+    /// Routes through `HTTPTransport` when available so that managed-mode
+    /// URL paths and auth headers are applied correctly. Falls back to the
+    /// local daemon HTTP server for socket-based connections.
+    public func createContact(
+        displayName: String,
+        notes: String? = nil,
+        channels: [NewContactChannel]? = nil
+    ) async throws -> ContactPayload? {
+        if let httpTransport {
+            return try await httpTransport.createContactAndReturn(
+                displayName: displayName,
+                notes: notes,
+                channels: channels
+            )
+        }
+
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/contacts", method: "POST") else { return nil }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body: [String: Any] = ["displayName": displayName]
+        if let notes { body["notes"] = notes }
+        if let channels {
+            body["channels"] = channels.map { ch -> [String: Any] in
+                ["type": ch.type, "address": ch.address, "isPrimary": ch.isPrimary]
+            }
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...201).contains(http.statusCode) else { return nil }
+
+        struct UpsertResponse: Decodable {
+            let ok: Bool
+            let contact: ContactPayload
+        }
+        let decoded = try JSONDecoder().decode(UpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
+    /// Create an invite for a contact channel via `POST /v1/contacts/invites`.
+    /// Routes through `HTTPTransport` when available. Falls back to the
+    /// local gateway (port 7830) for socket-based connections.
+    public func createInvite(
+        sourceChannel: String,
+        note: String? = nil,
+        maxUses: Int? = nil
+    ) async throws -> (inviteId: String, token: String, shareUrl: String?)? {
+        if let httpTransport {
+            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses)
+        }
+
+        #if os(macOS)
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/contacts/invites", method: "POST") else { return nil }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body: [String: Any] = ["sourceChannel": sourceChannel]
+        if let note { body["note"] = note }
+        if let maxUses { body["maxUses"] = maxUses }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...201).contains(http.statusCode) else { return nil }
+
+        struct CreateInviteResponse: Decodable {
+            let ok: Bool
+            let invite: InviteData?
+            struct InviteData: Decodable {
+                let id: String
+                let token: String?
+                let share: ShareData?
+            }
+            struct ShareData: Decodable {
+                let url: String
+                let displayText: String
+            }
+        }
+        let decoded = try JSONDecoder().decode(CreateInviteResponse.self, from: data)
+        guard let invite = decoded.invite, let token = invite.token else { return nil }
+        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url)
+        #else
+        return nil
+        #endif
+    }
+
+    /// Send a verification code to a contact's channel via the gateway.
+    /// Routes through `HTTPTransport` when available. Falls back to the
+    /// local gateway (port 7830) for socket-based connections.
+    public func verifyContactChannel(
+        contactId: String,
+        channelId: String
+    ) async throws -> ChannelVerificationResult? {
+        if let httpTransport {
+            return try await httpTransport.verifyContactChannel(
+                contactId: contactId,
+                channelId: channelId
+            )
+        }
+
+        #if os(macOS)
+        let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
+        let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/contacts/\(cEncoded)/channels/\(chEncoded)/verify", method: "POST") else { return nil }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode) else { return nil }
+        return try JSONDecoder().decode(ChannelVerificationResult.self, from: data)
+        #else
+        return nil
+        #endif
     }
 
     // MARK: - Feature Flags
@@ -1609,15 +1820,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let flags: [AssistantFeatureFlag]
     }
 
-    /// Resolve the runtime bearer token from either `httpTransport` or the on-disk token file.
-    /// Returns `nil` when no runtime token is available.
-    private func resolveRuntimeBearerToken() -> String? {
-        if let httpTransport = self.httpTransport, let bt = httpTransport.bearerToken, !bt.isEmpty {
-            return bt
-        }
-        return readHttpToken()
-    }
-
     /// Resolve an auth token for feature-flag requests.
     /// The gateway requires JWT edge tokens with `feature_flags.read`/`feature_flags.write`
     /// scopes (via `requireEdgeAuthWithScope`). The JWT access token from
@@ -1653,17 +1855,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return try await httpTransport.fetchAssistantFeatureFlags(featureFlagToken: token)
         }
 
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+        guard let request = buildLocalRequest(target: .gateway, path: "v1/feature-flags", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -1695,17 +1889,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         // Local mode: call the gateway directly.
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+        guard let request = buildLocalRequest(target: .gateway, path: "v1/feature-flags", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -1748,19 +1934,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         // Local mode (socket, TCP, or local HTTP): call the gateway directly.
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
         let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags/\(encoded)") else {
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/feature-flags/\(encoded)", method: "PATCH", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
 
         let body: [String: Any] = ["enabled": enabled]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -1858,31 +2036,27 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     ///
     /// Returns `true` on success, `false` on failure.
     public func bootstrapActorToken(platform: String, deviceId: String) async -> Bool {
-        let baseURL: String
-        let bearerToken: String?
+        var request: URLRequest
 
         if let httpTransport {
-            baseURL = httpTransport.baseURL
-            bearerToken = httpTransport.bearerToken
-        } else if let local = resolveLocalDaemonHTTPEndpoint() {
-            baseURL = local.baseURL
-            bearerToken = local.bearerToken
+            guard let url = URL(string: "\(httpTransport.baseURL)/v1/integrations/guardian/vellum/bootstrap") else {
+                log.error("Invalid bootstrap URL")
+                return false
+            }
+            var r = URLRequest(url: url)
+            r.httpMethod = "POST"
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            r.timeoutInterval = 15
+            if let token = httpTransport.bearerToken, !token.isEmpty {
+                r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            request = r
+        } else if var r = buildLocalRequest(target: .daemon, path: "v1/integrations/guardian/vellum/bootstrap", method: "POST", timeout: 15) {
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request = r
         } else {
             log.error("Cannot bootstrap access token — no HTTP endpoint available")
             return false
-        }
-
-        guard let url = URL(string: "\(baseURL)/v1/integrations/guardian/vellum/bootstrap") else {
-            log.error("Invalid bootstrap URL")
-            return false
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 15
-        if let token = bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
         let body: [String: Any] = [

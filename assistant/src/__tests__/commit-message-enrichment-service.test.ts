@@ -51,6 +51,14 @@ describe("CommitEnrichmentService", () => {
       /* ignore */
     }
     _resetEnrichmentService();
+
+    // Remove stale index.lock left by async enrichment jobs that ran git
+    // commands concurrently. Without this, the next test's createCommit()
+    // can fail with "Unable to create index.lock: File exists".
+    const lockFile = join(testDir, ".git", "index.lock");
+    if (existsSync(lockFile)) {
+      rmSync(lockFile, { force: true });
+    }
   });
 
   afterAll(async () => {
@@ -78,6 +86,13 @@ describe("CommitEnrichmentService", () => {
   }
 
   async function createCommit(): Promise<string> {
+    // Remove stale index.lock left by async enrichment jobs that ran git
+    // commands concurrently in a previous test. Without this, git add -A
+    // can fail with "Unable to create index.lock: File exists".
+    const lockFile = join(testDir, ".git", "index.lock");
+    if (existsSync(lockFile)) {
+      rmSync(lockFile, { force: true });
+    }
     writeFileSync(join(testDir, `file-${Date.now()}.txt`), "content");
     await gitService.commitChanges("test commit");
     return await gitService.getHeadHash();

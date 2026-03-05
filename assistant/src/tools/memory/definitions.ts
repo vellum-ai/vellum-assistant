@@ -93,9 +93,3 @@ export const memoryUpdateDefinition: ToolDefinition = {
     required: ["memory_id", "statement"],
   },
 };
-
-export const memoryToolDefinitions: ToolDefinition[] = [
-  memorySearchDefinition,
-  memorySaveDefinition,
-  memoryUpdateDefinition,
-];

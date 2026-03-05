@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockSecureKeys: Record<string, string | null> = {};
 let mockPhoneNumberEnv: string | undefined;
-let mockWssBaseUrl: string | undefined;
 let mockLoadConfigResult: Record<string, unknown> = {};
 
 mock.module("../util/logger.js", () => ({
@@ -21,7 +20,6 @@ mock.module("../security/secure-keys.js", () => ({
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getTwilioPhoneNumberEnv: () => mockPhoneNumberEnv,
-  getTwilioWssBaseUrl: () => mockWssBaseUrl,
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -42,7 +40,6 @@ describe("twilio-config", () => {
       "credential:twilio:auth_token": "test_auth_token",
     };
     mockPhoneNumberEnv = undefined;
-    mockWssBaseUrl = undefined;
     mockLoadConfigResult = {
       sms: { phoneNumber: "+15551234567" },
     };

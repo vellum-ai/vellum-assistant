@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "schedule_create",
-      "description": "Create a recurring scheduled automation that sends a message at a cron or RRULE interval. ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"weekly on Mondays\", \"every hour\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" — use task_list_add for those requests instead.",
+      "description": "Create a recurring scheduled automation that sends a message at a cron or RRULE interval. ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"weekly on Mondays\", \"every hour\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" \u2014 use task_list_add for those requests instead.",
       "category": "schedule",
       "risk": "medium",
       "input_schema": {
@@ -20,11 +20,7 @@
           },
           "expression": {
             "type": "string",
-            "description": "Canonical schedule expression (cron or RRULE). Preferred over cron_expression."
-          },
-          "cron_expression": {
-            "type": "string",
-            "description": "Deprecated alias for expression with cron syntax. Use expression + syntax instead."
+            "description": "Schedule expression (cron or RRULE)"
           },
           "timezone": {
             "type": "string",
@@ -37,6 +33,10 @@
           "enabled": {
             "type": "boolean",
             "description": "Whether the job is enabled immediately. Defaults to true."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["name", "message"]
@@ -59,6 +59,10 @@
           "job_id": {
             "type": "string",
             "description": "If provided, show detailed info and recent runs for this specific job."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -89,11 +93,7 @@
           },
           "expression": {
             "type": "string",
-            "description": "New schedule expression (cron or RRULE). Preferred over cron_expression."
-          },
-          "cron_expression": {
-            "type": "string",
-            "description": "Deprecated alias for expression with cron syntax. Use expression + syntax instead."
+            "description": "New schedule expression (cron or RRULE)"
           },
           "timezone": {
             "type": "string",
@@ -106,6 +106,10 @@
           "enabled": {
             "type": "boolean",
             "description": "Enable or disable the job"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["job_id"]
@@ -124,6 +128,10 @@
           "job_id": {
             "type": "string",
             "description": "The ID of the schedule to delete"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["job_id"]

@@ -53,11 +53,8 @@ import type {
   ExtensionResponse,
 } from "../browser-extension-relay/protocol.js";
 import { extensionRelayServer } from "../browser-extension-relay/server.js";
-import { getGatewayInternalBaseUrl } from "../config/env.js";
-import {
-  isSigningKeyInitialized,
-  mintEdgeRelayToken,
-} from "../runtime/auth/token-service.js";
+import { isSigningKeyInitialized } from "../runtime/auth/token-service.js";
+import { gatewayPost } from "../runtime/gateway-internal-client.js";
 import type { ExtractedCredential } from "../tools/browser/network-recording-types.js";
 import { type AmazonSession, loadSession } from "./session.js";
 
@@ -91,26 +88,12 @@ export async function sendRelayCommand(
       "Auth signing key not initialized — browser-relay commands require the daemon to be running",
     );
   }
-  const token = mintEdgeRelayToken();
 
-  const resp = await fetch(
-    `${getGatewayInternalBaseUrl()}/v1/browser-relay/command`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(command),
-    },
+  const { data } = await gatewayPost<ExtensionResponse>(
+    "/v1/browser-relay/command",
+    command,
   );
-
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`Relay HTTP command failed (${resp.status}): ${body}`);
-  }
-
-  return (await resp.json()) as ExtensionResponse;
+  return data;
 }
 
 /** Thrown when the session is missing or expired. The CLI handles this specially. */

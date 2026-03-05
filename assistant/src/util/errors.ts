@@ -109,14 +109,18 @@ export class AssistantError extends VellumError {
 }
 
 export class ProviderError extends AssistantError {
+  /** Delay (in ms) suggested by the server's Retry-After header, if present. */
+  public readonly retryAfterMs?: number;
+
   constructor(
     message: string,
     public readonly provider: string,
     public readonly statusCode?: number,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; retryAfterMs?: number },
   ) {
     super(message, ErrorCode.PROVIDER_ERROR, options);
     this.name = "ProviderError";
+    this.retryAfterMs = options?.retryAfterMs;
   }
 }
 

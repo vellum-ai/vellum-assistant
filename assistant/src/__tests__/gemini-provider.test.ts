@@ -30,6 +30,7 @@ interface FakeChunk {
 
 let fakeChunks: FakeChunk[] = [];
 let lastStreamParams: Record<string, unknown> | null = null;
+let lastConstructorOpts: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
 
 class FakeApiError extends Error {
@@ -43,7 +44,9 @@ class FakeApiError extends Error {
 
 mock.module("@google/genai", () => ({
   GoogleGenAI: class MockGoogleGenAI {
-    constructor(_opts: Record<string, unknown>) {}
+    constructor(opts: Record<string, unknown>) {
+      lastConstructorOpts = opts;
+    }
     models = {
       generateContentStream: async (params: Record<string, unknown>) => {
         lastStreamParams = params;
@@ -108,6 +111,7 @@ describe("GeminiProvider", () => {
     provider = new GeminiProvider("test-api-key", "gemini-3-flash");
     fakeChunks = [];
     lastStreamParams = null;
+    lastConstructorOpts = null;
     shouldThrow = null;
   });
 
@@ -725,5 +729,79 @@ describe("GeminiProvider", () => {
     ]);
 
     expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  // -----------------------------------------------------------------------
+  // Managed transport — constructor configuration
+  // -----------------------------------------------------------------------
+  test("does not set httpOptions when managedBaseUrl is not provided", () => {
+    new GeminiProvider("test-key", "gemini-3-flash");
+    expect(lastConstructorOpts).toEqual({ apiKey: "test-key" });
+  });
+
+  test("sets httpOptions.baseUrl when managedBaseUrl is provided", () => {
+    new GeminiProvider("managed-key", "gemini-3-flash", {
+      managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+    });
+    expect(lastConstructorOpts).toEqual({
+      apiKey: "managed-key",
+      httpOptions: {
+        baseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+      },
+    });
+  });
+
+  test("managed transport produces same ProviderResponse shape", async () => {
+    const managedProvider = new GeminiProvider(
+      "managed-key",
+      "gemini-3-flash",
+      {
+        managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+      },
+    );
+
+    fakeChunks = [textChunk("Hello from managed"), finishChunk("STOP", 15, 8)];
+
+    const result = await managedProvider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]).toEqual({
+      type: "text",
+      text: "Hello from managed",
+    });
+    expect(result.model).toBe("gemini-3-flash-001");
+    expect(result.usage).toEqual({ inputTokens: 15, outputTokens: 8 });
+    expect(result.stopReason).toBe("STOP");
+  });
+
+  test("managed transport handles tool calls correctly", async () => {
+    const managedProvider = new GeminiProvider(
+      "managed-key",
+      "gemini-3-flash",
+      {
+        managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+      },
+    );
+
+    fakeChunks = [
+      functionCallChunk([
+        { id: "call_managed", name: "file_read", args: { path: "/tmp/test" } },
+      ]),
+      finishChunk("STOP", 10, 15),
+    ];
+
+    const result = await managedProvider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+    ]);
+
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]).toEqual({
+      type: "tool_use",
+      id: "call_managed",
+      name: "file_read",
+      input: { path: "/tmp/test" },
+    });
   });
 });

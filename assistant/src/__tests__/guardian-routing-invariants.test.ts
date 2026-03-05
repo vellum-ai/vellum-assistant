@@ -94,7 +94,8 @@ const TEST_PRINCIPAL_ID = "test-principal-id";
 
 function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
-    externalUserId: "guardian-1",
+    actorPrincipalId: TEST_PRINCIPAL_ID,
+    actorExternalUserId: "guardian-1",
     channel: "telegram",
     guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
@@ -103,7 +104,8 @@ function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
 
 function trustedActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
-    externalUserId: undefined,
+    actorPrincipalId: TEST_PRINCIPAL_ID,
+    actorExternalUserId: undefined,
     channel: "desktop",
     guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
@@ -169,22 +171,45 @@ function registerPendingToolApprovalInteraction(
 describe("routing invariant: all decision paths reference applyCanonicalGuardianDecision", () => {
   const srcRoot = resolve(__dirname, "..");
 
-  // The files that constitute decision entrypoints. Each must import
-  // `applyCanonicalGuardianDecision` from the guardian-decision-primitive.
-  const DECISION_ENTRYPOINTS = [
+  // The files that constitute decision entrypoints. Each must reference
+  // `applyCanonicalGuardianDecision` (directly) or `processGuardianDecision`
+  // (shared wrapper that calls applyCanonicalGuardianDecision internally).
+  const DECISION_ENTRYPOINTS: Array<{
+    path: string;
+    symbols: string[];
+  }> = [
     // Inbound channel router (Telegram/SMS/WhatsApp)
-    "runtime/guardian-reply-router.ts",
-    // HTTP API route handler (desktop and API clients)
-    "runtime/routes/guardian-action-routes.ts",
-    // IPC handler (desktop socket clients)
-    "daemon/handlers/guardian-actions.ts",
+    {
+      path: "runtime/guardian-reply-router.ts",
+      symbols: ["applyCanonicalGuardianDecision"],
+    },
+    // HTTP API route handler (desktop and API clients) — uses processGuardianDecision
+    // which is a shared wrapper around applyCanonicalGuardianDecision
+    {
+      path: "runtime/routes/guardian-action-routes.ts",
+      symbols: ["processGuardianDecision"],
+    },
+    // IPC handler (desktop socket clients) — uses processGuardianDecision
+    // which is a shared wrapper around applyCanonicalGuardianDecision
+    {
+      path: "daemon/handlers/guardian-actions.ts",
+      symbols: ["processGuardianDecision"],
+    },
+    // Shared service where processGuardianDecision is defined — must route
+    // through the canonical primitive to complete the chain:
+    // entrypoint → processGuardianDecision → applyCanonicalGuardianDecision
+    {
+      path: "runtime/guardian-action-service.ts",
+      symbols: ["applyCanonicalGuardianDecision"],
+    },
   ];
 
-  for (const relPath of DECISION_ENTRYPOINTS) {
-    test(`${relPath} imports applyCanonicalGuardianDecision`, () => {
+  for (const { path: relPath, symbols } of DECISION_ENTRYPOINTS) {
+    test(`${relPath} imports ${symbols.join(" or ")}`, () => {
       const fullPath = join(srcRoot, relPath);
       const source = readFileSync(fullPath, "utf-8");
-      expect(source).toContain("applyCanonicalGuardianDecision");
+      const found = symbols.some((s) => source.includes(s));
+      expect(found).toBe(true);
     });
   }
 
@@ -1189,13 +1214,13 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     });
 
     // No pendingRequestIds passed — identity-based fallback uses
-    // actor.externalUserId which does not match any request's
+    // actor.actorExternalUserId which does not match any request's
     // guardianExternalUserId (since it's null).
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
         channel: "telegram",
-        actor: guardianActor({ externalUserId: "guardian-tg-user" }),
+        actor: guardianActor({ actorExternalUserId: "guardian-tg-user" }),
         conversationId: "conv-guardian-chat",
         // pendingRequestIds: undefined — no delivery hints
         approvalConversationGenerator: undefined,

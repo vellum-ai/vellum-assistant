@@ -425,6 +425,7 @@ struct ChatContentView: View {
         case .sessionAborted: return "stop.circle.fill"
         case .processingFailed, .regenerateFailed: return "arrow.triangle.2.circlepath"
         case .contextTooLarge: return "text.badge.xmark"
+        case .providerBilling: return "creditcard.trianglebadge.exclamationmark"
         case .authenticationRequired: return "lock.fill"
         case .unknown: return "exclamationmark.triangle.fill"
         }

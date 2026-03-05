@@ -353,9 +353,8 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
     public let createdAt: Int
     public let version: String?
     public let contentId: String?
-    public let appType: String?
 
-    public init(id: String, name: String, description: String? = nil, icon: String? = nil, preview: String? = nil, createdAt: Int, version: String? = nil, contentId: String? = nil, appType: String? = nil) {
+    public init(id: String, name: String, description: String? = nil, icon: String? = nil, preview: String? = nil, createdAt: Int, version: String? = nil, contentId: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -364,7 +363,6 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
         self.createdAt = createdAt
         self.version = version
         self.contentId = contentId
-        self.appType = appType
     }
 }
 
@@ -868,18 +866,18 @@ public struct IPCContactPayload: Codable, Sendable {
     public let id: String
     public let displayName: String
     public let role: String
-    public let relationship: String?
-    public let importance: Double
+    public let notes: String?
+    public let contactType: String?
     public let lastInteraction: Double?
     public let interactionCount: Int
     public let channels: [IPCContactChannelPayload]
 
-    public init(id: String, displayName: String, role: String, relationship: String? = nil, importance: Double, lastInteraction: Double? = nil, interactionCount: Int, channels: [IPCContactChannelPayload]) {
+    public init(id: String, displayName: String, role: String, notes: String? = nil, contactType: String? = nil, lastInteraction: Double? = nil, interactionCount: Int, channels: [IPCContactChannelPayload]) {
         self.id = id
         self.displayName = displayName
         self.role = role
-        self.relationship = relationship
-        self.importance = importance
+        self.notes = notes
+        self.contactType = contactType
         self.lastInteraction = lastInteraction
         self.interactionCount = interactionCount
         self.channels = channels
@@ -892,6 +890,93 @@ public struct IPCContactsChanged: Codable, Sendable {
 
     public init(type: String) {
         self.type = type
+    }
+}
+
+public struct IPCContactsInviteRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    /// Source channel for the invite (required for create and redeem).
+    public let sourceChannel: String?
+    /// Optional note describing the invite (create only).
+    public let note: String?
+    /// Maximum number of times the invite can be redeemed (create only).
+    public let maxUses: Double?
+    /// Expiration time in milliseconds from now (create only).
+    public let expiresInMs: Double?
+    /// Invite ID to revoke (revoke only).
+    public let inviteId: String?
+    /// Invite token to redeem (redeem only).
+    public let token: String?
+    /// External user ID of the redeemer (redeem only).
+    public let externalUserId: String?
+    /// External chat ID of the redeemer (redeem only).
+    public let externalChatId: String?
+    /// Filter by status (list only).
+    public let status: String?
+    /// Invitee's first name (voice invite create only).
+    public let friendName: String?
+    /// Guardian's first name (voice invite create only).
+    public let guardianName: String?
+
+    public init(type: String, action: String, sourceChannel: String? = nil, note: String? = nil, maxUses: Double? = nil, expiresInMs: Double? = nil, inviteId: String? = nil, token: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, status: String? = nil, friendName: String? = nil, guardianName: String? = nil) {
+        self.type = type
+        self.action = action
+        self.sourceChannel = sourceChannel
+        self.note = note
+        self.maxUses = maxUses
+        self.expiresInMs = expiresInMs
+        self.inviteId = inviteId
+        self.token = token
+        self.externalUserId = externalUserId
+        self.externalChatId = externalChatId
+        self.status = status
+        self.friendName = friendName
+        self.guardianName = guardianName
+    }
+}
+
+public struct IPCContactsInviteResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+    /// Single invite (returned on create/revoke). Token field is only present on create.
+    public let invite: IPCContactsInviteResponseInvite?
+    /// List of invites (returned on list).
+    public let invites: [IPCContactsInviteResponseInvite]?
+
+    public init(type: String, success: Bool, error: String? = nil, invite: IPCContactsInviteResponseInvite? = nil, invites: [IPCContactsInviteResponseInvite]? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+        self.invite = invite
+        self.invites = invites
+    }
+}
+
+public struct IPCContactsInviteResponseInvite: Codable, Sendable {
+    public let id: String
+    public let sourceChannel: String
+    public let token: String?
+    public let tokenHash: String
+    public let maxUses: Double
+    public let useCount: Int
+    public let expiresAt: Int?
+    public let status: String
+    public let note: String?
+    public let createdAt: Int
+
+    public init(id: String, sourceChannel: String, token: String? = nil, tokenHash: String, maxUses: Double, useCount: Int, expiresAt: Int?, status: String, note: String? = nil, createdAt: Int) {
+        self.id = id
+        self.sourceChannel = sourceChannel
+        self.token = token
+        self.tokenHash = tokenHash
+        self.maxUses = maxUses
+        self.useCount = useCount
+        self.expiresAt = expiresAt
+        self.status = status
+        self.note = note
+        self.createdAt = createdAt
     }
 }
 
@@ -1457,17 +1542,15 @@ public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     public let width: Int?
     public let height: Int?
     public let appId: String?
-    public let appType: String?
     public let reloadGeneration: Double?
     public let status: String?
     public let preview: IPCDynamicPagePreview?
 
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, appType: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: IPCDynamicPagePreview? = nil) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: IPCDynamicPagePreview? = nil) {
         self.html = html
         self.width = width
         self.height = height
         self.appId = appId
-        self.appType = appType
         self.reloadGeneration = reloadGeneration
         self.status = status
         self.preview = preview
@@ -2434,177 +2517,6 @@ public struct IPCIngressConfigResponse: Codable, Sendable {
     }
 }
 
-public struct IPCIngressContactRequest: Codable, Sendable {
-    public let type: String
-    public let action: String
-    /// Assistant ID for scoping member operations (defaults to 'self').
-    public let assistantId: String?
-    /// Source channel (required for upsert, optional filter for list).
-    public let sourceChannel: String?
-    /// External user ID (upsert only).
-    public let externalUserId: String?
-    /// External chat ID (upsert only).
-    public let externalChatId: String?
-    /// Display name (upsert only).
-    public let displayName: String?
-    /// Username (upsert only).
-    public let username: String?
-    /// Access policy (upsert only).
-    public let policy: String?
-    /// Member status (upsert only for setting, list only for filtering).
-    public let status: String?
-    /// Member ID (revoke and block only).
-    public let memberId: String?
-    /// Reason for revoke or block (revoke and block only).
-    public let reason: String?
-
-    public init(type: String, action: String, assistantId: String? = nil, sourceChannel: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, displayName: String? = nil, username: String? = nil, policy: String? = nil, status: String? = nil, memberId: String? = nil, reason: String? = nil) {
-        self.type = type
-        self.action = action
-        self.assistantId = assistantId
-        self.sourceChannel = sourceChannel
-        self.externalUserId = externalUserId
-        self.externalChatId = externalChatId
-        self.displayName = displayName
-        self.username = username
-        self.policy = policy
-        self.status = status
-        self.memberId = memberId
-        self.reason = reason
-    }
-}
-
-public struct IPCIngressContactResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let error: String?
-    /// Single member (returned on upsert/revoke/block).
-    public let member: IPCIngressContactResponseMember?
-    /// List of members (returned on list).
-    public let members: [IPCIngressContactResponseMember]?
-
-    public init(type: String, success: Bool, error: String? = nil, member: IPCIngressContactResponseMember? = nil, members: [IPCIngressContactResponseMember]? = nil) {
-        self.type = type
-        self.success = success
-        self.error = error
-        self.member = member
-        self.members = members
-    }
-}
-
-public struct IPCIngressContactResponseMember: Codable, Sendable {
-    public let id: String
-    public let sourceChannel: String
-    public let externalUserId: String?
-    public let externalChatId: String?
-    public let displayName: String?
-    public let username: String?
-    public let status: String
-    public let policy: String
-    public let lastSeenAt: Int?
-    public let createdAt: Int
-
-    public init(id: String, sourceChannel: String, externalUserId: String? = nil, externalChatId: String? = nil, displayName: String? = nil, username: String? = nil, status: String, policy: String, lastSeenAt: Int? = nil, createdAt: Int) {
-        self.id = id
-        self.sourceChannel = sourceChannel
-        self.externalUserId = externalUserId
-        self.externalChatId = externalChatId
-        self.displayName = displayName
-        self.username = username
-        self.status = status
-        self.policy = policy
-        self.lastSeenAt = lastSeenAt
-        self.createdAt = createdAt
-    }
-}
-
-public struct IPCIngressInviteRequest: Codable, Sendable {
-    public let type: String
-    public let action: String
-    /// Source channel for the invite (required for create and redeem).
-    public let sourceChannel: String?
-    /// Optional note describing the invite (create only).
-    public let note: String?
-    /// Maximum number of times the invite can be redeemed (create only).
-    public let maxUses: Double?
-    /// Expiration time in milliseconds from now (create only).
-    public let expiresInMs: Double?
-    /// Invite ID to revoke (revoke only).
-    public let inviteId: String?
-    /// Invite token to redeem (redeem only).
-    public let token: String?
-    /// External user ID of the redeemer (redeem only).
-    public let externalUserId: String?
-    /// External chat ID of the redeemer (redeem only).
-    public let externalChatId: String?
-    /// Filter by status (list only).
-    public let status: String?
-    /// Invitee's first name (voice invite create only).
-    public let friendName: String?
-    /// Guardian's first name (voice invite create only).
-    public let guardianName: String?
-
-    public init(type: String, action: String, sourceChannel: String? = nil, note: String? = nil, maxUses: Double? = nil, expiresInMs: Double? = nil, inviteId: String? = nil, token: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, status: String? = nil, friendName: String? = nil, guardianName: String? = nil) {
-        self.type = type
-        self.action = action
-        self.sourceChannel = sourceChannel
-        self.note = note
-        self.maxUses = maxUses
-        self.expiresInMs = expiresInMs
-        self.inviteId = inviteId
-        self.token = token
-        self.externalUserId = externalUserId
-        self.externalChatId = externalChatId
-        self.status = status
-        self.friendName = friendName
-        self.guardianName = guardianName
-    }
-}
-
-public struct IPCIngressInviteResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let error: String?
-    /// Single invite (returned on create/revoke). Token field is only present on create.
-    public let invite: IPCIngressInviteResponseInvite?
-    /// List of invites (returned on list).
-    public let invites: [IPCIngressInviteResponseInvite]?
-
-    public init(type: String, success: Bool, error: String? = nil, invite: IPCIngressInviteResponseInvite? = nil, invites: [IPCIngressInviteResponseInvite]? = nil) {
-        self.type = type
-        self.success = success
-        self.error = error
-        self.invite = invite
-        self.invites = invites
-    }
-}
-
-public struct IPCIngressInviteResponseInvite: Codable, Sendable {
-    public let id: String
-    public let sourceChannel: String
-    public let token: String?
-    public let tokenHash: String
-    public let maxUses: Double
-    public let useCount: Int
-    public let expiresAt: Int?
-    public let status: String
-    public let note: String?
-    public let createdAt: Int
-
-    public init(id: String, sourceChannel: String, token: String? = nil, tokenHash: String, maxUses: Double, useCount: Int, expiresAt: Int?, status: String, note: String? = nil, createdAt: Int) {
-        self.id = id
-        self.sourceChannel = sourceChannel
-        self.token = token
-        self.tokenHash = tokenHash
-        self.maxUses = maxUses
-        self.useCount = useCount
-        self.expiresAt = expiresAt
-        self.status = status
-        self.note = note
-        self.createdAt = createdAt
-    }
-}
-
 public struct IPCIntegrationConnectRequest: Codable, Sendable {
     public let type: String
     public let integrationId: String
@@ -3540,16 +3452,6 @@ public struct IPCRideShotgunStop: Codable, Sendable {
     public init(type: String, watchId: String) {
         self.type = type
         self.watchId = watchId
-    }
-}
-
-public struct IPCSandboxSetRequest: Codable, Sendable {
-    public let type: String
-    public let enabled: Bool
-
-    public init(type: String, enabled: Bool) {
-        self.type = type
-        self.enabled = enabled
     }
 }
 

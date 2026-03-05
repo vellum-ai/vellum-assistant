@@ -7,7 +7,7 @@
       "key": "feature_flags.sms.enabled",
       "label": "SMS",
       "description": "Show SMS setup in Settings > Connect and enable the SMS setup skill",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "hatch-new-assistant",
@@ -15,7 +15,7 @@
       "key": "feature_flags.hatch-new-assistant.enabled",
       "label": "Hatch New Assistant",
       "description": "Show Hatch New Assistant action in Settings > Account",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "guardian-verify-setup",
@@ -23,7 +23,7 @@
       "key": "feature_flags.guardian-verify-setup.enabled",
       "label": "Guardian Verification Setup",
       "description": "Enable guardian verification routing in the system prompt",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "browser",
@@ -39,7 +39,7 @@
       "key": "feature_flags.twitter.enabled",
       "label": "Twitter",
       "description": "Enable X (Twitter) skill section in the system prompt",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "messaging",
@@ -47,7 +47,7 @@
       "key": "feature_flags.messaging.enabled",
       "label": "Messaging",
       "description": "Enable messaging skill section in the system prompt",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "collect-usage-data",
@@ -55,7 +55,7 @@
       "key": "feature_flags.collect-usage-data.enabled",
       "label": "Collect usage data",
       "description": "Send crash reports and error diagnostics to help improve the app",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "user-hosted-enabled",
@@ -79,7 +79,7 @@
       "key": "feature_flags.command-palette.enabled",
       "label": "Command Palette",
       "description": "Enable the CMD+K command palette for unified search across conversations, memories, schedules, and contacts",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "contacts-tab",
@@ -87,6 +87,14 @@
       "key": "contacts_tab",
       "label": "Contacts Tab",
       "description": "Show the Contacts tab in Settings for viewing and managing contacts",
+      "defaultEnabled": false
+    },
+    {
+      "id": "outbound-proxy-sidecar",
+      "scope": "assistant",
+      "key": "feature_flags.outbound-proxy-sidecar.enabled",
+      "label": "Outbound Proxy Sidecar",
+      "description": "Route proxy session management through the sidecar process instead of running in-process",
       "defaultEnabled": false
     }
   ]

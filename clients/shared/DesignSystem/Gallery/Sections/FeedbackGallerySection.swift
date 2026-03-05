@@ -122,6 +122,44 @@ struct FeedbackGallerySection: View {
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
+            // MARK: - VShortcutTag
+            GallerySectionHeader(
+                title: "VShortcutTag",
+                description: "Clickable pill displaying a keyboard shortcut hint, with optional icon."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    // Text only
+                    HStack(spacing: VSpacing.lg) {
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Text only").font(VFont.caption).foregroundColor(VColor.textMuted)
+                            VShortcutTag("\u{2318}K")
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("Text only").font(VFont.caption).foregroundColor(VColor.textMuted)
+                            VShortcutTag("\u{2318}G")
+                        }
+                    }
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    // With icon
+                    HStack(spacing: VSpacing.lg) {
+                        VStack(spacing: VSpacing.xs) {
+                            Text("With icon").font(VFont.caption).foregroundColor(VColor.textMuted)
+                            VShortcutTag("fn", icon: "mic.fill")
+                        }
+                        VStack(spacing: VSpacing.xs) {
+                            Text("With icon").font(VFont.caption).foregroundColor(VColor.textMuted)
+                            VShortcutTag("Esc", icon: "escape")
+                        }
+                    }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
             // MARK: - VToast with Actions
             GallerySectionHeader(
                 title: "VToast with Actions",

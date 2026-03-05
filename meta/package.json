@@ -1,17 +1,22 @@
 {
   "name": "vellum",
-  "version": "0.4.27",
+  "version": "0.4.32",
   "description": "Install the full Vellum stack locally",
   "bin": {
     "vellum": "./bin/vellum.js"
+  },
+  "scripts": {
+    "test": "bun test"
   },
   "files": [
     "bin"
   ],
   "dependencies": {
-    "@vellumai/assistant": "0.4.27",
-    "@vellumai/cli": "0.4.27",
-    "@vellumai/outbound-proxy": "0.4.27",
-    "@vellumai/vellum-gateway": "0.4.27"
+    "@vellumai/assistant": "0.4.32",
+    "@vellumai/cli": "0.4.32",
+    "@vellumai/vellum-gateway": "0.4.32"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.4"
   }
 }

@@ -1,16 +1,29 @@
-import { upsertContact } from "../../../../contacts/contact-store.js";
+import {
+  gatewayPost,
+  GatewayRequestError,
+} from "../../../../runtime/gateway-internal-client.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
-function formatContact(c: ReturnType<typeof upsertContact>): string {
+interface ContactChannel {
+  type: string;
+  address: string;
+  isPrimary: boolean;
+}
+
+interface ContactResponse {
+  id: string;
+  displayName: string;
+  notes: string | null;
+  interactionCount: number;
+  channels: ContactChannel[];
+}
+
+function formatContact(c: ContactResponse): string {
   const lines = [`Contact ${c.id}`, `  Name: ${c.displayName}`];
-  if (c.relationship) lines.push(`  Relationship: ${c.relationship}`);
-  lines.push(`  Importance: ${c.importance.toFixed(2)}`);
-  if (c.responseExpectation)
-    lines.push(`  Response expectation: ${c.responseExpectation}`);
-  if (c.preferredTone) lines.push(`  Preferred tone: ${c.preferredTone}`);
+  if (c.notes) lines.push(`  Notes: ${c.notes}`);
   if (c.interactionCount > 0)
     lines.push(`  Interactions: ${c.interactionCount}`);
   if (c.channels.length > 0) {
@@ -39,17 +52,6 @@ export async function executeContactUpsert(
     };
   }
 
-  const importance = input.importance as number | undefined;
-  if (
-    importance !== undefined &&
-    (typeof importance !== "number" || importance < 0 || importance > 1)
-  ) {
-    return {
-      content: "Error: importance must be a number between 0 and 1",
-      isError: true,
-    };
-  }
-
   const rawChannels = input.channels as
     | Array<{ type: string; address: string; is_primary?: boolean }>
     | undefined;
@@ -60,23 +62,26 @@ export async function executeContactUpsert(
   }));
 
   try {
-    const contact = upsertContact({
+    const { status, data } = await gatewayPost<{
+      ok: boolean;
+      contact: ContactResponse;
+    }>("/v1/contacts", {
       id: input.id as string | undefined,
       displayName: displayName.trim(),
-      relationship: input.relationship as string | undefined,
-      importance,
-      responseExpectation: input.response_expectation as string | undefined,
-      preferredTone: input.preferred_tone as string | undefined,
+      notes: input.notes as string | undefined,
       channels,
     });
 
+    const created = status === 201;
+
     return {
-      content: `${
-        contact.created ? "Created" : "Updated"
-      } contact:\n${formatContact(contact)}`,
+      content: `${created ? "Created" : "Updated"} contact:\n${formatContact(data.contact)}`,
       isError: false,
     };
   } catch (err) {
+    if (err instanceof GatewayRequestError) {
+      return { content: `Error: ${err.message}`, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };
   }

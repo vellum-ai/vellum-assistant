@@ -109,7 +109,7 @@ assistant/src/memory/scoped-approval-grants.ts @noanflaherty
 assistant/src/memory/canonical-guardian-store.ts @noanflaherty
 assistant/src/calls/guardian-*.ts @noanflaherty
 assistant/src/config/bundled-skills/guardian-verify-setup/ @noanflaherty
-assistant/src/config/bundled-skills/trusted-contacts/ @noanflaherty
+assistant/src/config/bundled-skills/contacts/ @noanflaherty
 assistant/src/notifications/guardian-question-mode.ts @noanflaherty
 gateway/src/http/routes/guardian-control-plane-proxy.ts @noanflaherty
 

@@ -135,7 +135,7 @@ DesignSystem/
 ├── Core/                (atomic building blocks — single-responsibility controls)
 │   ├── Buttons/         (VButton, VIconButton)
 │   ├── Inputs/          (VSlider, VTextEditor, VTextField, VToggle)
-│   ├── Feedback/        (VBadge, VLoadingIndicator, VToast)
+│   ├── Feedback/        (VBadge, VLoadingIndicator, VShortcutTag, VToast)
 │   ├── Display/         (VListRow)
 │   └── Navigation/      (VTab)
 ├── Components/          (composed patterns — combine multiple Core elements)
@@ -204,8 +204,12 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 - Design system types: `V` prefix (VButton, VColor, VTab, etc.)
 - Feature views: Place in `Features/<Module>/`. New feature modules get their own directory.
+- **Extension files**: Use `TypeName+Purpose.swift` naming (e.g., `MainWindowView+Sidebar.swift`). This is the standard Swift convention for splitting a type across files. Place extension files in the same directory as the primary file.
+- **Standalone child views**: Extract into their own file when the view has its own identity and state (e.g., `SidebarThreadItem.swift`). Group related views in a subdirectory (e.g., `Sidebar/`).
+- **Helper/state types**: Extract into a separate file named after the type (e.g., `MainWindowGroupedState.swift` for `SharingState`, `SidebarInteractionState`, etc.).
 - New `.swift` files are auto-picked up by SPM — no project file edits needed.
 - Panel views: Place in `Features/MainWindow/Panels/` and add a case to `SidePanelType`.
+- **File size target**: ~500-600 lines max. If a file exceeds this, split using extensions or standalone views.
 
 ## Key Constraints
 

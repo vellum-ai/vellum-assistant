@@ -140,6 +140,115 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen - 3) + "...";
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type BlockKitBlock = Record<string, any>;
+
+/**
+ * Build Slack Block Kit blocks from digest results.
+ * Produces a structured Block Kit payload with header, per-channel sections,
+ * thread context blocks, and dividers.
+ */
+function buildBlockKitOutput(
+  digests: ChannelDigest[],
+  hoursBack: number,
+  totalAttempted: number,
+  skippedCount: number,
+): BlockKitBlock[] {
+  const blocks: BlockKitBlock[] = [];
+
+  // Header block with scan summary
+  blocks.push({
+    type: "header",
+    text: {
+      type: "plain_text",
+      text: `Slack Digest — ${digests.length} channel${digests.length !== 1 ? "s" : ""} scanned`,
+    },
+  });
+
+  blocks.push({
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `*Time range:* Last ${hoursBack} hour${hoursBack !== 1 ? "s" : ""} | *Channels attempted:* ${totalAttempted} | *Skipped:* ${skippedCount}`,
+    },
+  });
+
+  blocks.push({ type: "divider" });
+
+  for (const digest of digests) {
+    if (digest.error) {
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${digest.isPrivate ? "\ud83d\udd12 " : ""}*#${digest.channelName}* — _Error: ${digest.error}_`,
+        },
+      });
+      blocks.push({ type: "divider" });
+      continue;
+    }
+
+    // Channel section with name, message count, privacy indicator
+    const privacyIcon = digest.isPrivate ? "\ud83d\udd12 " : "";
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `${privacyIcon}*#${digest.channelName}* — ${digest.messageCount} message${digest.messageCount !== 1 ? "s" : ""}`,
+      },
+    });
+
+    // Key participants as context
+    if (digest.keyParticipants.length > 0) {
+      blocks.push({
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `*Active:* ${digest.keyParticipants.join(", ")}`,
+          },
+        ],
+      });
+    }
+
+    // Thread previews as context blocks
+    for (const thread of digest.topThreads) {
+      const participantText =
+        thread.participants.length > 0
+          ? thread.participants.join(", ")
+          : "unknown";
+      blocks.push({
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `\ud83e\uddf5 *${thread.replyCount} replies* (${participantText}): ${thread.previewText}`,
+          },
+        ],
+      });
+    }
+
+    blocks.push({ type: "divider" });
+  }
+
+  // Slack Block Kit enforces a 50-block maximum per message.
+  // Truncate and append a summary block when we exceed the limit.
+  const SLACK_BLOCK_LIMIT = 50;
+  if (blocks.length > SLACK_BLOCK_LIMIT) {
+    const overflow = blocks.length - (SLACK_BLOCK_LIMIT - 1);
+    blocks.length = SLACK_BLOCK_LIMIT - 1;
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `_... and ${overflow} more block${overflow !== 1 ? "s" : ""} truncated (some channels omitted). Use \`channel_ids\` to drill into specific channels._`,
+      },
+    });
+  }
+
+  return blocks;
+}
+
 export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
@@ -148,6 +257,7 @@ export async function run(
   const hoursBack = (input.hours_back as number) ?? 24;
   const includeThreads = (input.include_threads as boolean) ?? true;
   const maxChannels = (input.max_channels as number) ?? 20;
+  const format = (input.format as string) ?? "text";
 
   try {
     return await withSlackToken(async (token) => {
@@ -232,6 +342,16 @@ export async function run(
       const skippedCount = scanResults.filter(
         (r) => r.status === "rejected",
       ).length;
+
+      if (format === "blocks") {
+        const blocks = buildBlockKitOutput(
+          digests,
+          hoursBack,
+          channelsToScan.length,
+          skippedCount,
+        );
+        return ok(JSON.stringify({ blocks }, null, 2));
+      }
 
       const result = {
         scannedChannels: digests.length,

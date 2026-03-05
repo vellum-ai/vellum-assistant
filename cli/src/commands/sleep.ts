@@ -8,7 +8,7 @@ export async function sleep(): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum sleep");
     console.log("");
-    console.log("Stop the daemon, gateway, and outbound-proxy processes.");
+    console.log("Stop the assistant and gateway processes.");
     process.exit(0);
   }
 
@@ -16,34 +16,29 @@ export async function sleep(): Promise<void> {
   const daemonPidFile = join(vellumDir, "vellum.pid");
   const socketFile = join(vellumDir, "vellum.sock");
   const gatewayPidFile = join(vellumDir, "gateway.pid");
-  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
 
   // Stop daemon
   const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [
     socketFile,
   ]);
   if (!daemonStopped) {
-    console.log("Daemon is not running.");
+    console.log("Assistant is not running.");
   } else {
-    console.log("Daemon stopped.");
+    console.log("Assistant stopped.");
   }
 
-  // Stop gateway
-  const gatewayStopped = await stopProcessByPidFile(gatewayPidFile, "gateway");
+  // Stop gateway — use a longer timeout because the gateway has a configurable
+  // drain window (GATEWAY_SHUTDOWN_DRAIN_MS, default 5s) before it exits.
+  const gatewayStopped = await stopProcessByPidFile(
+    gatewayPidFile,
+    "gateway",
+    undefined,
+    7000,
+  );
   if (!gatewayStopped) {
     console.log("Gateway is not running.");
   } else {
     console.log("Gateway stopped.");
   }
 
-  // Stop outbound proxy
-  const outboundProxyStopped = await stopProcessByPidFile(
-    outboundProxyPidFile,
-    "outbound-proxy",
-  );
-  if (!outboundProxyStopped) {
-    console.log("Outbound proxy is not running.");
-  } else {
-    console.log("Outbound proxy stopped.");
-  }
 }

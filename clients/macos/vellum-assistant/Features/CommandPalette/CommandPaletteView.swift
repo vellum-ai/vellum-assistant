@@ -379,8 +379,8 @@ struct CommandPaletteView: View {
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
 
-                if let relationship = contact.relationship, !relationship.isEmpty {
-                    Text(relationship)
+                if let notes = contact.notes, !notes.isEmpty {
+                    Text(notes.components(separatedBy: .newlines).first ?? notes)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                         .lineLimit(1)

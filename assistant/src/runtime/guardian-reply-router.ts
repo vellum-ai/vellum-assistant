@@ -209,14 +209,14 @@ function findPendingCanonicalRequests(
   }
 
   // Query by guardian identity when available
-  if (actor.externalUserId) {
+  if (actor.actorExternalUserId) {
     return listCanonicalGuardianRequests({
       status: "pending",
-      guardianExternalUserId: actor.externalUserId,
+      guardianExternalUserId: actor.actorExternalUserId,
     });
   }
 
-  // Actors without an externalUserId: scope by conversationId so the NL
+  // Actors without an actorExternalUserId: scope by conversationId so the NL
   // path can discover pending requests bound to this conversation.
   // Include guardianPrincipalId filter when available so the guardian only
   // sees requests they are authorized to act on.
@@ -230,7 +230,7 @@ function findPendingCanonicalRequests(
     });
   }
 
-  // Actors with a guardianPrincipalId but no externalUserId or
+  // Actors with a guardianPrincipalId but no actorExternalUserId or
   // conversationId: query by principal so desktop sessions can still
   // discover pending guardian work via their bound principal.
   if (actor.guardianPrincipalId) {
@@ -429,7 +429,7 @@ export async function routeGuardianReply(
   // ── 2.5. Invite handoff bypass for access requests ──
   // When the guardian sends "open invite flow" and there is at least one
   // pending access_request, return not_consumed so the message falls through
-  // to the normal assistant turn and can invoke the Trusted Contacts skill.
+  // to the normal assistant turn and can invoke the Contacts skill.
   if (messageText.length > 0 && pendingRequests.length > 0) {
     const normalized = messageText
       .trim()

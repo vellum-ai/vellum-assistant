@@ -90,8 +90,8 @@ function classifyProcess(command: string): string {
   if (/qdrant/.test(command)) return "qdrant";
   if (/vellum-gateway/.test(command)) return "gateway";
   if (/openclaw/.test(command)) return "openclaw-adapter";
-  if (/vellum-daemon/.test(command)) return "daemon";
-  if (/daemon\s+(start|restart)/.test(command)) return "daemon";
+  if (/vellum-daemon/.test(command)) return "assistant";
+  if (/daemon\s+(start|restart)/.test(command)) return "assistant";
   // Exclude macOS desktop app processes — their path contains .app/Contents/MacOS/
   // but they are not background service processes.
   if (/\.app\/Contents\/MacOS\//.test(command)) return "unknown";
@@ -220,11 +220,9 @@ function formatDetectionInfo(proc: DetectedProcess): string {
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
 
-  const PROXY_PORT = Number(process.env.PROXY_PORT) || 7829;
-
   const specs: ProcessSpec[] = [
     {
-      name: "daemon",
+      name: "assistant",
       pgrepName: "vellum-daemon",
       port: RUNTIME_HTTP_PORT,
       pidFile: join(vellumDir, "vellum.pid"),
@@ -240,12 +238,6 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
       pgrepName: "vellum-gateway",
       port: GATEWAY_PORT,
       pidFile: join(vellumDir, "gateway.pid"),
-    },
-    {
-      name: "outbound-proxy",
-      pgrepName: "outbound-proxy",
-      port: PROXY_PORT,
-      pidFile: join(vellumDir, "outbound-proxy.pid"),
     },
     {
       name: "embed-worker",
@@ -323,7 +315,7 @@ async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
 
   // Strategy 1: PID file scan
   const pidFiles: Array<{ file: string; name: string }> = [
-    { file: join(vellumDir, "vellum.pid"), name: "daemon" },
+    { file: join(vellumDir, "vellum.pid"), name: "assistant" },
     { file: join(vellumDir, "gateway.pid"), name: "gateway" },
     { file: join(vellumDir, "qdrant.pid"), name: "qdrant" },
   ];

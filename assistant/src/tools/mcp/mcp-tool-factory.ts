@@ -18,23 +18,6 @@ export function mcpToolName(serverId: string, toolName: string): string {
   return `mcp__${serverId}__${toolName}`;
 }
 
-/**
- * Parse a namespaced MCP tool name back into serverId and original tool name.
- * Returns null if the name doesn't match the MCP naming convention.
- */
-export function parseMcpToolName(
-  name: string,
-): { serverId: string; toolName: string } | null {
-  if (!name.startsWith("mcp__")) return null;
-  const prefixRemoved = name.slice(5); // remove 'mcp__'
-  const firstSep = prefixRemoved.indexOf("__");
-  if (firstSep === -1) return null;
-  return {
-    serverId: prefixRemoved.slice(0, firstSep),
-    toolName: prefixRemoved.slice(firstSep + 2),
-  };
-}
-
 export interface McpToolMetadata {
   name: string;
   description: string;

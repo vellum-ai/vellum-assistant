@@ -868,7 +868,7 @@ if [ "$CMD" = "run" ]; then
                 echo "───────────────────────────────────"
                 touch "$WATCH_MARKER"
                 snapshot_watched_files
-                if VELLUM_NO_WATCH=1 "$0" run; then
+                if VELLUM_NO_WATCH=1 "$SCRIPT_DIR/build.sh" run; then
                     echo "✓ Rebuilt and relaunched"
                 else
                     echo "✗ Build failed"

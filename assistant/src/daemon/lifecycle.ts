@@ -20,7 +20,6 @@ import {
 import { loadConfig } from "../config/loader.js";
 import { ensurePromptFiles } from "../config/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../config/update-bulletin.js";
-import { migrateContactsFromLegacyTables } from "../contacts/startup-migration.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -204,18 +203,6 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
-    // Catch-up migration: populate contacts table from legacy guardian
-    // bindings and ingress member rows. Ensures upgrades from pre-contacts
-    // versions have a populated contacts table on first boot.
-    try {
-      migrateContactsFromLegacyTables("self");
-    } catch (err) {
-      log.warn(
-        { err },
-        "Contacts startup migration failed — continuing startup",
-      );
-    }
-
     try {
       syncUpdateBulletinOnStartup();
     } catch (err) {
@@ -312,8 +299,20 @@ export async function runDaemon(): Promise<void> {
     registerBroadcastFn((msg) => server.broadcast(msg));
 
     const scheduler = startScheduler(
-      async (conversationId, message) => {
-        await server.processMessage(conversationId, message);
+      async (conversationId, message, options) => {
+        await server.processMessage(
+          conversationId,
+          message,
+          undefined,
+          options?.trustClass
+            ? {
+                trustContext: {
+                  sourceChannel: "vellum",
+                  trustClass: options.trustClass,
+                },
+              }
+            : undefined,
+        );
       },
       (reminder) => {
         void emitNotificationSignal({
@@ -418,22 +417,6 @@ export async function runDaemon(): Promise<void> {
         sourceInterface,
       ) =>
         server.processMessage(
-          conversationId,
-          content,
-          attachmentIds,
-          options,
-          sourceChannel,
-          sourceInterface,
-        ),
-      persistAndProcessMessage: (
-        conversationId,
-        content,
-        attachmentIds,
-        options,
-        sourceChannel,
-        sourceInterface,
-      ) =>
-        server.persistAndProcessMessage(
           conversationId,
           content,
           attachmentIds,

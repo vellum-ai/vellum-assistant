@@ -11,6 +11,11 @@ import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { resolveUserReference } from "../../../config/user-reference.js";
 import type { TrustContext } from "../../../daemon/session-runtime-assembly.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
+import {
+  extractChannelFromCallbackUrl,
+  extractThreadTsFromCallbackUrl,
+  setThreadTs,
+} from "../../../memory/slack-thread-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import {
@@ -53,6 +58,8 @@ export interface BackgroundProcessingParams {
   approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
   sourceLanguageCode?: string;
+  /** External message ID (e.g. Slack message ts) used for reaction indicators. */
+  externalMessageId?: string;
 }
 
 /**
@@ -80,6 +87,7 @@ export function processChannelMessageInBackground(
     approvalCopyGenerator,
     commandIntent,
     sourceLanguageCode,
+    externalMessageId,
   } = params;
 
   (async () => {
@@ -97,6 +105,19 @@ export function processChannelMessageInBackground(
           assistantId,
         )
       : undefined;
+
+    // Add 👀 reaction to the inbound Slack message as a processing indicator
+    const removeSlackReaction =
+      shouldEmitSlackReaction(sourceChannel, replyCallbackUrl) &&
+      externalMessageId
+        ? addSlackEyesReaction(
+            replyCallbackUrl!,
+            externalChatId,
+            externalMessageId,
+            mintBearerToken,
+            assistantId,
+          )
+        : undefined;
     const stopApprovalWatcher = replyCallbackUrl
       ? startPendingApprovalPromptWatcher({
           conversationId,
@@ -123,6 +144,15 @@ export function processChannelMessageInBackground(
           assistantId,
         })
       : undefined;
+
+    // Track Slack thread mapping so replies go to the correct thread
+    if (sourceChannel === "slack" && replyCallbackUrl) {
+      const inboundThreadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
+      const inboundChannel = extractChannelFromCallbackUrl(replyCallbackUrl);
+      if (inboundThreadTs && inboundChannel) {
+        setThreadTs(conversationId, inboundChannel, inboundThreadTs);
+      }
+    }
 
     try {
       const cmdIntent =
@@ -179,6 +209,7 @@ export function processChannelMessageInBackground(
       channelDeliveryStore.recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
+      removeSlackReaction?.();
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
@@ -240,6 +271,83 @@ export function startTelegramTypingHeartbeat(
     active = false;
     clearInterval(interval);
   };
+}
+
+// ---------------------------------------------------------------------------
+// Slack eyes reaction indicator
+// ---------------------------------------------------------------------------
+
+export function shouldEmitSlackReaction(
+  sourceChannel: ChannelId,
+  replyCallbackUrl?: string,
+): boolean {
+  if (sourceChannel !== "slack" || !replyCallbackUrl) return false;
+  try {
+    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/slack");
+  } catch {
+    return replyCallbackUrl.endsWith("/deliver/slack");
+  }
+}
+
+const SLACK_EYES_MAX_DURATION_MS = 120_000;
+
+/**
+ * Add a 👀 reaction to the inbound Slack message and return a cleanup
+ * function that removes it. Both operations are fire-and-forget.
+ *
+ * A safety timer auto-removes the reaction after {@link SLACK_EYES_MAX_DURATION_MS}
+ * to prevent stuck eyes when `processMessage` hangs (e.g. queued behind
+ * an active session turn that never completes for this message).
+ */
+export function addSlackEyesReaction(
+  callbackUrl: string,
+  chatId: string,
+  messageTs: string,
+  mintBearerToken: () => string,
+  assistantId?: string,
+): () => void {
+  let removed = false;
+
+  // Track the add promise so remove waits for it to settle first,
+  // preventing a race where remove arrives at Slack before add.
+  const addPromise = deliverChannelReply(
+    callbackUrl,
+    {
+      chatId,
+      assistantId,
+      reaction: { action: "add", name: "eyes", messageTs },
+    },
+    mintBearerToken(),
+  ).catch((err) => {
+    log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
+  });
+
+  const removeReaction = () => {
+    if (removed) return;
+    removed = true;
+    clearTimeout(safetyTimer);
+    void addPromise.then(() =>
+      deliverChannelReply(
+        callbackUrl,
+        {
+          chatId,
+          assistantId,
+          reaction: { action: "remove", name: "eyes", messageTs },
+        },
+        mintBearerToken(),
+      ).catch((err) => {
+        log.debug(
+          { err, chatId, messageTs },
+          "Failed to remove Slack eyes reaction",
+        );
+      }),
+    );
+  };
+
+  const safetyTimer = setTimeout(removeReaction, SLACK_EYES_MAX_DURATION_MS);
+  (safetyTimer as { unref?: () => void }).unref?.();
+
+  return removeReaction;
 }
 
 // ---------------------------------------------------------------------------

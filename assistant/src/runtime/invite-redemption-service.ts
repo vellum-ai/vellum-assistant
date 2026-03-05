@@ -17,7 +17,7 @@ import {
   hashToken,
   markInviteExpired,
   recordInviteUse,
-} from "../memory/ingress-invite-store.js";
+} from "../memory/invite-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { hashVoiceCode } from "../util/voice-code.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";

@@ -208,6 +208,7 @@ const noopProcessMessage = mock(async () => ({ messageId: "msg-1" }));
 function ensureTestContact(): void {
   upsertContact({
     displayName: "Test User",
+    assistantId: "self",
     channels: [
       {
         type: "telegram",
@@ -279,7 +280,7 @@ describe("inbound callback metadata triggers decision handling", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     // Establish the conversation to get a conversationId mapping
     const initReq = makeInboundRequest({ content: "init" });
@@ -320,7 +321,7 @@ describe("inbound callback metadata triggers decision handling", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -373,7 +374,7 @@ describe("inbound text matching approval phrases triggers decision handling", ()
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -406,7 +407,7 @@ describe("inbound text matching approval phrases triggers decision handling", ()
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -455,7 +456,7 @@ describe("non-decision messages during pending approval (legacy fallback)", () =
     const replySpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -564,7 +565,7 @@ describe("empty content with callbackData bypasses validation", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const req = makeInboundRequest({
       content: "",
@@ -602,7 +603,7 @@ describe("empty content with callbackData bypasses validation", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     // Send with no content field at all, just callbackData
     const reqBody = {
@@ -650,7 +651,7 @@ describe("callback requestId validation", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -690,7 +691,7 @@ describe("callback requestId validation", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -728,7 +729,7 @@ describe("callback requestId validation", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -778,7 +779,7 @@ describe("no immediate reply after approval decision", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -817,7 +818,7 @@ describe("no immediate reply after approval decision", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -933,7 +934,7 @@ describe("SMS channel approval decisions", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     // Establish the conversation via SMS
     const initReq = makeSmsInboundRequest({ content: "init" });
@@ -967,7 +968,7 @@ describe("SMS channel approval decisions", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeSmsInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -1000,7 +1001,7 @@ describe("SMS channel approval decisions", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
     const approvalSpy = spyOn(
       gatewayClient,
       "deliverApprovalPrompt",
@@ -1060,7 +1061,7 @@ describe("SMS guardian verify intercept", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const req = new Request("http://localhost/channels/inbound", {
       method: "POST",
@@ -1104,7 +1105,7 @@ describe("SMS guardian verify intercept", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const req = new Request("http://localhost/channels/inbound", {
       method: "POST",
@@ -1201,7 +1202,7 @@ describe("guardian decision scoping — multiple pending approvals", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const olderConvId = "conv-scope-older";
     const newerConvId = "conv-scope-newer";
@@ -1286,7 +1287,7 @@ describe("ambiguous plain-text decision with multiple pending requests", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const convA = "conv-ambig-a";
     const convB = "conv-ambig-b";
@@ -1375,7 +1376,7 @@ describe("expired guardian approval auto-denies via sweep", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const convId = "conv-expiry-sweep";
     ensureConversation(convId);
@@ -1439,7 +1440,7 @@ describe("expired guardian approval auto-denies via sweep", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const convId = "conv-not-expired";
     ensureConversation(convId);
@@ -1514,7 +1515,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const req = makeInboundRequest({
       content: secret,
@@ -1542,7 +1543,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const req = makeInboundRequest({
       content: secret,
@@ -1576,7 +1577,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const req = makeInboundRequest({
       content: secret,
@@ -1599,6 +1600,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
   test("inbound with explicit assistantId does not mutate existing external bindings", async () => {
     upsertContact({
       displayName: "Incoming User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -1675,7 +1677,7 @@ describe("conversational approval engine — standard path", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -1733,7 +1735,7 @@ describe("conversational approval engine — standard path", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -1781,7 +1783,7 @@ describe("conversational approval engine — standard path", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -1828,7 +1830,7 @@ describe("conversational approval engine — standard path", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -1894,7 +1896,7 @@ describe("guardian conversational approval via conversation engine", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const convId = "conv-guardian-clarify";
     ensureConversation(convId);
@@ -1976,7 +1978,7 @@ describe("guardian conversational approval via conversation engine", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const convId = "conv-guardian-nlp";
     ensureConversation(convId);
@@ -2056,7 +2058,7 @@ describe("guardian conversational approval via conversation engine", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const convId = "conv-guardian-downgrade";
     ensureConversation(convId);
@@ -2111,7 +2113,7 @@ describe("guardian conversational approval via conversation engine", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const convA = "conv-multi-a";
     const convB = "conv-multi-b";
@@ -2216,7 +2218,7 @@ describe("keep_pending remains conversational — standard path", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -2275,7 +2277,7 @@ describe("keep_pending remains conversational — guardian path", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const convId = "conv-gfb-1";
     ensureConversation(convId);
@@ -2348,6 +2350,7 @@ describe("requester cancel of guardian-gated pending request", () => {
     });
     upsertContact({
       displayName: "Requester Cancel User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -2364,7 +2367,7 @@ describe("requester cancel of guardian-gated pending request", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     // Create requester conversation
     const initReq = makeInboundRequest({
@@ -2447,7 +2450,7 @@ describe("requester cancel of guardian-gated pending request", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({
       content: "init",
@@ -2523,7 +2526,7 @@ describe("requester cancel of guardian-gated pending request", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({
       content: "init",
@@ -2596,7 +2599,7 @@ describe("requester cancel of guardian-gated pending request", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({
       content: "init",
@@ -2666,7 +2669,7 @@ describe("engine decision race condition — standard path", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -2734,7 +2737,7 @@ describe("engine decision race condition — guardian path", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const convId = "conv-guardian-race";
     ensureConversation(convId);
@@ -2825,7 +2828,7 @@ describe("non-decision status reply for different channels", () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     // Establish the conversation using sms (non-rich channel)
     const initReq = makeInboundRequest({
@@ -2872,7 +2875,7 @@ describe("non-decision status reply for different channels", () => {
     const replySpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     // Establish the conversation using telegram (rich channel)
     const initReq = makeInboundRequest({
@@ -3298,6 +3301,7 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
     });
     upsertContact({
       displayName: "TC Self-Approval User",
+      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -3314,7 +3318,7 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     // Create the requester conversation (different user than guardian)
     const initReq = makeInboundRequest({
@@ -3383,7 +3387,7 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makeInboundRequest({
       content: "init",

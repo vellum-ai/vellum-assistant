@@ -6,12 +6,8 @@
  * keeping the constructor body focused on wiring.
  */
 
-import type {
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-} from "@vellumai/outbound-proxy";
-
 import { isHttpAuthDisabled } from "../config/env.js";
+import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import {
   generateAllowlistOptions,
   generateScopeOptions,
@@ -33,6 +29,8 @@ import { requestComputerControlTool } from "../tools/computer-use/request-comput
 import type { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type {
+  ProxyApprovalCallback,
+  ProxyApprovalRequest,
   ToolExecutionResult,
   ToolLifecycleEventHandler,
 } from "../tools/types.js";
@@ -164,6 +162,10 @@ export function createToolExecutor(
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
       requesterExternalUserId: ctx.trustContext?.requesterExternalUserId,
       requesterChatId: ctx.trustContext?.requesterChatId,
+      channelPermissionChannelId:
+        ctx.trustContext?.sourceChannel === "slack"
+          ? getBindingByConversation(ctx.conversationId)?.externalChatId
+          : undefined,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,

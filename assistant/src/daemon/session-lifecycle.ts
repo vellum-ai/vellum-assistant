@@ -13,7 +13,10 @@ import * as conversationStore from "../memory/conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import {
+  isUntrustedTrustClass,
+  type TrustClass,
+} from "../runtime/actor-trust-resolver.js";
 import { unregisterSessionSender } from "../tools/browser/browser-screencast.js";
 import { getLogger } from "../util/logger.js";
 import { repairHistory } from "./history-repair.js";
@@ -45,10 +48,6 @@ function parseProvenanceTrustClass(
     // Ignore malformed metadata and treat as unknown provenance.
   }
   return undefined;
-}
-
-function isUntrustedTrustClass(trustClass: TrustClass | undefined): boolean {
-  return trustClass === "trusted_contact" || trustClass === "unknown";
 }
 
 function filterMessagesForUntrustedActor(

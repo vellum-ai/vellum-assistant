@@ -4,14 +4,14 @@ import type { DrizzleDb } from "../db-connection.js";
  * Contacts, contact channels, and triage results tables with indexes.
  */
 export function createContactsAndTriageTables(database: DrizzleDb): void {
+  // Columns removed: relationship, importance, response_expectation, preferred_tone
+  // — dropped by migration 134 (contacts-notes-column). Omitting them here keeps
+  //   the CREATE TABLE idempotent when initializeDb() runs a second time (e.g. the
+  //   "daemon restart" tests) after migration 134 has already dropped them.
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY,
       display_name TEXT NOT NULL,
-      relationship TEXT,
-      importance REAL NOT NULL DEFAULT 0.5,
-      response_expectation TEXT,
-      preferred_tone TEXT,
       last_interaction INTEGER,
       interaction_count INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
@@ -32,9 +32,6 @@ export function createContactsAndTriageTables(database: DrizzleDb): void {
 
   database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name)`,
-  );
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_contacts_importance ON contacts(importance DESC)`,
   );
   database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_contacts_last_interaction ON contacts(last_interaction DESC)`,

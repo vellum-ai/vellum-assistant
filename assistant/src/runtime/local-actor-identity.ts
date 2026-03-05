@@ -56,14 +56,28 @@ export function resolveLocalIpcTrustContext(
   // No guardian contact with a principalId — bootstrap via ensureVellumGuardianBinding
   // to self-heal (creates the binding + contact if missing).
   log.debug("No vellum guardian contact found; bootstrapping binding for IPC");
-  const principalId = ensureVellumGuardianBinding(assistantId);
-  const trustCtx = resolveTrustContext({
-    assistantId,
-    sourceChannel: "vellum",
-    conversationExternalId: "local",
-    actorExternalId: principalId,
-  });
-  return { ...trustCtx, sourceChannel };
+  try {
+    const principalId = ensureVellumGuardianBinding(assistantId);
+    const trustCtx = resolveTrustContext({
+      assistantId,
+      sourceChannel: "vellum",
+      conversationExternalId: "local",
+      actorExternalId: principalId,
+    });
+    return { ...trustCtx, sourceChannel };
+  } catch (err) {
+    log.warn(
+      { err },
+      "Self-heal ensureVellumGuardianBinding failed — falling back to minimal trust context",
+    );
+    const trustCtx = resolveTrustContext({
+      assistantId,
+      sourceChannel: "vellum",
+      conversationExternalId: "local",
+      actorExternalId: "local",
+    });
+    return { ...trustCtx, sourceChannel };
+  }
 }
 
 /**
@@ -88,6 +102,21 @@ export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
       ...authContext,
       actorPrincipalId: guardianResult.contact.principalId,
     };
+  }
+
+  // Self-heal: no guardian contact with principalId — bootstrap via
+  // ensureVellumGuardianBinding (mirrors resolveLocalIpcTrustContext).
+  try {
+    log.debug(
+      "No vellum guardian contact found; bootstrapping binding for IPC auth",
+    );
+    const principalId = ensureVellumGuardianBinding(authContext.assistantId);
+    return { ...authContext, actorPrincipalId: principalId };
+  } catch (err) {
+    log.warn(
+      { err },
+      "Self-heal ensureVellumGuardianBinding failed in auth context — returning without actorPrincipalId",
+    );
   }
 
   return authContext;

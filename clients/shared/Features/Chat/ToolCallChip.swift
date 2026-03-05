@@ -24,6 +24,39 @@ public struct ToolCallChip: View {
             || toolCall.inputFull.hasSuffix("[truncated]")
     }
 
+    /// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
+    static func parseExitCode(from result: String) -> Int? {
+        // Match <command_exit code="N" /> where N is an integer
+        guard let codeRange = result.range(of: #"<command_exit code="(\d+)" />"#, options: .regularExpression) else {
+            return nil
+        }
+        let matched = String(result[codeRange])
+        // Extract the numeric code
+        guard let numRange = matched.range(of: #"\d+"#, options: .regularExpression) else {
+            return nil
+        }
+        return Int(matched[numRange])
+    }
+
+    /// Human-readable explanation for common exit codes.
+    static func exitCodeExplanation(_ code: Int) -> String? {
+        switch code {
+        case 1:   return "General error or no results found."
+        case 2:   return "Misuse of shell built-in or invalid arguments."
+        case 126: return "Command found but not executable (permission problem)."
+        case 127: return "Command not found. It may not be installed."
+        case 128: return "Invalid exit argument."
+        case 130: return "Process terminated by Ctrl+C (SIGINT)."
+        case 137: return "Process killed (SIGKILL), possibly out of memory."
+        case 143: return "Process terminated (SIGTERM)."
+        default:
+            if code > 128 && code < 165 {
+                return "Process terminated by signal \(code - 128)."
+            }
+            return nil
+        }
+    }
+
     private var hasExpandableContent: Bool {
         toolCall.result != nil || toolCall.cachedImage != nil
     }
@@ -158,14 +191,52 @@ public struct ToolCallChip: View {
                                 .foregroundColor(VColor.textMuted)
                                 .textCase(.uppercase)
 
-                            ScrollView {
-                                Text(result)
-                                    .font(VFont.monoSmall)
-                                    .foregroundColor(VColor.textSecondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
+                            if let exitCode = Self.parseExitCode(from: result) {
+                                // Structured display for command exit codes
+                                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                    HStack(spacing: VSpacing.xs) {
+                                        Image(systemName: "exclamationmark.triangle")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(VColor.error)
+                                        Text("Exit code \(exitCode)")
+                                            .font(VFont.captionMedium)
+                                            .foregroundColor(VColor.error)
+                                    }
+                                    if let explanation = Self.exitCodeExplanation(exitCode) {
+                                        Text(explanation)
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textSecondary)
+                                    }
+                                    // Show any additional output beyond the tag itself
+                                    let extraOutput = result
+                                        .replacingOccurrences(of: #"<command_exit code="\d+" />"#, with: "", options: .regularExpression)
+                                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if !extraOutput.isEmpty {
+                                        Text(extraOutput)
+                                            .font(VFont.monoSmall)
+                                            .foregroundColor(VColor.textSecondary)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            } else if result == "<command_completed />" {
+                                HStack(spacing: VSpacing.xs) {
+                                    Image(systemName: "checkmark.circle")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(VColor.accent)
+                                    Text("Command completed successfully (no output).")
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.textSecondary)
+                                }
+                            } else {
+                                ScrollView {
+                                    Text(result)
+                                        .font(VFont.monoSmall)
+                                        .foregroundColor(VColor.textSecondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .textSelection(.enabled)
+                                }
+                                .frame(maxHeight: 200)
                             }
-                            .frame(maxHeight: 200)
                         }
                         .padding(.horizontal, VSpacing.sm)
                     }

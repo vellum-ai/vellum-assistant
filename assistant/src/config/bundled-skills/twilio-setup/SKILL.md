@@ -38,7 +38,7 @@ Mutating operations use Twilio HTTP control-plane endpoints on the gateway. Stat
 
 ### Multi-Assistant Setups
 
-In a multi-assistant environment (multiple assistants sharing the same daemon), some actions are **assistant-scoped** while others are **global** (shared across all assistants):
+In a multi-assistant environment (multiple assistants sharing the same runtime), some actions are **assistant-scoped** while others are **global** (shared across all assistants):
 
 **Global actions** (ignore `assistantId` — credentials are shared across all assistants):
 

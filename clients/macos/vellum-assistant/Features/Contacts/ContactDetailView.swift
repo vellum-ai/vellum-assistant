@@ -5,14 +5,31 @@ import VellumAssistantShared
 /// verification status, action buttons, and metadata.
 @MainActor
 struct ContactDetailView: View {
+    private static let allChannelTypes = ["telegram", "sms", "email", "voice", "slack"]
+
     let contact: ContactPayload
     var daemonClient: DaemonClient?
 
-    @State private var currentContact: ContactPayload?
+    @State var currentContact: ContactPayload?
     @State private var actionInProgress: String?
-    @State private var errorMessage: String?
+    @State var errorMessage: String?
+    @State private var isEditingName = false
+    @State private var editedName = ""
+    @State private var isHoveringHeader = false
+    @State private var verificationInProgress: String?
+    @State private var verificationSuccessChannelId: String?
+    @State private var telegramBootstrapUrl: String?
+    @State private var telegramBootstrapChannelId: String?
+    @State private var inviteInProgress: String?
+    @State private var inviteResult: (type: String, token: String, shareUrl: String?)?
+    @State private var inviteError: String?
+    @State private var inviteCopiedType: String?
 
-    private var displayContact: ContactPayload {
+    // Metadata editing state (accessed from ContactDetailView+EditableMetadata.swift)
+    @State var isEditingNotes = false
+    @State var editedNotes = ""
+
+    var displayContact: ContactPayload {
         currentContact ?? contact
     }
 
@@ -35,28 +52,66 @@ struct ContactDetailView: View {
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text(displayContact.displayName)
-                .font(VFont.largeTitle)
-                .foregroundColor(VColor.textPrimary)
+            if isEditingName {
+                HStack(spacing: VSpacing.sm) {
+                    TextField("Display name", text: $editedName)
+                        .font(VFont.largeTitle)
+                        .foregroundColor(VColor.textPrimary)
+                        .textFieldStyle(.plain)
+                        .onSubmit { Task { await saveDisplayName() } }
+
+                    Button {
+                        Task { await saveDisplayName() }
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Save name")
+
+                    Button {
+                        isEditingName = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .foregroundColor(VColor.textMuted)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .accessibilityLabel("Cancel editing")
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    Text(displayContact.displayName)
+                        .font(VFont.largeTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    Button {
+                        editedName = displayContact.displayName
+                        isEditingName = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .foregroundColor(VColor.textSecondary)
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(isHoveringHeader ? 1 : 0)
+                    .animation(VAnimation.fast, value: isHoveringHeader)
+                    .accessibilityLabel("Edit display name")
+                }
+            }
 
             HStack(spacing: VSpacing.sm) {
                 roleBadge
-
-                if let relationship = displayContact.relationship,
-                   !relationship.isEmpty {
-                    Text(relationship)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xxs)
-                        .background(VColor.surfaceSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .onHover { hovering in
+            isHoveringHeader = hovering
+        }
     }
 
     private var roleBadge: some View {
@@ -89,19 +144,47 @@ struct ContactDetailView: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            if displayContact.channels.isEmpty {
-                Text("No channels configured")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .padding(VSpacing.lg)
-            } else {
-                ForEach(displayContact.channels) { channel in
-                    channelRow(channel)
+            let channelsByType = Dictionary(
+                grouping: displayContact.channels,
+                by: { $0.type }
+            )
+            let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
+            let totalRows = Self.allChannelTypes.count + extraChannels.count
+
+            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { index, type in
+                if let channels = channelsByType[type] {
+                    ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
+                        channelRow(channel)
+
+                        if channelIndex < channels.count - 1 {
+                            Divider().background(VColor.divider)
+                        }
+                    }
+                } else {
+                    unconfiguredChannelRow(type: type)
+                }
+
+                if index < totalRows - 1 {
+                    Divider().background(VColor.divider)
+                }
+            }
+
+            ForEach(Array(extraChannels.enumerated()), id: \.element.id) { index, channel in
+                channelRow(channel)
+
+                if Self.allChannelTypes.count + index < totalRows - 1 {
+                    Divider().background(VColor.divider)
                 }
             }
 
             if let errorMessage {
                 Text(errorMessage)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            if let inviteError {
+                Text(inviteError)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
             }
@@ -162,59 +245,199 @@ struct ContactDetailView: View {
             if displayContact.role != "guardian" {
                 channelActions(for: channel)
             }
+        }
+    }
 
-            if channel.id != displayContact.channels.last?.id {
-                Divider().background(VColor.divider)
+    @ViewBuilder
+    private func unconfiguredChannelRow(type: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: channelIcon(for: type))
+                    .foregroundColor(VColor.textSecondary)
+                    .font(.system(size: 14))
+                    .frame(width: 20, alignment: .center)
+
+                Text(channelLabel(for: type))
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                Text("Not set up")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                // Voice invites require additional fields (phone number, friend/guardian
+                // names) that aren't available in this context, so hide the button.
+                if displayContact.role != "guardian" && type != "voice" {
+                    if inviteInProgress == type {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        VButton(
+                            label: "Invite",
+                            style: .secondary,
+                            size: .medium,
+                            isDisabled: inviteInProgress != nil
+                        ) {
+                            createInviteForChannel(type: type)
+                        }
+                    }
+                }
+            }
+
+            if inviteResult?.type == type {
+                HStack(spacing: VSpacing.sm) {
+                    let shareableText = inviteResult!.shareUrl ?? inviteResult!.token
+                    let truncated = shareableText.count > 20
+                        ? String(shareableText.prefix(20)) + "..."
+                        : shareableText
+                    Text(truncated)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.textSecondary)
+
+                    VButton(
+                        label: inviteCopiedType == type ? "Copied!" : "Copy",
+                        icon: "doc.on.doc",
+                        style: .tertiary,
+                        size: .medium
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(shareableText, forType: .string)
+                        inviteCopiedType = type
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            if inviteCopiedType == type {
+                                inviteCopiedType = nil
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 
     @ViewBuilder
     private func channelActions(for channel: ContactChannelPayload) -> some View {
-        let isProcessing = actionInProgress == channel.id
+        // Disable ALL action buttons while any channel action is in-flight to
+        // serialize updates and prevent response correlation mix-ups.
+        let anyActionInFlight = actionInProgress != nil || verificationInProgress != nil
+        let isThisChannel = actionInProgress == channel.id
 
-        HStack(spacing: VSpacing.sm) {
-            switch channel.status {
-            case "revoked":
-                VButton(
-                    label: "Restore Access",
-                    style: .secondary,
-                    size: .medium,
-                    isDisabled: isProcessing
-                ) {
-                    updateChannelStatus(channelId: channel.id, status: "active")
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                switch channel.status {
+                case "revoked":
+                    VButton(
+                        label: "Restore Access",
+                        style: .secondary,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "active")
+                    }
+                case "blocked":
+                    VButton(
+                        label: "Restore Access",
+                        style: .secondary,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "active")
+                    }
+                case "unverified", "pending":
+                    VButton(
+                        label: "Send Verification",
+                        style: .primary,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        initiateVerification(for: channel)
+                    }
+                    VButton(
+                        label: "Revoke Access",
+                        style: .danger,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "revoked")
+                    }
+                default:
+                    VButton(
+                        label: "Revoke Access",
+                        style: .danger,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "revoked")
+                    }
+                    VButton(
+                        label: "Block",
+                        style: .danger,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "blocked")
+                    }
                 }
-            case "blocked":
-                VButton(
-                    label: "Restore Access",
-                    style: .secondary,
-                    size: .medium,
-                    isDisabled: isProcessing
-                ) {
-                    updateChannelStatus(channelId: channel.id, status: "active")
-                }
-            default:
-                VButton(
-                    label: "Revoke Access",
-                    style: .danger,
-                    size: .medium,
-                    isDisabled: isProcessing
-                ) {
-                    updateChannelStatus(channelId: channel.id, status: "revoked")
-                }
-                VButton(
-                    label: "Block",
-                    style: .danger,
-                    size: .medium,
-                    isDisabled: isProcessing
-                ) {
-                    updateChannelStatus(channelId: channel.id, status: "blocked")
+
+                if isThisChannel {
+                    ProgressView()
+                        .controlSize(.small)
                 }
             }
 
-            if isProcessing {
-                ProgressView()
-                    .controlSize(.small)
+            // Verification feedback
+            if verificationInProgress == channel.id {
+                HStack(spacing: VSpacing.xs) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Sending verification code...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            }
+
+            if verificationSuccessChannelId == channel.id {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 12))
+                    Text("Verification code sent")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
+                }
+            }
+
+            // Telegram bootstrap: the guardian needs to open a deep link before
+            // a verification code can be delivered.
+            if telegramBootstrapChannelId == channel.id, let urlString = telegramBootstrapUrl, let url = URL(string: urlString) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Ask your contact to open this link to start the Telegram chat:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 11))
+                            Text("Open Telegram")
+                                .font(VFont.caption)
+                        }
+                        .foregroundColor(VColor.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                }
             }
         }
     }
@@ -254,57 +477,59 @@ struct ContactDetailView: View {
 
     // MARK: - Metadata Section
 
-    @ViewBuilder
     private var metadataSection: some View {
-        let hasMetadata = displayContact.importance > 0
-            || displayContact.interactionCount > 0
-            || displayContact.lastInteraction != nil
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Metadata")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
 
-        if hasMetadata {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Metadata")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                metadataRow(
+                    label: "Contact type",
+                    value: formatContactType(displayContact.contactType)
+                )
 
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    if displayContact.importance > 0 {
-                        metadataRow(
-                            label: "Importance",
-                            value: String(format: "%.1f", displayContact.importance)
-                        )
-                    }
+                editableNotesRow
 
-                    if displayContact.interactionCount > 0 {
-                        metadataRow(
-                            label: "Interactions",
-                            value: "\(displayContact.interactionCount)"
-                        )
-                    }
+                metadataRow(
+                    label: "Interactions",
+                    value: "\(displayContact.interactionCount)"
+                )
 
-                    if let lastInteraction = displayContact.lastInteraction {
-                        metadataRow(
-                            label: "Last interaction",
-                            value: relativeTime(epochMs: Int(lastInteraction))
-                        )
-                    }
+                if let lastInteraction = displayContact.lastInteraction {
+                    metadataRow(
+                        label: "Last interaction",
+                        value: relativeTime(epochMs: Int(lastInteraction))
+                    )
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
-    private func metadataRow(label: String, value: String) -> some View {
+    func metadataRow(label: String, value: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
-                .frame(width: 120, alignment: .leading)
+                .frame(width: 140, alignment: .leading)
             Text(value)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
             Spacer()
+        }
+    }
+
+    // MARK: - Formatting Helpers
+
+    private func formatContactType(_ contactType: String?) -> String {
+        switch contactType {
+        case "assistant":
+            return "Assistant"
+        default:
+            return "Human"
         }
     }
 
@@ -327,6 +552,17 @@ struct ContactDetailView: View {
         }
     }
 
+    private func channelLabel(for type: String) -> String {
+        switch type {
+        case "telegram": return "Telegram"
+        case "sms": return "SMS"
+        case "email": return "Email"
+        case "voice": return "Voice"
+        case "slack": return "Slack"
+        default: return type.capitalized
+        }
+    }
+
     private func relativeTime(epochMs: Int) -> String {
         let date = Date(timeIntervalSince1970: Double(epochMs) / 1000)
         let formatter = RelativeDateTimeFormatter()
@@ -344,22 +580,110 @@ struct ContactDetailView: View {
 
     // MARK: - Actions
 
-    private func updateChannelStatus(channelId: String, status: String) {
-        guard let daemonClient else { return }
-        actionInProgress = channelId
+    private func saveDisplayName() async {
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         errorMessage = nil
 
         do {
-            try daemonClient.sendUpdateContactChannel(channelId: channelId, status: status)
+            guard let daemonClient else {
+                errorMessage = "Failed to update name"
+                return
+            }
+            if let updated = try await daemonClient.updateContact(
+                contactId: displayContact.id,
+                displayName: trimmed
+            ) {
+                currentContact = updated
+                isEditingName = false
+            } else {
+                errorMessage = "Failed to update name"
+            }
         } catch {
-            errorMessage = "Failed to update channel: \(error.localizedDescription)"
-            actionInProgress = nil
-            return
+            errorMessage = "Failed to update name: \(error.localizedDescription)"
         }
+    }
 
-        // Listen for the response and refresh
+    private func initiateVerification(for channel: ContactChannelPayload) {
+        guard let daemonClient, verificationInProgress == nil else { return }
+        verificationInProgress = channel.id
+        errorMessage = nil
+        verificationSuccessChannelId = nil
+        telegramBootstrapUrl = nil
+        telegramBootstrapChannelId = nil
+
         Task {
+            do {
+                let result = try await daemonClient.verifyContactChannel(
+                    contactId: displayContact.id,
+                    channelId: channel.id
+                )
+                if result?.ok == true {
+                    // Telegram bootstrap: ok is true but no code was sent yet —
+                    // the user needs to open the bootstrap URL first.
+                    if let bootstrapUrl = result?.telegramBootstrapUrl {
+                        telegramBootstrapUrl = bootstrapUrl
+                        telegramBootstrapChannelId = channel.id
+                    } else {
+                        verificationSuccessChannelId = channel.id
+                        // Auto-clear the success message after 5 seconds
+                        Task {
+                            try? await Task.sleep(nanoseconds: 5_000_000_000)
+                            if verificationSuccessChannelId == channel.id {
+                                verificationSuccessChannelId = nil
+                            }
+                        }
+                    }
+                } else {
+                    errorMessage = result?.error ?? "Failed to send verification"
+                }
+            } catch {
+                errorMessage = "Failed to send verification: \(error.localizedDescription)"
+            }
+            verificationInProgress = nil
+        }
+    }
+
+    private func createInviteForChannel(type: String) {
+        guard let daemonClient, inviteInProgress == nil else { return }
+        inviteInProgress = type
+        inviteError = nil
+        inviteResult = nil
+        Task {
+            do {
+                if let result = try await daemonClient.createInvite(
+                    sourceChannel: type,
+                    note: "Invite for \(displayContact.displayName)"
+                ) {
+                    inviteResult = (type: type, token: result.token, shareUrl: result.shareUrl)
+                } else {
+                    inviteError = "Failed to create invite"
+                }
+            } catch {
+                inviteError = "Failed to create invite: \(error.localizedDescription)"
+            }
+            inviteInProgress = nil
+        }
+    }
+
+    private func updateChannelStatus(channelId: String, status: String) {
+        guard let daemonClient else { return }
+        guard actionInProgress == nil else { return }
+        actionInProgress = channelId
+        errorMessage = nil
+
+        Task {
+            // Subscribe before sending so we don't miss fast daemon responses
             let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.sendUpdateContactChannel(channelId: channelId, status: status)
+            } catch {
+                errorMessage = "Failed to update channel: \(error.localizedDescription)"
+                actionInProgress = nil
+                return
+            }
+
             for await message in stream {
                 if case .contactsResponse(let response) = message {
                     if response.success {
@@ -400,8 +724,8 @@ struct ContactDetailView: View {
                 id: "contact-1",
                 displayName: "Alice Smith",
                 role: "contact",
-                relationship: "colleague",
-                importance: 0.8,
+                notes: "Colleague, prefers casual tone. Responds within hours.",
+                contactType: "human",
                 lastInteraction: Date().timeIntervalSince1970 * 1000 - 3_600_000,
                 interactionCount: 42,
                 channels: [
@@ -440,6 +764,14 @@ struct ContactDetailView: View {
                         status: "pending",
                         policy: "restrict",
                         lastSeenAt: Int(Date().timeIntervalSince1970 * 1000) - 7_200_000
+                    ),
+                    ContactChannelPayload(
+                        id: "ch-5",
+                        type: "whatsapp",
+                        address: "+1555987654",
+                        isPrimary: false,
+                        status: "unverified",
+                        policy: "allow"
                     )
                 ]
             )

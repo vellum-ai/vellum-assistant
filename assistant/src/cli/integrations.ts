@@ -58,14 +58,6 @@ function toQueryString(params: Record<string, string | undefined>): string {
   return encoded ? `?${encoded}` : "";
 }
 
-function resolveGatewayBaseUrl(): string {
-  const injectedGatewayBase = process.env.INTERNAL_GATEWAY_BASE_URL?.trim();
-  if (injectedGatewayBase && injectedGatewayBase.length > 0) {
-    return injectedGatewayBase.replace(/\/+$/, "");
-  }
-  return getGatewayInternalBaseUrl();
-}
-
 function readIngressConfig(): {
   success: true;
   enabled: boolean;
@@ -86,7 +78,7 @@ function readIngressConfig(): {
     success: true,
     enabled,
     publicBaseUrl: configuredUrl || undefined,
-    localGatewayTarget: resolveGatewayBaseUrl(),
+    localGatewayTarget: getGatewayInternalBaseUrl(),
   };
 }
 
@@ -112,8 +104,11 @@ function readVoiceConfig(): {
   };
 }
 
+// CLI-specific gateway helper — uses GATEWAY_AUTH_TOKEN env var for out-of-process
+// access. See runtime/gateway-internal-client.ts for daemon-internal usage which
+// mints fresh tokens.
 async function gatewayGet(path: string): Promise<unknown> {
-  const gatewayBase = resolveGatewayBaseUrl();
+  const gatewayBase = getGatewayInternalBaseUrl();
   const token = getGatewayToken();
 
   const response = await fetch(`${gatewayBase}${path}`, {
@@ -169,7 +164,7 @@ export function registerContactsCommand(program: Command): void {
   contacts
     .command("list")
     .description("List contacts (calls /v1/contacts)")
-    .option("--role <role>", "Filter by role")
+    .option("--role <role>", "Filter by role (default: contact)", "contact")
     .option("--limit <limit>", "Maximum number of contacts to return")
     .option("--query <query>", "Search query to filter contacts")
     .action(
@@ -192,7 +187,7 @@ export function registerContactsCommand(program: Command): void {
 
   contacts
     .command("invites")
-    .description("List ingress invites (calls /v1/ingress/invites)")
+    .description("List contact invites")
     .option("--source-channel <sourceChannel>", "Filter by source channel")
     .option("--status <status>", "Filter by invite status")
     .action(
@@ -205,7 +200,7 @@ export function registerContactsCommand(program: Command): void {
           status: opts.status,
         });
         await runRead(cmd, async () =>
-          gatewayGet(`/v1/ingress/invites${query}`),
+          gatewayGet(`/v1/contacts/invites${query}`),
         );
       },
     );
@@ -237,9 +232,9 @@ export function registerIntegrationsCommand(program: Command): void {
   guardian
     .command("status")
     .description("Get guardian status for a channel")
-    .option("--channel <channel>", "Channel: telegram|voice|sms", "voice")
+    .option("--channel <channel>", "Channel: telegram|voice|sms", "telegram")
     .action(async (opts: { channel?: GuardianChannel }, cmd: Command) => {
-      const channel = opts.channel ?? "voice";
+      const channel = opts.channel ?? "telegram";
       await runRead(cmd, async () =>
         gatewayGet(
           `/v1/integrations/guardian/status${toQueryString({ channel })}`,
@@ -299,47 +294,6 @@ export function registerIntegrationsCommand(program: Command): void {
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () => readIngressConfig());
     });
-
-  ingress
-    .command("members")
-    .description("List trusted contacts (calls /v1/contacts with role=contact)")
-    .option("--limit <limit>", "Maximum number of contacts to return")
-    .option("--role <role>", "Filter by role (default: contact)")
-    .action(
-      async (
-        opts: {
-          limit?: string;
-          role?: string;
-        },
-        cmd: Command,
-      ) => {
-        const query = toQueryString({
-          role: opts.role ?? "contact",
-          limit: opts.limit,
-        });
-        await runRead(cmd, async () => gatewayGet(`/v1/contacts${query}`));
-      },
-    );
-
-  ingress
-    .command("invites")
-    .description("List trusted ingress invites")
-    .option("--source-channel <sourceChannel>", "Filter by source channel")
-    .option("--status <status>", "Filter by invite status")
-    .action(
-      async (
-        opts: { sourceChannel?: IngressChannel; status?: string },
-        cmd: Command,
-      ) => {
-        const query = toQueryString({
-          sourceChannel: opts.sourceChannel,
-          status: opts.status,
-        });
-        await runRead(cmd, async () =>
-          gatewayGet(`/v1/ingress/invites${query}`),
-        );
-      },
-    );
 
   const voice = integrations.command("voice").description("Voice setup status");
 

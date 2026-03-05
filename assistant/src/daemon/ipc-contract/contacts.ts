@@ -40,8 +40,8 @@ export interface ContactPayload {
   id: string;
   displayName: string;
   role: "guardian" | "contact";
-  relationship?: string;
-  importance: number;
+  notes?: string;
+  contactType?: string;
   lastInteraction?: number;
   interactionCount: number;
   channels: ContactChannelPayload[];

@@ -39,7 +39,7 @@ import {
 } from "./http/routes/feature-flags.js";
 import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
-import { createIngressControlPlaneProxyHandler } from "./http/routes/ingress-control-plane-proxy.js";
+import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
@@ -144,8 +144,8 @@ function main() {
     createGuardianControlPlaneProxyHandler(config);
   const telegramControlPlaneProxy =
     createTelegramControlPlaneProxyHandler(config);
-  const ingressControlPlaneProxy =
-    createIngressControlPlaneProxyHandler(config);
+  const contactsControlPlaneProxy =
+    createContactsControlPlaneProxyHandler(config);
   const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
@@ -347,57 +347,76 @@ function main() {
       handler: (req) => telegramControlPlaneProxy.handleSetupTelegram(req),
     },
 
-    // ── Ingress control plane ──
+    // ── Contacts control plane ──
     {
-      path: "/v1/ingress/members",
+      path: "/v1/contacts",
       method: "GET",
       auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleListMembers(req),
+      handler: (req) => contactsControlPlaneProxy.handleListContacts(req),
     },
     {
-      path: "/v1/ingress/members",
+      path: "/v1/contacts",
       method: "POST",
       auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleUpsertMember(req),
+      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
     },
     {
-      path: /^\/v1\/ingress\/members\/([^/]+)\/block$/,
+      path: "/v1/contacts/merge",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => contactsControlPlaneProxy.handleMergeContacts(req),
+    },
+    {
+      path: /^\/v1\/contacts\/channels\/([^/]+)$/,
+      method: "PATCH",
+      auth: "edge",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
+    },
+    {
+      path: /^\/v1\/contacts\/([^/]+)\/channels\/([^/]+)\/verify$/,
       method: "POST",
       auth: "edge",
       handler: (req, params) =>
-        ingressControlPlaneProxy.handleBlockMember(req, params[0]),
+        contactsControlPlaneProxy.handleVerifyContactChannel(
+          req,
+          params[0],
+          params[1],
+        ),
+    },
+
+    // ── Contacts/invites control plane ──
+    {
+      path: "/v1/contacts/invites",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => contactsControlPlaneProxy.handleListInvites(req),
     },
     {
-      path: /^\/v1\/ingress\/members\/([^/]+)$/,
+      path: "/v1/contacts/invites",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => contactsControlPlaneProxy.handleCreateInvite(req),
+    },
+    {
+      path: "/v1/contacts/invites/redeem",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => contactsControlPlaneProxy.handleRedeemInvite(req),
+    },
+    {
+      path: /^\/v1\/contacts\/invites\/([^/]+)$/,
       method: "DELETE",
       auth: "edge",
       handler: (req, params) =>
-        ingressControlPlaneProxy.handleRevokeMember(req, params[0]),
+        contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
     },
     {
-      path: "/v1/ingress/invites",
+      path: /^\/v1\/contacts\/([^/]+)$/,
       method: "GET",
       auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleListInvites(req),
-    },
-    {
-      path: "/v1/ingress/invites",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleCreateInvite(req),
-    },
-    {
-      path: "/v1/ingress/invites/redeem",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => ingressControlPlaneProxy.handleRedeemInvite(req),
-    },
-    {
-      path: /^\/v1\/ingress\/invites\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge",
       handler: (req, params) =>
-        ingressControlPlaneProxy.handleRevokeInvite(req, params[0]),
+        contactsControlPlaneProxy.handleGetContact(req, params[0]),
     },
 
     // ── Guardian control plane ──

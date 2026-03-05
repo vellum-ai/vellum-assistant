@@ -332,10 +332,7 @@ describe("trusted contact verification → member activation", () => {
     });
 
     // Revoke the member
-    const revoked = revokeMember(
-      member!.channel.id,
-      "testing revocation",
-    );
+    const revoked = revokeMember(member!.channel.id, "testing revocation");
     expect(revoked).not.toBeNull();
     expect(revoked!.channel.status).toBe("revoked");
 
@@ -436,7 +433,7 @@ describe("trusted contact verification → member activation", () => {
     );
   });
 
-  test("guardian inbound verification still creates binding (backward compat)", async () => {
+  test("guardian inbound verification succeeds but does not create binding", async () => {
     // Create an inbound challenge (no expected identity — guardian flow)
 
     const { createVerificationChallenge } =
@@ -452,13 +449,11 @@ describe("trusted contact verification → member activation", () => {
     );
 
     expect(result.success).toBe(true);
-    if (result.success && result.verificationType === "guardian") {
-      expect(result.bindingId).toBeDefined();
+    if (result.success) {
+      expect(result.verificationType).toBe("guardian");
     }
 
-    // Guardian binding should be created (in contacts table)
     const guardianResult = findGuardianForChannel("telegram", "self");
-    expect(guardianResult).not.toBeNull();
-    expect(guardianResult!.channel.externalUserId).toBe("guardian-user");
+    expect(guardianResult).toBeNull();
   });
 });

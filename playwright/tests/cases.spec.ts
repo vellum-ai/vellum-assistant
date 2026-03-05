@@ -242,7 +242,7 @@ for (const file of caseFiles) {
     try {
       // Setup fixture if needed
       if (fixture) {
-        fixtureCtx = await setupFixture(fixture, { workerIndex: testInfo.workerIndex });
+        fixtureCtx = await setupFixture(fixture, { workerIndex: testInfo.workerIndex, testName });
       }
 
       // Start desktop screen recording via ffmpeg (captures actual macOS desktop)

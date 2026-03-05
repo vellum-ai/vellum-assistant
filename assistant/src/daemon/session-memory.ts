@@ -24,7 +24,6 @@ export interface MemoryRecallResult {
   runMessages: Message[];
   recall: Awaited<ReturnType<typeof buildMemoryRecall>>;
   dynamicProfile: { text: string };
-  softConflictInstruction: string | null;
   recallInjectionStrategy: RecallInjectionStrategy;
 }
 
@@ -37,7 +36,7 @@ export interface MemoryPrepareContext {
   scopeId: string;
   includeDefaultFallback: boolean;
   trustClass: "guardian" | "trusted_contact" | "unknown";
-  /** When false (e.g. scheduled tasks), skip conflict clarification prompts. */
+  /** When false (e.g. scheduled tasks), skip conflict gate evaluation. */
   isInteractive?: boolean;
 }
 
@@ -64,7 +63,7 @@ export async function prepareMemoryContext(
   userMessageId: string,
   abortSignal: AbortSignal,
   onEvent: (msg: ServerMessage) => void,
-): Promise<MemoryRecallResult & { conflictClarification: string | null }> {
+): Promise<MemoryRecallResult> {
   // Provenance-based trust gating: untrusted actors skip all memory operations
   // (recall, dynamic profile, conflict gate) to prevent untrusted content from
   // influencing memory-augmented responses.
@@ -94,9 +93,7 @@ export async function prepareMemoryContext(
         topCandidates: [],
       } as Awaited<ReturnType<typeof buildMemoryRecall>>,
       dynamicProfile: { text: "" },
-      softConflictInstruction: null,
       recallInjectionStrategy: "prepend_user_block",
-      conflictClarification: null,
     };
   }
 
@@ -129,64 +126,24 @@ export async function prepareMemoryContext(
         topCandidates: [],
       } as Awaited<ReturnType<typeof buildMemoryRecall>>,
       dynamicProfile: { text: "" },
-      softConflictInstruction: null,
       recallInjectionStrategy: "prepend_user_block",
-      conflictClarification: null,
     };
   }
 
   const runtimeConfig = getConfig();
   const memoryEnabled = runtimeConfig.memory?.enabled !== false;
 
-  // Conflict gate — skip entirely for non-interactive sessions (scheduled tasks,
-  // work items) since there is no human to answer the clarification question.
+  // Conflict gate — evaluate for side effects (background resolution/dismissal)
+  // but do not return any user-facing payload. Non-interactive sessions skip
+  // entirely since there is no human context for conflict evaluation.
   const isInteractive = ctx.isInteractive !== false;
   const conflictConfig =
     memoryEnabled && isInteractive
       ? runtimeConfig.memory?.conflicts
       : undefined;
-  const conflictGateResult = conflictConfig
-    ? await ctx.conflictGate.evaluate(content, conflictConfig, ctx.scopeId)
-    : null;
-
-  if (conflictGateResult?.relevant) {
-    return {
-      runMessages: ctx.messages,
-      recall: {
-        enabled: false,
-        degraded: false,
-        injectedText: "",
-        lexicalHits: 0,
-        semanticHits: 0,
-        recencyHits: 0,
-        entityHits: 0,
-        relationSeedEntityCount: 0,
-        relationTraversedEdgeCount: 0,
-        relationNeighborEntityCount: 0,
-        relationExpandedItemCount: 0,
-        earlyTerminated: false,
-        mergedCount: 0,
-        selectedCount: 0,
-        rerankApplied: false,
-        injectedTokens: 0,
-        latencyMs: 0,
-        topCandidates: [],
-      } as Awaited<ReturnType<typeof buildMemoryRecall>>,
-      dynamicProfile: { text: "" },
-      softConflictInstruction: null,
-      recallInjectionStrategy: "prepend_user_block",
-      conflictClarification: [
-        conflictGateResult.question,
-        "",
-        "I need this clarification before I can give guidance that depends on that preference.",
-      ].join("\n"),
-    };
+  if (conflictConfig) {
+    await ctx.conflictGate.evaluate(content, conflictConfig, ctx.scopeId);
   }
-
-  const softConflictInstruction =
-    conflictGateResult && !conflictGateResult.relevant
-      ? conflictGateResult.question
-      : null;
 
   // Dynamic profile
   const profileConfig = memoryEnabled
@@ -312,8 +269,6 @@ export async function prepareMemoryContext(
     runMessages,
     recall,
     dynamicProfile,
-    softConflictInstruction,
     recallInjectionStrategy,
-    conflictClarification: null,
   };
 }

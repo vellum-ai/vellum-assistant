@@ -281,6 +281,11 @@ final class VoiceModeManager: ObservableObject {
 
             partialTranscription = trimmed
 
+            // Wake word routes directly to the bound chatViewModel rather than using
+            // PTT's priority routing (quick input → main window → TextResponseWindow → new session).
+            // This is by design: wake word activates a continuous conversational mode tied to a
+            // specific chat thread. Re-routing mid-conversation to a different surface would break
+            // the back-and-forth voice dialogue flow.
             chatViewModel.pendingVoiceMessage = true
             chatViewModel.inputText = trimmed
             chatViewModel.sendMessage()

@@ -32,7 +32,7 @@ export interface ChannelInviteTransport {
    * Build a shareable invite payload (URL + display text) from a raw token.
    *
    * The raw token is the base64url-encoded secret returned by
-   * `ingress-invite-store.createInvite`. The transport wraps it in a
+   * `invite-store.createInvite`. The transport wraps it in a
    * channel-specific deep link so the recipient can redeem the invite
    * by clicking/tapping the link.
    */

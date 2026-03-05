@@ -27,6 +27,7 @@ struct ComposerSection: View {
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
     let onFileDrop: ([URL]) -> Void
+    var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
     let onRetrySessionError: () -> Void
@@ -91,6 +92,7 @@ struct ComposerSection: View {
                 onRemoveAttachment: onRemoveAttachment,
                 onPaste: onPaste,
                 onFileDrop: onFileDrop,
+                onDropImageData: onDropImageData,
                 onMicrophoneToggle: onMicrophoneToggle,
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceService,

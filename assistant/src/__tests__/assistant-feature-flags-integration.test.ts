@@ -146,16 +146,20 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
+      assistantFeatureFlagValues: {
+        [DECLARED_FLAG_KEY]: false,
+        "feature_flags.twitter.enabled": true,
+      },
     };
 
     const result = buildSystemPrompt();
 
+    // twitter is explicitly enabled, declared flagged skill is explicitly off
     expect(result).toContain('id="twitter"');
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
-  test("all skills visible when no flag overrides set", () => {
+  test("declared skills hidden when no flag overrides set (registry defaults to false)", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
       "Hatch New Assistant",
@@ -169,8 +173,9 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     const result = buildSystemPrompt();
 
-    expect(result).toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).toContain('id="twitter"');
+    // Both skills are declared in the registry with defaultEnabled: false
+    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
+    expect(result).not.toContain('id="twitter"');
   });
 
   test("flagged-off skills hidden when all flags are OFF", () => {
@@ -227,7 +232,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     expect(result).not.toContain('id="browser"');
   });
 
-  test("undeclared flags with no persisted override default to enabled", () => {
+  test("declared flags with no persisted override use registry default", () => {
     createSkillOnDisk("browser", "Browser", "Web browsing automation");
 
     currentConfig = {
@@ -236,6 +241,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     const result = buildSystemPrompt();
 
+    // browser is declared in the registry with defaultEnabled: true
     expect(result).toContain('id="browser"');
   });
 });
@@ -265,10 +271,12 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("missing persisted value falls back to defaults registry defaultEnabled", () => {
     // No explicit config at all — should fall back to defaults registry
-    // which has defaultEnabled: true for hatch-new-assistant
+    // which has defaultEnabled: false for hatch-new-assistant
     const config = {} as any;
 
-    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
+      false,
+    );
   });
 
   test("unknown flag defaults to true when no persisted override", () => {
@@ -302,9 +310,9 @@ describe("legacy isSkillFeatureEnabled backward compat", () => {
     expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
   });
 
-  test("enabled when no override set", () => {
+  test("disabled when no override set (registry default is false)", () => {
     const config = {} as any;
 
-    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(true);
+    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
   });
 });

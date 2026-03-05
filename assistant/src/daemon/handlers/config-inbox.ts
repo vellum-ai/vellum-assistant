@@ -15,19 +15,14 @@ import { getBindingByConversation } from "../../memory/external-conversation-sto
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
 import { deliverChannelReply } from "../../runtime/gateway-client.js";
 import {
-  blockIngressContact,
   createIngressInvite,
-  listIngressContacts,
   listIngressInvites,
   redeemIngressInvite,
-  revokeIngressContact,
   revokeIngressInvite,
-  upsertIngressContact,
-} from "../../runtime/ingress-service.js";
+} from "../../runtime/invite-service.js";
 import type {
   AssistantInboxEscalationRequest,
-  IngressContactRequest,
-  IngressInviteRequest,
+  ContactsInviteRequest,
 } from "../ipc-protocol.js";
 import {
   defineHandlers,
@@ -36,8 +31,8 @@ import {
   renderHistoryContent,
 } from "./shared.js";
 
-export function handleIngressInvite(
-  msg: IngressInviteRequest,
+export function handleContactsInvite(
+  msg: ContactsInviteRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
@@ -54,14 +49,14 @@ export function handleIngressInvite(
         });
         if (!result.ok) {
           ctx.send(socket, {
-            type: "ingress_invite_response",
+            type: "contacts_invite_response",
             success: false,
             error: result.error,
           });
           return;
         }
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: true,
           invite: result.data,
         });
@@ -75,14 +70,14 @@ export function handleIngressInvite(
         });
         if (!result.ok) {
           ctx.send(socket, {
-            type: "ingress_invite_response",
+            type: "contacts_invite_response",
             success: false,
             error: result.error,
           });
           return;
         }
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: true,
           invites: result.data,
         });
@@ -93,14 +88,14 @@ export function handleIngressInvite(
         const result = revokeIngressInvite(msg.inviteId);
         if (!result.ok) {
           ctx.send(socket, {
-            type: "ingress_invite_response",
+            type: "contacts_invite_response",
             success: false,
             error: result.error,
           });
           return;
         }
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: true,
           invite: result.data,
         });
@@ -116,14 +111,14 @@ export function handleIngressInvite(
         });
         if (!result.ok) {
           ctx.send(socket, {
-            type: "ingress_invite_response",
+            type: "contacts_invite_response",
             success: false,
             error: result.error,
           });
           return;
         }
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: true,
           invite: result.data,
         });
@@ -132,7 +127,7 @@ export function handleIngressInvite(
 
       default: {
         ctx.send(socket, {
-          type: "ingress_invite_response",
+          type: "contacts_invite_response",
           success: false,
           error: `Unknown action: ${String(msg.action)}`,
         });
@@ -140,121 +135,9 @@ export function handleIngressInvite(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "ingress_invite handler error");
+    log.error({ err }, "contacts_invite handler error");
     ctx.send(socket, {
-      type: "ingress_invite_response",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export function handleIngressContact(
-  msg: IngressContactRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  try {
-    switch (msg.action) {
-      case "list": {
-        const result = listIngressContacts({
-          assistantId: msg.assistantId,
-          sourceChannel: msg.sourceChannel,
-          status: msg.status,
-          policy: msg.policy,
-        });
-        if (!result.ok) {
-          ctx.send(socket, {
-            type: "ingress_member_response",
-            success: false,
-            error: result.error,
-          });
-          return;
-        }
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: true,
-          members: result.data,
-        });
-        return;
-      }
-
-      case "upsert": {
-        const result = upsertIngressContact({
-          assistantId: msg.assistantId,
-          sourceChannel: msg.sourceChannel,
-          externalUserId: msg.externalUserId,
-          externalChatId: msg.externalChatId,
-          displayName: msg.displayName,
-          username: msg.username,
-          policy: msg.policy,
-          status: msg.status,
-        });
-        if (!result.ok) {
-          ctx.send(socket, {
-            type: "ingress_member_response",
-            success: false,
-            error: result.error,
-          });
-          return;
-        }
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: true,
-          member: result.data,
-        });
-        return;
-      }
-
-      case "revoke": {
-        const result = revokeIngressContact(msg.memberId, msg.reason);
-        if (!result.ok) {
-          ctx.send(socket, {
-            type: "ingress_member_response",
-            success: false,
-            error: result.error,
-          });
-          return;
-        }
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: true,
-          member: result.data,
-        });
-        return;
-      }
-
-      case "block": {
-        const result = blockIngressContact(msg.memberId, msg.reason);
-        if (!result.ok) {
-          ctx.send(socket, {
-            type: "ingress_member_response",
-            success: false,
-            error: result.error,
-          });
-          return;
-        }
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: true,
-          member: result.data,
-        });
-        return;
-      }
-
-      default: {
-        ctx.send(socket, {
-          type: "ingress_member_response",
-          success: false,
-          error: `Unknown action: ${String(msg.action)}`,
-        });
-      }
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "ingress_member handler error");
-    ctx.send(socket, {
-      type: "ingress_member_response",
+      type: "contacts_invite_response",
       success: false,
       error: message,
     });
@@ -568,7 +451,6 @@ async function executeDeny(
 }
 
 export const inboxInviteHandlers = defineHandlers({
-  ingress_invite: handleIngressInvite,
-  ingress_member: handleIngressContact,
+  contacts_invite: handleContactsInvite,
   assistant_inbox_escalation: handleInboxEscalation,
 });

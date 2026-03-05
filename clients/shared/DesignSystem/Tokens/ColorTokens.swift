@@ -204,6 +204,10 @@ public enum VColor {
     public static let userBubbleText = adaptiveColor(light: Stone._900, dark: Moss._50)
     public static let userBubbleTextSecondary = adaptiveColor(light: Stone._600, dark: Moss._50.opacity(0.8))
 
+    // Navigation
+    public static let navHover = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Moss._700)
+    public static let navActive = adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._600)
+
     // Interactive states
     public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)
     public static let ghostPressed = adaptiveColor(light: Stone._200, dark: Moss._600)

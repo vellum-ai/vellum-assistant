@@ -409,7 +409,15 @@ extension ChatViewModel {
             } else {
                 messages[index].textSegments[messages[index].textSegments.count - 1] += buffered
             }
+        } else if currentAssistantMessageId != nil {
+            // Message ID is set but message not found — stale reference after
+            // history replacement or reconnect. Discard the buffer to avoid
+            // creating an orphan message.
+            log.warning("Stale currentAssistantMessageId \(self.currentAssistantMessageId!.uuidString) — discarding \(buffered.count) buffered chars")
+            currentAssistantMessageId = nil
+            return
         } else {
+            // No existing assistant message — create a new one (first text delta)
             var msg = ChatMessage(role: .assistant, text: buffered, isStreaming: true)
             if currentTurnUserText == "/model" {
                 msg.modelPicker = ModelPickerData()
@@ -504,6 +512,7 @@ extension ChatViewModel {
         case .assistantTextDelta(let delta):
             guard belongsToSession(delta.sessionId) else { return }
             guard !isCancelling else { return }
+            guard !isLoadingHistory else { return }
             if isWorkspaceRefinementInFlight {
                 refinementTextBuffer += delta.text
                 // Throttle refinement streaming updates with 100ms coalescing
@@ -1044,6 +1053,7 @@ extension ChatViewModel {
             }
 
         case .confirmationRequest(let msg):
+            guard !isLoadingHistory else { return }
             // Flush buffered text before inserting the confirmation message.
             flushStreamingBuffer()
             // Route using sessionId when available (daemon >= v1.x includes
@@ -1090,6 +1100,7 @@ extension ChatViewModel {
         case .toolUseStart(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
+            guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
             // Flush buffered text so it lands before the tool call in content order.
             flushStreamingBuffer()
@@ -1152,6 +1163,7 @@ extension ChatViewModel {
         case .toolInputDelta(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
+            guard !isLoadingHistory else { return }
             let preview = Self.extractCodePreview(from: msg.content, toolName: msg.toolName)
             if let existingId = currentAssistantMessageId,
                let msgIndex = messages.firstIndex(where: { $0.id == existingId }) {
@@ -1168,6 +1180,7 @@ extension ChatViewModel {
         case .toolOutputChunk(let msg):
             guard !isCancelling else { return }
             guard belongsToSession(msg.sessionId) else { return }
+            guard !isLoadingHistory else { return }
             // Handle structured progress events from claude_code sub-tools
             if let subType = msg.subType, !subType.isEmpty,
                let existingId = currentAssistantMessageId,
@@ -1213,6 +1226,7 @@ extension ChatViewModel {
         case .toolResult(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
+            guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
             // Find the most recent pending (incomplete) tool call.
             // First check currentAssistantMessageId, then fall back to searching
@@ -1373,6 +1387,22 @@ extension ChatViewModel {
                 newMsg.contentOrder = [.surface(0)]
                 currentAssistantMessageId = newMsg.id
                 messages.append(newMsg)
+            }
+
+            // Eagerly request preview for app surfaces that don't have one yet.
+            // Include the HTML so the handler can fall back to offscreen capture
+            // when the daemon has no stored preview (e.g. brand new app).
+            if case .dynamicPage(let dpData) = surface.data,
+               let appId = dpData.appId,
+               dpData.preview != nil,
+               dpData.preview?.previewImage == nil {
+                var userInfo: [String: Any] = ["appId": appId]
+                userInfo["html"] = dpData.html
+                NotificationCenter.default.post(
+                    name: Notification.Name("MainWindow.requestAppPreview"),
+                    object: nil,
+                    userInfo: userInfo
+                )
             }
 
         case .uiSurfaceUndoResult(let msg):
@@ -1639,11 +1669,21 @@ extension ChatViewModel {
     /// Auto-open generated video clips in the user's default video player.
     /// Scans the result for a `clipPath` field rather than checking toolName,
     /// because generate_clip runs inside claude_code (toolName is "claude_code").
+    /// Restricts to known tool names and validated video extensions to prevent
+    /// arbitrary file opens from untrusted tool results.
+    private static let clipEligibleTools: Set<String> = ["claude_code", "generate_clip"]
+    private static let clipVideoExtensions: Set<String> = ["mp4", "mov", "m4v", "avi", "mkv", "webm"]
+
     private func autoOpenClipIfNeeded(toolName: String, result: String, isError: Bool) {
-        guard !isError else { return }
+        guard !isError, Self.clipEligibleTools.contains(toolName) else { return }
         guard let jsonData = result.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
               let clipPath = json["clipPath"] as? String else {
+            return
+        }
+        let pathExtension = (clipPath as NSString).pathExtension.lowercased()
+        guard Self.clipVideoExtensions.contains(pathExtension) else {
+            log.warning("Clip path has non-video extension '\(pathExtension)', skipping auto-open")
             return
         }
         guard FileManager.default.fileExists(atPath: clipPath) else {

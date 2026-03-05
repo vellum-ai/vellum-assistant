@@ -145,13 +145,6 @@ exports[`IPC message snapshots ClientMessage types usage_request serializes to e
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types sandbox_set serializes to expected JSON 1`] = `
-{
-  "enabled": true,
-  "type": "sandbox_set",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types cu_session_create serializes to expected JSON 1`] = `
 {
   "screenHeight": 1080,
@@ -967,28 +960,14 @@ exports[`IPC message snapshots ClientMessage types dictation_request serializes 
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types ingress_invite serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ClientMessage types contacts_invite serializes to expected JSON 1`] = `
 {
   "action": "create",
   "expiresInMs": 86400000,
   "maxUses": 5,
   "note": "Test invite",
   "sourceChannel": "telegram",
-  "type": "ingress_invite",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types ingress_member serializes to expected JSON 1`] = `
-{
-  "action": "upsert",
-  "displayName": "Test User",
-  "externalChatId": "chat-456",
-  "externalUserId": "user-123",
-  "policy": "allow",
-  "sourceChannel": "telegram",
-  "status": "active",
-  "type": "ingress_member",
-  "username": "testuser",
+  "type": "contacts_invite",
 }
 `;
 
@@ -2844,7 +2823,7 @@ exports[`IPC message snapshots ServerMessage types dictation_response serializes
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types ingress_invite_response serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types contacts_invite_response serializes to expected JSON 1`] = `
 {
   "invite": {
     "createdAt": 1700000000,
@@ -2859,26 +2838,7 @@ exports[`IPC message snapshots ServerMessage types ingress_invite_response seria
     "useCount": 0,
   },
   "success": true,
-  "type": "ingress_invite_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types ingress_member_response serializes to expected JSON 1`] = `
-{
-  "member": {
-    "createdAt": 1700000000,
-    "displayName": "Test User",
-    "externalChatId": "chat-456",
-    "externalUserId": "user-123",
-    "id": "mem-001",
-    "lastSeenAt": 1700000000,
-    "policy": "allow",
-    "sourceChannel": "telegram",
-    "status": "active",
-    "username": "testuser",
-  },
-  "success": true,
-  "type": "ingress_member_response",
+  "type": "contacts_invite_response",
 }
 `;
 

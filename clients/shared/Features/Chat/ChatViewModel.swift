@@ -284,6 +284,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
     private var reconnectObserver: NSObjectProtocol?
+    private var appPreviewCapturedObserver: NSObjectProtocol?
     /// Debounces rapid-fire daemon reconnect notifications so only one history
     /// reload is triggered per reconnect burst (500ms settle window).
     private var reconnectDebounceTask: Task<Void, Never>?
@@ -464,7 +465,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// True while `populateFromHistory` is actively inserting messages.
     /// Observers can check this to avoid treating the history hydration as new activity.
-    public private(set) var isLoadingHistory: Bool = false
+    public internal(set) var isLoadingHistory: Bool = false
 
     // MARK: - Message Pagination
 
@@ -593,6 +594,19 @@ public final class ChatViewModel: ObservableObject {
             try daemonClient.send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
         } catch {
             log.error("Failed to send message_content_request: \(error)")
+        }
+    }
+
+    /// Persist a captured preview image into the ChatMessage model so it survives thread switches.
+    public func updateSurfacePreviewImage(appId: String, base64: String) {
+        for msgIdx in messages.indices {
+            for surfIdx in messages[msgIdx].inlineSurfaces.indices {
+                if case .dynamicPage(var dpData) = messages[msgIdx].inlineSurfaces[surfIdx].data,
+                   dpData.appId == appId {
+                    dpData.preview?.previewImage = base64
+                    messages[msgIdx].inlineSurfaces[surfIdx].data = .dynamicPage(dpData)
+                }
+            }
         }
     }
 
@@ -820,7 +834,7 @@ public final class ChatViewModel: ObservableObject {
                 // so the UI catches up on anything that happened during the gap.
                 // Debounce: cancel any pending reconnect task and wait 500ms
                 // to coalesce rapid-fire reconnect notifications into one load.
-                if self?.isThinking == true || self?.isSending == true {
+                if self?.isThinking == true || self?.isSending == true || self?.currentAssistantMessageId != nil {
                     self?.isThinking = false
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
@@ -869,6 +883,20 @@ public final class ChatViewModel: ObservableObject {
                 } else {
                     self?.needsOfflineFlush = true
                 }
+            }
+        }
+
+        // Listen for captured app preview images and persist them into the
+        // ChatMessage model so they survive thread switches and history reloads.
+        appPreviewCapturedObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("MainWindow.appPreviewImageCaptured"),
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            guard let appId = notification.userInfo?["appId"] as? String,
+                  let base64 = notification.userInfo?["previewImage"] as? String else { return }
+            Task { @MainActor [weak self] in
+                self?.updateSurfacePreviewImage(appId: appId, base64: base64)
             }
         }
 
@@ -2289,6 +2317,16 @@ public final class ChatViewModel: ObservableObject {
         }
 
         self.isLoadingHistory = true
+
+        // Discard any in-flight streaming text that references the pre-replacement
+        // message array. Without this, a scheduled flushStreamingBuffer() can fire
+        // after the messages array is replaced, creating an orphan assistant message
+        // or appending text to a stale currentAssistantMessageId.
+        discardStreamingBuffer()
+        currentAssistantMessageId = nil
+        currentAssistantHasText = false
+        lastContentWasToolCall = false
+
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
             // in progress, so the client may have missed the assistant's
@@ -2367,6 +2405,9 @@ public final class ChatViewModel: ObservableObject {
         reconnectDebounceTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = appPreviewCapturedObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }

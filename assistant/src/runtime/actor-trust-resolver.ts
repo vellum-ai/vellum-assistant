@@ -35,14 +35,22 @@ export type { TrustContext } from "../daemon/session-runtime-assembly.js";
  * - `'guardian'`: The sender matches the active guardian binding for this
  *   (assistant, channel). Guardians have full control-plane access and
  *   self-approve tool invocations.
- * - `'trusted_contact'`: The sender is an active ingress member (not the
- *   guardian). Trusted contacts can invoke tools but require guardian
- *   approval for sensitive operations.
- * - `'unknown'`: The sender has no member record, no identity could be
- *   established, or the sender is an inactive/revoked member. Unknown
+ * - `'trusted_contact'`: The sender is an active contact with a channel
+ *   (not the guardian). Trusted contacts can invoke tools but require
+ *   guardian approval for sensitive operations.
+ * - `'unknown'`: The sender has no contact record, no identity could be
+ *   established, or the sender is an inactive/revoked contact. Unknown
  *   actors are fail-closed with no escalation path.
  */
 export type TrustClass = "guardian" | "trusted_contact" | "unknown";
+
+/** Returns `true` for actors that are not fully trusted (i.e. not the guardian). */
+export function isUntrustedTrustClass(
+  trustClass: TrustClass | undefined,
+): boolean {
+  return trustClass === "trusted_contact" || trustClass === "unknown";
+}
+
 /**
  * Reason an actor was denied access during trust resolution.
  *
@@ -118,7 +126,7 @@ export interface ResolveActorTrustInput {
  * 1. Canonicalize the sender identity (E.164 for phone channels, trimmed ID otherwise).
  * 2. Look up the guardian binding for (assistantId, channel).
  * 3. Compare canonical sender identity to the guardian binding.
- * 4. Look up the ingress member record using the canonical identity.
+ * 4. Look up the contact record using the canonical identity.
  * 5. Classify: guardian > trusted_contact (active member) > unknown.
  */
 export function resolveActorTrust(

@@ -25,6 +25,20 @@ const log = getLogger("watcher:slack");
  * When `channels` is specified, those channels are monitored for ALL messages
  * (not just mentions). When omitted or empty, the legacy behavior applies:
  * @mentions in the top 20 member channels.
+ *
+ * ## Socket Mode Redundancy
+ *
+ * When the gateway is running with Socket Mode enabled, it already receives
+ * real-time events for @mentions, DMs, and active thread replies. The watcher's
+ * polling is therefore redundant for those event types. Set
+ * `socketModeActive: true` to skip polling for DMs and @mentions that Socket
+ * Mode already covers. The watcher will still poll for configured `channels`
+ * (all-message monitoring) since Socket Mode only forwards messages where the
+ * bot is mentioned or in active threads.
+ *
+ * @deprecated The polling-based watcher for DMs and @mentions is superseded by
+ * Socket Mode in the gateway. Once Socket Mode is confirmed stable, the DM and
+ * mention-polling code paths can be removed entirely.
  */
 interface SlackWatcherConfig {
   /** Channel IDs to watch for all messages (e.g. ["C01234ABCDE"]).
@@ -32,6 +46,12 @@ interface SlackWatcherConfig {
   channels?: string[];
   /** When true, also monitor DMs and group DMs (default: true). */
   includeDMs?: boolean;
+  /**
+   * When true, skip polling for DMs and @mentions since the gateway's Socket
+   * Mode connection already delivers those events in real-time. The watcher
+   * will still poll explicitly configured `channels` for all-message monitoring.
+   */
+  socketModeActive?: boolean;
 }
 
 function messageToItem(
@@ -142,6 +162,13 @@ export const slackProvider: WatcherProvider = {
           ? slackConfig.includeDMs
           : true;
 
+      const socketModeActive = slackConfig.socketModeActive === true;
+      if (socketModeActive) {
+        log.info(
+          "Socket Mode active — skipping DM and @mention polling (handled by gateway)",
+        );
+      }
+
       const authResp = await slack.authTest(token);
       const userId = authResp.user_id;
 
@@ -149,7 +176,8 @@ export const slackProvider: WatcherProvider = {
       let latestTs = watermark;
 
       // ── DM / Group DM polling ──────────────────────────────────────
-      if (includeDMs) {
+      // Skip when Socket Mode is active — the gateway already delivers DM events in real-time.
+      if (includeDMs && !socketModeActive) {
         const convResp = await slack.listConversations(
           token,
           "im,mpim",
@@ -204,8 +232,10 @@ export const slackProvider: WatcherProvider = {
             );
           }
         }
-      } else {
-        // Legacy behavior: check top 20 member channels for @mentions only
+      } else if (!socketModeActive) {
+        // Legacy behavior: check top 20 member channels for @mentions only.
+        // Skipped when Socket Mode is active — the gateway already delivers
+        // app_mention events in real-time.
         const memberConvResp = await slack.listConversations(
           token,
           "public_channel,private_channel",

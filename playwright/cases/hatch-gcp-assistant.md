@@ -12,7 +12,7 @@ Verify that the full onboarding flow completes successfully: launch the app, ent
 ## Steps
 
 1. Launch the App
-2. Click the "Own API Key" Start button
+2. On the welcome screen, click the "Self-host" button
 3. Select GCP as the hosting mode
 4. Verify that the API key input is rendered
 5. Enter your Anthropic API key into the input field

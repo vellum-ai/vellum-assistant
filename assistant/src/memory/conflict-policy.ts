@@ -71,6 +71,40 @@ export function isDurableInstructionStatement(statement: string): boolean {
   return DURABLE_INSTRUCTION_CUES.test(statement);
 }
 
+// ── Verification-state provenance ──────────────────────────────────────
+
+// States indicating user involvement — either the user directly stated
+// the information, explicitly confirmed it, or it was bulk-imported from
+// a trusted external source the user chose to connect.
+const USER_EVIDENCED_STATES = new Set([
+  "user_reported",
+  "user_confirmed",
+  "legacy_import",
+]);
+
+/**
+ * Returns true when the verification state indicates user provenance
+ * (as opposed to purely assistant-inferred).
+ */
+export function isUserEvidencedVerificationState(state: string): boolean {
+  return USER_EVIDENCED_STATES.has(state);
+}
+
+/**
+ * Returns true when at least one side of a conflict pair has user-evidenced
+ * provenance. Assistant-inferred-only conflicts should not escalate into
+ * user-facing behavior.
+ */
+export function isConflictUserEvidenced(
+  existingState: string,
+  candidateState: string,
+): boolean {
+  return (
+    isUserEvidencedVerificationState(existingState) ||
+    isUserEvidencedVerificationState(candidateState)
+  );
+}
+
 /**
  * Returns true when a statement of the given kind is eligible to participate
  * in conflict detection at the statement level. This combines kind eligibility

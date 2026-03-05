@@ -6,12 +6,7 @@
  * ~/.vellum/protected/actor-token-signing-key.
  */
 
-import {
-  createHash,
-  createHmac,
-  randomBytes,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -79,16 +74,6 @@ export function loadOrCreateSigningKey(): Buffer {
  */
 export function initSigningKey(key: Buffer): void {
   signingKey = key;
-}
-
-/**
- * Check whether the signing key has been initialized.
- *
- * Useful for test setup code that needs to ensure initSigningKey()
- * has been called before minting tokens.
- */
-export function isSigningKeyInitialized(): boolean {
-  return signingKey !== null;
 }
 
 function getSigningKey(): Buffer {
@@ -217,12 +202,4 @@ export function verifyToken(
   }
 
   return { ok: true, claims };
-}
-
-// ---------------------------------------------------------------------------
-// Hash
-// ---------------------------------------------------------------------------
-
-export function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
 }

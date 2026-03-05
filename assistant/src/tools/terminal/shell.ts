@@ -1,7 +1,5 @@
 import { spawn } from "node:child_process";
 
-import { buildCredentialRefTrace } from "@vellumai/outbound-proxy";
-
 import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
@@ -15,9 +13,23 @@ import {
 } from "../network/script-proxy/index.js";
 import { registerTool } from "../registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ProxyEnvVars,
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../types.js";
 import { buildSanitizedEnv } from "./safe-env.js";
 import { wrapCommand } from "./sandbox.js";
+
+/** Build a credential ref resolution trace for diagnostic logging. */
+function buildCredentialRefTrace(
+  rawRefs: string[],
+  resolvedIds: string[],
+  unresolvedRefs: string[],
+) {
+  return { rawRefs, resolvedIds, unresolvedRefs };
+}
 
 const log = getLogger("shell-tool");
 
@@ -172,7 +184,7 @@ class ShellTool implements Tool {
     // commands share a single session instead of each creating one.
     // Sessions are NOT stopped here — the session manager's idle timer handles
     // cleanup after all commands finish (see resetIdleTimer / stopAllSessions).
-    let proxyEnv: import("@vellumai/outbound-proxy").ProxyEnvVars | null = null;
+    let proxyEnv: ProxyEnvVars | null = null;
 
     if (networkMode === "proxied") {
       try {

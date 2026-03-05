@@ -180,28 +180,18 @@ describe("executeAppCreate", () => {
     expect(capturedPages).toEqual({ "settings.html": "<div/>" });
   });
 
-  test('maps type "site" to appType "site"', async () => {
-    let capturedType: "app" | "site" | undefined;
+  test("defaults html to minimal scaffold when omitted", async () => {
+    let capturedHtml: string | undefined;
     const store = makeMockStore({
       createApp: (params) => {
-        capturedType = params.appType;
+        capturedHtml = params.htmlDefinition;
         return makeApp({ name: params.name });
       },
     });
-    await executeAppCreate({ name: "Site", html: "<p/>", type: "site" }, store);
-    expect(capturedType).toBe("site");
-  });
-
-  test('defaults appType to "app" when type is not "site"', async () => {
-    let capturedType: "app" | "site" | undefined;
-    const store = makeMockStore({
-      createApp: (params) => {
-        capturedType = params.appType;
-        return makeApp({ name: params.name });
-      },
-    });
-    await executeAppCreate({ name: "App", html: "<p/>" }, store);
-    expect(capturedType).toBe("app");
+    await executeAppCreate({ name: "No HTML" }, store);
+    expect(capturedHtml).toBe(
+      "<!DOCTYPE html><html><head></head><body></body></html>",
+    );
   });
 });
 

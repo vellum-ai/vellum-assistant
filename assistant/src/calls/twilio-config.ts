@@ -1,4 +1,4 @@
-import { getTwilioPhoneNumberEnv, getTwilioWssBaseUrl } from "../config/env.js";
+import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import {
   getPublicBaseUrl,
@@ -43,14 +43,7 @@ export function getTwilioConfig(assistantId?: string): TwilioConfig {
   const phoneNumber = resolveTwilioPhoneNumber(config, assistantId);
   const webhookBaseUrl = getPublicBaseUrl(config);
 
-  // Always use the centralized relay URL derived from the public ingress base URL.
-  // TWILIO_WSS_BASE_URL is ignored.
   let wssBaseUrl: string;
-  if (getTwilioWssBaseUrl()) {
-    log.warn(
-      "TWILIO_WSS_BASE_URL env var is deprecated. Relay URL is derived from ingress.publicBaseUrl.",
-    );
-  }
   try {
     wssBaseUrl = getTwilioRelayUrl(config);
   } catch {

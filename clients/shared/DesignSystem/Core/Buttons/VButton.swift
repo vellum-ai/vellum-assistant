@@ -38,7 +38,7 @@ public struct VButton: View {
                 }
                 Text(label)
                     .font(labelFont)
-                    .fontWeight(style == .ghost ? .medium : .regular)
+                    .fontWeight(style == .ghost || style == .tertiary ? .medium : .regular)
                 if isFullWidth && (leftIcon != nil || rightIcon != nil) {
                     Spacer(minLength: 0)
                 }
@@ -99,7 +99,7 @@ private struct VButtonStyle: ButtonStyle {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(borderColor(isPressed: configuration.isPressed), lineWidth: borderLineWidth)
+                    .strokeBorder(borderColor(isPressed: configuration.isPressed), lineWidth: borderLineWidth)
             )
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
             .shadow(color: configuration.isPressed ? .clear : shadowColor, radius: 0, x: 0, y: 2)

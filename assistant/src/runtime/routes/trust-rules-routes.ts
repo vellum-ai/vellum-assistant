@@ -13,6 +13,7 @@ import {
 } from "../../permissions/trust-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("trust-rules-routes");
 
@@ -150,4 +151,34 @@ export async function handleUpdateTrustRuleManage(
     log.error({ err, id }, "Failed to update trust rule via HTTP");
     return httpError("INTERNAL_ERROR", "Failed to update trust rule", 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function trustRulesRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "trust-rules/manage",
+      method: "GET",
+      handler: () => handleListTrustRules(),
+    },
+    {
+      endpoint: "trust-rules/manage",
+      method: "POST",
+      handler: async ({ req }) => handleAddTrustRuleManage(req),
+    },
+    {
+      endpoint: "trust-rules/manage/:id",
+      method: "DELETE",
+      handler: ({ params }) => handleRemoveTrustRuleManage(params.id),
+    },
+    {
+      endpoint: "trust-rules/manage/:id",
+      method: "PATCH",
+      handler: async ({ req, params }) =>
+        handleUpdateTrustRuleManage(req, params.id),
+    },
+  ];
 }

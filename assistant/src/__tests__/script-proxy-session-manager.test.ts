@@ -25,7 +25,15 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
   getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
 }));
 
-import { createSession, getActiveSession, getSessionEnv, getSessionsForConversation, startSession, stopAllSessions, stopSession } from '../tools/network/script-proxy/session-manager.js';
+import {
+  createSession,
+  getActiveSession,
+  getSessionEnv,
+  getSessionsForConversation,
+  startSession,
+  stopAllSessions,
+  stopSession,
+} from "../tools/network/script-proxy/session-manager.js";
 
 afterEach(async () => {
   await stopAllSessions();
@@ -322,7 +330,7 @@ describe("session-manager", () => {
     // the templates map the session would build produces correct decisions.
 
     test("shouldIntercept returns mitm for credential-matched hosts", async () => {
-      const { routeConnection } = await import("@vellumai/outbound-proxy");
+      const { routeConnection } = await import("../outbound-proxy/index.js");
 
       const templates = new Map([["cred-fal", [makeTemplate("*.fal.ai")]]]);
 
@@ -337,7 +345,7 @@ describe("session-manager", () => {
     });
 
     test("shouldIntercept returns tunnel for non-matching hosts", async () => {
-      const { routeConnection } = await import("@vellumai/outbound-proxy");
+      const { routeConnection } = await import("../outbound-proxy/index.js");
 
       const templates = new Map([["cred-fal", [makeTemplate("*.fal.ai")]]]);
 
@@ -352,7 +360,7 @@ describe("session-manager", () => {
     });
 
     test("shouldIntercept returns tunnel when no credentials configured", async () => {
-      const { routeConnection } = await import("@vellumai/outbound-proxy");
+      const { routeConnection } = await import("../outbound-proxy/index.js");
 
       const decision = routeConnection("api.fal.ai", 443, [], new Map());
       expect(decision.action).toBe("tunnel");

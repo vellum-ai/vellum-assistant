@@ -166,6 +166,31 @@ struct ButtonsGallerySection: View {
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
+            // MARK: - VIconButton (Outlined)
+            GallerySectionHeader(
+                title: "VIconButton (Outlined)",
+                description: "Outlined icon buttons with a border and transparent background."
+            )
+
+            VCard {
+                HStack(spacing: VSpacing.xl) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Close").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Close", icon: "xmark", iconOnly: true, variant: .outlined) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("History").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "History", icon: "clock.arrow.circlepath", iconOnly: true, variant: .outlined) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Publish").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Publish", icon: "arrow.up.right", iconOnly: true, variant: .outlined) {}
+                    }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
             // MARK: - VIconButton (Icon Only)
             GallerySectionHeader(
                 title: "VIconButton (Icon Only)",

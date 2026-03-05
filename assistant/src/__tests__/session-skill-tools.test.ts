@@ -1771,55 +1771,6 @@ describe("bundled skill: claude-code", () => {
   });
 });
 
-describe("bundled skill: weather", () => {
-  let sessionState: Map<string, string>;
-
-  beforeEach(() => {
-    mockCatalog = [];
-    mockManifests = {};
-    mockRegisteredTools = new Map();
-    mockUnregisteredSkillIds = [];
-    mockSkillRefCount = new Map();
-    mockSkillRefCount = new Map();
-    mockVersionHashes = {};
-    mockVersionHashErrors = new Set();
-    sessionState = new Map<string, string>();
-  });
-
-  test("weather skill activation produces get_weather tool definition", () => {
-    mockCatalog = [makeSkill("weather", "/path/to/bundled-skills/weather")];
-    mockManifests = { weather: makeManifest(["get_weather"]) };
-
-    const history: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="weather" />'),
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toHaveLength(1);
-    expect(result.toolDefinitions[0].name).toBe("get_weather");
-    expect(result.allowedToolNames).toEqual(new Set(["get_weather"]));
-  });
-
-  test("get_weather tool is absent when weather skill is not active", () => {
-    mockCatalog = [makeSkill("weather", "/path/to/bundled-skills/weather")];
-    mockManifests = { weather: makeManifest(["get_weather"]) };
-
-    const history: Message[] = [
-      { role: "user", content: [{ type: "text", text: "Hello" }] },
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toHaveLength(0);
-    expect(result.allowedToolNames.has("get_weather")).toBe(false);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Bundled skill: app-builder
 // ---------------------------------------------------------------------------

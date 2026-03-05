@@ -1,17 +1,48 @@
 export type ContactRole = "guardian" | "contact";
 
+export type ContactType = "human" | "assistant";
+
+export type AssistantSpecies = "vellum" | "openclaw";
+
+export interface VellumAssistantMetadata {
+  assistantId: string;
+  gatewayUrl: string;
+}
+
+export interface OpenClawAssistantMetadata {
+  [key: string]: unknown;
+}
+
+export type AssistantContactMetadata =
+  | {
+      contactId: string;
+      species: "vellum";
+      metadata: VellumAssistantMetadata | null;
+    }
+  | {
+      contactId: string;
+      species: "openclaw";
+      metadata: OpenClawAssistantMetadata | null;
+    };
+
 export interface Contact {
   id: string;
   displayName: string;
-  relationship: string | null;
-  importance: number;
-  responseExpectation: string | null;
-  preferredTone: string | null;
+  /** Free-text notes about this contact (e.g. relationship, communication preferences). */
+  notes: string | null;
   lastInteraction: number | null;
   interactionCount: number;
   createdAt: number;
   updatedAt: number;
   role: ContactRole;
+  contactType: ContactType;
+  /**
+   * Internal auth identity (e.g. "vellum-principal-<uuid>"). Only meaningful
+   * for guardian contacts — it ties the contact record to the auth layer so
+   * the system can verify "this API caller IS this guardian" via JWT
+   * actorPrincipalId. Always null for non-guardian contacts, which are
+   * identified by channel address instead.
+   */
   principalId: string | null;
   assistantId: string | null;
 }

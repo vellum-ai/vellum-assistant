@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb, getSqlite, rawAll, rawChanges } from "./db.js";
+import { getDb, getSqlite, rawAll } from "./db.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
 import { memoryItemConflicts, memoryItems } from "./schema.js";
 import { clampUnitInterval } from "./validation.js";
@@ -57,6 +57,8 @@ export interface PendingConflictDetail extends MemoryItemConflict {
   candidateStatement: string;
   existingKind: string;
   candidateKind: string;
+  existingVerificationState: string;
+  candidateVerificationState: string;
 }
 
 export type ConflictResolutionAction =
@@ -210,6 +212,8 @@ export function listPendingConflictDetails(
     candidate_statement: string;
     existing_kind: string;
     candidate_kind: string;
+    existing_verification_state: string;
+    candidate_verification_state: string;
   }
   const cursorClause = cursor
     ? `AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?))`
@@ -235,7 +239,9 @@ export function listPendingConflictDetails(
       existing_item.statement AS existing_statement,
       candidate_item.statement AS candidate_statement,
       existing_item.kind AS existing_kind,
-      candidate_item.kind AS candidate_kind
+      candidate_item.kind AS candidate_kind,
+      existing_item.verification_state AS existing_verification_state,
+      candidate_item.verification_state AS candidate_verification_state
     FROM memory_item_conflicts c
     INNER JOIN memory_items existing_item ON existing_item.id = c.existing_item_id
     INNER JOIN memory_items candidate_item ON candidate_item.id = c.candidate_item_id
@@ -265,23 +271,9 @@ export function listPendingConflictDetails(
     candidateStatement: row.candidate_statement,
     existingKind: row.existing_kind,
     candidateKind: row.candidate_kind,
+    existingVerificationState: row.existing_verification_state,
+    candidateVerificationState: row.candidate_verification_state,
   }));
-}
-
-export function markConflictAsked(
-  conflictId: string,
-  askedAt = Date.now(),
-): boolean {
-  const db = getDb();
-  db.update(memoryItemConflicts)
-    .set({
-      lastAskedAt: askedAt,
-      updatedAt: askedAt,
-    })
-    .where(eq(memoryItemConflicts.id, conflictId))
-    .run();
-
-  return rawChanges() > 0;
 }
 
 export function resolveConflict(

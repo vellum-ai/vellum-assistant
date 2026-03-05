@@ -20,6 +20,14 @@ export async function executeScheduleUpdate(
     return { content: "Error: job_id is required", isError: true };
   }
 
+  if (input.cron_expression !== undefined) {
+    return {
+      content:
+        'Error: "cron_expression" is deprecated. Use "expression" instead.',
+      isError: true,
+    };
+  }
+
   const updates: Record<string, unknown> = {};
   if (input.name !== undefined) updates.name = input.name;
   if (input.timezone !== undefined) updates.timezone = input.timezone;
@@ -27,13 +35,10 @@ export async function executeScheduleUpdate(
   if (input.enabled !== undefined) updates.enabled = input.enabled;
 
   // Auto-detect syntax when expression changes without explicit syntax
-  const hasExpression =
-    input.expression !== undefined || input.cron_expression !== undefined;
-  if (hasExpression || input.syntax !== undefined) {
+  if (input.expression !== undefined || input.syntax !== undefined) {
     const resolved = normalizeScheduleSyntax({
       syntax: input.syntax as "cron" | "rrule" | undefined,
       expression: input.expression as string | undefined,
-      legacyCronExpression: input.cron_expression as string | undefined,
     });
     if (resolved) {
       updates.syntax = resolved.syntax;
@@ -42,8 +47,6 @@ export async function executeScheduleUpdate(
       updates.expression = input.expression;
       const detected = detectScheduleSyntax(input.expression as string);
       if (detected) updates.syntax = detected;
-    } else if (input.cron_expression !== undefined) {
-      updates.cronExpression = input.cron_expression;
     }
     // When only syntax is provided (no expression), normalizeScheduleSyntax returns null
     // but we still need to persist the explicit syntax value.

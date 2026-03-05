@@ -10,9 +10,12 @@ import {
   isRejection,
 } from "../../routing/resolve-assistant.js";
 import {
-  CircuitBreakerOpenError,
-  resetConversation,
-} from "../../runtime/client.js";
+  handleCircuitBreakerError,
+  handleNewCommand,
+  isNewCommand,
+  processInboundResult,
+} from "../../webhook-pipeline.js";
+import { ROUTING_REJECTION_NOTICE } from "../../webhook-copy.js";
 import { markWhatsAppMessageRead } from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
@@ -179,46 +182,30 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       const routing = resolveAssistant(config, from, from);
 
       // Handle /new command — reset conversation before it reaches the runtime
-      if (event.message.content.trim().toLowerCase() === "/new") {
+      if (isNewCommand(event.message.content)) {
         if (isRejection(routing)) {
           tlog.warn(
             { from, reason: routing.reason },
             "Routing rejected /new command",
           );
-          sendWhatsAppReply(
-            config,
-            from,
-            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-          ).catch((err) => {
-            tlog.error(
-              { err, to: from },
-              "Failed to send /new routing rejection notice",
-            );
-          });
+          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+            (err) => {
+              tlog.error(
+                { err, to: from },
+                "Failed to send /new routing rejection notice",
+              );
+            },
+          );
         } else {
-          try {
-            await resetConversation(
-              config,
-              event.sourceChannel,
-              event.message.conversationExternalId,
-            );
-            sendWhatsAppReply(
-              config,
-              from,
-              "Starting a new conversation!",
-            ).catch((err) => {
-              tlog.error({ err }, "Failed to send /new confirmation");
-            });
-          } catch (err) {
-            tlog.error({ err }, "Failed to reset conversation");
-            sendWhatsAppReply(
-              config,
-              from,
-              "Failed to reset conversation. Please try again.",
-            ).catch((replyErr) => {
-              tlog.error({ err: replyErr }, "Failed to send /new error reply");
-            });
-          }
+          await handleNewCommand(
+            config,
+            event.sourceChannel,
+            event.message.conversationExternalId,
+            async (text) => {
+              await sendWhatsAppReply(config, from, text);
+            },
+            tlog,
+          );
         }
 
         dedupCache.mark(whatsappMessageId);
@@ -231,16 +218,14 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           "Routing rejected inbound WhatsApp message",
         );
         if (rejectionLimiter.shouldSend(from)) {
-          sendWhatsAppReply(
-            config,
-            from,
-            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-          ).catch((err) => {
-            tlog.error(
-              { err, to: from },
-              "Failed to send routing rejection notice",
-            );
-          });
+          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+            (err) => {
+              tlog.error(
+                { err, to: from },
+                "Failed to send routing rejection notice",
+              );
+            },
+          );
         }
         dedupCache.mark(whatsappMessageId);
         continue;
@@ -254,57 +239,53 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           routingOverride: routing,
         });
 
-        if (result.rejected) {
-          tlog.warn(
-            { from, reason: result.rejectionReason },
-            "Routing rejected inbound WhatsApp message",
-          );
-          if (rejectionLimiter.shouldSend(from)) {
-            sendWhatsAppReply(
-              config,
-              from,
-              "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-            ).catch((err) => {
-              tlog.error(
-                { err, to: from },
-                "Failed to send routing rejection notice",
+        const processed = processInboundResult(
+          result,
+          dedupCache,
+          whatsappMessageId,
+          () => {
+            if (rejectionLimiter.shouldSend(from)) {
+              sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+                (err) => {
+                  tlog.error(
+                    { err, to: from },
+                    "Failed to send routing rejection notice",
+                  );
+                },
               );
-            });
-          }
-          dedupCache.mark(whatsappMessageId);
-          continue;
-        }
+            }
+          },
+          tlog,
+        );
 
-        if (!result.forwarded) {
-          tlog.error(
-            { whatsappMessageId },
-            "Failed to forward WhatsApp message to runtime",
-          );
-          dedupCache.unreserve(whatsappMessageId);
+        if (!processed.ok) {
           hasFailure = true;
           continue;
         }
 
+        // Rejected messages are processed successfully (ok: true) but should
+        // not be logged as "forwarded" — the rejection callback already handled them.
+        if (result.rejected) {
+          dedupCache.mark(whatsappMessageId);
+          continue;
+        }
+
         dedupCache.mark(whatsappMessageId);
-        tlog.info(
-          { status: "forwarded", whatsappMessageId },
-          "WhatsApp message forwarded to runtime",
-        );
-      } catch (err) {
-        if (err instanceof CircuitBreakerOpenError) {
-          tlog.warn(
-            { retryAfterSecs: err.retryAfterSecs },
-            "Circuit breaker open — returning 503",
-          );
-          dedupCache.unreserve(whatsappMessageId);
-          return Response.json(
-            { error: "Service temporarily unavailable" },
-            {
-              status: 503,
-              headers: { "Retry-After": String(err.retryAfterSecs) },
-            },
+        if (!processed.rejected) {
+          tlog.info(
+            { status: "forwarded", whatsappMessageId },
+            "WhatsApp message forwarded to runtime",
           );
         }
+      } catch (err) {
+        const cbResponse = handleCircuitBreakerError(
+          err,
+          dedupCache,
+          whatsappMessageId,
+          tlog,
+        );
+        if (cbResponse) return cbResponse;
+
         tlog.error(
           { err, whatsappMessageId },
           "Failed to process inbound WhatsApp message",

@@ -19,11 +19,7 @@
           },
           "urgency": {
             "type": "string",
-            "enum": [
-              "low",
-              "medium",
-              "high"
-            ],
+            "enum": ["low", "medium", "high"],
             "description": "Urgency hint (default: \"medium\")"
           },
           "requires_action": {
@@ -46,10 +42,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": [
-                "vellum",
-                "telegram"
-              ]
+              "enum": ["vellum", "telegram", "slack"]
             },
             "description": "Optional routing hints for preferred channels (not deterministic)"
           },
@@ -72,12 +65,13 @@
           "confidence": {
             "type": "number",
             "description": "Confidence score (0-1) for this action"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": [
-          "message",
-          "confidence"
-        ]
+        "required": ["message", "confidence"]
       },
       "executor": "tools/send-notification.ts",
       "execution_target": "host"

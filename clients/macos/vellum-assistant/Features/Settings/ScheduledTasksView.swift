@@ -222,7 +222,7 @@ private struct ScheduleRow: View {
                 VToggle(isOn: Binding(
                     get: { schedule.enabled },
                     set: { onToggle($0) }
-                ), size: .medium)
+                ))
 
                 Button {
                     onDelete()

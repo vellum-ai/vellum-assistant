@@ -122,9 +122,9 @@ Runtime health is exposed directly by the gateway at `GET /v1/health` and forwar
 | `gateway/src/http/routes/runtime-health-proxy.ts` | Runtime health proxy handler and upstream forwarding            |
 | `gateway/src/index.ts`                            | Route registration and bearer-auth enforcement for `/v1/health` |
 
-### Telegram + Ingress Control-Plane Proxies
+### Telegram + Contacts Control-Plane Proxies
 
-Telegram integration setup/config endpoints and ingress members/invites endpoints are also exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled.
+Telegram integration setup/config endpoints and contacts/invites endpoints are also exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled.
 
 **Forwarded Telegram endpoints:**
 
@@ -134,16 +134,17 @@ Telegram integration setup/config endpoints and ingress members/invites endpoint
 | POST            | `/v1/integrations/telegram/commands` |
 | POST            | `/v1/integrations/telegram/setup`    |
 
-**Forwarded ingress endpoints:**
+**Forwarded contact & invite endpoints:**
 
-| Method   | Path                                  |
-| -------- | ------------------------------------- |
-| GET/POST | `/v1/ingress/members`                 |
-| DELETE   | `/v1/ingress/members/:memberId`       |
-| POST     | `/v1/ingress/members/:memberId/block` |
-| GET/POST | `/v1/ingress/invites`                 |
-| DELETE   | `/v1/ingress/invites/:inviteId`       |
-| POST     | `/v1/ingress/invites/redeem`          |
+| Method   | Path                             |
+| -------- | -------------------------------- |
+| GET/POST | `/v1/contacts`                   |
+| GET      | `/v1/contacts/:contactId`        |
+| POST     | `/v1/contacts/merge`             |
+| PATCH    | `/v1/contacts/channels/:id`      |
+| GET/POST | `/v1/contacts/invites`           |
+| DELETE   | `/v1/contacts/invites/:inviteId` |
+| POST     | `/v1/contacts/invites/redeem`    |
 
 **Authentication boundary:**
 
@@ -153,11 +154,11 @@ Telegram integration setup/config endpoints and ingress members/invites endpoint
 
 **Key source files:**
 
-| File                                                      | Purpose                                                                                              |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding                                        |
-| `gateway/src/http/routes/ingress-control-plane-proxy.ts`  | Ingress control-plane proxy handlers and upstream forwarding                                         |
-| `gateway/src/index.ts`                                    | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/ingress/*` |
+| File                                                      | Purpose                                                                                                       |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding                                                 |
+| `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Contacts control-plane proxy handlers and upstream forwarding                                                 |
+| `gateway/src/index.ts`                                    | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/contacts/invites/*` |
 
 ### Twilio Control-Plane Proxy
 
@@ -514,7 +515,7 @@ The channel inbound handler (`inbound-message-handler.ts`) enforces an access co
 
 **Invite-based onboarding:** Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage -- the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
 
-**Relationship to guardian verification:** Guardian verification and ingress membership are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress membership controls who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel -- without one, escalated messages are denied (fail-closed).
+**Relationship to guardian verification:** Guardian verification and ingress contact management are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress contacts control who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel -- without one, escalated messages are denied (fail-closed).
 
 #### Escalation Data Flow
 
@@ -567,10 +568,10 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 | Module                                           | Purpose                                                                   |
 | ------------------------------------------------ | ------------------------------------------------------------------------- |
-| `assistant/src/memory/ingress-invite-store.ts`   | CRUD for invite tokens with SHA-256 hashing and expiry                    |
+| `assistant/src/memory/invite-store.ts`           | CRUD for invite tokens with SHA-256 hashing and expiry                    |
 | `assistant/src/contacts/contact-store.ts`        | Contact and channel lookups (findContactChannel, guardian bindings)       |
 | `assistant/src/contacts/contacts-write.ts`       | Contact and channel writes (upsert, policy changes, invite redemption)    |
-| `assistant/src/daemon/handlers/config-inbox.ts`  | IPC handlers for ingress invite and member contracts                      |
+| `assistant/src/daemon/handlers/config-inbox.ts`  | IPC handlers for invite and member contracts                              |
 | `assistant/src/runtime/routes/channel-routes.ts` | ACL enforcement point -- member lookup, policy check, escalation creation |
 
 ### Telegram Credential Flow

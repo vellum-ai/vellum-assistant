@@ -1,6 +1,7 @@
 import { getContact } from "../../contacts/contact-store.js";
 import { createFollowUp } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function formatFollowUp(f: FollowUp): string {
@@ -46,17 +47,23 @@ export async function executeFollowupCreate(
     };
   }
 
+  if (input.reminder_cron_id !== undefined) {
+    return {
+      content:
+        'Error: "reminder_cron_id" is deprecated. Use "reminder_schedule_id" instead.',
+      isError: true,
+    };
+  }
+
   const contactId = input.contact_id as string | undefined;
   const expectedResponseHours = input.expected_response_hours as
     | number
     | undefined;
-  // Canonical: reminder_schedule_id; deprecated alias: reminder_cron_id
-  const reminderScheduleId = (input.reminder_schedule_id ??
-    input.reminder_cron_id) as string | undefined;
+  const reminderScheduleId = input.reminder_schedule_id as string | undefined;
 
   // Validate contact exists if provided
   if (contactId) {
-    const contact = getContact(contactId);
+    const contact = getContact(contactId, DAEMON_INTERNAL_ASSISTANT_ID);
     if (!contact) {
       return {
         content: `Error: Contact "${contactId}" not found`,
