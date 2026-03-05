@@ -113,6 +113,11 @@ extension MainWindowView {
                 },
                 daemonClient: daemonClient
             )
+        case .usageDashboard:
+            UsageDashboardPanel(
+                daemonClient: daemonClient,
+                onClose: { windowState.selection = nil }
+            )
         }
     }
 
