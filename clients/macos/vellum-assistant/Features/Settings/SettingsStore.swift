@@ -980,9 +980,11 @@ public final class SettingsStore: ObservableObject {
         let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
         if let assistant, assistant.isManaged {
             let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+            // Strip "v1/" prefix — the platform proxy already namespaces under /v1/assistants/{id}/
+            let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
             // Django URL convention: trailing slash
-            let trailingSlash = path.hasSuffix("/") ? "" : "/"
-            guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/\(path)\(trailingSlash)") else { return nil }
+            let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
+            guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/\(proxyPath)\(trailingSlash)") else { return nil }
             var request = URLRequest(url: url)
             request.httpMethod = method
             request.timeoutInterval = 5
