@@ -978,7 +978,6 @@ export function resendOutbound(
 export function cancelOutbound(
   params: CancelOutboundParams,
 ): OutboundActionResult {
-  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
 
   const session = findActiveSession(channel);
