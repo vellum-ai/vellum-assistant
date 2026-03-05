@@ -15,10 +15,8 @@ import { registerDevCommand } from "./cli/dev.js";
 import { registerDoctorCommand } from "./cli/doctor.js";
 import { registerEmailCommand } from "./cli/email.js";
 import { registerInfluencerCommand } from "./cli/influencer.js";
-import {
-  registerChannelsCommand,
-  registerIntegrationsCommand,
-} from "./cli/integrations.js";
+import { registerChannelsCommand } from "./cli/channels.js";
+import { registerIntegrationsCommand } from "./cli/integrations.js";
 import { registerKeysCommand } from "./cli/keys.js";
 import { registerMapCommand } from "./cli/map.js";
 import { registerMcpCommand } from "./cli/mcp.js";
