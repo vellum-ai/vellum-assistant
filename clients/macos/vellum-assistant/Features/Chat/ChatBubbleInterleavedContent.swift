@@ -142,6 +142,10 @@ extension ChatBubble {
             return message.toolCalls[idx]
         }
         if !groupedToolCalls.isEmpty {
+            // The single decidedConfirmation always corresponds to the most recent
+            // permission prompt, which belongs to the latest tool group. Earlier
+            // groups' confirmations are consumed and no longer available in the
+            // message list, so we only show the chip on the latest group.
             AssistantProgressView(
                 toolCalls: groupedToolCalls,
                 isStreaming: isLatestGroup ? message.isStreaming : false,
