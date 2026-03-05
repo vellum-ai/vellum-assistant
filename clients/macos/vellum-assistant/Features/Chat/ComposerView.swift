@@ -260,6 +260,9 @@ struct ComposerView: View {
                 composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Reserve space so the last line of text isn't hidden behind the
+            // overlaid action buttons (attach + send/mic ≈ composerActionButtonSize).
+            .padding(.bottom, isComposerExpanded ? composerActionButtonSize : 0)
         }
         .scrollBounceBehavior(.basedOnSize)
         .accessibilityLabel("Message")
