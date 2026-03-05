@@ -486,6 +486,88 @@ describe("notification broadcaster", () => {
     });
   });
 
+  test("reused thread via binding-key continuation does NOT emit class-level onThreadCreated", async () => {
+    const vellumAdapter = new MockAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+    const ipcCalls: ThreadCreatedInfo[] = [];
+    broadcaster.setOnThreadCreated((info) => ipcCalls.push(info));
+
+    // Simulate binding-key continuation: pairing reuses an existing bound
+    // conversation (createdNewConversation=false, strategy=continue_existing_conversation)
+    nextPairingResult = {
+      conversationId: "conv-bound-sms-001",
+      messageId: "msg-bound-sms-001",
+      strategy: "continue_existing_conversation" as const,
+      createdNewConversation: false,
+      threadDecisionFallbackUsed: false,
+    };
+
+    const signal = makeSignal();
+    const decision = makeDecision();
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    // The class-level IPC callback should NOT fire because
+    // createdNewConversation is false — the thread already exists
+    // in the external channel and the client already knows about it.
+    expect(ipcCalls).toHaveLength(0);
+  });
+
+  test("fresh conversation for continue_existing_conversation does NOT emit class-level onThreadCreated", async () => {
+    const vellumAdapter = new MockAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+    const ipcCalls: ThreadCreatedInfo[] = [];
+    broadcaster.setOnThreadCreated((info) => ipcCalls.push(info));
+
+    // First delivery to a new destination: creates a fresh conversation but
+    // the strategy is continue_existing_conversation (not start_new_conversation),
+    // so the IPC event should NOT fire — these are background threads not
+    // meant to appear in the sidebar.
+    nextPairingResult = {
+      conversationId: "conv-new-telegram-dest",
+      messageId: "msg-new-telegram-dest",
+      strategy: "continue_existing_conversation" as const,
+      createdNewConversation: true,
+      threadDecisionFallbackUsed: false,
+    };
+
+    const signal = makeSignal();
+    const decision = makeDecision();
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    // Even though createdNewConversation is true, the strategy is
+    // continue_existing_conversation, so the IPC gate rejects it.
+    expect(ipcCalls).toHaveLength(0);
+  });
+
+  test("per-dispatch onThreadCreated fires for reused binding-key conversation", async () => {
+    const vellumAdapter = new MockAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+    const dispatchCalls: ThreadCreatedInfo[] = [];
+
+    // Binding-key reuse: conversation already exists
+    nextPairingResult = {
+      conversationId: "conv-bound-telegram-456",
+      messageId: "msg-bound-telegram-789",
+      strategy: "continue_existing_conversation" as const,
+      createdNewConversation: false,
+      threadDecisionFallbackUsed: false,
+    };
+
+    const signal = makeSignal();
+    const decision = makeDecision();
+
+    await broadcaster.broadcastDecision(signal, decision, {
+      onThreadCreated: (info) => dispatchCalls.push(info),
+    });
+
+    // The per-dispatch callback SHOULD fire regardless of reuse
+    // (callers like dispatchGuardianQuestion need it for bookkeeping)
+    expect(dispatchCalls).toHaveLength(1);
+    expect(dispatchCalls[0].conversationId).toBe("conv-bound-telegram-456");
+  });
+
   test("vellum delivery does NOT carry binding context into pairing", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
