@@ -215,6 +215,18 @@ struct ComposerView: View {
         .focused($composerFocus)
         .disabled(!hasAPIKey)
         .onSubmit {
+            #if os(macOS)
+            // In Cmd+Enter mode, plain Return should insert a newline.
+            // `.onSubmit` fires on all Return variants and consumes the
+            // event, so we insert the newline manually via the field editor.
+            // Cmd+Return → send is handled by the bridge before `.onSubmit`.
+            if cmdEnterToSend {
+                if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
+                    textView.insertText("\n", replacementRange: textView.selectedRange())
+                }
+                return
+            }
+            #endif
             performSendAction()
         }
         .onKeyPress(.tab, phases: .down) { press in

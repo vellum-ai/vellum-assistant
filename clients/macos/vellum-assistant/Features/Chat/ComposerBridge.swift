@@ -37,9 +37,7 @@ struct ComposerEditorHeightKey: PreferenceKey {
 /// - Registers the composer container view for click-away-to-blur detection.
 /// - Intercepts Cmd+V when the pasteboard contains image content.
 /// - Intercepts Cmd+Return when `cmdEnterToSend` is enabled to trigger send
-///   before SwiftUI processes the event (SwiftUI's `.onSubmit` handles all
-///   other Return routing with `NSEvent.modifierFlags` to distinguish
-///   plain Return from Shift+Return).
+///   before SwiftUI's `.onSubmit` fires.
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
     let cmdEnterToSend: Bool
