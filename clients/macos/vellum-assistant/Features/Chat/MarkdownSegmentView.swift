@@ -7,7 +7,6 @@ import VellumAssistantShared
 /// unified Text views so that text selection can span across paragraphs.
 struct MarkdownSegmentView: View {
     let segments: [MarkdownSegment]
-    var isStreaming: Bool = false
     var maxContentWidth: CGFloat? = 520
     var textColor: Color = VColor.textPrimary
     var secondaryTextColor: Color = VColor.textSecondary
@@ -33,7 +32,7 @@ struct MarkdownSegmentView: View {
                         .lineSpacing(4)
                         .foregroundColor(textColor)
                         .tint(tintColor)
-                        .selectableText(true)
+                        .textSelection(.enabled)
                         // Bound horizontal space BEFORE fixedSize so SwiftUI can wrap text
                         // within a finite width rather than measuring against an unconstrained
                         // parent, which causes O(N²) layout passes and stack overflows on
@@ -51,7 +50,7 @@ struct MarkdownSegmentView: View {
                     Text(headingText)
                         .font(headingFont)
                         .foregroundColor(textColor)
-                        .selectableText(true)
+                        .textSelection(.enabled)
                         // Frame before fixedSize so the heading wraps within a known width.
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -83,7 +82,7 @@ struct MarkdownSegmentView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(.leading, leftPad)
-                            .selectableText(true)
+                            .textSelection(.enabled)
                         }
                     }
                     .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
@@ -101,7 +100,7 @@ struct MarkdownSegmentView: View {
                             Text(code)
                                 .font(.custom("DMMono-Regular", size: 13 * zoomScale))
                                 .foregroundColor(textColor)
-                                .selectableText(true)
+                                .textSelection(.enabled)
                                 .fixedSize(horizontal: true, vertical: true)
                                 .padding(VSpacing.sm)
                         }
@@ -111,7 +110,7 @@ struct MarkdownSegmentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
                 case .table(let headers, let rows):
-                    MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity, isStreaming: isStreaming)
+                    MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity)
 
                 case .image(let alt, let url):
                     AnimatedImageView(urlString: url)
@@ -365,21 +364,6 @@ struct MarkdownSegmentView: View {
         }
 
         return result
-    }
-}
-
-// MARK: - Conditional text selection
-
-extension View {
-    /// Wraps `.textSelection(.enabled)` / `.textSelection(.disabled)` behind a
-    /// `@ViewBuilder` branch so the compiler doesn't try to unify the two
-    /// distinct `TextSelectability` conformances in a single ternary expression.
-    @ViewBuilder func selectableText(_ enabled: Bool) -> some View {
-        if enabled {
-            self.textSelection(.enabled)
-        } else {
-            self.textSelection(.disabled)
-        }
     }
 }
 

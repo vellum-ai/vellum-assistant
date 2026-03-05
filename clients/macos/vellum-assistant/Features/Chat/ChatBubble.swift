@@ -327,7 +327,6 @@ struct ChatBubble: View {
                     if hasRichContent {
                         MarkdownSegmentView(
                             segments: segments,
-                            isStreaming: message.isStreaming,
                             maxContentWidth: nil,
                             textColor: isUser ? VColor.userBubbleText : VColor.textPrimary,
                             secondaryTextColor: isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary,
@@ -343,7 +342,7 @@ struct ChatBubble: View {
                             .lineSpacing(6)
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                            .selectableText(true)
+                            .textSelection(.enabled)
                             // For assistant messages, fill available width for readability.
                             // For user messages, let the bubble shrink-wrap to text width.
                             .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)

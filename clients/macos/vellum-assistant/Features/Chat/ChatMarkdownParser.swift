@@ -260,7 +260,6 @@ struct MarkdownTableView: View {
     let headers: [String]
     let rows: [[String]]
     var maxWidth: CGFloat = 520
-    var isStreaming: Bool = false
 
     @Environment(\.conversationZoomScale) private var zoomScale
 
@@ -275,7 +274,7 @@ struct MarkdownTableView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.sm)
-                        .selectableText(true)
+                        .textSelection(.enabled)
                 }
             }
 
@@ -314,6 +313,6 @@ struct MarkdownTableView: View {
         return Text(attributed)
             .font(.custom("Inter", size: 13 * zoomScale))
             .foregroundColor(VColor.textPrimary)
-            .selectableText(true)
+            .textSelection(.enabled)
     }
 }
