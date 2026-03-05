@@ -3,9 +3,10 @@ import { join } from "path";
 
 import {
   defaultLocalResources,
+  loadAllAssistants,
   resolveTargetAssistant,
 } from "../lib/assistant-config.js";
-import { stopProcessByPidFile } from "../lib/process";
+import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 
 export async function sleep(): Promise<void> {
   const args = process.argv.slice(3);
@@ -64,14 +65,26 @@ export async function sleep(): Promise<void> {
     console.log("Gateway stopped.");
   }
 
-  // Stop outbound proxy
-  const outboundProxyStopped = await stopProcessByPidFile(
-    outboundProxyPidFile,
-    "outbound-proxy",
-  );
-  if (!outboundProxyStopped) {
-    console.log("Outbound proxy is not running.");
+  // Only stop the shared outbound proxy if no other local assistants still
+  // have a running daemon — the proxy is a global singleton shared by all
+  // instances.
+  const otherLocalRunning = loadAllAssistants().some((other) => {
+    if (other.cloud !== "local" || !other.resources) return false;
+    if (other.assistantId === entry.assistantId) return false;
+    return isProcessAlive(other.resources.pidFile).alive;
+  });
+
+  if (otherLocalRunning) {
+    console.log("Outbound proxy left running (other local instances active).");
   } else {
-    console.log("Outbound proxy stopped.");
+    const outboundProxyStopped = await stopProcessByPidFile(
+      outboundProxyPidFile,
+      "outbound-proxy",
+    );
+    if (!outboundProxyStopped) {
+      console.log("Outbound proxy is not running.");
+    } else {
+      console.log("Outbound proxy stopped.");
+    }
   }
 }
