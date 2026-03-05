@@ -1,97 +1,49 @@
 /**
  * Twitter session persistence.
- * Stores/loads auth cookies from a recording or manual login.
+ * Delegates to the shared cookie-session primitive for CRUD and cookie header
+ * logic; keeps Twitter-specific cookie validation and CSRF extraction.
  */
 
+import type { CookieSession } from "../util/cookie-session.js";
 import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
-
-import type {
-  ExtractedCredential,
-  SessionRecording,
-} from "../tools/browser/network-recording-types.js";
+  createSessionStore,
+  importFromRecordingBase,
+} from "../util/cookie-session.js";
 import { ConfigError } from "../util/errors.js";
-import { getDataDir } from "../util/platform.js";
 
-export interface TwitterSession {
-  cookies: ExtractedCredential[];
-  importedAt: string;
-  recordingId?: string;
-}
+export type TwitterSession = CookieSession;
 
-function getSessionDir(): string {
-  return join(getDataDir(), "twitter");
-}
+const store = createSessionStore("twitter");
 
-function getSessionPath(): string {
-  return join(getSessionDir(), "session.json");
-}
-
-export function loadSession(): TwitterSession | null {
-  const path = getSessionPath();
-  if (!existsSync(path)) return null;
-  try {
-    return JSON.parse(readFileSync(path, "utf-8")) as TwitterSession;
-  } catch {
-    return null;
-  }
-}
-
-export function saveSession(session: TwitterSession): void {
-  const dir = getSessionDir();
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(getSessionPath(), JSON.stringify(session, null, 2));
-}
-
-export function clearSession(): void {
-  const path = getSessionPath();
-  if (existsSync(path)) {
-    unlinkSync(path);
-  }
-}
+export const loadSession: () => TwitterSession | null = store.loadSession;
+export const saveSession: (session: TwitterSession) => void = store.saveSession;
+export const clearSession: () => void = store.clearSession;
+export const getCookieHeader: (session: TwitterSession) => string =
+  store.getCookieHeader;
 
 /**
  * Import cookies from a Ride Shotgun recording file.
  */
 export function importFromRecording(recordingPath: string): TwitterSession {
-  if (!existsSync(recordingPath)) {
-    throw new ConfigError(`Recording not found: ${recordingPath}`);
-  }
-  const recording = JSON.parse(
-    readFileSync(recordingPath, "utf-8"),
-  ) as SessionRecording;
-  if (!recording.cookies?.length) {
-    throw new ConfigError("Recording contains no cookies");
-  }
-  // Require the two cookies that prove a logged-in Twitter session:
-  // the auth session cookie and the ct0 CSRF cookie.
-  const cookieNames = new Set(recording.cookies.map((c) => c.name));
-  if (!cookieNames.has("ct0") || !cookieNames.has(`auth_${"token"}`)) {
+  try {
+    const session = importFromRecordingBase(recordingPath, (cookieNames) => {
+      // Require the two cookies that prove a logged-in Twitter session:
+      // the auth session cookie and the ct0 CSRF cookie.
+      if (!cookieNames.has("ct0") || !cookieNames.has(`auth_${"token"}`)) {
+        throw new ConfigError(
+          "Recording is missing required Twitter session cookies. " +
+            "Make sure you are logged in to x.com before recording.",
+        );
+      }
+    });
+    saveSession(session);
+    return session;
+  } catch (error) {
+    if (error instanceof ConfigError) throw error;
     throw new ConfigError(
-      "Recording is missing required Twitter session cookies. " +
-        "Make sure you are logged in to x.com before recording.",
+      error instanceof Error ? error.message : String(error),
     );
   }
-  const session: TwitterSession = {
-    cookies: recording.cookies,
-    importedAt: new Date().toISOString(),
-    recordingId: recording.id,
-  };
-  saveSession(session);
-  return session;
-}
-
-/**
- * Build a Cookie header string from the session.
- */
-export function getCookieHeader(session: TwitterSession): string {
-  return session.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 }
 
 /**
