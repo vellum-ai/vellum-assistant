@@ -58,14 +58,15 @@ Wait for confirmation. Note the project ID for subsequent steps.
 
 Tell the user:
 
-> **Step 2: Enable Gmail and Calendar APIs**
+> **Step 2: Enable Gmail, Calendar, and People APIs**
 >
 > Open each link below and click **Enable**:
 >
 > 1. Gmail API: `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID`
 > 2. Calendar API: `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`
+> 3. People API: `https://console.cloud.google.com/apis/library/people.googleapis.com?project=PROJECT_ID`
 >
-> Let me know when both are enabled.
+> Let me know when all three are enabled.
 
 (Substitute the actual project ID into the URLs.)
 
@@ -219,9 +220,9 @@ Use `ui_show` with `surface_type: "confirmation"`:
 
 If the user declines, acknowledge and stop.
 
-## CLI Step 2: Install Prerequisites
+## CLI Step 2: Check Prerequisites
 
-Check for and install each prerequisite. If any installation fails (e.g., Homebrew not available, corporate restrictions), tell the user what went wrong and provide manual installation instructions.
+Check whether each prerequisite is installed. Do **not** install them yourself — if anything is missing, tell the user what they need and provide the commands for them to run manually.
 
 ### gcloud
 
@@ -229,13 +230,17 @@ Check for and install each prerequisite. If any installation fails (e.g., Homebr
 which gcloud
 ```
 
-If missing:
+If present, continue. If missing, tell the user:
 
-```bash
-brew install google-cloud-sdk
-```
+> **`gcloud` CLI not found.** Please install it and then let me know:
+>
+> ```
+> brew install google-cloud-sdk
+> ```
+>
+> Or see https://cloud.google.com/sdk/docs/install for other installation methods.
 
-After installation, verify it works:
+Wait for the user to confirm installation, then verify:
 
 ```bash
 gcloud --version
@@ -247,13 +252,15 @@ gcloud --version
 which gws
 ```
 
-If missing:
+If present, continue. If missing, tell the user:
 
-```bash
-npm install -g @googleworkspace/cli
-```
+> **`gws` CLI not found.** Please install it and then let me know:
+>
+> ```
+> npm install -g @googleworkspace/cli
+> ```
 
-After installation, verify it works:
+Wait for the user to confirm installation, then verify:
 
 ```bash
 gws --version
