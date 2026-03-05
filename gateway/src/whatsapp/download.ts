@@ -1,6 +1,10 @@
 import { fileTypeFromBuffer } from "file-type";
 import type { GatewayConfig } from "../config.js";
-import { getWhatsAppMediaMetadata, downloadWhatsAppMediaBytes } from "./api.js";
+import {
+  getWhatsAppMediaMetadata,
+  downloadWhatsAppMediaBytes,
+  WhatsAppNonRetryableError,
+} from "./api.js";
 
 export interface DownloadedFile {
   filename: string;
@@ -52,7 +56,7 @@ export async function downloadWhatsAppFile(
   const meta = await getWhatsAppMediaMetadata(config, mediaId);
 
   if (meta.file_size > config.maxAttachmentBytes) {
-    throw new Error(
+    throw new WhatsAppNonRetryableError(
       `WhatsApp media ${mediaId} exceeds size limit (${meta.file_size} > ${config.maxAttachmentBytes} bytes)`,
     );
   }
