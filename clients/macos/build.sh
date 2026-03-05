@@ -639,10 +639,10 @@ cat > "$CONTENTS/Info.plist" <<PLIST
             <dict>
                 <key>public.filename-extension</key>
                 <array>
-                    <string>vellumapp</string>
+                    <string>vellum</string>
                 </array>
                 <key>public.mime-type</key>
-                <string>application/x-vellumapp</string>
+                <string>application/x-vellum</string>
             </dict>
         </dict>
     </array>
@@ -651,7 +651,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
         <dict>
             <key>CFBundleTypeExtensions</key>
             <array>
-                <string>vellumapp</string>
+                <string>vellum</string>
             </array>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>

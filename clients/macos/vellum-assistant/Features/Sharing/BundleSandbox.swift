@@ -4,7 +4,7 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "BundleSandbox")
 
-/// Manages unpacking shared .vellumapp bundles into a sandboxed directory.
+/// Manages unpacking shared .vellum bundles into a sandboxed directory.
 enum BundleSandbox {
 
     /// Base directory for all shared apps.
@@ -34,7 +34,7 @@ enum BundleSandbox {
         let installedAt: String
     }
 
-    /// Unpacks a `.vellumapp` zip file into the sandbox and writes metadata.
+    /// Unpacks a `.vellum` zip file into the sandbox and writes metadata.
     /// Returns the UUID and the directory URL where the contents were extracted.
     static func unpack(
         filePath: String,

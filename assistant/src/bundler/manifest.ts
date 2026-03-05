@@ -1,5 +1,5 @@
 /**
- * Types and serialization for .vellumapp manifest files.
+ * Types and serialization for .vellum manifest files.
  */
 
 export interface AppManifest {

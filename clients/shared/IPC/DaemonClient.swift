@@ -1099,7 +1099,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(BundleAppRequestMessage(appId: appId))
     }
 
-    /// Request opening and scanning a .vellumapp bundle.
+    /// Request opening and scanning a .vellum bundle.
     public func sendOpenBundle(filePath: String) throws {
         try send(OpenBundleMessage(filePath: filePath))
     }

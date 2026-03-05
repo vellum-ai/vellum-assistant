@@ -315,7 +315,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   open_bundle: {
     type: "open_bundle",
-    filePath: "/tmp/My_App.vellumapp",
+    filePath: "/tmp/My_App.vellum",
   },
   sign_bundle_payload_response: {
     type: "sign_bundle_payload_response",
@@ -1266,7 +1266,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   bundle_app_response: {
     type: "bundle_app_response",
-    bundlePath: "/tmp/My_App-abc12345.vellumapp",
+    bundlePath: "/tmp/My_App-abc12345.vellum",
     manifest: {
       format_version: 1,
       name: "My App",

@@ -529,7 +529,7 @@ extension IPCBundleAppRequest {
     }
 }
 
-/// Sent to open and scan a .vellumapp bundle.
+/// Sent to open and scan a .vellum bundle.
 /// Backed by generated `IPCOpenBundleRequest`.
 public typealias OpenBundleMessage = IPCOpenBundleRequest
 
@@ -1687,7 +1687,7 @@ extension IPCToolNamesListRequest {
 /// Backed by generated `IPCToolNamesListResponse`.
 public typealias ToolNamesListResponseMessage = IPCToolNamesListResponse
 
-/// Response from opening and scanning a .vellumapp bundle.
+/// Response from opening and scanning a .vellum bundle.
 /// Backed by generated `IPCOpenBundleResponse`.
 public typealias OpenBundleResponseMessage = IPCOpenBundleResponse
 

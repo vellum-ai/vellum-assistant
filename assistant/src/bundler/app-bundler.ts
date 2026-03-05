@@ -1,5 +1,5 @@
 /**
- * Core packaging logic for .vellumapp zip archives.
+ * Core packaging logic for .vellum zip archives.
  *
  * Reads an app from the app-store, generates a manifest, and produces a
  * zip archive written to a temp file.
@@ -176,12 +176,12 @@ export interface BundleResult {
 }
 
 /**
- * Package an app into a .vellumapp zip archive.
+ * Package an app into a .vellum zip archive.
  *
  * @param appId - The ID of the app to package (from the app-store).
  * @param requestSignature - Optional callback to request an Ed25519 signature from the Swift client.
  *                           If provided, the bundle will be signed and include a signature.json.
- * @returns The path to the created .vellumapp file and the manifest.
+ * @returns The path to the created .vellum file and the manifest.
  * @throws If the app is not found, or the bundle exceeds the size limit.
  */
 export async function packageApp(
@@ -239,7 +239,7 @@ export async function packageApp(
   const bundleFilename = `${app.name.replace(
     /[^a-zA-Z0-9_-]/g,
     "_",
-  )}-${randomUUID().slice(0, SHORT_HASH_LENGTH)}.vellumapp`;
+  )}-${randomUUID().slice(0, SHORT_HASH_LENGTH)}.vellum`;
   const bundlePath = join(tmpdir(), bundleFilename);
 
   await new Promise<void>((resolve, reject) => {

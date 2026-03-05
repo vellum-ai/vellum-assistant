@@ -167,7 +167,7 @@ export function handleDownloadSharedApp(shareToken: string): Response {
   return new Response(new Uint8Array(record.bundleData), {
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": 'attachment; filename="app.vellumapp"',
+      "Content-Disposition": 'attachment; filename="app.vellum"',
     },
   });
 }

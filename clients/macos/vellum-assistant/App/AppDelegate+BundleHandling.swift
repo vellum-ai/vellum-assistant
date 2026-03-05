@@ -10,8 +10,8 @@ extension AppDelegate {
 
     public func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            guard url.pathExtension == "vellumapp" else { continue }
-            log.info("Opening .vellumapp file: \(url.path, privacy: .private)")
+            guard url.pathExtension == "vellum" else { continue }
+            log.info("Opening .vellum file: \(url.path, privacy: .private)")
 
             guard daemonClient.isConnected else {
                 log.warning("Cannot open bundle: daemon not connected")

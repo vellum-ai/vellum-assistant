@@ -79,7 +79,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var bootstrapFailureKind: BootstrapFailureKind = .unknown
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
-    /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
+    /// Tracks file paths of .vellum bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
     var pendingBundleFilePaths: [String] = []
