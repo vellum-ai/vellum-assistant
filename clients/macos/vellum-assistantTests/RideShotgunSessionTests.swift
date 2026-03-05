@@ -178,9 +178,11 @@ final class RideShotgunSessionTests: XCTestCase {
         )
         continuation.yield(.rideShotgunError(errorMessage))
 
-        // The subscription loop processes messages asynchronously on the main
-        // actor, so yield to let the Task pick up the emitted message.
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // Poll until the subscription loop processes the message (up to 5s).
+        let deadline = ContinuousClock.now + .seconds(5)
+        while session.state == .starting, ContinuousClock.now < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
 
         XCTAssertEqual(session.state, .failed("CDP bootstrap timed out"))
         XCTAssertEqual(session.summary, "", "Summary should remain empty on error")
