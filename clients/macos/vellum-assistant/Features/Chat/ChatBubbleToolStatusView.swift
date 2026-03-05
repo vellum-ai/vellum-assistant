@@ -16,14 +16,14 @@ extension ChatBubble {
 
     @ViewBuilder
     var trailingStatus: some View {
-        let hasToolCalls = !message.toolCalls.isEmpty && !hideToolCalls
+        let hasToolCalls = !message.toolCalls.isEmpty
         let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil
             && !(message.streamingCodePreview?.isEmpty ?? true)
 
         if hasToolCalls || hasStreamingCode || isProcessingAfterTools {
             // Unified progress view handles all tool/streaming/processing states
             AssistantProgressView(
-                toolCalls: hideToolCalls ? [] : message.toolCalls,
+                toolCalls: message.toolCalls,
                 isStreaming: message.isStreaming,
                 hasText: hasText,
                 isProcessing: isProcessingAfterTools,
