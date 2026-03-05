@@ -9,7 +9,6 @@ public struct InlineSurfaceRouter: View {
 
     @State private var selectionPayload: [String: AnyCodable]?
     @State private var clickedActionLabel: String?
-    @State private var isRefetching = false
 
     public init(
         surface: InlineSurfaceData,
@@ -143,10 +142,6 @@ public struct InlineSurfaceRouter: View {
             if oldSurface.data != newSurface.data || oldSurface.actions != newSurface.actions || oldSurface.completionState != nil {
                 clickedActionLabel = nil
             }
-            // Clear loading state once data arrives after a refetch.
-            if case .stripped = oldSurface.data, newSurface.data != .stripped {
-                isRefetching = false
-            }
         }
     }
 
@@ -163,8 +158,7 @@ public struct InlineSurfaceRouter: View {
         .frame(maxWidth: 540, alignment: .leading)
         .inlineWidgetCard(interactive: false)
         .onAppear {
-            guard !isRefetching, let sessionId = surface.surfaceRef?.sessionId else { return }
-            isRefetching = true
+            guard let sessionId = surface.surfaceRef?.sessionId else { return }
             onRefetch?(surface.id, sessionId)
         }
     }
