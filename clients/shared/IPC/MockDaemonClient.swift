@@ -35,7 +35,6 @@ public final class MockDaemonClient: DaemonClientProtocol, ObservableObject {
 
     public func startSSE() {}
     public func stopSSE() {}
-    public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
 
     /// Inject a server message into all active subscribers.
     public func emit(_ message: ServerMessage) {

@@ -1407,13 +1407,11 @@ public final class ChatViewModel: ObservableObject {
     public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
         Task { [weak self] in
             guard let self else { return }
-            guard let data = await surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId) else { return }
-            await MainActor.run {
-                for msgIndex in self.messages.indices {
-                    if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
-                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = data
-                        return
-                    }
+            guard let data = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId) else { return }
+            for msgIndex in self.messages.indices {
+                if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
+                    self.messages[msgIndex].inlineSurfaces[surfIndex].data = data
+                    return
                 }
             }
         }

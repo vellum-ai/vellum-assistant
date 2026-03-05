@@ -534,5 +534,4 @@ private final class FailOnceDaemonClient: DaemonClientProtocol {
 
     func startSSE() {}
     func stopSSE() {}
-    func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
 }

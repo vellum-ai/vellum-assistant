@@ -117,6 +117,11 @@ public protocol DaemonClientProtocol {
     func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData?
 }
 
+extension DaemonClientProtocol {
+    /// Default no-op implementation for clients that don't support HTTP surface fetches.
+    public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
+}
+
 extension Notification.Name {
     /// Posted by `DaemonClient` on the main actor immediately after `isConnected` transitions to `true`.
     public static let daemonDidReconnect = Notification.Name("daemonDidReconnect")
@@ -779,13 +784,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let surfaceTypeRaw = json["surfaceType"] as? String,
-                  let surfaceType = SurfaceType(rawValue: surfaceTypeRaw),
-                  let dataDict = json["data"] as? [String: Any?] else {
-                return nil
-            }
-            return Surface.parseSurfaceData(type: surfaceType, dict: dataDict)
+            return Surface.parseSurfaceDataFromResponse(data)
         } catch {
             return nil
         }

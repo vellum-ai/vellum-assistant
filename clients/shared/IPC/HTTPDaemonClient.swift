@@ -1406,15 +1406,12 @@ public final class HTTPTransport {
                 }
             }
 
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let surfaceTypeRaw = json["surfaceType"] as? String,
-                  let surfaceType = SurfaceType(rawValue: surfaceTypeRaw),
-                  let dataDict = json["data"] as? [String: Any?] else {
+            guard let surfaceData = Surface.parseSurfaceDataFromResponse(data) else {
                 log.error("HTTPTransport: surface content response could not be parsed")
                 return nil
             }
 
-            return Surface.parseSurfaceData(type: surfaceType, dict: dataDict)
+            return surfaceData
         } catch {
             log.error("HTTPTransport: surface content fetch error: \(error.localizedDescription)")
             return nil
