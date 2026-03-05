@@ -8,7 +8,8 @@
  * focused on orchestration.
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { resolveUserReference } from "../../../config/user-reference.js";
+import { resolveGuardianName } from "../../../config/user-reference.js";
+import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { TrustContext } from "../../../daemon/session-runtime-assembly.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import {
@@ -23,7 +24,6 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../../channel-approvals.js";
-import { getGuardianBinding } from "../../channel-guardian-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
@@ -446,34 +446,16 @@ export function startPendingApprovalPromptWatcher(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a human-readable guardian name from the guardian binding metadata.
- * Returns the display name, username (prefixed with @), or undefined if
- * no name is available.
+ * Resolve a human-readable guardian name for trusted-contact notifications.
+ * Delegates to {@link resolveGuardianName} which checks USER.md first, then
+ * falls back to the contact's display name, then to DEFAULT_USER_REFERENCE.
  */
 export function resolveGuardianDisplayName(
   assistantId: string,
   sourceChannel: ChannelId,
-): string | undefined {
-  const binding = getGuardianBinding(assistantId, sourceChannel);
-  if (!binding?.metadataJson) return undefined;
-  try {
-    const parsed = JSON.parse(binding.metadataJson) as Record<string, unknown>;
-    if (
-      typeof parsed.displayName === "string" &&
-      parsed.displayName.trim().length > 0
-    ) {
-      return parsed.displayName.trim();
-    }
-    if (
-      typeof parsed.username === "string" &&
-      parsed.username.trim().length > 0
-    ) {
-      return `@${parsed.username.trim()}`;
-    }
-  } catch {
-    // ignore malformed metadata
-  }
-  return undefined;
+): string {
+  const guardian = findGuardianForChannel(sourceChannel, assistantId);
+  return resolveGuardianName(guardian?.contact.displayName);
 }
 
 // ---------------------------------------------------------------------------
@@ -542,11 +524,10 @@ export function startTrustedContactApprovalNotifier(params: {
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
-          const guardianName =
-            resolveGuardianDisplayName(
-              assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-              sourceChannel,
-            ) ?? resolveUserReference();
+          const guardianName = resolveGuardianDisplayName(
+            assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+            sourceChannel,
+          );
           const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {
             await deliverChannelReply(
