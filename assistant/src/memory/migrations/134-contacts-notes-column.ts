@@ -57,6 +57,9 @@ export function migrateContactsNotesColumn(database: DrizzleDb): void {
       log.info({ migrated }, "Migrated contact metadata to notes field");
     }
 
+    // Drop indexes that reference columns we're about to remove
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_contacts_importance`);
+
     raw.exec(/*sql*/ `ALTER TABLE contacts DROP COLUMN relationship`);
     raw.exec(/*sql*/ `ALTER TABLE contacts DROP COLUMN importance`);
     raw.exec(/*sql*/ `ALTER TABLE contacts DROP COLUMN response_expectation`);
