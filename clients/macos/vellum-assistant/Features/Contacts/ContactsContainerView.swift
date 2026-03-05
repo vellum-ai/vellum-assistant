@@ -59,5 +59,15 @@ struct ContactsContainerView: View {
                 .background(VColor.background)
             }
         }
+        .sheet(isPresented: $viewModel.isCreatingContact) {
+            ContactCreateView(
+                daemonClient: daemonClient,
+                isPresented: $viewModel.isCreatingContact,
+                onCreated: { contact in
+                    selectedContactId = contact.id
+                    viewModel.loadContacts()
+                }
+            )
+        }
     }
 }

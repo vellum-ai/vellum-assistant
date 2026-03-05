@@ -130,9 +130,19 @@ struct ContactsListView: View {
 
     private var otherContactsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Contacts")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            HStack {
+                Text("Contacts")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button { viewModel.isCreatingContact = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(VColor.accent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add contact")
+            }
 
             VStack(spacing: 0) {
                 ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
@@ -234,11 +244,14 @@ struct ContactsListView: View {
             Text("No contacts yet")
                 .font(VFont.headline)
                 .foregroundColor(VColor.textPrimary)
-            Text("Contacts are created automatically when people interact with your assistant through messaging channels.")
+            Text("Contacts are created automatically when people interact with your assistant, or you can add one manually.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 300)
+            VButton(label: "Add Contact", leftIcon: "plus", style: .primary, size: .medium) {
+                viewModel.isCreatingContact = true
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.xxxl)
