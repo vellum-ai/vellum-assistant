@@ -1147,7 +1147,7 @@ public final class HTTPTransport {
     // MARK: - Channel Verification
 
     /// Send a verification code to a contact's channel via the gateway.
-    func verifyContactChannel(contactId: String, channelId: String) async throws -> ChannelVerificationResult? {
+    func verifyContactChannel(contactId: String, channelId: String) async throws -> DaemonClient.ChannelVerificationResult? {
         guard let url = buildURL(for: .contactsChannelVerify(contactId: contactId, channelId: channelId)) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -1155,7 +1155,7 @@ public final class HTTPTransport {
         applyAuth(&request)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-        return try JSONDecoder().decode(ChannelVerificationResult.self, from: data)
+        return try JSONDecoder().decode(DaemonClient.ChannelVerificationResult.self, from: data)
     }
 
     // MARK: - Surface Actions
