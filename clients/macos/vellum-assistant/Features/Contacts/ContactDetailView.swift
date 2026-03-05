@@ -313,6 +313,7 @@ struct ContactDetailView: View {
         .task {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
+                readinessFetchFailed = false
             } catch {
                 readinessFetchFailed = true
             }
