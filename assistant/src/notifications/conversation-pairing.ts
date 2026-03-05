@@ -6,9 +6,12 @@
  * auditable conversation trail and enables the macOS/iOS client to
  * deep-link directly into the notification thread.
  *
- * When the decision engine selects `reuse_existing` for a channel and
- * the target conversation is valid, the seed message is appended to the
- * existing thread instead of creating a new one.
+ * Resolution order:
+ * 1. Explicit `reuse_existing` thread action — highest precedence.
+ * 2. Binding-key reuse — for `continue_existing_conversation` channels,
+ *    looks up a previously bound conversation by (sourceChannel, externalChatId).
+ * 3. Default — creates a fresh conversation and, when binding context is
+ *    present, upserts it into the external-conversation store for future reuse.
  */
 
 import type { ConversationStrategy } from "../channels/config.js";
@@ -19,6 +22,10 @@ import {
   createConversation,
   getConversation,
 } from "../memory/conversation-store.js";
+import {
+  getBindingByChannelChat,
+  upsertOutboundBinding,
+} from "../memory/external-conversation-store.js";
 import { getLogger } from "../util/logger.js";
 import type { NotificationSignal } from "./signal.js";
 import { composeThreadSeed, isThreadSeedSane } from "./thread-seed-composer.js";
@@ -54,11 +61,13 @@ export interface PairingOptions {
  * Looks up the channel's conversation strategy from the policy registry
  * and materializes a conversation + assistant message accordingly.
  *
- * When `options.threadAction` is `reuse_existing`, the function attempts
- * to look up the target conversation. If it exists and has the right source,
- * the seed message is appended to it. If the target is invalid or stale,
- * a new conversation is created instead (with `threadDecisionFallbackUsed`
- * set to true on the result).
+ * Resolution precedence:
+ * 1. `options.threadAction === "reuse_existing"` — reuse the explicit target.
+ * 2. `continue_existing_conversation` strategy with binding context —
+ *    look up a previously bound conversation by (sourceChannel, externalChatId).
+ * 3. Create a new conversation (and upsert the binding when context is present).
+ *
+ * Invalid/stale targets at any level fall through to the next.
  *
  * Errors are caught and logged — this function never throws so the
  * notification pipeline is not disrupted by pairing failures.
@@ -171,6 +180,77 @@ export async function pairDeliveryWithConversation(
       };
     }
 
+    // For channels with continue_existing_conversation strategy, try to
+    // reuse a previously bound conversation keyed by (sourceChannel, externalChatId)
+    // before falling through to create a new one.
+    const bindingContext = options?.bindingContext;
+    if (
+      strategy === "continue_existing_conversation" &&
+      bindingContext?.sourceChannel &&
+      bindingContext?.externalChatId
+    ) {
+      const existingBinding = getBindingByChannelChat(
+        bindingContext.sourceChannel,
+        bindingContext.externalChatId,
+      );
+
+      if (existingBinding) {
+        const boundConversation = getConversation(
+          existingBinding.conversationId,
+        );
+
+        if (boundConversation && boundConversation.source === "notification") {
+          const message = await addMessage(
+            boundConversation.id,
+            "assistant",
+            messageContent,
+            undefined,
+            { skipIndexing: true },
+          );
+
+          // Touch the outbound timestamp so the binding stays fresh.
+          upsertOutboundBinding({
+            conversationId: boundConversation.id,
+            sourceChannel: bindingContext.sourceChannel,
+            externalChatId: bindingContext.externalChatId,
+          });
+
+          log.info(
+            {
+              signalId: signal.signalId,
+              channel,
+              strategy,
+              conversationId: boundConversation.id,
+              messageId: message.id,
+              bindingKey: `${bindingContext.sourceChannel}:${bindingContext.externalChatId}`,
+            },
+            "Reused bound conversation for channel destination",
+          );
+
+          return {
+            conversationId: boundConversation.id,
+            messageId: message.id,
+            strategy,
+            createdNewConversation: false,
+            threadDecisionFallbackUsed: false,
+          };
+        }
+
+        // Binding exists but conversation is stale or wrong source — fall through
+        // to create a new one and re-bind below.
+        log.warn(
+          {
+            signalId: signal.signalId,
+            channel,
+            boundConversationId: existingBinding.conversationId,
+            boundConversationExists: !!boundConversation,
+            boundConversationSource: boundConversation?.source,
+          },
+          "Bound conversation stale or invalid — creating fresh conversation",
+        );
+      }
+    }
+
     // Default path: create a new conversation
     // Memory indexing is skipped on the seed message below to prevent
     // notification copy from polluting conversational recall.
@@ -189,6 +269,16 @@ export async function pairDeliveryWithConversation(
       undefined,
       { skipIndexing: true },
     );
+
+    // When binding context is available, record the new conversation so
+    // subsequent deliveries to the same destination reuse it.
+    if (bindingContext?.sourceChannel && bindingContext?.externalChatId) {
+      upsertOutboundBinding({
+        conversationId: conversation.id,
+        sourceChannel: bindingContext.sourceChannel,
+        externalChatId: bindingContext.externalChatId,
+      });
+    }
 
     log.info(
       {
