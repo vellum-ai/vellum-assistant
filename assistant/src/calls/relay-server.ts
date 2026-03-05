@@ -38,13 +38,11 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   getGuardianBinding,
   getPendingChallenge,
-  validateAndConsumeChallenge,
 } from "../runtime/channel-guardian-service.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/guardian-verification-templates.js";
-import { redeemVoiceInviteCode } from "../runtime/invite-service.js";
 import { parseJsonSafe } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -66,6 +64,11 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { finalizeCall } from "./finalize-call.js";
+import {
+  attemptGuardianCodeVerification,
+  attemptInviteCodeRedemption,
+  parseDigitsFromSpeech,
+} from "./relay-verification.js";
 import {
   extractPromptSpeakerMetadata,
   type PromptSpeakerContext,
@@ -1108,59 +1111,11 @@ export class RelayConnection {
   }
 
   /**
-   * Extract digit characters from a speech transcript. Recognizes both
-   * raw digit characters ("1 2 3") and spoken number words ("one two three").
+   * Validate an entered code against the pending voice guardian challenge.
+   * Delegates to the extracted attemptGuardianCodeVerification() and
+   * interprets the structured result to drive side-effects.
    */
-  private static parseDigitsFromSpeech(transcript: string): string {
-    const wordToDigit: Record<string, string> = {
-      zero: "0",
-      oh: "0",
-      o: "0",
-      one: "1",
-      won: "1",
-      two: "2",
-      too: "2",
-      to: "2",
-      three: "3",
-      four: "4",
-      for: "4",
-      fore: "4",
-      five: "5",
-      six: "6",
-      seven: "7",
-      eight: "8",
-      ate: "8",
-      nine: "9",
-    };
-
-    const digits: string[] = [];
-    const lower = transcript.toLowerCase();
-
-    // Split on whitespace and non-alphanumeric boundaries
-    const tokens = lower.split(/[\s,.\-;:!?]+/);
-    for (const token of tokens) {
-      if (/^\d$/.test(token)) {
-        digits.push(token);
-      } else if (wordToDigit[token]) {
-        digits.push(wordToDigit[token]);
-      } else if (/^\d+$/.test(token)) {
-        // Multi-digit number like "123456" — split into individual digits
-        digits.push(...token.split(""));
-      }
-    }
-
-    return digits.join("");
-  }
-
-  /**
-   * Attempt to validate an entered code against the pending voice guardian
-   * challenge via validateAndConsumeChallenge. On success, binds the
-   * guardian and transitions appropriately:
-   *   - Inbound: transitions to normal call flow
-   *   - Outbound: plays success template and ends the call
-   * On failure, enforces max attempts and terminates the call if exhausted.
-   */
-  private attemptGuardianCodeVerification(enteredCode: string): void {
+  private handleGuardianCodeVerificationResult(enteredCode: string): void {
     if (
       !this.guardianChallengeAssistantId ||
       !this.guardianVerificationFromNumber
@@ -1169,27 +1124,26 @@ export class RelayConnection {
     }
 
     const isOutbound = this.outboundGuardianVerificationSessionId != null;
-    const codeDigits = this.verificationCodeLength;
+    const assistantId = this.guardianChallengeAssistantId;
+    const fromNumber = this.guardianVerificationFromNumber;
 
-    const result = validateAndConsumeChallenge(
-      this.guardianChallengeAssistantId,
-      "voice",
+    const result = attemptGuardianCodeVerification({
+      guardianChallengeAssistantId: assistantId,
+      guardianVerificationFromNumber: fromNumber,
       enteredCode,
-      this.guardianVerificationFromNumber,
-      this.guardianVerificationFromNumber,
-    );
+      isOutbound,
+      codeDigits: this.verificationCodeLength,
+      verificationAttempts: this.verificationAttempts,
+      verificationMaxAttempts: this.verificationMaxAttempts,
+    });
 
-    if (result.success) {
+    if (result.outcome === "success") {
       this.connectionState = "connected";
       this.guardianVerificationActive = false;
       this.verificationAttempts = 0;
       this.dtmfBuffer = "";
 
-      const eventName = isOutbound
-        ? "outbound_guardian_voice_verification_succeeded"
-        : "guardian_voice_verification_succeeded";
-
-      recordCallEvent(this.callSessionId, eventName, {
+      recordCallEvent(this.callSessionId, result.eventName, {
         verificationType: result.verificationType,
       });
       log.info(
@@ -1199,65 +1153,36 @@ export class RelayConnection {
 
       // Create the guardian binding now that verification succeeded.
       if (result.verificationType === "guardian") {
-        const existingBinding = getGuardianBinding(
-          this.guardianChallengeAssistantId,
-          "voice",
-        );
-        if (
-          existingBinding &&
-          existingBinding.guardianExternalUserId !==
-            this.guardianVerificationFromNumber
-        ) {
+        if (result.bindingConflict) {
           log.warn(
             {
               callSessionId: this.callSessionId,
-              existingGuardian: existingBinding.guardianExternalUserId,
+              existingGuardian: result.bindingConflict.existingGuardian,
             },
             "Guardian binding conflict: another user already holds the voice binding",
           );
         } else {
-          revokeGuardianBinding(this.guardianChallengeAssistantId, "voice");
-
-          // Unify all channel bindings onto the canonical (vellum) principal
-          const vellumBinding = getGuardianBinding(
-            this.guardianChallengeAssistantId,
-            "vellum",
-          );
-          const canonicalPrincipal =
-            vellumBinding?.guardianPrincipalId ??
-            this.guardianVerificationFromNumber;
-
+          revokeGuardianBinding(assistantId, "voice");
           createGuardianBinding({
-            assistantId: this.guardianChallengeAssistantId,
+            assistantId,
             channel: "voice",
-            guardianExternalUserId: this.guardianVerificationFromNumber,
-            guardianDeliveryChatId: this.guardianVerificationFromNumber,
-            guardianPrincipalId: canonicalPrincipal,
+            guardianExternalUserId: fromNumber,
+            guardianDeliveryChatId: fromNumber,
+            guardianPrincipalId: result.canonicalPrincipal!,
             verifiedVia: "challenge",
           });
         }
       }
 
       if (isOutbound) {
-        // Outbound guardian verification: play success and hang up.
-        // There is no normal conversation to transition to.
-        // Set disconnecting to ignore any further DTMF/speech input
-        // during the brief delay before the session ends.
         this.connectionState = "disconnecting";
-
-        const successText = composeVerificationVoice(
-          GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_SUCCESS,
-          { codeDigits },
-        );
-        this.sendTextToken(successText, true);
+        this.sendTextToken(result.ttsMessage!, true);
 
         updateCallSession(this.callSessionId, {
           status: "completed",
           endedAt: Date.now(),
         });
 
-        // Emit a pointer message to the origin conversation so the
-        // requesting chat sees a deterministic completion notice.
         const successSession = getCallSession(this.callSessionId);
         if (successSession?.initiatedFromConversationId) {
           addPointerMessage(
@@ -1280,157 +1205,92 @@ export class RelayConnection {
           this.endSession("Verified — guardian challenge passed");
         }, getTtsPlaybackDelayMs());
       } else if (result.verificationType === "trusted_contact") {
-        // Inbound trusted-contact verification: activate and continue
-        // the live call with the shared handoff primitive.
         this.continueCallAfterTrustedContactActivation({
-          assistantId: this.guardianChallengeAssistantId,
-          fromNumber: this.guardianVerificationFromNumber,
+          assistantId,
+          fromNumber,
         });
       } else {
-        // Inbound guardian verification: create/update binding, then proceed
-        // to normal call flow. Mirrors the binding creation logic in
-        // verification-intercept.ts for the inbound channel path.
-        const guardianAssistantId = this.guardianChallengeAssistantId;
-        const callerNumber = this.guardianVerificationFromNumber;
-
-        const existingBinding = getGuardianBinding(
-          guardianAssistantId,
-          "voice",
-        );
-        if (
-          existingBinding &&
-          existingBinding.guardianExternalUserId !== callerNumber
-        ) {
-          log.warn(
-            {
-              sourceChannel: "voice",
-              existingGuardian: existingBinding.guardianExternalUserId,
-            },
-            "Guardian binding conflict: another user already holds the voice channel binding",
-          );
-        } else {
-          revokeGuardianBinding(guardianAssistantId, "voice");
-
-          // Resolve canonical principal from the vellum channel binding
-          // so all channel bindings share a single principal identity.
-          const vellumBinding = getGuardianBinding(
-            guardianAssistantId,
-            "vellum",
-          );
-          const canonicalPrincipal =
-            vellumBinding?.guardianPrincipalId ?? callerNumber;
-
-          createGuardianBinding({
-            assistantId: guardianAssistantId,
-            channel: "voice",
-            guardianExternalUserId: callerNumber,
-            guardianDeliveryChatId: callerNumber,
-            guardianPrincipalId: canonicalPrincipal,
-            verifiedVia: "challenge",
-          });
-        }
-
+        // Inbound guardian verification: binding already handled above,
+        // proceed to normal call flow.
         if (this.controller) {
           const verifiedActorTrust = resolveActorTrust({
-            assistantId: guardianAssistantId,
+            assistantId,
             sourceChannel: "voice",
-            conversationExternalId: callerNumber,
-            actorExternalId: callerNumber,
+            conversationExternalId: fromNumber,
+            actorExternalId: fromNumber,
           });
           this.controller.setTrustContext(
-            toTrustContext(verifiedActorTrust, callerNumber),
+            toTrustContext(verifiedActorTrust, fromNumber),
           );
           this.startNormalCallFlow(this.controller, true);
         }
       }
-    } else {
-      this.verificationAttempts++;
+    } else if (result.outcome === "failure") {
+      this.guardianVerificationActive = false;
+      this.verificationAttempts = result.attempts;
 
-      if (this.verificationAttempts >= this.verificationMaxAttempts) {
-        // Immediately deactivate verification so DTMF/speech input during
-        // the goodbye window doesn't trigger more verification attempts.
-        this.guardianVerificationActive = false;
+      recordCallEvent(this.callSessionId, result.eventName, {
+        attempts: result.attempts,
+      });
+      log.warn(
+        {
+          callSessionId: this.callSessionId,
+          attempts: result.attempts,
+          isOutbound,
+        },
+        "Guardian voice verification failed — max attempts reached",
+      );
 
-        const failEventName = isOutbound
-          ? "outbound_guardian_voice_verification_failed"
-          : "guardian_voice_verification_failed";
+      this.sendTextToken(result.ttsMessage, true);
 
-        recordCallEvent(this.callSessionId, failEventName, {
-          attempts: this.verificationAttempts,
-        });
-        log.warn(
-          {
-            callSessionId: this.callSessionId,
-            attempts: this.verificationAttempts,
-            isOutbound,
-          },
-          "Guardian voice verification failed — max attempts reached",
-        );
+      updateCallSession(this.callSessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: "Guardian voice verification failed — max attempts exceeded",
+      });
 
-        const failureText = isOutbound
-          ? composeVerificationVoice(
-              GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_FAILURE,
-              { codeDigits },
-            )
-          : "Verification failed. Goodbye.";
-        this.sendTextToken(failureText, true);
+      const failSession = getCallSession(this.callSessionId);
+      if (failSession) {
+        finalizeCall(this.callSessionId, failSession.conversationId);
 
-        updateCallSession(this.callSessionId, {
-          status: "failed",
-          endedAt: Date.now(),
-          lastError:
-            "Guardian voice verification failed — max attempts exceeded",
-        });
-
-        const failSession = getCallSession(this.callSessionId);
-        if (failSession) {
-          finalizeCall(this.callSessionId, failSession.conversationId);
-
-          // Emit a pointer message to the origin conversation so the
-          // requesting chat sees a deterministic failure notice.
-          if (isOutbound && failSession.initiatedFromConversationId) {
-            addPointerMessage(
-              failSession.initiatedFromConversationId,
-              "guardian_verification_failed",
-              failSession.toNumber,
+        if (isOutbound && failSession.initiatedFromConversationId) {
+          addPointerMessage(
+            failSession.initiatedFromConversationId,
+            "guardian_verification_failed",
+            failSession.toNumber,
+            {
+              channel: "voice",
+              reason: "Max verification attempts exceeded",
+            },
+          ).catch((err) => {
+            log.warn(
               {
-                channel: "voice",
-                reason: "Max verification attempts exceeded",
+                conversationId: failSession.initiatedFromConversationId,
+                err,
               },
-            ).catch((err) => {
-              log.warn(
-                {
-                  conversationId: failSession.initiatedFromConversationId,
-                  err,
-                },
-                "Skipping pointer write — origin conversation may no longer exist",
-              );
-            });
-          }
+              "Skipping pointer write — origin conversation may no longer exist",
+            );
+          });
         }
-
-        setTimeout(() => {
-          this.endSession("Verification failed — challenge rejected");
-        }, getTtsPlaybackDelayMs());
-      } else {
-        const retryText = isOutbound
-          ? composeVerificationVoice(
-              GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_RETRY,
-              { codeDigits },
-            )
-          : "That code was incorrect. Please try again.";
-
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            attempt: this.verificationAttempts,
-            maxAttempts: this.verificationMaxAttempts,
-            isOutbound,
-          },
-          "Guardian voice verification attempt failed — retrying",
-        );
-        this.sendTextToken(retryText, true);
       }
+
+      setTimeout(() => {
+        this.endSession("Verification failed — challenge rejected");
+      }, getTtsPlaybackDelayMs());
+    } else {
+      // retry
+      this.verificationAttempts = result.attempt;
+
+      log.info(
+        {
+          callSessionId: this.callSessionId,
+          attempt: result.attempt,
+          maxAttempts: result.maxAttempts,
+          isOutbound,
+        },
+        "Guardian voice verification attempt failed — retrying",
+      );
+      this.sendTextToken(result.ttsMessage, true);
     }
   }
 
@@ -1948,30 +1808,30 @@ export class RelayConnection {
   }
 
   /**
-   * Validate an entered invite code against active voice invites for the
-   * caller. On success, create/activate the contact and transition
-   * to the normal call flow. On failure, allow retries up to max attempts.
+   * Validate an entered invite code against active voice invites.
+   * Delegates to the extracted attemptInviteCodeRedemption() and
+   * interprets the structured result to drive side-effects.
    */
-  private attemptInviteCodeRedemption(enteredCode: string): void {
+  private handleInviteCodeRedemptionResult(enteredCode: string): void {
     if (!this.inviteRedemptionAssistantId || !this.inviteRedemptionFromNumber) {
       return;
     }
 
-    const result = redeemVoiceInviteCode({
-      assistantId: this.inviteRedemptionAssistantId,
-      callerExternalUserId: this.inviteRedemptionFromNumber,
-      sourceChannel: "voice",
-      code: enteredCode,
+    const result = attemptInviteCodeRedemption({
+      inviteRedemptionAssistantId: this.inviteRedemptionAssistantId,
+      inviteRedemptionFromNumber: this.inviteRedemptionFromNumber,
+      enteredCode,
+      inviteRedemptionGuardianName: this.inviteRedemptionGuardianName,
     });
 
-    if (result.ok) {
+    if (result.outcome === "success") {
       this.inviteRedemptionActive = false;
       this.verificationAttempts = 0;
       this.dtmfBuffer = "";
 
       recordCallEvent(this.callSessionId, "invite_redemption_succeeded", {
         memberId: result.memberId,
-        ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
+        ...(result.inviteId ? { inviteId: result.inviteId } : {}),
       });
       log.info(
         {
@@ -1989,7 +1849,6 @@ export class RelayConnection {
         skipMemberActivation: true,
       });
     } else {
-      // On any invalid/expired code, emit exact deterministic failure copy and end call immediately.
       this.inviteRedemptionActive = false;
 
       recordCallEvent(this.callSessionId, "invite_redemption_failed", {
@@ -2000,12 +1859,7 @@ export class RelayConnection {
         "Voice invite redemption failed — invalid or expired code",
       );
 
-      const displayGuardian =
-        this.inviteRedemptionGuardianName ?? "your contact";
-      this.sendTextToken(
-        `Sorry, the code you provided is incorrect or has since expired. Please ask ${displayGuardian} for a new code. Goodbye.`,
-        true,
-      );
+      this.sendTextToken(result.ttsMessage, true);
 
       this.connectionState = "disconnecting";
 
@@ -2430,9 +2284,7 @@ export class RelayConnection {
       this.connectionState === "verification_pending" &&
       this.guardianVerificationActive
     ) {
-      const spokenDigits = RelayConnection.parseDigitsFromSpeech(
-        msg.voicePrompt,
-      );
+      const spokenDigits = parseDigitsFromSpeech(msg.voicePrompt);
       log.info(
         {
           callSessionId: this.callSessionId,
@@ -2443,7 +2295,7 @@ export class RelayConnection {
       );
       if (spokenDigits.length >= this.verificationCodeLength) {
         const enteredCode = spokenDigits.slice(0, this.verificationCodeLength);
-        this.attemptGuardianCodeVerification(enteredCode);
+        this.handleGuardianCodeVerificationResult(enteredCode);
       } else if (spokenDigits.length > 0) {
         this.sendTextToken(
           `I heard ${spokenDigits.length} digits. Please enter all ${this.verificationCodeLength} digits of your code.`,
@@ -2459,9 +2311,7 @@ export class RelayConnection {
       this.connectionState === "verification_pending" &&
       this.inviteRedemptionActive
     ) {
-      const spokenDigits = RelayConnection.parseDigitsFromSpeech(
-        msg.voicePrompt,
-      );
+      const spokenDigits = parseDigitsFromSpeech(msg.voicePrompt);
       log.info(
         {
           callSessionId: this.callSessionId,
@@ -2475,7 +2325,7 @@ export class RelayConnection {
           0,
           this.inviteRedemptionCodeLength,
         );
-        this.attemptInviteCodeRedemption(enteredCode);
+        this.handleInviteCodeRedemptionResult(enteredCode);
       } else if (spokenDigits.length > 0) {
         this.sendTextToken(
           `I heard ${spokenDigits.length} digits. Please enter all ${this.inviteRedemptionCodeLength} digits of your code.`,
@@ -2630,7 +2480,7 @@ export class RelayConnection {
           this.verificationCodeLength,
         );
         this.dtmfBuffer = "";
-        this.attemptGuardianCodeVerification(enteredCode);
+        this.handleGuardianCodeVerificationResult(enteredCode);
       }
       return;
     }
@@ -2649,7 +2499,7 @@ export class RelayConnection {
           this.inviteRedemptionCodeLength,
         );
         this.dtmfBuffer = "";
-        this.attemptInviteCodeRedemption(enteredCode);
+        this.handleInviteCodeRedemptionResult(enteredCode);
       }
       return;
     }
