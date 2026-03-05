@@ -103,17 +103,24 @@ async function completeSession(session: WatchSession): Promise<void> {
       }
     }
 
-    // When no recorder ever started, report the specific bootstrap failure
-    const summary = hasRecorder
-      ? session.savedRecordingPath
+    // Use bootstrapFailureReason as the primary discriminator — hasRecorder
+    // alone can't distinguish "browser never launched" from "recorder failed
+    // after retries" since both leave activeRecorders empty.
+    const summary = session.bootstrapFailureReason
+      ? `Learn session failed — ${session.bootstrapFailureReason}`
+      : session.savedRecordingPath
         ? "Learn session completed — recording saved."
-        : "Learn session completed — recording failed to save."
-      : `Learn session failed — ${session.bootstrapFailureReason ?? "unknown error."}`;
+        : "Learn session completed — recording failed to save.";
 
     lastSummaryBySession.set(sessionId, summary);
     session.status = "completed";
     log.info(
-      { watchId, sessionId, hasRecorder },
+      {
+        watchId,
+        sessionId,
+        hasRecorder,
+        bootstrapFailureReason: session.bootstrapFailureReason,
+      },
       "Learn session complete — firing completion notifier",
     );
     fireWatchCompletionNotifier(sessionId, session);
