@@ -196,6 +196,8 @@ After the user authorizes (they'll come back and say so, or you can suggest they
 
 # Path B: CLI Setup (macOS Desktop App)
 
+**IMPORTANT: Always use `host_bash` (not `bash`) for all commands in this path.** The `gcloud` and `gws` CLIs need host access for Homebrew/npm installation, browser-based authentication, and interactive terminal prompts — none of which are available inside the sandbox.
+
 You will set up Google Cloud OAuth credentials using the `gcloud` and `gws` command-line tools. This avoids browser automation entirely — the user only needs to sign in once via the browser and copy-paste credentials from terminal output into secure prompts.
 
 ## CLI Step 1: Confirm
@@ -296,6 +298,29 @@ gcloud services enable people.googleapis.com --project=PROJECT_ID
 ```
 
 If either command reports the API is already enabled, that's fine — continue.
+
+## CLI Step 5b: Update OAuth Consent Screen Scopes
+
+`gws auth setup` configures the consent screen with Gmail scopes only. Vellum also needs Calendar, Contacts, and userinfo scopes. Tell the user to add the missing scopes:
+
+> **Update consent screen scopes**
+>
+> Open: `https://console.cloud.google.com/apis/credentials/consent/edit?project=PROJECT_ID`
+>
+> 1. Click through to the **Scopes** page (click **Save and Continue** on the first page)
+> 2. Click **Add or Remove Scopes** and ensure all of these are present:
+>    - `https://www.googleapis.com/auth/gmail.readonly`
+>    - `https://www.googleapis.com/auth/gmail.modify`
+>    - `https://www.googleapis.com/auth/gmail.send`
+>    - `https://www.googleapis.com/auth/calendar.readonly`
+>    - `https://www.googleapis.com/auth/calendar.events`
+>    - `https://www.googleapis.com/auth/userinfo.email`
+>    - `https://www.googleapis.com/auth/contacts.readonly`
+> 3. Click **Update**, then **Save and Continue** through the remaining pages
+
+(Substitute the actual project ID into the URL.)
+
+The Gmail scopes may already be present from `gws auth setup` — add any that are missing.
 
 ## CLI Step 6: Collect Credentials
 
