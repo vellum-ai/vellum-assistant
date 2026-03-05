@@ -2,7 +2,7 @@
 name: "Email CLI Ops"
 description: "Run email operations through a provider-agnostic CLI wrapper"
 user-invocable: true
-metadata: {"vellum": {"emoji": "📬"}}
+metadata: { "vellum": { "emoji": "📬" } }
 ---
 
 ## How to run
@@ -31,7 +31,8 @@ This skill manages the **assistant's own** AgentMail address (`@agentmail.to`) �
 
 If `vellum email status --json` returns an error about a missing API key, prompt the user for their AgentMail API key using the secure credential prompt. **Never ask the user to paste the key in chat.**
 
-Use `credential_store` with:
+Use `vellum credentials` with:
+
 - action: `prompt`
 - service: `agentmail`
 - field: `api_key`
@@ -127,6 +128,7 @@ All commands output JSON (pretty-printed by default, compact with `--json`).
 Every response includes `ok: true|false`.
 
 Exit codes:
+
 - `0` = success (`ok: true`)
 - `1` = error (`ok: false, error: "..."`)
 - `2` = guardrail blocked (`ok: false, error: "outbound_paused|daily_cap_reached|address_blocked"`)

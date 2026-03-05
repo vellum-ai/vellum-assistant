@@ -4,7 +4,7 @@ description: "Set up Google Cloud OAuth credentials for Gmail and Calendar using
 user-invocable: true
 credential-setup-for: "gmail"
 includes: ["browser", "public-ingress"]
-metadata: {"vellum": {"emoji": "\ud83d\udd11"}}
+metadata: { "vellum": { "emoji": "\ud83d\udd11" } }
 ---
 
 You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect.
@@ -29,6 +29,7 @@ Tell the user:
 > **Setting up Gmail & Calendar from Telegram**
 >
 > Since I can't automate the browser from here, I'll walk you through each step with direct links. You'll need:
+>
 > 1. A Google account with access to Google Cloud Console
 > 2. About 5 minutes
 >
@@ -96,6 +97,7 @@ Tell the user:
 ### Channel Step 5: Create OAuth Credentials (Web Application)
 
 Before sending Step 4 to the user, resolve the concrete callback URL:
+
 - Read the configured public gateway URL (`ingress.publicBaseUrl`). If it is missing, run the `public-ingress` skill first.
 - Build `oauthCallbackUrl` as `<public gateway URL>/webhooks/oauth/callback`.
 - When you send the instructions below, replace `OAUTH_CALLBACK_URL` with that concrete value. Never send placeholders literally.
@@ -132,7 +134,7 @@ Tell the user:
 Wait for the user to send the Client ID. Once received, store it:
 
 ```
-credential_store store:
+vellum credentials store:
   service: "integration:gmail"
   field: "client_id"
   value: "<the Client ID the user sent>"
@@ -140,7 +142,7 @@ credential_store store:
 
 **Step 6b: Client Secret (requires split entry to avoid security filters)**
 
-The Client Secret starts with `GOCSPX-` which triggers the ingress secret scanner on channel messages. To work around this, ask the user to send only the portion *after* the prefix.
+The Client Secret starts with `GOCSPX-` which triggers the ingress secret scanner on channel messages. To work around this, ask the user to send only the portion _after_ the prefix.
 
 Tell the user:
 
@@ -155,7 +157,7 @@ Tell the user:
 Wait for the user to send the suffix. Once received, reconstruct the full secret by prepending `GOCSPX-` and store it:
 
 ```
-credential_store store:
+vellum credentials store:
   service: "integration:gmail"
   field: "client_secret"
   value: "GOCSPX-<the suffix the user sent>"
@@ -171,7 +173,7 @@ Tell the user:
 >
 > I'll now generate an authorization link for you.
 
-Use `credential_store` with:
+Use `vellum credentials` with:
 
 ```
 action: "oauth2_connect"
@@ -232,6 +234,7 @@ Use `ui_show` with `surface_type: "confirmation"`. Set `message` to just the tit
 - **message:** `Set up Google Cloud for Gmail & Calendar`
 - **detail:**
   > Here's what will happen:
+  >
   > 1. **A browser opens on the side** so you can watch everything I do
   > 2. **You sign in** to your Google account in the browser
   > 3. **I automate everything** including project creation, APIs, OAuth config, and credentials
@@ -267,6 +270,7 @@ Navigate to `https://console.cloud.google.com/projectcreate`.
 Take a `browser_snapshot`. Find the project name input field (look for an element with label containing "Project name" or a text input near the top of the form). Type "Vellum Assistant" into it.
 
 Look for a "Create" button in the snapshot and click it. Wait 10-15 seconds for project creation, then take a screenshot to check for:
+
 - **Success message** or redirect to the new project dashboard. Note the project ID from the URL or page content.
 - **"Project name already in use" error**: that's fine. Navigate to `https://console.cloud.google.com/cloud-resource-manager` to find and select the existing "Vellum Assistant" project. Use `browser_extract` to read the project ID from the page.
 - **Organization restriction or quota error**: tell the user what happened and ask them to resolve it.
@@ -282,10 +286,12 @@ Tell the user: "Project created!"
 Tell the user: "Enabling Gmail and Calendar APIs..."
 
 Navigate to each API's library page and enable it if not already enabled:
+
 1. `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID`
 2. `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`
 
 For each page: take a `browser_snapshot`. Look for:
+
 - **"Enable" button**: click it, wait a few seconds, take another snapshot to confirm.
 - **"Manage" button or "API enabled" text**: the API is already enabled. Skip it.
 
@@ -316,12 +322,14 @@ Select **"External"** and click **Create** or **Get Started**.
 Google Cloud uses either a multi-page wizard or a single-page form. Adapt to what you see:
 
 **App information section:**
+
 - **App name**: Type "Vellum Assistant" in the app name field.
 - **User support email**: This is typically a dropdown showing the signed-in user's email. Use `browser_snapshot` to find a `<select>` or clickable dropdown element near "User support email". Select the user's email.
 - **Developer contact email**: Type the user's email into this field. (Use the same email visible in the support email dropdown if you can read it, or use `browser_extract` to find the email shown on the page.)
 - Click **Save and Continue** if on a multi-page wizard.
 
 **Scopes section:**
+
 - Click **"Add or Remove Scopes"** (or similar button).
 - In the scope picker dialog, look for a text input labeled **"Manually add scopes"** or **"Filter"** at the bottom or top of the dialog.
 - Paste all 6 scopes at once as a comma-separated string into that input:
@@ -333,11 +341,13 @@ Google Cloud uses either a multi-page wizard or a single-page form. Adapt to wha
 - Click **Save and Continue** (or **Update** then **Save and Continue**).
 
 **Test users section:**
+
 - Click **"Add Users"** or similar.
 - Enter the user's email address.
 - Click **Add** then **Save and Continue**.
 
 **Summary section:**
+
 - Click **"Back to Dashboard"** or **"Submit"**.
 
 **What you should see when done:** A consent screen dashboard showing "Vellum Assistant" as the app name.
@@ -357,6 +367,7 @@ Navigate to `https://console.cloud.google.com/apis/credentials?project=PROJECT_I
 Take a `browser_snapshot`. Find and click a button labeled **"Create Credentials"** or **"+ Create Credentials"**. A dropdown menu should appear. Take another snapshot and click **"OAuth client ID"**.
 
 On the creation form (take a snapshot to see the fields):
+
 - **Application type**: Find the dropdown and select **"Desktop app"**. This may be a `<select>` element or a custom dropdown. Use the snapshot to identify it. You might need to click the dropdown first, then take another snapshot to see the options, then click "Desktop app".
 - **Name**: Type "Vellum Assistant" in the name field.
 - Do NOT add any redirect URIs. The desktop app flow doesn't need them.
@@ -370,7 +381,7 @@ After creation, a dialog will display the **Client ID** and **Client Secret**. T
 **First**, try to auto-read the **Client ID** using `browser_extract`. The Client ID matches the pattern `*.apps.googleusercontent.com`. Search the extracted text for this pattern. If found, store it:
 
 ```
-credential_store store:
+vellum credentials store:
   service: "integration:gmail"
   field: "client_id"
   value: "<the Client ID extracted from the page>"
@@ -379,7 +390,7 @@ credential_store store:
 If `browser_extract` fails to find the Client ID, prompt the user instead:
 
 ```
-credential_store prompt:
+vellum credentials prompt:
   service: "integration:gmail"
   field: "client_id"
   label: "Google OAuth Client ID"
@@ -394,7 +405,7 @@ credential_store prompt:
 And present the secure prompt:
 
 ```
-credential_store prompt:
+vellum credentials prompt:
   service: "integration:gmail"
   field: "client_secret"
   label: "Google OAuth Client Secret"
@@ -406,7 +417,7 @@ Wait for the user to complete the prompt. **Do not take any other browser action
 
 If the user has trouble locating the secret, take a `browser_screenshot` and describe where the secret field is on the screen, but do NOT attempt to read the secret value yourself. It must come from the user for accuracy.
 
-**What you should see when done:** `credential_store list` shows both `client_id` and `client_secret` for `integration:gmail`.
+**What you should see when done:** `vellum credentials list` shows both `client_id` and `client_secret` for `integration:gmail`.
 
 Tell the user: "Credentials stored securely!"
 
@@ -416,7 +427,7 @@ Tell the user: "Credentials stored securely!"
 
 Tell the user: "Starting the authorization flow — a Google sign-in page will open in a few seconds. Just click 'Allow' when it appears."
 
-Use `credential_store` with:
+Use `vellum credentials` with:
 
 ```
 action: "oauth2_connect"

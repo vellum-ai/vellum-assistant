@@ -21,7 +21,7 @@ Before beginning setup, verify these conditions are met:
 1. **Bot token** from Telegram's @BotFather (the user provides this)
 2. **Gateway webhook URL** — derived from the canonical ingress setting: `${ingress.publicBaseUrl}/webhooks/telegram`. The gateway is the only publicly reachable endpoint; Telegram sends webhooks to the gateway, which validates and forwards them to the assistant runtime internally.
 
-**IMPORTANT — Secure credential collection only:** Never use a bot token that was pasted in plaintext chat. Always collect the bot token through the secure credential prompt flow using `credential_store` with `action: "prompt"` and `service: "telegram"`, `field: "bot_token"`. If the user has already pasted a token in the conversation, inform them that for security reasons you cannot use tokens shared in chat and must collect it through the secure prompt instead.
+**IMPORTANT — Secure credential collection only:** Never use a bot token that was pasted in plaintext chat. Always collect the bot token through the secure credential prompt flow using `vellum credentials` with `action: "prompt"` and `service: "telegram"`, `field: "bot_token"`. If the user has already pasted a token in the conversation, inform them that for security reasons you cannot use tokens shared in chat and must collect it through the secure prompt instead.
 
 ## Setup Steps
 
@@ -29,7 +29,7 @@ Before beginning setup, verify these conditions are met:
 
 Collect the bot token through the secure credential prompt:
 
-- Call `credential_store` with `action: "prompt"`, `service: "telegram"`, `field: "bot_token"`, `label: "Telegram Bot Token"`, `description: "Enter the bot token you received from @BotFather"`, and `placeholder: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"`.
+- Call `vellum credentials` with `action: "prompt"`, `service: "telegram"`, `field: "bot_token"`, `label: "Telegram Bot Token"`, `description: "Enter the bot token you received from @BotFather"`, and `placeholder: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"`.
 
 The token is collected securely via a system-level prompt and is never exposed in plaintext chat.
 

@@ -17,7 +17,7 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 
 - Supports: **post** and **reply**
 - Read-only operations (timeline, search, home, bookmarks, notifications, likes, followers, following, media) always use the browser path directly, regardless of the strategy setting.
-- Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `credential_store` with `action: "prompt"` (canonical field names: `client_id`, `client_secret`), then initiate the `twitter_auth_start` flow. See the **First-Use Decision Flow** for the full sequence.
+- Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `vellum credentials` with `action: "prompt"` (canonical field names: `client_id`, `client_secret`), then initiate the `twitter_auth_start` flow. See the **First-Use Decision Flow** for the full sequence.
 - Set the strategy: `vellum x strategy set oauth`
 
 ### Browser session (no developer credentials needed)
@@ -61,10 +61,10 @@ When the user triggers a Twitter operation and no strategy has been configured y
 When the user chooses OAuth, collect their X developer credentials conversationally using the secure UI. The OAuth flow delegates to the generic connect orchestrator, which resolves the Twitter provider profile, computes scopes via policy, opens the X authorization page in the user's browser, verifies the user's identity, and stores tokens. The orchestrator also manages stale refresh-token cleanup and enforces integration-mode guards.
 
 1. **Collect the Client ID securely:**
-   Call `credential_store` with `action: "prompt"`, `service: "integration:twitter"`, `field: "client_id"`, `label: "X (Twitter) OAuth Client ID"`, `description: "Enter the Client ID from your X Developer App"`, and `placeholder: "your-client-id"`.
+   Call `vellum credentials` with `action: "prompt"`, `service: "integration:twitter"`, `field: "client_id"`, `label: "X (Twitter) OAuth Client ID"`, `description: "Enter the Client ID from your X Developer App"`, and `placeholder: "your-client-id"`.
 
 2. **Collect the Client Secret (if applicable):**
-   Ask the user if their X app uses a confidential client (has a Client Secret). If yes, call `credential_store` with `action: "prompt"`, `service: "integration:twitter"`, `field: "client_secret"`, `label: "X (Twitter) OAuth Client Secret"`, `description: "Enter the Client Secret from your X Developer App (leave blank if using a public client)"`, and `placeholder: "your-client-secret"`.
+   Ask the user if their X app uses a confidential client (has a Client Secret). If yes, call `vellum credentials` with `action: "prompt"`, `service: "integration:twitter"`, `field: "client_secret"`, `label: "X (Twitter) OAuth Client Secret"`, `description: "Enter the Client Secret from your X Developer App (leave blank if using a public client)"`, and `placeholder: "your-client-secret"`.
 
 3. **Initiate the OAuth flow:**
    Trigger the Twitter auth start flow. The connect orchestrator resolves the Twitter provider profile, computes scopes via policy, opens the X authorization page in the user's browser, verifies the user's identity, and stores tokens. Wait for the auth result.

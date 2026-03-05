@@ -13,7 +13,7 @@ You are helping your user configure Twilio for voice calls and SMS messaging. Tw
 ```bash
 # 1. Check current status
 vellum integrations twilio config --json
-# 2. Store credentials (after collecting via credential_store prompt)
+# 2. Store credentials (after collecting via vellum credentials prompt)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
   -d '{"accountSid":"ACxxx","authToken":"xxx"}'
@@ -86,8 +86,8 @@ If credentials are not yet stored, guide the user through Twilio account setup:
 
 **IMPORTANT — Secure credential collection only:** Never use credentials pasted in plaintext chat. Always collect credentials through the secure credential prompt flow:
 
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, and `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, and `placeholder: "your_auth_token"`.
+- Call `vellum credentials` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, and `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
+- Call `vellum credentials` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, and `placeholder: "your_auth_token"`.
 
 After both credentials are collected, retrieve them from secure storage and send them to the gateway:
 
@@ -95,7 +95,7 @@ After both credentials are collected, retrieve them from secure storage and send
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"accountSid":"<value from credential_store for twilio/account_sid>","authToken":"<value from credential_store for twilio/auth_token>"}'
+  -d '{"accountSid":"<value from vellum credentials for twilio/account_sid>","authToken":"<value from vellum credentials for twilio/auth_token>"}'
 ```
 
 Both `accountSid` and `authToken` are required — the endpoint validates the credentials against the Twilio API before storing them. If credentials are invalid, the response returns an error. Tell the user and ask them to re-enter via the secure prompt.
@@ -158,7 +158,7 @@ The phone number must be in E.164 format. Like provisioning, assigning also auto
 If the user wants to enter a number directly (e.g., they know it already), store it via credential store:
 
 ```
-credential_store action=store service=twilio field=phone_number value=+14155551234
+vellum credentials set twilio phone_number +14155551234
 ```
 
 Then assign it through the gateway:

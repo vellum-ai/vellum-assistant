@@ -3,7 +3,7 @@ name: "Notion OAuth Setup"
 description: "Create a Notion integration and OAuth credentials for Notion integration using browser automation"
 user-invocable: true
 includes: ["browser", "public-ingress"]
-metadata: {"vellum": {"emoji": "🔑"}}
+metadata: { "vellum": { "emoji": "🔑" } }
 ---
 
 You are helping your user create a Notion integration (OAuth app) so Vellum can connect to their Notion workspace. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.
@@ -17,6 +17,7 @@ Before starting, check that `ingress.publicBaseUrl` is configured (Settings > Pu
 ## Before You Start
 
 Tell the user:
+
 - "I'll walk you through creating a Notion integration so Vellum can read and write pages and databases in your workspace. The whole process takes a few minutes."
 - "I'll be automating the Notion integrations page in the browser — you'll be able to see everything I'm doing."
 - "I'll ask for your approval before each major step, so nothing happens without your say-so."
@@ -29,6 +30,7 @@ Tell the user: "First, let me open the Notion integrations page."
 Use `browser_navigate` to go to `https://www.notion.so/my-integrations`.
 
 Take a `browser_screenshot` to show the user what loaded, then take a `browser_snapshot` to check the page state:
+
 - **If a sign-in page appears:** Tell the user "Please sign in to your Notion account in the browser window. Let me know when you're done." Wait for their confirmation, then take another snapshot.
 - **If the integrations dashboard loads:** Tell the user "Notion integrations page is loaded. Let's create your integration!" and continue to Step 2.
 
@@ -43,6 +45,7 @@ Take a `browser_screenshot` to show the user what loaded, then take a `browser_s
 Wait for the user to approve. If they decline, explain that the integration is required for OAuth and offer to try again or cancel.
 
 Once approved:
+
 1. Click "New integration" (or the "+" button)
 2. Select "Public" as the integration type (required for OAuth)
 3. Enter integration name: "Vellum Assistant"
@@ -66,6 +69,7 @@ Navigate to the integration's "Distribution" or "OAuth Domain & URIs" tab.
 Wait for the user to approve.
 
 Once approved:
+
 1. Find the "Redirect URIs" field
 2. Enter `${ingress.publicBaseUrl}/webhooks/oauth/callback` (e.g. `https://abc123.ngrok-free.app/webhooks/oauth/callback`). Read the `ingress.publicBaseUrl` value from the assistant's workspace config (Settings > Public Ingress) or the `INGRESS_PUBLIC_BASE_URL` environment variable.
 3. Save the settings
@@ -79,6 +83,7 @@ Tell the user: "Redirect URI configured. Now let's get your OAuth credentials."
 Stay on the integration settings page and navigate to the "Secrets" or "OAuth Clients" section.
 
 Use `browser_extract` to read:
+
 1. **OAuth client_id** — this is the integration's OAuth client ID
 2. **OAuth client_secret** — click "Show" or "Reveal" first, then extract the value
 
@@ -90,7 +95,7 @@ Tell the user: "Credentials extracted! Now let's connect your Notion workspace."
 
 Tell the user: "Opening Notion authorization so you can grant Vellum access to your workspace. You'll see a Notion consent page — just click 'Allow access'."
 
-Use the `credential_store` tool to connect Notion via OAuth2:
+Use the `vellum credentials` tool to connect Notion via OAuth2:
 
 ```
 action: "oauth2_connect"
@@ -113,6 +118,7 @@ Once connected, tell the user:
 "**Notion is connected!** You're all set. You can now read and write pages and databases in your Notion workspace through Vellum. Try asking me to list your databases or read a specific page!"
 
 Summarize what was accomplished:
+
 - Created a Notion public integration called "Vellum Assistant"
 - Configured the OAuth redirect URI
 - Connected your Notion workspace with read and write access
