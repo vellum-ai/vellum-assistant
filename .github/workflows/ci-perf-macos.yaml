@@ -42,6 +42,10 @@ jobs:
         with:
           name: perf-baselines
           path: .perf-baselines
+          # Always pull the baseline from the last successful main-branch run so
+          # PR runs compare against a known-good reference, not their own history.
+          workflow: ci-perf-macos.yaml
+          branch: main
           if_no_artifact_found: warn
         continue-on-error: true
 

@@ -51,12 +51,20 @@ for name, avg in sorted(results.items()):
     print(f"  {name}: {avg:.4f}s")
 print()
 
-# First run: no baseline file yet — record current results and pass.
+# First run: no baseline file yet.
+# On main push runs, record current results as baseline and pass.
+# On PR runs (update_baseline=false), skip comparison rather than silently
+# establishing a baseline from the PR — that would let regressions slip through.
 if not os.path.exists(baseline_file):
-    os.makedirs(baseline_dir, exist_ok=True)
-    with open(baseline_file, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"No baseline found. Recorded current results as baseline ({baseline_file}).")
+    if update_baseline:
+        os.makedirs(baseline_dir, exist_ok=True)
+        with open(baseline_file, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"No baseline found. Recorded current results as baseline ({baseline_file}).")
+    else:
+        print("WARNING: No baseline found and this is a PR run (UPDATE_BASELINE=false).")
+        print("Run the workflow on main to establish a baseline before regressions can be detected.")
+        print("Skipping regression check for this PR run.")
     sys.exit(0)
 
 # Load and compare against stored baseline.
