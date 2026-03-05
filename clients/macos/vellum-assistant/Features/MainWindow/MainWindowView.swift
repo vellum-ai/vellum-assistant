@@ -313,15 +313,19 @@ struct MainWindowView: View {
                     }
                 }
 
-                HStack(spacing: 0) {
-                    VIconButton(label: "Search", icon: "magnifyingglass", iconOnly: true, tooltip: "Search (\u{2318}K)") {
-                        AppDelegate.shared?.toggleCommandPalette()
+                Button {
+                    AppDelegate.shared?.toggleCommandPalette()
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                        VShortcutTag("\u{2318}K")
                     }
-
-                    VShortcutTag("\u{2318}K") {
-                        AppDelegate.shared?.toggleCommandPalette()
-                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help("Search (\u{2318}K)")
             }
             Spacer()
             PTTKeyIndicator {
