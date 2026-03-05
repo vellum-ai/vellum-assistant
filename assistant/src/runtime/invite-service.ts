@@ -10,6 +10,7 @@
 
 import { isChannelId } from "../channels/types.js";
 import {
+  DECLINED_BY_USER_SENTINEL,
   DEFAULT_USER_REFERENCE,
   resolveGuardianName,
 } from "../config/user-reference.js";
@@ -188,7 +189,8 @@ export function createIngressInvite(params: {
       params.guardianName?.trim() || resolveGuardianName();
     if (
       !effectiveGuardianName ||
-      effectiveGuardianName === DEFAULT_USER_REFERENCE
+      effectiveGuardianName === DEFAULT_USER_REFERENCE ||
+      effectiveGuardianName === DECLINED_BY_USER_SENTINEL
     ) {
       return { ok: false, error: "guardianName is required for voice invites" };
     }
