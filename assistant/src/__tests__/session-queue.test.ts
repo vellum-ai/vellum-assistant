@@ -76,7 +76,7 @@ mock.module("../config/loader.js", () => ({
     apiKeys: {},
     skills: { entries: {}, allowBundled: true },
     memory: { retrieval: { injectionStrategy: "inline" } },
-    permissions: { mode: "legacy" },
+    permissions: { mode: "workspace" },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,

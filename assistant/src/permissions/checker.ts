@@ -806,6 +806,26 @@ export async function check(
     }
   }
 
+  // Any unrecognized mode (including raw "legacy" that somehow bypassed loader
+  // migration) is treated as workspace mode — fail-closed relative to the old
+  // risk-only fallthrough that would auto-allow low-risk operations everywhere.
+  if (
+    permissionsMode !== "strict" &&
+    permissionsMode !== "workspace" &&
+    !matchedRule &&
+    risk !== RiskLevel.High
+  ) {
+    if (toolName === "bash" && !getConfig().sandbox.enabled) {
+      // Fall through to risk-based policy below
+    } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
+      return {
+        decision: "allow",
+        reason:
+          "Workspace mode (normalized): workspace-scoped operation auto-allowed",
+      };
+    }
+  }
+
   // Auto-allow low-risk bundled skill tools even without explicit trust rules.
   // These are first-party tools with a vetted risk declaration — applying the
   // same policy as the per-tool default allow rules for browser tools, but
