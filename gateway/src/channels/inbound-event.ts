@@ -25,7 +25,7 @@ interface InboundEventBase<C extends InboundChannelId> {
     callbackQueryId?: string;
     callbackData?: string;
     attachments?: Array<{
-      type: "photo" | "document";
+      type: "photo" | "document" | "image" | "video" | "audio" | "sticker";
       fileId: string;
       fileName?: string;
       mimeType?: string;
