@@ -202,7 +202,7 @@ Replace `<channel_id>` with the channel's `id` from the contact's `channels` arr
 
 ## Invite Links
 
-Invite links let the guardian share a link or code that automatically grants access when used. Telegram invites use a deep link; voice invites use a phone number + numeric code.
+Invite links let the guardian share a link or code that automatically grants access when used. Telegram invites use a deep link; voice invites use a phone number + numeric code; email, WhatsApp, SMS, and Slack invites use a 6-digit code that the invitee sends to the assistant on the respective channel.
 
 ### Create a Telegram invite link
 
@@ -338,7 +338,96 @@ There is no "open link" step for voice invites. The invite is redeemed only duri
 
 If the user provides a phone number without the `+` country code prefix, ask them to confirm the full E.164 number (e.g., US numbers should be `+1XXXXXXXXXX`).
 
-**Note**: SMS-based invites are not currently supported. Only voice (phone call) invites are available for phone-based access.
+### Create an email invite
+
+Use this when the guardian wants to invite someone to message the assistant via email. Email invites use a 6-digit code — the invitee sends the code to the assistant's email address to redeem access.
+
+```bash
+INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
+  -d '{
+    "sourceChannel": "email",
+    "contactName": "<invitee display name>",
+    "maxUses": 1,
+    "note": "<optional note, e.g. the person it is for>"
+  }')
+printf '%s\n' "$INVITE_JSON"
+```
+
+The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInstruction, channelHandle, ... } }`.
+
+- `inviteCode` is the 6-digit code the invitee must send to redeem the invite. It is only returned at creation time.
+- `guardianInstruction` is a generated instruction telling the guardian how to share the invite.
+- `channelHandle` is the assistant's email address (e.g. `hello@domain.agentmail.to`).
+
+**Presenting to the guardian**: Give the guardian the invite code and the assistant's email address:
+
+> Email invite created for **<contact_name>**:
+>
+> **Invite code: `<inviteCode>`**
+>
+> Tell them to send an email to **<channelHandle>** with the code **<inviteCode>** in the body. Once verified, they will be added as a trusted contact and can email the assistant directly.
+>
+> This code can be used <maxUses> time(s)<and expires in X hours/days if applicable>.
+
+If the assistant's email address is not available (AgentMail not configured), tell the guardian they need to set up email integration first.
+
+### Create a WhatsApp invite
+
+Use this when the guardian wants to invite someone to message the assistant on WhatsApp. WhatsApp invites use a 6-digit code — the invitee sends the code to the assistant's WhatsApp number to redeem access.
+
+```bash
+INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
+  -d '{
+    "sourceChannel": "whatsapp",
+    "contactName": "<invitee display name>",
+    "maxUses": 1,
+    "note": "<optional note, e.g. the person it is for>"
+  }')
+printf '%s\n' "$INVITE_JSON"
+```
+
+The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInstruction, channelHandle, ... } }`.
+
+- `inviteCode` is the 6-digit code the invitee must send to redeem the invite.
+- `guardianInstruction` is a generated instruction telling the guardian how to share the invite.
+- `channelHandle` is the assistant's WhatsApp phone number.
+
+**Presenting to the guardian**: Give the guardian the invite code and the assistant's WhatsApp number:
+
+> WhatsApp invite created for **<contact_name>**:
+>
+> **Invite code: `<inviteCode>`**
+>
+> Tell them to send a WhatsApp message to **<channelHandle>** with the code **<inviteCode>**. Once verified, they will be added as a trusted contact and can message the assistant on WhatsApp directly.
+>
+> This code can be used <maxUses> time(s)<and expires in X hours/days if applicable>.
+
+If the assistant's WhatsApp number is not available (Twilio not configured for WhatsApp), tell the guardian they need to set up WhatsApp integration first.
+
+### Create an SMS invite
+
+Use this when the guardian wants to invite someone to message the assistant via SMS. SMS invites use a 6-digit code — the invitee texts the code to the assistant's phone number to redeem access.
+
+```bash
+INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
+  -d '{
+    "sourceChannel": "sms",
+    "contactName": "<invitee display name>",
+    "maxUses": 1,
+    "note": "<optional note, e.g. the person it is for>"
+  }')
+printf '%s\n' "$INVITE_JSON"
+```
+
+The response follows the same shape as email and WhatsApp invites (`inviteCode`, `guardianInstruction`, `channelHandle`).
+
+**Presenting to the guardian**: Give the guardian the invite code and the assistant's phone number, with instructions for the invitee to text the code.
 
 ### List invites
 
@@ -354,9 +443,17 @@ For voice invites:
 vellum contacts invites --source-channel voice --json
 ```
 
+For email, WhatsApp, or SMS invites:
+
+```bash
+vellum contacts invites --source-channel email --json
+vellum contacts invites --source-channel whatsapp --json
+vellum contacts invites --source-channel sms --json
+```
+
 Optional query parameters:
 
-- `--source-channel` -- filter by channel (e.g., `telegram`, `voice`)
+- `--source-channel` -- filter by channel (e.g., `telegram`, `voice`, `email`, `whatsapp`, `sms`, `slack`)
 - `--status` -- filter by status (`active`, `revoked`, `redeemed`, `expired`)
 
 The response contains `{ ok: true, invites: [...] }` where each invite has:
@@ -453,7 +550,13 @@ Each channel has:
 
 **"Create a Telegram invite link"** / **"Invite someone on Telegram"** -- Create an invite with `sourceChannel: "telegram"`, look up the bot username, build the deep link, and present it with sharing instructions.
 
-**"Show my invites"** / **"List active invite links"** -- List invites filtered by `sourceChannel=telegram`, present active invites with uses remaining and expiration info.
+**"Invite someone by email"** / **"Send an email invite"** -- Create an invite with `sourceChannel: "email"`. Present the 6-digit invite code and the assistant's email address. Tell the guardian to share both with the invitee.
+
+**"Invite someone on WhatsApp"** -- Create an invite with `sourceChannel: "whatsapp"`. Present the 6-digit invite code and the assistant's WhatsApp number. Tell the guardian to share both with the invitee.
+
+**"Invite someone via SMS"** / **"Send a text invite"** -- Create an invite with `sourceChannel: "sms"`. Present the 6-digit invite code and the assistant's phone number. Tell the guardian to share both with the invitee.
+
+**"Show my invites"** / **"List active invite links"** -- List invites filtered by `sourceChannel=telegram`, present active invites with uses remaining and expiration info. Use the appropriate `--source-channel` value for other channels.
 
 **"Revoke invite"** / **"Cancel invite link"** -- List invites to identify the target, confirm, then revoke by ID.
 
