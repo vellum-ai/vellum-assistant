@@ -436,110 +436,35 @@ extension MainWindowView {
         )
     }
 
-    private var threadHeaderPresentation: ThreadHeaderPresentation {
-        ThreadHeaderPresentation(
-            activeThread: threadManager.activeThread,
-            activeViewModel: threadManager.activeViewModel,
-            isConversationVisible: windowState.isShowingChat || isChatBubbleActive
-        )
-    }
-
-    private func dismissThreadDrawer() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-            showThreadActionsDrawer = false
-        }
-    }
-
     @ViewBuilder
     var chatView: some View {
         if let viewModel = threadManager.activeViewModel {
             let activeThread = threadManager.activeThread
-            let presentation = threadHeaderPresentation
-            VStack(spacing: 0) {
-                // Thread title header
-                HStack {
-                    ThreadTitleActionsControl(
-                        presentation: presentation,
-                        onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
-                        onPin: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.pinThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onUnpin: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.unpinThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onArchive: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.archiveThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onRename: { startRenameActiveThread(); dismissThreadDrawer() },
-                        showDrawer: $showThreadActionsDrawer
-                    )
-                    Spacer()
-                }
-
-                ActiveChatViewWrapper(
-                    viewModel: viewModel,
-                    windowState: windowState,
-                    daemonClient: daemonClient,
-                    ambientAgent: ambientAgent,
-                    settingsStore: settingsStore,
-                    onMicrophoneToggle: onMicrophoneToggle,
-                    isTemporaryChat: activeThread?.kind == .private,
-                    voiceModeManager: voiceModeManager,
-                    voiceService: voiceModeManager.openAIVoiceService,
-                    onEndVoiceMode: {
-                        voiceModeManager.deactivate()
-                    },
-                    threadId: threadManager.activeThreadId,
-                    anchorMessageId: $threadManager.pendingAnchorMessageId
-                )
-                .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
-                .overlay(alignment: .top) {
-                    if conversationZoomManager.showZoomIndicator {
-                        ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .padding(.top, VSpacing.xl)
-                    }
-                }
-                .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
-            }
-            .overlay {
-                if showThreadActionsDrawer {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture { dismissThreadDrawer() }
+            ActiveChatViewWrapper(
+                viewModel: viewModel,
+                windowState: windowState,
+                daemonClient: daemonClient,
+                ambientAgent: ambientAgent,
+                settingsStore: settingsStore,
+                onMicrophoneToggle: onMicrophoneToggle,
+                isTemporaryChat: activeThread?.kind == .private,
+                voiceModeManager: voiceModeManager,
+                voiceService: voiceModeManager.openAIVoiceService,
+                onEndVoiceMode: {
+                    voiceModeManager.deactivate()
+                },
+                threadId: threadManager.activeThreadId,
+                anchorMessageId: $threadManager.pendingAnchorMessageId
+            )
+            .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
+            .overlay(alignment: .top) {
+                if conversationZoomManager.showZoomIndicator {
+                    ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, VSpacing.xl)
                 }
             }
-            .overlay(alignment: .topLeading) {
-                if showThreadActionsDrawer {
-                    ThreadActionsDrawer(
-                        presentation: presentation,
-                        onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
-                        onPin: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.pinThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onUnpin: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.unpinThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onArchive: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.archiveThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onRename: { startRenameActiveThread(); dismissThreadDrawer() }
-                    )
-                    .offset(x: VSpacing.lg, y: 32)
-                }
-            }
+            .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
         }
     }
 

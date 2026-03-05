@@ -36,7 +36,7 @@ struct ThreadTitleActionsControl: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.leading, VSpacing.lg)
+        .padding(.leading, VSpacing.sm)
         .padding(.vertical, VSpacing.sm)
     }
 }
@@ -81,6 +81,6 @@ struct ThreadActionsDrawer: View {
         )
         .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         .frame(width: 200)
-        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topLeading)))
+        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
     }
 }

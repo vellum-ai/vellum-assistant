@@ -19,6 +19,9 @@ struct MainWindowView: View {
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
     @State var showThreadActionsDrawer = false
+    /// Frame of the thread title button in the coordinate space of coreLayoutView,
+    /// used to position the actions drawer directly below it.
+    @State private var threadTitleFrame: CGRect = .zero
     /// Stores the thread ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleThreads.first
     /// (which may be a pinned thread unrelated to what they were doing).
@@ -208,6 +211,20 @@ struct MainWindowView: View {
         windowState.showToast(message: "Thread copied to clipboard", style: .success)
     }
 
+    private var threadHeaderPresentation: ThreadHeaderPresentation {
+        ThreadHeaderPresentation(
+            activeThread: threadManager.activeThread,
+            activeViewModel: threadManager.activeViewModel,
+            isConversationVisible: windowState.isShowingChat || isChatBubbleActive
+        )
+    }
+
+    func dismissThreadDrawer() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            showThreadActionsDrawer = false
+        }
+    }
+
     func startRenameActiveThread() {
         guard let id = threadManager.activeThreadId,
               let thread = threadManager.activeThread else { return }
@@ -365,6 +382,38 @@ struct MainWindowView: View {
                 .help("Search (\u{2318}K)")
             }
             Spacer()
+            if windowState.isShowingChat || isChatBubbleActive {
+                ThreadTitleActionsControl(
+                    presentation: threadHeaderPresentation,
+                    onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                    onPin: {
+                        guard let id = threadManager.activeThreadId else { return }
+                        threadManager.pinThread(id: id)
+                        dismissThreadDrawer()
+                    },
+                    onUnpin: {
+                        guard let id = threadManager.activeThreadId else { return }
+                        threadManager.unpinThread(id: id)
+                        dismissThreadDrawer()
+                    },
+                    onArchive: {
+                        guard let id = threadManager.activeThreadId else { return }
+                        threadManager.archiveThread(id: id)
+                        dismissThreadDrawer()
+                    },
+                    onRename: { startRenameActiveThread(); dismissThreadDrawer() },
+                    showDrawer: $showThreadActionsDrawer
+                )
+                .background(GeometryReader { proxy in
+                    Color.clear.onAppear {
+                        threadTitleFrame = proxy.frame(in: .named("coreLayout"))
+                    }
+                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
+                        threadTitleFrame = newFrame
+                    }
+                })
+            }
+            Spacer()
             PTTKeyIndicator {
                 settingsStore.pendingSettingsTab = .voice
                 windowState.selection = .panel(.settings)
@@ -426,6 +475,7 @@ struct MainWindowView: View {
                     }
                     .padding(16)
                 }
+                .coordinateSpace(name: "coreLayout")
                 .overlay {
                     // Click-outside-to-dismiss background for preferences drawer
                     if sidebar.showPreferencesDrawer {
@@ -436,6 +486,41 @@ struct MainWindowView: View {
                                     sidebar.showPreferencesDrawer = false
                                 }
                             }
+                    }
+                }
+                .overlay {
+                    // Click-outside-to-dismiss background for thread actions drawer
+                    if showThreadActionsDrawer {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { dismissThreadDrawer() }
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if showThreadActionsDrawer {
+                        let presentation = threadHeaderPresentation
+                        ThreadActionsDrawer(
+                            presentation: presentation,
+                            onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                            onPin: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadManager.pinThread(id: id)
+                                dismissThreadDrawer()
+                            },
+                            onUnpin: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadManager.unpinThread(id: id)
+                                dismissThreadDrawer()
+                            },
+                            onArchive: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadManager.archiveThread(id: id)
+                                dismissThreadDrawer()
+                            },
+                            onRename: { startRenameActiveThread(); dismissThreadDrawer() }
+                        )
+                        .offset(x: threadTitleFrame.minX, y: threadTitleFrame.maxY)
+                        .zIndex(10)
                     }
                 }
                 .overlay(alignment: .bottomLeading) {
