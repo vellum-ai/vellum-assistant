@@ -23,6 +23,7 @@ extension ChatBubble {
             && !inlineToolProgressRenderedInContent
         let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil
             && !(message.streamingCodePreview?.isEmpty ?? true)
+            && !inlineToolProgressRenderedInContent
         let shouldShowProcessing = isProcessingAfterTools && !inlineToolProgressRenderedInContent
 
         // Use live confirmations if available, otherwise derive from persisted tool call data
