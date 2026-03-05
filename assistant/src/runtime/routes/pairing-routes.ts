@@ -411,14 +411,14 @@ export function handlePairingStatus(
 // ---------------------------------------------------------------------------
 
 export function pairingRouteDefinitions(deps: {
-  pairingContext: PairingHandlerContext;
+  getPairingContext: () => PairingHandlerContext;
 }): RouteDefinition[] {
   return [
     {
       endpoint: "pairing/register",
       method: "POST",
       handler: async ({ req }) =>
-        handlePairingRegister(req, deps.pairingContext),
+        handlePairingRegister(req, deps.getPairingContext()),
     },
   ];
 }

@@ -50,40 +50,61 @@ describe("route policy coverage", () => {
     // Read both files as source text.
     const httpServerPath = resolve(import.meta.dir, "../../http-server.ts");
     const routePolicyPath = resolve(import.meta.dir, "../route-policy.ts");
+    const routeModulesDir = resolve(import.meta.dir, "../../routes");
 
     const httpServerSrc = readFileSync(httpServerPath, "utf-8");
     const routePolicySrc = readFileSync(routePolicyPath, "utf-8");
+
+    // Collect all source files to scan for endpoint literals: http-server.ts
+    // plus every route module under routes/.
+    const allSources = [httpServerSrc];
+    try {
+      const routeFiles = execSync(`ls "${routeModulesDir}"/*.ts`, {
+        encoding: "utf-8",
+      })
+        .trim()
+        .split("\n")
+        .filter((f) => f.length > 0);
+      for (const filePath of routeFiles) {
+        allSources.push(readFileSync(filePath, "utf-8"));
+      }
+    } catch {
+      // No route modules found — only inline routes will be covered.
+    }
 
     // Extract endpoint policy keys from the declarative route table returned
     // by buildRouteTable(). Each route entry has an `endpoint` field and an
     // optional `policyKey` override. When `policyKey` is present it takes
     // precedence; otherwise the key is derived by stripping `:param` segments,
     // mirroring HttpRouter.compileRoute().
-    const lines = httpServerSrc.split("\n");
     const dispatchedEndpoints = new Set<string>();
-    for (let i = 0; i < lines.length; i++) {
-      const endpointMatch = lines[i].match(/endpoint:\s*"([^"]+)"/);
-      if (!endpointMatch) continue;
+    for (const src of allSources) {
+      const lines = src.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const endpointMatch = lines[i].match(/endpoint:\s*"([^"]+)"/);
+        if (!endpointMatch) continue;
 
-      // Look ahead a few lines for an optional policyKey on the same route object.
-      let policyKey: string | null = null;
-      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
-        const pkMatch = lines[j].match(/policyKey:\s*"([^"]+)"/);
-        if (pkMatch) {
-          policyKey = pkMatch[1];
-          break;
+        // Look ahead a few lines for an optional policyKey on the same route object.
+        let policyKey: string | null = null;
+        for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+          const pkMatch = lines[j].match(/policyKey:\s*"([^"]+)"/);
+          if (pkMatch) {
+            policyKey = pkMatch[1];
+            break;
+          }
+          // Stop at the next endpoint or closing brace (end of route object).
+          if (lines[j].match(/endpoint:\s*"/) || lines[j].trim() === "},")
+            break;
         }
-        // Stop at the next endpoint or closing brace (end of route object).
-        if (lines[j].match(/endpoint:\s*"/) || lines[j].trim() === "},") break;
-      }
 
-      const resolvedKey =
-        policyKey ??
-        endpointMatch[1]
-          .split("/")
-          .filter((s) => !s.startsWith(":"))
-          .join("/");
-      dispatchedEndpoints.add(resolvedKey);
+        const resolvedKey =
+          policyKey ??
+          endpointMatch[1]
+            .split("/")
+            .filter((s) => !s.startsWith(":"))
+            .join("/");
+        dispatchedEndpoints.add(resolvedKey);
+      }
     }
 
     // These endpoints are in the route table but intentionally don't need
