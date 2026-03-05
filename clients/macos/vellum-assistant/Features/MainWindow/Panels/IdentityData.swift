@@ -219,6 +219,7 @@ struct LockfileAssistant {
     let hatchedAt: String?
     let gatewayPort: Int?
     let socketPath: String?
+    let instanceDir: String?
 
     /// Whether this assistant is running remotely (not on the local machine).
     var isRemote: Bool {
@@ -255,7 +256,8 @@ struct LockfileAssistant {
         case "vellum":
             return .vellum(runtimeUrl: runtimeUrl ?? "")
         default:
-            return .local(workspacePath: NSHomeDirectory() + "/.vellum/workspace")
+            let base = instanceDir ?? NSHomeDirectory()
+            return .local(workspacePath: base + "/.vellum/workspace")
         }
     }
 
@@ -299,7 +301,8 @@ struct LockfileAssistant {
                 instanceId: entry["instanceId"] as? String,
                 hatchedAt: entry["hatchedAt"] as? String,
                 gatewayPort: resources?["gatewayPort"] as? Int,
-                socketPath: resources?["socketPath"] as? String
+                socketPath: resources?["socketPath"] as? String,
+                instanceDir: resources?["instanceDir"] as? String
             )
         }
     }
