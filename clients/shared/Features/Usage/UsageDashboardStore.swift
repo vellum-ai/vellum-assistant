@@ -66,7 +66,8 @@ public enum UsageFormatting {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = "USD"
-        formatter.minimumFractionDigits = 2
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.minimumFractionDigits = 4
         formatter.maximumFractionDigits = 4
         return formatter.string(from: NSNumber(value: usd)) ?? String(format: "$%.4f", usd)
     }
@@ -74,6 +75,7 @@ public enum UsageFormatting {
     public static func formatCount(_ n: Int) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "en_US")
         return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 }
