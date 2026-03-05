@@ -33,7 +33,7 @@ struct MarkdownSegmentView: View {
                         .lineSpacing(4)
                         .foregroundColor(textColor)
                         .tint(tintColor)
-                        .selectableText(!isStreaming)
+                        .selectableText(true)
                         // Bound horizontal space BEFORE fixedSize so SwiftUI can wrap text
                         // within a finite width rather than measuring against an unconstrained
                         // parent, which causes O(N²) layout passes and stack overflows on
@@ -51,7 +51,7 @@ struct MarkdownSegmentView: View {
                     Text(headingText)
                         .font(headingFont)
                         .foregroundColor(textColor)
-                        .selectableText(!isStreaming)
+                        .selectableText(true)
                         // Frame before fixedSize so the heading wraps within a known width.
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -83,7 +83,7 @@ struct MarkdownSegmentView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(.leading, leftPad)
-                            .selectableText(!isStreaming)
+                            .selectableText(true)
                         }
                     }
                     .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
@@ -101,7 +101,7 @@ struct MarkdownSegmentView: View {
                             Text(code)
                                 .font(.custom("DMMono-Regular", size: 13 * zoomScale))
                                 .foregroundColor(textColor)
-                                .selectableText(!isStreaming)
+                                .selectableText(true)
                                 .fixedSize(horizontal: true, vertical: true)
                                 .padding(VSpacing.sm)
                         }

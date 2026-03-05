@@ -26,7 +26,7 @@ extension ChatBubble {
                     .lineSpacing(6)
                     .foregroundColor(VColor.textPrimary)
                     .tint(VColor.accent)
-                    .selectableText(!streaming)
+                    .selectableText(true)
                     // Bound width before fixedSize so vertical measurement is
                     // computed within a finite horizontal space, preventing
                     // unbounded layout passes on long messages during scroll.

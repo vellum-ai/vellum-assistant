@@ -343,7 +343,7 @@ struct ChatBubble: View {
                             .lineSpacing(6)
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                            .selectableText(!message.isStreaming)
+                            .selectableText(true)
                             // For assistant messages, fill available width for readability.
                             // For user messages, let the bubble shrink-wrap to text width.
                             .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)
