@@ -868,7 +868,6 @@ private struct MessageCellView: View {
         }
         .frame(maxWidth: 520, alignment: .leading)
         .id("thinking-indicator")
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     var body: some View {
