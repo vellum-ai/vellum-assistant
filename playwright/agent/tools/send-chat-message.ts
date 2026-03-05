@@ -132,6 +132,7 @@ end tell
 `;
   const countPath = `/tmp/pw-agent-count-win-w${context.workerIndex}.scpt`;
   let baselineWindowCount = 1;
+  let preSendProbeSucceeded = false;
   try {
     writeFileSync(countPath, countScript, "utf-8");
     const raw = execSync(`osascript ${countPath}`, {
@@ -141,6 +142,7 @@ end tell
     const parsed = parseInt(raw, 10);
     if (!Number.isNaN(parsed)) {
       baselineWindowCount = parsed;
+      preSendProbeSucceeded = true;
     }
   } catch {} finally {
     try { unlinkSync(countPath); } catch {}
@@ -217,7 +219,9 @@ end tell
   let lastOutput = "";
 
   try {
-    // Initial read to get baseline content (window count baseline already captured pre-send)
+    // Initial read to get baseline content. If the pre-send window count
+    // probe failed, fall back to parsing WINDOWS:<n> from this first read
+    // so we don't default to 1 and falsely detect popups in multi-window apps.
     writeFileSync(readPath, readScript, "utf-8");
     let baseline = "";
     let anyReadSucceeded = false;
@@ -227,6 +231,16 @@ end tell
         timeout: 15_000,
       }).trim();
       anyReadSucceeded = true;
+
+      if (!preSendProbeSucceeded) {
+        const baselineWindowMatch = baseline.match(/^WINDOWS:(\d+)/);
+        if (baselineWindowMatch) {
+          const parsed = parseInt(baselineWindowMatch[1], 10);
+          if (!Number.isNaN(parsed)) {
+            baselineWindowCount = parsed;
+          }
+        }
+      }
     } catch {}
 
     // Poll for changes
