@@ -264,7 +264,7 @@ struct SettingsPanel: View {
         case .privacy:
             SettingsPrivacyTab(daemonClient: daemonClient)
         case .contacts:
-            ContactsContainerView(daemonClient: daemonClient)
+            ContactsContainerView(daemonClient: daemonClient, store: store)
         case .advanced:
             if store.isDevMode {
                 SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)

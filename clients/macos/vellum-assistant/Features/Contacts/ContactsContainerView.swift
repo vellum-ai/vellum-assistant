@@ -7,12 +7,14 @@ import VellumAssistantShared
 @MainActor
 struct ContactsContainerView: View {
     var daemonClient: DaemonClient?
+    var store: SettingsStore?
 
     @StateObject private var viewModel: ContactsViewModel
     @State private var selectedContactId: String?
 
-    init(daemonClient: DaemonClient?) {
+    init(daemonClient: DaemonClient?, store: SettingsStore? = nil) {
         self.daemonClient = daemonClient
+        self.store = store
         _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient))
     }
 
@@ -37,7 +39,8 @@ struct ContactsContainerView: View {
                let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
                 ContactDetailView(
                     contact: contact,
-                    daemonClient: daemonClient
+                    daemonClient: daemonClient,
+                    store: store
                 )
                 .id(contactId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

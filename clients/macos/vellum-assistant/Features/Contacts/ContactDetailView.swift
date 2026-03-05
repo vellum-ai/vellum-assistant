@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -7,8 +8,11 @@ import VellumAssistantShared
 struct ContactDetailView: View {
     private static let allChannelTypes = ["telegram", "sms", "email", "voice", "slack"]
 
+    private static let guardianSupportedChannels: Set<String> = ["telegram", "sms", "voice", "slack"]
+
     let contact: ContactPayload
     var daemonClient: DaemonClient?
+    var store: SettingsStore?
 
     @State var currentContact: ContactPayload?
     @State private var actionInProgress: String?
@@ -34,6 +38,12 @@ struct ContactDetailView: View {
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
+    @State private var guardianDestinationTexts: [String: String] = [:]
+    @State private var guardianCountdownNow: Date = Date()
+    @State private var guardianCountdownTimer: Timer?
+    /// Incremented whenever SettingsStore publishes a change, forcing SwiftUI to
+    /// re-evaluate guardian verification state derived from the store.
+    @State private var guardianStoreRevision: Int = 0
 
     var displayContact: ContactPayload {
         currentContact ?? contact
@@ -50,6 +60,15 @@ struct ContactDetailView: View {
         .background(VColor.background)
         .onAppear {
             currentContact = contact
+            if contact.role == "guardian" {
+                startGuardianCountdownTimer()
+            }
+        }
+        .onDisappear {
+            stopGuardianCountdownTimer()
+        }
+        .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
+            guardianStoreRevision += 1
         }
     }
 
@@ -306,8 +325,10 @@ struct ContactDetailView: View {
                 Spacer()
             }
 
-            // Action buttons for non-guardian channels
-            if displayContact.role != "guardian" {
+            // Guardian contacts get the full verification flow; others get standard actions
+            if displayContact.role == "guardian" {
+                guardianVerificationActions(for: channel)
+            } else {
                 channelActions(for: channel)
             }
         }
@@ -606,6 +627,52 @@ struct ContactDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Guardian Verification Actions
+
+    @ViewBuilder
+    private func guardianVerificationActions(for channel: ContactChannelPayload) -> some View {
+        if Self.guardianSupportedChannels.contains(channel.type), let store {
+            let state = store.guardianChannelState(for: channel.type)
+            let destinationBinding = Binding<String>(
+                get: { guardianDestinationTexts[channel.type] ?? "" },
+                set: { guardianDestinationTexts[channel.type] = $0 }
+            )
+
+            GuardianVerificationFlowView(
+                state: state,
+                countdownNow: $guardianCountdownNow,
+                destinationText: destinationBinding,
+                onStartOutbound: { dest in store.startOutboundGuardianVerification(channel: channel.type, destination: dest) },
+                onResend: { store.resendOutboundGuardian(channel: channel.type) },
+                onCancelOutbound: { store.cancelOutboundGuardian(channel: channel.type) },
+                onRevoke: { store.revokeChannelGuardian(channel: channel.type) },
+                onStartChallenge: { rebind in store.startChannelGuardianVerification(channel: channel.type, rebind: rebind) },
+                onCancelChallenge: { store.cancelGuardianChallenge(channel: channel.type) },
+                botUsername: store.telegramBotUsername,
+                phoneNumber: store.twilioPhoneNumber,
+                showLabel: false
+            )
+        }
+        // Email and other unsupported channel types: show nothing (display-only)
+    }
+
+    // MARK: - Guardian Countdown Timer
+
+    private func startGuardianCountdownTimer() {
+        guard guardianCountdownTimer == nil else { return }
+        guardianCountdownNow = Date()
+        guardianCountdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor in
+                guardianCountdownNow = Date()
+            }
+        }
+    }
+
+    private func stopGuardianCountdownTimer() {
+        guardianCountdownTimer?.invalidate()
+        guardianCountdownTimer = nil
     }
 
     // MARK: - Status Badge
