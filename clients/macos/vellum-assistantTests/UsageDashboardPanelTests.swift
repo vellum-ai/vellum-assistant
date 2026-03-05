@@ -1,5 +1,7 @@
 import Foundation
+import SwiftUI
 import Testing
+@testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
 // MARK: - UsageDashboardPanel Rendering Logic Tests
@@ -180,6 +182,137 @@ struct UsageDashboardPanelPopulatedTests {
         #expect(client.lastTotalsFrom != nil)
         #expect(client.lastDailyFrom != nil)
         #expect(client.lastBreakdownFrom != nil)
+    }
+}
+
+// MARK: - View Instantiation Tests
+
+/// These tests instantiate the actual UsageDashboardPanel view with stores in
+/// different states and evaluate the view body to verify the view tree is
+/// well-formed and renders without crashing.
+
+@Suite("UsageDashboardPanel — View Rendering: Idle State")
+struct UsageDashboardPanelViewIdleTests {
+
+    @Test @MainActor
+    func panelCanBeInstantiatedWithIdleStore() {
+        let client = MockPanelClient()
+        let store = UsageDashboardStore(client: client)
+        let panel = UsageDashboardPanel(store: store, onClose: {})
+
+        // Evaluating body forces SwiftUI to build the view tree.
+        // A malformed view graph will trap at runtime.
+        _ = panel.body
+    }
+}
+
+@Suite("UsageDashboardPanel — View Rendering: Empty Loaded State")
+struct UsageDashboardPanelViewEmptyTests {
+
+    @Test @MainActor
+    func panelRendersWithEmptyLoadedData() async {
+        let client = MockPanelClient()
+        client.stubbedTotals = UsageTotalsResponse(
+            totalInputTokens: 0, totalOutputTokens: 0,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0, eventCount: 0,
+            pricedEventCount: 0, unpricedEventCount: 0
+        )
+        client.stubbedDaily = UsageDailyResponse(buckets: [])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
+
+        let store = UsageDashboardStore(client: client)
+        await store.refresh()
+
+        let panel = UsageDashboardPanel(store: store, onClose: {})
+        _ = panel.body
+    }
+}
+
+@Suite("UsageDashboardPanel — View Rendering: Populated State")
+struct UsageDashboardPanelViewPopulatedTests {
+
+    @Test @MainActor
+    func panelRendersWithPopulatedData() async {
+        let client = MockPanelClient()
+        client.stubbedTotals = UsageTotalsResponse(
+            totalInputTokens: 50_000, totalOutputTokens: 25_000,
+            totalCacheCreationTokens: 5_000, totalCacheReadTokens: 2_000,
+            totalEstimatedCostUsd: 1.23, eventCount: 42,
+            pricedEventCount: 40, unpricedEventCount: 2
+        )
+        client.stubbedDaily = UsageDailyResponse(buckets: [
+            UsageDayBucket(date: "2026-03-04", totalInputTokens: 20_000, totalOutputTokens: 10_000, totalEstimatedCostUsd: 0.50, eventCount: 15),
+            UsageDayBucket(date: "2026-03-05", totalInputTokens: 30_000, totalOutputTokens: 15_000, totalEstimatedCostUsd: 0.73, eventCount: 27)
+        ])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
+            UsageGroupBreakdownEntry(group: "claude-sonnet-4-20250514", totalInputTokens: 30_000, totalOutputTokens: 15_000, totalEstimatedCostUsd: 0.80, eventCount: 25),
+            UsageGroupBreakdownEntry(group: "claude-haiku-3", totalInputTokens: 20_000, totalOutputTokens: 10_000, totalEstimatedCostUsd: 0.43, eventCount: 17)
+        ])
+
+        let store = UsageDashboardStore(client: client)
+        await store.refresh()
+
+        let panel = UsageDashboardPanel(store: store, onClose: {})
+        _ = panel.body
+    }
+
+    @Test @MainActor
+    func panelRendersWithDifferentGroupByDimensions() async {
+        let client = MockPanelClient()
+        client.stubbedTotals = UsageTotalsResponse(
+            totalInputTokens: 100, totalOutputTokens: 50,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.01, eventCount: 1,
+            pricedEventCount: 1, unpricedEventCount: 0
+        )
+        client.stubbedDaily = UsageDailyResponse(buckets: [])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
+            UsageGroupBreakdownEntry(group: "anthropic", totalInputTokens: 100, totalOutputTokens: 50, totalEstimatedCostUsd: 0.01, eventCount: 1)
+        ])
+
+        let store = UsageDashboardStore(client: client)
+        await store.selectGroupBy(.provider)
+
+        let panel = UsageDashboardPanel(store: store, onClose: {})
+        _ = panel.body
+
+        #expect(store.selectedGroupBy == .provider)
+    }
+}
+
+@Suite("UsageDashboardPanel — View Rendering: Failed State")
+struct UsageDashboardPanelViewFailedTests {
+
+    @Test @MainActor
+    func panelRendersWithFailedState() async {
+        let client = MockPanelClient()
+        // All stubs nil — triggers failure states.
+
+        let store = UsageDashboardStore(client: client)
+        await store.refresh()
+
+        let panel = UsageDashboardPanel(store: store, onClose: {})
+        _ = panel.body
+    }
+}
+
+@Suite("UsageDashboardPanel — View Rendering: Close Callback")
+struct UsageDashboardPanelViewCloseTests {
+
+    @Test @MainActor
+    func onCloseCallbackIsStored() {
+        let client = MockPanelClient()
+        let store = UsageDashboardStore(client: client)
+        var closeCalled = false
+        let panel = UsageDashboardPanel(store: store, onClose: { closeCalled = true })
+
+        // Verify the view can be constructed and body evaluated
+        _ = panel.body
+
+        // Invoke the stored closure to confirm it's wired up
+        panel.onClose()
+        #expect(closeCalled)
     }
 }
 
