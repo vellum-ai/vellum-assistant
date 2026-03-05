@@ -1,6 +1,10 @@
 import XCTest
 @testable import VellumAssistantShared
 
+#if canImport(UIKit)
+import SwiftUI
+#endif
+
 /// Tests for the UsageDashboardStore states used by the iOS UsageDashboardView.
 /// Covers idle/empty, loading, and populated summary states.
 @MainActor
@@ -116,19 +120,11 @@ final class UsageDashboardViewTests: XCTestCase {
         XCTAssertGreaterThan(range.to, range.from, "to should be after from")
         XCTAssertEqual(range.to, Int(referenceDate.timeIntervalSince1970 * 1000))
     }
-}
 
-// MARK: - View Rendering Tests
 
-#if canImport(UIKit)
-import SwiftUI
+    // MARK: - View Rendering Tests
 
-/// Tests that actually instantiate `UsageDashboardView` and verify its body
-/// renders without crashing across different store states.
-@MainActor
-final class UsageDashboardViewRenderingTests: XCTestCase {
-
-    // MARK: - Idle State
+    #if canImport(UIKit)
 
     func testViewRendersInIdleState() {
         let store = UsageDashboardStore(client: MockDaemonClient())
@@ -136,8 +132,6 @@ final class UsageDashboardViewRenderingTests: XCTestCase {
         // Force body evaluation — confirms the view hierarchy builds without crashing.
         let _ = view.body
     }
-
-    // MARK: - Failed State
 
     func testViewRendersInFailedState() async {
         let client = MockDaemonClient()
@@ -154,8 +148,6 @@ final class UsageDashboardViewRenderingTests: XCTestCase {
         let _ = view.body
     }
 
-    // MARK: - Loaded State
-
     func testViewRendersInLoadedState() async {
         let client = StubUsageDaemonClient()
         let store = UsageDashboardStore(client: client)
@@ -168,8 +160,6 @@ final class UsageDashboardViewRenderingTests: XCTestCase {
         let view = UsageDashboardView(store: store)
         let _ = view.body
     }
-
-    // MARK: - Formatting Helpers
 
     func testFormatCostProducesDollarString() {
         let result = UsageDashboardView.formatCost(1.2345)
@@ -187,8 +177,9 @@ final class UsageDashboardViewRenderingTests: XCTestCase {
         XCTAssertTrue(result.contains("1"), "Formatted count should contain the digit 1")
         XCTAssertTrue(result.count > 1, "Formatted count should have grouping separators or multiple digits")
     }
+
+    #endif
 }
-#endif
 
 // MARK: - Stub Client
 
