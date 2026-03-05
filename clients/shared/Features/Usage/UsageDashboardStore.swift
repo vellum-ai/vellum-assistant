@@ -111,6 +111,8 @@ public final class UsageDashboardStore {
     /// `refresh()` fetches from the new client.
     public func updateClient(_ newClient: any DaemonClientProtocol) {
         client = newClient
+        refreshGeneration &+= 1
+        breakdownGeneration &+= 1
         totalsState = .idle
         dailyState = .idle
         breakdownState = .idle
