@@ -28,10 +28,8 @@ export type AssistantContactMetadata =
 export interface Contact {
   id: string;
   displayName: string;
-  relationship: string | null;
-  importance: number;
-  responseExpectation: string | null;
-  preferredTone: string | null;
+  /** Free-text notes about this contact (e.g. relationship, communication preferences). */
+  notes: string | null;
   lastInteraction: number | null;
   interactionCount: number;
   createdAt: number;

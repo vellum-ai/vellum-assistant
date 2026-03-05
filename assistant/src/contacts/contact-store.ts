@@ -33,10 +33,7 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
   return {
     id: row.id,
     displayName: row.displayName,
-    relationship: row.relationship,
-    importance: row.importance,
-    responseExpectation: row.responseExpectation,
-    preferredTone: row.preferredTone,
+    notes: row.notes,
     lastInteraction: row.lastInteraction,
     interactionCount: row.interactionCount,
     createdAt: row.createdAt,
@@ -153,10 +150,7 @@ export function getChannelById(channelId: string): ContactChannel | null {
 export function upsertContact(params: {
   id?: string;
   displayName: string;
-  relationship?: string | null;
-  importance?: number;
-  responseExpectation?: string | null;
-  preferredTone?: string | null;
+  notes?: string | null;
   role?: ContactRole;
   contactType?: ContactType;
   principalId?: string | null;
@@ -178,24 +172,9 @@ export function upsertContact(params: {
     if (existing) {
       const updateSet: Record<string, unknown> = {
         displayName: params.displayName,
-        relationship:
-          params.relationship !== undefined
-            ? params.relationship
-            : existing.relationship,
-        importance:
-          params.importance !== undefined
-            ? params.importance
-            : existing.importance,
-        responseExpectation:
-          params.responseExpectation !== undefined
-            ? params.responseExpectation
-            : existing.responseExpectation,
-        preferredTone:
-          params.preferredTone !== undefined
-            ? params.preferredTone
-            : existing.preferredTone,
         updatedAt: now,
       };
+      if (params.notes !== undefined) updateSet.notes = params.notes;
       if (params.role !== undefined) updateSet.role = params.role;
       if (params.contactType !== undefined)
         updateSet.contactType = params.contactType;
@@ -260,14 +239,7 @@ export function upsertContact(params: {
           displayName: params.displayName,
           updatedAt: now,
         };
-        if (params.relationship !== undefined)
-          updateSet.relationship = params.relationship;
-        if (params.importance !== undefined)
-          updateSet.importance = params.importance;
-        if (params.responseExpectation !== undefined)
-          updateSet.responseExpectation = params.responseExpectation;
-        if (params.preferredTone !== undefined)
-          updateSet.preferredTone = params.preferredTone;
+        if (params.notes !== undefined) updateSet.notes = params.notes;
         if (params.role !== undefined) updateSet.role = params.role;
         if (params.contactType !== undefined)
           updateSet.contactType = params.contactType;
@@ -294,10 +266,7 @@ export function upsertContact(params: {
     .values({
       id: contactId,
       displayName: params.displayName,
-      relationship: params.relationship ?? null,
-      importance: params.importance ?? 0.5,
-      responseExpectation: params.responseExpectation ?? null,
-      preferredTone: params.preferredTone ?? null,
+      notes: params.notes ?? null,
       lastInteraction: null,
       interactionCount: 0,
       role: params.role ?? "contact",
@@ -439,7 +408,6 @@ export function searchContacts(params: {
   query?: string;
   channelAddress?: string;
   channelType?: string;
-  relationship?: string;
   role?: ContactRole;
   contactType?: ContactType;
   limit?: number;
@@ -494,7 +462,7 @@ export function searchContacts(params: {
   }
 
   // Search by channel type alone (no address)
-  if (params.channelType && !params.query && !params.relationship) {
+  if (params.channelType && !params.query) {
     const channelRows = db
       .select({ contactId: contactChannels.contactId })
       .from(contactChannels)
@@ -528,7 +496,7 @@ export function searchContacts(params: {
     return results;
   }
 
-  // Search by display name and/or relationship, optionally filtered by channelType
+  // Search by display name, optionally filtered by channelType
   const conditions = [
     or(
       eq(contacts.assistantId, params.assistantId),
@@ -537,19 +505,10 @@ export function searchContacts(params: {
   ];
   if (params.query) {
     const sanitized = escapeLike(params.query);
-    if (
-      !sanitized &&
-      !params.relationship &&
-      !params.role &&
-      !params.contactType
-    )
-      return [];
+    if (!sanitized && !params.role && !params.contactType) return [];
     if (sanitized) {
       conditions.push(like(contacts.displayName, `%${sanitized}%`));
     }
-  }
-  if (params.relationship) {
-    conditions.push(eq(contacts.relationship, params.relationship));
   }
   if (params.role) {
     conditions.push(eq(contacts.role, params.role));
@@ -572,7 +531,7 @@ export function searchContacts(params: {
       .from(contacts)
       .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
       .where(whereClause)
-      .orderBy(desc(contacts.importance), desc(contacts.lastInteraction))
+      .orderBy(desc(contacts.updatedAt), desc(contacts.lastInteraction))
       .all();
 
     const contactIds = [...new Set(rows.map((r) => r.contactId))];
@@ -593,7 +552,7 @@ export function searchContacts(params: {
     .select()
     .from(contacts)
     .where(whereClause)
-    .orderBy(desc(contacts.importance), desc(contacts.lastInteraction))
+    .orderBy(desc(contacts.updatedAt), desc(contacts.lastInteraction))
     .limit(limit)
     .all();
 
@@ -620,7 +579,7 @@ export function listContacts(
     .where(conditions.length === 1 ? conditions[0] : and(...conditions))
     .orderBy(
       sql`${contacts.role} = 'guardian' DESC`,
-      desc(contacts.importance),
+      desc(contacts.updatedAt),
       desc(contacts.lastInteraction),
     )
     .limit(effectiveLimit)
@@ -629,9 +588,9 @@ export function listContacts(
 }
 
 /**
- * Merge two contacts into one. The surviving contact keeps the higher importance,
- * more recent interaction timestamp, and all channels from both contacts.
- * The donor contact is deleted after merging.
+ * Merge two contacts into one. The surviving contact keeps the
+ * more recent interaction timestamp, concatenated notes, and all channels
+ * from both contacts. The donor contact is deleted after merging.
  */
 export function mergeContacts(
   keepId: string,
@@ -676,7 +635,6 @@ export function mergeContacts(
     if (!merge) throw new Error(`Contact "${mergeId}" not found`);
 
     // Resolve merged field values — pick the better/more recent value
-    const mergedImportance = Math.max(keep.importance, merge.importance);
     const mergedInteractionCount =
       keep.interactionCount + merge.interactionCount;
     const mergedLastInteraction =
@@ -684,14 +642,9 @@ export function mergeContacts(
 
     tx.update(contacts)
       .set({
-        importance: mergedImportance,
         interactionCount: mergedInteractionCount,
         lastInteraction: mergedLastInteraction,
-        // Prefer keep's values, fall back to merge's
-        relationship: keep.relationship ?? merge.relationship,
-        responseExpectation:
-          keep.responseExpectation ?? merge.responseExpectation,
-        preferredTone: keep.preferredTone ?? merge.preferredTone,
+        notes: [keep.notes, merge.notes].filter(Boolean).join("\n") || null,
         updatedAt: now,
         // Rebind legacy null-scoped contacts to prevent cross-assistant leakage
         ...(keep.assistantId == null ? { assistantId } : {}),
