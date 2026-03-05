@@ -60,9 +60,20 @@ mock.module("../daemon/identity-helpers.js", () => ({
 
 // ── User-reference mock (isolate from real USER.md) ──────────────────
 
+let mockUserReference = "my human";
 mock.module("../config/user-reference.js", () => ({
-  resolveUserReference: () => "my human",
+  resolveUserReference: () => mockUserReference,
   resolveUserPronouns: () => null,
+  DEFAULT_USER_REFERENCE: "my human",
+  resolveGuardianName: (guardianDisplayName?: string | null) => {
+    if (mockUserReference !== "my human") {
+      return mockUserReference;
+    }
+    if (guardianDisplayName && guardianDisplayName.trim().length > 0) {
+      return guardianDisplayName.trim();
+    }
+    return "my human";
+  },
 }));
 
 // ── Config mock ─────────────────────────────────────────────────────
@@ -344,6 +355,7 @@ describe("relay-server", () => {
   beforeEach(() => {
     resetTables();
     activeRelayConnections.clear();
+    mockUserReference = "my human";
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
@@ -4125,6 +4137,138 @@ describe("relay-server", () => {
     expect(
       events.some((e) => e.eventType === "invite_redemption_succeeded"),
     ).toBe(true);
+
+    relay.destroy();
+  });
+
+  // ── resolveGuardianLabel resolution priority ─────────────────────────
+
+  test("guardian label: USER.md name takes precedence over Contact.displayName", async () => {
+    mockUserReference = "Alice";
+
+    // Create a guardian binding with a different displayName
+    createGuardianBinding({
+      assistantId: "self",
+      channel: "voice",
+      guardianExternalUserId: "+15559990001",
+      guardianDeliveryChatId: "+15559990001",
+      guardianPrincipalId: "+15559990001",
+      verifiedVia: "test",
+      metadataJson: JSON.stringify({ displayName: "Bob" }),
+    });
+
+    ensureConversation("conv-label-user-md");
+    const session = createCallSession({
+      conversationId: "conv-label-user-md",
+      provider: "twilio",
+      fromNumber: "+15559990099",
+      toNumber: "+15551111111",
+      assistantId: "self",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_label_user_md",
+        from: "+15559990099",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("awaiting_name");
+
+    // The greeting should use the USER.md name ("Alice"), not Contact.displayName ("Bob")
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("Alice");
+    expect(promptText).not.toContain("Bob");
+
+    relay.destroy();
+  });
+
+  test("guardian label: Contact.displayName used when USER.md is empty", async () => {
+    mockUserReference = "my human";
+
+    // Create a guardian binding with a displayName
+    createGuardianBinding({
+      assistantId: "self",
+      channel: "voice",
+      guardianExternalUserId: "+15559990002",
+      guardianDeliveryChatId: "+15559990002",
+      guardianPrincipalId: "+15559990002",
+      verifiedVia: "test",
+      metadataJson: JSON.stringify({ displayName: "Charlie" }),
+    });
+
+    ensureConversation("conv-label-contact");
+    const session = createCallSession({
+      conversationId: "conv-label-contact",
+      provider: "twilio",
+      fromNumber: "+15559990098",
+      toNumber: "+15551111111",
+      assistantId: "self",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_label_contact",
+        from: "+15559990098",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("awaiting_name");
+
+    // The greeting should use Contact.displayName ("Charlie")
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("Charlie");
+
+    relay.destroy();
+  });
+
+  test("guardian label: DEFAULT_USER_REFERENCE used when both USER.md and Contact.displayName are empty", async () => {
+    mockUserReference = "my human";
+
+    // No guardian binding — no Contact.displayName available
+
+    ensureConversation("conv-label-default");
+    const session = createCallSession({
+      conversationId: "conv-label-default",
+      provider: "twilio",
+      fromNumber: "+15559990097",
+      toNumber: "+15551111111",
+      assistantId: "self",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_label_default",
+        from: "+15559990097",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("awaiting_name");
+
+    // The greeting should use the default "my human"
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("my human");
 
     relay.destroy();
   });
