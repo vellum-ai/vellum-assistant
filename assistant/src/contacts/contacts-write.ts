@@ -78,6 +78,8 @@ export function createGuardianBinding(params: {
   upsertContact({
     displayName,
     role: "guardian",
+    importance: 1.0,
+    relationship: "guardian",
     principalId: params.guardianPrincipalId,
     assistantId: params.assistantId,
     channels: [
