@@ -497,7 +497,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 3. The skill calls the ingress HTTP API to create an invite token, then calls the Telegram transport adapter to build a deep link: `https://t.me/<bot>?start=iv_<token>`.
 4. Guardian shares the link with the invitee out-of-band.
 5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
-6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getTransport('telegram').extractInboundToken()` to parse the `iv_` token.
+6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getInviteAdapterRegistry().get('telegram').extractInboundToken()` to parse the `iv_` token.
 7. The token is redeemed via `invite-redemption-service.ts`, which validates, activates the contact, and returns a `redeemed` outcome.
 8. A deterministic welcome message is delivered to the invitee (bypasses the LLM pipeline).
 
