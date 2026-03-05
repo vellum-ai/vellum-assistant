@@ -10,7 +10,6 @@ import { randomInt } from "node:crypto";
 
 import type { ServerWebSocket } from "bun";
 
-import { getConfig } from "../config/loader.js";
 import { resolveUserReference } from "../config/user-reference.js";
 import {
   findGuardianForChannel,
@@ -25,7 +24,6 @@ import {
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
-import { findActiveVoiceInvites } from "../memory/invite-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import {
@@ -33,10 +31,7 @@ import {
   toTrustContext,
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import {
-  getGuardianBinding,
-  getPendingChallenge,
-} from "../runtime/channel-guardian-service.js";
+import { getGuardianBinding } from "../runtime/channel-guardian-service.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -64,6 +59,7 @@ import {
   getHeartbeatMessage,
   scheduleNextHeartbeat,
 } from "./relay-access-wait.js";
+import { routeSetup } from "./relay-setup-router.js";
 import {
   attemptGuardianCodeVerification,
   attemptInviteCodeRedemption,
@@ -535,8 +531,95 @@ export class RelayConnection {
       "ConversationRelay setup received",
     );
 
-    // Store the callSid association on the call session
     const session = getCallSession(this.callSessionId);
+    this.recordSetupBookkeeping(session, msg);
+
+    const { outcome, resolved } = routeSetup({
+      callSessionId: this.callSessionId,
+      session,
+      from: msg.from,
+      to: msg.to,
+      customParameters: msg.customParameters,
+    });
+
+    const initialTrustContext = toTrustContext(
+      resolved.actorTrust,
+      resolved.otherPartyNumber,
+    );
+    const controller = new CallController(
+      this.callSessionId,
+      this,
+      session?.task ?? null,
+      {
+        broadcast: globalBroadcast,
+        assistantId: resolved.assistantId,
+        trustContext: initialTrustContext,
+      },
+    );
+    this.setController(controller);
+
+    switch (outcome.action) {
+      case "outbound_guardian_verification":
+        this.startOutboundGuardianVerification(
+          outcome.assistantId,
+          outcome.sessionId,
+          outcome.toNumber,
+        );
+        return;
+      case "callee_verification":
+        await this.startVerification(session, outcome.verificationConfig);
+        return;
+      case "deny":
+        this.denyInboundCall(msg.from, resolved, outcome);
+        return;
+      case "invite_redemption":
+        this.startInviteRedemption(
+          outcome.assistantId,
+          outcome.fromNumber,
+          outcome.friendName,
+          outcome.guardianName,
+        );
+        return;
+      case "name_capture":
+        recordCallEvent(
+          this.callSessionId,
+          "inbound_acl_name_capture_started",
+          {
+            from: msg.from,
+            trustClass: resolved.actorTrust.trustClass,
+          },
+        );
+        this.startNameCapture(outcome.assistantId, outcome.fromNumber);
+        return;
+      case "guardian_verification":
+        this.startInboundGuardianVerification(
+          outcome.assistantId,
+          outcome.fromNumber,
+        );
+        return;
+      case "normal_call":
+        if (outcome.isInbound) {
+          if (resolved.actorTrust.memberRecord) {
+            touchContactInteraction(
+              resolved.actorTrust.memberRecord.contact.id,
+            );
+          }
+          if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
+            this.controller.setTrustContext(
+              toTrustContext(resolved.actorTrust, msg.from),
+            );
+          }
+        }
+        this.startNormalCallFlow(controller, outcome.isInbound);
+        return;
+    }
+  }
+
+  /** Bookkeeping side-effects that run on every setup regardless of routing outcome. */
+  private recordSetupBookkeeping(
+    session: ReturnType<typeof getCallSession>,
+    msg: RelaySetupMessage,
+  ): void {
     if (session) {
       const updates: Parameters<typeof updateCallSession>[1] = {
         providerCallSid: msg.callSid,
@@ -547,15 +630,11 @@ export class RelayConnection {
         session.status !== "waiting_on_user"
       ) {
         updates.status = "in_progress";
-        if (!session.startedAt) {
-          updates.startedAt = Date.now();
-        }
+        if (!session.startedAt) updates.startedAt = Date.now();
       }
       updateCallSession(this.callSessionId, updates);
     }
 
-    // Omit potentially sensitive keys from customParameters before persisting
-    // to the call_events table. Only allow known-safe keys through.
     const safeCustomParameters = msg.customParameters
       ? Object.fromEntries(
           Object.entries(msg.customParameters).filter(
@@ -570,314 +649,31 @@ export class RelayConnection {
       to: msg.to,
       customParameters: safeCustomParameters,
     });
+  }
 
-    // Inbound calls skip callee verification — verification is an
-    // outbound-call concern where we need to confirm the callee's identity.
-    // We use initiatedFromConversationId rather than task == null because
-    // outbound calls always have an initiating conversation, while inbound
-    // calls (created via createInboundVoiceSession) never do. Relying on
-    // task == null is unreliable: task-less outbound sessions would
-    // incorrectly bypass outbound verification.
-    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-    const isInbound = session?.initiatedFromConversationId == null;
-
-    // Create and attach the session-backed voice controller. Seed guardian
-    // actor context from the other party's identity + active binding so
-    // first-turn behavior matches channel ingress semantics. For inbound
-    // calls msg.from is the caller; for outbound calls msg.to is the
-    // recipient (msg.from is the assistant's Twilio number).
-    const otherPartyNumber = isInbound ? msg.from : msg.to;
-    const initialActorTrust = resolveActorTrust({
-      assistantId,
-      sourceChannel: "voice",
-      conversationExternalId: otherPartyNumber,
-      actorExternalId: otherPartyNumber || undefined,
+  /** Deny an inbound call with a TTS message and schedule disconnect. */
+  private denyInboundCall(
+    from: string,
+    resolved: import("./relay-setup-router.js").SetupResolved,
+    outcome: { message: string; logReason: string },
+  ): void {
+    recordCallEvent(this.callSessionId, "inbound_acl_denied", {
+      from,
+      trustClass: resolved.actorTrust.trustClass,
+      denialReason: resolved.actorTrust.denialReason,
+      channelId: resolved.actorTrust.memberRecord?.channel.id,
+      memberPolicy: resolved.actorTrust.memberRecord?.channel.policy,
     });
-    const initialTrustContext = toTrustContext(
-      initialActorTrust,
-      otherPartyNumber,
-    );
-
-    const controller = new CallController(
-      this.callSessionId,
-      this,
-      session?.task ?? null,
-      {
-        broadcast: globalBroadcast,
-        assistantId,
-        trustContext: initialTrustContext,
-      },
-    );
-    this.setController(controller);
-
-    // Detect outbound guardian verification call from persisted call session
-    // mode first (deterministic source of truth), with setup custom parameter
-    // as secondary signal for backward compatibility and observability.
-    const persistedMode = session?.callMode;
-    const persistedGvSessionId = session?.guardianVerificationSessionId;
-    const customParamGvSessionId =
-      msg.customParameters?.guardianVerificationSessionId;
-    const guardianVerificationSessionId =
-      persistedGvSessionId ?? customParamGvSessionId;
-
-    if (
-      persistedMode === "guardian_verification" &&
-      guardianVerificationSessionId
-    ) {
-      this.startOutboundGuardianVerification(
-        assistantId,
-        guardianVerificationSessionId,
-        msg.to,
-      );
-      return;
-    }
-
-    // Secondary signal: custom parameter without persisted mode (pre-migration sessions)
-    if (!persistedMode && customParamGvSessionId) {
-      log.warn(
-        {
-          callSessionId: this.callSessionId,
-          guardianVerificationSessionId: customParamGvSessionId,
-        },
-        "Guardian verification detected via setup custom parameter (no persisted call_mode) — entering verification path",
-      );
-      this.startOutboundGuardianVerification(
-        assistantId,
-        customParamGvSessionId,
-        msg.to,
-      );
-      return;
-    }
-
-    const config = getConfig();
-    const verificationConfig = config.calls.verification;
-    if (!isInbound && verificationConfig.enabled) {
-      await this.startVerification(session, verificationConfig);
-    } else if (isInbound) {
-      // ── Trusted-contact ACL enforcement for inbound voice ──
-      // Resolve the caller's trust classification before allowing the call
-      // to proceed. Guardian and trusted-contact callers pass through;
-      // unknown callers are denied with deterministic voice copy and an
-      // access request is created for the guardian — unless there is a
-      // pending voice guardian challenge, in which case the caller is
-      // expected to be unknown (no binding yet) and should enter the
-      // verification flow.
-      const actorTrust = resolveActorTrust({
-        assistantId,
-        sourceChannel: "voice",
-        conversationExternalId: msg.from,
-        actorExternalId: msg.from || undefined,
-      });
-
-      // Check for a pending voice guardian challenge before the ACL deny
-      // gate. An unknown caller with a pending challenge is expected —
-      // they need to complete verification to establish a binding.
-      const pendingChallenge = getPendingChallenge(assistantId, "voice");
-
-      if (actorTrust.trustClass === "unknown" && !pendingChallenge) {
-        // Before entering the name capture flow, check if there is an
-        // active voice invite bound to the caller's phone number. If so,
-        // enter the invite redemption subflow instead.
-        let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
-        try {
-          voiceInvites = findActiveVoiceInvites({
-            assistantId,
-            expectedExternalUserId: msg.from,
-          });
-        } catch (err) {
-          log.warn(
-            { err, callSessionId: this.callSessionId },
-            "Failed to check voice invites for unknown caller",
-          );
-        }
-
-        // Exclude invites that are past their expiresAt even if the DB
-        // status hasn't been lazily flipped to 'expired' yet.
-        const now = Date.now();
-        const nonExpiredInvites = voiceInvites.filter(
-          (i) => !i.expiresAt || i.expiresAt > now,
-        );
-
-        // Blocked members get immediate denial — the guardian already made
-        // an explicit decision to block them. This must be checked before
-        // invite redemption so a blocked caller cannot bypass the block by
-        // redeeming an active invite.
-        if (actorTrust.memberRecord?.channel.status === "blocked") {
-          log.info(
-            {
-              callSessionId: this.callSessionId,
-              from: msg.from,
-              trustClass: actorTrust.trustClass,
-            },
-            "Inbound voice ACL: blocked caller denied",
-          );
-
-          recordCallEvent(this.callSessionId, "inbound_acl_denied", {
-            from: msg.from,
-            trustClass: actorTrust.trustClass,
-            denialReason: actorTrust.denialReason,
-          });
-
-          this.sendTextToken(
-            "This number is not authorized to use this assistant.",
-            true,
-          );
-
-          this.connectionState = "disconnecting";
-
-          updateCallSession(this.callSessionId, {
-            status: "failed",
-            endedAt: Date.now(),
-            lastError: "Inbound voice ACL: caller blocked",
-          });
-
-          setTimeout(() => {
-            this.endSession("Inbound voice ACL denied — blocked");
-          }, getTtsPlaybackDelayMs());
-          return;
-        }
-
-        if (nonExpiredInvites.length > 0) {
-          // Use the first matching invite's metadata for personalized prompts
-          const matchedInvite = nonExpiredInvites[0];
-          log.info(
-            { callSessionId: this.callSessionId, from: msg.from },
-            "Inbound voice ACL: unknown caller has active voice invite — entering redemption flow",
-          );
-          this.startInviteRedemption(
-            assistantId,
-            msg.from,
-            matchedInvite.friendName,
-            matchedInvite.guardianName,
-          );
-          return;
-        }
-
-        // Unknown/revoked/pending callers enter the name capture + guardian
-        // approval wait flow instead of being hard-rejected.
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            from: msg.from,
-            trustClass: actorTrust.trustClass,
-          },
-          "Inbound voice ACL: unknown caller — entering name capture flow",
-        );
-
-        recordCallEvent(
-          this.callSessionId,
-          "inbound_acl_name_capture_started",
-          {
-            from: msg.from,
-            trustClass: actorTrust.trustClass,
-          },
-        );
-
-        this.startNameCapture(assistantId, msg.from);
-        return;
-      }
-
-      // Members with policy: 'deny' have status: 'active' so resolveActorTrust
-      // classifies them as trusted_contact, but the guardian has explicitly
-      // denied their access. Block them the same way the text-channel path does.
-      if (actorTrust.memberRecord?.channel.policy === "deny") {
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            from: msg.from,
-            channelId: actorTrust.memberRecord.channel.id,
-            trustClass: actorTrust.trustClass,
-          },
-          "Inbound voice ACL: member policy deny",
-        );
-
-        recordCallEvent(this.callSessionId, "inbound_acl_denied", {
-          from: msg.from,
-          trustClass: actorTrust.trustClass,
-          channelId: actorTrust.memberRecord.channel.id,
-          memberPolicy: actorTrust.memberRecord.channel.policy,
-        });
-
-        this.sendTextToken(
-          "This number is not authorized to use this assistant.",
-          true,
-        );
-
-        this.connectionState = "disconnecting";
-
-        updateCallSession(this.callSessionId, {
-          status: "failed",
-          endedAt: Date.now(),
-          lastError: "Inbound voice ACL: member policy deny",
-        });
-
-        setTimeout(() => {
-          this.endSession("Inbound voice ACL: member policy deny");
-        }, getTtsPlaybackDelayMs());
-        return;
-      }
-
-      // Members with policy: 'escalate' require guardian approval, but a live
-      // voice call cannot be paused for async approval. Fail-closed by denying
-      // the call with an appropriate message — mirrors the deny block above.
-      if (actorTrust.memberRecord?.channel.policy === "escalate") {
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            from: msg.from,
-            channelId: actorTrust.memberRecord.channel.id,
-            trustClass: actorTrust.trustClass,
-          },
-          "Inbound voice ACL: member policy escalate — cannot hold live call for guardian approval",
-        );
-
-        recordCallEvent(this.callSessionId, "inbound_acl_denied", {
-          from: msg.from,
-          trustClass: actorTrust.trustClass,
-          channelId: actorTrust.memberRecord.channel.id,
-          memberPolicy: actorTrust.memberRecord.channel.policy,
-        });
-
-        this.sendTextToken(
-          "This number requires guardian approval for calls. Please have the account guardian update your permissions.",
-          true,
-        );
-
-        this.connectionState = "disconnecting";
-
-        updateCallSession(this.callSessionId, {
-          status: "failed",
-          endedAt: Date.now(),
-          lastError:
-            "Inbound voice ACL: member policy escalate — voice calls cannot await guardian approval",
-        });
-
-        setTimeout(() => {
-          this.endSession("Inbound voice ACL: member policy escalate");
-        }, getTtsPlaybackDelayMs());
-        return;
-      }
-
-      // Guardian and trusted-contact callers proceed normally.
-      if (actorTrust.memberRecord) {
-        touchContactInteraction(actorTrust.memberRecord.contact.id);
-      }
-
-      // Update the controller's guardian context with the trust-resolved
-      // context so downstream policy gates have accurate actor metadata.
-      if (this.controller && actorTrust.trustClass !== "unknown") {
-        const resolvedTrustContext = toTrustContext(actorTrust, msg.from);
-        this.controller.setTrustContext(resolvedTrustContext);
-      }
-
-      if (pendingChallenge) {
-        this.startInboundGuardianVerification(assistantId, msg.from);
-      } else {
-        this.startNormalCallFlow(controller, true);
-      }
-    } else {
-      this.startNormalCallFlow(controller, false);
-    }
+    this.sendTextToken(outcome.message, true);
+    this.connectionState = "disconnecting";
+    updateCallSession(this.callSessionId, {
+      status: "failed",
+      endedAt: Date.now(),
+      lastError: outcome.logReason,
+    });
+    setTimeout(() => {
+      this.endSession(outcome.logReason);
+    }, getTtsPlaybackDelayMs());
   }
 
   /**
