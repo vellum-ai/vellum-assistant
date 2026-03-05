@@ -47,6 +47,11 @@ public struct VToggle: View {
             RoundedRectangle(cornerRadius: trackHeight / 2)
                 .fill(isOn ? Forest._600 : VColor.toggleOff)
                 .frame(width: trackWidth, height: trackHeight)
+                .overlay(
+                    RoundedRectangle(cornerRadius: trackHeight / 2)
+                        .stroke(VColor.toggleBorder, lineWidth: 1)
+                        .opacity(isOn ? 0 : 1)
+                )
 
             // Knob
             RoundedRectangle(cornerRadius: knobSize / 2)
