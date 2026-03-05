@@ -20,6 +20,10 @@ struct ContactDetailView: View {
     @State private var verificationSuccessChannelId: String?
     @State private var telegramBootstrapUrl: String?
     @State private var telegramBootstrapChannelId: String?
+    @State private var inviteInProgress: String?
+    @State private var inviteResult: (type: String, token: String)?
+    @State private var inviteError: String?
+    @State private var inviteCopiedType: String?
 
     // Metadata editing state (accessed from ContactDetailView+EditableMetadata.swift)
     @State var isEditingRelationship = false
@@ -180,6 +184,12 @@ struct ContactDetailView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
             }
+
+            if let inviteError {
+                Text(inviteError)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
@@ -242,21 +252,68 @@ struct ContactDetailView: View {
 
     @ViewBuilder
     private func unconfiguredChannelRow(type: String) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            Image(systemName: channelIcon(for: type))
-                .foregroundColor(VColor.textSecondary)
-                .font(.system(size: 14))
-                .frame(width: 20, alignment: .center)
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: channelIcon(for: type))
+                    .foregroundColor(VColor.textSecondary)
+                    .font(.system(size: 14))
+                    .frame(width: 20, alignment: .center)
 
-            Text(channelLabel(for: type))
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                Text(channelLabel(for: type))
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
 
-            Spacer()
+                Spacer()
 
-            Text("Not set up")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                Text("Not set up")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                if displayContact.role != "guardian" {
+                    if inviteInProgress == type {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        VButton(
+                            label: "Invite",
+                            style: .secondary,
+                            size: .medium,
+                            isDisabled: inviteInProgress != nil
+                        ) {
+                            createInviteForChannel(type: type)
+                        }
+                    }
+                }
+            }
+
+            if inviteResult?.type == type {
+                HStack(spacing: VSpacing.sm) {
+                    let token = inviteResult!.token
+                    let truncated = token.count > 20
+                        ? String(token.prefix(20)) + "..."
+                        : token
+                    Text(truncated)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(VColor.textSecondary)
+
+                    VButton(
+                        label: inviteCopiedType == type ? "Copied!" : "Copy",
+                        icon: "doc.on.doc",
+                        style: .tertiary,
+                        size: .medium
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(token, forType: .string)
+                        inviteCopiedType = type
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            if inviteCopiedType == type {
+                                inviteCopiedType = nil
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -609,6 +666,28 @@ struct ContactDetailView: View {
                 errorMessage = "Failed to send verification: \(error.localizedDescription)"
             }
             verificationInProgress = nil
+        }
+    }
+
+    private func createInviteForChannel(type: String) {
+        guard let daemonClient, inviteInProgress == nil else { return }
+        inviteInProgress = type
+        inviteError = nil
+        inviteResult = nil
+        Task {
+            do {
+                if let result = try await daemonClient.createInvite(
+                    sourceChannel: type,
+                    note: "Invite for \(displayContact.displayName)"
+                ) {
+                    inviteResult = (type: type, token: result.token)
+                } else {
+                    inviteError = "Failed to create invite"
+                }
+            } catch {
+                inviteError = "Failed to create invite: \(error.localizedDescription)"
+            }
+            inviteInProgress = nil
         }
     }
 
