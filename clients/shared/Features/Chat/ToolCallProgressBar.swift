@@ -212,14 +212,50 @@ public struct ToolCallProgressBar: View {
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.textMuted)
 
-                    ScrollView {
-                        Text(result)
-                            .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
+                    if let exitCode = ToolCallChip.parseExitCode(from: result) {
+                        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(VColor.error)
+                                Text("Exit code \(exitCode)")
+                                    .font(VFont.captionMedium)
+                                    .foregroundColor(VColor.error)
+                            }
+                            if let explanation = ToolCallChip.exitCodeExplanation(exitCode) {
+                                Text(explanation)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textSecondary)
+                            }
+                            let extraOutput = result
+                                .replacingOccurrences(of: #"<command_exit code="\d+" />"#, with: "", options: .regularExpression)
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !extraOutput.isEmpty {
+                                Text(extraOutput)
+                                    .font(VFont.monoSmall)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    } else if result == "<command_completed />" {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "checkmark.circle")
+                                .font(.system(size: 11))
+                                .foregroundColor(VColor.accent)
+                            Text("Command completed successfully (no output).")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                    } else {
+                        ScrollView {
+                            Text(result)
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxHeight: 200)
                     }
-                    .frame(maxHeight: 200)
                 }
             }
         }
