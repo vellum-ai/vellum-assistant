@@ -10,7 +10,7 @@ import { randomInt } from "node:crypto";
 
 import type { ServerWebSocket } from "bun";
 
-import { resolveUserReference } from "../config/user-reference.js";
+import { resolveGuardianName } from "../config/user-reference.js";
 import {
   findGuardianForChannel,
   listGuardianChannels,
@@ -31,7 +31,6 @@ import {
   toTrustContext,
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getGuardianBinding } from "../runtime/channel-guardian-service.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -1597,70 +1596,21 @@ export class RelayConnection {
 
   /**
    * Resolve a human-readable guardian label for voice wait copy.
-   * Prefers displayName from the guardian binding metadata, falls back
-   * to @username, then the user's preferred name from USER.md.
+   * Delegates to the shared resolveGuardianName() which checks USER.md
+   * first, then falls back to Contact.displayName, then DEFAULT_USER_REFERENCE.
    */
   private resolveGuardianLabel(): string {
     const assistantId =
       this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
-    // Try the voice-channel binding first, then fall back to any active
-    // binding for the assistant (mirrors the cross-channel fallback pattern
-    // in access-request-helper.ts).
-    let metadataJson: string | null = null;
-    // Contacts-first: prefer the voice-bound guardian, then fall back to
-    // any guardian channel (mirrors the voice-first pattern in the legacy path).
+    // Look up the guardian contact for a displayName fallback
     const voiceGuardian = findGuardianForChannel("voice", assistantId);
     const guardianChannels = voiceGuardian
       ? null
       : listGuardianChannels(assistantId);
     const guardianContact = voiceGuardian?.contact ?? guardianChannels?.contact;
-    if (guardianContact) {
-      const meta: Record<string, string> = {};
-      if (guardianContact.displayName) {
-        meta.displayName = guardianContact.displayName;
-      }
-      // Preserve the username fallback: use the voice channel's externalUserId
-      // so downstream parsing can fall back to @username when displayName is a
-      // raw external ID (e.g., phone number from contact-sync).
-      const voiceChannel =
-        voiceGuardian?.channel ??
-        guardianChannels?.channels.find((ch) => ch.type === "voice");
-      if (voiceChannel?.externalUserId) {
-        meta.username = voiceChannel.externalUserId;
-      }
-      if (Object.keys(meta).length > 0) {
-        metadataJson = JSON.stringify(meta);
-      }
-    }
-    if (!metadataJson) {
-      const voiceBinding = getGuardianBinding(assistantId, "voice");
-      if (voiceBinding?.metadataJson) {
-        metadataJson = voiceBinding.metadataJson;
-      }
-    }
 
-    if (metadataJson) {
-      try {
-        const parsed = JSON.parse(metadataJson) as Record<string, unknown>;
-        if (
-          typeof parsed.displayName === "string" &&
-          parsed.displayName.trim().length > 0
-        ) {
-          return parsed.displayName.trim();
-        }
-        if (
-          typeof parsed.username === "string" &&
-          parsed.username.trim().length > 0
-        ) {
-          return `@${parsed.username.trim()}`;
-        }
-      } catch {
-        // ignore malformed metadata
-      }
-    }
-
-    return resolveUserReference();
+    return resolveGuardianName(guardianContact?.displayName);
   }
 
   /**
