@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { resolveService } from "../oauth/provider-profiles.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { credentialStoreTool } from "../tools/credentials/vault.js";
 import { getCliLogger } from "../util/logger.js";
@@ -187,6 +188,23 @@ function redactValue(value: string): string {
   return `[REDACTED length=${value.length}]`;
 }
 
+function resolveCredentialGetKeys(
+  service: string,
+  field: string,
+): Array<{ key: string; displayService: string }> {
+  const resolvedService = resolveService(service);
+  if (resolvedService === service) {
+    return [{ key: `credential:${service}:${field}`, displayService: service }];
+  }
+  return [
+    {
+      key: `credential:${resolvedService}:${field}`,
+      displayService: resolvedService,
+    },
+    { key: `credential:${service}:${field}`, displayService: service },
+  ];
+}
+
 export function registerCredentialsCommand(program: Command): void {
   const credentials = program
     .command("credentials")
@@ -254,12 +272,24 @@ export function registerCredentialsCommand(program: Command): void {
     )
     .action(
       (service: string, field: string, opts: CredentialGetOptions = {}) => {
-        const key = `credential:${service}:${field}`;
-        const value = getSecureKey(key);
+        const candidates = resolveCredentialGetKeys(service, field);
+        const matched = candidates
+          .map((candidate) => ({
+            ...candidate,
+            value: getSecureKey(candidate.key),
+          }))
+          .find((candidate) => Boolean(candidate.value));
+
+        const value = matched?.value;
         if (!value) {
           log.error(`Credential not found for ${service}/${field}`);
           process.exitCode = 1;
           return;
+        }
+        if (matched && matched.displayService !== service) {
+          log.info(
+            `Resolved ${service}/${field} to ${matched.displayService}/${field}`,
+          );
         }
         process.stdout.write(`${opts.redacted ? redactValue(value) : value}\n`);
       },
@@ -304,7 +334,20 @@ export function registerCredentialsCommand(program: Command): void {
         field: string,
         opts: CredentialPromptOptions = {},
       ) => {
-        const value = await resolvePromptValue(service, field, opts.value);
+        let value = "";
+        try {
+          value = await resolvePromptValue(service, field, opts.value);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (message.toLowerCase().includes("cancel")) {
+            log.info("Credential prompt cancelled.");
+            process.exitCode = 1;
+            return;
+          }
+          log.error(`Failed to read credential input: ${message}`);
+          process.exitCode = 1;
+          return;
+        }
         if (!value) {
           log.error(
             "No credential value provided. Pass --value, pipe via stdin, or enter a value interactively.",

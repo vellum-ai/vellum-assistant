@@ -32,6 +32,11 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => secureValues.get(key),
 }));
 
+mock.module("../oauth/provider-profiles.js", () => ({
+  resolveService: (service: string) =>
+    service === "gmail" ? "integration:gmail" : service,
+}));
+
 mock.module("../util/logger.js", () => ({
   getCliLogger: () => ({
     info: (message: string) => {
@@ -146,6 +151,26 @@ describe("vellum credentials CLI", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("[REDACTED length=9]\n");
+  });
+
+  test("get resolves service aliases before reading secure keys", async () => {
+    secureValues.set(
+      "credential:integration:gmail:access_token",
+      "oauth-token",
+    );
+
+    const result = await runCli([
+      "credentials",
+      "get",
+      "gmail",
+      "access_token",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("oauth-token\n");
+    expect(infoLogs).toContain(
+      "Resolved gmail/access_token to integration:gmail/access_token",
+    );
   });
 
   test("oauth2-connect parses repeated scope and extra params", async () => {
