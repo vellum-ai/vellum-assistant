@@ -115,8 +115,3 @@ export function setCachedRecall(
 
   _cache.set(key, { version: _version, createdAt: Date.now(), result });
 }
-
-/** Clear the entire cache (useful for testing). */
-export function clearRecallCache(): void {
-  _cache.clear();
-}
