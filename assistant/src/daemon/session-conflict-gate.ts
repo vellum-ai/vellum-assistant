@@ -33,9 +33,7 @@ export class ConflictGate {
       enabled: boolean;
       gateMode: string;
       relevanceThreshold: number;
-      reaskCooldownTurns: number;
       resolverLlmTimeoutMs: number;
-      askOnIrrelevantTurns: boolean;
       conflictableKinds: readonly string[];
     },
     scopeId = "default",

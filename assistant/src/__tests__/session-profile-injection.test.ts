@@ -87,7 +87,6 @@ mock.module("../config/loader.js", () => ({
       conflicts: {
         enabled: false,
         gateMode: "soft",
-        reaskCooldownTurns: 3,
         resolverLlmTimeoutMs: 250,
         relevanceThreshold: 0.2,
       },

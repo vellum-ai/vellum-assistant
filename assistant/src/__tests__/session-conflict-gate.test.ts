@@ -138,10 +138,8 @@ mock.module("../config/loader.js", () => ({
       conflicts: {
         enabled: true,
         gateMode: "soft",
-        reaskCooldownTurns: 3,
         resolverLlmTimeoutMs: 250,
         relevanceThreshold: 0.2,
-        askOnIrrelevantTurns: false,
         conflictableKinds: [
           "preference",
           "profile",
@@ -1032,9 +1030,7 @@ describe("ConflictGate (unit)", () => {
     enabled: true,
     gateMode: "soft" as const,
     relevanceThreshold: 0.2,
-    reaskCooldownTurns: 3,
     resolverLlmTimeoutMs: 250,
-    askOnIrrelevantTurns: false,
     conflictableKinds: [
       "preference",
       "profile",

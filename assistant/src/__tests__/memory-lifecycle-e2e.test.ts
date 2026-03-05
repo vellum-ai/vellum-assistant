@@ -135,7 +135,6 @@ const TEST_CONFIG = {
       enabled: true,
       gateMode: "soft" as const,
       relevanceThreshold: 0.2,
-      reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 250,
     },
     profile: {
