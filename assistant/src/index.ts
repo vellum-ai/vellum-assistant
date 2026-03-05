@@ -25,10 +25,8 @@ import {
 } from "./cli/core-commands.js";
 import { registerEmailCommand } from "./cli/email.js";
 import { registerInfluencerCommand } from "./cli/influencer.js";
-import {
-  registerContactsCommand,
-  registerIntegrationsCommand,
-} from "./cli/integrations.js";
+import { registerContactsCommand } from "./cli/contacts.js";
+import { registerIntegrationsCommand } from "./cli/integrations.js";
 import { registerMapCommand } from "./cli/map.js";
 import { registerMcpCommand } from "./cli/mcp.js";
 import { registerSequenceCommand } from "./cli/sequence.js";
