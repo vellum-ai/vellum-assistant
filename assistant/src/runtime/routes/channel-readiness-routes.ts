@@ -78,7 +78,7 @@ export async function handleRefreshChannelReadiness(
 
   const snapshots = await service.getReadiness(
     body.channel,
-    body.includeRemote,
+    body.includeRemote ?? true,
   );
   const adapterRegistry = getInviteAdapterRegistry();
 

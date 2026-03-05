@@ -150,9 +150,9 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
       };
-      // No inbox configured, but local-only check (no includeRemote)
+      // No inbox configured — explicitly opt out of remote checks
       const service = createReadinessService();
-      const [snapshot] = await service.getReadiness("email");
+      const [snapshot] = await service.getReadiness("email", false);
 
       // Local checks pass — remote inbox check is not included
       expect(snapshot.ready).toBe(true);
