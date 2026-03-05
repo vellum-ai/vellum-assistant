@@ -45,9 +45,6 @@ import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-in
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { handleVerificationIntercept } from "./inbound-stages/verification-intercept.js";
 
-import "../channel-invite-transports/telegram.js";
-import "../channel-invite-transports/voice.js";
-
 const log = getLogger("runtime-http");
 
 export async function handleChannelInbound(

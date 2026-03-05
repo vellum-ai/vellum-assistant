@@ -20,15 +20,13 @@ import {
 } from "../memory/invite-store.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
-import { getTransport } from "./channel-invite-transport.js";
+import { getInviteAdapterRegistry } from "./channel-invite-transport.js";
 import {
   type InviteRedemptionOutcome,
   redeemInvite as redeemInviteTyped,
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
   type VoiceRedemptionOutcome,
 } from "./invite-redemption-service.js";
-
-import "./channel-invite-transports/telegram.js";
 
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and IPC handlers
@@ -66,11 +64,11 @@ function buildSharePayload(
   rawToken?: string,
 ): InviteResponseData["share"] | undefined {
   if (!rawToken || !isChannelId(sourceChannel)) return undefined;
-  const transport = getTransport(sourceChannel);
-  if (!transport?.buildShareableInvite) return undefined;
+  const adapter = getInviteAdapterRegistry().get(sourceChannel);
+  if (!adapter?.buildShareLink) return undefined;
 
   try {
-    return transport.buildShareableInvite({
+    return adapter.buildShareLink({
       rawToken,
       sourceChannel,
     });

@@ -1,34 +1,33 @@
 /**
- * Voice channel invite transport adapter.
+ * Voice channel invite adapter.
  *
  * Voice invites are identity-bound: the invitee must call from a specific
  * phone number and enter a numeric code. Unlike Telegram invites, there is
  * no shareable deep link — the guardian relays the code and calling
  * instructions verbally or via another channel.
  *
- * The transport builds human-readable instruction text and provides a
+ * The adapter builds human-readable instruction text and provides a
  * no-op token extractor since voice invite redemption uses the dedicated
  * voice-code path rather than generic token extraction.
  */
 
 import type { ChannelId } from "../../channels/types.js";
-import {
-  type ChannelInviteTransport,
-  type InviteSharePayload,
-  registerTransport,
+import type {
+  ChannelInviteAdapter,
+  InviteShareLink,
 } from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
-// Transport implementation
+// Adapter implementation
 // ---------------------------------------------------------------------------
 
-export const voiceInviteTransport: ChannelInviteTransport = {
+export const voiceInviteAdapter: ChannelInviteAdapter = {
   channel: "voice" as ChannelId,
 
-  buildShareableInvite(_params: {
+  buildShareLink(_params: {
     rawToken: string;
     sourceChannel: ChannelId;
-  }): InviteSharePayload {
+  }): InviteShareLink {
     // Voice invites do not produce a clickable URL. The "url" field contains
     // a placeholder — callers should use displayText for presentation.
     return {
@@ -52,7 +51,8 @@ export const voiceInviteTransport: ChannelInviteTransport = {
 };
 
 // ---------------------------------------------------------------------------
-// Auto-register on import
+// Backward-compatible alias
 // ---------------------------------------------------------------------------
 
-registerTransport(voiceInviteTransport);
+/** @deprecated Use `voiceInviteAdapter` instead. */
+export const voiceInviteTransport = voiceInviteAdapter;
