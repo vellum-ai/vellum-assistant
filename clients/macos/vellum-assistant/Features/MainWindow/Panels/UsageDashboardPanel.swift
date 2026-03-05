@@ -14,7 +14,7 @@ struct UsageDashboardPanel: View {
         }
         .onAppear {
             Task {
-                if store.totalsState == .idle || store.totalsState.isFailed {
+                if store.needsRefresh {
                     await store.refresh()
                 }
             }
