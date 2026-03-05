@@ -2,6 +2,7 @@ import { readTextFileSync } from "../util/fs.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
 export const DEFAULT_USER_REFERENCE = "my human";
+export const DECLINED_BY_USER_SENTINEL = "declined_by_user";
 
 /**
  * Read the raw "Preferred name/reference:" value from USER.md.
@@ -70,7 +71,7 @@ export function resolveUserPronouns(): string | null {
 }
 
 function cleanPronounValue(raw: string): string | null {
-  if (raw === "declined_by_user") return null;
+  if (raw === DECLINED_BY_USER_SENTINEL) return null;
   // Strip "inferred: " prefix for clean output
   return raw.replace(/^inferred:\s*/i, "");
 }
@@ -89,7 +90,7 @@ export function resolveGuardianName(
   guardianDisplayName?: string | null,
 ): string {
   const preferredName = readPreferredNameFromUserMd();
-  if (preferredName != null) {
+  if (preferredName != null && preferredName !== DECLINED_BY_USER_SENTINEL) {
     return preferredName;
   }
 
