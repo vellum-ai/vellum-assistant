@@ -345,8 +345,9 @@ struct ChatBubble: View {
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
                             .selectableText(!message.isStreaming)
-                            // Frame before fixedSize to bound horizontal measurement.
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            // For assistant messages, fill available width for readability.
+                            // For user messages, let the bubble shrink-wrap to text width.
+                            .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if !message.attachments.isEmpty {
