@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildSchema } from "../schema.js";
 
+/** A route extracted from source: path + optional HTTP method. */
+interface ExtractedRoute {
+  path: string;
+  method: string | null; // null means "any method"
+}
+
 /**
  * Extracts route paths from the gateway index.ts source code.
  *
@@ -13,34 +19,72 @@ import { buildSchema } from "../schema.js";
  * We parse the source text rather than importing index.ts because it calls
  * `main()` at module scope which starts the server.
  */
-function extractRoutePathsFromSource(): string[] {
+function extractRoutesFromSource(): ExtractedRoute[] {
   const src = readFileSync(
     join(import.meta.dirname!, "..", "index.ts"),
     "utf-8",
   );
 
-  const paths = new Set<string>();
+  const lines = src.split("\n");
+  const routes: ExtractedRoute[] = [];
+  const seenPreRouterPaths = new Set<string>();
 
-  // Match string literal paths: `path: "/some/path"`
-  const stringPathRe = /path:\s*"([^"]+)"/g;
-  for (const m of src.matchAll(stringPathRe)) {
-    paths.add(m[1]);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Match string literal paths: `path: "/some/path"`
+    const stringMatch = line.match(/path:\s*"([^"]+)"/);
+    if (stringMatch) {
+      const method = findMethodNearPath(lines, i);
+      routes.push({ path: stringMatch[1], method });
+      continue;
+    }
+
+    // Match regex paths: `path: /^\/v1\/contacts\/([^/]+)$/`
+    const regexMatch = line.match(/path:\s*\/\^(.*?)\$\//);
+    if (regexMatch) {
+      const converted = regexToOpenApiPath(regexMatch[1]);
+      if (converted) {
+        const method = findMethodNearPath(lines, i);
+        routes.push({ path: converted, method });
+      }
+      continue;
+    }
+
+    // Pre-router paths matched via `url.pathname === "/..."` in the fetch handler
+    const preRouterMatch = line.match(/url\.pathname\s*===\s*"([^"]+)"/);
+    if (preRouterMatch && !seenPreRouterPaths.has(preRouterMatch[1])) {
+      seenPreRouterPaths.add(preRouterMatch[1]);
+      routes.push({ path: preRouterMatch[1], method: null });
+    }
   }
 
-  // Match regex paths and convert to OpenAPI-style parameterized paths.
-  // Pattern: `path: /^\/v1\/contacts\/([^/]+)$/`
-  const regexPathRe = /path:\s*\/\^(.*?)\$\//g;
-  for (const m of src.matchAll(regexPathRe)) {
-    const converted = regexToOpenApiPath(m[1]);
-    if (converted) paths.add(converted);
-  }
+  return routes;
+}
 
-  // Pre-router paths matched via `url.pathname === "/..."` in the fetch handler
-  const preRouterRe = /url\.pathname\s*===\s*"([^"]+)"/g;
-  for (const m of src.matchAll(preRouterRe)) {
-    paths.add(m[1]);
+/**
+ * Looks for a `method: "..."` declaration near a `path:` line.
+ * In the route table, method is always declared within a few lines
+ * of path (same object literal). We scan up to 3 lines after path.
+ */
+function findMethodNearPath(
+  lines: string[],
+  pathLineIndex: number,
+): string | null {
+  // method can appear before or after path within the same object.
+  // Scan a small window around the path line, stopping at object boundaries.
+  for (let offset = -3; offset <= 3; offset++) {
+    const idx = pathLineIndex + offset;
+    if (idx < 0 || idx >= lines.length) continue;
+    const methodMatch = lines[idx].match(/method:\s*"([A-Z]+)"/);
+    if (methodMatch) return methodMatch[1];
   }
+  return null;
+}
 
+/** Deduplicated, sorted list of unique route paths. */
+function extractRoutePathsFromSource(): string[] {
+  const paths = new Set(extractRoutesFromSource().map((r) => r.path));
   return [...paths].sort();
 }
 
@@ -141,6 +185,66 @@ describe("route-schema sync guard", () => {
     expect(orphaned).toEqual([]);
   });
 
+  test("HTTP methods for each path should match between routes and schema", () => {
+    const routes = extractRoutesFromSource();
+    const HTTP_METHODS = ["get", "post", "put", "patch", "delete"] as const;
+
+    const mismatches: string[] = [];
+
+    // Build a map of path → set of methods from the route table.
+    // Routes without an explicit method match any method — skip those
+    // since the guard can't know which methods they actually handle.
+    const routeMethodsByPath = new Map<string, Set<string>>();
+    for (const route of routes) {
+      if (EXCLUDED_FROM_SCHEMA.has(route.path)) continue;
+      if (route.path === "/") continue; // catch-all
+      if (!route.method) continue; // any-method routes can't be compared
+
+      const normalizedPath = resolveSchemaPath(route.path, schemaPaths);
+      if (!normalizedPath) continue;
+
+      let methods = routeMethodsByPath.get(normalizedPath);
+      if (!methods) {
+        methods = new Set();
+        routeMethodsByPath.set(normalizedPath, methods);
+      }
+      methods.add(route.method.toLowerCase());
+    }
+
+    // For each path that has explicit methods in the route table,
+    // verify the schema documents exactly the same set of methods.
+    for (const [path, routeMethods] of routeMethodsByPath) {
+      const schemaEntry = (
+        schema.paths as Record<string, Record<string, unknown>>
+      )[path];
+      if (!schemaEntry) continue; // path-level mismatch is caught by the other tests
+
+      const schemaMethods = new Set(
+        HTTP_METHODS.filter((m) => m in schemaEntry),
+      );
+
+      const missingFromSchema = [...routeMethods].filter(
+        (m) => !schemaMethods.has(m),
+      );
+      const extraInSchema = [...schemaMethods].filter(
+        (m) => !routeMethods.has(m),
+      );
+
+      for (const m of missingFromSchema) {
+        mismatches.push(
+          `${m.toUpperCase()} ${path}: in routes but not in schema`,
+        );
+      }
+      for (const m of extraInSchema) {
+        mismatches.push(
+          `${m.toUpperCase()} ${path}: in schema but not in routes`,
+        );
+      }
+    }
+
+    expect(mismatches).toEqual([]);
+  });
+
   test("excluded routes list contains only paths that actually exist", () => {
     // Catch-all is a special synthetic entry
     const actualPaths = new Set(routePaths);
@@ -151,6 +255,34 @@ describe("route-schema sync guard", () => {
     expect(stale).toEqual([]);
   });
 });
+
+/**
+ * Returns the schema path string that matches a route path, or null if none.
+ * Used by the method comparison test to look up schema entries by path.
+ */
+function resolveSchemaPath(
+  routePath: string,
+  schemaPaths: Set<string>,
+): string | null {
+  if (schemaPaths.has(routePath)) return routePath;
+
+  const routeSegments = routePath.split("/");
+
+  for (const schemaPath of schemaPaths) {
+    const schemaSegments = schemaPath.split("/");
+    if (routeSegments.length !== schemaSegments.length) continue;
+
+    const matches = routeSegments.every((seg, i) => {
+      if (seg === schemaSegments[i]) return true;
+      if (seg.startsWith("{") && schemaSegments[i].startsWith("{")) return true;
+      return false;
+    });
+
+    if (matches) return schemaPath;
+  }
+
+  return null;
+}
 
 /**
  * Checks if a route path (possibly with {paramN} placeholders) matches
