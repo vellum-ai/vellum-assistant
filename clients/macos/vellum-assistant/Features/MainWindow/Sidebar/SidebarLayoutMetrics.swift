@@ -19,7 +19,7 @@ enum SidebarLayoutMetrics {
     // MARK: - List Row Spacing
 
     /// Gap between consecutive thread/scheduled rows — matches nav/pinned VStack spacing.
-    static let listRowGap: CGFloat = VSpacing.sm  // 8pt
+    static let listRowGap: CGFloat = VSpacing.xs  // 4pt
 
     // MARK: - Section Title
 

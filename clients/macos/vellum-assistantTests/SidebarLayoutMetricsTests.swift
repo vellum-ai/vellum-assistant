@@ -39,9 +39,9 @@ final class SidebarLayoutMetricsTests: XCTestCase {
 
     // MARK: - List Row Spacing
 
-    func testListRowGapMatchesNavRhythm() {
-        // Thread row gap should match nav/pinned VStack spacing (VSpacing.sm = 8pt).
-        XCTAssertEqual(SidebarLayoutMetrics.listRowGap, 8)
+    func testListRowGapMatchesCompactRhythm() {
+        // Thread row gap uses compact spacing (VSpacing.xs = 4pt).
+        XCTAssertEqual(SidebarLayoutMetrics.listRowGap, 4)
     }
 
     // MARK: - Section Title
