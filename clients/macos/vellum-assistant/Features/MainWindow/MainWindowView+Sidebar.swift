@@ -635,11 +635,8 @@ extension MainWindowView {
                         }
                         sidebar.threadPendingDeletion = nil
                     }
-                    .onChange(of: sidebar.isHoveredThread) { _, newValue in
-                        if let pending = sidebar.threadPendingDeletion, newValue != pending {
-                            sidebar.threadPendingDeletion = nil
-                        }
-                    }
+                    // Hover→pending-deletion invariant is now owned by
+                    // SidebarInteractionState.setThreadHover(threadId:hovering:)
                     .onHover { hovering in
                         if hovering {
                             // Mouse entered popover — cancel pending dismiss

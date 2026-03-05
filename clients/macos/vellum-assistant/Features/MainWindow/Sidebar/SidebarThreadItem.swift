@@ -189,13 +189,7 @@ struct SidebarThreadItem: View {
         .pointerCursor()
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
-                if hovering {
-                    sidebar.isHoveredThread = thread.id
-                } else {
-                    if sidebar.isHoveredThread == thread.id {
-                        sidebar.isHoveredThread = nil
-                    }
-                }
+                sidebar.setThreadHover(threadId: thread.id, hovering: hovering)
             }
         }
         .onDrag {

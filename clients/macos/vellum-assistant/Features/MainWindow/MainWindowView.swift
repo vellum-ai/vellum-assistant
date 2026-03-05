@@ -675,12 +675,8 @@ struct MainWindowView: View {
                 }
             }
         }
-        .onChange(of: sidebar.isHoveredThread) { _, newValue in
-            // Cancel pending archive when hover leaves the row or moves to a different thread.
-            if let pending = sidebar.threadPendingDeletion, newValue != pending {
-                sidebar.threadPendingDeletion = nil
-            }
-        }
+        // Hover→pending-deletion invariant is now owned by
+        // SidebarInteractionState.setThreadHover(threadId:hovering:)
     }
 
 }
