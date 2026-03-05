@@ -433,20 +433,24 @@ describe("Memory lifecycle E2E regression", () => {
 
     const conflictGate = new ConflictGate();
 
-    // First evaluation: conflict remains pending (no user-facing output)
-    await conflictGate.evaluate(
+    // First evaluation: conflict remains pending; evaluate returns void (no
+    // user-facing output — conflict handling is fully internal)
+    const firstResult = await conflictGate.evaluate(
       "Need react roadmap update today",
       TEST_CONFIG.memory.conflicts,
     );
+    expect(firstResult).toBeUndefined();
 
     const pendingAfterFirstGate = getConflictById(gatedConflict.id);
     expect(pendingAfterFirstGate?.status).toBe("pending_clarification");
 
     // Second evaluation: clarification-like reply resolves the conflict
-    await conflictGate.evaluate(
+    // internally; still no user-facing prompt is produced
+    const secondResult = await conflictGate.evaluate(
       "Use the new renderer going forward.",
       TEST_CONFIG.memory.conflicts,
     );
+    expect(secondResult).toBeUndefined();
 
     const resolvedAfterSecondGate = getConflictById(gatedConflict.id);
     expect(resolvedAfterSecondGate?.status).toBe("resolved_keep_candidate");
