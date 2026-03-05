@@ -10,7 +10,6 @@ import cliPkg from "../package.json";
 import { autonomy } from "./commands/autonomy";
 import { client } from "./commands/client";
 import { config } from "./commands/config";
-import { email } from "./commands/email";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { pair } from "./commands/pair";
@@ -27,7 +26,6 @@ const commands = {
   autonomy,
   client,
   config,
-  email,
   hatch,
   login,
   logout,
@@ -86,7 +84,6 @@ async function main() {
     console.log("  autonomy View and configure autonomy tiers");
     console.log("  client   Connect to a hatched assistant");
     console.log("  config   Manage configuration");
-    console.log("  email    Email operations (status, create inbox)");
     console.log("  hatch    Create a new assistant instance");
     console.log("  login    Log in to the Vellum platform");
     console.log("  logout   Log out of the Vellum platform");
