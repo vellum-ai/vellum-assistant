@@ -706,10 +706,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Throws `SendError.notConnected` when the connection is nil so callers can
     /// distinguish a silently-dropped message from a successful write.
     public func send<T: Encodable>(_ message: T) throws {
-        os_signpost(.begin, log: ipcLog, name: "daemonIPCSend")
-        defer { os_signpost(.end, log: ipcLog, name: "daemonIPCSend") }
+        let sendID = OSSignpostID(log: ipcLog)
+        os_signpost(.begin, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
 
         if let override = sendOverride {
+            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
             try override(message)
             return
         }
@@ -717,18 +718,22 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Route through HTTP transport when active (remote assistants).
         if let httpTransport {
             guard httpTransport.isConnected else {
+                os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
                 throw SendError.notConnected
             }
+            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
             try httpTransport.send(message)
             return
         }
 
         guard let conn = connection else {
+            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
             log.warning("Cannot send: not connected")
             throw SendError.notConnected
         }
 
         if !isAuthenticated, !(message is AuthMessage) {
+            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
             log.warning("Cannot send: authentication not complete")
             throw SendError.notAuthenticated
         }
@@ -750,6 +755,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         conn.send(content: data, completion: .contentProcessed { error in
+            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
             if let error {
                 log.error("Send failed: \(error.localizedDescription)")
             }

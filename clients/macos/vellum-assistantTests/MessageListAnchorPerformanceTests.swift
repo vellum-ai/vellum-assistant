@@ -79,35 +79,13 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
 
     // MARK: - 1. AnchorVisibilityTracker Rapid-Update Stress Test
 
-    /// The real AnchorVisibilityTracker is @MainActor private, so we create a
-    /// minimal replica that mirrors the exact same O(1) logic. The goal is to
-    /// guard against regressions in the hot path's algorithmic complexity —
-    /// these methods are called on every scroll frame via SwiftUI preference keys.
-    @MainActor
-    private final class AnchorVisibilityTrackerReplica {
-        var lastMinY: CGFloat = .infinity
-        var isVisible: Bool = true
-
-        func update(minY: CGFloat, viewportHeight: CGFloat) {
-            lastMinY = minY
-            let newVisible = minY >= -20 && minY <= viewportHeight + 20
-            if isVisible != newVisible { isVisible = newVisible }
-        }
-
-        func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) {
-            storedViewportHeight = height
-            let newVisible = lastMinY >= -20 && lastMinY <= height + 20
-            if isVisible != newVisible { isVisible = newVisible }
-        }
-    }
-
     /// Benchmarks calling update(minY:viewportHeight:) and
     /// updateViewport(height:storedViewportHeight:) 10,000 times each in a
     /// tight loop. While individually trivial (O(1)), they are called on EVERY
     /// scroll frame. This test detects if any future refactoring adds overhead.
     @MainActor
     func testAnchorVisibilityTrackerRapidUpdateStress() {
-        let tracker = AnchorVisibilityTrackerReplica()
+        let tracker = AnchorVisibilityTracker()
         let viewportHeight: CGFloat = 800.0
 
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
