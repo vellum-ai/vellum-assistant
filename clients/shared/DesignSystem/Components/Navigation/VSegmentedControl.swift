@@ -127,7 +127,7 @@ private struct PillSegment: View {
 
     private var segmentBackground: Color {
         if isSelected {
-            return VColor.surface
+            return colorScheme == .dark ? Moss._600 : Color.white
         } else if isHovered {
             return VColor.navHover
         } else {
