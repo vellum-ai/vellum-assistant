@@ -149,7 +149,7 @@ struct ContactsListView: View {
                     .padding(VSpacing.lg)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .vCard(background: VColor.surfaceSubtle)
-            } else {
+            } else if !viewModel.otherContacts.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
                         if index > 0 {
