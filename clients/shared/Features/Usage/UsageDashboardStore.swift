@@ -1,0 +1,140 @@
+import Foundation
+
+// MARK: - Time Range Selection
+
+/// Predefined time ranges for the usage dashboard.
+public enum UsageTimeRange: String, CaseIterable, Sendable {
+    case today = "Today"
+    case last7Days = "Last 7 Days"
+    case last30Days = "Last 30 Days"
+    case last90Days = "Last 90 Days"
+
+    /// Compute the epoch-millisecond `from` and `to` bounds for this range.
+    /// `to` is always the current instant; `from` is midnight UTC of the starting day.
+    public func epochMillisRange(now: Date = Date()) -> (from: Int, to: Int) {
+        let to = Int(now.timeIntervalSince1970 * 1000)
+        let calendar = Calendar(identifier: .gregorian)
+        let startOfToday = calendar.startOfDay(for: now)
+
+        let startDate: Date
+        switch self {
+        case .today:
+            startDate = startOfToday
+        case .last7Days:
+            startDate = calendar.date(byAdding: .day, value: -6, to: startOfToday)!
+        case .last30Days:
+            startDate = calendar.date(byAdding: .day, value: -29, to: startOfToday)!
+        case .last90Days:
+            startDate = calendar.date(byAdding: .day, value: -89, to: startOfToday)!
+        }
+
+        let from = Int(startDate.timeIntervalSince1970 * 1000)
+        return (from: from, to: to)
+    }
+}
+
+// MARK: - Loading State
+
+/// Tri-state loading model for async fetches.
+public enum UsageLoadingState<T: Equatable>: Equatable {
+    case idle
+    case loading
+    case loaded(T)
+    case failed(String)
+}
+
+// MARK: - Group-By Dimension
+
+/// The dimension to group usage breakdown by.
+public enum UsageGroupByDimension: String, CaseIterable, Sendable {
+    case actor
+    case provider
+    case model
+}
+
+// MARK: - UsageDashboardStore
+
+/// Shared store that owns the selected time range, fetches usage data from the
+/// daemon client, and exposes loaded summaries for both macOS and iOS dashboards.
+@MainActor
+@Observable
+public final class UsageDashboardStore {
+
+    // MARK: - State
+
+    public var selectedRange: UsageTimeRange = .last7Days
+    public var totalsState: UsageLoadingState<UsageTotalsResponse> = .idle
+    public var dailyState: UsageLoadingState<UsageDailyResponse> = .idle
+    public var breakdownState: UsageLoadingState<UsageBreakdownResponse> = .idle
+    public var selectedGroupBy: UsageGroupByDimension = .model
+
+    // MARK: - Dependencies
+
+    private let client: any DaemonClientProtocol
+
+    public init(client: any DaemonClientProtocol) {
+        self.client = client
+    }
+
+    // MARK: - Refresh
+
+    /// Load all usage data (totals, daily, breakdown) for the currently selected range.
+    public func refresh() async {
+        let range = selectedRange.epochMillisRange()
+
+        totalsState = .loading
+        dailyState = .loading
+        breakdownState = .loading
+
+        async let totalsResult = client.fetchUsageTotals(from: range.from, to: range.to)
+        async let dailyResult = client.fetchUsageDaily(from: range.from, to: range.to)
+        async let breakdownResult = client.fetchUsageBreakdown(
+            from: range.from, to: range.to, groupBy: selectedGroupBy.rawValue
+        )
+
+        let totals = await totalsResult
+        let daily = await dailyResult
+        let breakdown = await breakdownResult
+
+        if let totals {
+            totalsState = .loaded(totals)
+        } else {
+            totalsState = .failed("Failed to load usage totals")
+        }
+
+        if let daily {
+            dailyState = .loaded(daily)
+        } else {
+            dailyState = .failed("Failed to load daily usage")
+        }
+
+        if let breakdown {
+            breakdownState = .loaded(breakdown)
+        } else {
+            breakdownState = .failed("Failed to load usage breakdown")
+        }
+    }
+
+    /// Convenience to change the selected range and immediately refresh.
+    public func selectRange(_ range: UsageTimeRange) async {
+        selectedRange = range
+        await refresh()
+    }
+
+    /// Convenience to change the group-by dimension and refresh the breakdown.
+    public func selectGroupBy(_ dimension: UsageGroupByDimension) async {
+        selectedGroupBy = dimension
+
+        let range = selectedRange.epochMillisRange()
+        breakdownState = .loading
+
+        let result = await client.fetchUsageBreakdown(
+            from: range.from, to: range.to, groupBy: dimension.rawValue
+        )
+        if let result {
+            breakdownState = .loaded(result)
+        } else {
+            breakdownState = .failed("Failed to load usage breakdown")
+        }
+    }
+}

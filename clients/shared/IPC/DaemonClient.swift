@@ -115,11 +115,103 @@ public protocol DaemonClientProtocol {
     func startSSE()
     func stopSSE()
     func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData?
+    func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
+    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
 }
 
 extension DaemonClientProtocol {
     /// Default no-op implementation for clients that don't support HTTP surface fetches.
     public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
+    public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
+    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? { nil }
+    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? { nil }
+}
+
+// MARK: - Usage Response Models
+
+/// Aggregate totals for a time range from `GET /v1/usage/totals`.
+public struct UsageTotalsResponse: Decodable, Equatable, Sendable {
+    public let totalInputTokens: Int
+    public let totalOutputTokens: Int
+    public let totalCacheCreationTokens: Int
+    public let totalCacheReadTokens: Int
+    public let totalEstimatedCostUsd: Double
+    public let eventCount: Int
+    public let pricedEventCount: Int
+    public let unpricedEventCount: Int
+
+    public init(
+        totalInputTokens: Int,
+        totalOutputTokens: Int,
+        totalCacheCreationTokens: Int,
+        totalCacheReadTokens: Int,
+        totalEstimatedCostUsd: Double,
+        eventCount: Int,
+        pricedEventCount: Int,
+        unpricedEventCount: Int
+    ) {
+        self.totalInputTokens = totalInputTokens
+        self.totalOutputTokens = totalOutputTokens
+        self.totalCacheCreationTokens = totalCacheCreationTokens
+        self.totalCacheReadTokens = totalCacheReadTokens
+        self.totalEstimatedCostUsd = totalEstimatedCostUsd
+        self.eventCount = eventCount
+        self.pricedEventCount = pricedEventCount
+        self.unpricedEventCount = unpricedEventCount
+    }
+}
+
+/// A single day bucket from `GET /v1/usage/daily`.
+public struct UsageDayBucket: Decodable, Equatable, Sendable {
+    public let date: String
+    public let totalInputTokens: Int
+    public let totalOutputTokens: Int
+    public let totalEstimatedCostUsd: Double
+    public let eventCount: Int
+
+    public init(date: String, totalInputTokens: Int, totalOutputTokens: Int, totalEstimatedCostUsd: Double, eventCount: Int) {
+        self.date = date
+        self.totalInputTokens = totalInputTokens
+        self.totalOutputTokens = totalOutputTokens
+        self.totalEstimatedCostUsd = totalEstimatedCostUsd
+        self.eventCount = eventCount
+    }
+}
+
+/// Response wrapper for `GET /v1/usage/daily`.
+public struct UsageDailyResponse: Decodable, Equatable, Sendable {
+    public let buckets: [UsageDayBucket]
+
+    public init(buckets: [UsageDayBucket]) {
+        self.buckets = buckets
+    }
+}
+
+/// A single grouped breakdown row from `GET /v1/usage/breakdown`.
+public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
+    public let group: String
+    public let totalInputTokens: Int
+    public let totalOutputTokens: Int
+    public let totalEstimatedCostUsd: Double
+    public let eventCount: Int
+
+    public init(group: String, totalInputTokens: Int, totalOutputTokens: Int, totalEstimatedCostUsd: Double, eventCount: Int) {
+        self.group = group
+        self.totalInputTokens = totalInputTokens
+        self.totalOutputTokens = totalOutputTokens
+        self.totalEstimatedCostUsd = totalEstimatedCostUsd
+        self.eventCount = eventCount
+    }
+}
+
+/// Response wrapper for `GET /v1/usage/breakdown`.
+public struct UsageBreakdownResponse: Decodable, Equatable, Sendable {
+    public let breakdown: [UsageGroupBreakdownEntry]
+
+    public init(breakdown: [UsageGroupBreakdownEntry]) {
+        self.breakdown = breakdown
+    }
 }
 
 extension Notification.Name {
@@ -785,6 +877,73 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
             return Surface.parseSurfaceDataFromResponse(data)
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Usage Reporting
+
+    /// Fetch aggregate usage totals for a time range (epoch milliseconds).
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchUsageTotals(from: from, to: to)
+        }
+
+        guard let request = buildLocalRequest(
+            target: .daemon,
+            path: "v1/usage/totals?from=\(from)&to=\(to)",
+            timeout: 10
+        ) else { return nil }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+            return try JSONDecoder().decode(UsageTotalsResponse.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Fetch per-day usage buckets for a time range (epoch milliseconds).
+    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchUsageDaily(from: from, to: to)
+        }
+
+        guard let request = buildLocalRequest(
+            target: .daemon,
+            path: "v1/usage/daily?from=\(from)&to=\(to)",
+            timeout: 10
+        ) else { return nil }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+            return try JSONDecoder().decode(UsageDailyResponse.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Fetch grouped usage breakdown for a time range (epoch milliseconds).
+    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchUsageBreakdown(from: from, to: to, groupBy: groupBy)
+        }
+
+        let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+        guard let request = buildLocalRequest(
+            target: .daemon,
+            path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)",
+            timeout: 10
+        ) else { return nil }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+            return try JSONDecoder().decode(UsageBreakdownResponse.self, from: data)
         } catch {
             return nil
         }
