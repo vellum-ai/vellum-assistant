@@ -15,6 +15,7 @@ import {
   getDeliveriesByRequestId,
   getExpiredGuardianActionRequests,
 } from "../memory/guardian-action-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import { composeGuardianActionMessageGenerative } from "../runtime/guardian-action-message-composer.js";
 import type { GuardianActionCopyGenerator } from "../runtime/http-types.js";
@@ -132,7 +133,7 @@ export async function sweepExpiredGuardianActions(
 
     await sendGuardianExpiryNotices(
       deliveries,
-      request.assistantId,
+      DAEMON_INTERNAL_ASSISTANT_ID,
       gatewayBaseUrl,
       mintBearerToken,
       guardianActionCopyGenerator,

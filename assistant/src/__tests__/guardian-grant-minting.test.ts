@@ -104,7 +104,6 @@ function createTestGuardianApproval(
     runId: `run-${requestId}`,
     requestId,
     conversationId: CONVERSATION_ID,
-    assistantId: ASSISTANT_ID,
     channel: "telegram",
     requesterExternalUserId: REQUESTER_USER,
     requesterChatId: REQUESTER_CHAT,

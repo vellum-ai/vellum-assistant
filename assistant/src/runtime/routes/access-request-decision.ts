@@ -10,6 +10,7 @@ import {
   resolveApprovalRequest,
 } from "../../memory/channel-guardian-store.js";
 import { getLogger } from "../../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { createOutboundSession } from "../channel-guardian-service.js";
 import { deliverChannelReply } from "../gateway-client.js";
 
@@ -86,7 +87,7 @@ export function handleAccessRequestDecision(
   // so only the original requester can consume the code. Mark as
   // trusted_contact so the consume path skips guardian binding creation.
   const session = createOutboundSession({
-    assistantId: approval.assistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     channel: approval.channel,
     expectedExternalUserId: approval.requesterExternalUserId,
     expectedChatId: approval.requesterChatId,

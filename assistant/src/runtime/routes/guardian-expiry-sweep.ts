@@ -9,6 +9,7 @@ import {
 } from "../../memory/channel-guardian-store.js";
 import { getLogger } from "../../util/logger.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { ApprovalDecisionResult } from "../channel-approval-types.js";
 import { handleChannelDecision } from "../channel-approvals.js";
 import { deliverChannelReply } from "../gateway-client.js";
@@ -68,7 +69,7 @@ export function sweepExpiredGuardianApprovals(
         {
           chatId: approval.requesterChatId,
           text: requesterText,
-          assistantId: approval.assistantId,
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         },
         mintBearerToken?.(),
       );
@@ -96,7 +97,7 @@ export function sweepExpiredGuardianApprovals(
         {
           chatId: approval.guardianChatId,
           text: guardianText,
-          assistantId: approval.assistantId,
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         },
         mintBearerToken?.(),
       );

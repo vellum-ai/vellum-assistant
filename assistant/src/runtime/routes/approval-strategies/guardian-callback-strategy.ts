@@ -99,7 +99,6 @@ export async function handleGuardianCallbackDecision(
         callbackDecision.requestId,
         sourceChannel,
         conversationExternalId,
-        assistantId,
       )
     : null;
 
@@ -110,7 +109,6 @@ export async function handleGuardianCallbackDecision(
     const allPending = getAllPendingApprovalsByGuardianChat(
       sourceChannel,
       conversationExternalId,
-      assistantId,
     );
     if (allPending.length === 1) {
       guardianApproval = allPending[0];
@@ -141,7 +139,6 @@ export async function handleGuardianCallbackDecision(
     const allPending = getAllPendingApprovalsByGuardianChat(
       sourceChannel,
       conversationExternalId,
-      assistantId,
     );
     if (allPending.length === 1) {
       guardianApproval = allPending[0];
@@ -204,7 +201,6 @@ export async function handleGuardianCallbackDecision(
   const allGuardianPending = getAllPendingApprovalsByGuardianChat(
     sourceChannel,
     conversationExternalId,
-    assistantId,
   );
   // Only present approvals that belong to this sender so the engine
   // does not offer disambiguation for requests assigned to a rotated
@@ -609,7 +605,6 @@ async function handleLegacyDecision(params: {
         legacyGuardianDecision.requestId,
         sourceChannel,
         conversationExternalId,
-        assistantId,
       );
       if (!resolvedByRequest) {
         // The referenced request doesn't match any pending guardian

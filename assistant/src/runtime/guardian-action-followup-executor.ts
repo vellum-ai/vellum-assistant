@@ -29,6 +29,7 @@ import {
   type GuardianActionRequest,
 } from "../memory/guardian-action-store.js";
 import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { mintDaemonDeliveryToken } from "./auth/token-service.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import { composeGuardianActionMessageGenerative } from "./guardian-action-message-composer.js";
@@ -135,7 +136,7 @@ async function executeMessageBack(
       {
         chatId: counterparty.phoneNumber,
         text: messageText,
-        assistantId: request.assistantId,
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       },
       bearerToken,
     );
@@ -192,7 +193,7 @@ async function executeCallBack(
       task,
       context: callbackContext,
       conversationId,
-      assistantId: request.assistantId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     });
 
     if (!result.ok) {
