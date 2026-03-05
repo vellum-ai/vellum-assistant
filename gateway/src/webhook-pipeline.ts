@@ -74,7 +74,9 @@ export async function handleNewCommand(
  * Processes the result of `handleInbound()`: checks for rejections
  * (rate-limited notice via sendRejection callback) and forwarding failures
  * (unreserve cache, log error).
- * Returns `{ ok: true }` on success or `{ ok: false, status: number }` on failure.
+ * Returns `{ ok: true, rejected: false }` on successful forwarding,
+ * `{ ok: true, rejected: true }` when rejected (rate-limited), or
+ * `{ ok: false, status: number }` on failure.
  */
 export function processInboundResult(
   result: InboundResult,
@@ -82,10 +84,10 @@ export function processInboundResult(
   cacheKey: string,
   sendRejection: () => void,
   logger: Logger,
-): { ok: true } | { ok: false; status: number } {
+): { ok: true; rejected: boolean } | { ok: false; status: number } {
   if (result.rejected) {
     sendRejection();
-    return { ok: true };
+    return { ok: true, rejected: true };
   }
 
   if (!result.forwarded) {
@@ -94,7 +96,7 @@ export function processInboundResult(
     return { ok: false, status: 500 };
   }
 
-  return { ok: true };
+  return { ok: true, rejected: false };
 }
 
 /**

@@ -264,10 +264,12 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
         }
 
         dedupCache.mark(whatsappMessageId);
-        tlog.info(
-          { status: "forwarded", whatsappMessageId },
-          "WhatsApp message forwarded to runtime",
-        );
+        if (!processed.rejected) {
+          tlog.info(
+            { status: "forwarded", whatsappMessageId },
+            "WhatsApp message forwarded to runtime",
+          );
+        }
       } catch (err) {
         const cbResponse = handleCircuitBreakerError(
           err,

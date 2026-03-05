@@ -227,12 +227,13 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         );
       }
 
-      // Mark as seen only after successful forwarding
       dedupCache.mark(messageSid);
-      tlog.info(
-        { status: "forwarded", messageSid },
-        "SMS forwarded to runtime",
-      );
+      if (!outcome.rejected) {
+        tlog.info(
+          { status: "forwarded", messageSid },
+          "SMS forwarded to runtime",
+        );
+      }
     } catch (err) {
       const cbResponse = handleCircuitBreakerError(
         err,
