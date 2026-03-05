@@ -23,3 +23,11 @@ Examples: `config`, `contacts`, `memory`, `autonomy`, `sessions`, `doctor` belon
 - Each command module exports a registration function that attaches subcommands to the program.
 - Register new commands in `assistant/src/index.ts` by importing and calling the registration function.
 - Use `getCliLogger("cli")` for output (not raw `console.log`).
+
+## Service calls — no gateway proxying
+
+CLI commands must call the service/store layer directly — the same functions that the HTTP route handlers in `runtime/routes/` call. Do not proxy through the gateway HTTP API.
+
+Both the gateway routes and the CLI are thin wrappers around the same shared business logic. For example, `runtime/routes/invite-routes.ts` delegates to `runtime/invite-service.ts`, and `runtime/routes/contact-routes.ts` delegates to `contacts/contact-store.ts`. CLI commands should import and call those same service modules directly.
+
+This avoids a dependency on the gateway process being running and removes an unnecessary network hop.
