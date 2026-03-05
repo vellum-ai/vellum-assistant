@@ -214,9 +214,6 @@ struct ComposerView: View {
         .tint(VColor.accent)
         .focused($composerFocus)
         .disabled(!hasAPIKey)
-        .onKeyPress(.return, phases: .down) { press in
-            handleReturnKeyPress(modifiers: press.modifiers)
-        }
         .onKeyPress(.tab, phases: .down) { press in
             if !press.modifiers.contains(.shift), showSlashMenu {
                 handleSlashNavigation(.tab)
@@ -286,7 +283,7 @@ struct ComposerView: View {
                 isFocused: composerFocus,
                 cmdEnterToSend: cmdEnterToSend,
                 onImagePaste: onPaste,
-                onCmdEnterSend: {
+                onSend: {
                     performSendAction()
                 },
                 onRedirectKeystroke: { chars in
@@ -429,38 +426,6 @@ struct ComposerView: View {
         }
     }
 
-    /// Handles Return key press: send vs insert newline depending on mode.
-    ///
-    /// Only the four semantic modifiers (Shift, Command, Control, Option) are
-    /// considered when deciding whether the user pressed a "plain" Return.
-    /// Non-semantic flags like `.capsLock` and `.numericPad` are ignored so
-    /// that Caps Lock being on or pressing Return on the numeric keypad still
-    /// behaves as a plain Return.
-    private func handleReturnKeyPress(modifiers: EventModifiers) -> KeyPress.Result {
-        let semanticModifiers = modifiers.intersection([.shift, .command, .control, .option])
-
-        // Shift+Enter always inserts a newline
-        if semanticModifiers.contains(.shift) { return .ignored }
-
-        if cmdEnterToSend {
-            // In Cmd+Enter mode: Cmd+Enter sends, plain Enter inserts newline.
-            // Cmd+Enter as a key equivalent is handled by ComposerFocusBridge's
-            // event monitor; if it also reaches here, handle it.
-            if semanticModifiers.contains(.command) {
-                performSendAction()
-                return .handled
-            }
-            if semanticModifiers.isEmpty { return .ignored } // plain Enter inserts newline
-            return .handled // consume other modifier+Return combos silently
-        }
-
-        // Default mode: plain Enter sends, Shift+Return inserts newline
-        // (handled above). All other modifier combos are consumed silently.
-        if semanticModifiers.isEmpty {
-            performSendAction()
-        }
-        return .handled
-    }
 
     @ViewBuilder
     private var composerActionButtons: some View {
