@@ -42,6 +42,18 @@ const DEFAULT_CONFIG: ProxySessionConfig = {
   maxSessionsPerConversation: 3,
 };
 
+/**
+ * Hosts that are always reachable even in network_mode="off".
+ *
+ * When a proxy session is created with `platformOnly: true`, only requests
+ * targeting these hosts are allowed through; everything else is blocked.
+ *
+ * TODO(temporary): remove once a proper per-command allowlist is implemented.
+ */
+const PLATFORM_ALLOWED_HOSTS: ReadonlySet<string> = new Set([
+  "platform.vellum.ai",
+]);
+
 interface ManagedSession {
   session: ProxySession;
   server: Server | null;
@@ -55,6 +67,12 @@ interface ManagedSession {
   stopPromise: Promise<void> | null;
   /** Path to the combined CA bundle, set only when ensureCombinedCABundle succeeds. */
   combinedCABundlePath: string | null;
+  /**
+   * When true, the proxy only allows requests to PLATFORM_ALLOWED_HOSTS.
+   * Used for network_mode="off" sessions that still need to reach the
+   * Vellum platform API.
+   */
+  platformOnly: boolean;
 }
 
 const sessions = new Map<ProxySessionId, ManagedSession>();
@@ -116,6 +134,7 @@ export function createSession(
   config?: Partial<ProxySessionConfig>,
   dataDir?: string,
   approvalCallback?: ProxyApprovalCallback,
+  options?: { platformOnly?: boolean },
 ): ProxySession {
   const merged: ProxySessionConfig = { ...DEFAULT_CONFIG, ...config };
 
@@ -147,6 +166,7 @@ export function createSession(
     listenHost: "127.0.0.1",
     stopPromise: null,
     combinedCABundlePath: null,
+    platformOnly: options?.platformOnly ?? false,
   });
 
   return cloneSession(session);
@@ -309,6 +329,23 @@ export async function startSession(
     reqPath: string,
     scheme: "http" | "https",
   ) => {
+    // Platform-only sessions restrict traffic to PLATFORM_ALLOWED_HOSTS.
+    // Everything else is blocked without even consulting the policy engine.
+    if (managed.platformOnly) {
+      if (PLATFORM_ALLOWED_HOSTS.has(hostname)) {
+        log.debug(
+          { hostname },
+          "Platform-only session: allowing platform host",
+        );
+        return {};
+      }
+      log.debug(
+        { hostname },
+        "Platform-only session: blocking non-platform host",
+      );
+      return null;
+    }
+
     const decision = evaluateRequestWithApproval(
       hostname,
       port,
@@ -502,15 +539,21 @@ export async function getOrStartSession(
   config?: Partial<ProxySessionConfig>,
   dataDir?: string,
   approvalCallback?: ProxyApprovalCallback,
-  options?: { listenHost?: string },
+  options?: { listenHost?: string; platformOnly?: boolean },
 ): Promise<{ session: ProxySession; created: boolean }> {
   const requestedHost = options?.listenHost ?? "127.0.0.1";
+  const requestedPlatformOnly = options?.platformOnly ?? false;
 
-  // Fast path — session already active with matching credentials and listen host, no lock needed.
+  // Fast path — session already active with matching credentials, listen host,
+  // and platformOnly flag, no lock needed.
   const existing = getActiveSession(conversationId);
   if (existing && credentialIdsMatch(existing.credentialIds, credentialIds)) {
     const managed = sessions.get(existing.id);
-    if (managed && managed.listenHost === requestedHost) {
+    if (
+      managed &&
+      managed.listenHost === requestedHost &&
+      managed.platformOnly === requestedPlatformOnly
+    ) {
       return { session: existing, created: false };
     }
   }
@@ -529,12 +572,17 @@ export async function getOrStartSession(
     const session = await inflight;
     if (credentialIdsMatch(session.credentialIds, credentialIds)) {
       const m = sessions.get(session.id);
-      if (m && m.listenHost === requestedHost) {
+      if (
+        m &&
+        m.listenHost === requestedHost &&
+        m.platformOnly === requestedPlatformOnly
+      ) {
         return { session, created: false };
       }
     }
-    // Credential or listenHost mismatch — tear down and loop back to re-check
-    // whether another waiter has already started a replacement session.
+    // Credential, listenHost, or platformOnly mismatch — tear down and loop
+    // back to re-check whether another waiter has already started a
+    // replacement session.
     await stopSession(session.id);
   }
 
@@ -547,7 +595,8 @@ export async function getOrStartSession(
       if (
         credentialIdsMatch(recheck.credentialIds, credentialIds) &&
         m &&
-        m.listenHost === requestedHost
+        m.listenHost === requestedHost &&
+        m.platformOnly === requestedPlatformOnly
       ) {
         return { session: recheck, created: false };
       }
@@ -560,6 +609,7 @@ export async function getOrStartSession(
       config,
       dataDir,
       approvalCallback,
+      { platformOnly: requestedPlatformOnly },
     );
     const started = await startSession(session.id, options);
     return { session: started, created: true };
