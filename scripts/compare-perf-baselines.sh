@@ -17,13 +17,16 @@ fi
 # Delegate all parsing, comparison, and baseline update to Python.
 # Avoids bash/sed fragility with test names that contain spaces, and handles
 # the set-e + subprocess-exit-code pitfall by using a single Python invocation.
-python3 - "$RESULTS_LOG" "$BASELINE_FILE" "$REGRESSION_THRESHOLD_PCT" "$BASELINE_DIR" << 'PYEOF'
+UPDATE_BASELINE="${UPDATE_BASELINE:-true}"
+
+python3 - "$RESULTS_LOG" "$BASELINE_FILE" "$REGRESSION_THRESHOLD_PCT" "$BASELINE_DIR" "$UPDATE_BASELINE" << 'PYEOF'
 import re, sys, json, os
 
-results_log    = sys.argv[1]
-baseline_file  = sys.argv[2]
-threshold      = float(sys.argv[3])
-baseline_dir   = sys.argv[4]
+results_log      = sys.argv[1]
+baseline_file    = sys.argv[2]
+threshold        = float(sys.argv[3])
+baseline_dir     = sys.argv[4]
+update_baseline  = sys.argv[5].lower() == "true"
 
 # Parse XCTest timing lines. Format:
 #   Test Case '-[Suite.ClassName testMethodName]' measured [Time, seconds] average: N.NNN, ...
@@ -79,10 +82,13 @@ if regressions:
     print(f"FAIL: {len(regressions)} regression(s) exceed {threshold:.0f}% threshold: {', '.join(regressions)}")
     sys.exit(1)
 
-# Update baseline with latest results so it tracks gradual performance changes.
-updated = {**baselines, **results}
-with open(baseline_file, "w") as f:
-    json.dump(updated, f, indent=2)
-
-print("PASS: No regressions detected. Baseline updated.")
+# Update baseline only on main-branch pushes to prevent PR runs from
+# ratcheting the baseline downward and masking future regressions.
+if update_baseline:
+    updated = {**baselines, **results}
+    with open(baseline_file, "w") as f:
+        json.dump(updated, f, indent=2)
+    print("PASS: No regressions detected. Baseline updated.")
+else:
+    print("PASS: No regressions detected. (Baseline not updated on PR run.)")
 PYEOF

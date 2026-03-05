@@ -6,11 +6,15 @@ on:
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
+      - '.github/workflows/ci-perf-macos.yaml'
+      - 'scripts/compare-perf-baselines.sh'
   pull_request:
     branches: [main]
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
+      - '.github/workflows/ci-perf-macos.yaml'
+      - 'scripts/compare-perf-baselines.sh'
 
 jobs:
   perf-baselines:
@@ -47,6 +51,10 @@ jobs:
           swift test --package-path clients --filter MarkdownPerformanceTests 2>&1 | tee .perf-baselines/results.log
 
       - name: Compare baselines
+        env:
+          # Only update stored baselines on main branch pushes — not on PR runs,
+          # to prevent a regressing PR from lowering the baseline for future comparisons.
+          UPDATE_BASELINE: ${{ github.event_name == 'push' && 'true' || 'false' }}
         run: bash scripts/compare-perf-baselines.sh
 
       - name: Upload new baselines
