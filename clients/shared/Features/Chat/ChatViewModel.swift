@@ -2356,6 +2356,7 @@ public final class ChatViewModel: ObservableObject {
         // after the messages array is replaced, creating an orphan assistant message
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
+        cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
         lastContentWasToolCall = false

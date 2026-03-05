@@ -18,7 +18,7 @@ interface SurfaceContentTarget {
     string,
     { surfaceType: SurfaceType; data: SurfaceData; title?: string }
   >;
-  currentTurnSurfaces: Array<{
+  currentTurnSurfaces?: Array<{
     surfaceId: string;
     surfaceType: SurfaceType;
     title?: string;
@@ -84,7 +84,7 @@ export function surfaceContentRouteDefinitions(deps: {
 
         // Fall back to currentTurnSurfaces in case the surface hasn't been
         // committed to surfaceState yet (e.g. mid-turn).
-        const turnSurface = session.currentTurnSurfaces.find(
+        const turnSurface = session.currentTurnSurfaces?.find(
           (s) => s.surfaceId === surfaceId,
         );
         if (turnSurface) {

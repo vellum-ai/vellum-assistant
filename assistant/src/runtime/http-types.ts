@@ -182,7 +182,7 @@ export interface RuntimeHttpServerOptions {
           string,
           { surfaceType: SurfaceType; data: SurfaceData; title?: string }
         >;
-        currentTurnSurfaces: Array<{
+        currentTurnSurfaces?: Array<{
           surfaceId: string;
           surfaceType: SurfaceType;
           title?: string;
