@@ -288,7 +288,10 @@ if [ -n "$CHANGED_FILES" ]; then
                 _debug_log "$pkg: dep graph failed (exit=$graph_exit), falling back to filename heuristic"
             fi
         fi
-        test_files+=("${graph_test_files[@]}")
+        # Guard for bash 3.2 compatibility (empty array + set -u)
+        if [ ${#graph_test_files[@]} -gt 0 ]; then
+            test_files+=("${graph_test_files[@]}")
+        fi
 
         # Phase B: filename heuristic (fallback + supplement for guard tests)
         stems=()
