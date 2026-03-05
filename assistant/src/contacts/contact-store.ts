@@ -213,6 +213,7 @@ export function upsertContact(params: {
         syncChannels(contactId, params.channels, now);
       }
 
+      emitContactChange();
       return { ...getContactInternal(contactId)!, created: false };
     }
   }
@@ -281,6 +282,7 @@ export function upsertContact(params: {
           .run();
 
         syncChannels(contactId, params.channels, now);
+        emitContactChange();
         return { ...getContactInternal(contactId)!, created: false };
       }
     }
@@ -311,6 +313,7 @@ export function upsertContact(params: {
     syncChannels(contactId, params.channels, now);
   }
 
+  emitContactChange();
   return { ...getContactInternal(contactId)!, created: true };
 }
 
