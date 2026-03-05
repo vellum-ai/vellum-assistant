@@ -5,6 +5,8 @@ import VellumAssistantShared
 /// verification status, action buttons, and metadata.
 @MainActor
 struct ContactDetailView: View {
+    private static let allChannelTypes = ["telegram", "sms", "email", "voice", "slack"]
+
     let contact: ContactPayload
     var daemonClient: DaemonClient?
 
@@ -144,14 +146,32 @@ struct ContactDetailView: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            if displayContact.channels.isEmpty {
-                Text("No channels configured")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .padding(VSpacing.lg)
-            } else {
-                ForEach(displayContact.channels) { channel in
-                    channelRow(channel)
+            let channelsByType = Dictionary(
+                grouping: displayContact.channels,
+                by: { $0.type }
+            )
+            let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
+            let totalRows = Self.allChannelTypes.count + extraChannels.count
+
+            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { index, type in
+                if let channels = channelsByType[type] {
+                    ForEach(channels) { channel in
+                        channelRow(channel)
+                    }
+                } else {
+                    unconfiguredChannelRow(type: type)
+                }
+
+                if index < totalRows - 1 {
+                    Divider().background(VColor.divider)
+                }
+            }
+
+            ForEach(Array(extraChannels.enumerated()), id: \.element.id) { index, channel in
+                channelRow(channel)
+
+                if Self.allChannelTypes.count + index < totalRows - 1 {
+                    Divider().background(VColor.divider)
                 }
             }
 
@@ -217,10 +237,26 @@ struct ContactDetailView: View {
             if displayContact.role != "guardian" {
                 channelActions(for: channel)
             }
+        }
+    }
 
-            if channel.id != displayContact.channels.last?.id {
-                Divider().background(VColor.divider)
-            }
+    @ViewBuilder
+    private func unconfiguredChannelRow(type: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: channelIcon(for: type))
+                .foregroundColor(VColor.textSecondary)
+                .font(.system(size: 14))
+                .frame(width: 20, alignment: .center)
+
+            Text(channelLabel(for: type))
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            Spacer()
+
+            Text("Not set up")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
         }
     }
 
@@ -481,6 +517,17 @@ struct ContactDetailView: View {
             return "bubble.left.fill"
         default:
             return "globe"
+        }
+    }
+
+    private func channelLabel(for type: String) -> String {
+        switch type {
+        case "telegram": return "Telegram"
+        case "sms": return "SMS"
+        case "email": return "Email"
+        case "voice": return "Voice"
+        case "slack": return "Slack"
+        default: return type.capitalized
         }
     }
 
