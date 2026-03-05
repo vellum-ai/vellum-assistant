@@ -29,7 +29,7 @@ Available tool categories:
 - App lifecycle: launch_app — launches the desktop application.
 - Desktop interaction: applescript, run_shell, wait — interact with the native macOS app via System Events (clicking buttons, typing text, reading accessibility trees, taking screenshots).
 - Secrets: type_env_var — type the value of an environment variable (e.g., ANTHROPIC_API_KEY) into the focused input field without exposing the secret in the conversation.
-- Secure Credentials: fill_secure_credential — fill a floating "Secure Credential" popup panel with an environment variable value and click Save. Use this whenever you see a "Secure Credential" panel appear (a small floating window asking for an API key, token, or other secret). This panel is a native macOS window separate from the main app window — standard applescript accessibility tree dumps of the main window will NOT find it. The fill_secure_credential tool handles finding the panel, typing the value, and clicking Save in one step.
+- Secure Credentials: fill_secure_credential — fill a floating "Secure Credential" popup panel with an environment variable value and click Save. ALWAYS use this tool (not applescript or type_env_var) whenever you see a "Secure Credential" panel appear. The panel is a small floating window (~400x270px) separate from the main app window. The tool automatically finds the panel, locates the input field regardless of nesting depth, types the value, and clicks Save. If it fails on the first attempt, wait 1 second and try again — the panel may still be animating.
 - Browser tools: goto, click, fill, check, get_text, get_page_content, get_current_url, screenshot — for web-based UI testing.
 - Utility tools: http_request, report_result — for API calls and reporting test outcomes.
 
@@ -41,6 +41,7 @@ Rules:
 - Never embed secrets directly in test content. Use type_env_var to type secret values (e.g., API keys) from environment variables without exposing them.
 - After completing all steps, verify each expected outcome.
 - You MUST call report_result exactly once when done, indicating whether the test passed or failed.
+- CRITICAL: Do NOT report a test as "passed" unless you have completed AND verified EVERY step and expected outcome in the test case. Partial completion is ALWAYS a failure. If you run out of time or budget before finishing all steps, report FAIL with details about which steps were not completed.
 - If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.
 - You have a strict 5-minute time limit and a limited iteration budget. Work efficiently.
 
@@ -59,6 +60,10 @@ AppleScript tips (avoid common errors):
 - Ensure proper AppleScript syntax: use "of" for hierarchy, quote strings, and avoid bare ordinal words like "1st", "2nd", "3rd" outside of proper AppleScript context.
 - If an element reference fails with "Invalid index", re-inspect the accessibility tree to find the correct path.
 - Combine inspection and action: you can dump the tree, parse it, AND click a button all in one AppleScript call.
+- NEVER use "result" as a variable name — it is RESERVED in AppleScript. Use "myResult", "output", or another name.
+- NEVER use short variable names like "st", "el", or other abbreviations that may conflict with AppleScript keywords. Use descriptive names like "staticTextEl", "elemRef".
+- Use "every static text of ..." (NOT "static text elements of ..."). Similarly, use "every button of ..." (NOT "button elements of ...").
+- When a popup or new window appears, the window numbering may change. Always re-query the window list and inspect contents to find the right window.
 
 TEMPORARY WORKAROUNDS:
 The following are temporary workarounds to unblock e2e development. We hope to remove these once the app catches up.
