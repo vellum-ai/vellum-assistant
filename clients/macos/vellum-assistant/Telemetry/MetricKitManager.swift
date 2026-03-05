@@ -51,8 +51,13 @@ import Sentry
     /// with crash-handler and session-tracking disabled so only the explicit
     /// event is sent during the window — no automatic captures occur.
     /// All operations run on `sentrySerialQueue` to prevent races.
+    /// `completion` is called on `sentrySerialQueue` after the flush finishes
+    /// (or immediately if Sentry was already enabled and no flush is needed).
     /// `nonisolated` so the Settings sheet can call it from a detached Task.
-    nonisolated static func sendManualReport(_ event: Event) {
+    nonisolated static func sendManualReport(
+        _ event: Event,
+        completion: (@Sendable () -> Void)? = nil
+    ) {
         sentrySerialQueue.async {
             let wasDisabled = !SentrySDK.isEnabled
             if wasDisabled {
@@ -70,6 +75,7 @@ import Sentry
                 SentrySDK.flush(timeout: 5)
                 SentrySDK.close()
             }
+            completion?()
         }
     }
 

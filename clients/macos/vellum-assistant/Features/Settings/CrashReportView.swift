@@ -81,7 +81,7 @@ struct CrashReportView: View {
             .buttonStyle(.bordered)
             .disabled(isSending)
 
-            Button("Send Report") {
+            Button(isSending ? "Sending…" : "Send Report") {
                 sendReport()
             }
             .buttonStyle(.borderedProminent)
@@ -107,12 +107,19 @@ struct CrashReportView: View {
                 ? String(logContent.prefix(8_192)) + "\n[truncated]"
                 : logContent
             event.extra = ["crash_log": truncated, "crash_file": crashFileName]
-            MetricKitManager.sendManualReport(event)
+
+            // Await completion so UI confirms delivery only after flush finishes.
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                MetricKitManager.sendManualReport(event) {
+                    continuation.resume()
+                }
+            }
 
             await MainActor.run {
                 isSending = false
                 didSend = true
                 CrashReporter.markAsSeen(urlCopy)
+                // Auto-dismiss after a short delay so the user sees the confirmation.
                 dismissTask = Task {
                     try? await Task.sleep(nanoseconds: 1_500_000_000)
                     guard !Task.isCancelled else { return }
@@ -141,15 +148,16 @@ extension AppDelegate {
     }
 
     func showCrashReportWindow(url: URL, content: String) {
+        let dismiss: () -> Void = { [weak self] in
+            self?.crashReportWindow?.close()
+            self?.crashReportWindow = nil
+            self?.scheduleActivationPolicyRevert()
+        }
+
         let view = CrashReportView(
             crashURL: url,
             crashLog: content,
-            onDismiss: { [weak self] in
-                self?.crashReportWindow?.close()
-                self?.crashReportWindow = nil
-                // Restore menu-bar-only activation policy if no other windows remain.
-                self?.scheduleActivationPolicyRevert()
-            }
+            onDismiss: dismiss
         )
 
         let hostingController = NSHostingController(rootView: view)
@@ -168,6 +176,17 @@ extension AppDelegate {
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
         window.center()
+
+        // Handle native close-button dismissal so crashReportWindow is cleared
+        // and activation policy is reverted even when the user clicks the red ✕.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.crashReportWindow = nil
+            self?.scheduleActivationPolicyRevert()
+        }
 
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)

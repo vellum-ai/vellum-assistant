@@ -76,8 +76,10 @@ struct SettingsPrivacyTab: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Share performance metrics")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Text("Send anonymised performance metrics (hang rate, scroll speed) to help us improve responsiveness. No personal data or message content is included.")
+                        .foregroundColor(collectUsageData ? VColor.textSecondary : VColor.textMuted)
+                    Text(collectUsageData
+                         ? "Send anonymised performance metrics (hang rate, scroll speed) to help us improve responsiveness. No personal data or message content is included."
+                         : "Requires \"Collect usage data\" to be enabled.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
@@ -86,6 +88,7 @@ struct SettingsPrivacyTab: View {
                     get: { store.sendPerformanceReports },
                     set: { store.sendPerformanceReports = $0 }
                 ))
+                .disabled(!collectUsageData)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
