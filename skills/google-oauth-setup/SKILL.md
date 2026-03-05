@@ -4,7 +4,8 @@ description: "Set up Google Cloud OAuth credentials for Gmail and Calendar using
 user-invocable: true
 credential-setup-for: "gmail"
 includes: ["browser", "public-ingress"]
-metadata: {"vellum": {"emoji": "\ud83d\udd11"}}
+metadata:
+  emoji: "🔑"
 ---
 
 You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect.

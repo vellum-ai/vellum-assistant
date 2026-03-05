@@ -4,8 +4,9 @@
   "skills": [
     {
       "id": "google-oauth-setup",
-      "name": "Google OAuth Setup",
+      "name": "google-oauth-setup",
       "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation",
+      "emoji": "🔑",
       "includes": [
         "browser",
         "public-ingress"
