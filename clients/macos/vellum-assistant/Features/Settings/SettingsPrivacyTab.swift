@@ -211,6 +211,7 @@ private struct ReportProblemSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") {
+                    dismissTask?.cancel()
                     isPresented = false
                 }
                 .buttonStyle(.bordered)
@@ -229,35 +230,41 @@ private struct ReportProblemSheet: View {
 
     private func sendReport() {
         isSending = true
-        let event = Event(level: .info)
-        event.message = SentryMessage(
-            formatted: userDescription.isEmpty ? "Manual problem report" : userDescription
-        )
+        // Capture Sendable (value type) copies before hopping off the main actor.
+        let message = userDescription.isEmpty ? "Manual problem report" : userDescription
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-        event.tags = ["source": "manual_report", "app_version": appVersion]
-        // If the user opted out, Sentry is closed by checkAndApplyPrivacyFlag().
-        // Start it temporarily for this manual report only, then flush and close
-        // to fully restore the opted-out state so no automatic events slip through.
-        let wasDisabled = !SentrySDK.isEnabled
-        if wasDisabled {
-            SentrySDK.start { options in
-                options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
-                options.sendDefaultPii = false
+        // Run Sentry operations on a background thread so SentrySDK.flush(timeout:)
+        // — which can block for up to 5 seconds — never freezes the main thread.
+        // If the user opted out, Sentry is closed by checkAndApplyPrivacyFlag();
+        // start it temporarily, flush to ensure delivery, then close to restore
+        // the opted-out state so no automatic events slip through afterward.
+        Task.detached {
+            let event = Event(level: .info)
+            event.message = SentryMessage(formatted: message)
+            event.tags = ["source": "manual_report", "app_version": appVersion]
+            let wasDisabled = !SentrySDK.isEnabled
+            if wasDisabled {
+                SentrySDK.start { options in
+                    options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                    options.sendDefaultPii = false
+                }
             }
-        }
-        SentrySDK.capture(event: event)
-        if wasDisabled {
-            SentrySDK.flush(timeout: 5)
-            SentrySDK.close()
-        }
-        isSending = false
-        didSend = true
-        // Dismiss automatically after a short delay so the user can see the confirmation.
-        dismissTask?.cancel()
-        dismissTask = Task {
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            guard !Task.isCancelled else { return }
-            isPresented = false
+            SentrySDK.capture(event: event)
+            if wasDisabled {
+                SentrySDK.flush(timeout: 5)
+                SentrySDK.close()
+            }
+            await MainActor.run {
+                isSending = false
+                didSend = true
+                // Dismiss automatically after a short delay so the user can see the confirmation.
+                dismissTask?.cancel()
+                dismissTask = Task {
+                    try? await Task.sleep(nanoseconds: 1_200_000_000)
+                    guard !Task.isCancelled else { return }
+                    isPresented = false
+                }
+            }
         }
     }
 }
