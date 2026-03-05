@@ -1683,17 +1683,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         #if os(macOS)
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
-
-        guard let url = URL(string: "\(baseURL)/v1/contacts/invites") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/contacts/invites", method: "POST") else { return nil }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = ActorTokenManager.getToken() ?? readHttpToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
 
         var body: [String: Any] = ["sourceChannel": sourceChannel]
         if let note { body["note"] = note }
@@ -1741,19 +1732,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         #if os(macOS)
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
-
         let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
         let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-        guard let url = URL(string: "\(baseURL)/v1/contacts/\(cEncoded)/channels/\(chEncoded)/verify") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/contacts/\(cEncoded)/channels/\(chEncoded)/verify", method: "POST") else { return nil }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = ActorTokenManager.getToken() ?? readHttpToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse,
@@ -1873,17 +1855,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return try await httpTransport.fetchAssistantFeatureFlags(featureFlagToken: token)
         }
 
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+        guard let request = buildLocalRequest(target: .gateway, path: "v1/feature-flags", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -1915,17 +1889,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         // Local mode: call the gateway directly.
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+        guard let request = buildLocalRequest(target: .gateway, path: "v1/feature-flags", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -1968,19 +1934,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         // Local mode (socket, TCP, or local HTTP): call the gateway directly.
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
         let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags/\(encoded)") else {
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/feature-flags/\(encoded)", method: "PATCH", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
 
         let body: [String: Any] = ["enabled": enabled]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
