@@ -34,6 +34,8 @@ Create a recurring schedule using `schedule_create`. The recommended default is 
 
 **Cron expression:** `0 7-19 * * *` (fires at the top of each hour, 7am through 7pm)
 
+**Determine the delivery target.** Ask the user where digests should be delivered — typically their Slack DM or a dedicated channel like `#alex-agent-messages`. Use `messaging_read` or the Slack API to resolve the `conversation_id` for the target. This ID gets baked into the schedule message so scheduled sessions know where to post.
+
 **The schedule message is critical.** Scheduled sessions have no memory of this setup conversation. The message must be completely self-contained with every instruction needed to execute properly. Use the Scan Execution Protocol below as the template for the schedule message content.
 
 ### Scan Window Logic
@@ -89,7 +91,7 @@ Write in prose style, conversational. Not bullet lists of channel names. Highlig
 
 4b. **If genuinely zero messages: Name the channels you scanned.** The user needs to know coverage was complete. Example: "Scanned team-atlas, team-illuminati, ask-eng, team-jarvis, and 3 others. Nothing new in the last hour."
 
-5. **Deliver via `send_notification`.** Call `send_notification` with `urgency: "high"` and `preferred_channels: ["slack"]`. The `message` field MUST contain the full prose digest you wrote in step 4. This is what the user sees. If you put "scan completed" or "check Slack for updates" in the message field, that is literally all the user receives. The notification message IS the digest.
+5. **Deliver via `messaging_send`.** Call `messaging_send` with `platform: "slack"` and the target `conversation_id` (determined during setup — typically the user's preferred DM or a dedicated digest channel). The `message` field MUST contain the full prose digest you wrote in step 4. Do NOT use `send_notification` for digests — the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
 
 6. **Update tracking files.** Write the current timestamp to `data/last_slack_scan.json` and append a log entry to `data/slack_scan_log.md`.
 
@@ -106,7 +108,7 @@ Run the Slack digest scan. Follow every instruction exactly:
 4. Build the digest:
    - If there are messages: write a prose-style digest broken down by channel with channel names, who's talking (real names), specific topics, reply counts, decisions, questions, and anything needing attention.
    - If zero messages: list which channels were scanned so coverage is clear.
-5. Send using send_notification with urgency "high" and preferred_channels ["slack"]. The MESSAGE field must contain the full digest from step 4. Never send a generic status like "scan completed."
+5. Send using messaging_send with platform "slack" and conversation_id "<target_channel_id>". The MESSAGE field must contain the full digest from step 4. Never send a generic status like "scan completed." Do NOT use send_notification — it rewrites content into short alerts.
 6. Update data/last_slack_scan.json and append to data/slack_scan_log.md.
 ```
 
@@ -141,9 +143,9 @@ These are hard-won lessons from debugging digest quality issues. They exist here
 
 The `slack_scan_digest` tool is what fetches messages. Without calling it, you have nothing to summarize. Never report "all clear" or "0 channels active" without having actually called the scan tool and confirmed zero messages came back. The scan does the fetching. You do the summarizing.
 
-### Pitfall: Generic notification messages
+### Pitfall: Using `send_notification` for digests
 
-`send_notification`'s `message` field is literally what the user sees in their Slack DM (or wherever notifications route to). If you write "Your hourly Slack scan completed. Check the Slack app for updates," that is the entire notification. The user gets zero value from it. Put the actual digest in the message field. The notification message IS the digest.
+The notification router's decision engine rewrites `send_notification` content into short alerts (title ≤ 8 words, body ≤ 2 sentences). If you put a full prose digest in `send_notification`, it will be truncated or rewritten. Always use `messaging_send` with the target `conversation_id` for digest delivery. The `messaging_send` message field is delivered verbatim.
 
 ### Pitfall: Not naming channels in quiet reports
 

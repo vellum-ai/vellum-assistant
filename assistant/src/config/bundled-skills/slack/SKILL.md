@@ -62,26 +62,12 @@ When responding to messages from Slack channels, replies are automatically threa
 
 ## Proactive Delivery
 
-When you need to **send** content to Slack proactively (e.g. a scheduled digest, a scan summary, or a report), you have two options:
+When you need to **send** content to Slack proactively (e.g. a scheduled digest, a scan summary, or a report):
 
-### `messaging_send` — Direct posting to a specific destination
-
-- Use `messaging_send` with `platform: "slack"` and the target `conversation_id` (Slack channel or DM ID).
-- Posts directly via `chat.postMessage` and preserves the full message content.
-- Best when you know the exact channel/DM to target and want full control over delivery.
-
-### `send_notification` — Routed delivery via the notification system
-
-- Use `send_notification` with the digest content in the `message` field.
-- The notification router delivers to the user's preferred channel (usually Slack DM).
-- Works well for scheduled digests where you want the router to pick the best destination.
-- **Critical:** The `message` field IS the content the user sees. Whatever you put there is delivered as-is. If you write "scan completed" or "check Slack for updates," that is literally the entire notification. Always put the actual digest, summary, or report content in the `message` field.
-
-### Which to use?
-
-- **Interactive sessions** (user asked for a scan): Use `messaging_send` to post to a specific channel or DM.
-- **Scheduled sessions** (cron/heartbeat): Either works. `send_notification` is often simpler since it doesn't require knowing the target conversation ID. Just make sure the `message` field contains the full content.
-- **Short alerts** (status updates, completion notices): `send_notification` is fine since the content is inherently short.
+- Use `messaging_send` with `platform: "slack"` and the target `conversation_id` (Slack channel or DM ID). This posts directly via `chat.postMessage` and preserves the full message content.
+- Do **NOT** use `send_notification` for rich content like digests — the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
+- `send_notification` is appropriate for short alerts and status updates where you want the router to pick the best channel. `messaging_send` is appropriate when you have specific content to deliver to a specific Slack destination.
+- For scheduled tasks (cron/RRULE), always end with a `messaging_send` call so the results actually reach the user. Without it, the output only lives in the conversation log.
 
 For setting up recurring digests, load the `slack-digest-setup` skill which covers the full configuration, scheduling, and delivery protocol.
 
