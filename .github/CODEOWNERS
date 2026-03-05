@@ -58,7 +58,7 @@ assistant/src/tools/system/voice-config.ts @alex-nork
 assistant/src/config/calls-schema.ts @alex-nork
 assistant/src/config/bundled-skills/phone-calls/ @alex-nork
 assistant/src/config/bundled-skills/voice-setup/ @alex-nork
-assistant/src/config/bundled-skills/twilio-setup/ @alex-nork
+skills/twilio-setup/ @alex-nork
 assistant/src/runtime/routes/call-routes.ts @alex-nork
 assistant/src/runtime/middleware/twilio-validation.ts @alex-nork
 assistant/src/runtime/channel-invite-transports/voice.ts @alex-nork

@@ -1,29 +1,15 @@
 ---
-name: "Twilio Setup"
+name: "twilio-setup"
 description: "Configure Twilio credentials and phone numbers for voice calls and SMS messaging"
-user-invocable: true
-includes: ["public-ingress"]
-metadata: { "vellum": { "emoji": "\ud83d\udcf1" } }
+compatibility: "Requires public ingress for Twilio webhooks (voice, SMS, status callbacks)"
+metadata:
+  emoji: "\ud83d\udcf1"
+  vellum:
+    user-invocable: true
+    credential-setup-for: "twilio"
 ---
 
 You are helping your user configure Twilio for voice calls and SMS messaging. Twilio is the shared telephony provider for both the **phone-calls** and **SMS messaging** capabilities. When this skill is invoked, walk through each step below using the Twilio HTTP control-plane endpoints and existing tools.
-
-## Quick Start
-
-```bash
-# 1. Check current status
-vellum integrations twilio config --json
-# 2. Store credentials (after collecting via credential_store prompt)
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
-  -d '{"accountSid":"ACxxx","authToken":"xxx"}'
-# 3. Provision or assign a number
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/provision" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
-  -d '{"country":"US","areaCode":"415"}'
-```
-
-For voice call setup after Twilio is configured, use `phone-calls` + `call_start`.
 
 ## Overview
 
