@@ -240,9 +240,9 @@ struct ContactDetailView: View {
             )
             let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
 
-            // Compute which standard types are visible (have channels or readiness==true)
+            // Compute which standard types are visible (have channels or readiness info)
             let visibleTypes = Self.allChannelTypes.filter { type in
-                channelsByType[type] != nil || channelReadiness[type]?.ready == true
+                channelsByType[type] != nil || channelReadiness[type] != nil
             }
             let lastVisibleType = visibleTypes.last
             let hasExtraChannels = !extraChannels.isEmpty
@@ -261,15 +261,19 @@ struct ContactDetailView: View {
                     if type != lastVisibleType || hasExtraChannels {
                         Divider().background(VColor.divider)
                     }
-                } else if channelReadiness[type]?.ready == true {
-                    // Unconfigured but assistant has this channel set up — show
-                    unconfiguredChannelRow(type: type)
+                } else if let readiness = channelReadiness[type] {
+                    if readiness.ready {
+                        // Unconfigured but assistant has this channel set up — show
+                        unconfiguredChannelRow(type: type)
+                    } else {
+                        // Channel exists but is not ready — show with reason
+                        unavailableChannelRow(type: type, reason: readiness.reasonSummary)
+                    }
 
                     if type != lastVisibleType || hasExtraChannels {
                         Divider().background(VColor.divider)
                     }
                 }
-                // else: channel not configured, hide entirely
             }
 
             ForEach(Array(extraChannels.enumerated()), id: \.element.id) { index, channel in
@@ -434,6 +438,37 @@ struct ContactDetailView: View {
 
             if inviteResult?.type == type {
                 inviteResultDisplay(for: type)
+            }
+        }
+    }
+
+    /// Row for a channel that the assistant knows about but is not ready.
+    /// Shows the channel name with an explanation of why it is unavailable.
+    @ViewBuilder
+    private func unavailableChannelRow(type: String, reason: String?) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: channelIcon(for: type))
+                    .foregroundColor(VColor.textMuted)
+                    .font(.system(size: 14))
+                    .frame(width: 20, alignment: .center)
+
+                Text(channelLabel(for: type))
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+
+                Spacer()
+
+                Text("Unavailable")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            if let reason {
+                Text(reason)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

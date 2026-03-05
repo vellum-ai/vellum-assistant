@@ -1891,10 +1891,25 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         #endif
     }
 
+    /// A single readiness check result from the API.
+    public struct ReadinessCheck {
+        public let name: String
+        public let passed: Bool
+        public let message: String
+    }
+
     /// Rich channel readiness information returned by `fetchChannelReadiness()`.
     public struct ChannelReadinessInfo {
         public let ready: Bool
         public let channelHandle: String?
+        public let checks: [ReadinessCheck]
+
+        /// Human-readable reason why this channel is not ready, derived from
+        /// the first failing check. Returns `nil` when the channel is ready.
+        public var reasonSummary: String? {
+            guard !ready else { return nil }
+            return checks.first(where: { !$0.passed })?.message
+        }
     }
 
     /// Fetch per-channel readiness state from the gateway.
@@ -1919,14 +1934,24 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 let channel: String
                 let ready: Bool
                 let channelHandle: String?
+                let localChecks: [CheckResult]?
+                let remoteChecks: [CheckResult]?
+            }
+            struct CheckResult: Decodable {
+                let name: String
+                let passed: Bool
+                let message: String
             }
         }
         let decoded = try JSONDecoder().decode(ReadinessResponse.self, from: data)
         var result: [String: ChannelReadinessInfo] = [:]
         for snapshot in decoded.snapshots {
+            let checks = ((snapshot.localChecks ?? []) + (snapshot.remoteChecks ?? []))
+                .map { ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
             result[snapshot.channel] = ChannelReadinessInfo(
                 ready: snapshot.ready,
-                channelHandle: snapshot.channelHandle
+                channelHandle: snapshot.channelHandle,
+                checks: checks
             )
         }
         return result
