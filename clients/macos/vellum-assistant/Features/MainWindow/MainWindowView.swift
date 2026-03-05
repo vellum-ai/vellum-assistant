@@ -521,6 +521,9 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .sessionTokenDidChange)) { _ in
+            hasSessionToken = SessionTokenManager.getToken() != nil
+        }
         .onReceive(daemonClient.$isConnected) { connected in
             windowState.refreshAPIKeyStatus(isConnected: connected)
 
