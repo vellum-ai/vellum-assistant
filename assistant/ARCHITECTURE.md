@@ -363,7 +363,7 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 
 These can be set via environment variables or stored in the credential vault (keychain / encrypted store) under the `whatsapp` service prefix.
 
-**Limitations (v1)**: Rich approval UI (inline buttons) is not supported. Sticker, contacts, and location message types are acknowledged but not forwarded.
+**Limitations (v1)**: Rich approval UI (inline buttons) is not supported. Contacts and location message types are acknowledged but not forwarded.
 
 **Channel Readiness**: The channel readiness HTTP endpoints (`GET /v1/channels/readiness`, `POST /v1/channels/readiness/refresh`) backed by `ChannelReadinessService` in `src/runtime/channel-readiness-service.ts` provide a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress; remote checks query Twilio toll-free verification status for toll-free numbers) and Telegram (bot token, webhook secret, ingress). The GET endpoint returns cached snapshots; the refresh endpoint invalidates the cache first. Unknown channels return `unsupported_channel`. Route handlers live in `src/runtime/routes/channel-readiness-routes.ts`.
 
