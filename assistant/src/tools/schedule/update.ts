@@ -20,6 +20,14 @@ export async function executeScheduleUpdate(
     return { content: "Error: job_id is required", isError: true };
   }
 
+  if (input.cron_expression !== undefined) {
+    return {
+      content:
+        'Error: "cron_expression" is deprecated. Use "expression" instead.',
+      isError: true,
+    };
+  }
+
   const updates: Record<string, unknown> = {};
   if (input.name !== undefined) updates.name = input.name;
   if (input.timezone !== undefined) updates.timezone = input.timezone;

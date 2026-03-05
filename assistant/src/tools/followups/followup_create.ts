@@ -47,6 +47,14 @@ export async function executeFollowupCreate(
     };
   }
 
+  if (input.reminder_cron_id !== undefined) {
+    return {
+      content:
+        'Error: "reminder_cron_id" is deprecated. Use "reminder_schedule_id" instead.',
+      isError: true,
+    };
+  }
+
   const contactId = input.contact_id as string | undefined;
   const expectedResponseHours = input.expected_response_hours as
     | number
