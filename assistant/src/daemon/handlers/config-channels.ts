@@ -2,7 +2,10 @@ import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
 import { resolveGuardianName } from "../../config/user-reference.js";
-import { findContactChannel } from "../../contacts/contact-store.js";
+import {
+  findContactChannel,
+  findGuardianForChannel,
+} from "../../contacts/contact-store.js";
 import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
@@ -110,36 +113,18 @@ export function getGuardianStatus(
 
   const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
 
-  // Resolve guardianUsername and displayName from binding metadata or
-  // external conversation store. The displayName is passed to
-  // resolveGuardianName() as a fallback for when USER.md is missing/empty
-  // (e.g. pre-onboarding).
-  let guardianUsername: string | undefined;
-  let bindingDisplayName: string | undefined;
-  if (binding?.metadataJson) {
-    try {
-      const parsed = JSON.parse(binding.metadataJson) as Record<
-        string,
-        unknown
-      >;
-      if (
-        typeof parsed.username === "string" &&
-        parsed.username.trim().length > 0
-      ) {
-        guardianUsername = parsed.username.trim();
-      }
-      if (
-        typeof parsed.displayName === "string" &&
-        parsed.displayName.trim().length > 0
-      ) {
-        bindingDisplayName = parsed.displayName.trim();
-      }
-    } catch {
-      // ignore malformed metadata
-    }
-  }
+  // Read the contact directly to get displayName — getGuardianBinding is a
+  // compatibility shim that doesn't carry metadataJson.
+  const guardianResult = findGuardianForChannel(
+    resolvedChannel,
+    resolvedAssistantId,
+  );
+  const bindingDisplayName = guardianResult?.contact.displayName;
   const guardianDisplayName = resolveGuardianName(bindingDisplayName);
-  if (binding?.guardianDeliveryChatId && !guardianUsername) {
+
+  // Resolve username from external conversation store.
+  let guardianUsername: string | undefined;
+  if (binding?.guardianDeliveryChatId) {
     const ext = externalConversationStore.getBindingByChannelChat(
       resolvedChannel,
       binding.guardianDeliveryChatId,
