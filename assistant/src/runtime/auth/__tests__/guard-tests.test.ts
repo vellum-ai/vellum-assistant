@@ -56,7 +56,9 @@ describe("route policy coverage", () => {
     const routePolicySrc = readFileSync(routePolicyPath, "utf-8");
 
     // Collect all source files to scan for endpoint literals: http-server.ts
-    // plus every route module under routes/.
+    // plus every route module under routes/. Pre-auth route modules (those
+    // containing "pre-auth endpoint") are excluded because they are handled
+    // before JWT auth and are not composed into buildRouteTable().
     const allSources = [httpServerSrc];
     try {
       const routeFiles = execSync(`ls "${routeModulesDir}"/*.ts`, {
@@ -66,7 +68,9 @@ describe("route policy coverage", () => {
         .split("\n")
         .filter((f) => f.length > 0);
       for (const filePath of routeFiles) {
-        allSources.push(readFileSync(filePath, "utf-8"));
+        const src = readFileSync(filePath, "utf-8");
+        if (src.includes("pre-auth endpoint")) continue;
+        allSources.push(src);
       }
     } catch {
       // No route modules found — only inline routes will be covered.
