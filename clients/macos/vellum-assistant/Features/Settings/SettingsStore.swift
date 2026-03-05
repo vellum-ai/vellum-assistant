@@ -1109,25 +1109,33 @@ public final class SettingsStore: ObservableObject {
     /// Re-sync locally-known keys to daemon on reconnect.
     /// Pushes keys present in the macOS keychain, and replays any pending
     /// deletion tombstones so user-initiated clears are eventually consistent.
+    /// Waits for the JWT to become available before syncing, because reconnect
+    /// can fire before async credential bootstrap completes.
     private func syncAllKeysToDaemon() {
-        let apiKeyProviders: [(String, String?)] = [
-            ("anthropic", APIKeyManager.getKey()),
-            ("brave", APIKeyManager.getKey(for: "brave")),
-            ("perplexity", APIKeyManager.getKey(for: "perplexity")),
-            ("gemini", APIKeyManager.getKey(for: "gemini")),
-        ]
-        for (provider, value) in apiKeyProviders {
-            if let key = value {
-                syncKeyToDaemon(provider: provider, value: key)
+        Task {
+            // Wait for the JWT to be populated; on reconnect the async
+            // credential bootstrap may still be in-flight.
+            guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
+
+            let apiKeyProviders: [(String, String?)] = [
+                ("anthropic", APIKeyManager.getKey()),
+                ("brave", APIKeyManager.getKey(for: "brave")),
+                ("perplexity", APIKeyManager.getKey(for: "perplexity")),
+                ("gemini", APIKeyManager.getKey(for: "gemini")),
+            ]
+            for (provider, value) in apiKeyProviders {
+                if let key = value {
+                    syncKeyToDaemon(provider: provider, value: key)
+                }
             }
-        }
 
-        // ElevenLabs uses the credential type, not api_key
-        if let key = APIKeyManager.getKey(for: "elevenlabs") {
-            syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
-        }
+            // ElevenLabs uses the credential type, not api_key
+            if let key = APIKeyManager.getKey(for: "elevenlabs") {
+                syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
+            }
 
-        replayDeletionTombstones()
+            replayDeletionTombstones()
+        }
     }
 
     func fetchSlackChannelConfig() {

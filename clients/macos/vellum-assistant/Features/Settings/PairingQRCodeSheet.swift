@@ -240,8 +240,10 @@ struct PairingQRCodeSheet: View {
     }
 
     /// Shared HTTP request logic for pairing registration.
+    /// Awaits token availability to handle the bootstrap window where the JWT
+    /// is being re-issued after a credential clear.
     private func performRegistrationRequest(gatewayBaseUrl: String, requestId: String, secret: String) async -> Result<Void, RegistrationRequestError> {
-        let bearerToken = ActorTokenManager.getToken()
+        let bearerToken = await ActorTokenManager.waitForToken(timeout: 10)
 
         let url = URL(string: "\(gatewayBaseUrl)/pairing/register")!
 
