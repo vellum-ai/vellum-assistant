@@ -33,7 +33,7 @@ let package = Package(
             name: "VellumAssistantShared",
             dependencies: [],
             path: "shared",
-            exclude: ["Tests", "PERF_NOTES.md"],
+            exclude: ["Tests"],
             swiftSettings: [
                 .enableUpcomingFeature("BareSlashRegexLiterals")
             ],
