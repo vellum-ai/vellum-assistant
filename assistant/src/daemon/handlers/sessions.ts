@@ -14,11 +14,6 @@ import {
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import {
-  getAttachmentsForMessage,
-  getFilePathForAttachment,
-  setAttachmentThumbnail,
-} from "../../memory/attachments-store.js";
-import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
   listCanonicalGuardianRequests,
@@ -46,7 +41,6 @@ import {
   redactSecrets,
 } from "../../security/secret-scanner.js";
 import { getSubagentManager } from "../../subagent/index.js";
-import { silentlyWithLog } from "../../util/silently.js";
 import { truncate } from "../../util/truncate.js";
 import { createApprovalConversationGenerator } from "../approval-generators.js";
 import { getAssistantName } from "../identity-helpers.js";
@@ -54,10 +48,7 @@ import type { UserMessageAttachment } from "../ipc-contract.js";
 import type {
   CancelRequest,
   ConfirmationResponse,
-  ConversationSearchRequest,
   DeleteQueuedMessage,
-  HistoryRequest,
-  MessageContentRequest,
   RegenerateRequest,
   ReorderThreadsRequest,
   SandboxSetRequest,
@@ -83,7 +74,6 @@ import {
   classifySessionError,
 } from "../session-error.js";
 import { resolveChannelCapabilities } from "../session-runtime-assembly.js";
-import { generateVideoThumbnail } from "../video-thumbnail.js";
 import {
   handleRecordingPause,
   handleRecordingRestart,
@@ -92,15 +82,15 @@ import {
   handleRecordingStop,
 } from "./recording.js";
 import {
+  handleConversationSearch,
+  handleHistoryRequest,
+  handleMessageContentRequest,
+} from "./session-history.js";
+import {
   defineHandlers,
   type HandlerContext,
-  type HistorySurface,
-  type HistoryToolCall,
   log,
-  mergeToolResults,
-  type ParsedHistoryMessage,
   pendingStandaloneSecrets,
-  renderHistoryContent,
   wireEscalationHandler,
 } from "./shared.js";
 
@@ -1464,275 +1454,6 @@ export function handleCancel(
   }
 }
 
-export function handleHistoryRequest(
-  msg: HistoryRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  // Default to unlimited when callers don't specify a limit, preserving
-  // backward-compatible behavior of returning full conversation history.
-  const limit = msg.limit;
-
-  // Resolve include flags: explicit flags override mode, mode provides defaults.
-  // Default mode is 'light' when no mode and no include flags are specified.
-  const isFullMode = msg.mode === "full";
-  const includeAttachments = msg.includeAttachments ?? isFullMode;
-  const includeToolImages = msg.includeToolImages ?? isFullMode;
-  const includeSurfaceData = msg.includeSurfaceData ?? isFullMode;
-
-  const { messages: dbMessages, hasMore } =
-    conversationStore.getMessagesPaginated(
-      msg.sessionId,
-      limit,
-      msg.beforeTimestamp,
-      msg.beforeMessageId,
-    );
-
-  const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
-    let text = "";
-    let toolCalls: HistoryToolCall[] = [];
-    let toolCallsBeforeText = false;
-    let textSegments: string[] = [];
-    let contentOrder: string[] = [];
-    let surfaces: HistorySurface[] = [];
-    try {
-      const content = JSON.parse(m.content);
-      const rendered = renderHistoryContent(content);
-      text = rendered.text;
-      toolCalls = rendered.toolCalls;
-      toolCallsBeforeText = rendered.toolCallsBeforeText;
-      textSegments = rendered.textSegments;
-      contentOrder = rendered.contentOrder;
-      surfaces = rendered.surfaces;
-      if (m.role === "assistant" && toolCalls.length > 0) {
-        log.info(
-          {
-            messageId: m.id,
-            toolCallCount: toolCalls.length,
-            text: truncate(text, 100, ""),
-          },
-          "History message with tool calls",
-        );
-      }
-    } catch (err) {
-      log.debug(
-        { err, messageId: m.id },
-        "Failed to parse message content as JSON, using raw text",
-      );
-      text = m.content;
-      textSegments = text ? [text] : [];
-      contentOrder = text ? ["text:0"] : [];
-      surfaces = [];
-    }
-    let subagentNotification: ParsedHistoryMessage["subagentNotification"];
-    if (m.metadata) {
-      try {
-        subagentNotification = (
-          JSON.parse(m.metadata) as {
-            subagentNotification?: ParsedHistoryMessage["subagentNotification"];
-          }
-        ).subagentNotification;
-      } catch (err) {
-        log.debug(
-          { err, messageId: m.id },
-          "Failed to parse message metadata as JSON, ignoring",
-        );
-      }
-    }
-    return {
-      id: m.id,
-      role: m.role,
-      text,
-      timestamp: m.createdAt,
-      toolCalls,
-      toolCallsBeforeText,
-      textSegments,
-      contentOrder,
-      surfaces,
-      ...(subagentNotification ? { subagentNotification } : {}),
-    };
-  });
-
-  // Merge tool_result data from user messages into the preceding assistant
-  // message's toolCalls, and suppress user messages that only contain
-  // tool_result blocks (internal agent-loop turns).
-  const merged = mergeToolResults(parsed);
-
-  const historyMessages = merged.map((m) => {
-    let attachments: UserMessageAttachment[] | undefined;
-    if (m.role === "assistant" && m.id) {
-      const linked = getAttachmentsForMessage(m.id);
-      if (linked.length > 0) {
-        if (includeAttachments) {
-          // Full attachment data: same behavior as before
-          const MAX_INLINE_B64_SIZE = 512 * 1024;
-          attachments = linked.map((a) => {
-            const isFileBacked = !a.dataBase64;
-            const omit =
-              isFileBacked ||
-              (a.mimeType.startsWith("video/") &&
-                a.dataBase64.length > MAX_INLINE_B64_SIZE);
-
-            if (
-              a.mimeType.startsWith("video/") &&
-              !a.thumbnailBase64 &&
-              a.dataBase64
-            ) {
-              const attachmentId = a.id;
-              const base64 = a.dataBase64;
-              silentlyWithLog(
-                generateVideoThumbnail(base64).then((thumb) => {
-                  if (thumb) setAttachmentThumbnail(attachmentId, thumb);
-                }),
-                "video thumbnail generation",
-              );
-            }
-
-            const fp = getFilePathForAttachment(a.id);
-            return {
-              id: a.id,
-              filename: a.originalFilename,
-              mimeType: a.mimeType,
-              data: omit ? "" : a.dataBase64,
-              ...(omit ? { sizeBytes: a.sizeBytes } : {}),
-              ...(a.thumbnailBase64
-                ? { thumbnailData: a.thumbnailBase64 }
-                : {}),
-              ...(fp ? { filePath: fp } : {}),
-            };
-          });
-        } else {
-          // Light mode: metadata only, strip base64 data
-          attachments = linked.map((a) => {
-            const fp = getFilePathForAttachment(a.id);
-            return {
-              id: a.id,
-              filename: a.originalFilename,
-              mimeType: a.mimeType,
-              data: "",
-              sizeBytes: a.sizeBytes,
-              ...(a.thumbnailBase64
-                ? { thumbnailData: a.thumbnailBase64 }
-                : {}),
-              ...(fp ? { filePath: fp } : {}),
-            };
-          });
-        }
-      }
-    }
-
-    // In light mode, strip imageData from tool calls
-    const filteredToolCalls =
-      m.toolCalls.length > 0
-        ? includeToolImages
-          ? m.toolCalls
-          : m.toolCalls.map((tc) => {
-              if (tc.imageData) {
-                const { imageData: _, ...rest } = tc;
-                return rest;
-              }
-              return tc;
-            })
-        : m.toolCalls;
-
-    // In light mode, strip full data from surfaces (keep metadata)
-    const filteredSurfaces =
-      m.surfaces.length > 0
-        ? includeSurfaceData
-          ? m.surfaces
-          : m.surfaces.map((s) => ({
-              surfaceId: s.surfaceId,
-              surfaceType: s.surfaceType,
-              title: s.title,
-              data: {
-                ...(s.surfaceType === "dynamic_page"
-                  ? {
-                      ...(s.data.preview ? { preview: s.data.preview } : {}),
-                      ...(s.data.appId ? { appId: s.data.appId } : {}),
-                    }
-                  : {}),
-              } as Record<string, unknown>,
-              ...(s.actions ? { actions: s.actions } : {}),
-              ...(s.display ? { display: s.display } : {}),
-            }))
-        : m.surfaces;
-
-    // Apply text truncation when maxTextChars is set
-    let wasTruncated = false;
-    let textWasTruncated = false;
-    let text = m.text;
-    if (msg.maxTextChars !== undefined && text.length > msg.maxTextChars) {
-      text = text.slice(0, msg.maxTextChars) + " \u2026 [truncated]";
-      wasTruncated = true;
-      textWasTruncated = true;
-    }
-
-    // Apply tool result truncation when maxToolResultChars is set
-    const truncatedToolCalls =
-      msg.maxToolResultChars !== undefined && filteredToolCalls.length > 0
-        ? filteredToolCalls.map((tc) => {
-            if (
-              tc.result !== undefined &&
-              tc.result.length > msg.maxToolResultChars!
-            ) {
-              wasTruncated = true;
-              return {
-                ...tc,
-                result:
-                  tc.result.slice(0, msg.maxToolResultChars!) +
-                  " \u2026 [truncated]",
-              };
-            }
-            return tc;
-          })
-        : filteredToolCalls;
-
-    return {
-      ...(m.id ? { id: m.id } : {}),
-      role: m.role,
-      text,
-      timestamp: m.timestamp,
-      ...(truncatedToolCalls.length > 0
-        ? {
-            toolCalls: truncatedToolCalls,
-            toolCallsBeforeText: m.toolCallsBeforeText,
-          }
-        : {}),
-      ...(attachments ? { attachments } : {}),
-      ...(!textWasTruncated && m.textSegments.length > 0
-        ? { textSegments: m.textSegments }
-        : {}),
-      ...(!textWasTruncated && m.contentOrder.length > 0
-        ? { contentOrder: m.contentOrder }
-        : {}),
-      ...(filteredSurfaces.length > 0 ? { surfaces: filteredSurfaces } : {}),
-      ...(m.subagentNotification
-        ? { subagentNotification: m.subagentNotification }
-        : {}),
-      ...(wasTruncated ? { wasTruncated: true } : {}),
-    };
-  });
-
-  const oldestTimestamp =
-    historyMessages.length > 0 ? historyMessages[0].timestamp : undefined;
-  // Provide the oldest message ID as a tie-breaker cursor so clients can
-  // paginate without skipping same-millisecond messages at page boundaries.
-  const oldestMessageId =
-    historyMessages.length > 0 ? historyMessages[0].id : undefined;
-
-  ctx.send(socket, {
-    type: "history_response",
-    sessionId: msg.sessionId,
-    messages: historyMessages,
-    hasMore,
-    ...(oldestTimestamp !== undefined ? { oldestTimestamp } : {}),
-    ...(oldestMessageId ? { oldestMessageId } : {}),
-  });
-
-  // Surfaces are now included directly in the history_response message (in the surfaces array),
-  // so we no longer emit separate ui_surface_show messages during history loading.
-}
-
 export function handleUndo(
   msg: UndoRequest,
   socket: net.Socket,
@@ -1860,109 +1581,6 @@ export function handleDeleteQueuedMessage(
       "Queued message not found for deletion",
     );
   }
-}
-
-export function handleConversationSearch(
-  msg: ConversationSearchRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const results = conversationStore.searchConversations(msg.query, {
-    limit: msg.limit,
-    maxMessagesPerConversation: msg.maxMessagesPerConversation,
-  });
-  ctx.send(socket, {
-    type: "conversation_search_response",
-    query: msg.query,
-    results,
-  });
-}
-
-export function handleMessageContentRequest(
-  msg: MessageContentRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const dbMessage = conversationStore.getMessageById(
-    msg.messageId,
-    msg.sessionId,
-  );
-  if (!dbMessage) {
-    ctx.send(socket, {
-      type: "error",
-      message: `Message ${msg.messageId} not found in session ${msg.sessionId}`,
-    });
-    return;
-  }
-
-  let text: string | undefined;
-  let toolCalls:
-    | Array<{ name: string; result?: string; input?: Record<string, unknown> }>
-    | undefined;
-
-  try {
-    const content = JSON.parse(dbMessage.content);
-    const rendered = renderHistoryContent(content);
-    text = rendered.text || undefined;
-    const mergedToolCalls = rendered.toolCalls;
-
-    // Handle legacy conversations where tool_result blocks are stored in the
-    // following user message rather than inline with the assistant message.
-    // This mirrors the mergeToolResults logic used by handleHistoryRequest.
-    if (
-      dbMessage.role === "assistant" &&
-      mergedToolCalls.some((tc) => tc.result === undefined)
-    ) {
-      const nextMsg = conversationStore.getNextMessage(
-        msg.sessionId,
-        dbMessage.createdAt,
-        dbMessage.id,
-      );
-      if (nextMsg && nextMsg.role === "user") {
-        try {
-          const nextContent = JSON.parse(nextMsg.content);
-          const nextRendered = renderHistoryContent(nextContent);
-          if (
-            nextRendered.text.trim() === "" &&
-            nextRendered.toolCalls.length > 0
-          ) {
-            for (const resultEntry of nextRendered.toolCalls) {
-              const unresolved = mergedToolCalls.find(
-                (tc) => tc.result === undefined,
-              );
-              if (unresolved) {
-                unresolved.result = resultEntry.result;
-                unresolved.isError = resultEntry.isError;
-                if (resultEntry.imageData)
-                  unresolved.imageData = resultEntry.imageData;
-              }
-            }
-          }
-        } catch {
-          // Next message isn't valid JSON — skip merging
-        }
-      }
-    }
-
-    if (mergedToolCalls.length > 0) {
-      toolCalls = mergedToolCalls.map((tc) => ({
-        name: tc.name,
-        input: tc.input,
-        ...(tc.result !== undefined ? { result: tc.result } : {}),
-      }));
-    }
-  } catch {
-    // Raw text content (not JSON)
-    text = dbMessage.content || undefined;
-  }
-
-  ctx.send(socket, {
-    type: "message_content_response",
-    sessionId: msg.sessionId,
-    messageId: msg.messageId,
-    ...(text !== undefined ? { text } : {}),
-    ...(toolCalls ? { toolCalls } : {}),
-  });
 }
 
 export function handleReorderThreads(
