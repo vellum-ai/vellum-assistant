@@ -209,13 +209,14 @@ curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/channels/readiness" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
-The response contains `{ ok: true, snapshots: [...] }` where each snapshot has:
+The response contains `{ success: true, snapshots: [...] }` where each snapshot has:
 
 - `channel` -- the channel type (e.g., `telegram`, `email`, `whatsapp`, `sms`, `slack`, `voice`)
 - `ready` -- boolean indicating whether the channel is fully operational
-- `checks` -- array of prerequisite checks, each with `name`, `passed` (boolean), and `detail` (human-readable explanation)
+- `localChecks` -- array of local prerequisite checks, each with `name`, `passed` (boolean), and `message` (human-readable explanation)
+- `remoteChecks` -- optional array of remote prerequisite checks (same shape: `name`, `passed`, `message`), present when the channel supports remote verification (e.g. confirming an email inbox exists)
 
-If the target channel's `ready` field is `false`, do **not** create the invite. Instead, tell the guardian which prerequisites are missing (from the `checks` array with `passed: false`) so they can resolve them first.
+If the target channel's `ready` field is `false`, do **not** create the invite. Instead, tell the guardian which prerequisites are missing (from the `localChecks` and `remoteChecks` arrays — look for entries with `passed: false`) so they can resolve them first.
 
 ## Invite Links
 
