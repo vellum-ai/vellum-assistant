@@ -79,11 +79,15 @@ async function completeSession(session: WatchSession): Promise<void> {
 
   // In learn mode, stop recording and save — skip the LLM summary (not needed)
   if (session.isLearnMode && session.recordingId) {
-    session.savedRecordingPath = await finalizeLearnRecording(
-      watchId,
-      session,
-      session.recordingId,
-    );
+    const hasRecorder = activeRecorders.has(watchId);
+
+    if (hasRecorder) {
+      session.savedRecordingPath = await finalizeLearnRecording(
+        watchId,
+        session,
+        session.recordingId,
+      );
+    }
 
     // Clean up the CDP session — minimize if we launched Chrome, leave it alone otherwise
     const cdpSession = activeCdpSessions.get(watchId);
@@ -99,15 +103,17 @@ async function completeSession(session: WatchSession): Promise<void> {
       }
     }
 
-    lastSummaryBySession.set(
-      sessionId,
-      session.savedRecordingPath
+    // When no recorder ever started, the browser failed to launch — report failure
+    const summary = hasRecorder
+      ? session.savedRecordingPath
         ? "Learn session completed — recording saved."
-        : "Learn session completed — recording failed to save.",
-    );
+        : "Learn session completed — recording failed to save."
+      : "Learn session failed — browser could not be started.";
+
+    lastSummaryBySession.set(sessionId, summary);
     session.status = "completed";
     log.info(
-      { watchId, sessionId },
+      { watchId, sessionId, hasRecorder },
       "Learn session complete — firing completion notifier",
     );
     fireWatchCompletionNotifier(sessionId, session);
@@ -188,6 +194,15 @@ export async function handleRideShotgunStart(
           { err, watchId },
           "Failed to ensure Chrome with CDP — cannot start recording",
         );
+        ctx.send(socket, {
+          type: "ride_shotgun_error",
+          watchId,
+          sessionId,
+          message:
+            "Failed to start browser — Chrome CDP could not be launched.",
+        });
+        // Fail-fast: complete the session immediately instead of waiting for timeout
+        await completeSession(session);
         return;
       }
 
@@ -377,6 +392,13 @@ export async function handleRideShotgunStart(
               { err, watchId },
               "Failed to start network recording after 10 attempts",
             );
+            ctx.send(socket, {
+              type: "ride_shotgun_error",
+              watchId,
+              sessionId,
+              message: "Failed to start network recording after 10 attempts.",
+            });
+            await completeSession(session);
           }
         }
       }
