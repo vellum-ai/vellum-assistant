@@ -16,7 +16,10 @@ import { probePort } from "./port-probe.js";
  */
 export interface LocalInstanceResources {
   /**
-   * Instance-specific data root (e.g. `~/.vellum/instances/<name>/`).
+   * Instance-specific data root. The first local assistant uses `~` (workspace
+   * at `~/.vellum`); subsequent assistants use
+   * `~/.local/share/vellum/assistants/<name>/` (workspace at
+   * `~/.local/share/vellum/assistants/<name>/.vellum`).
    * The daemon's `.vellum/` directory lives inside it. Equivalent to
    * `AssistantEntry.baseDataDir` minus the trailing `/.vellum` suffix —
    * `baseDataDir` is kept on the flat entry for legacy lockfile compat.
@@ -225,13 +228,27 @@ async function findAvailablePort(
 
 /**
  * Allocate an isolated set of resources for a named local instance.
- * Creates the instance directory at ~/.vellum/instances/<name>/ and finds
- * available ports for the daemon, gateway, and Qdrant.
+ * The first local assistant gets `instanceDir = ~` with default ports (same as
+ * legacy single-instance layout). Subsequent assistants are placed under
+ * `~/.local/share/vellum/assistants/<name>/` with scanned ports.
  */
 export async function allocateLocalResources(
   instanceName: string,
 ): Promise<LocalInstanceResources> {
-  const instanceDir = join(homedir(), ".vellum", "instances", instanceName);
+  // First local assistant gets the home directory — identical to legacy layout.
+  const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
+  if (existingLocals.length === 0) {
+    return defaultLocalResources();
+  }
+
+  const instanceDir = join(
+    homedir(),
+    ".local",
+    "share",
+    "vellum",
+    "assistants",
+    instanceName,
+  );
   mkdirSync(instanceDir, { recursive: true });
 
   // Collect ports already assigned to other local instances in the lockfile.
