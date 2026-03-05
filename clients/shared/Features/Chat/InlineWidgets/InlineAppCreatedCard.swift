@@ -9,6 +9,7 @@ struct InlineAppCreatedCard: View {
     let appId: String?
     let onOpenApp: () -> Void
     let onPinToHomebase: () -> Void
+    var onPreviewImageUpdate: ((String) -> Void)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var previewImage: String?
@@ -98,6 +99,7 @@ struct InlineAppCreatedCard: View {
                   notifAppId == appId,
                   let base64 = notification.userInfo?["previewImage"] as? String else { return }
             previewImage = base64
+            onPreviewImageUpdate?(base64)
         }
     }
 }

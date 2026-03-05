@@ -27,6 +27,7 @@ struct ChatBubble: View {
     var isProcessingAfterTools: Bool = false
     /// Status text from the assistant activity state, forwarded for inline display.
     var processingStatusText: String?
+    var onPreviewImageUpdate: ((String, String) -> Void)? = nil
 
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
@@ -168,7 +169,7 @@ struct ChatBubble: View {
                         // Skip surfaces that are currently shown in the floating overlay
                         if !message.inlineSurfaces.isEmpty {
                             ForEach(message.inlineSurfaces.filter { $0.id != activeSurfaceId }) { surface in
-                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
+                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onPreviewImageUpdate: onPreviewImageUpdate)
                             }
                         }
 

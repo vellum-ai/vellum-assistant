@@ -4,13 +4,15 @@ import SwiftUI
 public struct InlineSurfaceRouter: View {
     public let surface: InlineSurfaceData
     public let onAction: (String, String, [String: AnyCodable]?) -> Void
+    public var onPreviewImageUpdate: ((String, String) -> Void)? = nil
 
     @State private var selectionPayload: [String: AnyCodable]?
     @State private var clickedActionLabel: String?
 
-    public init(surface: InlineSurfaceData, onAction: @escaping (String, String, [String: AnyCodable]?) -> Void) {
+    public init(surface: InlineSurfaceData, onAction: @escaping (String, String, [String: AnyCodable]?) -> Void, onPreviewImageUpdate: ((String, String) -> Void)? = nil) {
         self.surface = surface
         self.onAction = onAction
+        self.onPreviewImageUpdate = onPreviewImageUpdate
     }
 
     /// Whether the surface content handles its own header/chrome.
@@ -178,6 +180,11 @@ public struct InlineSurfaceRouter: View {
                                     "description": preview.description as Any,
                                 ]
                             )
+                        },
+                        onPreviewImageUpdate: { base64 in
+                            if let appId = data.appId {
+                                onPreviewImageUpdate?(appId, base64)
+                            }
                         }
                     )
                 } else {
