@@ -51,6 +51,14 @@ describe("CommitEnrichmentService", () => {
       /* ignore */
     }
     _resetEnrichmentService();
+
+    // Remove stale index.lock left by async enrichment jobs that ran git
+    // commands concurrently. Without this, the next test's createCommit()
+    // can fail with "Unable to create index.lock: File exists".
+    const lockFile = join(testDir, ".git", "index.lock");
+    if (existsSync(lockFile)) {
+      rmSync(lockFile, { force: true });
+    }
   });
 
   afterAll(async () => {
