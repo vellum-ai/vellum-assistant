@@ -12,6 +12,7 @@ import type { ChannelId } from "../../channels/types.js";
 import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
 import type {
   ChannelInviteAdapter,
+  GuardianInstruction,
   InviteShareLink,
 } from "../channel-invite-transport.js";
 
@@ -70,13 +71,18 @@ export const telegramInviteAdapter: ChannelInviteAdapter = {
   buildGuardianInstruction(params: {
     inviteCode: string;
     contactName?: string;
-  }): string {
+  }): GuardianInstruction {
     const botUsername = getTelegramBotUsername();
     const contactLabel = params.contactName || "the contact";
     if (!botUsername) {
-      return `Tell ${contactLabel} to message the assistant on Telegram and provide the code ${params.inviteCode}.`;
+      return {
+        instruction: `Tell ${contactLabel} to message the assistant on Telegram and provide the code ${params.inviteCode}.`,
+      };
     }
-    return `Tell ${contactLabel} to message @${botUsername} on Telegram and provide the code ${params.inviteCode}.`;
+    return {
+      instruction: `Tell ${contactLabel} to message @${botUsername} on Telegram and provide the code ${params.inviteCode}.`,
+      channelHandle: `@${botUsername}`,
+    };
   },
 
   extractInboundToken(params: {

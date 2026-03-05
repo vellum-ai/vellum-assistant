@@ -11,7 +11,10 @@ import type { ChannelId } from "../../channels/types.js";
 import { getTwilioPhoneNumberEnv } from "../../config/env.js";
 import { loadRawConfig } from "../../config/loader.js";
 import { getSecureKey } from "../../security/secure-keys.js";
-import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
+import type {
+  ChannelInviteAdapter,
+  GuardianInstruction,
+} from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
 // Phone number resolution
@@ -51,12 +54,17 @@ export const smsInviteAdapter: ChannelInviteAdapter = {
   buildGuardianInstruction(params: {
     inviteCode: string;
     contactName?: string;
-  }): string {
+  }): GuardianInstruction {
     const phoneNumber = resolveSmsPhoneNumber();
     const contactLabel = params.contactName || "the contact";
     if (!phoneNumber) {
-      return `Tell ${contactLabel} to text the assistant and provide the code ${params.inviteCode}.`;
+      return {
+        instruction: `Tell ${contactLabel} to text the assistant and provide the code ${params.inviteCode}.`,
+      };
     }
-    return `Tell ${contactLabel} to text ${phoneNumber} and provide the code ${params.inviteCode}.`;
+    return {
+      instruction: `Tell ${contactLabel} to text ${phoneNumber} and provide the code ${params.inviteCode}.`,
+      channelHandle: phoneNumber,
+    };
   },
 };

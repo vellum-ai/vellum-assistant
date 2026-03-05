@@ -60,6 +60,7 @@ export interface InviteResponseData {
   // Non-voice invite fields (present only for non-voice invites)
   inviteCode?: string;
   guardianInstruction?: string;
+  channelHandle?: string;
   createdAt: number;
 }
 
@@ -94,6 +95,7 @@ function inviteToResponse(
     voiceCode?: string;
     inviteCode?: string;
     guardianInstruction?: string;
+    channelHandle?: string;
   },
 ): InviteResponseData {
   const share = buildSharePayload(inv.sourceChannel, opts?.rawToken);
@@ -121,6 +123,7 @@ function inviteToResponse(
     ...(opts?.guardianInstruction
       ? { guardianInstruction: opts.guardianInstruction }
       : {}),
+    ...(opts?.channelHandle ? { channelHandle: opts.channelHandle } : {}),
     createdAt: inv.createdAt,
   };
 }
@@ -219,6 +222,7 @@ export function createIngressInvite(params: {
 
   // Build guardian instruction for non-voice invites
   let guardianInstruction: string | undefined;
+  let channelHandle: string | undefined;
   if (!isVoice && inviteCode) {
     const channelId = isChannelId(params.sourceChannel)
       ? params.sourceChannel
@@ -229,10 +233,14 @@ export function createIngressInvite(params: {
 
     if (adapter?.buildGuardianInstruction) {
       try {
-        guardianInstruction = adapter.buildGuardianInstruction({
+        const adapterResult = adapter.buildGuardianInstruction({
           inviteCode,
           contactName: params.contactName,
         });
+        if (adapterResult) {
+          guardianInstruction = adapterResult.instruction;
+          channelHandle = adapterResult.channelHandle;
+        }
       } catch {
         // Fall through to generic instruction if adapter fails
       }
@@ -254,6 +262,7 @@ export function createIngressInvite(params: {
       voiceCode,
       inviteCode,
       guardianInstruction,
+      channelHandle,
     }),
   };
 }

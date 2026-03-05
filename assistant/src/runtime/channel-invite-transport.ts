@@ -26,6 +26,13 @@ export interface InviteShareLink {
   displayText: string;
 }
 
+export interface GuardianInstruction {
+  /** Human-readable instruction text for the guardian. */
+  instruction: string;
+  /** Channel-specific handle to reach the assistant (e.g. "@botName", "+15551234567", "hello@domain.agentmail.to"). */
+  channelHandle?: string;
+}
+
 export interface ChannelInviteAdapter {
   /** The channel this adapter handles. */
   channel: ChannelId;
@@ -51,13 +58,14 @@ export interface ChannelInviteAdapter {
   }): string | undefined;
 
   /**
-   * Build guardian instruction text for this channel. Optional — falls
-   * back to generic instruction if not implemented.
+   * Build guardian instruction for this channel. Returns structured data
+   * with the instruction text and an optional channel-specific handle.
+   * Optional — falls back to generic instruction if not implemented.
    */
   buildGuardianInstruction?(params: {
     inviteCode: string;
     contactName?: string;
-  }): string;
+  }): GuardianInstruction;
 }
 
 // ---------------------------------------------------------------------------
