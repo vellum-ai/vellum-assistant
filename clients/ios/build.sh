@@ -90,14 +90,18 @@ fi
 # device name that may not exist on every Xcode version.
 resolve_simulator_destination() {
     local sim_name
+    # Extract the device name from lines like "    iPhone 16 Pro (UUID) (Booted)"
+    # The regex captures everything between leading whitespace and the first " (".
     sim_name=$(xcrun simctl list devices available 2>/dev/null \
-        | grep -oE 'iPhone [^(]+' \
-        | head -1 \
-        | sed 's/[[:space:]]*$//')
+        | grep 'iPhone' \
+        | sed -n 's/^[[:space:]]*\(iPhone[^(]*\) (.*/\1/p' \
+        | sed 's/[[:space:]]*$//' \
+        | head -1 || true)
     if [ -n "$sim_name" ]; then
         echo "platform=iOS Simulator,name=$sim_name"
     else
-        echo "generic/platform=iOS Simulator"
+        echo "ERROR: No available iPhone simulator found. Install one via Xcode > Settings > Platforms." >&2
+        return 1
     fi
 }
 
