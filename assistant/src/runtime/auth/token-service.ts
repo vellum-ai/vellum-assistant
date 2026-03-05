@@ -342,6 +342,33 @@ export function mintCliEdgeToken(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Pairing bearer token
+// ---------------------------------------------------------------------------
+
+/**
+ * Mint a JWT bearer token for the iOS pairing flow.
+ *
+ * Minted once at daemon startup and reused for all pairing approvals
+ * during this daemon's lifetime. The token is stored on approved pairing
+ * entries and returned in HTTP responses as a legacy compatibility field.
+ * (iOS clients also receive proper JWT credentials via mintCredentialPair.)
+ *
+ * The 24-hour TTL covers a typical daemon lifecycle. The daemon re-mints
+ * on each restart since the signing key is stable across restarts.
+ *
+ * aud=vellum-daemon, sub=svc:daemon:pairing, scope_profile=gateway_service_v1
+ */
+export function mintPairingBearerToken(): string {
+  return mintToken({
+    aud: "vellum-daemon",
+    sub: "svc:daemon:pairing",
+    scope_profile: "gateway_service_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 86400, // 24 hours — covers a typical daemon lifecycle
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Hash
 // ---------------------------------------------------------------------------
 

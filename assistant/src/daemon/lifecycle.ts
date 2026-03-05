@@ -42,6 +42,7 @@ import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
   mintCliEdgeToken,
+  mintPairingBearerToken,
 } from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -390,9 +391,15 @@ export async function runDaemon(): Promise<void> {
 
     const hostname = getRuntimeHttpHost();
 
+    // Mint a JWT bearer token for the pairing flow. This replaces the
+    // old static http-token that was removed — the pairing IPC handler
+    // and HTTP auto-approve logic both guard on a non-empty bearer token.
+    const pairingBearerToken = mintPairingBearerToken();
+
     runtimeHttp = new RuntimeHttpServer({
       port: httpPort,
       hostname,
+      bearerToken: pairingBearerToken,
       processMessage: (
         conversationId,
         content,
@@ -589,7 +596,7 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp.setPairingBroadcast((msg) =>
         server.broadcast(msg as ServerMessage),
       );
-      initPairingHandlers(runtimeHttp.getPairingStore(), undefined);
+      initPairingHandlers(runtimeHttp.getPairingStore(), pairingBearerToken);
       initSlashPairingContext(runtimeHttp.getPairingStore());
       server.setHttpPort(httpPort);
       log.info(
