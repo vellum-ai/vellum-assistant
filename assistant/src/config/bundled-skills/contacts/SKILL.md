@@ -25,10 +25,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
     "displayName": "<name>",
-    "relationship": "<relationship>",
-    "importance": 0.5,
-    "responseExpectation": "<speed>",
-    "preferredTone": "<tone>",
+    "notes": "<free-text notes about this contact>",
     "channels": [
       {
         "type": "<channel_type>",
@@ -48,15 +45,12 @@ Required fields:
 Optional fields:
 
 - `id` -- contact ID to update (omit to create new, or auto-match by channel address)
-- `relationship` -- e.g. colleague, friend, manager, client, family
-- `importance` -- score from 0 to 1 (default 0.5), higher means more important
-- `responseExpectation` -- expected response speed: immediate, within_hours, within_day, casual
-- `preferredTone` -- communication tone: formal, casual, friendly, professional
+- `notes` -- free-text notes about this contact (e.g. relationship, communication preferences, response expectations)
 - `channels` -- list of communication channels
 
 ### Search contacts
 
-Search for contacts by name, channel address, relationship type, or other criteria using the gateway API.
+Search for contacts by name, channel address, or other criteria using the gateway API.
 
 ```bash
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/contacts?query=<search_term>" \
@@ -68,7 +62,6 @@ Optional query parameters:
 - `query` -- search by display name (partial match)
 - `channelAddress` -- search by channel address (email, phone, handle)
 - `channelType` -- filter by channel type when searching by address
-- `relationship` -- filter by relationship type (exact match)
 - `limit` -- maximum results to return (default 50, max 100)
 
 ### Merge contacts
@@ -76,7 +69,7 @@ Optional query parameters:
 When you discover two contacts are the same person (e.g. same person on email and Slack), merge them to consolidate. Merging:
 
 - Combines all channels from both contacts
-- Keeps the higher importance score
+- Merges notes from both contacts
 - Sums interaction counts
 - Deletes the donor contact
 
@@ -404,10 +397,7 @@ Replace `<invite_id>` with the invite's `id` from the list response. The same re
 ## Contact Fields
 
 - **displayName** -- the contact's name (required)
-- **relationship** -- e.g. colleague, friend, manager, client, family
-- **importance** -- score from 0 to 1 (default 0.5), higher means more important
-- **responseExpectation** -- expected response speed: immediate, within_hours, within_day, casual
-- **preferredTone** -- communication tone: formal, casual, friendly, professional
+- **notes** -- free-text notes about this contact (e.g. relationship, communication preferences, response expectations)
 - **channels** -- list of communication channels (email, slack, whatsapp, phone, telegram, discord, other)
 
 ### Channel Types
@@ -446,9 +436,8 @@ Each channel has:
 ## Tips
 
 - Use contact search with `channelAddress` to find contacts by their email, phone, or handle.
-- When creating follow-ups, provide a `contact_id` to link the follow-up to a specific contact for grace period calculations.
-- Contacts with higher importance scores get shorter default response deadlines.
-- When merging contacts, the surviving contact keeps the higher importance score and gains all channels from the donor.
+- When creating follow-ups, provide a `contact_id` to link the follow-up to a specific contact.
+- When merging contacts, the surviving contact gains all channels and merged notes from the donor.
 
 ## Typical Workflows
 
