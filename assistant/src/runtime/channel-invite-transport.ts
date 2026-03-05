@@ -119,6 +119,7 @@ export class InviteAdapterRegistry {
 // Singleton registry + backward-compatible free functions
 // ---------------------------------------------------------------------------
 
+import { emailInviteAdapter } from "./channel-invite-transports/email.js";
 import { smsInviteAdapter } from "./channel-invite-transports/sms.js";
 import { telegramInviteAdapter } from "./channel-invite-transports/telegram.js";
 import { voiceInviteAdapter } from "./channel-invite-transports/voice.js";
@@ -126,6 +127,7 @@ import { voiceInviteAdapter } from "./channel-invite-transports/voice.js";
 /** Create a registry instance with built-in adapters registered. */
 export function createInviteAdapterRegistry(): InviteAdapterRegistry {
   const registry = new InviteAdapterRegistry();
+  registry.register(emailInviteAdapter);
   registry.register(smsInviteAdapter);
   registry.register(telegramInviteAdapter);
   registry.register(voiceInviteAdapter);
