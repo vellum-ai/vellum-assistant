@@ -276,15 +276,9 @@ extension AppDelegate {
     }
 
     /// Check whether the local gateway is healthy by hitting its /healthz endpoint.
-    /// Reads gatewayPort from the lockfile's resources (multi-instance uses dynamic ports),
-    /// falling back to GATEWAY_PORT env var or default 7830.
+    /// Port resolution: env var > lockfile > default 7830.
     func isGatewayHealthy() async -> Bool {
-        let port: String = {
-            if let gp = LockfileAssistant.loadLatest()?.gatewayPort {
-                return String(gp)
-            }
-            return ProcessInfo.processInfo.environment["GATEWAY_PORT"] ?? "7830"
-        }()
+        let port = LockfilePaths.resolveGatewayPort()
         guard let url = URL(string: "http://localhost:\(port)/healthz") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = 2

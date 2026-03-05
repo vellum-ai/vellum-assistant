@@ -562,12 +562,9 @@ struct InlineVideoAttachmentView: View {
     }
 }
 
-/// Resolve the local gateway base URL from the GATEWAY_PORT env var (default 7830).
+/// Resolve the local gateway base URL: env var > lockfile > default 7830.
 private func resolveGatewayBaseUrl() -> String {
-    let envPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-        ?? getenv("GATEWAY_PORT").flatMap({ String(cString: $0) })
-    let port = envPort.flatMap(Int.init) ?? 7830
-    return "http://127.0.0.1:\(port)"
+    "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
 }
 
 /// Fetch raw attachment bytes via the gateway's runtime proxy.
