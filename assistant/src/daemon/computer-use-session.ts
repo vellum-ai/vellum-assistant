@@ -103,7 +103,7 @@ export class ComputerUseSession {
       resolve: (result: ToolExecutionResult) => void;
     }
   >();
-  private surfaceState = new Map<
+  /** @internal */ surfaceState = new Map<
     string,
     { surfaceType: SurfaceType; data: SurfaceData; title?: string }
   >();
