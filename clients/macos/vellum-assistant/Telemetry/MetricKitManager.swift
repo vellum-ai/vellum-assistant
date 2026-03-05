@@ -20,31 +20,39 @@ import Sentry
 
     // MARK: - Sentry helpers
 
-    /// Serial queue that serialises all wasDisabled start/capture/flush/close cycles.
+    /// Serial queue that serialises all Sentry SDK operations.
     ///
-    /// Concurrent MetricKit callbacks (and `sendReport` on a detached task) may
-    /// otherwise race on the global SentrySDK singleton: one thread reads
-    /// `isEnabled=false` and calls `start()` while another calls `close()`, leaving
-    /// the first thread's `capture()` hitting a closed SDK and silently dropping
-    /// the event. Serialising through a dedicated queue prevents interleaving.
-    /// Serial queue that serialises all wasDisabled start/capture/flush/close cycles.
-    /// `nonisolated` so it can be accessed from nonisolated MXMetricManagerSubscriber
-    /// delegate methods without crossing the @MainActor boundary.
+    /// `SentrySDK.close()` (called from privacy settings and AppDelegate),
+    /// `captureSentryEvent`, and `sendManualReport` all touch the global
+    /// SentrySDK singleton. Routing every operation through this queue prevents
+    /// interleaving (e.g. a MetricKit callback racing with a user opt-out).
+    ///
+    /// `nonisolated` so it can be accessed from nonisolated delegate methods
+    /// without crossing the @MainActor boundary.
     nonisolated static let sentrySerialQueue = DispatchQueue(
         label: "com.vellum.sentry-capture",
         qos: .utility
     )
 
-    /// Captures a Sentry event while respecting the user's crash-reporting opt-out.
-    ///
-    /// If Sentry is currently closed, it is restarted with crash-handler and
-    /// session-tracking disabled so only the explicit `capture(event:)` sends data.
-    /// After flushing, the SDK is closed again to restore the opted-out state.
-    /// All operations are serialised through `sentrySerialQueue` to prevent races
-    /// when concurrent MetricKit callbacks or sendReport tasks interleave.
-    ///
-    /// Marked `nonisolated` so nonisolated delegate methods can call it directly.
+    /// Captures a Sentry event only when the user has opted in.
+    /// If Sentry is currently closed (user opted out), the event is silently
+    /// dropped. Callers that need unconditional delivery (manual problem reports)
+    /// should use `sendManualReport(_:)` instead.
+    /// `nonisolated` so nonisolated delegate methods can call it directly.
     nonisolated static func captureSentryEvent(_ event: Event) {
+        sentrySerialQueue.async {
+            guard SentrySDK.isEnabled else { return }
+            SentrySDK.capture(event: event)
+        }
+    }
+
+    /// Sends a manual problem report unconditionally, even when the user has
+    /// opted out of automatic crash reporting.  The SDK is temporarily started
+    /// with crash-handler and session-tracking disabled so only the explicit
+    /// event is sent during the window — no automatic captures occur.
+    /// All operations run on `sentrySerialQueue` to prevent races.
+    /// `nonisolated` so the Settings sheet can call it from a detached Task.
+    nonisolated static func sendManualReport(_ event: Event) {
         sentrySerialQueue.async {
             let wasDisabled = !SentrySDK.isEnabled
             if wasDisabled {
@@ -62,6 +70,17 @@ import Sentry
                 SentrySDK.flush(timeout: 5)
                 SentrySDK.close()
             }
+        }
+    }
+
+    /// Closes the Sentry SDK through `sentrySerialQueue` to prevent races with
+    /// concurrent `captureSentryEvent` or `sendManualReport` calls.
+    /// Use this instead of calling `SentrySDK.close()` directly.
+    /// `nonisolated` so AppDelegate and Settings code can call it without
+    /// crossing the @MainActor boundary.
+    nonisolated static func closeSentry() {
+        sentrySerialQueue.async {
+            SentrySDK.close()
         }
     }
 }

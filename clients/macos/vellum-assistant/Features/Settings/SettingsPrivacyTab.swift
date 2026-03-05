@@ -160,11 +160,11 @@ struct SettingsPrivacyTab: View {
             // Clear any previous error so stale failure messages don't persist after a successful save.
             loadError = nil
             // Apply Sentry state immediately rather than waiting for the next daemon
-            // reconnect to call checkAndApplyPrivacyFlag(). Mirrors that function's
-            // behaviour: close Sentry when the user opts out so crash/error events
-            // stop being captured in the current session right away.
+            // reconnect to call checkAndApplyPrivacyFlag(). Serialised through
+            // MetricKitManager.closeSentry() so it doesn't race with concurrent
+            // MetricKit captures on sentrySerialQueue.
             if !enabled {
-                SentrySDK.close()
+                MetricKitManager.closeSentry()
             }
         } catch {
             // Revert the optimistic toggle on failure
@@ -249,11 +249,10 @@ private struct ReportProblemSheet: View {
             let event = Event(level: .info)
             event.message = SentryMessage(formatted: message)
             event.tags = ["source": "manual_report", "app_version": appVersion]
-            // captureSentryEvent uses .async on the serial queue so it never blocks
-            // the cooperative thread pool (unlike .sync which would block for up to
-            // 5 seconds during SentrySDK.flush). The event is enqueued and delivered
-            // by Sentry's internal transport; the UI can update immediately.
-            MetricKitManager.captureSentryEvent(event)
+            // sendManualReport uses .async on the serial queue so it never blocks
+            // the cooperative thread pool, and is the unconditional path that works
+            // even when the user has opted out of automatic crash reporting.
+            MetricKitManager.sendManualReport(event)
             await MainActor.run {
                 isSending = false
                 didSend = true

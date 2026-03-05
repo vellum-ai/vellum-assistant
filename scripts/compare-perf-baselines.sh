@@ -38,7 +38,11 @@ update_baseline  = sys.argv[5].lower() == "true"
 # line.  Multiple metric lines appear per test; the first matching one wins so
 # subsequent CPU-cycles/instructions lines don't overwrite the wall-time result.
 pattern = re.compile(
-    r"-\[(?:[^\]]*\s+)?(\w+)\]['\"]*\s+measured \[(?:Clock Monotonic Time, s|Time, seconds)\] average:\s+([0-9.]+)"
+    r"(?:"
+    r"-\[(?:[^\]]*\s+)?(\w+)\]['\"]?"          # ObjC: -[Suite.Class testMethod]
+    r"|Test Case '(?:[^/']+/)?(\w+)'"           # SwiftPM: Test Case 'Module.Class/testMethod'
+    r")"
+    r"\s+measured \[(?:Clock Monotonic Time, s|Time, seconds)\] average:\s+([0-9.]+)"
 )
 
 results = {}
@@ -46,7 +50,8 @@ with open(results_log) as f:
     for line in f:
         m = pattern.search(line)
         if m:
-            results[m.group(1)] = float(m.group(2))
+            test_name = m.group(1) or m.group(2)
+            results[test_name] = float(m.group(3))
 
 if not results:
     print("ERROR: No XCTest performance measurements found in log.")

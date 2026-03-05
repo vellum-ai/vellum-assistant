@@ -1,5 +1,4 @@
 import AppKit
-import Sentry
 import VellumAssistantShared
 import os
 
@@ -429,7 +428,9 @@ extension AppDelegate {
                     .map { $0.enabled }
                     ?? true
                 if !collectUsageData {
-                    SentrySDK.close()
+                    // Route through sentrySerialQueue to prevent races with
+                    // concurrent MetricKit captures or manual report sends.
+                    MetricKitManager.closeSentry()
                 }
             } catch {
                 // Flag check is best-effort; Sentry stays active when the flag
