@@ -3,18 +3,6 @@
  * and gateway-origin verification.
  */
 
-import { timingSafeEqual } from "node:crypto";
-
-/**
- * Constant-time comparison of two bearer tokens to prevent timing attacks.
- */
-export function verifyBearerToken(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
 /**
  * Check if a hostname is a loopback address.
  */
