@@ -5,7 +5,7 @@ import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
 import { authSessionCache } from "./auth-cache.js";
 import type { ExtractedCredential } from "./network-recording-types.js";
-import { checkBrowserRuntime } from "./runtime-check.js";
+import { checkBrowserRuntime, importPlaywright } from "./runtime-check.js";
 
 const log = getLogger("browser-manager");
 
@@ -130,17 +130,8 @@ export function setLaunchFn(fn: LaunchFn | null): void {
 }
 
 async function getDefaultLaunchFn(): Promise<LaunchFn> {
-  const pw = await import("playwright");
-  // In compiled Bun binaries, CJS→ESM interop may place named exports
-  // under .default instead of at the top level of the module namespace.
-  const chromium =
-    pw.chromium ?? (pw.default as typeof pw | undefined)?.chromium;
-  if (!chromium) {
-    throw new Error(
-      "Failed to resolve Playwright chromium — the module loaded but 'chromium' is missing",
-    );
-  }
-  return chromium.launchPersistentContext.bind(chromium);
+  const pw = await importPlaywright();
+  return pw.chromium.launchPersistentContext.bind(pw.chromium);
 }
 
 function getProfileDir(): string {
