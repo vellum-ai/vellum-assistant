@@ -721,8 +721,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
                 throw SendError.notConnected
             }
-            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-            try httpTransport.send(message)
+            do {
+                try httpTransport.send(message)
+                os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
+            } catch {
+                os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
+                throw error
+            }
             return
         }
 
