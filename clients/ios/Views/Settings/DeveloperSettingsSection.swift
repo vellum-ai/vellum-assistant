@@ -29,6 +29,15 @@ private struct DeveloperSettingsSectionContent: View {
     // Captured once when the sheet opens so the panel stays on the same session
     // even if newer trace events arrive while the sheet is visible.
     @State private var selectedSessionId: String?
+    // Preserved across sheet presentations to avoid redundant network calls
+    // and loading spinners each time the usage dashboard is opened.
+    @State private var usageDashboardStore: UsageDashboardStore
+
+    init(clientProvider: ClientProvider, traceStore: TraceStore) {
+        self.clientProvider = clientProvider
+        self.traceStore = traceStore
+        _usageDashboardStore = State(initialValue: UsageDashboardStore(client: clientProvider.client))
+    }
 
     private var sessionCount: Int {
         traceStore.eventsBySession.count
@@ -83,9 +92,7 @@ private struct DeveloperSettingsSectionContent: View {
             )
         }
         .sheet(isPresented: $showUsageDashboard) {
-            UsageDashboardView(
-                store: UsageDashboardStore(client: clientProvider.client)
-            )
+            UsageDashboardView(store: usageDashboardStore)
         }
     }
 }
