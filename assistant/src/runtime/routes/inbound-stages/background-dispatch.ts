@@ -442,23 +442,6 @@ export function startPendingApprovalPromptWatcher(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Guardian display name resolver
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve a human-readable guardian name for trusted-contact notifications.
- * Delegates to {@link resolveGuardianName} which checks USER.md first, then
- * falls back to the contact's display name, then to DEFAULT_USER_REFERENCE.
- */
-export function resolveGuardianDisplayName(
-  assistantId: string,
-  sourceChannel: ChannelId,
-): string {
-  const guardian = findGuardianForChannel(sourceChannel, assistantId);
-  return resolveGuardianName(guardian?.contact.displayName);
-}
-
-// ---------------------------------------------------------------------------
 // Trusted contact approval notifier
 // ---------------------------------------------------------------------------
 
@@ -524,9 +507,12 @@ export function startTrustedContactApprovalNotifier(params: {
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
-          const guardianName = resolveGuardianDisplayName(
-            assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+          const guardian = findGuardianForChannel(
             sourceChannel,
+            assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+          );
+          const guardianName = resolveGuardianName(
+            guardian?.contact.displayName,
           );
           const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {
