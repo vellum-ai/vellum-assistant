@@ -120,6 +120,7 @@ export class InviteAdapterRegistry {
 // ---------------------------------------------------------------------------
 
 import { emailInviteAdapter } from "./channel-invite-transports/email.js";
+import { slackInviteAdapter } from "./channel-invite-transports/slack.js";
 import { smsInviteAdapter } from "./channel-invite-transports/sms.js";
 import { telegramInviteAdapter } from "./channel-invite-transports/telegram.js";
 import { voiceInviteAdapter } from "./channel-invite-transports/voice.js";
@@ -128,6 +129,7 @@ import { voiceInviteAdapter } from "./channel-invite-transports/voice.js";
 export function createInviteAdapterRegistry(): InviteAdapterRegistry {
   const registry = new InviteAdapterRegistry();
   registry.register(emailInviteAdapter);
+  registry.register(slackInviteAdapter);
   registry.register(smsInviteAdapter);
   registry.register(telegramInviteAdapter);
   registry.register(voiceInviteAdapter);
