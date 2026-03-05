@@ -54,16 +54,37 @@ public struct SubagentUsageStats {
 /// Uses the Observation framework (`@Observable`) so SwiftUI tracks property
 /// access at the view level — only views that read a specific subagent's events
 /// are invalidated when that data changes, avoiding whole-list re-layout.
+///
+/// High-frequency mutations (e.g. per-token `assistantTextDelta`) are buffered
+/// in `@ObservationIgnored` staging dictionaries and flushed to the observed
+/// properties once per 100ms coalescing window, per AGENTS.md requirements.
 @MainActor @Observable
 public final class SubagentDetailStore {
     /// Maximum number of events retained per subagent to prevent unbounded memory growth.
     static let eventRetentionCap = 500
     /// Maximum UTF-8 byte count for accumulated text content before truncation.
     static let textByteCap = 50_000
+    /// Coalescing window for flushing staged mutations to observed properties.
+    static let coalesceInterval: UInt64 = 100_000_000 // 100ms in nanoseconds
 
     public var eventsBySubagent: [String: [SubagentEventItem]] = [:]
     public var objectives: [String: String] = [:]
     public var usageStats: [String: SubagentUsageStats] = [:]
+
+    // MARK: - Staging buffers (untracked by Observation)
+
+    /// Staged event mutations accumulate here between flushes.
+    @ObservationIgnored
+    private var stagedEvents: [String: [SubagentEventItem]] = [:]
+    /// Staged objective updates accumulate here between flushes.
+    @ObservationIgnored
+    private var stagedObjectives: [String: String] = [:]
+    /// Staged usage stat updates accumulate here between flushes.
+    @ObservationIgnored
+    private var stagedUsage: [String: SubagentUsageStats] = [:]
+    /// The coalescing flush task; non-nil while a flush is scheduled.
+    @ObservationIgnored
+    private var flushTask: Task<Void, Never>?
 
     // MARK: - Debug publish-rate counters
 
@@ -73,14 +94,21 @@ public final class SubagentDetailStore {
     @ObservationIgnored
     private var mutationCount = 0
     @ObservationIgnored
+    private var flushCount = 0
+    @ObservationIgnored
     private var lastRateLogTime = Date()
 
     private func trackMutation() {
         mutationCount += 1
         let now = Date()
         if now.timeIntervalSince(lastRateLogTime) >= 5 {
-            os_log(.debug, log: Self.perfLog, "SubagentDetailStore mutation rate: %d/5s", mutationCount)
+            os_log(
+                .debug, log: Self.perfLog,
+                "SubagentDetailStore mutations: %d, flushes: %d (per 5s)",
+                mutationCount, flushCount
+            )
             mutationCount = 0
+            flushCount = 0
             lastRateLogTime = now
         }
     }
@@ -88,12 +116,84 @@ public final class SubagentDetailStore {
 
     public init() {}
 
+    deinit {
+        flushTask?.cancel()
+        flushTask = nil
+    }
+
+    // MARK: - Coalescing flush
+
+    /// Schedule a flush of staged data into observed properties after the coalescing interval.
+    /// The first mutation in a burst schedules the flush; subsequent mutations within the
+    /// window piggyback on the same flush.
+    private func scheduleFlush() {
+        guard flushTask == nil else { return }
+        flushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.coalesceInterval)
+            guard !Task.isCancelled else { return }
+            self?.flush()
+            self?.flushTask = nil
+        }
+    }
+
+    /// Copy all staged mutations into the observed properties in a single batch,
+    /// triggering at most one Observation notification per property.
+    private func flush() {
+        if !stagedObjectives.isEmpty {
+            for (id, objective) in stagedObjectives {
+                objectives[id] = objective
+            }
+            stagedObjectives.removeAll(keepingCapacity: true)
+        }
+
+        if !stagedUsage.isEmpty {
+            for (id, stats) in stagedUsage {
+                usageStats[id] = stats
+            }
+            stagedUsage.removeAll(keepingCapacity: true)
+        }
+
+        if !stagedEvents.isEmpty {
+            for (subagentId, events) in stagedEvents {
+                eventsBySubagent[subagentId] = events
+            }
+            stagedEvents.removeAll(keepingCapacity: true)
+        }
+
+        #if DEBUG
+        flushCount += 1
+        #endif
+    }
+
+    // MARK: - Staging helpers
+
+    /// Returns the current working copy of events for a subagent,
+    /// preferring the staged version over the last-flushed observed version.
+    private func currentEvents(for subagentId: String) -> [SubagentEventItem] {
+        stagedEvents[subagentId] ?? eventsBySubagent[subagentId] ?? []
+    }
+
+    /// Write events back to the staging buffer and schedule a flush.
+    private func stageEvents(_ events: [SubagentEventItem], for subagentId: String) {
+        stagedEvents[subagentId] = events
+        scheduleFlush()
+    }
+
+    /// Trim staged events to stay within the retention cap.
+    private func trimStagedEvents(for subagentId: String) {
+        guard var events = stagedEvents[subagentId],
+              events.count > Self.eventRetentionCap else { return }
+        events.removeFirst(events.count - Self.eventRetentionCap)
+        stagedEvents[subagentId] = events
+    }
+
     /// Record that a subagent was spawned with an objective.
     public func recordSpawned(subagentId: String, objective: String) {
-        objectives[subagentId] = objective
-        if eventsBySubagent[subagentId] == nil {
-            eventsBySubagent[subagentId] = []
+        stagedObjectives[subagentId] = objective
+        if stagedEvents[subagentId] == nil && eventsBySubagent[subagentId] == nil {
+            stagedEvents[subagentId] = []
         }
+        scheduleFlush()
         #if DEBUG
         trackMutation()
         #endif
@@ -102,11 +202,12 @@ public final class SubagentDetailStore {
     /// Record a status change with optional usage stats.
     public func recordStatusChanged(subagentId: String, usage: IPCUsageStats?) {
         if let usage {
-            usageStats[subagentId] = SubagentUsageStats(
+            stagedUsage[subagentId] = SubagentUsageStats(
                 inputTokens: usage.inputTokens,
                 outputTokens: usage.outputTokens,
                 estimatedCost: usage.estimatedCost
             )
+            scheduleFlush()
             #if DEBUG
             trackMutation()
             #endif
@@ -117,29 +218,24 @@ public final class SubagentDetailStore {
     public func handleEvent(subagentId: String, event: ServerMessage) {
         switch event {
         case .assistantTextDelta(let delta):
-            // Accumulate text into the last event only if it's a text event
-            if var events = eventsBySubagent[subagentId],
-               let last = events.last,
-               case .text = last.kind {
+            var events = currentEvents(for: subagentId)
+            if let last = events.last, case .text = last.kind {
                 var content = events[events.count - 1].content
-                // Stop accumulating once text has been capped.
                 guard content.utf8.count <= Self.textByteCap else { return }
                 content += delta.text
-                // Cap text concatenation to prevent unbounded string accumulation.
                 if content.utf8.count > Self.textByteCap {
                     content = String(content.prefix(Self.textByteCap)) + " [truncated]"
                 }
                 events[events.count - 1].content = content
-                eventsBySubagent[subagentId] = events
             } else {
                 var text = delta.text
                 if text.utf8.count > Self.textByteCap {
                     text = String(text.prefix(Self.textByteCap)) + " [truncated]"
                 }
-                let item = SubagentEventItem(timestamp: Date(), kind: .text, content: text)
-                eventsBySubagent[subagentId, default: []].append(item)
-                trimEvents(for: subagentId)
+                events.append(SubagentEventItem(timestamp: Date(), kind: .text, content: text))
             }
+            stageEvents(events, for: subagentId)
+            trimStagedEvents(for: subagentId)
             #if DEBUG
             trackMutation()
             #endif
@@ -150,8 +246,10 @@ public final class SubagentDetailStore {
                 kind: .toolUse(name: msg.toolName),
                 content: summarizeToolInput(msg.input)
             )
-            eventsBySubagent[subagentId, default: []].append(item)
-            trimEvents(for: subagentId)
+            var events = currentEvents(for: subagentId)
+            events.append(item)
+            stageEvents(events, for: subagentId)
+            trimStagedEvents(for: subagentId)
             #if DEBUG
             trackMutation()
             #endif
@@ -163,8 +261,10 @@ public final class SubagentDetailStore {
                 kind: .toolResult(isError: msg.isError ?? false),
                 content: truncated
             )
-            eventsBySubagent[subagentId, default: []].append(item)
-            trimEvents(for: subagentId)
+            var events = currentEvents(for: subagentId)
+            events.append(item)
+            stageEvents(events, for: subagentId)
+            trimStagedEvents(for: subagentId)
             #if DEBUG
             trackMutation()
             #endif
@@ -175,8 +275,10 @@ public final class SubagentDetailStore {
                 kind: .error,
                 content: err.message
             )
-            eventsBySubagent[subagentId, default: []].append(item)
-            trimEvents(for: subagentId)
+            var events = currentEvents(for: subagentId)
+            events.append(item)
+            stageEvents(events, for: subagentId)
+            trimStagedEvents(for: subagentId)
             #if DEBUG
             trackMutation()
             #endif
@@ -186,24 +288,20 @@ public final class SubagentDetailStore {
         }
     }
 
-    /// Trim events for a subagent to stay within the retention cap.
-    private func trimEvents(for subagentId: String) {
-        guard var events = eventsBySubagent[subagentId],
-              events.count > Self.eventRetentionCap else { return }
-        events.removeFirst(events.count - Self.eventRetentionCap)
-        eventsBySubagent[subagentId] = events
-    }
-
     /// Populate events from a lazy-loaded `subagent_detail_response`.
+    /// This is a one-time bulk load that goes through the normal staging path
+    /// so that the coalescing flush batches all events into a single update.
     public func populateFromDetailResponse(_ response: IPCSubagentDetailResponse) {
         let subagentId = response.subagentId
         if let objective = response.objective {
-            objectives[subagentId] = objective
+            stagedObjectives[subagentId] = objective
+            scheduleFlush()
         }
         // Only populate if we don't already have events (avoid duplicates on re-open)
-        guard (eventsBySubagent[subagentId] ?? []).isEmpty else { return }
-        if eventsBySubagent[subagentId] == nil {
-            eventsBySubagent[subagentId] = []
+        let existing = currentEvents(for: subagentId)
+        guard existing.isEmpty else { return }
+        if stagedEvents[subagentId] == nil && eventsBySubagent[subagentId] == nil {
+            stagedEvents[subagentId] = []
         }
         for event in response.events {
             switch event.type {

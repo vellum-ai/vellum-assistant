@@ -2,15 +2,16 @@ import XCTest
 @testable import VellumAssistantShared
 
 /// Regression tests for render-churn reduction and memory-retention fixes.
-/// Validates: SubagentDetailStore event recording, stripHeavyContent surface stripping,
+/// Validates: SubagentDetailStore coalesced event recording, stripHeavyContent surface stripping,
 /// attachment lifecycle clearing guards, and ToolCallData Equatable exclusions.
 @MainActor
 final class RenderChurnTests: XCTestCase {
 
-    // MARK: - SubagentDetailStore event recording
+    // MARK: - SubagentDetailStore coalesced event recording
 
-    /// Rapid-fire text deltas should accumulate into a single text event per subagent.
-    func testSubagentDetailStoreAccumulatesTextDeltas() async {
+    /// Rapid-fire text deltas should accumulate into a single text event per subagent
+    /// and be coalesced into a single flush to the observed property within the 100ms window.
+    func testSubagentDetailStoreCoalescesTextDeltas() async {
         let store = SubagentDetailStore()
 
         for i in 0..<10 {
@@ -19,6 +20,15 @@ final class RenderChurnTests: XCTestCase {
                 event: .assistantTextDelta(AssistantTextDeltaMessage(text: "chunk-\(i)"))
             )
         }
+
+        // Before the flush fires, the observed property should still be empty.
+        XCTAssertTrue(
+            (store.eventsBySubagent["agent-1"] ?? []).isEmpty,
+            "Events should be staged, not yet flushed to the observed property"
+        )
+
+        // Wait 200ms (2x the 100ms coalesce window) for the flush to fire.
+        try? await Task.sleep(nanoseconds: 200_000_000)
 
         let events = store.eventsBySubagent["agent-1"] ?? []
         XCTAssertEqual(events.count, 1, "Text deltas should accumulate into a single text event")
