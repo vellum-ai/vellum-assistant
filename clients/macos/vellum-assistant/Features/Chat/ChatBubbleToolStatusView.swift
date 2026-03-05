@@ -87,13 +87,13 @@ extension ChatBubble {
                 .font(VFont.captionMedium)
                 .foregroundColor(chipColor)
         }
-        .padding(.horizontal, VSpacing.md)
+        .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .background(
-            Capsule().fill(chipColor.opacity(0.1))
+            Capsule().fill(Color.clear)
         )
         .overlay(
-            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 0.5)
+            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
         )
     }
 }

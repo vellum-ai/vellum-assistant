@@ -195,6 +195,7 @@ struct AssistantProgressView: View {
                 if let confirmation = decidedConfirmation, confirmation.state != .pending {
                     compactPermissionChip(confirmation)
                         .padding(.horizontal, VSpacing.sm)
+                        .padding(.top, VSpacing.sm)
                         .padding(.bottom, VSpacing.sm)
                 }
             }
@@ -240,9 +241,11 @@ struct AssistantProgressView: View {
 
                 Spacer()
 
-                // Elapsed time (after 5 seconds, only when active)
+                // Elapsed time: live counter when active, final duration when complete
                 if isActive {
                     elapsedTimeLabel
+                } else if !toolCalls.isEmpty {
+                    completedDurationLabel
                 }
 
                 // Chevron (only if tools exist)
@@ -370,6 +373,22 @@ struct AssistantProgressView: View {
         }
     }
 
+    // MARK: - Completed Duration
+
+    @ViewBuilder
+    private var completedDurationLabel: some View {
+        let earliest = toolCalls.compactMap(\.startedAt).min()
+        let latest = toolCalls.compactMap(\.completedAt).max()
+        if let start = earliest, let end = latest {
+            let seconds = end.timeIntervalSince(start)
+            Text(seconds < 60
+                ? String(format: "%.1fs", seconds)
+                : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
+    }
+
     // MARK: - Expanded Content
 
     @ViewBuilder
@@ -417,13 +436,13 @@ struct AssistantProgressView: View {
                 .font(VFont.captionMedium)
                 .foregroundColor(chipColor)
         }
-        .padding(.horizontal, VSpacing.md)
+        .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .background(
-            Capsule().fill(chipColor.opacity(0.1))
+            Capsule().fill(Color.clear)
         )
         .overlay(
-            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 0.5)
+            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
         )
     }
 }

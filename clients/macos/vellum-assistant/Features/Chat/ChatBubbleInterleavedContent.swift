@@ -62,6 +62,10 @@ extension ChatBubble {
             }
         }
 
+        // When tool calls render inline (visible progress views), they must
+        // break text runs just like surfaces do — skip coalescing entirely.
+        guard !shouldRenderToolProgressInline else { return groups }
+
         // Post-process: coalesce text groups that are only separated by tool call
         // groups so that the user can drag-select across text that spans a tool
         // invocation (tool calls render as EmptyView and produce no visual gap).
