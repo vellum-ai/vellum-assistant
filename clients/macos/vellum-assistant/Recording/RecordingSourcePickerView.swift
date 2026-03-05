@@ -210,7 +210,13 @@ struct RecordingSourcePickerView: View {
             )
         }
         .buttonStyle(.plain)
-        .onHover { hovering in hoveredWindowId = hovering ? window.id : nil }
+        .onHover { hovering in
+            if hovering {
+                hoveredWindowId = window.id
+            } else if hoveredWindowId == window.id {
+                hoveredWindowId = nil
+            }
+        }
     }
 
     /// Row for a display source showing name, resolution + scale, and a badge
@@ -266,7 +272,13 @@ struct RecordingSourcePickerView: View {
             )
         }
         .buttonStyle(.plain)
-        .onHover { hovering in hoveredDisplayId = hovering ? display.id : nil }
+        .onHover { hovering in
+            if hovering {
+                hoveredDisplayId = display.id
+            } else if hoveredDisplayId == display.id {
+                hoveredDisplayId = nil
+            }
+        }
     }
 
     private func emptyState(_ message: String) -> some View {
