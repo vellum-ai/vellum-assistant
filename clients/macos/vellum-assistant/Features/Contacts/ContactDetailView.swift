@@ -21,7 +21,13 @@ struct ContactDetailView: View {
     @State private var telegramBootstrapUrl: String?
     @State private var telegramBootstrapChannelId: String?
     @State private var inviteInProgress: String?
-    @State private var inviteResult: (type: String, token: String, shareUrl: String?)?
+    @State private var inviteResult: (
+        type: String,
+        token: String,
+        shareUrl: String?,
+        inviteCode: String?,
+        guardianInstruction: String?
+    )?
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
 
@@ -287,30 +293,112 @@ struct ContactDetailView: View {
             }
 
             if inviteResult?.type == type {
-                HStack(spacing: VSpacing.sm) {
-                    let shareableText = inviteResult!.shareUrl ?? inviteResult!.token
-                    let truncated = shareableText.count > 20
-                        ? String(shareableText.prefix(20)) + "..."
-                        : shareableText
-                    Text(truncated)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textSecondary)
+                inviteResultDisplay(for: type)
+            }
+        }
+    }
 
-                    VButton(
-                        label: inviteCopiedType == type ? "Copied!" : "Copy",
-                        icon: "doc.on.doc",
-                        style: .tertiary,
-                        size: .medium
-                    ) {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(shareableText, forType: .string)
-                        inviteCopiedType = type
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            guard !Task.isCancelled else { return }
-                            if inviteCopiedType == type {
-                                inviteCopiedType = nil
+    @ViewBuilder
+    private func inviteResultDisplay(for type: String) -> some View {
+        let result = inviteResult!
+
+        if let inviteCode = result.inviteCode {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                if let instruction = result.guardianInstruction {
+                    Text(instruction)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Large monospaced invite code for readability
+                Text(inviteCode)
+                    .font(.system(size: 28, weight: .medium, design: .monospaced))
+                    .foregroundColor(VColor.textPrimary)
+                    .tracking(4)
+                    .padding(.vertical, VSpacing.xs)
+
+                VButton(
+                    label: inviteCopiedType == type ? "Copied!" : "Copy Code",
+                    icon: "doc.on.doc",
+                    style: .secondary,
+                    size: .medium
+                ) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(inviteCode, forType: .string)
+                    inviteCopiedType = type
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        if inviteCopiedType == type {
+                            inviteCopiedType = nil
+                        }
+                    }
+                }
+
+                // Show share URL as secondary option when available (e.g. Telegram deep link)
+                if let shareUrl = result.shareUrl {
+                    Divider().background(VColor.divider)
+
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Or share this link:")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+
+                        HStack(spacing: VSpacing.sm) {
+                            let truncated = shareUrl.count > 30
+                                ? String(shareUrl.prefix(30)) + "..."
+                                : shareUrl
+                            Text(truncated)
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.textSecondary)
+
+                            VButton(
+                                label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
+                                icon: "doc.on.doc",
+                                style: .tertiary,
+                                size: .medium
+                            ) {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(shareUrl, forType: .string)
+                                inviteCopiedType = "\(type)-link"
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                    guard !Task.isCancelled else { return }
+                                    if inviteCopiedType == "\(type)-link" {
+                                        inviteCopiedType = nil
+                                    }
+                                }
                             }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Fallback: no invite code available, show raw token
+            HStack(spacing: VSpacing.sm) {
+                let shareableText = result.shareUrl ?? result.token
+                let truncated = shareableText.count > 20
+                    ? String(shareableText.prefix(20)) + "..."
+                    : shareableText
+                Text(truncated)
+                    .font(VFont.monoSmall)
+                    .foregroundColor(VColor.textSecondary)
+
+                VButton(
+                    label: inviteCopiedType == type ? "Copied!" : "Copy",
+                    icon: "doc.on.doc",
+                    style: .tertiary,
+                    size: .medium
+                ) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(shareableText, forType: .string)
+                    inviteCopiedType = type
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        if inviteCopiedType == type {
+                            inviteCopiedType = nil
                         }
                     }
                 }
@@ -653,9 +741,16 @@ struct ContactDetailView: View {
             do {
                 if let result = try await daemonClient.createInvite(
                     sourceChannel: type,
-                    note: "Invite for \(displayContact.displayName)"
+                    note: "Invite for \(displayContact.displayName)",
+                    contactName: displayContact.displayName
                 ) {
-                    inviteResult = (type: type, token: result.token, shareUrl: result.shareUrl)
+                    inviteResult = (
+                        type: type,
+                        token: result.token,
+                        shareUrl: result.shareUrl,
+                        inviteCode: result.inviteCode,
+                        guardianInstruction: result.guardianInstruction
+                    )
                 } else {
                     inviteError = "Failed to create invite"
                 }
