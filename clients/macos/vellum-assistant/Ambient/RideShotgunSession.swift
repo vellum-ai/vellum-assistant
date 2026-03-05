@@ -38,7 +38,7 @@ public final class RideShotgunSession: ObservableObject {
     public var isLearnMode: Bool { mode == "learn" }
 
     private var watchSession: WatchSession?
-    private var daemonClient: DaemonClient?
+    private var daemonClient: (any DaemonClientProtocol)?
     private var messageSubscription: Task<Void, Never>?
     private var watchSessionObserver: Task<Void, Never>?
     private var expectedWatchId: String?
@@ -51,7 +51,7 @@ public final class RideShotgunSession: ObservableObject {
         self.targetDomain = targetDomain
     }
 
-    public func start(daemonClient: DaemonClient) {
+    public func start(daemonClient: any DaemonClientProtocol) {
         guard state == .idle else {
             log.warning("Cannot start ride shotgun session: already in state \(String(describing: self.state))")
             return
@@ -135,7 +135,7 @@ public final class RideShotgunSession: ObservableObject {
 
     // MARK: - Private
 
-    private func handleWatchStarted(_ message: WatchStartedMessage, daemonClient: DaemonClient) {
+    private func handleWatchStarted(_ message: WatchStartedMessage, daemonClient: any DaemonClientProtocol) {
         guard state == .starting else {
             log.warning("Received watch_started but state is \(String(describing: self.state)), ignoring")
             return

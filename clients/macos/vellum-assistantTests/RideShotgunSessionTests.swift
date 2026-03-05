@@ -153,4 +153,37 @@ final class RideShotgunSessionTests: XCTestCase {
         agent.cancelRideShotgun()
         XCTAssertNil(agent.currentSession)
     }
+
+    // MARK: - IPC Message Delivery Path
+
+    @MainActor
+    func testRideShotgunErrorMessageTransitionsSessionToFailed() async throws {
+        // Exercises the actual subscription loop in RideShotgunSession.start():
+        // a rideShotgunError message delivered through the DaemonClient stream
+        // should transition the session from .starting to .failed with the error
+        // message from the IPC payload.
+        let mockClient = MockDaemonClient()
+        let continuation = mockClient.setupTestStream()
+
+        let session = RideShotgunSession(durationSeconds: 60)
+        session.start(daemonClient: mockClient)
+        XCTAssertEqual(session.state, .starting)
+
+        // Deliver the error through the IPC subscription
+        let errorMessage = RideShotgunErrorMessage(
+            type: "ride_shotgun_error",
+            watchId: "w-1",
+            sessionId: "s-1",
+            message: "CDP bootstrap timed out"
+        )
+        continuation.yield(.rideShotgunError(errorMessage))
+
+        // The subscription loop processes messages asynchronously on the main
+        // actor, so yield to let the Task pick up the emitted message.
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(session.state, .failed("CDP bootstrap timed out"))
+        XCTAssertEqual(session.summary, "", "Summary should remain empty on error")
+        XCTAssertEqual(session.observationCount, 0, "Observation count should remain zero on error")
+    }
 }
