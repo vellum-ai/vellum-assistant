@@ -113,6 +113,20 @@ struct ContactDetailView: View {
                 roleBadge
                 contactTypeBadge
             }
+
+            HStack(spacing: VSpacing.sm) {
+                Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                if let lastInteraction = displayContact.lastInteraction {
+                    Text("\u{00B7}")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    Text("Last \(relativeTime(epochMs: Int(lastInteraction)))")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
@@ -594,18 +608,6 @@ struct ContactDetailView: View {
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 editableNotesRow
-
-                metadataRow(
-                    label: "Interactions",
-                    value: "\(displayContact.interactionCount)"
-                )
-
-                if let lastInteraction = displayContact.lastInteraction {
-                    metadataRow(
-                        label: "Last interaction",
-                        value: relativeTime(epochMs: Int(lastInteraction))
-                    )
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
