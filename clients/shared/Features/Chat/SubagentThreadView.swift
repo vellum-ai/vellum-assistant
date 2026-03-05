@@ -224,9 +224,10 @@ public struct SubagentThreadView: View {
 
 // MARK: - Subagent Events Reader
 
-/// Thin wrapper that scopes `SubagentDetailStore` observation to a single
-/// subagent's events. Only this view's body is invalidated when the store
-/// updates — the parent `MessageListView` is untouched.
+/// Thin wrapper that isolates `SubagentDetailStore` observation from the
+/// parent `MessageListView`. Observation is scoped at the dictionary-property
+/// level (not per key), so all readers invalidate when any subagent's events
+/// change, but the parent message list is untouched.
 public struct SubagentEventsReader: View {
     var store: SubagentDetailStore
     let subagent: SubagentInfo
