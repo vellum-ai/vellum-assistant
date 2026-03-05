@@ -52,8 +52,8 @@ export type SetupOutcome =
       action: "invite_redemption";
       assistantId: string;
       fromNumber: string;
-      friendName: string;
-      guardianName: string;
+      friendName: string | null;
+      guardianName: string | null;
     }
   | { action: "name_capture"; assistantId: string; fromNumber: string }
   | { action: "deny"; message: string; logReason: string };
