@@ -16,20 +16,16 @@ interface ContactChannel {
 interface ContactResponse {
   id: string;
   displayName: string;
-  relationship: string | null;
-  importance: number;
+  notes: string | null;
   interactionCount: number;
   channels: ContactChannel[];
 }
 
 function formatContactSummary(c: ContactResponse): string {
   const parts = [`- **${c.displayName}** (ID: ${c.id})`];
-  if (c.relationship) parts.push(`  Relationship: ${c.relationship}`);
-  parts.push(
-    `  Importance: ${c.importance.toFixed(2)} | Interactions: ${
-      c.interactionCount
-    }`,
-  );
+  if (c.notes) parts.push(`  Notes: ${c.notes}`);
+  if (c.interactionCount > 0)
+    parts.push(`  Interactions: ${c.interactionCount}`);
   if (c.channels.length > 0) {
     const channelList = c.channels
       .map((ch) => `${ch.type}:${ch.address}${ch.isPrimary ? "*" : ""}`)
@@ -46,13 +42,12 @@ export async function executeContactSearch(
   const query = input.query as string | undefined;
   const channelAddress = input.channel_address as string | undefined;
   const channelType = input.channel_type as string | undefined;
-  const relationship = input.relationship as string | undefined;
   const limit = input.limit as number | undefined;
 
-  if (!query && !channelAddress && !relationship) {
+  if (!query && !channelAddress) {
     return {
       content:
-        "Error: At least one search criterion is required (query, channel_address, or relationship)",
+        "Error: At least one search criterion is required (query or channel_address)",
       isError: true,
     };
   }
@@ -62,7 +57,6 @@ export async function executeContactSearch(
     if (query) params.set("query", query);
     if (channelAddress) params.set("channelAddress", channelAddress);
     if (channelType) params.set("channelType", channelType);
-    if (relationship) params.set("relationship", relationship);
     if (limit !== undefined) params.set("limit", String(limit));
 
     const qs = params.toString();

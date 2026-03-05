@@ -17,8 +17,7 @@ interface ContactChannel {
 interface ContactResponse {
   id: string;
   displayName: string;
-  relationship: string | null;
-  importance: number;
+  notes: string | null;
   interactionCount: number;
   channels: ContactChannel[];
 }
@@ -96,9 +95,8 @@ export async function executeContactMerge(
         ``,
         `Surviving contact (${merged.id}):`,
         `  Name: ${merged.displayName}`,
-        `  Importance: ${merged.importance.toFixed(2)}`,
         `  Interactions: ${merged.interactionCount}`,
-        merged.relationship ? `  Relationship: ${merged.relationship}` : null,
+        merged.notes ? `  Notes: ${merged.notes}` : null,
         merged.channels.length > 0 ? `  Channels:\n${channelList}` : null,
         ``,
         `Deleted contact: ${mergeContact.displayName} (${mergeId})`,
