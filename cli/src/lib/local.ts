@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import {
   closeSync,
   existsSync,
@@ -147,6 +147,38 @@ async function waitForSocketFile(
   }
 
   return existsSync(socketPath);
+}
+
+function ensureBunInstalled(): void {
+  const bunBinDir = join(homedir(), ".bun", "bin");
+  const pathWithBun = [
+    bunBinDir,
+    process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+  ].join(":");
+
+  try {
+    execFileSync("bun", ["--version"], {
+      stdio: "pipe",
+      env: { ...process.env, PATH: pathWithBun },
+    });
+    return;
+  } catch {
+    // bun not found, try to install
+  }
+
+  console.log("   Installing bun...");
+  try {
+    execSync("curl -fsSL https://bun.sh/install | bash", {
+      stdio: "pipe",
+      timeout: 60_000,
+      env: { ...process.env },
+    });
+    console.log("   Bun installed successfully");
+  } catch {
+    console.log(
+      "   ⚠️  Failed to install bun — some features may be unavailable",
+    );
+  }
 }
 
 function resolveDaemonMainPath(assistantIndex: string): string {
@@ -615,6 +647,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
 
       console.log("🔨 Starting assistant...");
 
+      // Ensure bun is available for runtime features (browser, skills install)
+      ensureBunInstalled();
+
       // Ensure ~/.vellum/ exists for PID/socket files
       mkdirSync(vellumDir, { recursive: true });
 
@@ -622,10 +657,12 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       // macOS app the CLI inherits a huge environment (XPC_SERVICE_NAME,
       // __CFBundleIdentifier, CLAUDE_CODE_ENTRYPOINT, etc.) that can cause
       // the daemon to take 50+ seconds to start instead of ~1s.
+      const bunBinDir = join(homedir(), ".bun", "bin");
+      const basePath =
+        process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
       const daemonEnv: Record<string, string> = {
         HOME: process.env.HOME || homedir(),
-        PATH:
-          process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        PATH: `${bunBinDir}:${basePath}`,
         VELLUM_DAEMON_TCP_ENABLED: "1",
       };
       // Forward optional config env vars the daemon may need
@@ -829,8 +866,7 @@ export async function startGateway(
     // balancer draining connections, so waiting serves no purpose and causes
     // `vellum sleep` to SIGKILL the gateway when the CLI timeout is shorter
     // than the drain window.  Respect an explicit env override.
-    GATEWAY_SHUTDOWN_DRAIN_MS:
-      process.env.GATEWAY_SHUTDOWN_DRAIN_MS || "0",
+    GATEWAY_SHUTDOWN_DRAIN_MS: process.env.GATEWAY_SHUTDOWN_DRAIN_MS || "0",
   };
 
   if (process.env.GATEWAY_UNMAPPED_POLICY) {
