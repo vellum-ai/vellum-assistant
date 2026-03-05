@@ -223,12 +223,11 @@ struct SecretPromptView: View {
                     // Buttons
                     HStack(spacing: VSpacing.lg) {
                         Spacer()
-                        VButton(label: "Cancel", style: .tertiary) {
+                        VButton(label: "Cancel", style: .tertiary, accessibilityID: "secure-credential-cancel") {
                             onCancel()
                         }
-                        .accessibilityIdentifier("secure-credential-cancel")
                         .accessibilityLabel("Cancel")
-                        VButton(label: "Save", style: .primary) {
+                        VButton(label: "Save", style: .primary, accessibilityID: "secure-credential-save") {
                             let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !trimmed.isEmpty else { return }
                             if onSave(trimmed) {
@@ -236,7 +235,6 @@ struct SecretPromptView: View {
                             }
                         }
                         .disabled(secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityIdentifier("secure-credential-save")
                         .accessibilityLabel("Save")
                     }
 
