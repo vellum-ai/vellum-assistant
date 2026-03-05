@@ -17,7 +17,10 @@ import type {
   MemberStatus,
 } from "../../../contacts/types.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
-import { findByInviteCodeHash } from "../../../memory/invite-store.js";
+import {
+  findByInviteCodeHash,
+  findByInviteCodeHashAnyChannel,
+} from "../../../memory/invite-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { hashVoiceCode } from "../../../util/voice-code.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
@@ -903,6 +906,36 @@ async function handleInviteCodeIntercept(params: {
   const codeHash = hashVoiceCode(code);
   const candidateInvite = findByInviteCodeHash(codeHash, sourceChannel);
   if (!candidateInvite) {
+    // The code doesn't match any invite on this channel. Before falling
+    // through to normal processing, check if it matches on a different
+    // channel — if so, inform the user instead of silently ignoring it.
+    const crossChannelInvite = findByInviteCodeHashAnyChannel(codeHash);
+    if (crossChannelInvite) {
+      const mismatchReply = "This invite is not valid for this channel.";
+      if (replyCallbackUrl) {
+        try {
+          await deliverChannelReply(
+            replyCallbackUrl,
+            {
+              chatId: externalChatId,
+              text: mismatchReply,
+              assistantId,
+            },
+            bearerToken,
+          );
+        } catch (err) {
+          log.error(
+            { err, externalChatId },
+            "Failed to deliver invite code channel-mismatch reply",
+          );
+        }
+      }
+      return Response.json({
+        accepted: true,
+        denied: true,
+        inviteRedemption: "channel_mismatch",
+      });
+    }
     return null;
   }
 

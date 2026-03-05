@@ -384,3 +384,33 @@ export function findByInviteCodeHash(
 
   return row ? rowToInvite(row) : null;
 }
+
+// ---------------------------------------------------------------------------
+// findByInviteCodeHashAnyChannel
+// ---------------------------------------------------------------------------
+
+/**
+ * Find an active invite by its 6-digit invite code hash without channel
+ * scoping. Used as a fallback after a channel-scoped lookup fails, to
+ * distinguish "code doesn't exist" from "code exists but for a different
+ * channel" — the latter should produce a channel_mismatch response instead
+ * of silently falling through.
+ */
+export function findByInviteCodeHashAnyChannel(
+  hash: string,
+): IngressInvite | null {
+  const db = getDb();
+
+  const row = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(
+      and(
+        eq(assistantIngressInvites.inviteCodeHash, hash),
+        eq(assistantIngressInvites.status, "active"),
+      ),
+    )
+    .get();
+
+  return row ? rowToInvite(row) : null;
+}
