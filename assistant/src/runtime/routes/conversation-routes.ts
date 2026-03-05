@@ -452,7 +452,7 @@ function makeHubPublisher(
 export async function handleSendMessage(
   req: Request,
   deps: {
-    sendMessageDeps: SendMessageDeps;
+    sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
   },
   authContext: AuthContext,
@@ -532,6 +532,13 @@ export async function handleSendMessage(
 
   const mapping = getOrCreateConversation(conversationKey);
 
+  if (!deps.sendMessageDeps) {
+    return httpError(
+      "SERVICE_UNAVAILABLE",
+      "Message processing is not available",
+      503,
+    );
+  }
   const smDeps = deps.sendMessageDeps;
   const session = await smDeps.getOrCreateSession(mapping.conversationId);
 
@@ -896,7 +903,7 @@ export function handleSearchConversations(url: URL): Response {
 
 export function conversationRouteDefinitions(deps: {
   interfacesDir: string | null;
-  sendMessageDeps: SendMessageDeps;
+  sendMessageDeps?: SendMessageDeps;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   suggestionCache: Map<string, string>;
   suggestionInFlight: Map<string, Promise<string | null>>;
