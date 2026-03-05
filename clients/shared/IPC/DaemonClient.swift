@@ -1535,6 +1535,57 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ContactsRequestMessage(action: "update_channel", channelId: channelId, status: status, policy: policy, reason: reason))
     }
 
+    /// Update a contact's metadata via the HTTP API (`POST /v1/contacts`).
+    /// Works for both local daemon (via httpPort) and managed (via httpTransport).
+    public func updateContact(
+        contactId: String,
+        displayName: String,
+        relationship: String? = nil,
+        importance: Double? = nil,
+        responseExpectation: String? = nil,
+        preferredTone: String? = nil
+    ) async throws -> ContactPayload? {
+        let baseURL: String
+        let bearerToken: String?
+
+        if let httpTransport {
+            baseURL = httpTransport.baseURL
+            bearerToken = httpTransport.bearerToken
+        } else if let local = resolveLocalDaemonHTTPEndpoint() {
+            baseURL = local.baseURL
+            bearerToken = local.bearerToken
+        } else {
+            return nil
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/contacts") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body: [String: Any] = ["id": contactId, "displayName": displayName]
+        if let relationship { body["relationship"] = relationship }
+        if let importance { body["importance"] = importance }
+        if let responseExpectation { body["responseExpectation"] = responseExpectation }
+        if let preferredTone { body["preferredTone"] = preferredTone }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...201).contains(http.statusCode) else { return nil }
+
+        struct UpsertResponse: Decodable {
+            let ok: Bool
+            let contact: ContactPayload
+        }
+        let decoded = try JSONDecoder().decode(UpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
     // MARK: - Feature Flags
 
     /// A single assistant feature flag entry returned by `GET /v1/feature-flags`.
