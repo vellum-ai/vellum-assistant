@@ -123,7 +123,7 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // WhatsApp probe
+  // WhatsApp probe — Meta WhatsApp Business API credentials
   // -------------------------------------------------------------------------
 
   describe("whatsapp", () => {
@@ -138,63 +138,80 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       ).toBe(false);
     });
 
-    test("reports not ready when Twilio credentials are missing", async () => {
+    test("reports not ready when Meta credentials are missing", async () => {
       mockRawConfig = {};
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 
       expect(snapshot.ready).toBe(false);
       expect(
-        snapshot.reasons.some((r) => r.code === "twilio_credentials"),
+        snapshot.reasons.some((r) => r.code === "whatsapp_phone_number_id"),
+      ).toBe(true);
+      expect(
+        snapshot.reasons.some((r) => r.code === "whatsapp_access_token"),
       ).toBe(true);
     });
 
-    test("reports not ready when phone number is missing", async () => {
-      mockHasTwilioCredentials = true;
-      mockRawConfig = {};
+    test("reports ready when all Meta credentials are configured", async () => {
+      mockSecureKeys = {
+        "credential:whatsapp:phone_number_id": "123456789",
+        "credential:whatsapp:access_token": "EAAxxxxxx",
+        "credential:whatsapp:app_secret": "abc123",
+        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+      };
+      mockRawConfig = {
+        ingress: { publicBaseUrl: "https://example.com", enabled: true },
+      };
+      const service = createReadinessService();
+      const [snapshot] = await service.getReadiness("whatsapp");
+
+      expect(snapshot.ready).toBe(true);
+      expect(snapshot.reasons).toHaveLength(0);
+    });
+
+    test("checks each Meta credential individually", async () => {
+      mockSecureKeys = {
+        "credential:whatsapp:phone_number_id": "123456789",
+        // access_token missing
+        "credential:whatsapp:app_secret": "abc123",
+        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+      };
+      mockRawConfig = {
+        ingress: { publicBaseUrl: "https://example.com", enabled: true },
+      };
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 
       expect(snapshot.ready).toBe(false);
-      expect(snapshot.reasons.some((r) => r.code === "phone_number")).toBe(
-        true,
+
+      const phoneIdCheck = snapshot.localChecks.find(
+        (c) => c.name === "whatsapp_phone_number_id",
       );
-    });
+      expect(phoneIdCheck!.passed).toBe(true);
 
-    test("resolves phone number from whatsapp config", async () => {
-      mockHasTwilioCredentials = true;
-      mockRawConfig = {
-        whatsapp: { phoneNumber: "+15551234567" },
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
-      const service = createReadinessService();
-      const [snapshot] = await service.getReadiness("whatsapp");
-
-      const phoneCheck = snapshot.localChecks.find(
-        (c) => c.name === "phone_number",
+      const accessTokenCheck = snapshot.localChecks.find(
+        (c) => c.name === "whatsapp_access_token",
       );
-      expect(phoneCheck).toBeDefined();
-      expect(phoneCheck!.passed).toBe(true);
-    });
+      expect(accessTokenCheck!.passed).toBe(false);
 
-    test("falls back to sms config for phone number", async () => {
-      mockHasTwilioCredentials = true;
-      mockRawConfig = {
-        sms: { phoneNumber: "+15559876543" },
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
-      const service = createReadinessService();
-      const [snapshot] = await service.getReadiness("whatsapp");
-
-      const phoneCheck = snapshot.localChecks.find(
-        (c) => c.name === "phone_number",
+      const appSecretCheck = snapshot.localChecks.find(
+        (c) => c.name === "whatsapp_app_secret",
       );
-      expect(phoneCheck!.passed).toBe(true);
+      expect(appSecretCheck!.passed).toBe(true);
+
+      const webhookCheck = snapshot.localChecks.find(
+        (c) => c.name === "whatsapp_webhook_verify_token",
+      );
+      expect(webhookCheck!.passed).toBe(true);
     });
 
     test("checks invite policy", async () => {
-      mockHasTwilioCredentials = true;
-      mockTwilioPhoneNumberEnv = "+15551234567";
+      mockSecureKeys = {
+        "credential:whatsapp:phone_number_id": "123456789",
+        "credential:whatsapp:access_token": "EAAxxxxxx",
+        "credential:whatsapp:app_secret": "abc123",
+        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+      };
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
       };
@@ -205,13 +222,16 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
         (c) => c.name === "invite_policy",
       );
       expect(inviteCheck).toBeDefined();
-      // WhatsApp has codeRedemptionEnabled: true in the channel policy registry
       expect(inviteCheck!.passed).toBe(true);
     });
 
     test("checks ingress configuration", async () => {
-      mockHasTwilioCredentials = true;
-      mockTwilioPhoneNumberEnv = "+15551234567";
+      mockSecureKeys = {
+        "credential:whatsapp:phone_number_id": "123456789",
+        "credential:whatsapp:access_token": "EAAxxxxxx",
+        "credential:whatsapp:app_secret": "abc123",
+        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+      };
       mockRawConfig = {};
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
@@ -221,19 +241,6 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       );
       expect(ingressCheck).toBeDefined();
       expect(ingressCheck!.passed).toBe(false);
-    });
-
-    test("ready when all prerequisites are met", async () => {
-      mockHasTwilioCredentials = true;
-      mockTwilioPhoneNumberEnv = "+15551234567";
-      mockRawConfig = {
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
-      const service = createReadinessService();
-      const [snapshot] = await service.getReadiness("whatsapp");
-
-      expect(snapshot.ready).toBe(true);
-      expect(snapshot.reasons).toHaveLength(0);
     });
   });
 

@@ -26,22 +26,12 @@ function resolveSmsPhoneNumber(): string {
   return resolveTwilioPhoneNumber();
 }
 
-function resolveWhatsAppPhoneNumber(): string {
-  return resolveTwilioPhoneNumber({ includeWhatsappOverride: true });
-}
-
-function resolveTwilioPhoneNumber(options?: {
-  includeWhatsappOverride?: boolean;
-}): string {
+function resolveTwilioPhoneNumber(): string {
   try {
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    const whatsappConfig = options?.includeWhatsappOverride
-      ? ((raw?.whatsapp ?? {}) as Record<string, unknown>)
-      : undefined;
     return (
       getTwilioPhoneNumberEnv() ||
-      (whatsappConfig?.phoneNumber as string | undefined) ||
       (smsConfig.phoneNumber as string) ||
       getSecureKey("credential:twilio:phone_number") ||
       ""
@@ -309,23 +299,44 @@ const whatsappProbe: ChannelProbe = {
   runLocalChecks(): ReadinessCheckResult[] {
     const results: ReadinessCheckResult[] = [];
 
-    const hasCreds = hasTwilioCredentials();
+    const hasPhoneNumberId = !!getSecureKey(
+      "credential:whatsapp:phone_number_id",
+    );
     results.push({
-      name: "twilio_credentials",
-      passed: hasCreds,
-      message: hasCreds
-        ? "Twilio credentials are configured"
-        : "Twilio Account SID and Auth Token are not configured",
+      name: "whatsapp_phone_number_id",
+      passed: hasPhoneNumberId,
+      message: hasPhoneNumberId
+        ? "WhatsApp phone number ID is configured"
+        : "WhatsApp phone number ID is not configured",
     });
 
-    const resolvedNumber = resolveWhatsAppPhoneNumber();
-    const hasPhone = !!resolvedNumber;
+    const hasAccessToken = !!getSecureKey("credential:whatsapp:access_token");
     results.push({
-      name: "phone_number",
-      passed: hasPhone,
-      message: hasPhone
-        ? "WhatsApp phone number is assigned"
-        : "No WhatsApp phone number assigned",
+      name: "whatsapp_access_token",
+      passed: hasAccessToken,
+      message: hasAccessToken
+        ? "WhatsApp access token is configured"
+        : "WhatsApp access token is not configured",
+    });
+
+    const hasAppSecret = !!getSecureKey("credential:whatsapp:app_secret");
+    results.push({
+      name: "whatsapp_app_secret",
+      passed: hasAppSecret,
+      message: hasAppSecret
+        ? "WhatsApp app secret is configured"
+        : "WhatsApp app secret is not configured",
+    });
+
+    const hasWebhookVerifyToken = !!getSecureKey(
+      "credential:whatsapp:webhook_verify_token",
+    );
+    results.push({
+      name: "whatsapp_webhook_verify_token",
+      passed: hasWebhookVerifyToken,
+      message: hasWebhookVerifyToken
+        ? "WhatsApp webhook verify token is configured"
+        : "WhatsApp webhook verify token is not configured",
     });
 
     const invitePolicy = getChannelInvitePolicy("whatsapp");

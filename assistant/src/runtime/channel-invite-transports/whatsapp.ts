@@ -1,22 +1,15 @@
 /**
  * WhatsApp channel invite adapter.
  *
- * Resolves the assistant's WhatsApp phone number for use in invite
- * instructions. WhatsApp invites use the universal 6-digit code path
- * for redemption, so this adapter only implements `resolveChannelHandle`
- * — no `buildShareLink` or `extractInboundToken` needed.
- *
- * WhatsApp shares the same Twilio phone number as SMS, so the
- * resolution strategy mirrors the SMS adapter.
+ * WhatsApp uses Meta WhatsApp Business API credentials, not Twilio.
+ * The Meta API identifies numbers by phone_number_id (a numeric string),
+ * which isn't a user-facing phone number. Since we can't resolve a
+ * display number from Meta credentials alone, the adapter returns
+ * `undefined` — triggering the generic instruction path for invites.
  */
 
 import type { ChannelId } from "../../channels/types.js";
 import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
-import { resolveTwilioInvitePhoneNumber } from "./sms.js";
-
-// ---------------------------------------------------------------------------
-// Phone number resolution
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Adapter implementation
@@ -26,6 +19,8 @@ export const whatsappInviteAdapter: ChannelInviteAdapter = {
   channel: "whatsapp" as ChannelId,
 
   resolveChannelHandle(): string | undefined {
-    return resolveTwilioInvitePhoneNumber({ includeWhatsappOverride: true });
+    // Meta WhatsApp Business API uses phone_number_id, not a displayable
+    // phone number. Return undefined to fall back to generic instructions.
+    return undefined;
   },
 };
