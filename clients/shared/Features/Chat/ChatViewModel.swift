@@ -1007,6 +1007,7 @@ public final class ChatViewModel: ObservableObject {
                 return
             }
             pendingSkillInvocation = nil
+            inputText = ""
             return
         }
 
