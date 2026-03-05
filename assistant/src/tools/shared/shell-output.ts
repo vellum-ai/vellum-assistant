@@ -39,8 +39,13 @@ export function formatShellOutput(
   }
 
   if (!output.trim()) {
-    output =
-      code === 0 ? "<command_completed />" : `<command_exit code="${code}" />`;
+    if (code === 0) {
+      output = "<command_completed />";
+    } else {
+      const exitTag = `<command_exit code="${code}" />`;
+      output = `${exitTag}\nCommand failed with exit code ${code}. No stdout or stderr output was produced.`;
+      statusParts.push(exitTag);
+    }
   } else if (code !== 0 && !timedOut) {
     statusParts.push(`<command_exit code="${code}" />`);
   }
