@@ -9,6 +9,10 @@ import type { DrizzleDb } from "../db-connection.js";
  *
  * The plain `created_at`-only index is kept because other queries may rely
  * on it (and it's smaller).
+ *
+ * SUPERSEDED: The reordered composite indexes are also dropped by
+ * migration 139 — EXPLAIN QUERY PLAN shows they still don't eliminate
+ * the temp B-tree for GROUP BY.
  */
 export function migrateReorderUsageDashboardIndexes(database: DrizzleDb): void {
   // Drop the old dimension-leading composites from migration 137

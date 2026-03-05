@@ -47,6 +47,7 @@ import {
   migrateConversationsThreadTypeIndex,
   migrateDropAssistantIdColumns,
   migrateDropLegacyMemberGuardianTables,
+  migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
   migrateGuardianActionSupersession,
@@ -300,6 +301,9 @@ export function initializeDb(): void {
 
   // 42. Reorder usage dashboard composite indexes so created_at leads (matches query shape)
   migrateReorderUsageDashboardIndexes(database);
+
+  // 43. Drop all composite usage indexes — they don't eliminate temp B-trees for GROUP BY
+  migrateDropUsageCompositeIndexes(database);
 
   validateMigrationState(database);
 
