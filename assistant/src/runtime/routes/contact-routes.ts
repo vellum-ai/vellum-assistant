@@ -45,6 +45,7 @@ import {
   deliverVerificationTelegram,
   DESTINATION_RATE_WINDOW_MS,
   MAX_SENDS_PER_DESTINATION_WINDOW,
+  normalizeTelegramDestination,
 } from "../guardian-outbound-actions.js";
 import {
   composeVerificationSlack,
@@ -517,10 +518,17 @@ export async function handleVerifyContactChannel(
     );
   }
 
+  // Normalize Telegram destinations so rate-limit lookups are consistent with
+  // guardian-outbound-actions (strips leading '@', lowercases handles).
+  const effectiveDestination =
+    verificationChannel === "telegram"
+      ? normalizeTelegramDestination(destination)
+      : destination;
+
   // Rate limit check
   const recentSendCount = countRecentSendsToDestination(
     verificationChannel,
-    destination,
+    effectiveDestination,
     DESTINATION_RATE_WINDOW_MS,
   );
   if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
@@ -582,7 +590,7 @@ export async function handleVerifyContactChannel(
         expectedChatId: channel.externalChatId,
         expectedExternalUserId: channel.externalUserId ?? undefined,
         identityBindingStatus: "bound",
-        destinationAddress: destination,
+        destinationAddress: effectiveDestination,
         verificationPurpose: "trusted_contact",
       });
 
@@ -630,7 +638,7 @@ export async function handleVerifyContactChannel(
       assistantId,
       channel: verificationChannel,
       identityBindingStatus: "pending_bootstrap",
-      destinationAddress: destination,
+      destinationAddress: effectiveDestination,
       bootstrapTokenHash,
       verificationPurpose: "trusted_contact",
     });
@@ -649,6 +657,18 @@ export async function handleVerifyContactChannel(
   // --- Slack verification ---
   if (verificationChannel === "slack") {
     const slackUserId = channel.externalUserId ?? destination;
+
+    // Only claim identity is bound when we have at least one platform identifier
+    const hasIdentityBinding = Boolean(
+      channel.externalUserId || channel.externalChatId,
+    );
+    if (!hasIdentityBinding) {
+      return httpError(
+        "BAD_REQUEST",
+        "Slack verification requires an externalUserId or externalChatId for identity binding",
+        400,
+      );
+    }
 
     const sessionResult = createOutboundSession({
       assistantId,
