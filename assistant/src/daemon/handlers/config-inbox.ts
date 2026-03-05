@@ -32,19 +32,20 @@ import {
   renderHistoryContent,
 } from "./shared.js";
 
-export function handleContactsInvite(
+export async function handleContactsInvite(
   msg: ContactsInviteRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   try {
     switch (msg.action) {
       case "create": {
-        const result = createIngressInvite({
+        const result = await createIngressInvite({
           sourceChannel: msg.sourceChannel,
           note: msg.note,
           maxUses: msg.maxUses,
           expiresInMs: msg.expiresInMs,
+          contactName: msg.contactName,
           friendName: msg.friendName,
           guardianName: msg.guardianName,
         });

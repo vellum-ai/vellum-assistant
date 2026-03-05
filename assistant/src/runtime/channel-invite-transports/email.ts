@@ -1,16 +1,13 @@
 /**
  * Email channel invite adapter.
  *
- * Provides guardian instruction text for email-based invites. Email invites
- * use the universal 6-digit code path for redemption, so this adapter only
- * implements `buildGuardianInstruction` — no `buildShareLink` or
- * `extractInboundToken` needed.
+ * Resolves the assistant's email address for use in invite instructions.
+ * Email invites use the universal 6-digit code path for redemption, so
+ * this adapter only implements `resolveChannelHandle` — no `buildShareLink`
+ * or `extractInboundToken` needed.
  */
 
-import type {
-  ChannelInviteAdapter,
-  GuardianInstruction,
-} from "../channel-invite-transport.js";
+import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
 // Email address resolution
@@ -30,23 +27,6 @@ function resolveAssistantEmailAddress(): string | undefined {
 
 export const emailInviteAdapter: ChannelInviteAdapter = {
   channel: "email",
-
-  buildGuardianInstruction(params: {
-    inviteCode: string;
-    contactName?: string;
-  }): GuardianInstruction {
-    const address = resolveAssistantEmailAddress();
-    const contactLabel = params.contactName || "the contact";
-    if (!address) {
-      return {
-        instruction: `Tell ${contactLabel} to email the assistant and include the code ${params.inviteCode} in the message.`,
-      };
-    }
-    return {
-      instruction: `Tell ${contactLabel} to email ${address} and include the code ${params.inviteCode} in the message.`,
-      channelHandle: address,
-    };
-  },
 
   resolveChannelHandle(): string | undefined {
     return resolveAssistantEmailAddress();

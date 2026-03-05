@@ -1,8 +1,9 @@
 /**
  * Telegram channel invite adapter.
  *
- * Builds `https://t.me/<botUsername>?start=iv_<token>` deep links and
- * extracts invite tokens from `/start iv_<token>` command payloads.
+ * Builds `https://t.me/<botUsername>?start=iv_<token>` deep links,
+ * extracts invite tokens from `/start iv_<token>` command payloads,
+ * and resolves the bot's channel handle for invite instructions.
  *
  * The `iv_` prefix distinguishes invite tokens from `gv_` (guardian
  * verification) tokens that use the same `/start` deep-link mechanism.
@@ -12,7 +13,6 @@ import type { ChannelId } from "../../channels/types.js";
 import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
 import type {
   ChannelInviteAdapter,
-  GuardianInstruction,
   InviteShareLink,
 } from "../channel-invite-transport.js";
 
@@ -65,23 +65,6 @@ export const telegramInviteAdapter: ChannelInviteAdapter = {
     return {
       url,
       displayText: `Open in Telegram: ${url}`,
-    };
-  },
-
-  buildGuardianInstruction(params: {
-    inviteCode: string;
-    contactName?: string;
-  }): GuardianInstruction {
-    const botUsername = getTelegramBotUsername();
-    const contactLabel = params.contactName || "the contact";
-    if (!botUsername) {
-      return {
-        instruction: `Tell ${contactLabel} to message the assistant on Telegram and provide the code ${params.inviteCode}.`,
-      };
-    }
-    return {
-      instruction: `Tell ${contactLabel} to message @${botUsername} on Telegram and provide the code ${params.inviteCode}.`,
-      channelHandle: `@${botUsername}`,
     };
   },
 
