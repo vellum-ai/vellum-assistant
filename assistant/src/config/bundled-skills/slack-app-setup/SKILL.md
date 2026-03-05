@@ -1,6 +1,6 @@
 ---
-name: "Slack Channel Setup"
-description: "Connect a Slack bot to the Vellum Assistant via Socket Mode with guided app creation and guardian verification"
+name: "Slack App Setup"
+description: "Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and guardian verification"
 user-invocable: true
 includes: ["guardian-verify-setup"]
 metadata: { "vellum": { "emoji": "💬" } }
