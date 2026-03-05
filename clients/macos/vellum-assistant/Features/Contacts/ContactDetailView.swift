@@ -26,14 +26,8 @@ struct ContactDetailView: View {
     @State private var inviteCopiedType: String?
 
     // Metadata editing state (accessed from ContactDetailView+EditableMetadata.swift)
-    @State var isEditingRelationship = false
-    @State var editedRelationship = ""
-    @State var isEditingImportance = false
-    @State var editedImportance: Double = 0.5
-    @State var isEditingResponseExpectation = false
-    @State var editedResponseExpectation = ""
-    @State var isEditingPreferredTone = false
-    @State var editedPreferredTone = ""
+    @State var isEditingNotes = false
+    @State var editedNotes = ""
 
     var displayContact: ContactPayload {
         currentContact ?? contact
@@ -488,13 +482,7 @@ struct ContactDetailView: View {
                     value: formatContactType(displayContact.contactType)
                 )
 
-                editableRelationshipRow
-
-                editableImportanceRow
-
-                editableResponseExpectationRow
-
-                editablePreferredToneRow
+                editableNotesRow
 
                 metadataRow(
                     label: "Interactions",
@@ -536,26 +524,6 @@ struct ContactDetailView: View {
         default:
             return "Human"
         }
-    }
-
-    func formatResponseExpectation(_ value: String) -> String {
-        switch value {
-        case "immediate":
-            return "Immediate"
-        case "within_hours":
-            return "Within hours"
-        case "within_day":
-            return "Within a day"
-        case "flexible":
-            return "Flexible"
-        default:
-            return capitalizeFirst(value.replacingOccurrences(of: "_", with: " "))
-        }
-    }
-
-    func capitalizeFirst(_ value: String) -> String {
-        guard let first = value.first else { return value }
-        return first.uppercased() + value.dropFirst()
     }
 
     // MARK: - Helpers
@@ -749,10 +717,7 @@ struct ContactDetailView: View {
                 id: "contact-1",
                 displayName: "Alice Smith",
                 role: "contact",
-                relationship: "colleague",
-                importance: 0.8,
-                responseExpectation: "within_hours",
-                preferredTone: "casual",
+                notes: "Colleague, prefers casual tone. Responds within hours.",
                 contactType: "human",
                 lastInteraction: Date().timeIntervalSince1970 * 1000 - 3_600_000,
                 interactionCount: 42,

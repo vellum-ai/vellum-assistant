@@ -1566,10 +1566,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public func updateContact(
         contactId: String,
         displayName: String,
-        relationship: String? = nil,
-        importance: Double? = nil,
-        responseExpectation: String? = nil,
-        preferredTone: String? = nil
+        notes: String? = nil
     ) async throws -> ContactPayload? {
         // Delegate to HTTPTransport when active — it handles buildURL/applyAuth
         // for both runtimeFlat and platformAssistantProxy route modes.
@@ -1577,10 +1574,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return try await httpTransport.updateContactAndReturn(
                 contactId: contactId,
                 displayName: displayName,
-                relationship: relationship,
-                importance: importance,
-                responseExpectation: responseExpectation,
-                preferredTone: preferredTone
+                notes: notes
             )
         }
 
@@ -1596,10 +1590,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         var body: [String: Any] = ["id": contactId, "displayName": displayName]
-        if let relationship { body["relationship"] = relationship }
-        if let importance { body["importance"] = importance }
-        if let responseExpectation { body["responseExpectation"] = responseExpectation }
-        if let preferredTone { body["preferredTone"] = preferredTone }
+        if let notes { body["notes"] = notes }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -1622,15 +1613,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// local daemon HTTP server for socket-based connections.
     public func createContact(
         displayName: String,
-        relationship: String? = nil,
-        importance: Double? = nil,
+        notes: String? = nil,
         channels: [NewContactChannel]? = nil
     ) async throws -> ContactPayload? {
         if let httpTransport {
             return try await httpTransport.createContactAndReturn(
                 displayName: displayName,
-                relationship: relationship,
-                importance: importance,
+                notes: notes,
                 channels: channels
             )
         }
@@ -1646,8 +1635,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         var body: [String: Any] = ["displayName": displayName]
-        if let relationship { body["relationship"] = relationship }
-        if let importance { body["importance"] = importance }
+        if let notes { body["notes"] = notes }
         if let channels {
             body["channels"] = channels.map { ch -> [String: Any] in
                 ["type": ch.type, "address": ch.address, "isPrimary": ch.isPrimary]

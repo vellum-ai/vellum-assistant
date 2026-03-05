@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// A form sheet for creating a new contact with a display name,
-/// optional relationship, and one initial channel (type + address).
+/// optional notes, and one initial channel (type + address).
 @MainActor
 struct ContactCreateView: View {
     var daemonClient: DaemonClient?
@@ -12,7 +12,7 @@ struct ContactCreateView: View {
     // MARK: - Form State
 
     @State private var displayName = ""
-    @State private var relationship = ""
+    @State private var notes = ""
     @State private var channelType = "telegram"
     @State private var channelAddress = ""
     @State private var isSubmitting = false
@@ -68,12 +68,12 @@ struct ContactCreateView: View {
                 VTextField(placeholder: "e.g. Alice Chen", text: $displayName)
             }
 
-            // Relationship (optional)
+            // Notes (optional)
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Relationship")
+                Text("Notes")
                     .font(VFont.inputLabel)
                     .foregroundColor(VColor.textSecondary)
-                VTextField(placeholder: "e.g. Colleague (optional)", text: $relationship)
+                VTextField(placeholder: "e.g. Colleague, prefers casual tone (optional)", text: $notes)
             }
 
             // Channel type picker
@@ -165,13 +165,13 @@ struct ContactCreateView: View {
             ),
         ]
 
-        let trimmedRelationship = relationship.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         Task {
             do {
                 let contact = try await daemonClient.createContact(
                     displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
-                    relationship: trimmedRelationship.isEmpty ? nil : trimmedRelationship,
+                    notes: trimmedNotes.isEmpty ? nil : trimmedNotes,
                     channels: channels
                 )
                 if let contact {

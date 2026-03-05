@@ -176,8 +176,8 @@ struct ContactsListView: View {
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
 
-                    if let relationship = contact.relationship, !relationship.isEmpty {
-                        Text(relationship)
+                    if let notes = contact.notes, !notes.isEmpty {
+                        Text(notes.components(separatedBy: .newlines).first ?? notes)
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
                             .lineLimit(1)
@@ -328,8 +328,6 @@ struct ContactsListView: View {
                 id: "guardian-1",
                 displayName: "Noah",
                 role: "guardian",
-                relationship: nil,
-                importance: 1.0,
                 lastInteraction: Date().timeIntervalSince1970 * 1000,
                 interactionCount: 42,
                 channels: [
@@ -351,8 +349,7 @@ struct ContactsListView: View {
                 id: "contact-2",
                 displayName: "Alice Chen",
                 role: "contact",
-                relationship: "Colleague",
-                importance: 0.8,
+                notes: "Colleague",
                 lastInteraction: Date().timeIntervalSince1970 * 1000 - 86400000,
                 interactionCount: 15,
                 channels: [
@@ -366,8 +363,7 @@ struct ContactsListView: View {
                 id: "contact-3",
                 displayName: "Bob Williams",
                 role: "contact",
-                relationship: "Friend",
-                importance: 0.6,
+                notes: "Friend",
                 lastInteraction: nil,
                 interactionCount: 3,
                 channels: [

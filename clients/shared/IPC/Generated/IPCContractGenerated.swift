@@ -866,23 +866,17 @@ public struct IPCContactPayload: Codable, Sendable {
     public let id: String
     public let displayName: String
     public let role: String
-    public let relationship: String?
-    public let importance: Double
-    public let responseExpectation: String?
-    public let preferredTone: String?
+    public let notes: String?
     public let contactType: String?
     public let lastInteraction: Double?
     public let interactionCount: Int
     public let channels: [IPCContactChannelPayload]
 
-    public init(id: String, displayName: String, role: String, relationship: String? = nil, importance: Double, responseExpectation: String? = nil, preferredTone: String? = nil, contactType: String? = nil, lastInteraction: Double? = nil, interactionCount: Int, channels: [IPCContactChannelPayload]) {
+    public init(id: String, displayName: String, role: String, notes: String? = nil, contactType: String? = nil, lastInteraction: Double? = nil, interactionCount: Int, channels: [IPCContactChannelPayload]) {
         self.id = id
         self.displayName = displayName
         self.role = role
-        self.relationship = relationship
-        self.importance = importance
-        self.responseExpectation = responseExpectation
-        self.preferredTone = preferredTone
+        self.notes = notes
         self.contactType = contactType
         self.lastInteraction = lastInteraction
         self.interactionCount = interactionCount

@@ -1077,10 +1077,7 @@ public final class HTTPTransport {
     func updateContactAndReturn(
         contactId: String,
         displayName: String,
-        relationship: String? = nil,
-        importance: Double? = nil,
-        responseExpectation: String? = nil,
-        preferredTone: String? = nil,
+        notes: String? = nil,
         isRetry: Bool = false
     ) async throws -> ContactPayload? {
         guard let url = buildURL(for: .contactsUpsert) else { return nil }
@@ -1091,10 +1088,7 @@ public final class HTTPTransport {
         applyAuth(&request)
 
         var body: [String: Any] = ["id": contactId, "displayName": displayName]
-        if let relationship { body["relationship"] = relationship }
-        if let importance { body["importance"] = importance }
-        if let responseExpectation { body["responseExpectation"] = responseExpectation }
-        if let preferredTone { body["preferredTone"] = preferredTone }
+        if let notes { body["notes"] = notes }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -1103,7 +1097,7 @@ public final class HTTPTransport {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await updateContactAndReturn(contactId: contactId, displayName: displayName, relationship: relationship, importance: importance, responseExpectation: responseExpectation, preferredTone: preferredTone, isRetry: true)
+                    return try await updateContactAndReturn(contactId: contactId, displayName: displayName, notes: notes, isRetry: true)
                 }
                 return nil
             }
@@ -1120,8 +1114,7 @@ public final class HTTPTransport {
     /// Omits the `id` field to trigger creation instead of update.
     func createContactAndReturn(
         displayName: String,
-        relationship: String? = nil,
-        importance: Double? = nil,
+        notes: String? = nil,
         channels: [DaemonClient.NewContactChannel]? = nil,
         isRetry: Bool = false
     ) async throws -> ContactPayload? {
@@ -1133,8 +1126,7 @@ public final class HTTPTransport {
         applyAuth(&request)
 
         var body: [String: Any] = ["displayName": displayName]
-        if let relationship { body["relationship"] = relationship }
-        if let importance { body["importance"] = importance }
+        if let notes { body["notes"] = notes }
         if let channels {
             body["channels"] = channels.map { ch -> [String: Any] in
                 ["type": ch.type, "address": ch.address, "isPrimary": ch.isPrimary]
@@ -1148,7 +1140,7 @@ public final class HTTPTransport {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await createContactAndReturn(displayName: displayName, relationship: relationship, importance: importance, channels: channels, isRetry: true)
+                    return try await createContactAndReturn(displayName: displayName, notes: notes, channels: channels, isRetry: true)
                 }
                 return nil
             }
