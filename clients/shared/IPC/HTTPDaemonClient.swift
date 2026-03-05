@@ -1090,62 +1090,6 @@ public final class HTTPTransport {
         return decoded.contact
     }
 
-    /// Update a contact's metadata via `POST /v1/contacts`.
-    /// Emits a `contactsResponse` on success so the detail view can react.
-    func updateContact(
-        contactId: String,
-        displayName: String,
-        relationship: String? = nil,
-        importance: Double? = nil,
-        responseExpectation: String? = nil,
-        preferredTone: String? = nil,
-        isRetry: Bool = false
-    ) async {
-        guard let url = buildURL(for: .contactsUpsert) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = ["id": contactId, "displayName": displayName]
-        if let relationship { body["relationship"] = relationship }
-        if let importance { body["importance"] = importance }
-        if let responseExpectation { body["responseExpectation"] = responseExpectation }
-        if let preferredTone { body["preferredTone"] = preferredTone }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await updateContact(contactId: contactId, displayName: displayName, relationship: relationship, importance: importance, responseExpectation: responseExpectation, preferredTone: preferredTone, isRetry: true)
-                    }
-                    return
-                }
-                guard (200...201).contains(http.statusCode) else {
-                    log.error("HTTPTransport: update contact failed (\(http.statusCode))")
-                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
-                    return
-                }
-            }
-
-            do {
-                let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true, contact: decoded.contact)))
-            } catch {
-                log.error("HTTPTransport: failed to decode update contact response: \(error)")
-                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
-            }
-        } catch {
-            log.error("HTTPTransport: update contact error: \(error.localizedDescription)")
-            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
-        }
-    }
-
     // MARK: - Surface Actions
 
     private func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
