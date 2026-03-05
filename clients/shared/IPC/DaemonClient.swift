@@ -716,6 +716,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         // Route through HTTP transport when active (remote assistants).
+        // Note: httpTransport.send() dispatches the actual HTTP request
+        // asynchronously (Task { ... }), so the signpost only captures the
+        // synchronous dispatch overhead, not the full network round-trip.
+        // Full HTTP latency instrumentation belongs in HTTPDaemonClient.
         if let httpTransport {
             guard httpTransport.isConnected else {
                 os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
@@ -1930,12 +1934,19 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         #if os(macOS)
         if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
+            let sid = OSSignpostID(log: ipcLog)
+            os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
+            defer { os_signpost(.end, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid) }
             return try await httpTransport.fetchAssistantFeatureFlags(featureFlagToken: token)
         }
 
         guard let request = buildLocalRequest(target: .gateway, path: "v1/feature-flags", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL
         }
+
+        let sid = OSSignpostID(log: ipcLog)
+        os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
+        defer { os_signpost(.end, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid) }
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -1949,6 +1960,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         guard let httpTransport else {
             throw FeatureFlagError.requestFailed(0)
         }
+        let sid = OSSignpostID(log: ipcLog)
+        os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
+        defer { os_signpost(.end, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid) }
         return try await httpTransport.fetchAssistantFeatureFlags(featureFlagToken: token)
         #endif
     }

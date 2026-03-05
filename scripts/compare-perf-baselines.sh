@@ -79,12 +79,14 @@ if not os.path.exists(baseline_file):
         with open(baseline_file, "w") as f:
             json.dump(results, f, indent=2)
         print(f"No baseline found. Recorded current results as baseline ({baseline_file}).")
+        with open(summary_file, "w") as sf:
+            sf.write("## Performance Baselines\n\nBaseline recorded for the first time. Future runs will compare against these values.\n")
     else:
         print("WARNING: No baseline found and this is a PR run (UPDATE_BASELINE=false).")
         print("Run the workflow on main to establish a baseline before regressions can be detected.")
         print("Skipping regression check for this PR run.")
-    with open(summary_file, "w") as sf:
-        sf.write("## Performance Baselines\n\nNo baseline available yet. Run the workflow on `main` to establish baselines.\n")
+        with open(summary_file, "w") as sf:
+            sf.write("## Performance Baselines\n\nNo baseline available yet. Run the workflow on `main` to establish baselines.\n")
     sys.exit(0)
 
 # Load and compare against stored baseline.
