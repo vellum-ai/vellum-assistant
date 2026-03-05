@@ -38,9 +38,10 @@ extension ChatViewModel {
     }
 
     /// Stamp confirmation decision on the tool call matching the toolUseId (preferred) or tool name (fallback).
-    private func stampConfirmationOnToolCall(toolName: String, decision: ToolConfirmationState, toolUseId: String? = nil) {
-        guard let assistantId = currentAssistantMessageId,
-              let msgIdx = messages.firstIndex(where: { $0.id == assistantId }) else { return }
+    /// When `targetMessageId` is provided, stamps on that specific message instead of `currentAssistantMessageId`.
+    private func stampConfirmationOnToolCall(toolName: String, decision: ToolConfirmationState, toolUseId: String? = nil, targetMessageId: UUID? = nil) {
+        let assistantId = targetMessageId ?? currentAssistantMessageId
+        guard let assistantId, let msgIdx = messages.firstIndex(where: { $0.id == assistantId }) else { return }
         // Prefer matching by toolUseId for correctness when multiple calls share the same name
         let tcIdx: Int?
         if let toolUseId = toolUseId {
@@ -1607,9 +1608,17 @@ extension ChatViewModel {
             guard belongsToSession(msg.sessionId) else { return }
             // Find the confirmation with this requestId and update its state.
             var confirmationToolName: String?
+            var precedingAssistantId: UUID?
             for i in messages.indices {
                 guard messages[i].confirmation?.requestId == msg.requestId else { continue }
                 confirmationToolName = messages[i].confirmation?.toolName
+                // The assistant message owning the tool calls is the one before the confirmation message.
+                if i > messages.startIndex {
+                    let before = messages.index(before: i)
+                    if messages[before].role == .assistant {
+                        precedingAssistantId = messages[before].id
+                    }
+                }
                 switch msg.state {
                 case "approved":
                     messages[i].confirmation?.state = .approved
@@ -1630,7 +1639,7 @@ extension ChatViewModel {
             // preceding assistant message so it survives thread switches.
             if let toolName = confirmationToolName,
                let state = mapConfirmationState(msg.state) {
-                stampConfirmationOnToolCall(toolName: toolName, decision: state, toolUseId: msg.toolUseId)
+                stampConfirmationOnToolCall(toolName: toolName, decision: state, toolUseId: msg.toolUseId, targetMessageId: precedingAssistantId)
             }
 
         case .assistantActivityState(let msg):

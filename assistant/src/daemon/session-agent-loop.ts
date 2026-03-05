@@ -487,14 +487,15 @@ export async function runAgentLoopImpl(
         confirmationState === "denied" ||
         confirmationState === "timed_out"
       ) {
-        const toolUseId = state.requestIdToToolUseId.get(requestId);
-        if (toolUseId) {
-          const name = state.toolUseIdToName.get(toolUseId) ?? toolName ?? "";
+        const resolvedId =
+          state.requestIdToToolUseId.get(requestId) ?? toolUseId;
+        if (resolvedId) {
+          const name = state.toolUseIdToName.get(resolvedId) ?? toolName ?? "";
           // Build a friendly label from the tool name
           const label =
             TOOL_FRIENDLY_LABEL[name] ??
             name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-          state.toolConfirmationOutcomes.set(toolUseId, {
+          state.toolConfirmationOutcomes.set(resolvedId, {
             decision: confirmationState,
             label,
           });
