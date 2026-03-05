@@ -153,7 +153,9 @@ fi
 # to `swift build`. This runs xcodebuild for the iOS Simulator target
 # to catch cross-platform conditional compilation bugs.
 if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_IOS_BUILD" != "1" ]; then
-    if ! command -v xcodegen &>/dev/null; then
+    if ! command -v xcodebuild &>/dev/null; then
+        echo -e "${YELLOW}⚠️  xcodebuild not found — skipping iOS build check (requires Xcode)${NC}"
+    elif ! command -v xcodegen &>/dev/null; then
         echo -e "${YELLOW}⚠️  xcodegen not found — skipping iOS build check (brew install xcodegen)${NC}"
     elif [ ! -f "${REPO_ROOT}/clients/ios/build.sh" ]; then
         _debug_log "clients/ios/build.sh not found — skipping iOS build check"
