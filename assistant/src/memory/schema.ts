@@ -468,20 +468,6 @@ export const assistantContactMetadata = sqliteTable(
   },
 );
 
-// ── Triage Results ───────────────────────────────────────────────────
-
-export const triageResults = sqliteTable("triage_results", {
-  id: text("id").primaryKey(),
-  channel: text("channel").notNull(),
-  sender: text("sender").notNull(),
-  category: text("category").notNull(),
-  confidence: real("confidence").notNull(),
-  suggestedAction: text("suggested_action").notNull(),
-  matchedPlaybookIds: text("matched_playbook_ids"), // JSON array of playbook memory item IDs
-  messageId: text("message_id"), // optional external message identifier
-  createdAt: integer("created_at").notNull(),
-});
-
 // ── Follow-ups ──────────────────────────────────────────────────────
 
 export const followups = sqliteTable("followups", {
