@@ -17,7 +17,7 @@ import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import {
   createBrowserRelayWebsocketHandler,
   getBrowserRelayWebsocketHandlers,
-  isPrivateNetworkPeer,
+  isLoopbackPeer,
   type BrowserRelaySocketData,
 } from "./http/routes/browser-relay-websocket.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
@@ -753,7 +753,7 @@ function main() {
         url.pathname === "/v1/browser-relay/token" &&
         req.method === "GET"
       ) {
-        if (!isPrivateNetworkPeer(svr, req)) {
+        if (!isLoopbackPeer(svr, req)) {
           return Response.json(
             { error: "Browser relay token only available from localhost" },
             { status: 403 },

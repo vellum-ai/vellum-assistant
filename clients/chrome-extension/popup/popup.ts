@@ -86,15 +86,17 @@ async function fetchTokenFromGateway(port: number): Promise<string> {
 }
 
 btnConnect.addEventListener('click', async () => {
-  const manualToken = tokenInput.value.trim();
   const port = getPort();
   const storageUpdate: Record<string, unknown> = { autoConnect: true };
 
   errorText.style.display = 'none';
 
-  let token = manualToken;
+  // Only honour the manual token input when the user has explicitly revealed
+  // it.  When manual mode is hidden, always auto-fetch a fresh token from the
+  // gateway so we never silently reuse an expired JWT that was pre-loaded from
+  // storage.
+  let token = manualMode ? tokenInput.value.trim() : '';
 
-  // Auto-fetch token if no manual token provided
   if (!token) {
     try {
       btnConnect.disabled = true;

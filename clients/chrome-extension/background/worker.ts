@@ -20,8 +20,8 @@ let reconnectDelay = RECONNECT_BASE_MS;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let shouldConnect = false;
 
-/** WebSocket close codes that indicate an auth failure. */
-const AUTH_FAILURE_CODES = new Set([1008, 4001]);
+/** WebSocket close codes that represent intentional, non-error closures. */
+const NORMAL_CLOSE_CODES = new Set([1000, 1001]);
 
 // ── Storage helpers ─────────────────────────────────────────────────
 
@@ -89,8 +89,9 @@ async function connect(): Promise<void> {
     stopHeartbeat();
     ws = null;
     if (shouldConnect) {
-      if (AUTH_FAILURE_CODES.has(event.code)) {
-        // Attempt to refresh token before reconnecting
+      if (!NORMAL_CLOSE_CODES.has(event.code)) {
+        // Any unexpected close (including 1006 from failed HTTP 401 handshakes,
+        // 1008, 4001, etc.) — attempt a token refresh before reconnecting.
         refreshToken().then(() => scheduleReconnect());
       } else {
         scheduleReconnect();
