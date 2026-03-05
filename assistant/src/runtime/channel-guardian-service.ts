@@ -355,9 +355,7 @@ export function getGuardianBinding(
       status: "active" as const,
       verifiedAt: result.channel.verifiedAt ?? 0,
       verifiedVia: result.channel.verifiedVia ?? "",
-      metadataJson: result.contact.displayName
-        ? JSON.stringify({ displayName: result.contact.displayName })
-        : null,
+      metadataJson: null,
       createdAt: result.channel.createdAt,
       updatedAt: result.channel.updatedAt ?? result.channel.createdAt,
     };

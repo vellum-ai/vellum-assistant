@@ -13,7 +13,6 @@ import { createHash } from "node:crypto";
 
 import { v4 as uuid } from "uuid";
 
-import { resolveUserReference } from "../../config/user-reference.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import { createGuardianBinding } from "../../contacts/contacts-write.js";
 import { getLogger } from "../../util/logger.js";
@@ -56,7 +55,6 @@ function ensureGuardianPrincipal(assistantId: string): {
 
   // Mint a new principal ID for the vellum channel
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
-  const guardianDisplayName = resolveUserReference();
 
   createGuardianBinding({
     assistantId,
@@ -65,10 +63,7 @@ function ensureGuardianPrincipal(assistantId: string): {
     guardianDeliveryChatId: "local",
     guardianPrincipalId,
     verifiedVia: "bootstrap",
-    metadataJson: JSON.stringify({
-      bootstrappedAt: Date.now(),
-      displayName: guardianDisplayName,
-    }),
+    metadataJson: JSON.stringify({ bootstrappedAt: Date.now() }),
   });
 
   log.info(
