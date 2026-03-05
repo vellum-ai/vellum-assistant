@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import { join } from "path";
 
 import {
@@ -97,9 +98,10 @@ export async function wake(): Promise<void> {
     }
   }
 
-  // Start outbound proxy
-  const vellumDir = join(resources.instanceDir, ".vellum");
-  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
+  // Start outbound proxy — shared singleton using global PID file so
+  // multiple local instances share a single proxy on the default ports.
+  const globalVellumDir = join(homedir(), ".vellum");
+  const outboundProxyPidFile = join(globalVellumDir, "outbound-proxy.pid");
   const outboundProxyStatus = isProcessAlive(outboundProxyPidFile);
   if (outboundProxyStatus.alive && watch) {
     // Restart in watch mode
@@ -108,7 +110,7 @@ export async function wake(): Promise<void> {
     );
     await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
   }
-  await startOutboundProxy(watch, resources);
+  await startOutboundProxy(watch);
 
   console.log("Wake complete.");
 }

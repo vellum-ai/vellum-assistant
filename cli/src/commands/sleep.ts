@@ -1,3 +1,4 @@
+import { homedir } from "os";
 import { join } from "path";
 
 import {
@@ -36,7 +37,8 @@ export async function sleep(): Promise<void> {
   const socketFile = resources.socketPath;
   const vellumDir = join(resources.instanceDir, ".vellum");
   const gatewayPidFile = join(vellumDir, "gateway.pid");
-  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
+  // Outbound proxy is a shared singleton — always use the global PID path
+  const outboundProxyPidFile = join(homedir(), ".vellum", "outbound-proxy.pid");
 
   // Stop daemon
   const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [

@@ -740,7 +740,7 @@ async function hatchLocal(
     throw error;
   }
 
-  await startOutboundProxy(watch, resources);
+  await startOutboundProxy(watch);
 
   // Read the bearer token written by the daemon so the client can authenticate
   // with the gateway (which requires auth by default). The daemon writes under
