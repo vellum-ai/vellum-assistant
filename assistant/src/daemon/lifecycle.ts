@@ -1,3 +1,4 @@
+import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -40,6 +41,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
+  mintCliEdgeToken,
 } from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -149,6 +151,14 @@ export async function runDaemon(): Promise<void> {
     // protected directory.
     const signingKey = loadOrCreateSigningKey();
     initAuthSigningKey(signingKey);
+
+    // Mint a CLI edge token (JWT) so the CLI can authenticate with the
+    // gateway. Written early so the CLI doesn't time out polling.
+    const httpTokenPath = join(getRootDir(), "http-token");
+    const bearerToken = mintCliEdgeToken();
+    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+    chmodSync(httpTokenPath, 0o600);
+    log.info("Daemon startup: bearer token written");
 
     log.info("Daemon startup: migrations complete");
 

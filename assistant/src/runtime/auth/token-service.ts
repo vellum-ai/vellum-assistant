@@ -319,6 +319,29 @@ export function mintUiPageToken(): string {
 }
 
 // ---------------------------------------------------------------------------
+// CLI edge token
+// ---------------------------------------------------------------------------
+
+/**
+ * Mint a long-lived JWT for the CLI to authenticate with the gateway.
+ *
+ * Written to ~/.vellum/http-token at daemon startup so the CLI can read it
+ * and pass it as a Bearer token. Regenerated on each daemon restart. A 30-day
+ * TTL avoids expiry between restarts while keeping the window bounded.
+ *
+ * Uses aud=vellum-gateway so the gateway's edge-auth middleware accepts it.
+ */
+export function mintCliEdgeToken(): string {
+  return mintToken({
+    aud: "vellum-gateway",
+    sub: "svc:daemon:self",
+    scope_profile: "gateway_service_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 86400 * 30,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Hash
 // ---------------------------------------------------------------------------
 
