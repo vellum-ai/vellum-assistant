@@ -25,7 +25,10 @@ import {
 } from "../memory/invite-store.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
-import { getInviteAdapterRegistry } from "./channel-invite-transport.js";
+import {
+  getInviteAdapterRegistry,
+  resolveAdapterHandle,
+} from "./channel-invite-transport.js";
 import { generateInviteInstruction } from "./invite-instruction-generator.js";
 import {
   type InviteRedemptionOutcome,
@@ -231,7 +234,7 @@ export async function createIngressInvite(params: {
     const adapter = channelId
       ? getInviteAdapterRegistry().get(channelId)
       : undefined;
-    channelHandle = adapter?.resolveChannelHandle?.();
+    channelHandle = adapter ? await resolveAdapterHandle(adapter) : undefined;
     const share = buildSharePayload(params.sourceChannel, rawToken);
     guardianInstruction = await generateInviteInstruction({
       contactName: params.contactName,

@@ -74,6 +74,8 @@ export class EmailService {
   /** Force re-creation of the provider (e.g. after `provider set`). */
   resetProvider(): void {
     this.providerInstance = null;
+    this.primaryAddressResolved = false;
+    this.cachedPrimaryAddress = undefined;
   }
 
   // =========================================================================
@@ -107,6 +109,34 @@ export class EmailService {
       health,
       guardrails: getGuardrailsStatus(),
     };
+  }
+
+  // =========================================================================
+  // Primary inbox address (cached)
+  // =========================================================================
+
+  private primaryAddressResolved = false;
+  private cachedPrimaryAddress: string | undefined;
+
+  /**
+   * Return the assistant's primary inbox email address, caching the result
+   * for the lifetime of this service instance. Returns `undefined` when no
+   * inboxes are configured or the provider is unavailable.
+   */
+  async getPrimaryInboxAddress(): Promise<string | undefined> {
+    if (this.primaryAddressResolved) {
+      return this.cachedPrimaryAddress;
+    }
+    try {
+      const p = await this.provider();
+      const health = await p.health();
+      this.cachedPrimaryAddress =
+        health.inboxes.length > 0 ? health.inboxes[0].address : undefined;
+    } catch {
+      this.cachedPrimaryAddress = undefined;
+    }
+    this.primaryAddressResolved = true;
+    return this.cachedPrimaryAddress;
   }
 
   // =========================================================================
