@@ -262,14 +262,16 @@ struct ComposerView: View {
             // Reserve trailing space so text wraps before reaching the
             // overlaid action buttons (attach + send/mic ≈ 70pt wide).
             .padding(.trailing, 70)
-            // Reserve bottom space so the last visible line isn't hidden
-            // behind the buttons when the composer is expanded.
-            .padding(.bottom, isComposerExpanded ? composerActionButtonSize : 0)
+            // Measure content height BEFORE the conditional bottom padding
+            // so expansion state isn't inflated by its own padding.
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(key: ComposerEditorHeightKey.self, value: geo.size.height)
                 }
             )
+            // Reserve bottom space so the last visible line isn't hidden
+            // behind the buttons when the composer is expanded.
+            .padding(.bottom, isComposerExpanded ? composerActionButtonSize : 0)
         }
         .onPreferenceChange(ComposerEditorHeightKey.self) { newHeight in
             contentHeight = newHeight

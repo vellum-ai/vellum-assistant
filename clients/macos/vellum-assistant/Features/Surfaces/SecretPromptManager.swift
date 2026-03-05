@@ -227,6 +227,7 @@ struct SecretPromptView: View {
                             onCancel()
                         }
                         .accessibilityIdentifier("secure-credential-cancel")
+                        .accessibilityLabel("Cancel")
                         VButton(label: "Save", style: .primary) {
                             let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !trimmed.isEmpty else { return }
@@ -236,6 +237,7 @@ struct SecretPromptView: View {
                         }
                         .disabled(secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("secure-credential-save")
+                        .accessibilityLabel("Save")
                     }
 
                     if allowOneTimeSend {
