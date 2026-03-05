@@ -42,6 +42,11 @@ public enum UsageLoadingState<T: Equatable>: Equatable {
     case loading
     case loaded(T)
     case failed(String)
+
+    public var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
 // MARK: - Group-By Dimension
