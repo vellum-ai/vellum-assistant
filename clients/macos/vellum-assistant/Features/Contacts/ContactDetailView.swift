@@ -14,6 +14,8 @@ struct ContactDetailView: View {
     @State private var isEditingName = false
     @State private var editedName = ""
     @State private var isHoveringHeader = false
+    @State private var verificationInProgress: String?
+    @State private var verificationSuccessChannelId: String?
 
     // Metadata editing state (accessed from ContactDetailView+EditableMetadata.swift)
     @State var isEditingRelationship = false
@@ -224,51 +226,92 @@ struct ContactDetailView: View {
     private func channelActions(for channel: ContactChannelPayload) -> some View {
         // Disable ALL action buttons while any channel action is in-flight to
         // serialize updates and prevent response correlation mix-ups.
-        let anyActionInFlight = actionInProgress != nil
+        let anyActionInFlight = actionInProgress != nil || verificationInProgress != nil
         let isThisChannel = actionInProgress == channel.id
 
-        HStack(spacing: VSpacing.sm) {
-            switch channel.status {
-            case "revoked":
-                VButton(
-                    label: "Restore Access",
-                    style: .secondary,
-                    size: .medium,
-                    isDisabled: anyActionInFlight
-                ) {
-                    updateChannelStatus(channelId: channel.id, status: "active")
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                switch channel.status {
+                case "revoked":
+                    VButton(
+                        label: "Restore Access",
+                        style: .secondary,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "active")
+                    }
+                case "blocked":
+                    VButton(
+                        label: "Restore Access",
+                        style: .secondary,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "active")
+                    }
+                case "unverified", "pending":
+                    VButton(
+                        label: "Send Verification",
+                        style: .primary,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        initiateVerification(for: channel)
+                    }
+                    VButton(
+                        label: "Revoke Access",
+                        style: .danger,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "revoked")
+                    }
+                default:
+                    VButton(
+                        label: "Revoke Access",
+                        style: .danger,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "revoked")
+                    }
+                    VButton(
+                        label: "Block",
+                        style: .danger,
+                        size: .medium,
+                        isDisabled: anyActionInFlight
+                    ) {
+                        updateChannelStatus(channelId: channel.id, status: "blocked")
+                    }
                 }
-            case "blocked":
-                VButton(
-                    label: "Restore Access",
-                    style: .secondary,
-                    size: .medium,
-                    isDisabled: anyActionInFlight
-                ) {
-                    updateChannelStatus(channelId: channel.id, status: "active")
-                }
-            default:
-                VButton(
-                    label: "Revoke Access",
-                    style: .danger,
-                    size: .medium,
-                    isDisabled: anyActionInFlight
-                ) {
-                    updateChannelStatus(channelId: channel.id, status: "revoked")
-                }
-                VButton(
-                    label: "Block",
-                    style: .danger,
-                    size: .medium,
-                    isDisabled: anyActionInFlight
-                ) {
-                    updateChannelStatus(channelId: channel.id, status: "blocked")
+
+                if isThisChannel {
+                    ProgressView()
+                        .controlSize(.small)
                 }
             }
 
-            if isThisChannel {
-                ProgressView()
-                    .controlSize(.small)
+            // Verification feedback
+            if verificationInProgress == channel.id {
+                HStack(spacing: VSpacing.xs) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Sending verification code...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            }
+
+            if verificationSuccessChannelId == channel.id {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 12))
+                    Text("Verification code sent")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
+                }
             }
         }
     }
@@ -450,6 +493,37 @@ struct ContactDetailView: View {
         }
     }
 
+    private func initiateVerification(for channel: ContactChannelPayload) {
+        guard let daemonClient, verificationInProgress == nil else { return }
+        verificationInProgress = channel.id
+        errorMessage = nil
+        verificationSuccessChannelId = nil
+
+        Task {
+            do {
+                let result = try await daemonClient.verifyContactChannel(
+                    contactId: displayContact.id,
+                    channelId: channel.id
+                )
+                if result?.ok == true {
+                    verificationSuccessChannelId = channel.id
+                    // Auto-clear the success message after 5 seconds
+                    Task {
+                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        if verificationSuccessChannelId == channel.id {
+                            verificationSuccessChannelId = nil
+                        }
+                    }
+                } else {
+                    errorMessage = result?.error ?? "Failed to send verification"
+                }
+            } catch {
+                errorMessage = "Failed to send verification: \(error.localizedDescription)"
+            }
+            verificationInProgress = nil
+        }
+    }
+
     private func updateChannelStatus(channelId: String, status: String) {
         guard let daemonClient else { return }
         guard actionInProgress == nil else { return }
@@ -551,6 +625,14 @@ struct ContactDetailView: View {
                         status: "pending",
                         policy: "restrict",
                         lastSeenAt: Int(Date().timeIntervalSince1970 * 1000) - 7_200_000
+                    ),
+                    ContactChannelPayload(
+                        id: "ch-5",
+                        type: "whatsapp",
+                        address: "+1555987654",
+                        isPrimary: false,
+                        status: "unverified",
+                        policy: "allow"
                     )
                 ]
             )

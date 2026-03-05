@@ -162,6 +162,7 @@ public final class HTTPTransport {
         case contactsList(limit: Int, role: String?)
         case contactsGet(id: String)
         case contactsChannelUpdate(channelId: String)
+        case contactsChannelVerify(contactId: String, channelId: String)
         case contactsUpsert
     }
 
@@ -251,6 +252,10 @@ public final class HTTPTransport {
         case .contactsChannelUpdate(let channelId):
             let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
             return ("/v1/contacts/channels/\(encoded)", nil)
+        case .contactsChannelVerify(let contactId, let channelId):
+            let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
+            let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
+            return ("/v1/contacts/\(cEncoded)/channels/\(chEncoded)/verify", nil)
         case .contactsUpsert:
             return ("/v1/contacts", nil)
         }
@@ -322,6 +327,10 @@ public final class HTTPTransport {
         case .contactsChannelUpdate(let channelId):
             let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
             return ("\(prefix)/contacts/channels/\(encoded)/", nil)
+        case .contactsChannelVerify(let contactId, let channelId):
+            let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
+            let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
+            return ("\(prefix)/contacts/\(cEncoded)/channels/\(chEncoded)/verify/", nil)
         case .contactsUpsert:
             return ("\(prefix)/contacts/", nil)
         }
@@ -1133,6 +1142,20 @@ public final class HTTPTransport {
 
         let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
         return decoded.contact
+    }
+
+    // MARK: - Channel Verification
+
+    /// Send a verification code to a contact's channel via the gateway.
+    func verifyContactChannel(contactId: String, channelId: String) async throws -> ChannelVerificationResult? {
+        guard let url = buildURL(for: .contactsChannelVerify(contactId: contactId, channelId: channelId)) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+        return try JSONDecoder().decode(ChannelVerificationResult.self, from: data)
     }
 
     // MARK: - Surface Actions

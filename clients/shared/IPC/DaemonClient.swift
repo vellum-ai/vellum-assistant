@@ -1520,6 +1520,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Contacts Management
 
+    /// Response from the channel verification endpoint.
+    public struct ChannelVerificationResult: Decodable {
+        public let ok: Bool
+        public let verificationSessionId: String?
+        public let expiresAt: Int?
+        public let sendCount: Int?
+        public let telegramBootstrapUrl: String?
+        public let error: String?
+    }
+
     /// A channel to attach when creating a new contact.
     public struct NewContactChannel: Codable {
         public let type: String
@@ -1662,6 +1672,44 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         let decoded = try JSONDecoder().decode(UpsertResponse.self, from: data)
         return decoded.contact
+    }
+
+    /// Send a verification code to a contact's channel via the gateway.
+    /// Routes through `HTTPTransport` when available. Falls back to the
+    /// local gateway (port 7830) for socket-based connections.
+    public func verifyContactChannel(
+        contactId: String,
+        channelId: String
+    ) async throws -> ChannelVerificationResult? {
+        if let httpTransport {
+            return try await httpTransport.verifyContactChannel(
+                contactId: contactId,
+                channelId: channelId
+            )
+        }
+
+        #if os(macOS)
+        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            .flatMap(Int.init) ?? 7830
+        let baseURL = "http://127.0.0.1:\(gatewayPort)"
+        #else
+        return nil
+        #endif
+
+        let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
+        let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
+        guard let url = URL(string: "\(baseURL)/v1/contacts/\(cEncoded)/channels/\(chEncoded)/verify") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = readHttpToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode) else { return nil }
+        return try JSONDecoder().decode(ChannelVerificationResult.self, from: data)
     }
 
     // MARK: - Feature Flags
