@@ -1,0 +1,56 @@
+name: CI – macOS Performance Baselines
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clients/macos/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'clients/macos/**'
+
+jobs:
+  perf-baselines:
+    name: XCTest Performance Baselines
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Download previous baseline artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: perf-baselines
+          path: .perf-baselines
+          if_no_artifact_found: warn
+        continue-on-error: true
+
+      - name: Run performance tests
+        working-directory: clients/macos
+        run: |
+          swift test --filter MarkdownPerformanceTests 2>&1
+
+      - name: Compare baselines
+        run: bash scripts/compare-perf-baselines.sh
+
+      - name: Upload new baselines
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-baselines
+          path: .perf-baselines/
+          retention-days: 90
