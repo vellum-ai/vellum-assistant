@@ -20,7 +20,7 @@ Key findings from the process sample taken during an idle chat session:
 | M0 | Profiling harness + acceptance gates | Debug counters for publish frequency |
 | M1 | Coalesce SubagentDetailStore publishes | 50 ms coalescing window, reduces per-token publishes (superseded by M11) |
 | M2 | Decouple TaskProgressOverlay from chat list | Only react to activeSurfaceId changes |
-| M3 | Stop TimelineView ticks for terminal subagents | Conditional TimelineView when isRunning |
+| M3 | Stop TimelineView ticks for terminal subagents | Conditional TimelineView when isRunning (superseded by M11 — TimelineView removed entirely) |
 | M4 | Tune streaming publish rate | 100 ms flush interval (from 50 ms) |
 | M5 | Reduce ChatViewModel fan-out invalidation | 100 ms coalesced sub-manager forwarding |
 | M6 | Compact inline surface payloads | .stripped SurfaceData for completed surfaces |

@@ -45,7 +45,7 @@ public final class ChatViewModel: ObservableObject {
     static let subManagerCoalesceInterval: TimeInterval = 0.1 // 100ms
 
     /// Coalescing task: fires objectWillChange once per burst window, same
-    /// pattern as SubagentDetailStore.schedulePublish().
+    /// pattern as SubagentDetailStore.scheduleFlush().
     private var subManagerPublishTask: Task<Void, Never>?
 
     /// Schedule a single coalesced `objectWillChange` notification.
