@@ -2,9 +2,11 @@
 name: "twilio-setup"
 description: "Configure Twilio credentials and phone numbers for voice calls and SMS messaging"
 compatibility: "Requires public ingress for Twilio webhooks (voice, SMS, status callbacks)"
-user-invocable: true
-credential-setup-for: "twilio"
-metadata: { "vellum": { "emoji": "\ud83d\udcf1" } }
+metadata:
+  emoji: "\ud83d\udcf1"
+  vellum:
+    user-invocable: true
+    credential-setup-for: "twilio"
 ---
 
 You are helping your user configure Twilio for voice calls and SMS messaging. Twilio is the shared telephony provider for both the **phone-calls** and **SMS messaging** capabilities. When this skill is invoked, walk through each step below using the Twilio HTTP control-plane endpoints and existing tools.
