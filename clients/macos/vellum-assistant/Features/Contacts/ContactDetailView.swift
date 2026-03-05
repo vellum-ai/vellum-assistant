@@ -153,8 +153,12 @@ struct ContactDetailView: View {
 
             ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { index, type in
                 if let channels = channelsByType[type] {
-                    ForEach(channels) { channel in
+                    ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
                         channelRow(channel)
+
+                        if channelIndex < channels.count - 1 {
+                            Divider().background(VColor.divider)
+                        }
                     }
                 } else {
                     unconfiguredChannelRow(type: type)
