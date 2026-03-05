@@ -73,18 +73,72 @@ export function migrateDropAssistantIdColumns(database: DrizzleDb): void {
       }
     }
 
-    // --- Drop indexes that include assistant_id ---
-    // conversation_attention_events indexes
+    // --- Drop ALL indexes that include assistant_id ---
+    // Every index below references the assistant_id column. SQLite will error
+    // on ALTER TABLE ... DROP COLUMN if any index still references the column.
+
+    // channel_guardian_verification_challenges indexes (migrations 110, 026, 027a)
+    raw.exec(
+      /*sql*/ `DROP INDEX IF EXISTS idx_channel_guardian_challenges_lookup`,
+    );
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_active`);
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_identity`);
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_destination`);
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_bootstrap`);
+
+    // channel_guardian_rate_limits indexes (migration 110)
+    raw.exec(
+      /*sql*/ `DROP INDEX IF EXISTS idx_channel_guardian_rate_limits_actor`,
+    );
+
+    // assistant_ingress_invites indexes (migration 112)
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_ingress_invites_channel_status`);
+    raw.exec(
+      /*sql*/ `DROP INDEX IF EXISTS idx_ingress_invites_channel_created`,
+    );
+
+    // assistant_inbox_thread_state indexes (migration 112)
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_inbox_thread_state_channel`);
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_inbox_thread_state_last_msg`);
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_inbox_thread_state_escalation`);
+
+    // notification_preferences indexes (migration 114)
+    raw.exec(
+      /*sql*/ `DROP INDEX IF EXISTS idx_notification_preferences_assistant_id`,
+    );
+    raw.exec(
+      /*sql*/ `DROP INDEX IF EXISTS idx_notification_preferences_assistant_priority`,
+    );
+
+    // notification_events indexes (migration 114)
+    raw.exec(
+      /*sql*/ `DROP INDEX IF EXISTS idx_notification_events_assistant_event_created`,
+    );
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_notification_events_dedupe`);
+
+    // notification_deliveries indexes (migration 114)
+    raw.exec(
+      /*sql*/ `DROP INDEX IF EXISTS idx_notification_deliveries_assistant_status`,
+    );
+
+    // conversation_attention_events indexes (migration 117)
     raw.exec(
       /*sql*/ `DROP INDEX IF EXISTS idx_conv_attn_events_assistant_observed`,
     );
-    // conversation_assistant_attention_state indexes
+
+    // conversation_assistant_attention_state indexes (migration 117)
     raw.exec(
       /*sql*/ `DROP INDEX IF EXISTS idx_conv_attn_state_assistant_latest_msg`,
     );
     raw.exec(
       /*sql*/ `DROP INDEX IF EXISTS idx_conv_attn_state_assistant_last_seen`,
     );
+
+    // actor_token_records indexes (migration 038)
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_actor_tokens_active_device`);
+
+    // actor_refresh_token_records indexes (migration 039)
+    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_refresh_tokens_active_device`);
 
     // --- Drop assistant_id column from each table ---
     for (const table of tables) {
@@ -118,16 +172,90 @@ export function migrateDropAssistantIdColumns(database: DrizzleDb): void {
     }
 
     // --- Recreate indexes without assistant_id ---
-    // conversation_attention_events: preserve (observedAt) only
+    // Each index below is the equivalent of the dropped index but with the
+    // assistant_id column removed. Index names are updated to avoid
+    // collisions with the old names.
+
+    // channel_guardian_verification_challenges
     raw.exec(
-      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_events_observed ON conversation_attention_events (observed_at)`,
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_challenges_lookup ON channel_guardian_verification_challenges(channel, challenge_hash, status)`,
     );
-    // conversation_assistant_attention_state: preserve (latestAssistantMessageAt) and (lastSeenAssistantMessageAt)
     raw.exec(
-      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_latest_msg ON conversation_assistant_attention_state (latest_assistant_message_at)`,
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_active ON channel_guardian_verification_challenges(channel, status)`,
     );
     raw.exec(
-      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_last_seen ON conversation_assistant_attention_state (last_seen_assistant_message_at)`,
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_identity ON channel_guardian_verification_challenges(channel, expected_external_user_id, expected_chat_id, status)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_destination ON channel_guardian_verification_challenges(channel, destination_address)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_bootstrap ON channel_guardian_verification_challenges(channel, bootstrap_token_hash, status)`,
+    );
+
+    // channel_guardian_rate_limits
+    raw.exec(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_rate_limits_actor ON channel_guardian_rate_limits(channel, actor_external_user_id, actor_chat_id)`,
+    );
+
+    // assistant_ingress_invites
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_status ON assistant_ingress_invites(source_channel, status, expires_at)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_created ON assistant_ingress_invites(source_channel, created_at)`,
+    );
+
+    // assistant_inbox_thread_state
+    raw.exec(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_thread_state_channel ON assistant_inbox_thread_state(source_channel, external_chat_id)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_last_msg ON assistant_inbox_thread_state(last_message_at)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_escalation ON assistant_inbox_thread_state(has_pending_escalation, last_message_at)`,
+    );
+
+    // notification_preferences
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_preferences_priority ON notification_preferences(priority DESC)`,
+    );
+
+    // notification_events
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_events_event_created ON notification_events(source_event_name, created_at)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_events_dedupe ON notification_events(dedupe_key) WHERE dedupe_key IS NOT NULL`,
+    );
+
+    // notification_deliveries
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status ON notification_deliveries(status)`,
+    );
+
+    // conversation_attention_events
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_events_observed ON conversation_attention_events(observed_at)`,
+    );
+
+    // conversation_assistant_attention_state
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_latest_msg ON conversation_assistant_attention_state(latest_assistant_message_at)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_last_seen ON conversation_assistant_attention_state(last_seen_assistant_message_at)`,
+    );
+
+    // actor_token_records
+    raw.exec(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_actor_tokens_active_device ON actor_token_records(guardian_principal_id, hashed_device_id) WHERE status = 'active'`,
+    );
+
+    // actor_refresh_token_records
+    raw.exec(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_active_device ON actor_refresh_token_records(guardian_principal_id, hashed_device_id) WHERE status = 'active'`,
     );
 
     log.info("Completed dropping assistant_id columns from all tables");
