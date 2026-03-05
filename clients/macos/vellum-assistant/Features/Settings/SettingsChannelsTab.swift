@@ -72,6 +72,7 @@ struct SettingsChannelsTab: View {
             store.refreshChannelGuardianStatus(channel: "voice")
             store.refreshChannelGuardianStatus(channel: "slack")
             store.refreshTelegramApprovedMembers()
+            store.refreshSlackApprovedMembers()
             store.fetchSlackChannelConfig()
             if store.twilioHasCredentials {
                 store.refreshTwilioNumbers()
@@ -452,12 +453,70 @@ struct SettingsChannelsTab: View {
             if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
                 Divider().background(VColor.surfaceBorder)
                 guardianStatusRow(channel: "slack")
+
+                Divider().background(VColor.surfaceBorder)
+                slackApprovedUsersSection
             }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Slack Approved Users
+
+    private var slackApprovedUsersSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.xs) {
+                Text("Approved Users")
+                VInfoTooltip("Users who have been granted access to interact with your assistant via Slack.")
+            }
+            .font(VFont.caption)
+            .foregroundColor(VColor.textSecondary)
+
+            if store.slackApprovedMembersLoading {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            } else if store.slackApprovedMembers.isEmpty {
+                Text("No approved users.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                ForEach(store.slackApprovedMembers) { member in
+                    HStack(spacing: VSpacing.sm) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineLimit(1)
+                            if let username = member.username, member.displayName != nil {
+                                Text("@\(username)")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        VButton(label: "Revoke", style: .secondary) {
+                            store.revokeSlackApprovedMember(memberId: member.id)
+                        }
+                        .disabled(store.slackRevokingMemberIds.contains(member.id))
+                    }
+                }
+            }
+
+            if let error = store.slackApprovedMembersError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+        }
     }
 
     // MARK: - Slack Channel Credential Entry

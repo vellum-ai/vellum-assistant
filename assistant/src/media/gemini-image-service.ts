@@ -16,6 +16,8 @@ export interface ImageGenerationRequest {
 export interface GeneratedImage {
   mimeType: string;
   dataBase64: string;
+  /** Short title derived from the model's text response, if available. */
+  title?: string;
 }
 
 export interface ImageGenerationResult {
@@ -74,10 +76,12 @@ export async function generateImage(
 
   const client = new GoogleGenAI({ apiKey });
 
-  // Build contents array
+  // Build contents array — append a title request so the model's text
+  // response contains a short filename-safe title for the generated image.
+  const promptWithTitle = `${request.prompt}\n\nAlso respond with a short title (max 6 words) for the image on its own line, prefixed with "Title: ".`;
   const parts: Array<
     { text: string } | { inlineData: { mimeType: string; data: string } }
-  > = [{ text: request.prompt }];
+  > = [{ text: promptWithTitle }];
 
   if (request.mode === "edit" && request.sourceImages) {
     for (const img of request.sourceImages) {
@@ -114,7 +118,15 @@ export async function generateImage(
       }
     }
 
-    return { images, text };
+    // Extract title from the text response and apply to images
+    const title = extractTitle(text);
+    if (title) {
+      for (const img of images) {
+        img.title = title;
+      }
+    }
+
+    return { images, text: stripTitleLine(text), title };
   };
 
   if (variants === 1) {
@@ -140,4 +152,37 @@ export async function generateImage(
   }
 
   return { images: allImages, text: combinedText, resolvedModel: model };
+}
+
+// --- Title extraction helpers ---
+
+const TITLE_RE = /^Title:\s*(.+)/im;
+
+/**
+ * Extract a title from the model's text response.
+ * Looks for a line starting with "Title: " and sanitizes it for use as a filename.
+ */
+function extractTitle(text?: string): string | undefined {
+  if (!text) return undefined;
+  const match = TITLE_RE.exec(text);
+  if (!match?.[1]) return undefined;
+  return match[1]
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .toLowerCase()
+    .slice(0, 60);
+}
+
+/**
+ * Remove the "Title: ..." line from text so it doesn't appear in
+ * the tool result content shown to the user.
+ */
+function stripTitleLine(text?: string): string | undefined {
+  if (!text) return undefined;
+  const stripped = text
+    .replace(TITLE_RE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return stripped.length > 0 ? stripped : undefined;
 }

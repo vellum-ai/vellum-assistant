@@ -232,7 +232,8 @@ export async function handleApprovalInterception(
             const cancelApplyResult = applyGuardianDecision({
               approval: guardianApprovalForRequest,
               decision: rejectDecision,
-              actorExternalUserId: actorExternalId,
+              actorPrincipalId: undefined, // Interception path — principal not available
+              actorExternalUserId: actorExternalId, // Channel-native ID
               actorChannel: sourceChannel,
             });
             if (cancelApplyResult.applied) {

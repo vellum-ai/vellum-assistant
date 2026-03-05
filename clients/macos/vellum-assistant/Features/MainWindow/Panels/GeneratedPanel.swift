@@ -649,7 +649,7 @@ struct GeneratedPanel: View {
                 signerDisplayName: nil,
                 version: app.version,
                 updateAvailable: nil,
-                appType: app.appType,
+                appType: nil,
                 localAppId: app.id,
                 sharedUUID: nil
             ))

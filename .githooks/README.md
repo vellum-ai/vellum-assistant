@@ -46,3 +46,17 @@ If you need to bypass this check in exceptional cases:
 ```bash
 git commit --no-verify
 ```
+
+### pre-push
+
+Runs before pushing to catch issues that would fail CI.
+
+**What it checks:**
+
+1. **TypeScript type check** — Runs `tsc --noEmit` on `assistant/` when `.ts`/`.tsx` files changed. This backstops the pre-commit type check which is skipped in worktrees for performance.
+2. **Related tests** — Finds and runs test files matching changed source file stems using filename heuristics.
+
+**Bypass (not recommended):**
+```bash
+git push --no-verify
+```

@@ -1,0 +1,285 @@
+#!/bin/bash
+
+# Pre-push hook: run tests related to changed files before pushing.
+#
+# For each package (assistant, cli, gateway), finds source files that changed
+# between HEAD and the remote tracking branch, then matches them to co-located
+# test files using filename heuristics. Runs matched tests in isolation so
+# failures surface fast.
+#
+# Skip with: git push --no-verify
+
+set -uo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+DIM='\033[2m'
+
+# Per-test timeout in seconds — kills bun processes that hang due to open handles.
+PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-60}"
+
+# Debug logging — on by default for passive bottleneck detection.
+# Set PREPUSH_DEBUG=0 to suppress.
+PREPUSH_DEBUG="${PREPUSH_DEBUG:-1}"
+PREPUSH_START_EPOCH=""
+
+_debug_log() {
+    if [ "$PREPUSH_DEBUG" != "1" ]; then return; fi
+    local now
+    if command -v gdate &>/dev/null; then
+        now=$(gdate +%s%3N)
+    else
+        now=$(date +%s%3N 2>/dev/null)
+        if [[ ! "$now" =~ ^[0-9]+$ ]]; then
+            now=$(( $(date +%s) * 1000 ))
+        fi
+    fi
+    if [ -z "$PREPUSH_START_EPOCH" ]; then
+        PREPUSH_START_EPOCH="$now"
+    fi
+    local elapsed=$(( now - PREPUSH_START_EPOCH ))
+    printf "${DIM}[pre-push +%d.%03ds] %s${NC}\n" $((elapsed / 1000)) $((elapsed % 1000)) "$1" >&2
+}
+
+_debug_log "hook started"
+
+BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
+
+if [ ! -x "$BUN" ]; then
+    echo -e "${YELLOW}⚠️  bun not found — skipping pre-push tests${NC}"
+    exit 0
+fi
+
+_debug_log "bun resolved: $BUN"
+
+# Resolve timeout binary (coreutils `timeout` on Linux, `gtimeout` on macOS via brew)
+TIMEOUT_CMD=""
+if command -v timeout &>/dev/null; then
+    TIMEOUT_CMD="timeout"
+elif command -v gtimeout &>/dev/null; then
+    TIMEOUT_CMD="gtimeout"
+fi
+
+_debug_log "timeout command: ${TIMEOUT_CMD:-none}"
+
+# Determine the merge base to diff against.
+# stdin provides lines of: <local ref> <local sha> <remote ref> <remote sha>
+# We use the remote sha to find changed files. If the remote sha is all zeros
+# (new branch), diff against origin/main. When pushing multiple refs, use the
+# earliest merge base to cover all changes.
+REMOTE_SHA=""
+while read -r _ local_sha _ remote_sha; do
+    if [[ "$remote_sha" =~ ^0+$ ]]; then
+        candidate="$(git merge-base "$local_sha" origin/main 2>/dev/null || echo "")"
+    else
+        candidate="$remote_sha"
+    fi
+    if [ -z "$candidate" ]; then
+        continue
+    fi
+    if [ -z "$REMOTE_SHA" ]; then
+        REMOTE_SHA="$candidate"
+    elif git merge-base --is-ancestor "$candidate" "$REMOTE_SHA" 2>/dev/null; then
+        # candidate is older — use it to widen the diff
+        REMOTE_SHA="$candidate"
+    fi
+done
+
+_debug_log "merge base resolved: ${REMOTE_SHA:-(empty)}"
+
+if [ -z "$REMOTE_SHA" ]; then
+    echo -e "${YELLOW}⚠️  Could not determine remote base — skipping pre-push tests${NC}"
+    exit 0
+fi
+
+# Get all changed files (source files only, not deleted)
+CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$REMOTE_SHA"..HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' 2>/dev/null)
+
+_changed_count=$(echo "$CHANGED_FILES" | grep -c . 2>/dev/null || echo 0)
+_debug_log "changed files: ${_changed_count}"
+
+if [ -z "$CHANGED_FILES" ]; then
+    exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+_debug_log "scanning for assistant/ TS changes"
+
+# --- TypeScript type check for assistant/ ---
+# The pre-commit hook skips tsc in worktrees to keep commits fast (~20s cold).
+# Pre-push is the right place to catch cross-file type errors before they hit CI.
+ASSISTANT_TS_CHANGED=0
+while IFS= read -r file; do
+    if [[ "$file" == assistant/*.ts ]] || [[ "$file" == assistant/*.tsx ]]; then
+        ASSISTANT_TS_CHANGED=1
+        break
+    fi
+done <<< "$CHANGED_FILES"
+
+if [ $ASSISTANT_TS_CHANGED -eq 1 ]; then
+    echo ""
+    echo "🔍 Type-checking assistant/..."
+    _debug_log "tsc --noEmit start"
+    if ! (cd "${REPO_ROOT}/assistant" && "$BUN" x tsc --noEmit) 2>&1; then
+        echo ""
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${RED}TypeScript type errors in assistant/ — push blocked${NC}"
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo "Fix the type errors or push with --no-verify to skip."
+        _debug_log "tsc --noEmit done (FAILED)"
+        exit 1
+    fi
+    echo -e "  ${GREEN}✅ Type check OK in assistant/${NC}"
+    _debug_log "tsc --noEmit done (passed)"
+fi
+
+# Temp dir for capturing test output
+RESULTS_DIR="$(mktemp -d)"
+trap 'rm -rf "${RESULTS_DIR}"' EXIT
+
+# For each package, find test files that correspond to changed source files.
+#
+# Heuristic: for a changed source file like `src/foo/bar-baz.ts`, look for
+# test files matching `bar-baz.test.ts` (exact) or `bar-baz-*.test.ts`
+# (hyphenated variants) anywhere under the package's src/. This catches:
+#   - src/__tests__/bar-baz.test.ts          (exact match)
+#   - src/__tests__/bar-baz-edge.test.ts     (hyphenated variant)
+#   - src/foo/__tests__/bar-baz.test.ts      (co-located)
+# but avoids false matches like `bar-bazillion.test.ts` or `bar.test.ts`.
+
+PACKAGES=("assistant" "cli" "gateway")
+overall_exit=0
+
+for pkg in "${PACKAGES[@]}"; do
+    _debug_log "package scan: $pkg"
+    # Collect changed source files for this package (excluding test files)
+    pkg_changed=()
+    while IFS= read -r file; do
+        if [[ "$file" == "$pkg/"* ]] && [[ ! "$file" =~ \.test\.(ts|tsx|js|jsx)$ ]] && [[ ! "$file" =~ /__tests__/ ]]; then
+            pkg_changed+=("$file")
+        fi
+    done <<< "$CHANGED_FILES"
+
+    # Also collect changed test files directly (always run them)
+    pkg_test_changed=()
+    while IFS= read -r file; do
+        if [[ "$file" == "$pkg/"* ]] && [[ "$file" =~ \.test\.(ts|tsx|js|jsx)$ ]]; then
+            pkg_test_changed+=("$file")
+        fi
+    done <<< "$CHANGED_FILES"
+
+    if [ ${#pkg_changed[@]} -eq 0 ] && [ ${#pkg_test_changed[@]} -eq 0 ]; then
+        continue
+    fi
+
+    # Build a list of basename stems from changed source files.
+    # Guard the loop for bash 3.2 compatibility (empty array + set -u).
+    stems=()
+    if [ ${#pkg_changed[@]} -gt 0 ]; then
+        for file in "${pkg_changed[@]}"; do
+            base="$(basename "$file")"
+            stem="${base%.*}"
+            stems+=("$stem")
+        done
+    fi
+
+    # Find matching test files (deduplicated)
+    test_files=()
+    unset seen_tests 2>/dev/null || true
+    declare -A seen_tests
+
+    # Add directly changed test files
+    if [ ${#pkg_test_changed[@]} -gt 0 ]; then
+        for tf in "${pkg_test_changed[@]}"; do
+            abs_tf="${REPO_ROOT}/${tf}"
+            if [ -f "$abs_tf" ] && [ -z "${seen_tests[$abs_tf]:-}" ]; then
+                test_files+=("$abs_tf")
+                seen_tests["$abs_tf"]=1
+            fi
+        done
+    fi
+
+    # Search for test files matching source file stems.
+    # Two find passes per stem: exact match and hyphenated variants.
+    if [ ${#stems[@]} -gt 0 ]; then
+        for stem in "${stems[@]}"; do
+            while IFS= read -r tf; do
+                if [ -n "$tf" ] && [ -z "${seen_tests[$tf]:-}" ]; then
+                    test_files+=("$tf")
+                    seen_tests["$tf"]=1
+                fi
+            done < <(
+                find "${REPO_ROOT}/${pkg}/src" -type f \( \
+                    -name "${stem}.test.ts" -o \
+                    -name "${stem}-*.test.ts" \
+                \) 2>/dev/null
+            )
+        done
+    fi
+
+    if [ ${#test_files[@]} -eq 0 ]; then
+        continue
+    fi
+
+    _debug_log "$pkg: discovered ${#test_files[@]} test file(s)"
+
+    echo ""
+    echo "🧪 Running ${#test_files[@]} related test(s) for ${pkg}/..."
+
+    # Run each test file in isolation (same pattern as the main test runner).
+    failed_files=()
+    for tf in "${test_files[@]}"; do
+        rel="${tf#${REPO_ROOT}/${pkg}/}"
+        base="$(basename "$tf")"
+        safe_name="$(echo "$rel" | tr "/" "_")"
+        out_file="${RESULTS_DIR}/${safe_name}.out"
+
+        _debug_log "$pkg: running $base"
+        if [ -n "$TIMEOUT_CMD" ]; then
+            (cd "${REPO_ROOT}/${pkg}" && "$TIMEOUT_CMD" -k 10 "$PER_TEST_TIMEOUT" "$BUN" test "$rel" > "$out_file" 2>&1)
+        else
+            (cd "${REPO_ROOT}/${pkg}" && "$BUN" test "$rel" > "$out_file" 2>&1)
+        fi
+        exit_code=$?
+
+        if [ -n "$TIMEOUT_CMD" ] && { [ $exit_code -eq 124 ] || [ $exit_code -eq 137 ]; }; then
+            echo -e "  ${RED}✗${NC} ${base} (killed after ${PER_TEST_TIMEOUT}s)"
+            failed_files+=("$tf")
+        elif [ $exit_code -ne 0 ]; then
+            echo -e "  ${RED}✗${NC} ${base}"
+            failed_files+=("$tf")
+        else
+            echo -e "  ${GREEN}✓${NC} ${base}"
+        fi
+        _debug_log "$pkg: finished $base (exit=$exit_code)"
+    done
+
+    if [ ${#failed_files[@]} -gt 0 ]; then
+        echo ""
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${RED}Test failures in ${pkg}/ — push blocked${NC}"
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        for tf in "${failed_files[@]}"; do
+            rel="${tf#${REPO_ROOT}/${pkg}/}"
+            safe_name="$(echo "$rel" | tr "/" "_")"
+            out_file="${RESULTS_DIR}/${safe_name}.out"
+            echo "──────────────────────────────────────────"
+            echo "FAIL: ${pkg}/${rel}"
+            echo "──────────────────────────────────────────"
+            cat "$out_file"
+            echo ""
+        done
+        echo "Fix the failing tests or push with --no-verify to skip."
+        overall_exit=1
+    else
+        echo -e "  ${GREEN}✅ All related tests pass in ${pkg}/${NC}"
+    fi
+done
+
+_debug_log "hook finished (exit=$overall_exit)"
+exit $overall_exit

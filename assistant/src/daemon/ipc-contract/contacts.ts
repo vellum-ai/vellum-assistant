@@ -42,6 +42,9 @@ export interface ContactPayload {
   role: "guardian" | "contact";
   relationship?: string;
   importance: number;
+  responseExpectation?: string;
+  preferredTone?: string;
+  contactType?: string;
   lastInteraction?: number;
   interactionCount: number;
   channels: ContactChannelPayload[];

@@ -42,8 +42,10 @@ const log = getLogger("guardian-request-resolvers");
 
 /** Actor context for the entity making the decision. */
 export interface ActorContext {
-  /** External user ID of the deciding actor (undefined for desktop actors). */
-  externalUserId: string | undefined;
+  /** Auth-identity principal ID of the deciding actor (undefined for callback-only actors). */
+  actorPrincipalId: string | undefined;
+  /** Channel-native external user ID (Telegram user ID, E.164 phone, etc.) of the deciding actor (undefined for desktop actors). Maps to `decided_by_external_user_id` DB column. */
+  actorExternalUserId: string | undefined;
   /** Channel the decision arrived on. */
   channel: string;
   /** Principal ID for authorization — must match the request's guardianPrincipalId. */
@@ -349,7 +351,7 @@ const accessRequestResolver: GuardianRequestResolver = {
       request.requesterChatId ?? request.requesterExternalUserId ?? "";
     const requesterLabel =
       requesterExternalUserId || requesterChatId || "the requester";
-    const decidedByExternalUserId = ctx.actor.externalUserId ?? "";
+    const decidedByExternalUserId = ctx.actor.actorExternalUserId ?? "";
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
     const desktopBearerToken = mintDaemonDeliveryToken();

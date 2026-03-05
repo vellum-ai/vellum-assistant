@@ -162,6 +162,7 @@ public final class HTTPTransport {
         case contactsList(limit: Int, role: String?)
         case contactsGet(id: String)
         case contactsChannelUpdate(channelId: String)
+        case contactsUpsert
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -250,21 +251,20 @@ public final class HTTPTransport {
         case .contactsChannelUpdate(let channelId):
             let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
             return ("/v1/contacts/channels/\(encoded)", nil)
+        case .contactsUpsert:
+            return ("/v1/contacts", nil)
         }
     }
 
     /// Builds paths for the platform assistant proxy layout
-    /// (e.g. /v1/assistants/{id}/health, /v1/assistants/{id}/messages/).
+    /// (e.g. /v1/assistants/{id}/healthz/, /v1/assistants/{id}/messages/).
     /// Trailing slashes match the Django URL convention.
     private func buildPlatformProxyPath(for endpoint: Endpoint, assistantId: String) -> (path: String, query: String?) {
         let prefix = "/v1/assistants/\(assistantId)"
 
         switch endpoint {
         case .healthz:
-            // Use /health (no trailing slash) so the gateway proxy rewrites to
-            // /v1/health, which the runtime serves. /healthz is a root-level
-            // endpoint that doesn't exist under /v1/.
-            return ("\(prefix)/health", nil)
+            return ("\(prefix)/healthz/", nil)
         case .events(let conversationKey):
             let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
             return ("\(prefix)/events/", "conversationKey=\(encoded)")
@@ -322,6 +322,8 @@ public final class HTTPTransport {
         case .contactsChannelUpdate(let channelId):
             let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
             return ("\(prefix)/contacts/channels/\(encoded)/", nil)
+        case .contactsUpsert:
+            return ("\(prefix)/contacts/", nil)
         }
     }
 
@@ -1037,6 +1039,57 @@ public final class HTTPTransport {
         let contact: ContactPayload?
     }
 
+    /// Response wrapper for `POST /v1/contacts` (upsert).
+    private struct HTTPContactUpsertResponse: Decodable {
+        let ok: Bool
+        let contact: ContactPayload
+    }
+
+    /// Update a contact's metadata via `POST /v1/contacts` and return the updated payload.
+    /// Routes through `buildURL`/`applyAuth` so managed-mode URL paths and auth headers
+    /// are applied correctly.
+    func updateContactAndReturn(
+        contactId: String,
+        displayName: String,
+        relationship: String? = nil,
+        importance: Double? = nil,
+        responseExpectation: String? = nil,
+        preferredTone: String? = nil,
+        isRetry: Bool = false
+    ) async throws -> ContactPayload? {
+        guard let url = buildURL(for: .contactsUpsert) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = ["id": contactId, "displayName": displayName]
+        if let relationship { body["relationship"] = relationship }
+        if let importance { body["importance"] = importance }
+        if let responseExpectation { body["responseExpectation"] = responseExpectation }
+        if let preferredTone { body["preferredTone"] = preferredTone }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await updateContactAndReturn(contactId: contactId, displayName: displayName, relationship: relationship, importance: importance, responseExpectation: responseExpectation, preferredTone: preferredTone, isRetry: true)
+                }
+                return nil
+            }
+            guard (200...201).contains(http.statusCode) else {
+                return nil
+            }
+        }
+
+        let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
     // MARK: - Surface Actions
 
     private func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
@@ -1697,6 +1750,9 @@ public final class HTTPTransport {
         case .sessionToken:
             if let token = SessionTokenManager.getToken() {
                 request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+            }
+            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+                request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
             }
         }
     }

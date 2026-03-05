@@ -297,7 +297,8 @@ async function handleCallbackDecision(params: {
   const result = applyGuardianDecision({
     approval: guardianApproval,
     decision: callbackDecision,
-    actorExternalUserId: actorExternalId,
+    actorPrincipalId: undefined, // Callback path — principal not available at this layer
+    actorExternalUserId: actorExternalId, // Channel-native ID (Telegram user ID, phone, etc.)
     actorChannel: sourceChannel,
   });
 
@@ -491,7 +492,8 @@ async function handleConversationalDecision(params: {
   const result = applyGuardianDecision({
     approval: targetApproval,
     decision: engineDecision,
-    actorExternalUserId: actorExternalId,
+    actorPrincipalId: undefined, // Callback path — principal not available at this layer
+    actorExternalUserId: actorExternalId, // Channel-native ID (Telegram user ID, phone, etc.)
     actorChannel: sourceChannel,
   });
 
@@ -675,7 +677,8 @@ async function handleLegacyDecision(params: {
     const result = applyGuardianDecision({
       approval: targetLegacyApproval,
       decision: legacyGuardianDecision,
-      actorExternalUserId: actorExternalId,
+      actorPrincipalId: undefined, // Callback path — principal not available at this layer
+      actorExternalUserId: actorExternalId, // Channel-native ID (Telegram user ID, phone, etc.)
       actorChannel: sourceChannel,
     });
 

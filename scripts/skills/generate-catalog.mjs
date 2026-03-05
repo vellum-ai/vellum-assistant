@@ -100,9 +100,18 @@ function stripQuotes(s) {
     (s.startsWith('"') && s.endsWith('"')) ||
     (s.startsWith("'") && s.endsWith("'"))
   ) {
-    return s.slice(1, -1);
+    return processEscapes(s.slice(1, -1));
   }
   return s;
+}
+
+/**
+ * Process JSON-style unicode escape sequences (\uXXXX) in a string.
+ */
+function processEscapes(s) {
+  return s.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+    String.fromCharCode(parseInt(hex, 16)),
+  );
 }
 
 /**
@@ -126,13 +135,13 @@ function buildEntry(skillName) {
     description: frontmatter.description || "",
   };
 
-  // Extract emoji from metadata.vellum.emoji
-  const vellumMeta =
-    frontmatter.metadata && typeof frontmatter.metadata === "object"
-      ? frontmatter.metadata.vellum
-      : null;
-  if (vellumMeta && typeof vellumMeta === "object" && vellumMeta.emoji) {
-    entry.emoji = vellumMeta.emoji;
+  // Extract emoji from metadata.emoji
+  if (
+    frontmatter.metadata &&
+    typeof frontmatter.metadata === "object" &&
+    frontmatter.metadata.emoji
+  ) {
+    entry.emoji = frontmatter.metadata.emoji;
   }
 
   // Extract includes

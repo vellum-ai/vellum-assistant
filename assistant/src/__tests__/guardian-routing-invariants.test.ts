@@ -94,7 +94,8 @@ const TEST_PRINCIPAL_ID = "test-principal-id";
 
 function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
-    externalUserId: "guardian-1",
+    actorPrincipalId: TEST_PRINCIPAL_ID,
+    actorExternalUserId: "guardian-1",
     channel: "telegram",
     guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
@@ -103,7 +104,8 @@ function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
 
 function trustedActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
-    externalUserId: undefined,
+    actorPrincipalId: TEST_PRINCIPAL_ID,
+    actorExternalUserId: undefined,
     channel: "desktop",
     guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
@@ -1212,13 +1214,13 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     });
 
     // No pendingRequestIds passed — identity-based fallback uses
-    // actor.externalUserId which does not match any request's
+    // actor.actorExternalUserId which does not match any request's
     // guardianExternalUserId (since it's null).
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
         channel: "telegram",
-        actor: guardianActor({ externalUserId: "guardian-tg-user" }),
+        actor: guardianActor({ actorExternalUserId: "guardian-tg-user" }),
         conversationId: "conv-guardian-chat",
         // pendingRequestIds: undefined — no delivery hints
         approvalConversationGenerator: undefined,

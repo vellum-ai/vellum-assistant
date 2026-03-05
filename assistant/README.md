@@ -481,7 +481,7 @@ bun run db:push       # Apply migrations
 
 ```bash
 # Build production image
-docker build -t vellum-assistant:local assistant
+docker build -f assistant/Dockerfile -t vellum-assistant:local .
 
 # Run
 docker run --rm -p 3001:3001 \
@@ -489,7 +489,7 @@ docker run --rm -p 3001:3001 \
   vellum-assistant:local
 ```
 
-The image runs as non-root user `assistant` (uid 1001) and exposes port `3001`.
+The image exposes port `3001` and bundles the `vellum` CLI binary.
 
 ## Troubleshooting
 

@@ -1535,6 +1535,63 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ContactsRequestMessage(action: "update_channel", channelId: channelId, status: status, policy: policy, reason: reason))
     }
 
+    /// Update a contact's metadata via the HTTP API (`POST /v1/contacts`).
+    /// Routes through `HTTPTransport` when available so that managed-mode
+    /// URL paths (`/v1/assistants/{id}/contacts/`) and auth headers
+    /// (`X-Session-Token`) are applied correctly. Falls back to the local
+    /// daemon HTTP server for socket-based connections.
+    public func updateContact(
+        contactId: String,
+        displayName: String,
+        relationship: String? = nil,
+        importance: Double? = nil,
+        responseExpectation: String? = nil,
+        preferredTone: String? = nil
+    ) async throws -> ContactPayload? {
+        // Delegate to HTTPTransport when active — it handles buildURL/applyAuth
+        // for both runtimeFlat and platformAssistantProxy route modes.
+        if let httpTransport {
+            return try await httpTransport.updateContactAndReturn(
+                contactId: contactId,
+                displayName: displayName,
+                relationship: relationship,
+                importance: importance,
+                responseExpectation: responseExpectation,
+                preferredTone: preferredTone
+            )
+        }
+
+        // Local daemon path: direct HTTP call using the runtime server port.
+        guard let local = resolveLocalDaemonHTTPEndpoint() else { return nil }
+
+        guard let url = URL(string: "\(local.baseURL)/v1/contacts") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = local.bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body: [String: Any] = ["id": contactId, "displayName": displayName]
+        if let relationship { body["relationship"] = relationship }
+        if let importance { body["importance"] = importance }
+        if let responseExpectation { body["responseExpectation"] = responseExpectation }
+        if let preferredTone { body["preferredTone"] = preferredTone }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...201).contains(http.statusCode) else { return nil }
+
+        struct UpsertResponse: Decodable {
+            let ok: Bool
+            let contact: ContactPayload
+        }
+        let decoded = try JSONDecoder().decode(UpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
     // MARK: - Feature Flags
 
     /// A single assistant feature flag entry returned by `GET /v1/feature-flags`.

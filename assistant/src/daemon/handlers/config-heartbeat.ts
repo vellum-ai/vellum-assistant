@@ -218,8 +218,7 @@ export function handleHeartbeatRunNow(
         ctx.send(socket, {
           type: "heartbeat_run_now_response",
           success: false,
-          error:
-            "Heartbeat skipped (a previous run is still active)",
+          error: "Heartbeat skipped (a previous run is still active)",
         });
       }
     })

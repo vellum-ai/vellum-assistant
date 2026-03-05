@@ -9,9 +9,9 @@ describe("matchContactsControlPlaneRoute", () => {
     expect(matchContactsControlPlaneRoute("/v1/contacts", "POST")).toEqual({
       kind: "upsertContact",
     });
-    expect(matchContactsControlPlaneRoute("/v1/contacts/merge", "POST")).toEqual(
-      { kind: "mergeContacts" },
-    );
+    expect(
+      matchContactsControlPlaneRoute("/v1/contacts/merge", "POST"),
+    ).toEqual({ kind: "mergeContacts" });
     expect(
       matchContactsControlPlaneRoute("/v1/contacts/channels/ch_1", "PATCH"),
     ).toEqual({ kind: "updateContactChannel", channelId: "ch_1" });
@@ -31,10 +31,12 @@ describe("matchContactsControlPlaneRoute", () => {
 
   test("GET /v1/contacts/merge falls through to getContact", () => {
     // No GET handler for /merge, so the contactId catch-all picks it up
-    expect(matchContactsControlPlaneRoute("/v1/contacts/merge", "GET")).toEqual({
-      kind: "getContact",
-      contactId: "merge",
-    });
+    expect(matchContactsControlPlaneRoute("/v1/contacts/merge", "GET")).toEqual(
+      {
+        kind: "getContact",
+        contactId: "merge",
+      },
+    );
   });
 
   test("matches redeem invite only for POST", () => {

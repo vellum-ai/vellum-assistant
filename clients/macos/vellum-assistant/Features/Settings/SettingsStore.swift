@@ -201,6 +201,13 @@ public final class SettingsStore: ObservableObject {
     @Published var slackGuardianError: String?
     @Published var slackGuardianAlreadyBound: Bool = false
 
+    // MARK: - Approved Ingress Contacts (Slack)
+
+    @Published var slackApprovedMembers: [ApprovedMember] = []
+    @Published var slackApprovedMembersLoading: Bool = false
+    @Published var slackApprovedMembersError: String?
+    @Published var slackRevokingMemberIds: Set<String> = []
+
     // MARK: - Outbound Guardian Session State (Slack)
 
     @Published var slackOutboundSessionId: String?
@@ -1664,6 +1671,89 @@ public final class SettingsStore: ObservableObject {
                 self.telegramRevokingMemberIds.remove(memberId)
                 self.telegramApprovedMembers.append(contentsOf: removed)
                 self.telegramApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func refreshSlackApprovedMembers() {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/contacts?channelType=slack") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+        slackApprovedMembersLoading = true
+        slackApprovedMembersError = nil
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                self.slackApprovedMembersLoading = false
+                guard let httpResp = response as? HTTPURLResponse else { return }
+                if httpResp.statusCode == 200 {
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let contactsList = json["contacts"] as? [[String: Any]] {
+                        let guardianId = self.slackGuardianIdentity
+                        var approvedMembers: [ApprovedMember] = []
+                        for contact in contactsList {
+                            let displayName = contact["displayName"] as? String
+                            guard let channels = contact["channels"] as? [[String: Any]] else { continue }
+                            for channel in channels {
+                                guard let channelType = channel["type"] as? String,
+                                      channelType == "slack",
+                                      let status = channel["status"] as? String,
+                                      status == "active",
+                                      let channelId = channel["id"] as? String else { continue }
+                                let externalUserId = channel["externalUserId"] as? String
+                                // Skip the guardian — they're already shown in the Guardian Verification row
+                                if let guardianId, let externalUserId, externalUserId == guardianId {
+                                    continue
+                                }
+                                approvedMembers.append(ApprovedMember(
+                                    id: channelId,
+                                    displayName: displayName,
+                                    username: channel["address"] as? String,
+                                    externalUserId: externalUserId
+                                ))
+                            }
+                        }
+                        self.slackApprovedMembers = approvedMembers
+                        self.slackApprovedMembersError = nil
+                    }
+                } else {
+                    self.slackApprovedMembersError = "Failed to load (HTTP \(httpResp.statusCode))"
+                }
+            } catch {
+                self.slackApprovedMembersLoading = false
+                self.slackApprovedMembersError = "Failed to load: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func revokeSlackApprovedMember(memberId: String) {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/contacts/channels/\(memberId)") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
+        request.timeoutInterval = 10
+        slackRevokingMemberIds.insert(memberId)
+        let removed = slackApprovedMembers.filter { $0.id == memberId }
+        slackApprovedMembers.removeAll { $0.id == memberId }
+        Task {
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                self.slackRevokingMemberIds.remove(memberId)
+                guard let httpResp = response as? HTTPURLResponse else { return }
+                if !(200..<300).contains(httpResp.statusCode) {
+                    self.slackApprovedMembers.append(contentsOf: removed)
+                    self.slackApprovedMembersError = "Failed to revoke (HTTP \(httpResp.statusCode))"
+                }
+            } catch {
+                self.slackRevokingMemberIds.remove(memberId)
+                self.slackApprovedMembers.append(contentsOf: removed)
+                self.slackApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
             }
         }
     }

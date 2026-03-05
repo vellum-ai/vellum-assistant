@@ -54,7 +54,7 @@ export async function handleMigrationValidate(req: Request): Promise<Response> {
         return httpError(
           "BAD_REQUEST",
           'Multipart upload requires a "file" field',
-          400
+          400,
         );
       }
       fileData = new Uint8Array(await file.arrayBuffer());
@@ -77,7 +77,7 @@ export async function handleMigrationValidate(req: Request): Promise<Response> {
     return httpError(
       "BAD_REQUEST",
       "Request body is empty — a .vbundle file is required",
-      400
+      400,
     );
   }
 
@@ -94,7 +94,7 @@ export async function handleMigrationValidate(req: Request): Promise<Response> {
     return httpError(
       "INTERNAL_ERROR",
       err instanceof Error ? err.message : "Unexpected validation error",
-      500
+      500,
     );
   }
 }
@@ -150,7 +150,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
         } catch (err) {
           log.warn(
             { err },
-            "WAL checkpoint failed — exporting without checkpoint"
+            "WAL checkpoint failed — exporting without checkpoint",
           );
         }
       },
@@ -161,7 +161,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
 
     const body = archive.buffer.slice(
       archive.byteOffset,
-      archive.byteOffset + archive.byteLength
+      archive.byteOffset + archive.byteLength,
     ) as ArrayBuffer;
 
     return new Response(body, {
@@ -179,7 +179,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
     return httpError(
       "INTERNAL_ERROR",
       err instanceof Error ? err.message : "Unexpected export error",
-      500
+      500,
     );
   }
 }
@@ -191,7 +191,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
  * Shared between validate and import-preflight handlers.
  */
 async function extractFileData(
-  req: Request
+  req: Request,
 ): Promise<{ data: Uint8Array } | { error: Response }> {
   const contentType = req.headers.get("content-type") ?? "";
 
@@ -204,7 +204,7 @@ async function extractFileData(
           error: httpError(
             "BAD_REQUEST",
             'Multipart upload requires a "file" field',
-            400
+            400,
           ),
         };
       }
@@ -256,7 +256,7 @@ async function extractFileData(
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, ipc.
  */
 export async function handleMigrationImportPreflight(
-  req: Request
+  req: Request,
 ): Promise<Response> {
   const extracted = await extractFileData(req);
   if ("error" in extracted) {
@@ -268,7 +268,7 @@ export async function handleMigrationImportPreflight(
     return httpError(
       "BAD_REQUEST",
       "Request body is empty — a .vbundle file is required",
-      400
+      400,
     );
   }
 
@@ -289,7 +289,7 @@ export async function handleMigrationImportPreflight(
     // Step 2: Analyze what would change on import
     const pathResolver = new DefaultPathResolver(
       getDbPath(),
-      getWorkspaceConfigPath()
+      getWorkspaceConfigPath(),
     );
 
     const report = analyzeImport({
@@ -303,7 +303,7 @@ export async function handleMigrationImportPreflight(
     return httpError(
       "INTERNAL_ERROR",
       err instanceof Error ? err.message : "Unexpected import preflight error",
-      500
+      500,
     );
   }
 }
@@ -351,7 +351,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     return httpError(
       "BAD_REQUEST",
       "Request body is empty — a .vbundle file is required",
-      400
+      400,
     );
   }
 
@@ -371,7 +371,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
 
     const pathResolver = new DefaultPathResolver(
       getDbPath(),
-      getWorkspaceConfigPath()
+      getWorkspaceConfigPath(),
     );
 
     // Close the live SQLite connection before overwriting assistant.db on disk.
@@ -401,7 +401,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
             reason: "extraction_failed",
             message: result.message,
           },
-          { status: 500 }
+          { status: 500 },
         );
       }
 
@@ -415,7 +415,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
             ? { partial_report: result.partial_report }
             : {}),
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -428,7 +428,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     return httpError(
       "INTERNAL_ERROR",
       err instanceof Error ? err.message : "Unexpected import error",
-      500
+      500,
     );
   }
 }

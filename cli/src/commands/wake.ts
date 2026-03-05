@@ -112,5 +112,5 @@ export async function wake(): Promise<void> {
   }
   await startOutboundProxy(watch);
 
-  console.log("Wake complete.");
+  console.log("✅ Wake complete.");
 }

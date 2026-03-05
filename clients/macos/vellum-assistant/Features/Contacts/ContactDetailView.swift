@@ -8,11 +8,24 @@ struct ContactDetailView: View {
     let contact: ContactPayload
     var daemonClient: DaemonClient?
 
-    @State private var currentContact: ContactPayload?
+    @State var currentContact: ContactPayload?
     @State private var actionInProgress: String?
-    @State private var errorMessage: String?
+    @State var errorMessage: String?
+    @State private var isEditingName = false
+    @State private var editedName = ""
+    @State private var isHoveringHeader = false
 
-    private var displayContact: ContactPayload {
+    // Metadata editing state (accessed from ContactDetailView+EditableMetadata.swift)
+    @State var isEditingRelationship = false
+    @State var editedRelationship = ""
+    @State var isEditingImportance = false
+    @State var editedImportance: Double = 0.5
+    @State var isEditingResponseExpectation = false
+    @State var editedResponseExpectation = ""
+    @State var isEditingPreferredTone = false
+    @State var editedPreferredTone = ""
+
+    var displayContact: ContactPayload {
         currentContact ?? contact
     }
 
@@ -35,28 +48,66 @@ struct ContactDetailView: View {
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text(displayContact.displayName)
-                .font(VFont.largeTitle)
-                .foregroundColor(VColor.textPrimary)
+            if isEditingName {
+                HStack(spacing: VSpacing.sm) {
+                    TextField("Display name", text: $editedName)
+                        .font(VFont.largeTitle)
+                        .foregroundColor(VColor.textPrimary)
+                        .textFieldStyle(.plain)
+                        .onSubmit { Task { await saveDisplayName() } }
+
+                    Button {
+                        Task { await saveDisplayName() }
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Save name")
+
+                    Button {
+                        isEditingName = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .foregroundColor(VColor.textMuted)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .accessibilityLabel("Cancel editing")
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    Text(displayContact.displayName)
+                        .font(VFont.largeTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    Button {
+                        editedName = displayContact.displayName
+                        isEditingName = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .foregroundColor(VColor.textSecondary)
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(isHoveringHeader ? 1 : 0)
+                    .animation(VAnimation.fast, value: isHoveringHeader)
+                    .accessibilityLabel("Edit display name")
+                }
+            }
 
             HStack(spacing: VSpacing.sm) {
                 roleBadge
-
-                if let relationship = displayContact.relationship,
-                   !relationship.isEmpty {
-                    Text(relationship)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xxs)
-                        .background(VColor.surfaceSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .onHover { hovering in
+            isHoveringHeader = hovering
+        }
     }
 
     private var roleBadge: some View {
@@ -257,58 +308,86 @@ struct ContactDetailView: View {
 
     // MARK: - Metadata Section
 
-    @ViewBuilder
     private var metadataSection: some View {
-        let hasMetadata = displayContact.importance > 0
-            || displayContact.interactionCount > 0
-            || displayContact.lastInteraction != nil
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Metadata")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
 
-        if hasMetadata {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Metadata")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                metadataRow(
+                    label: "Contact type",
+                    value: formatContactType(displayContact.contactType)
+                )
 
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    if displayContact.importance > 0 {
-                        metadataRow(
-                            label: "Importance",
-                            value: String(format: "%.1f", displayContact.importance)
-                        )
-                    }
+                editableRelationshipRow
 
-                    if displayContact.interactionCount > 0 {
-                        metadataRow(
-                            label: "Interactions",
-                            value: "\(displayContact.interactionCount)"
-                        )
-                    }
+                editableImportanceRow
 
-                    if let lastInteraction = displayContact.lastInteraction {
-                        metadataRow(
-                            label: "Last interaction",
-                            value: relativeTime(epochMs: Int(lastInteraction))
-                        )
-                    }
+                editableResponseExpectationRow
+
+                editablePreferredToneRow
+
+                metadataRow(
+                    label: "Interactions",
+                    value: "\(displayContact.interactionCount)"
+                )
+
+                if let lastInteraction = displayContact.lastInteraction {
+                    metadataRow(
+                        label: "Last interaction",
+                        value: relativeTime(epochMs: Int(lastInteraction))
+                    )
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
-    private func metadataRow(label: String, value: String) -> some View {
+    func metadataRow(label: String, value: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
-                .frame(width: 120, alignment: .leading)
+                .frame(width: 140, alignment: .leading)
             Text(value)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
             Spacer()
         }
+    }
+
+    // MARK: - Formatting Helpers
+
+    private func formatContactType(_ contactType: String?) -> String {
+        switch contactType {
+        case "assistant":
+            return "Assistant"
+        default:
+            return "Human"
+        }
+    }
+
+    func formatResponseExpectation(_ value: String) -> String {
+        switch value {
+        case "immediate":
+            return "Immediate"
+        case "within_hours":
+            return "Within hours"
+        case "within_day":
+            return "Within a day"
+        case "flexible":
+            return "Flexible"
+        default:
+            return capitalizeFirst(value.replacingOccurrences(of: "_", with: " "))
+        }
+    }
+
+    func capitalizeFirst(_ value: String) -> String {
+        guard let first = value.first else { return value }
+        return first.uppercased() + value.dropFirst()
     }
 
     // MARK: - Helpers
@@ -346,6 +425,30 @@ struct ContactDetailView: View {
     }
 
     // MARK: - Actions
+
+    private func saveDisplayName() async {
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        errorMessage = nil
+
+        do {
+            guard let daemonClient else {
+                errorMessage = "Failed to update name"
+                return
+            }
+            if let updated = try await daemonClient.updateContact(
+                contactId: displayContact.id,
+                displayName: trimmed
+            ) {
+                currentContact = updated
+                isEditingName = false
+            } else {
+                errorMessage = "Failed to update name"
+            }
+        } catch {
+            errorMessage = "Failed to update name: \(error.localizedDescription)"
+        }
+    }
 
     private func updateChannelStatus(channelId: String, status: String) {
         guard let daemonClient else { return }
@@ -407,6 +510,9 @@ struct ContactDetailView: View {
                 role: "contact",
                 relationship: "colleague",
                 importance: 0.8,
+                responseExpectation: "within_hours",
+                preferredTone: "casual",
+                contactType: "human",
                 lastInteraction: Date().timeIntervalSince1970 * 1000 - 3_600_000,
                 interactionCount: 42,
                 channels: [

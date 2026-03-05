@@ -63,6 +63,7 @@ public final class ManagedAssistantBootstrapService {
                 throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
             }
             organizationId = firstOrg.id
+            UserDefaults.standard.set(organizationId, forKey: "connectedOrganizationId")
             log.info("Resolved organization: \(organizationId, privacy: .public)")
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)

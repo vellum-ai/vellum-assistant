@@ -109,7 +109,6 @@ export function createGuardianBinding(params: {
     updatedAt: now,
   };
 
-  emitContactChange();
   return result;
 }
 
@@ -203,8 +202,6 @@ export function upsertMember(params: {
     externalUserId: canonicalId ?? undefined,
     externalChatId: params.externalChatId,
   });
-
-  emitContactChange();
 
   if (contactResult) {
     return { contact: contactResult.contact, channel: contactResult.channel };

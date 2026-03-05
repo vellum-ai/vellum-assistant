@@ -83,18 +83,6 @@ function findGatewaySourceFromCwd(): string | undefined {
   }
 }
 
-function isOutboundProxySourceDir(dir: string): boolean {
-  const pkgPath = join(dir, "package.json");
-  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "main.ts")))
-    return false;
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    return pkg.name === "@vellumai/outbound-proxy";
-  } catch {
-    return false;
-  }
-}
-
 function resolveAssistantIndexPath(): string | undefined {
   // Source tree layout: cli/src/lib/ -> ../../.. -> repo root -> assistant/src/index.ts
   const sourceTreeIndex = join(
@@ -377,6 +365,18 @@ function resolveGatewayDir(): string {
     throw new Error(
       "Gateway not found. Ensure @vellumai/vellum-gateway is installed, run from the source tree, or set VELLUM_GATEWAY_DIR.",
     );
+  }
+}
+
+function isOutboundProxySourceDir(dir: string): boolean {
+  const pkgPath = join(dir, "package.json");
+  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "main.ts")))
+    return false;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.name === "@vellumai/outbound-proxy";
+  } catch {
+    return false;
   }
 }
 

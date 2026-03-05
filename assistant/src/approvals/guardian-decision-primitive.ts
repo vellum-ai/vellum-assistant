@@ -150,7 +150,9 @@ export interface ApplyGuardianDecisionParams {
   approval: GuardianApprovalRequest;
   /** The parsed decision (action + source + optional requestId). */
   decision: ApprovalDecisionResult;
-  /** External user ID of the actor making the decision. */
+  /** Principal ID of the actor making the decision (undefined in callback/interception paths without JWT/auth context). */
+  actorPrincipalId: string | undefined;
+  /** Channel-native external user ID of the deciding actor (Telegram user ID, phone, etc.). */
   actorExternalUserId: string | undefined;
   /** Channel the decision arrived on. */
   actorChannel: ChannelId;
@@ -180,6 +182,7 @@ export function applyGuardianDecision(
   const {
     approval,
     decision,
+    actorPrincipalId,
     actorExternalUserId,
     actorChannel,
     decisionContext,
@@ -222,22 +225,23 @@ export function applyGuardianDecision(
       : ("approved" as const);
   updateApprovalDecision(approval.id, {
     status: approvalStatus,
-    decidedByExternalUserId: actorExternalUserId,
+    decidedByExternalUserId: actorExternalUserId ?? actorPrincipalId,
   });
 
   // Mint a scoped grant when a guardian approves a tool-approval request.
-  // Skip when actorExternalUserId is undefined -- minting a grant without
+  // Skip when neither actor identity is available -- minting a grant without
   // a known guardian identity is meaningless (e.g. requester self-cancel).
+  const effectiveGuardianId = actorExternalUserId ?? actorPrincipalId;
   if (
     effectiveDecision.action !== "reject" &&
     matchedInfo &&
-    actorExternalUserId
+    effectiveGuardianId
   ) {
     tryMintToolApprovalGrant({
       approvalInfo: matchedInfo,
       approval,
       decisionChannel: actorChannel,
-      guardianExternalUserId: actorExternalUserId,
+      guardianExternalUserId: effectiveGuardianId,
     });
   }
 
@@ -507,7 +511,7 @@ export async function applyCanonicalGuardianDecision(
   const resolved = resolveCanonicalGuardianRequest(requestId, "pending", {
     status: targetStatus,
     answerText: userText,
-    decidedByExternalUserId: actorContext.externalUserId,
+    decidedByExternalUserId: actorContext.actorExternalUserId,
     decidedByPrincipalId: actorContext.guardianPrincipalId,
   });
 
@@ -574,7 +578,7 @@ export async function applyCanonicalGuardianDecision(
       request: resolved,
       actorChannel: actorContext.channel,
       guardianExternalUserId:
-        actorContext.externalUserId ??
+        actorContext.actorExternalUserId ??
         resolved.guardianExternalUserId ??
         undefined,
     });

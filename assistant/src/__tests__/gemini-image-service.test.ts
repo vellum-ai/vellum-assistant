@@ -137,8 +137,8 @@ describe("generateImage", () => {
       .contents as Array<Record<string, unknown>>;
     const parts = contents[0].parts as Array<Record<string, unknown>>;
 
-    // First part is the text prompt
-    expect(parts[0]).toEqual({ text: "remove background" });
+    // First part is the text prompt (with appended title instruction)
+    expect((parts[0] as { text: string }).text).toContain("remove background");
     // Second part is the source image
     expect(parts[1]).toEqual({
       inlineData: { mimeType: "image/jpeg", data: "srcdata" },

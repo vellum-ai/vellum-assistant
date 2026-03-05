@@ -453,50 +453,7 @@ export async function runAgentLoopImpl(
       onEvent,
     );
 
-    if (memoryResult.conflictClarification) {
-      const loopChannelMeta = {
-        ...provenanceFromTrustContext(ctx.trustContext),
-        userMessageChannel: capturedTurnChannelContext.userMessageChannel,
-        assistantMessageChannel:
-          capturedTurnChannelContext.assistantMessageChannel,
-        userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
-        assistantMessageInterface:
-          capturedTurnInterfaceContext.assistantMessageInterface,
-      };
-      const assistantMessage = createAssistantMessage(
-        memoryResult.conflictClarification,
-      );
-      await conversationStore.addMessage(
-        ctx.conversationId,
-        "assistant",
-        JSON.stringify(assistantMessage.content),
-        loopChannelMeta,
-      );
-      ctx.messages.push(assistantMessage);
-      onEvent({
-        type: "assistant_text_delta",
-        text: memoryResult.conflictClarification,
-        sessionId: ctx.conversationId,
-      });
-      ctx.traceEmitter.emit(
-        "message_complete",
-        "Conflict clarification requested (relevant)",
-        {
-          requestId: reqId,
-          status: "info",
-          attributes: { conflictGate: "relevant" },
-        },
-      );
-      onEvent({ type: "message_complete", sessionId: ctx.conversationId });
-      return;
-    }
-
-    const {
-      recall,
-      dynamicProfile,
-      softConflictInstruction,
-      recallInjectionStrategy,
-    } = memoryResult;
+    const { recall, dynamicProfile, recallInjectionStrategy } = memoryResult;
     runMessages = memoryResult.runMessages;
 
     // Build active surface context
@@ -585,7 +542,6 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
-      softConflictInstruction,
       activeSurface,
       workspaceTopLevelContext: ctx.workspaceTopLevelContext,
       channelCapabilities: ctx.channelCapabilities ?? null,
@@ -1238,6 +1194,7 @@ export async function runAgentLoopImpl(
           ctx.hasNoClient,
         ),
       state.lastAssistantMessageId,
+      state.toolContentBlockToolNames,
     );
     const { assistantAttachments, emittedAttachments } = attachmentResult;
 

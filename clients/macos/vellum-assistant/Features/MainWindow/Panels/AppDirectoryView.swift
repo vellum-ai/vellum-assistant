@@ -378,7 +378,7 @@ struct AppDirectoryView: View {
                 preview: nil,
                 dateLabel: formatDate(app.createdAt),
                 isShared: false,
-                appType: app.appType,
+                appType: nil,
                 localAppId: app.id,
                 sharedUUID: nil
             ))
