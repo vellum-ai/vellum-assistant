@@ -7,7 +7,6 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import cliPkg from "../package.json";
-import { autonomy } from "./commands/autonomy";
 import { client } from "./commands/client";
 import { config } from "./commands/config";
 import { email } from "./commands/email";
@@ -24,7 +23,6 @@ import { tunnel } from "./commands/tunnel";
 import { wake } from "./commands/wake";
 
 const commands = {
-  autonomy,
   client,
   config,
   email,
@@ -83,7 +81,6 @@ async function main() {
     console.log("Usage: vellum <command> [options]");
     console.log("");
     console.log("Commands:");
-    console.log("  autonomy View and configure autonomy tiers");
     console.log("  client   Connect to a hatched assistant");
     console.log("  config   Manage configuration");
     console.log("  email    Email operations (status, create inbox)");

@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
 
 import { registerAmazonCommand } from "./cli/amazon.js";
+import { registerAutonomyCommand } from "./cli/autonomy.js";
 import {
   registerConfigCommand,
   registerKeysCommand,
@@ -53,6 +54,7 @@ registerEmailCommand(program);
 registerIntegrationsCommand(program);
 registerContactsCommand(program);
 registerAmazonCommand(program);
+registerAutonomyCommand(program);
 registerCompletionsCommand(program);
 
 registerTwitterCommand(program);
