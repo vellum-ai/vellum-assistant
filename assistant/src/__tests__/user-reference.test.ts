@@ -87,6 +87,17 @@ describe("resolveGuardianName", () => {
     expect(resolveGuardianName("Jane")).toBe("John");
   });
 
+  test('returns "my human" when USER.md explicitly sets name to default value', () => {
+    mockFileExists = true;
+    mockFileContent = [
+      "## Onboarding Snapshot",
+      "",
+      "- Preferred name/reference: my human",
+    ].join("\n");
+    // The user's explicit choice must be respected even though it matches the default sentinel
+    expect(resolveGuardianName("Jane")).toBe("my human");
+  });
+
   test("falls back to guardianDisplayName when USER.md is empty", () => {
     mockFileExists = false;
     expect(resolveGuardianName("Jane")).toBe("Jane");

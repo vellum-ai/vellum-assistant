@@ -2,6 +2,23 @@ import { readTextFileSync } from "../util/fs.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
 export const DEFAULT_USER_REFERENCE = "my human";
+export const DECLINED_BY_USER_SENTINEL = "declined_by_user";
+
+/**
+ * Read the raw "Preferred name/reference:" value from USER.md.
+ * Returns the trimmed value when present, or `null` when the file
+ * is missing, unreadable, or the field is empty.
+ */
+function readPreferredNameFromUserMd(): string | null {
+  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
+  if (content != null) {
+    const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
+    if (match && match[1].trim()) {
+      return match[1].trim();
+    }
+  }
+  return null;
+}
 
 /**
  * Resolve the name/reference the assistant uses when referring to
@@ -12,15 +29,7 @@ export const DEFAULT_USER_REFERENCE = "my human";
  * file is missing, unreadable, or the field is empty.
  */
 export function resolveUserReference(): string {
-  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
-  if (content != null) {
-    const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
-    if (match && match[1].trim()) {
-      return match[1].trim();
-    }
-  }
-
-  return DEFAULT_USER_REFERENCE;
+  return readPreferredNameFromUserMd() ?? DEFAULT_USER_REFERENCE;
 }
 
 /**
@@ -62,7 +71,7 @@ export function resolveUserPronouns(): string | null {
 }
 
 function cleanPronounValue(raw: string): string | null {
-  if (raw === "declined_by_user") return null;
+  if (raw === DECLINED_BY_USER_SENTINEL) return null;
   // Strip "inferred: " prefix for clean output
   return raw.replace(/^inferred:\s*/i, "");
 }
@@ -80,9 +89,9 @@ function cleanPronounValue(raw: string): string | null {
 export function resolveGuardianName(
   guardianDisplayName?: string | null,
 ): string {
-  const userRef = resolveUserReference();
-  if (userRef !== DEFAULT_USER_REFERENCE) {
-    return userRef;
+  const preferredName = readPreferredNameFromUserMd();
+  if (preferredName != null && preferredName !== DECLINED_BY_USER_SENTINEL) {
+    return preferredName;
   }
 
   if (guardianDisplayName && guardianDisplayName.trim().length > 0) {

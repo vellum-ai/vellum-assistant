@@ -167,7 +167,10 @@ export async function handleMergeContacts(
 
   try {
     const contact = mergeContacts(body.keepId, body.mergeId, assistantId);
-    return Response.json({ ok: true, contact });
+    return Response.json({
+      ok: true,
+      contact: withGuardianNameOverride(contact),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return httpError("BAD_REQUEST", message, 400);

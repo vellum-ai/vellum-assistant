@@ -1304,7 +1304,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     ///
     /// Token resolution order:
     /// 1. `tokenOverride` (for callers that need a specific token, e.g. feature-flag token)
-    /// 2. JWT from `ActorTokenManager.getToken()`
+    /// 2. JWT from `ActorTokenManager.getToken()` — persisted in Keychain, so available
+    ///    across app restarts once the initial bootstrap has completed. On first-ever
+    ///    launch the bootstrap endpoint is unprotected (pre-auth), so the lack of a
+    ///    token at that point is expected and harmless.
     ///
     /// Returns `nil` when the required port is unavailable.
     private func buildLocalRequest(

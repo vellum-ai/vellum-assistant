@@ -12,7 +12,9 @@
  *   6. `description` constraints: 1-1024 chars, non-empty.
  *   7. Optional `compatibility`: 1-500 chars if present.
  *   8. Frontmatter is followed by Markdown body content.
- *   9. No unknown frontmatter fields (only spec + Vellum extensions allowed).
+ *   9. Non-standard top-level fields emit migration guidance:
+ *      - Vellum-specific fields → move to `metadata.vellum`
+ *      - Environment requirements → move to `compatibility`
  *
  * Usage:
  *   node scripts/skills/lint-skill-spec.mjs [skill-name ...]
@@ -119,6 +121,35 @@ function processEscapes(s) {
 
 const NAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
+/**
+ * Standard fields per Agent Skills spec (https://agentskills.io/specification).
+ */
+const STANDARD_FIELDS = new Set([
+  "name",
+  "description",
+  "license",
+  "compatibility",
+  "metadata",
+  "allowed-tools",
+]);
+
+/**
+ * Known vellum-specific extension fields that should be migrated to metadata.vellum.
+ */
+const VELLUM_EXTENSION_FIELDS = new Set([
+  "user-invocable",
+  "user_invocable",
+  "credential-setup-for",
+  "disable-model-invocation",
+]);
+
+/**
+ * Fields that should be migrated to the compatibility field.
+ */
+const COMPATIBILITY_MIGRATION_FIELDS = new Set([
+  "includes",
+]);
+
 function validateName(name, dirName) {
   const errors = [];
 
@@ -183,6 +214,46 @@ function validateCompatibility(compatibility) {
   return errors;
 }
 
+/**
+ * Detect non-standard top-level fields and recommend migration.
+ *
+ * Returns errors for:
+ * - Known vellum extension fields → recommend moving to metadata.vellum
+ * - Compatibility-related fields → recommend moving to compatibility
+ * - Unknown fields → recommend using metadata for custom data or compatibility for requirements
+ */
+function validateNonStandardFields(frontmatter) {
+  const errors = [];
+
+  for (const key of Object.keys(frontmatter)) {
+    if (STANDARD_FIELDS.has(key)) {
+      continue;
+    }
+
+    if (VELLUM_EXTENSION_FIELDS.has(key)) {
+      errors.push(
+        `Non-standard field "${key}" should be moved to metadata.vellum.${key}. ` +
+          `The Agent Skills spec reserves top-level fields for standard properties. ` +
+          `Use the "metadata" field for vendor-specific extensions: metadata: { "vellum": { "${key}": ... } }`,
+      );
+    } else if (COMPATIBILITY_MIGRATION_FIELDS.has(key)) {
+      errors.push(
+        `Non-standard field "${key}" should be moved to the "compatibility" field. ` +
+          `The "compatibility" field is for environment requirements (required skills, CLIs, packages, network access).`,
+      );
+    } else {
+      errors.push(
+        `Unknown top-level field "${key}". ` +
+          `Only standard fields (name, description, license, compatibility, metadata, allowed-tools) are allowed at the top level. ` +
+          `Use "metadata" for custom properties: metadata: { "${key}": ... }. ` +
+          `Use "compatibility" for environment requirements (e.g., required CLIs, packages, network access).`,
+      );
+    }
+  }
+
+  return errors;
+}
+
 function validateSkill(skillName) {
   const skillDir = join(SKILLS_DIR, skillName);
   const skillMdPath = join(skillDir, "SKILL.md");
@@ -230,26 +301,12 @@ function validateSkill(skillName) {
     ),
   );
 
-  // 5. Check for unknown fields
-  const knownFields = new Set([
-    "name",
-    "description",
-    "license",
-    "compatibility",
-    "metadata",
-    "allowed-tools",
-    // Vellum extensions
-    "user-invocable",
-    "credential-setup-for",
-  ]);
-  for (const key of Object.keys(frontmatter)) {
-    if (!knownFields.has(key)) {
-      errors.push(
-        `skills/${skillName}/SKILL.md: Unknown frontmatter field "${key}". ` +
-          `Allowed fields: ${[...knownFields].join(", ")}.`,
-      );
-    }
-  }
+  // 5. Check for non-standard fields and recommend migration
+  errors.push(
+    ...validateNonStandardFields(frontmatter).map(
+      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+    ),
+  );
 
   return errors;
 }

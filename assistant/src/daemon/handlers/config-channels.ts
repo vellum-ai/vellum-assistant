@@ -109,11 +109,13 @@ export function getGuardianStatus(
   const resolvedChannel = channel ?? "telegram";
 
   const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
-  const guardianDisplayName = resolveGuardianName();
 
-  // Resolve guardianUsername from binding metadata or external conversation store.
-  // Usernames are a channel-specific concept and not part of the guardian name dedup.
+  // Resolve guardianUsername and displayName from binding metadata or
+  // external conversation store. The displayName is passed to
+  // resolveGuardianName() as a fallback for when USER.md is missing/empty
+  // (e.g. pre-onboarding).
   let guardianUsername: string | undefined;
+  let bindingDisplayName: string | undefined;
   if (binding?.metadataJson) {
     try {
       const parsed = JSON.parse(binding.metadataJson) as Record<
@@ -126,10 +128,17 @@ export function getGuardianStatus(
       ) {
         guardianUsername = parsed.username.trim();
       }
+      if (
+        typeof parsed.displayName === "string" &&
+        parsed.displayName.trim().length > 0
+      ) {
+        bindingDisplayName = parsed.displayName.trim();
+      }
     } catch {
       // ignore malformed metadata
     }
   }
+  const guardianDisplayName = resolveGuardianName(bindingDisplayName);
   if (binding?.guardianDeliveryChatId && !guardianUsername) {
     const ext = externalConversationStore.getBindingByChannelChat(
       resolvedChannel,
