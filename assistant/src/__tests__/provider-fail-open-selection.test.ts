@@ -1,39 +1,24 @@
 import { describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Mock managed-proxy context so we can control managed fallback prereqs
+// Mock the underlying dependencies of managed-proxy/context.js rather than
+// the context module itself. This avoids global mock bleed: other test files
+// that import context.js will still get the real implementation with their
+// own dependency mocks.
 // ---------------------------------------------------------------------------
-let mockManagedEnabled = false;
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey = "";
 
-mock.module("../providers/managed-proxy/context.js", () => ({
-  resolveManagedProxyContext: () => ({
-    enabled: mockManagedEnabled,
-    platformBaseUrl: mockPlatformBaseUrl,
-    assistantApiKey: mockAssistantApiKey,
-  }),
-  hasManagedProxyPrereqs: () => mockManagedEnabled,
-  buildManagedBaseUrl: (provider: string) => {
-    if (!mockManagedEnabled) return undefined;
-    const paths: Record<string, string> = {
-      openai: "/v1/runtime-proxy/openai",
-      fireworks: "/v1/runtime-proxy/fireworks",
-      openrouter: "/v1/runtime-proxy/openrouter",
-    };
-    const path = paths[provider];
-    if (!path) return undefined;
-    return `${mockPlatformBaseUrl}${path}`;
-  },
-  managedFallbackEnabledFor: (provider: string) => {
-    if (!mockManagedEnabled) return false;
-    return [
-      "openai",
-      "fireworks",
-      "openrouter",
-      "anthropic",
-      "gemini",
-    ].includes(provider);
+mock.module("../config/env.js", () => ({
+  getPlatformBaseUrl: () => mockPlatformBaseUrl,
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKey: (key: string) => {
+    if (key === "credential:vellum:assistant_api_key") {
+      return mockAssistantApiKey || null;
+    }
+    return null;
   },
 }));
 
@@ -170,13 +155,11 @@ describe("getFailoverProvider (fail-open)", () => {
 
 describe("managed proxy fallback", () => {
   function enableManagedProxy() {
-    mockManagedEnabled = true;
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "ast-key-123";
   }
 
   function disableManagedProxy() {
-    mockManagedEnabled = false;
     mockPlatformBaseUrl = "";
     mockAssistantApiKey = "";
   }
