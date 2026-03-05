@@ -26,8 +26,8 @@ cd assistant && bun install
 # Type-check
 cd assistant && bunx tsc --noEmit
 
-# Run tests
-cd assistant && bun test
+# Run tests (always scope to specific files)
+cd assistant && bun test src/path/to/changed.test.ts
 
 # Lint
 cd assistant && bun run lint
