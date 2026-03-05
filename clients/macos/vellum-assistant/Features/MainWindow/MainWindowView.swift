@@ -404,10 +404,12 @@ struct MainWindowView: View {
                     HStack(spacing: 16) {
                         if !isSettingsOpen {
                             sidebarView
+                                .animation(VAnimation.panel, value: sidebarExpanded)
                         }
 
                         chatContentView(geometry: geometry)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                            .animation(nil, value: sidebarExpanded)
                             .overlay {
                                 if showDaemonLoading {
                                     DaemonLoadingChatSkeleton()
@@ -416,7 +418,6 @@ struct MainWindowView: View {
                             }
                     }
                     .padding(16)
-                    .animation(VAnimation.panel, value: sidebarExpanded)
                 }
                 .overlay {
                     // Click-outside-to-dismiss background for preferences drawer

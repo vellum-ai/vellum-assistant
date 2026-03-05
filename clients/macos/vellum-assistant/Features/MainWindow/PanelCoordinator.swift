@@ -169,6 +169,44 @@ extension MainWindowView {
         }
     }
 
+    // MARK: - Split-Width Helpers
+
+    /// Computes a clamped panel-width binding for split layouts, accounting for
+    /// sidebar consumption and enforcing min main/panel constraints on both
+    /// get and set paths so persisted values stay valid across resizes.
+    func clampedPanelWidth(geometry: GeometryProxy) -> Binding<Double> {
+        // Sidebar sits in the HStack and consumes real width.
+        // When settings is open the sidebar is hidden.
+        let settingsOpen: Bool = {
+            if case .panel(.settings) = windowState.selection { return true }
+            return false
+        }()
+        let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
+        let hstackSpacing: CGFloat = 16
+        let outerPadding: CGFloat = 32 // 16 left + 16 right
+        let windowWidth: Double = Double(geometry.size.width) / zoomManager.zoomLevel
+        let availableWidth: Double = windowWidth - Double(sidebarWidth) - Double(hstackSpacing) - Double(outerPadding)
+
+        let preferredMinPanel: Double = 300
+        let preferredMinMain: Double = 300
+        // VSplitView internals: leading padding (xs=4) + divider (8) = 12
+        let dividerBudget: Double = Double(VSpacing.xs) + 12
+        let maxPanel: Double = availableWidth - preferredMinMain - dividerBudget
+        // When the window is too narrow, allow the panel to shrink below the
+        // preferred minimum so the main pane isn't crushed below its minimum.
+        let effectiveMinPanel: Double = min(preferredMinPanel, max(maxPanel, 100))
+
+        return Binding<Double>(
+            get: {
+                let raw = appPanelWidth > 0 ? appPanelWidth : availableWidth * 0.7
+                return min(max(raw, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            },
+            set: {
+                appPanelWidth = min(max($0, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            }
+        )
+    }
+
     @ViewBuilder
     func chatContentView(geometry: GeometryProxy) -> some View {
         switch windowState.selection {
@@ -206,14 +244,8 @@ extension MainWindowView {
             // VSplitView: ChatView (left) + workspace (right)
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
-                // Compute content area width (sidebar is an overlay, doesn't reduce content width)
-                let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
-                let effectiveWidth = Binding<Double>(
-                    get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
-                    set: { appPanelWidth = $0 }
-                )
                 VSplitView(
-                    panelWidth: effectiveWidth,
+                    panelWidth: clampedPanelWidth(geometry: geometry),
                     showPanel: true,
                     main: {
                         chatView
@@ -230,13 +262,8 @@ extension MainWindowView {
             if panelType == .directory {
                 if isAppChatOpen {
                     // VSplitView: ChatView (left) + Home Base (right)
-                    let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
-                    let effectiveWidth = Binding<Double>(
-                        get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
-                        set: { appPanelWidth = $0 }
-                    )
                     VSplitView(
-                        panelWidth: effectiveWidth,
+                        panelWidth: clampedPanelWidth(geometry: geometry),
                         showPanel: true,
                         main: {
                             chatView
@@ -331,13 +358,8 @@ extension MainWindowView {
                 )
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
-                let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
-                let effectiveWidth = Binding<Double>(
-                    get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
-                    set: { appPanelWidth = $0 }
-                )
                 VSplitView(
-                    panelWidth: effectiveWidth,
+                    panelWidth: clampedPanelWidth(geometry: geometry),
                     showPanel: true,
                     main: {
                         chatView
