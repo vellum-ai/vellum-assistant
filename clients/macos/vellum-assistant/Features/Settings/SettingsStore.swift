@@ -345,8 +345,16 @@ public final class SettingsStore: ObservableObject {
 
         self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
 
-        self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
-        self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? "cmd+shift+/"
+        if UserDefaults.standard.object(forKey: "globalHotkeyShortcut") == nil {
+            self.globalHotkeyShortcut = "cmd+shift+g"
+        } else {
+            self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "quickInputHotkeyShortcut") == nil {
+            self.quickInputHotkeyShortcut = "cmd+shift+/"
+        } else {
+            self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? ""
+        }
         let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
         self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
 

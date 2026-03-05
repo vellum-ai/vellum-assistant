@@ -40,10 +40,16 @@ func quickInputHotKeyHandler(
 // listening to every UserDefaults write app-wide.
 extension UserDefaults {
     @objc dynamic var globalHotkeyShortcut: String {
-        return string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
+        if UserDefaults.standard.object(forKey: "globalHotkeyShortcut") == nil {
+            return "cmd+shift+g"
+        }
+        return string(forKey: "globalHotkeyShortcut") ?? ""
     }
     @objc dynamic var quickInputHotkeyShortcut: String {
-        return string(forKey: "quickInputHotkeyShortcut") ?? "cmd+shift+/"
+        if UserDefaults.standard.object(forKey: "quickInputHotkeyShortcut") == nil {
+            return "cmd+shift+/"
+        }
+        return string(forKey: "quickInputHotkeyShortcut") ?? ""
     }
     @objc dynamic var quickInputHotkeyKeyCode: Int {
         return integer(forKey: "quickInputHotkeyKeyCode")
@@ -91,6 +97,12 @@ extension AppDelegate {
         if let ref = quickInputEventHandlerRef {
             RemoveEventHandler(ref)
             quickInputEventHandlerRef = nil
+        }
+
+        guard !shortcut.isEmpty else {
+            lastRegisteredQuickInputHotkey = shortcut
+            log.info("Quick Input: hotkey disabled")
+            return
         }
 
         let storedKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
@@ -407,6 +419,12 @@ extension AppDelegate {
         if let existing = hotKeyMonitor {
             NSEvent.removeMonitor(existing)
             hotKeyMonitor = nil
+        }
+
+        guard !shortcut.isEmpty else {
+            lastRegisteredGlobalHotkey = shortcut
+            log.info("Open Vellum: hotkey disabled")
+            return
         }
 
         let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
