@@ -1,7 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
 import { loadLatestAssistant } from "../lib/assistant-config";
 import { GATEWAY_PORT } from "../lib/constants.js";
 
@@ -17,21 +13,7 @@ function getGatewayUrl(): string {
 
 function getBearerToken(): string | undefined {
   const entry = loadLatestAssistant();
-  if (entry?.bearerToken) return entry.bearerToken;
-  try {
-    const tokenPath = join(
-      process.env.BASE_DATA_DIR?.trim() || homedir(),
-      ".vellum",
-      "http-token",
-    );
-    if (existsSync(tokenPath)) {
-      const token = readFileSync(tokenPath, "utf-8").trim();
-      if (token) return token;
-    }
-  } catch {
-    // ignore
-  }
-  return undefined;
+  return entry?.bearerToken;
 }
 
 function buildHeaders(): Record<string, string> {

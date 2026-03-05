@@ -756,21 +756,10 @@ async function hatchLocal(
     throw error;
   }
 
-  // Read the bearer token written by the daemon so the client can authenticate
-  // with the gateway (which requires auth by default).
-  let bearerToken: string | undefined;
-  try {
-    const token = readFileSync(join(baseDataDir, "http-token"), "utf-8").trim();
-    if (token) bearerToken = token;
-  } catch {
-    // Token file may not exist if daemon started without HTTP server
-  }
-
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
     baseDataDir,
-    bearerToken,
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
@@ -792,7 +781,7 @@ async function hatchLocal(
     console.log("");
 
     // Generate and display pairing QR code
-    await displayPairingQRCode(runtimeUrl, bearerToken);
+    await displayPairingQRCode(runtimeUrl, undefined);
   }
 }
 

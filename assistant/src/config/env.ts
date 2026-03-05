@@ -94,10 +94,6 @@ export function getRuntimeHttpHost(): string {
   return str("RUNTIME_HTTP_HOST") || "127.0.0.1";
 }
 
-export function getRuntimeProxyBearerToken(): string | undefined {
-  return str("RUNTIME_PROXY_BEARER_TOKEN");
-}
-
 export function getRuntimeGatewayOriginSecret(): string | undefined {
   return str("RUNTIME_GATEWAY_ORIGIN_SECRET");
 }

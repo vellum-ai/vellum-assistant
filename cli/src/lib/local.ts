@@ -829,73 +829,10 @@ export async function startGateway(
     process.env.GATEWAY_DEFAULT_ASSISTANT_ID ||
     loadLatestAssistant()?.assistantId;
 
-  // Read the bearer token so the gateway can authenticate proxied requests
-  // (e.g. from paired iOS devices). Respect VELLUM_HTTP_TOKEN_PATH and
-  // BASE_DATA_DIR for consistency with gateway/config.ts and the daemon.
-  const httpTokenPath =
-    process.env.VELLUM_HTTP_TOKEN_PATH ??
-    join(
-      process.env.BASE_DATA_DIR?.trim() || homedir(),
-      ".vellum",
-      "http-token",
-    );
-  let runtimeProxyBearerToken: string | undefined;
-  try {
-    const tok = readFileSync(httpTokenPath, "utf-8").trim();
-    if (tok) runtimeProxyBearerToken = tok;
-  } catch {
-    // Token file doesn't exist yet — daemon hasn't written it.
-  }
-
-  // If no token is available (first startup — daemon hasn't written it yet),
-  // poll for the file to appear. On fresh installs the daemon may take 60s+
-  // for Qdrant download, migrations, and first-time init. Starting the
-  // gateway without auth is a security risk since the config is loaded once
-  // at startup and never reloads, so we fail rather than silently disabling auth.
-  if (!runtimeProxyBearerToken) {
-    console.log("   Waiting for bearer token file...");
-    const maxWait = 60000;
-    const pollInterval = 500;
-    const start = Date.now();
-    const pidFile = join(
-      process.env.BASE_DATA_DIR?.trim() || homedir(),
-      ".vellum",
-      "vellum.pid",
-    );
-    while (Date.now() - start < maxWait) {
-      await new Promise((r) => setTimeout(r, pollInterval));
-      try {
-        const tok = readFileSync(httpTokenPath, "utf-8").trim();
-        if (tok) {
-          runtimeProxyBearerToken = tok;
-          break;
-        }
-      } catch {
-        // File still doesn't exist, keep polling.
-      }
-      // Check if the daemon process is still alive — no point waiting if it crashed
-      try {
-        const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
-        if (pid) process.kill(pid, 0); // throws if process doesn't exist
-      } catch {
-        break; // daemon process is gone
-      }
-    }
-  }
-
-  if (!runtimeProxyBearerToken) {
-    throw new Error(
-      `Bearer token file not found at ${httpTokenPath} after 60s.\n` +
-        "  The gateway cannot start without authentication — this would leave the proxy permanently unauthenticated.\n" +
-        "  Ensure the daemon is running and has written the token file, or set VELLUM_HTTP_TOKEN_PATH to the correct path.",
-    );
-  }
-
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
     GATEWAY_RUNTIME_PROXY_ENABLED: "true",
     GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
-    RUNTIME_PROXY_BEARER_TOKEN: runtimeProxyBearerToken,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     // Skip the drain window for locally-launched gateways — there is no load
     // balancer draining connections, so waiting serves no purpose and causes

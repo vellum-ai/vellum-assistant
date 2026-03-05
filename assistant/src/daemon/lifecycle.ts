@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -14,7 +12,6 @@ import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
-  getRuntimeProxyBearerToken,
   validateEnv,
 } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
@@ -51,7 +48,6 @@ import { migrateKeychainToEncrypted } from "../security/keychain-to-encrypted-mi
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
-  getHttpTokenPath,
   getInterfacesDir,
   getRootDir,
   getSocketPath,
@@ -147,26 +143,6 @@ export async function runDaemon(): Promise<void> {
     // Copy any existing macOS keychain secrets into the encrypted file store
     // before config loads, so the new encrypted-store-first read path sees them.
     migrateKeychainToEncrypted();
-
-    // Resolve and write the bearer token as early as possible so the CLI
-    // (which polls for this file during gateway startup) doesn't time out
-    // waiting for Qdrant or other slow init steps to finish.
-    const httpTokenPath = getHttpTokenPath();
-    let bearerToken = getRuntimeProxyBearerToken();
-    if (!bearerToken) {
-      try {
-        const existing = readFileSync(httpTokenPath, "utf-8").trim();
-        if (existing) bearerToken = existing;
-      } catch {
-        // File doesn't exist or can't be read — will generate below
-      }
-    }
-    if (!bearerToken) {
-      bearerToken = randomBytes(32).toString("hex");
-    }
-    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
-    chmodSync(httpTokenPath, 0o600);
-    log.info("Daemon startup: bearer token written");
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
@@ -407,7 +383,6 @@ export async function runDaemon(): Promise<void> {
     runtimeHttp = new RuntimeHttpServer({
       port: httpPort,
       hostname,
-      bearerToken,
       processMessage: (
         conversationId,
         content,
@@ -604,7 +579,7 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp.setPairingBroadcast((msg) =>
         server.broadcast(msg as ServerMessage),
       );
-      initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
+      initPairingHandlers(runtimeHttp.getPairingStore(), undefined);
       initSlashPairingContext(runtimeHttp.getPairingStore());
       server.setHttpPort(httpPort);
       log.info(

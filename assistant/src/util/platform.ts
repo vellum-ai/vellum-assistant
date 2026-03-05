@@ -243,10 +243,6 @@ export function isIOSPairingEnabled(): boolean {
   return existsSync(join(getRootDir(), "ios-pairing-enabled"));
 }
 
-export function getHttpTokenPath(): string {
-  return join(getRootDir(), "http-token");
-}
-
 /**
  * Returns the path to the platform API token file (~/.vellum/platform-token).
  * This token is the X-Session-Token used to authenticate with the Vellum
