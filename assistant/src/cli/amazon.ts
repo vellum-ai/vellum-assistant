@@ -5,8 +5,6 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
-import * as net from "node:net";
-
 import { Command } from "commander";
 
 import {
@@ -16,22 +14,19 @@ import {
   getPaymentMethods,
   getProductDetails,
   placeOrder,
+  refreshSessionFromExtension,
   removeFromCart,
   search,
   selectFreshDeliverySlot,
   SessionExpiredError,
   viewCart,
 } from "../amazon/client.js";
-import { extractRequests, saveRequests } from "../amazon/request-extractor.js";
 import {
   clearSession,
   importFromRecording,
   loadSession,
   saveSession,
 } from "../amazon/session.js";
-import { createMessageParser, serialize } from "../daemon/ipc-protocol.js";
-import { loadRecording } from "../tools/browser/recording-store.js";
-import { getSocketPath, readSessionToken } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -120,76 +115,26 @@ export function registerAmazonCommand(program: Command): void {
     });
 
   // =========================================================================
-  // refresh — start Ride Shotgun learn to capture fresh cookies
+  // refresh — grab Amazon cookies from Chrome via browser extension
   // =========================================================================
   amz
     .command("refresh")
     .description(
-      "Start a Ride Shotgun learn session to capture fresh Amazon cookies. " +
-        "Opens amazon.com in a separate Chrome window — sign in when prompted. " +
-        "Your existing Chrome and tabs are not affected.",
+      "Refresh Amazon session by grabbing cookies from Chrome via the browser extension. " +
+        "Requires the Vellum Chrome extension to be loaded and connected.",
     )
-    .option("--duration <seconds>", "Recording duration in seconds", "180")
-    .action(async (opts: { duration: string }, cmd: Command) => {
+    .action(async (_opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
-      const duration = parseInt(opts.duration, 10);
-
       try {
-        // Restore minimized Chrome window so user can see the login page
-        try {
-          await restoreChromeWindow();
-        } catch {
-          /* best-effort */
-        }
-
-        const result = await startLearnSession(duration);
-        if (result.recordingPath) {
-          const session = importFromRecording(result.recordingPath);
-
-          // Also extract and save captured request templates for self-healing
-          let requestsCaptured = 0;
-          try {
-            const recording = loadRecording(result.recordingId ?? "");
-            if (recording) {
-              const requests = extractRequests(recording);
-              if (requests.length > 0) {
-                saveRequests(requests);
-                requestsCaptured = requests.length;
-              }
-            }
-          } catch {
-            // Non-fatal: request extraction is best-effort
-          }
-
-          // Best-effort: minimize Chrome window after capturing session
-          try {
-            await minimizeChromeWindow();
-            process.stderr.write("[amazon] Chrome window minimized\n");
-          } catch {
-            // Non-fatal: minimizing is best-effort
-          }
-
-          output(
-            {
-              ok: true,
-              message: "Session refreshed successfully",
-              cookieCount: session.cookies.length,
-              recordingId: result.recordingId,
-              requestsCaptured,
-            },
-            json,
-          );
-        } else {
-          output(
-            {
-              ok: false,
-              error: "Recording completed but no recording path returned",
-              recordingId: result.recordingId,
-            },
-            json,
-          );
-          process.exitCode = 1;
-        }
+        const session = await refreshSessionFromExtension();
+        output(
+          {
+            ok: true,
+            message: "Session refreshed from Chrome via browser extension",
+            cookieCount: session.cookies.length,
+          },
+          json,
+        );
       } catch (err) {
         outputError(err instanceof Error ? err.message : String(err));
       }
@@ -490,10 +435,10 @@ export function registerAmazonCommand(program: Command): void {
 }
 
 // ---------------------------------------------------------------------------
-// Chrome CDP restart helper
+// Headless cookie extraction from Chrome's SQLite database
 // ---------------------------------------------------------------------------
 
-import { execSync, spawn as spawnChild } from "node:child_process";
+import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import {
   copyFileSync,
@@ -502,161 +447,6 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
-
-const CDP_BASE = "http://localhost:9222";
-const CHROME_DATA_DIR = pathJoin(
-  homedir(),
-  "Library/Application Support/Google/Chrome-CDP",
-);
-
-async function isCdpReady(): Promise<boolean> {
-  try {
-    const res = await fetch(`${CDP_BASE}/json/version`);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureChromeWithCDP(): Promise<void> {
-  if (await isCdpReady()) return;
-
-  const chromeApp =
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  spawnChild(
-    chromeApp,
-    [
-      `--remote-debugging-port=9222`,
-      `--force-renderer-accessibility`,
-      `--user-data-dir=${CHROME_DATA_DIR}`,
-      `https://www.amazon.com/`,
-    ],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  ).unref();
-
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (await isCdpReady()) return;
-  }
-  throw new Error("Chrome started but CDP endpoint not responding after 15s");
-}
-
-async function minimizeChromeWindow(): Promise<void> {
-  const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{
-    type: string;
-    webSocketDebuggerUrl: string;
-  }>;
-  const pageTarget = targets.find((t) => t.type === "page");
-  if (!pageTarget) return;
-
-  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("CDP minimize timed out"));
-    }, 5000);
-
-    ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data)) as {
-        id: number;
-        result?: { windowId: number };
-      };
-      if (msg.id === 1 && msg.result) {
-        ws.send(
-          JSON.stringify({
-            id: 2,
-            method: "Browser.setWindowBounds",
-            params: {
-              windowId: msg.result.windowId,
-              bounds: { windowState: "minimized" },
-            },
-          }),
-        );
-      } else if (msg.id === 1) {
-        clearTimeout(timeout);
-        ws.close();
-        reject(new Error("Browser.getWindowForTarget failed"));
-      } else if (msg.id === 2) {
-        clearTimeout(timeout);
-        ws.close();
-        resolve();
-      }
-    });
-
-    ws.addEventListener("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
-
-async function restoreChromeWindow(): Promise<void> {
-  const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{
-    type: string;
-    webSocketDebuggerUrl: string;
-  }>;
-  const pageTarget = targets.find((t) => t.type === "page");
-  if (!pageTarget) return;
-
-  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("CDP restore timed out"));
-    }, 5000);
-
-    ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data)) as {
-        id: number;
-        result?: { windowId: number };
-      };
-      if (msg.id === 1 && msg.result) {
-        ws.send(
-          JSON.stringify({
-            id: 2,
-            method: "Browser.setWindowBounds",
-            params: {
-              windowId: msg.result.windowId,
-              bounds: { windowState: "normal" },
-            },
-          }),
-        );
-      } else if (msg.id === 1) {
-        clearTimeout(timeout);
-        ws.close();
-        reject(new Error("Browser.getWindowForTarget failed"));
-      } else if (msg.id === 2) {
-        clearTimeout(timeout);
-        ws.close();
-        resolve();
-      }
-    });
-
-    ws.addEventListener("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Headless cookie extraction from Chrome's SQLite database
-// ---------------------------------------------------------------------------
 
 const CHROME_COOKIES_DB = pathJoin(
   homedir(),
@@ -820,104 +610,4 @@ async function extractSessionFromChromeCookies(): Promise<
     cookies,
     importedAt: new Date().toISOString(),
   };
-}
-
-// ---------------------------------------------------------------------------
-// Ride Shotgun learn session helper
-// ---------------------------------------------------------------------------
-
-interface LearnResult {
-  recordingId?: string;
-  recordingPath?: string;
-}
-
-async function startLearnSession(
-  durationSeconds: number,
-): Promise<LearnResult> {
-  await ensureChromeWithCDP();
-
-  return new Promise((resolve, reject) => {
-    const socketPath = getSocketPath();
-    const sessionToken = readSessionToken();
-    const socket = net.createConnection(socketPath);
-    const parser = createMessageParser();
-
-    socket.on("error", (err) => {
-      reject(
-        new Error(
-          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
-        ),
-      );
-    });
-
-    const timeoutHandle = setTimeout(
-      () => {
-        socket.destroy();
-        reject(
-          new Error(`Learn session timed out after ${durationSeconds + 30}s`),
-        );
-      },
-      (durationSeconds + 30) * 1000,
-    );
-    timeoutHandle.unref();
-
-    let authenticated = !sessionToken;
-
-    const sendStartCommand = () => {
-      socket.write(
-        serialize({
-          type: "ride_shotgun_start",
-          durationSeconds,
-          intervalSeconds: 5,
-          mode: "learn",
-          targetDomain: "amazon.com",
-        } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
-      );
-    };
-
-    socket.on("data", (chunk) => {
-      const messages = parser.feed(chunk.toString("utf-8"));
-      for (const msg of messages) {
-        const m = msg as unknown as Record<string, unknown>;
-
-        if (!authenticated && m.type === "auth_result") {
-          if ((m as { success: boolean }).success) {
-            authenticated = true;
-            sendStartCommand();
-          } else {
-            clearTimeout(timeoutHandle);
-            socket.destroy();
-            reject(new Error("Authentication failed"));
-          }
-          continue;
-        }
-
-        if (m.type === "auth_result") {
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_result") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          resolve({
-            recordingId: m.recordingId as string | undefined,
-            recordingPath: m.recordingPath as string | undefined,
-          });
-        }
-      }
-    });
-
-    socket.on("connect", () => {
-      if (sessionToken) {
-        socket.write(
-          serialize({
-            type: "auth",
-            token: sessionToken,
-          } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
-        );
-      } else {
-        sendStartCommand();
-      }
-    });
-  });
 }
