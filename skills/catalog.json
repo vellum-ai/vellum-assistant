@@ -6,7 +6,8 @@
       "id": "google-oauth-setup",
       "name": "google-oauth-setup",
       "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation",
-      "emoji": "🔑"
+      "emoji": "🔑",
+      "compatibility": "Requires browser automation and public ingress for OAuth callback"
     },
     {
       "id": "weather",

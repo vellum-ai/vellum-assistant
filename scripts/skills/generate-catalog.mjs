@@ -144,18 +144,9 @@ function buildEntry(skillName) {
     entry.emoji = frontmatter.metadata.emoji;
   }
 
-  // Extract includes
-  if (frontmatter.includes) {
-    if (Array.isArray(frontmatter.includes)) {
-      entry.includes = frontmatter.includes;
-    } else if (typeof frontmatter.includes === "string") {
-      // Handle inline JSON array that was parsed as a string
-      try {
-        entry.includes = JSON.parse(frontmatter.includes);
-      } catch {
-        entry.includes = [frontmatter.includes];
-      }
-    }
+  // Extract compatibility
+  if (frontmatter.compatibility && typeof frontmatter.compatibility === "string") {
+    entry.compatibility = frontmatter.compatibility;
   }
 
   return entry;
