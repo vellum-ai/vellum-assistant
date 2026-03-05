@@ -75,6 +75,12 @@ public actor SurfaceRefetchManager {
         resumeWaiters(for: surfaceId, with: RefetchResult(data: nil, retriesExhausted: false))
     }
 
+    /// Clear all tracked failure counts so previously-blocked surfaces can be retried.
+    /// Call when the session changes or the message list is replaced.
+    public func resetFailureCounts() {
+        failureCount.removeAll()
+    }
+
     // MARK: - Internal
 
     /// Drains the queue one item at a time, fetching each surface serially.

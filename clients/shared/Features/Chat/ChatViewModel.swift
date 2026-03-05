@@ -1409,7 +1409,7 @@ public final class ChatViewModel: ObservableObject {
     /// Re-fetch the full payload for a stripped surface and replace it in the message list.
     public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
         guard refetchTasks[surfaceId] == nil else { return }
-        refetchTasks[surfaceId] = Task { [weak self] in
+        refetchTasks[surfaceId] = Task { @MainActor [weak self] in
             defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
             guard let self else { return }
             let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId)
@@ -1429,10 +1429,12 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Cancel all in-flight surface refetch tasks.
+    /// Cancel all in-flight surface refetch tasks and reset the manager's
+    /// failure counts so surfaces can be retried in the new session.
     private func cancelRefetchTasks() {
         for task in refetchTasks.values { task.cancel() }
         refetchTasks.removeAll()
+        Task { await surfaceRefetchManager.resetFailureCounts() }
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
