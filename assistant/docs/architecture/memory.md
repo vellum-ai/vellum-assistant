@@ -41,7 +41,7 @@ graph TB
 
     subgraph "Read Path (Memory Recall)"
         QUERY["Recall Query Builder<br/>User request + compacted context summary"]
-        CONFLICT_GATE["Soft Conflict Gate<br/>dismiss non-actionable conflicts (kind + statement policy)<br/>resolve pending conflicts from user turn<br/>relevance + cooldown + configurable ask behavior"]
+        CONFLICT_GATE["Soft Conflict Gate<br/>dismiss non-actionable conflicts (kind + statement + provenance policy)<br/>attempt internal resolution from user turn<br/>relevance-based; never produces user-facing prompts"]
         PROFILE_BUILD["Dynamic Profile Compiler<br/>active trusted profile memories<br/>user_confirmed > user_reported > assistant_inferred"]
         PROFILE_INJECT["Inject profile context block<br/>into runtime user tail<br/>(strict token cap)"]
         BUDGET["Dynamic Recall Budget<br/>computeRecallBudget()<br/>from prompt headroom"]
@@ -158,28 +158,28 @@ The key distinction: normal compaction is a cost-optimized background process th
 
 ### Memory Retrieval Config Knobs (Defaults)
 
-| Config key                                                |                                                           Default | Purpose                                                                                                                                                |
-| --------------------------------------------------------- | ----------------------------------------------------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `memory.retrieval.dynamicBudget.enabled`                  |                                                            `true` | Toggle per-turn recall budget calculation from live prompt headroom.                                                                                   |
-| `memory.retrieval.dynamicBudget.minInjectTokens`          |                                                            `1200` | Lower clamp for computed recall injection budget.                                                                                                      |
-| `memory.retrieval.dynamicBudget.maxInjectTokens`          |                                                           `10000` | Upper clamp for computed recall injection budget.                                                                                                      |
-| `memory.retrieval.dynamicBudget.targetHeadroomTokens`     |                                                           `10000` | Reserved headroom to keep free for response generation/tool traces.                                                                                    |
-| `memory.entity.extractRelations.enabled`                  |                                                            `true` | Enable relation edge extraction and persistence in `memory_entity_relations`.                                                                          |
-| `memory.entity.extractRelations.backfillBatchSize`        |                                                             `200` | Batch size for checkpointed `backfill_entity_relations` jobs.                                                                                          |
-| `memory.entity.relationRetrieval.enabled`                 |                                                            `true` | Enable one-hop relation expansion from matched seed entities at recall time.                                                                           |
-| `memory.entity.relationRetrieval.maxSeedEntities`         |                                                               `8` | Maximum matched seed entities from the query.                                                                                                          |
-| `memory.entity.relationRetrieval.maxNeighborEntities`     |                                                              `20` | Maximum unique neighbor entities expanded from relation edges.                                                                                         |
-| `memory.entity.relationRetrieval.maxEdges`                |                                                              `40` | Maximum relation edges traversed during expansion.                                                                                                     |
-| `memory.entity.relationRetrieval.neighborScoreMultiplier` |                                                             `0.7` | Downweight multiplier for relation-expanded candidates vs direct entity hits.                                                                          |
-| `memory.conflicts.enabled`                                |                                                            `true` | Enable soft conflict gate for unresolved `memory_item_conflicts`.                                                                                      |
-| `memory.conflicts.reaskCooldownTurns`                     |                                                               `3` | Minimum turn distance before re-asking the same conflict clarification.                                                                                |
-| `memory.conflicts.resolverLlmTimeoutMs`                   |                                                           `12000` | Timeout bound for clarification resolver LLM fallback.                                                                                                 |
-| `memory.conflicts.relevanceThreshold`                     |                                                             `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request.                                                       |
-| `memory.conflicts.gateMode`                               |                                                          `'soft'` | Conflict gate strategy. Currently only `'soft'` is supported (asks the user inline).                                                                   |
-| `memory.conflicts.askOnIrrelevantTurns`                   |                                                           `false` | When `true`, soft-inject irrelevant conflict clarifications into every turn. When `false` (default), only ask when the conflict is topically relevant. |
-| `memory.conflicts.conflictableKinds`                      | `['preference', 'profile', 'constraint', 'instruction', 'style']` | Memory item kinds eligible for conflict detection. Items with kinds outside this list are auto-dismissed.                                              |
-| `memory.profile.enabled`                                  |                                                            `true` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories.                                             |
-| `memory.profile.maxInjectTokens`                          |                                                             `800` | Hard token cap enforced by `ProfileCompiler` when generating the runtime profile block.                                                                |
+| Config key                                                |                                                           Default | Purpose                                                                                                            |
+| --------------------------------------------------------- | ----------------------------------------------------------------: | ------------------------------------------------------------------------------------------------------------------ |
+| `memory.retrieval.dynamicBudget.enabled`                  |                                                            `true` | Toggle per-turn recall budget calculation from live prompt headroom.                                               |
+| `memory.retrieval.dynamicBudget.minInjectTokens`          |                                                            `1200` | Lower clamp for computed recall injection budget.                                                                  |
+| `memory.retrieval.dynamicBudget.maxInjectTokens`          |                                                           `10000` | Upper clamp for computed recall injection budget.                                                                  |
+| `memory.retrieval.dynamicBudget.targetHeadroomTokens`     |                                                           `10000` | Reserved headroom to keep free for response generation/tool traces.                                                |
+| `memory.entity.extractRelations.enabled`                  |                                                            `true` | Enable relation edge extraction and persistence in `memory_entity_relations`.                                      |
+| `memory.entity.extractRelations.backfillBatchSize`        |                                                             `200` | Batch size for checkpointed `backfill_entity_relations` jobs.                                                      |
+| `memory.entity.relationRetrieval.enabled`                 |                                                            `true` | Enable one-hop relation expansion from matched seed entities at recall time.                                       |
+| `memory.entity.relationRetrieval.maxSeedEntities`         |                                                               `8` | Maximum matched seed entities from the query.                                                                      |
+| `memory.entity.relationRetrieval.maxNeighborEntities`     |                                                              `20` | Maximum unique neighbor entities expanded from relation edges.                                                     |
+| `memory.entity.relationRetrieval.maxEdges`                |                                                              `40` | Maximum relation edges traversed during expansion.                                                                 |
+| `memory.entity.relationRetrieval.neighborScoreMultiplier` |                                                             `0.7` | Downweight multiplier for relation-expanded candidates vs direct entity hits.                                      |
+| `memory.conflicts.enabled`                                |                                                            `true` | Enable soft conflict gate for unresolved `memory_item_conflicts`.                                                  |
+| `memory.conflicts.reaskCooldownTurns`                     |                                                               `3` | Minimum turn distance before re-asking the same conflict clarification.                                            |
+| `memory.conflicts.resolverLlmTimeoutMs`                   |                                                           `12000` | Timeout bound for clarification resolver LLM fallback.                                                             |
+| `memory.conflicts.relevanceThreshold`                     |                                                             `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request.                   |
+| `memory.conflicts.gateMode`                               |                                                          `'soft'` | Conflict gate strategy. Currently only `'soft'` is supported (resolves conflicts internally without user prompts). |
+| `memory.conflicts.askOnIrrelevantTurns`                   |                                                           `false` | Legacy config knob; has no user-facing effect since conflict handling is fully internal.                           |
+| `memory.conflicts.conflictableKinds`                      | `['preference', 'profile', 'constraint', 'instruction', 'style']` | Memory item kinds eligible for conflict detection. Items with kinds outside this list are auto-dismissed.          |
+| `memory.profile.enabled`                                  |                                                            `true` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories.         |
+| `memory.profile.maxInjectTokens`                          |                                                             `800` | Hard token cap enforced by `ProfileCompiler` when generating the runtime profile block.                            |
 
 ### Memory Recall Debugging Playbook
 
@@ -211,7 +211,7 @@ The key distinction: normal compaction is a cost-optimized background process th
 stateDiagram-v2
     [*] --> ActiveItems : extract_items/check_contradictions
     ActiveItems --> PendingConflict : ambiguous_contradiction\n(candidate -> pending_clarification)
-    PendingConflict --> PendingConflict : soft gate ask\n(reask cooldown + relevance + askOnIrrelevantTurns)
+    PendingConflict --> PendingConflict : internal evaluation\n(relevance check, no user prompt)
     PendingConflict --> Dismissed : non-actionable\n(kind policy + transient statement filter)
     PendingConflict --> ResolvedKeepExisting : clarification resolver\n+ applyConflictResolution
     PendingConflict --> ResolvedKeepCandidate : clarification resolver\n+ applyConflictResolution
@@ -223,6 +223,10 @@ stateDiagram-v2
     ResolvedMerge --> SupersededItems : merged-from candidate superseded
     SupersededItems --> CleanupItems : cleanup_stale_superseded_items
 ```
+
+### Internal-Only Conflict Handling
+
+Memory conflict resolution is entirely internal and non-interruptive. The conflict gate evaluates pending conflicts on each turn, dismisses non-actionable ones (based on kind policy, statement eligibility, coherence, and provenance), and attempts resolution when user input looks like a natural clarification. At no point does the conflict system produce user-facing clarification prompts, inject conflict instructions into the assistant's response, or block the user's request. The user is never aware that a conflict exists; the runtime response path always continues answering the user's actual request. This invariant is enforced across the conflict gate (`session-conflict-gate.ts`), session memory (`session-memory.ts`), session agent loop (`session-agent-loop.ts`), and runtime assembly (`session-runtime-assembly.ts`).
 
 Runtime profile flow (per turn):
 
@@ -238,7 +242,7 @@ Two trust gates enforce trust-class-based access control over the memory pipelin
 
 - **Write gate** (`indexer.ts`): The `extract_items` and `resolve_conflicts` jobs only run for messages from trusted actors (guardian or undefined provenance). Messages from untrusted actors (`trusted_contact`, `unknown`) are still segmented and embedded — so they appear in conversation context — but no profile extraction or conflict resolution is triggered. This prevents untrusted channels from injecting or mutating long-term memory items.
 
-- **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection, no dynamic profile, no conflict clarification prompts. This ensures untrusted actors cannot surface or exploit previously extracted memory.
+- **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection, no dynamic profile, no conflict resolution. This ensures untrusted actors cannot surface or exploit previously extracted memory.
 
 Trust policy is **cross-channel and trust-class-based**: decisions use `trustContext.trustClass`, not the channel string. Desktop/IPC sessions default to `trustClass: 'guardian'`. External channels (Telegram, SMS, WhatsApp, voice) provide explicit trust context via the resolver. Messages without provenance metadata are treated as trusted (guardian); all new messages carry provenance.
 
@@ -381,7 +385,7 @@ graph TB
 - **Prepend, not append**: The workspace block is prepended to the user message content so that Anthropic cache breakpoints continue to land on the trailing user text block, preserving prompt cache efficiency.
 - **Runtime-only**: The injected `<workspace_top_level>` block is stripped from `this.messages` after the agent loop completes. It never persists in conversation history or the database.
 - **Dirty-refresh**: The scanner runs once on the first turn, then only re-runs after a successful mutation tool (`file_edit`, `file_write`, `bash`). Failed tool results do not trigger a refresh.
-- **Injection ordering**: Workspace context is injected after other runtime injections (soft conflict instruction, active surface) via `applyRuntimeInjections`, but because it is **prepended** to content blocks, it appears first in the final message.
+- **Injection ordering**: Workspace context is injected after other runtime injections (active surface, etc.) via `applyRuntimeInjections`, but because it is **prepended** to content blocks, it appears first in the final message.
 
 ### Cache compatibility
 
@@ -506,7 +510,6 @@ graph TB
 10. **Provider-aware commit message generation (optional)**: When `workspaceGit.commitMessageLLM.enabled` is `true`, turn-boundary commits attempt to generate a descriptive commit message using the configured LLM provider before falling back to deterministic messages. The feature ships disabled by default and is designed to never degrade turn completion guarantees.
 
     **Commit message LLM fallback chain**: The generator runs a sequence of pre-flight checks before calling the LLM. Each check that fails produces a machine-readable `llmFallbackReason` in the structured log output and immediately returns a deterministic message. The checks, in order:
-
     1. `disabled` — `commitMessageLLM.enabled` is `false` or `useConfiguredProvider` is `false`
     2. `missing_provider_api_key` — the configured provider's API key is not set in `config.apiKeys` (skipped for keyless providers like Ollama that run without an API key)
     3. `breaker_open` — the generator's internal circuit breaker is open after consecutive LLM failures (exponential backoff)
@@ -516,11 +519,9 @@ graph TB
     7. `timeout` — the LLM call exceeded `timeoutMs` (AbortController fires)
     8. `provider_error` — the provider threw an exception during the LLM call
     9. `invalid_output` — the LLM returned empty text, the literal string "FALLBACK", or total output > 500 chars
-
     - **Subject line capping**: If the LLM subject line exceeds 72 chars it is deterministically truncated to 72 chars. This is NOT treated as a failure (no breaker penalty, no deterministic fallback).
 
     **Fast model resolution**: The LLM call uses a small/fast model to minimize latency and cost. The model is resolved **before** any provider call as a pre-flight check:
-
     - If `commitMessageLLM.providerFastModelOverrides[provider]` is set, that model is used.
     - Otherwise, a built-in default is used: `anthropic` -> `claude-haiku-4-5-20251001`, `openai` -> `gpt-4o-mini`, `gemini` -> `gemini-2.0-flash`.
     - If the configured provider has no override and no built-in default (e.g., `ollama`, `fireworks`, `openrouter`), the generator returns a deterministic fallback with reason `missing_fast_model` and the provider is never called. To enable LLM commit messages for such providers, set `providerFastModelOverrides[provider]` to the desired model.
