@@ -17,6 +17,12 @@ import {
 import { sendSmsReply } from "../../twilio/send-sms.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
 import type { GatewayInboundEvent } from "../../types.js";
+import {
+  NEW_COMMAND_ERROR,
+  NEW_COMMAND_SUCCESS,
+  ROUTING_REJECTION_NOTICE,
+  SERVICE_UNAVAILABLE_ERROR,
+} from "../../webhook-copy.js";
 
 const log = getLogger("twilio-sms-webhook");
 
@@ -144,16 +150,14 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           { from: params.From, reason: routing.reason },
           "Routing rejected /new command",
         );
-        sendSmsReply(
-          config,
-          params.From,
-          "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-        ).catch((err) => {
-          tlog.error(
-            { err, to: params.From },
-            "Failed to send /new routing rejection notice",
-          );
-        });
+        sendSmsReply(config, params.From, ROUTING_REJECTION_NOTICE).catch(
+          (err) => {
+            tlog.error(
+              { err, to: params.From },
+              "Failed to send /new routing rejection notice",
+            );
+          },
+        );
       } else {
         try {
           await resetConversation(
@@ -164,7 +168,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           sendSmsReply(
             config,
             params.From,
-            "Starting a new conversation!",
+            NEW_COMMAND_SUCCESS,
             routing.assistantId,
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /new confirmation");
@@ -174,7 +178,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           sendSmsReply(
             config,
             params.From,
-            "Failed to reset conversation. Please try again.",
+            NEW_COMMAND_ERROR,
             routing.assistantId,
           ).catch((replyErr) => {
             tlog.error({ err: replyErr }, "Failed to send /new error reply");
@@ -192,16 +196,14 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         "Routing rejected inbound SMS",
       );
       if (rejectionLimiter.shouldSend(params.From)) {
-        sendSmsReply(
-          config,
-          params.From,
-          "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-        ).catch((err) => {
-          tlog.error(
-            { err, to: params.From },
-            "Failed to send routing rejection notice",
-          );
-        });
+        sendSmsReply(config, params.From, ROUTING_REJECTION_NOTICE).catch(
+          (err) => {
+            tlog.error(
+              { err, to: params.From },
+              "Failed to send routing rejection notice",
+            );
+          },
+        );
       }
       dedupCache.mark(messageSid);
       return Response.json({ ok: true });
@@ -221,16 +223,14 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           "Routing rejected inbound SMS",
         );
         if (rejectionLimiter.shouldSend(params.From)) {
-          sendSmsReply(
-            config,
-            params.From,
-            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-          ).catch((err) => {
-            tlog.error(
-              { err, to: params.From },
-              "Failed to send routing rejection notice",
-            );
-          });
+          sendSmsReply(config, params.From, ROUTING_REJECTION_NOTICE).catch(
+            (err) => {
+              tlog.error(
+                { err, to: params.From },
+                "Failed to send routing rejection notice",
+              );
+            },
+          );
         }
         dedupCache.mark(messageSid);
         return Response.json({ ok: true });
@@ -256,7 +256,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         );
         dedupCache.unreserve(messageSid);
         return Response.json(
-          { error: "Service temporarily unavailable" },
+          { error: SERVICE_UNAVAILABLE_ERROR },
           {
             status: 503,
             headers: { "Retry-After": String(err.retryAfterSecs) },

@@ -19,6 +19,12 @@ import { downloadTelegramFile } from "../../telegram/download.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
 import { sendTelegramReply } from "../../telegram/send.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
+import {
+  NEW_COMMAND_ERROR,
+  NEW_COMMAND_SUCCESS,
+  ROUTING_REJECTION_NOTICE,
+  SERVICE_UNAVAILABLE_ERROR,
+} from "../../webhook-copy.js";
 
 const log = getLogger("telegram-webhook");
 
@@ -382,7 +388,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           );
           if (updateId !== undefined) dedupCache.unreserve(updateId);
           return Response.json(
-            { error: "Service temporarily unavailable" },
+            { error: SERVICE_UNAVAILABLE_ERROR },
             {
               status: 503,
               headers: { "Retry-After": String(err.retryAfterSecs) },
@@ -431,7 +437,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           sendTelegramReply(
             config,
             normalized.message.conversationExternalId,
-            "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
+            `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -449,7 +455,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           sendTelegramReply(
             config,
             normalized.message.conversationExternalId,
-            "Starting a new conversation!",
+            NEW_COMMAND_SUCCESS,
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /new confirmation");
           });
@@ -458,7 +464,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           sendTelegramReply(
             config,
             normalized.message.conversationExternalId,
-            "Failed to reset conversation. Please try again.",
+            NEW_COMMAND_ERROR,
           ).catch((replyErr) => {
             tlog.error({ err: replyErr }, "Failed to send /new error reply");
           });
@@ -593,7 +599,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           sendTelegramReply(
             config,
             chatId,
-            "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
+            `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
           ).catch((err) => {
             tlog.error(
               { err, chatId },
@@ -666,7 +672,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           );
         if (updateId !== undefined) dedupCache.unreserve(updateId);
         return Response.json(
-          { error: "Service temporarily unavailable" },
+          { error: SERVICE_UNAVAILABLE_ERROR },
           {
             status: 503,
             headers: { "Retry-After": String(err.retryAfterSecs) },

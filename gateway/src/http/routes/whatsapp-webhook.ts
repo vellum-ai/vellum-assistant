@@ -17,6 +17,12 @@ import { markWhatsAppMessageRead } from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
 import { verifyWhatsAppWebhookSignature } from "../../whatsapp/verify.js";
+import {
+  NEW_COMMAND_ERROR,
+  NEW_COMMAND_SUCCESS,
+  ROUTING_REJECTION_NOTICE,
+  SERVICE_UNAVAILABLE_ERROR,
+} from "../../webhook-copy.js";
 
 const log = getLogger("whatsapp-webhook");
 
@@ -185,16 +191,14 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
             { from, reason: routing.reason },
             "Routing rejected /new command",
           );
-          sendWhatsAppReply(
-            config,
-            from,
-            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-          ).catch((err) => {
-            tlog.error(
-              { err, to: from },
-              "Failed to send /new routing rejection notice",
-            );
-          });
+          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+            (err) => {
+              tlog.error(
+                { err, to: from },
+                "Failed to send /new routing rejection notice",
+              );
+            },
+          );
         } else {
           try {
             await resetConversation(
@@ -202,22 +206,21 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
               event.sourceChannel,
               event.message.conversationExternalId,
             );
-            sendWhatsAppReply(
-              config,
-              from,
-              "Starting a new conversation!",
-            ).catch((err) => {
-              tlog.error({ err }, "Failed to send /new confirmation");
-            });
+            sendWhatsAppReply(config, from, NEW_COMMAND_SUCCESS).catch(
+              (err) => {
+                tlog.error({ err }, "Failed to send /new confirmation");
+              },
+            );
           } catch (err) {
             tlog.error({ err }, "Failed to reset conversation");
-            sendWhatsAppReply(
-              config,
-              from,
-              "Failed to reset conversation. Please try again.",
-            ).catch((replyErr) => {
-              tlog.error({ err: replyErr }, "Failed to send /new error reply");
-            });
+            sendWhatsAppReply(config, from, NEW_COMMAND_ERROR).catch(
+              (replyErr) => {
+                tlog.error(
+                  { err: replyErr },
+                  "Failed to send /new error reply",
+                );
+              },
+            );
           }
         }
 
@@ -231,16 +234,14 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           "Routing rejected inbound WhatsApp message",
         );
         if (rejectionLimiter.shouldSend(from)) {
-          sendWhatsAppReply(
-            config,
-            from,
-            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-          ).catch((err) => {
-            tlog.error(
-              { err, to: from },
-              "Failed to send routing rejection notice",
-            );
-          });
+          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+            (err) => {
+              tlog.error(
+                { err, to: from },
+                "Failed to send routing rejection notice",
+              );
+            },
+          );
         }
         dedupCache.mark(whatsappMessageId);
         continue;
@@ -260,16 +261,14 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
             "Routing rejected inbound WhatsApp message",
           );
           if (rejectionLimiter.shouldSend(from)) {
-            sendWhatsAppReply(
-              config,
-              from,
-              "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-            ).catch((err) => {
-              tlog.error(
-                { err, to: from },
-                "Failed to send routing rejection notice",
-              );
-            });
+            sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+              (err) => {
+                tlog.error(
+                  { err, to: from },
+                  "Failed to send routing rejection notice",
+                );
+              },
+            );
           }
           dedupCache.mark(whatsappMessageId);
           continue;
@@ -298,7 +297,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           );
           dedupCache.unreserve(whatsappMessageId);
           return Response.json(
-            { error: "Service temporarily unavailable" },
+            { error: SERVICE_UNAVAILABLE_ERROR },
             {
               status: 503,
               headers: { "Retry-After": String(err.retryAfterSecs) },
