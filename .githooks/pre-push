@@ -16,6 +16,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# Per-test timeout in seconds — kills bun processes that hang due to open handles.
+PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-60}"
+
 BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
 
 if [ ! -x "$BUN" ]; then
@@ -23,18 +26,35 @@ if [ ! -x "$BUN" ]; then
     exit 0
 fi
 
+# Resolve timeout binary (coreutils `timeout` on Linux, `gtimeout` on macOS via brew)
+TIMEOUT_CMD=""
+if command -v timeout &>/dev/null; then
+    TIMEOUT_CMD="timeout"
+elif command -v gtimeout &>/dev/null; then
+    TIMEOUT_CMD="gtimeout"
+fi
+
 # Determine the merge base to diff against.
 # stdin provides lines of: <local ref> <local sha> <remote ref> <remote sha>
 # We use the remote sha to find changed files. If the remote sha is all zeros
-# (new branch), diff against origin/main.
+# (new branch), diff against origin/main. When pushing multiple refs, use the
+# earliest merge base to cover all changes.
 REMOTE_SHA=""
 while read -r _ local_sha _ remote_sha; do
     if [[ "$remote_sha" =~ ^0+$ ]]; then
-        REMOTE_SHA="$(git merge-base "$local_sha" origin/main 2>/dev/null || echo "")"
+        candidate="$(git merge-base "$local_sha" origin/main 2>/dev/null || echo "")"
     else
-        REMOTE_SHA="$remote_sha"
+        candidate="$remote_sha"
     fi
-    break
+    if [ -z "$candidate" ]; then
+        continue
+    fi
+    if [ -z "$REMOTE_SHA" ]; then
+        REMOTE_SHA="$candidate"
+    elif git merge-base --is-ancestor "$candidate" "$REMOTE_SHA" 2>/dev/null; then
+        # candidate is older — use it to widen the diff
+        REMOTE_SHA="$candidate"
+    fi
 done
 
 if [ -z "$REMOTE_SHA" ]; then
@@ -58,11 +78,12 @@ trap 'rm -rf "${RESULTS_DIR}"' EXIT
 # For each package, find test files that correspond to changed source files.
 #
 # Heuristic: for a changed source file like `src/foo/bar-baz.ts`, look for
-# test files matching `**/bar-baz*.test.ts` anywhere under the package's src/.
-# This catches:
+# test files matching `bar-baz.test.ts` (exact) or `bar-baz-*.test.ts`
+# (hyphenated variants) anywhere under the package's src/. This catches:
 #   - src/__tests__/bar-baz.test.ts          (exact match)
-#   - src/__tests__/bar-baz-edge.test.ts     (prefix match)
+#   - src/__tests__/bar-baz-edge.test.ts     (hyphenated variant)
 #   - src/foo/__tests__/bar-baz.test.ts      (co-located)
+# but avoids false matches like `bar-bazillion.test.ts` or `bar.test.ts`.
 
 PACKAGES=("assistant" "cli" "gateway")
 overall_exit=0
@@ -88,13 +109,16 @@ for pkg in "${PACKAGES[@]}"; do
         continue
     fi
 
-    # Build a list of basename stems from changed source files
+    # Build a list of basename stems from changed source files.
+    # Guard the loop for bash 3.2 compatibility (empty array + set -u).
     stems=()
-    for file in "${pkg_changed[@]}"; do
-        base="$(basename "$file")"
-        stem="${base%.*}"
-        stems+=("$stem")
-    done
+    if [ ${#pkg_changed[@]} -gt 0 ]; then
+        for file in "${pkg_changed[@]}"; do
+            base="$(basename "$file")"
+            stem="${base%.*}"
+            stems+=("$stem")
+        done
+    fi
 
     # Find matching test files (deduplicated)
     test_files=()
@@ -102,23 +126,33 @@ for pkg in "${PACKAGES[@]}"; do
     declare -A seen_tests
 
     # Add directly changed test files
-    for tf in "${pkg_test_changed[@]}"; do
-        abs_tf="${REPO_ROOT}/${tf}"
-        if [ -f "$abs_tf" ] && [ -z "${seen_tests[$abs_tf]:-}" ]; then
-            test_files+=("$abs_tf")
-            seen_tests["$abs_tf"]=1
-        fi
-    done
-
-    # Search for test files matching source file stems
-    for stem in "${stems[@]}"; do
-        while IFS= read -r tf; do
-            if [ -n "$tf" ] && [ -z "${seen_tests[$tf]:-}" ]; then
-                test_files+=("$tf")
-                seen_tests["$tf"]=1
+    if [ ${#pkg_test_changed[@]} -gt 0 ]; then
+        for tf in "${pkg_test_changed[@]}"; do
+            abs_tf="${REPO_ROOT}/${tf}"
+            if [ -f "$abs_tf" ] && [ -z "${seen_tests[$abs_tf]:-}" ]; then
+                test_files+=("$abs_tf")
+                seen_tests["$abs_tf"]=1
             fi
-        done < <(find "${REPO_ROOT}/${pkg}/src" -type f -name "${stem}*.test.ts" 2>/dev/null)
-    done
+        done
+    fi
+
+    # Search for test files matching source file stems.
+    # Two find passes per stem: exact match and hyphenated variants.
+    if [ ${#stems[@]} -gt 0 ]; then
+        for stem in "${stems[@]}"; do
+            while IFS= read -r tf; do
+                if [ -n "$tf" ] && [ -z "${seen_tests[$tf]:-}" ]; then
+                    test_files+=("$tf")
+                    seen_tests["$tf"]=1
+                fi
+            done < <(
+                find "${REPO_ROOT}/${pkg}/src" -type f \( \
+                    -name "${stem}.test.ts" -o \
+                    -name "${stem}-*.test.ts" \
+                \) 2>/dev/null
+            )
+        done
+    fi
 
     if [ ${#test_files[@]} -eq 0 ]; then
         continue
@@ -135,10 +169,17 @@ for pkg in "${PACKAGES[@]}"; do
         safe_name="$(echo "$rel" | tr "/" "_")"
         out_file="${RESULTS_DIR}/${safe_name}.out"
 
-        (cd "${REPO_ROOT}/${pkg}" && "$BUN" test "$rel" > "$out_file" 2>&1)
+        if [ -n "$TIMEOUT_CMD" ]; then
+            (cd "${REPO_ROOT}/${pkg}" && "$TIMEOUT_CMD" -k 10 "$PER_TEST_TIMEOUT" "$BUN" test "$rel" > "$out_file" 2>&1)
+        else
+            (cd "${REPO_ROOT}/${pkg}" && "$BUN" test "$rel" > "$out_file" 2>&1)
+        fi
         exit_code=$?
 
-        if [ $exit_code -ne 0 ]; then
+        if [ -n "$TIMEOUT_CMD" ] && { [ $exit_code -eq 124 ] || [ $exit_code -eq 137 ]; }; then
+            echo -e "  ${RED}✗${NC} ${base} (killed after ${PER_TEST_TIMEOUT}s)"
+            failed_files+=("$tf")
+        elif [ $exit_code -ne 0 ]; then
             echo -e "  ${RED}✗${NC} ${base}"
             failed_files+=("$tf")
         else
