@@ -14,6 +14,7 @@ import { v4 as uuid } from "uuid";
 import { getDb } from "../memory/db.js";
 import { actorTokenRecords } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 const log = getLogger("actor-token-store");
 
@@ -46,7 +47,6 @@ export interface ActorTokenRecord {
  */
 export function createActorTokenRecord(params: {
   tokenHash: string;
-  assistantId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
@@ -60,7 +60,7 @@ export function createActorTokenRecord(params: {
   const row = {
     id,
     tokenHash: params.tokenHash,
-    assistantId: params.assistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
@@ -72,10 +72,7 @@ export function createActorTokenRecord(params: {
   };
 
   db.insert(actorTokenRecords).values(row).run();
-  log.info(
-    { id, assistantId: params.assistantId, platform: params.platform },
-    "Actor token record created",
-  );
+  log.info({ id, platform: params.platform }, "Actor token record created");
 
   return row;
 }
@@ -102,12 +99,11 @@ export function findActiveByTokenHash(
 }
 
 /**
- * Find an active token for a specific (assistantId, guardianPrincipalId, deviceId).
+ * Find an active token for a specific (guardianPrincipalId, deviceId).
  * Used for idempotent bootstrap — if an active token already exists for this
  * device binding, we can revoke-and-remint or return the existing record.
  */
 export function findActiveByDeviceBinding(
-  assistantId: string,
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): ActorTokenRecord | null {
@@ -117,7 +113,6 @@ export function findActiveByDeviceBinding(
     .from(actorTokenRecords)
     .where(
       and(
-        eq(actorTokenRecords.assistantId, assistantId),
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
         eq(actorTokenRecords.status, "active"),
@@ -133,7 +128,6 @@ export function findActiveByDeviceBinding(
  * Called before minting a new token to ensure one-active-per-device.
  */
 export function revokeByDeviceBinding(
-  assistantId: string,
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): number {
@@ -141,7 +135,6 @@ export function revokeByDeviceBinding(
   const now = Date.now();
 
   const condition = and(
-    eq(actorTokenRecords.assistantId, assistantId),
     eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
     eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
     eq(actorTokenRecords.status, "active"),
@@ -166,12 +159,11 @@ export function revokeByDeviceBinding(
 }
 
 /**
- * Find all active actor token records for a given (assistantId, guardianPrincipalId).
+ * Find all active actor token records for a given guardianPrincipalId.
  * Used for multi-device guardian fanout — returns all bound devices (macOS, iOS, etc.)
  * so notification targeting can reach every device for the same guardian identity.
  */
 export function findActiveByGuardianPrincipalId(
-  assistantId: string,
   guardianPrincipalId: string,
 ): ActorTokenRecord[] {
   const db = getDb();
@@ -180,7 +172,6 @@ export function findActiveByGuardianPrincipalId(
     .from(actorTokenRecords)
     .where(
       and(
-        eq(actorTokenRecords.assistantId, assistantId),
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorTokenRecords.status, "active"),
       ),

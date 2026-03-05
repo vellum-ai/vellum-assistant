@@ -7,6 +7,7 @@ import {
   callPendingQuestions,
   callSessions,
 } from "../memory/schema.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { cast, createRowMapper } from "../util/row-mapper.js";
 import { validateTransition } from "./call-state-machine.js";
@@ -83,7 +84,6 @@ export function createCallSession(opts: {
   guardianVerificationSessionId?: string;
   callerIdentityMode?: string;
   callerIdentitySource?: string;
-  assistantId?: string;
   initiatedFromConversationId?: string;
 }): CallSession {
   const db = getDb();
@@ -101,7 +101,7 @@ export function createCallSession(opts: {
     guardianVerificationSessionId: opts.guardianVerificationSessionId ?? null,
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
-    assistantId: opts.assistantId ?? null,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     initiatedFromConversationId: opts.initiatedFromConversationId ?? null,
     startedAt: null,
     endedAt: null,

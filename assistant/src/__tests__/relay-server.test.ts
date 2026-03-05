@@ -1333,7 +1333,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
       // no task — inbound call
     });
 
@@ -1413,7 +1412,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const secret = createPendingVoiceGuardianChallenge("self");
@@ -1474,7 +1472,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15550001111",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     createGuardianBinding({
@@ -1524,7 +1521,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15550002222",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     createGuardianBinding({
@@ -1578,7 +1574,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15550001111",
-      assistantId: "self",
       initiatedFromConversationId: "conv-guardian-outbound-voice-origin",
     });
 
@@ -1630,7 +1625,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15550001111",
-      assistantId: "self",
       initiatedFromConversationId: "conv-guardian-outbound-strict-origin",
     });
 
@@ -1682,7 +1676,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15550003333",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const secret = createPendingVoiceGuardianChallenge("self");
@@ -1740,7 +1733,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     createPendingVoiceGuardianChallenge("self");
@@ -1785,7 +1777,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     createPendingVoiceGuardianChallenge("self");
@@ -1851,7 +1842,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
       // no task — inbound call
     });
 
@@ -1897,7 +1887,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     createPendingVoiceGuardianChallenge("self");
@@ -1952,7 +1941,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
-      assistantId: "self",
       callMode: "guardian_verification",
       guardianVerificationSessionId: "gv-session-ptr-success",
       initiatedFromConversationId: "conv-gv-pointer-success-origin",
@@ -2009,7 +1997,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
-      assistantId: "self",
       callMode: "guardian_verification",
       guardianVerificationSessionId: "gv-session-ptr-fail",
       initiatedFromConversationId: "conv-gv-pointer-fail-origin",
@@ -2071,7 +2058,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558887777",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a voice invite with friend/guardian names
@@ -2146,7 +2132,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558886666",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a voice invite with friend/guardian names
@@ -2228,7 +2213,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558885555",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // No voice invite created for this caller
@@ -2282,7 +2266,6 @@ describe("relay-server", () => {
         provider: "twilio",
         fromNumber: "+15558885556",
         toNumber: "+15551111111",
-        assistantId: "self",
       });
 
       const { ws, relay } = createMockWs(session.id);
@@ -2323,7 +2306,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558884444",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2388,7 +2370,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558883333",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2422,7 +2403,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558882222",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2480,7 +2460,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558881111",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a blocked member
@@ -2531,7 +2510,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770001",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -2579,7 +2557,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770002",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Track provider calls to verify no LLM turn is triggered on approval
@@ -2670,7 +2647,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770003",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2754,7 +2730,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770004",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2831,7 +2806,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770005",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -2877,7 +2851,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770010",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2935,7 +2908,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770011",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     mockSendMessage.mockImplementation(
@@ -3001,7 +2973,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770012",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3037,7 +3008,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770013",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3108,7 +3078,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770014",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3194,7 +3163,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770015",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3252,7 +3220,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770016",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3301,7 +3268,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770017",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3365,7 +3331,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770020",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3468,7 +3433,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770021",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3526,7 +3490,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770022",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3595,7 +3558,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770023",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3673,7 +3635,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770024",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3764,7 +3725,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770025",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Do NOT add caller as trusted contact
@@ -3851,7 +3811,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559876543",
-      assistantId: "self",
       initiatedFromConversationId: "conv-relay-ptr-complete-origin",
     });
     updateCallSession(session.id, {
@@ -3890,7 +3849,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559876543",
-      assistantId: "self",
       initiatedFromConversationId: "conv-relay-ptr-fail-origin",
     });
     updateCallSession(session.id, { status: "in_progress" });
@@ -3927,7 +3885,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15553334444",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a trusted-contact verification challenge with status 'pending'
@@ -4011,7 +3968,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15552223333",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a guardian challenge (default verificationPurpose = 'guardian')
@@ -4067,7 +4023,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557776666",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const code = generateVoiceCode(6);
@@ -4163,7 +4118,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559990099",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -4210,7 +4164,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559990098",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -4247,7 +4200,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559990097",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
