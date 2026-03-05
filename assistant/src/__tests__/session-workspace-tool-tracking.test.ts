@@ -179,7 +179,6 @@ mock.module("../context/window-manager.js", () => ({
 }));
 mock.module("../memory/conflict-store.js", () => ({
   listPendingConflictDetails: () => [],
-  markConflictAsked: () => true,
   applyConflictResolution: () => true,
 }));
 mock.module("../memory/clarification-resolver.js", () => ({

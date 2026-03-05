@@ -278,7 +278,6 @@ mock.module("../memory/conflict-store.js", () => ({
     conflictScopeCalls.push(scopeId);
     return pendingConflicts;
   },
-  markConflictAsked: () => true,
   applyConflictResolution: () => true,
   resolveConflict: (
     id: string,

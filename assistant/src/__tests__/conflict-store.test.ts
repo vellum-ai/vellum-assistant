@@ -33,7 +33,6 @@ import {
   getPendingConflictByPair,
   listPendingConflictDetails,
   listPendingConflicts,
-  markConflictAsked,
   resolveConflict,
 } from "../memory/conflict-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
@@ -222,22 +221,6 @@ describe("conflict-store", () => {
     expect(pendingDefault).toHaveLength(1);
     expect(pendingDefault[0].id).toBe(conflictA.id);
     expect(pendingDefault[0].status).toBe("pending_clarification");
-  });
-
-  test("markConflictAsked updates lastAskedAt", () => {
-    const pair = insertItemPair("asked");
-    const conflict = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: pair.existingItemId,
-      candidateItemId: pair.candidateItemId,
-      relationship: "ambiguous_contradiction",
-    });
-
-    const askedAt = 1_734_000_000_000;
-    expect(markConflictAsked(conflict.id, askedAt)).toBe(true);
-    const updated = getConflictById(conflict.id);
-    expect(updated?.lastAskedAt).toBe(askedAt);
-    expect(updated?.updatedAt).toBe(askedAt);
   });
 
   test("listPendingConflictDetails joins current statements and verification states", () => {
