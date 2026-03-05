@@ -13,7 +13,8 @@ public enum UsageTimeRange: String, CaseIterable, Sendable {
     /// `to` is always the current instant; `from` is midnight UTC of the starting day.
     public func epochMillisRange(now: Date = Date()) -> (from: Int, to: Int) {
         let to = Int(now.timeIntervalSince1970 * 1000)
-        let calendar = Calendar(identifier: .gregorian)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
         let startOfToday = calendar.startOfDay(for: now)
 
         let startDate: Date

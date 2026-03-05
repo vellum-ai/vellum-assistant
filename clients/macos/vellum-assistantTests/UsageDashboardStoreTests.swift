@@ -299,24 +299,29 @@ struct UsageDashboardStoreGroupTests {
 struct UsageTimeRangeTests {
 
     @Test
-    func todayRangeStartsAtMidnight() {
-        let now = Date(timeIntervalSince1970: 1709683200) // 2024-03-06 00:00:00 UTC
+    func todayRangeStartsAtMidnightUTC() {
+        // Use a mid-day timestamp so UTC midnight differs from most local timezones
+        let now = Date(timeIntervalSince1970: 1709733600) // 2024-03-06 14:00:00 UTC
         let range = UsageTimeRange.today.epochMillisRange(now: now)
 
-        let calendar = Calendar(identifier: .gregorian)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
         let startOfDay = calendar.startOfDay(for: now)
         let expectedFrom = Int(startOfDay.timeIntervalSince1970 * 1000)
 
         #expect(range.from == expectedFrom)
+        // Verify we get UTC midnight (2024-03-06 00:00:00 UTC = 1709683200)
+        #expect(range.from == 1709683200 * 1000)
         #expect(range.to == Int(now.timeIntervalSince1970 * 1000))
     }
 
     @Test
     func last7DaysSpansSixDaysBack() {
-        let now = Date(timeIntervalSince1970: 1709683200) // 2024-03-06 00:00:00 UTC
+        let now = Date(timeIntervalSince1970: 1709733600) // 2024-03-06 14:00:00 UTC
         let range = UsageTimeRange.last7Days.epochMillisRange(now: now)
 
-        let calendar = Calendar(identifier: .gregorian)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
         let startOfToday = calendar.startOfDay(for: now)
         let sixDaysAgo = calendar.date(byAdding: .day, value: -6, to: startOfToday)!
         let expectedFrom = Int(sixDaysAgo.timeIntervalSince1970 * 1000)
