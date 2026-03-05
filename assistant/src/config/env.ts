@@ -131,10 +131,6 @@ export function getTwilioUserPhoneNumber(): string | undefined {
   return str("TWILIO_USER_PHONE_NUMBER");
 }
 
-export function getTwilioWssBaseUrl(): string | undefined {
-  return str("TWILIO_WSS_BASE_URL");
-}
-
 export function isTwilioWebhookValidationDisabled(): boolean {
   // Intentionally strict: only exact "true" disables validation (not "1").
   // This is a security-sensitive bypass — we don't want environments that
@@ -210,12 +206,6 @@ export function validateEnv(): void {
   const httpPort = getRuntimeHttpPort();
   if (httpPort < 1 || httpPort > 65535) {
     throw new Error(`Invalid RUNTIME_HTTP_PORT: ${httpPort} (must be 1-65535)`);
-  }
-
-  if (getTwilioWssBaseUrl()) {
-    log.warn(
-      "TWILIO_WSS_BASE_URL env var is deprecated. Relay URL is now derived from ingress.publicBaseUrl.",
-    );
   }
 
   for (const warning of checkUnrecognizedEnvVars()) {
