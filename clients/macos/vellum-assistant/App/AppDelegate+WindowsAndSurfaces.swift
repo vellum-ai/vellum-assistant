@@ -367,30 +367,9 @@ extension AppDelegate {
             )
         }
         mainWindow = main
-        observeConversationZoomEnabled(main.windowState)
         observeAssistantStatus()
         observeConversationBadge(main.threadManager)
         return main
-    }
-
-    /// Subscribe to `MainWindowState` changes and keep `isConversationZoomEnabled`
-    /// in sync so SwiftUI command groups can observe it via `@Published`.
-    func observeConversationZoomEnabled(_ windowState: MainWindowState) {
-        conversationZoomEnabledCancellable = windowState.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak windowState] _ in
-                guard let self, let windowState else { return }
-                // objectWillChange fires before the new value is set,
-                // so defer the read to the next run-loop tick.
-                DispatchQueue.main.async {
-                    let enabled = windowState.isConversationVisible
-                    if self.isConversationZoomEnabled != enabled {
-                        self.isConversationZoomEnabled = enabled
-                    }
-                }
-            }
-        // Set initial value.
-        isConversationZoomEnabled = windowState.isConversationVisible
     }
 
     func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {

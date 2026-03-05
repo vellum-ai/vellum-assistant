@@ -97,11 +97,9 @@ extension AppDelegate {
 
             mainWindow?.close()
             mainWindow = nil
-            conversationZoomEnabledCancellable = nil
             conversationBadgeCancellable?.cancel()
             conversationBadgeCancellable = nil
             NSApp.dockTile.badgeLabel = nil
-            isConversationZoomEnabled = false
 
             if let hotKeyMonitor {
                 NSEvent.removeMonitor(hotKeyMonitor)
@@ -289,11 +287,9 @@ extension AppDelegate {
 
         mainWindow?.close()
         mainWindow = nil
-        conversationZoomEnabledCancellable = nil
         conversationBadgeCancellable?.cancel()
         conversationBadgeCancellable = nil
         NSApp.dockTile.badgeLabel = nil
-        isConversationZoomEnabled = false
 
         if let hotKeyMonitor {
             NSEvent.removeMonitor(hotKeyMonitor)

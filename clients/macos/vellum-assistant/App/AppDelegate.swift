@@ -94,11 +94,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var statusIconCancellable: AnyCancellable?
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
-    var conversationZoomEnabledCancellable: AnyCancellable?
     var conversationBadgeCancellable: AnyCancellable?
-    /// Observable state for SwiftUI command group `.disabled()` modifiers.
-    /// Updated via Combine subscription to `MainWindowState.objectWillChange`.
-    @Published public var isConversationZoomEnabled: Bool = false
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
