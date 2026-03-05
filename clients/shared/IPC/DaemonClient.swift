@@ -1331,7 +1331,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Token resolution order:
     /// 1. `tokenOverride` (for callers that need a specific token, e.g. feature-flag token)
     /// 2. JWT from `ActorTokenManager.getToken()`
-    /// 3. Legacy file-based token from `readHttpToken()`
     ///
     /// Returns `nil` when the required port is unavailable.
     private func buildLocalRequest(
@@ -1359,7 +1358,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         let token = tokenOverride.flatMap { $0.isEmpty ? nil : $0 }
             ?? ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 }
-            ?? readHttpToken()
         if let token, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -1389,7 +1387,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             bearerToken = httpTransport.bearerToken
         } else if let gatewayBaseURL {
             baseURL = gatewayBaseURL
-            bearerToken = ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 } ?? readHttpToken()
+            bearerToken = ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 }
         } else {
             return nil
         }
@@ -1824,20 +1822,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// The gateway requires JWT edge tokens with `feature_flags.read`/`feature_flags.write`
     /// scopes (via `requireEdgeAuthWithScope`). The JWT access token from
     /// `ActorTokenManager` carries these scopes in the `actor_client_v1` profile.
-    /// Legacy opaque tokens (feature-flag hex token, shared-secret bearer) are
-    /// rejected by the gateway, so we prefer the JWT and only fall back to legacy
-    /// tokens for backwards compatibility during the transition period.
     private func resolveFeatureFlagAuthToken() -> String? {
         // Prefer the JWT access token — it carries the required scopes
         if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty { return jwt }
-        // Legacy fallback: dedicated feature-flag token or runtime bearer
         if let ff = config.featureFlagToken, !ff.isEmpty { return ff }
         if let httpTransport { return httpTransport.bearerToken }
-        #if os(macOS)
-        return readHttpToken()
-        #else
         return nil
-        #endif
     }
 
     /// Fetch all assistant feature flags from the gateway's `GET /v1/feature-flags` endpoint.

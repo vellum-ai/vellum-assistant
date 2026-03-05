@@ -27,10 +27,8 @@ extension DaemonClient {
         shouldReconnect = true
 
         // Check if we should use HTTP transport (both platforms).
-        // The bearer token may be nil at config time (e.g. local daemon hasn't
-        // written the token file yet), so resolve it lazily from disk here.
         if case .http(let baseURL, let bearerToken, let conversationKey) = config.transport {
-            let resolvedToken = bearerToken ?? readHttpToken()
+            let resolvedToken = bearerToken
             try await connectHTTP(baseURL: baseURL, bearerToken: resolvedToken, conversationKey: conversationKey)
             return
         }
