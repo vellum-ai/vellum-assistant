@@ -6,9 +6,7 @@
  *
  * 1. Route policy coverage — every dispatched endpoint has a policy.
  * 2. No X-Actor-Token references in production code.
- * 3. No ~/.vellum/http-token file-path references in production code
- *    (the file itself is still used; the guard prevents new code from
- *    reading it directly instead of using the platform utility).
+ * 3. No legacy gateway-origin proof in production code.
  * 4. Scope profile contract — every profile resolves to the expected scopes.
  */
 

@@ -33,10 +33,6 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => secureKeys[key],
 }));
 
-mock.module("../util/platform.js", () => ({
-  readHttpToken: () => "runtime-token",
-}));
-
 mock.module("../runtime/auth/token-service.js", () => ({
   mintDaemonDeliveryToken: () => "runtime-token",
 }));

@@ -26,7 +26,6 @@ mock.module("../util/platform.js", () => ({
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
-  readHttpToken: () => "test-token",
   ensureDataDir: () => {},
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},

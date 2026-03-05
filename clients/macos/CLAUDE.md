@@ -233,7 +233,7 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 - **Approval flow:** When iOS sends a pairing request, macOS shows a floating approval prompt with Deny, Approve Once, and Always Allow options. "Always Allow" persists the device in `~/.vellum/protected/approved-devices.json` for auto-approval on future pairings.
 - **LAN pairing:** Works automatically. The QR payload includes `localLanUrl` (the gateway's LAN address). iOS tries LAN first, falls back to cloud gateway. HTTP is permitted for local/private addresses via `LocalAddressValidator.isLocalAddress()`.
 - **Connect Tab Layout:** Pairing hero (QR + status) → Approved Devices list → Gateway (URL config, collapsed if set) → Advanced (bearer token, URL/token overrides) → Diagnostics (test connection) → Channels (Telegram, SMS, Voice).
-- **Bearer Token:** Auto-generated and stored at `~/.vellum/http-token`. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
+- **Bearer Token:** Managed via JWT authentication. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
 
 ## Data Storage
 

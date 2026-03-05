@@ -28,7 +28,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => "test-bearer-token",
 }));
 
 mock.module("../util/logger.js", () => ({

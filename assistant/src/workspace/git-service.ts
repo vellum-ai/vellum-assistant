@@ -70,7 +70,6 @@ const WORKSPACE_GITIGNORE_RULES = [
   "vellum.sock",
   "vellum.pid",
   "session-token",
-  "http-token",
 ];
 
 /** Properties added by Node's child_process errors. */
