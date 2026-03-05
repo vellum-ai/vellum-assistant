@@ -66,6 +66,14 @@ export interface ChannelInviteAdapter {
     inviteCode: string;
     contactName?: string;
   }): GuardianInstruction;
+
+  /**
+   * Resolve the channel-specific handle to reach the assistant (e.g.
+   * "@botName", "+15551234567", "hello@domain.agentmail.to").
+   * Returns `undefined` when the handle cannot be resolved (e.g.
+   * credentials not yet configured).
+   */
+  resolveChannelHandle?(): string | undefined;
 }
 
 // ---------------------------------------------------------------------------

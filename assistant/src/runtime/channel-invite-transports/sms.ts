@@ -67,4 +67,8 @@ export const smsInviteAdapter: ChannelInviteAdapter = {
       channelHandle: phoneNumber,
     };
   },
+
+  resolveChannelHandle(): string | undefined {
+    return resolveSmsPhoneNumber();
+  },
 };

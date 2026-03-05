@@ -85,6 +85,12 @@ export const telegramInviteAdapter: ChannelInviteAdapter = {
     };
   },
 
+  resolveChannelHandle(): string | undefined {
+    const botUsername = getTelegramBotUsername();
+    if (!botUsername) return undefined;
+    return `@${botUsername}`;
+  },
+
   extractInboundToken(params: {
     commandIntent?: Record<string, unknown>;
     content: string;
