@@ -1914,6 +1914,55 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(msg.contentOrder, [.toolCall(0), .text(0)])
     }
 
+    // MARK: - Adjacent Text Segment Coalescing
+
+    func testMultipleAssistantDeltasWithNoToolBoundariesRemainOneTextSegment() {
+        // Multiple assistant text deltas without any tool calls between them
+        // should all accumulate into a single text segment.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hello ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "from ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "the assistant.")))
+        // Flush buffered streaming text so assertions can inspect messages.
+        viewModel.flushStreamingBuffer()
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, ["Hello from the assistant."])
+        XCTAssertEqual(msg.contentOrder, [.text(0)])
+    }
+
+    func testTextToolTextCreatesSeparateTextSegments() {
+        // Text delta → tool call start (flushes automatically) + result → more text delta
+        // should produce separate text segments with interleaved content order.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Let me check.")))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Here are the files.")))
+        // Flush the second text delta so it lands in messages.
+        viewModel.flushStreamingBuffer()
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments.count, 2)
+        XCTAssertEqual(msg.textSegments[0], "Let me check.")
+        XCTAssertEqual(msg.textSegments[1], "Here are the files.")
+        XCTAssertEqual(msg.contentOrder, [.text(0), .toolCall(0), .text(1)])
+    }
+
+    func testStreamingCompletionPreservesFinalJoinedText() {
+        // Streaming deltas followed by message_complete should preserve the
+        // full joined text in the message's .text property.
+        // message_complete calls flushStreamingBuffer() internally.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Part one. ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Part two.")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.text, "Part one. Part two.")
+        XCTAssertEqual(msg.textSegments, ["Part one. Part two."])
+    }
+
     // MARK: - Retry Button Visibility (Send-Only Errors)
 
     func testIsRetryableErrorRequiresSendFailure() {
