@@ -54,7 +54,9 @@ if (changedFiles.length === 0) {
 // Phase 1 — Scan source files and extract imports
 // ---------------------------------------------------------------------------
 
-const importRegex = /(?:from|mock\.module\()\s*["']([^"']+)["']/g;
+const importRegex =
+  /(?:from|mock\.module\()\s*["']([^"']+)["']/g;
+const sideEffectImportRegex = /\bimport\s+["']([^"']+)["']/g;
 
 const glob = new Bun.Glob("src/**/*.{ts,tsx}");
 
@@ -107,12 +109,28 @@ const entries = await Promise.all(
     const dir = path.dirname(absPath);
 
     let match: RegExpExecArray | null;
-    importRegex.lastIndex = 0;
-    // We need a fresh regex per file since we reuse the same regex object
+    // We need fresh regexes per file since we reuse the same regex objects
     const re = new RegExp(importRegex.source, importRegex.flags);
+    const sideEffectRe = new RegExp(
+      sideEffectImportRegex.source,
+      sideEffectImportRegex.flags,
+    );
+
+    // Match standard imports (from "…") and mock.module("…")
     while ((match = re.exec(text)) !== null) {
       const specifier = match[1];
-      // Only resolve relative specifiers
+      if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
+        continue;
+      }
+      const resolved = resolveSpecifier(dir, specifier);
+      if (resolved) {
+        imports.add(resolved);
+      }
+    }
+
+    // Match side-effect imports: import "./foo.js"
+    while ((match = sideEffectRe.exec(text)) !== null) {
+      const specifier = match[1];
       if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
         continue;
       }
