@@ -30,7 +30,8 @@ enum CrashReporter {
         let candidates = items
             .filter { url in
                 let name = url.lastPathComponent
-                let isOurApp = name.lowercased().hasPrefix("vellum")
+                // Match only the main app executable, not vellum-cli, vellum-daemon, etc.
+                let isOurApp = name.lowercased().hasPrefix("vellum-assistant")
                 let isCrashFile = url.pathExtension == "crash" || url.pathExtension == "ips"
                 guard isOurApp && isCrashFile else { return false }
                 guard !seenCrashes.contains(name) else { return false }

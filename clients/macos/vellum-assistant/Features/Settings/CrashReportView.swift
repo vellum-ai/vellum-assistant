@@ -147,6 +147,8 @@ extension AppDelegate {
             onDismiss: { [weak self] in
                 self?.crashReportWindow?.close()
                 self?.crashReportWindow = nil
+                // Restore menu-bar-only activation policy if no other windows remain.
+                self?.scheduleActivationPolicyRevert()
             }
         )
 
