@@ -21,7 +21,9 @@ import type { RouteDefinition } from "../http-router.js";
 export async function handleGetChannelReadiness(url: URL): Promise<Response> {
   const channel =
     (url.searchParams.get("channel") as ChannelId | null) ?? undefined;
-  const includeRemote = url.searchParams.get("includeRemote") === "true";
+  // Default to including remote checks — they're cached for 5 minutes and
+  // required for accurate readiness (e.g. email inbox existence).
+  const includeRemote = url.searchParams.get("includeRemote") !== "false";
 
   const service = getReadinessService();
   const snapshots = await service.getReadiness(channel, includeRemote);

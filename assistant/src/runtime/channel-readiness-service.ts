@@ -9,6 +9,7 @@ import {
 } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
 import { loadRawConfig } from "../config/loader.js";
+import { getEmailService } from "../email/service.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import type {
   ChannelId,
@@ -267,6 +268,36 @@ const emailProbe: ChannelProbe = {
     });
 
     return results;
+  },
+  async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
+    // Only worth checking if the API key is present
+    const hasApiKey = !!(
+      getSecureKey("agentmail") || getSecureKey("credential:agentmail:api_key")
+    );
+    if (!hasApiKey) return [];
+
+    try {
+      const address = await getEmailService().getPrimaryInboxAddress();
+      const hasInbox = !!address;
+      return [
+        {
+          name: "inbox_configured",
+          passed: hasInbox,
+          message: hasInbox
+            ? `Inbox address is configured (${address})`
+            : "No inbox address configured — create one with: vellum email setup inboxes",
+        },
+      ];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return [
+        {
+          name: "inbox_configured",
+          passed: false,
+          message: `Failed to check inbox configuration: ${message}`,
+        },
+      ];
+    }
   },
 };
 
