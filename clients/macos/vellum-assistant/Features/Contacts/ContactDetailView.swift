@@ -50,6 +50,11 @@ struct ContactDetailView: View {
     }
 
     var body: some View {
+        // Read guardianStoreRevision so SwiftUI tracks it; the .onReceive
+        // below increments it whenever SettingsStore publishes, forcing
+        // re-evaluation of guardian verification state.
+        let _ = guardianStoreRevision
+
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 headerSection
