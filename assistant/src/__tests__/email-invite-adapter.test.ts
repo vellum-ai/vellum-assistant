@@ -65,4 +65,14 @@ describe("emailInviteAdapter", () => {
     expect(emailInviteAdapter.buildShareLink).toBeUndefined();
     expect(emailInviteAdapter.extractInboundToken).toBeUndefined();
   });
+
+  test("returns config fallback address when provider has no inboxes", async () => {
+    // Simulates the config fallback: provider returns no inboxes, but
+    // email.address is set in workspace config. The service's
+    // getPrimaryInboxAddress() should return the configured address.
+    mockPrimaryAddress = "configured@example.com";
+
+    const handle = await resolveAdapterHandle(emailInviteAdapter);
+    expect(handle).toBe("configured@example.com");
+  });
 });

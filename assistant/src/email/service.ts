@@ -17,6 +17,7 @@ import {
   setOutboundPaused,
 } from "../cli/email-guardrails.js";
 import {
+  getNestedValue,
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
@@ -134,6 +135,20 @@ export class EmailService {
         health.inboxes.length > 0 ? health.inboxes[0].address : undefined;
     } catch {
       this.cachedPrimaryAddress = undefined;
+    }
+
+    // Fall back to the statically configured email address in workspace config
+    // when the provider can't list inboxes (e.g. provider temporarily unavailable).
+    if (this.cachedPrimaryAddress === undefined) {
+      try {
+        const raw = loadRawConfig();
+        const configured = getNestedValue(raw, "email.address");
+        if (typeof configured === "string" && configured.length > 0) {
+          this.cachedPrimaryAddress = configured;
+        }
+      } catch {
+        // Config unavailable — leave as undefined
+      }
     }
     // Only cache positive results so a missing inbox is retried on next call
     // (e.g. user sets up email after initial miss).
