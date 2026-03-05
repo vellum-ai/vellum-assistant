@@ -22,9 +22,6 @@ COPY package.json bun.lock ./
 # Install dependencies
 RUN bun install --frozen-lockfile
 
-# Install vellum CLI globally
-RUN bun install -g @vellumai/cli
-
 # Final stage
 FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS runner
 
@@ -50,8 +47,9 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
-# Copy vellum CLI from builder
-COPY --from=builder /root/.bun/bin/vellum /usr/local/bin/vellum
+# Install vellum CLI globally into /usr/local so the binary and its package
+# files are co-located and the launcher resolves correctly at runtime
+RUN BUN_INSTALL=/usr/local bun install -g @vellumai/cli
 
 # Create non-root user that also has sudo access so it can like install stuff
 RUN groupadd --system --gid 1001 assistant && \
