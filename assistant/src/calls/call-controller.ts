@@ -27,10 +27,8 @@ import {
   getSilenceTimeoutMs,
   getUserConsultationTimeoutMs,
 } from "./call-constants.js";
-import { persistCallCompletionMessage } from "./call-conversation-messages.js";
 import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
 import {
-  fireCallCompletionNotifier,
   fireCallQuestionNotifier,
   fireCallTranscriptNotifier,
   registerCallController,
@@ -43,6 +41,7 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
+import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import type { RelayConnection } from "./relay-server.js";
@@ -944,23 +943,7 @@ export class CallController {
 
         // Notify the voice conversation
         if (shouldNotifyCompletion && currentSession) {
-          persistCallCompletionMessage(
-            currentSession.conversationId,
-            this.callSessionId,
-          ).catch((err) => {
-            log.error(
-              {
-                err,
-                conversationId: currentSession.conversationId,
-                callSessionId: this.callSessionId,
-              },
-              "Failed to persist call completion message",
-            );
-          });
-          fireCallCompletionNotifier(
-            currentSession.conversationId,
-            this.callSessionId,
-          );
+          finalizeCall(this.callSessionId, currentSession.conversationId);
         }
 
         // Post a pointer message in the initiating conversation
@@ -1268,23 +1251,7 @@ export class CallController {
           reason: "max_duration",
         });
         if (shouldNotifyCompletion && currentSession) {
-          persistCallCompletionMessage(
-            currentSession.conversationId,
-            this.callSessionId,
-          ).catch((err) => {
-            log.error(
-              {
-                err,
-                conversationId: currentSession.conversationId,
-                callSessionId: this.callSessionId,
-              },
-              "Failed to persist call completion message",
-            );
-          });
-          fireCallCompletionNotifier(
-            currentSession.conversationId,
-            this.callSessionId,
-          );
+          finalizeCall(this.callSessionId, currentSession.conversationId);
         }
 
         // Post a pointer message in the initiating conversation
