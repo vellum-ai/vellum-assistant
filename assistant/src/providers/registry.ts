@@ -4,6 +4,10 @@ import { AnthropicProvider } from "./anthropic/client.js";
 import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { GeminiProvider } from "./gemini/client.js";
+import {
+  buildManagedBaseUrl,
+  resolveManagedProxyContext,
+} from "./managed-proxy/context.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { OllamaProvider } from "./ollama/client.js";
 import { OpenAIProvider } from "./openai/client.js";
@@ -225,6 +229,23 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+  } else {
+    const managedBaseUrl = buildManagedBaseUrl("openai");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "openai");
+      registerProvider(
+        "openai",
+        new RetryProvider(
+          wrapWithLogfire(
+            new OpenAIProvider(ctx.assistantApiKey, model, {
+              baseURL: managedBaseUrl,
+              streamTimeoutMs,
+            }),
+          ),
+        ),
+      );
+    }
   }
   if (config.apiKeys.gemini) {
     const model = resolveModel(config, "gemini");
@@ -263,6 +284,23 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+  } else {
+    const managedBaseUrl = buildManagedBaseUrl("fireworks");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "fireworks");
+      registerProvider(
+        "fireworks",
+        new RetryProvider(
+          wrapWithLogfire(
+            new FireworksProvider(ctx.assistantApiKey, model, {
+              baseURL: managedBaseUrl,
+              streamTimeoutMs,
+            }),
+          ),
+        ),
+      );
+    }
   }
   if (config.apiKeys.openrouter) {
     const model = resolveModel(config, "openrouter");
@@ -276,5 +314,22 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+  } else {
+    const managedBaseUrl = buildManagedBaseUrl("openrouter");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "openrouter");
+      registerProvider(
+        "openrouter",
+        new RetryProvider(
+          wrapWithLogfire(
+            new OpenRouterProvider(ctx.assistantApiKey, model, {
+              baseURL: managedBaseUrl,
+              streamTimeoutMs,
+            }),
+          ),
+        ),
+      );
+    }
   }
 }

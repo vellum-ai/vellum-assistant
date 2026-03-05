@@ -78,8 +78,10 @@ mock.module("openai", () => ({
 }));
 
 // Import after mocking
+import { FireworksProvider } from "../providers/fireworks/client.js";
 import { OllamaProvider } from "../providers/ollama/client.js";
 import { OpenAIProvider } from "../providers/openai/client.js";
+import { OpenRouterProvider } from "../providers/openrouter/client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -841,6 +843,86 @@ describe("OpenAIProvider", () => {
           function: { name: "test", arguments: '{"x":1}' },
         },
       ],
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Managed proxy initialization
+// ---------------------------------------------------------------------------
+
+describe("managed proxy initialization", () => {
+  beforeEach(() => {
+    lastConstructorOptions = null;
+  });
+
+  test("OpenAIProvider initializes with managed proxy base URL", () => {
+    const managed = new OpenAIProvider("ast-key-123", "gpt-4o", {
+      baseURL: "https://platform.example.com/v1/proxy/openai",
+    });
+
+    expect(managed.name).toBe("openai");
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "ast-key-123",
+      baseURL: "https://platform.example.com/v1/proxy/openai",
+    });
+  });
+
+  test("OpenAIProvider without baseURL calls provider directly", () => {
+    new OpenAIProvider("sk-user-key", "gpt-4o");
+
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "sk-user-key",
+      baseURL: undefined,
+    });
+  });
+
+  test("FireworksProvider initializes with managed proxy base URL", () => {
+    const managed = new FireworksProvider(
+      "ast-key-123",
+      "accounts/fireworks/models/llama-v3p1-70b-instruct",
+      {
+        baseURL: "https://platform.example.com/v1/proxy/fireworks",
+      },
+    );
+
+    expect(managed.name).toBe("fireworks");
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "ast-key-123",
+      baseURL: "https://platform.example.com/v1/proxy/fireworks",
+    });
+  });
+
+  test("FireworksProvider without managed baseURL uses default Fireworks URL", () => {
+    new FireworksProvider(
+      "fw-user-key",
+      "accounts/fireworks/models/llama-v3p1-70b-instruct",
+    );
+
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "fw-user-key",
+      baseURL: "https://api.fireworks.ai/inference/v1",
+    });
+  });
+
+  test("OpenRouterProvider initializes with managed proxy base URL", () => {
+    const managed = new OpenRouterProvider("ast-key-123", "openai/gpt-4o", {
+      baseURL: "https://platform.example.com/v1/proxy/openrouter",
+    });
+
+    expect(managed.name).toBe("openrouter");
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "ast-key-123",
+      baseURL: "https://platform.example.com/v1/proxy/openrouter",
+    });
+  });
+
+  test("OpenRouterProvider without managed baseURL uses default OpenRouter URL", () => {
+    new OpenRouterProvider("or-user-key", "openai/gpt-4o");
+
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "or-user-key",
+      baseURL: "https://openrouter.ai/api/v1",
     });
   });
 });

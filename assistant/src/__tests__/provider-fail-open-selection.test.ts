@@ -1,8 +1,46 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+// ---------------------------------------------------------------------------
+// Mock managed-proxy context so we can control managed fallback prereqs
+// ---------------------------------------------------------------------------
+let mockManagedEnabled = false;
+let mockPlatformBaseUrl = "";
+let mockAssistantApiKey = "";
+
+mock.module("../providers/managed-proxy/context.js", () => ({
+  resolveManagedProxyContext: () => ({
+    enabled: mockManagedEnabled,
+    platformBaseUrl: mockPlatformBaseUrl,
+    assistantApiKey: mockAssistantApiKey,
+  }),
+  hasManagedProxyPrereqs: () => mockManagedEnabled,
+  buildManagedBaseUrl: (provider: string) => {
+    if (!mockManagedEnabled) return undefined;
+    const paths: Record<string, string> = {
+      openai: "/v1/proxy/openai",
+      fireworks: "/v1/proxy/fireworks",
+      openrouter: "/v1/proxy/openrouter",
+    };
+    const path = paths[provider];
+    if (!path) return undefined;
+    return `${mockPlatformBaseUrl}${path}`;
+  },
+  managedFallbackEnabledFor: (provider: string) => {
+    if (!mockManagedEnabled) return false;
+    return [
+      "openai",
+      "fireworks",
+      "openrouter",
+      "anthropic",
+      "gemini",
+    ].includes(provider);
+  },
+}));
 
 import {
   getFailoverProvider,
   initializeProviders,
+  listProviders,
   resolveProviderSelection,
 } from "../providers/registry.js";
 
@@ -123,5 +161,113 @@ describe("getFailoverProvider (fail-open)", () => {
     const provider = getFailoverProvider("gemini", ["anthropic"]);
     // Should be a RetryProvider wrapping AnthropicProvider, not a FailoverProvider
     expect(provider.name).not.toBe("failover");
+  });
+});
+
+// -------------------------------------------------------------------------
+// Managed proxy fallback
+// -------------------------------------------------------------------------
+
+describe("managed proxy fallback", () => {
+  function enableManagedProxy() {
+    mockManagedEnabled = true;
+    mockPlatformBaseUrl = "https://platform.example.com";
+    mockAssistantApiKey = "ast-key-123";
+  }
+
+  function disableManagedProxy() {
+    mockManagedEnabled = false;
+    mockPlatformBaseUrl = "";
+    mockAssistantApiKey = "";
+  }
+
+  test("openai registered via managed fallback when no user key but proxy context is valid", () => {
+    enableManagedProxy();
+    try {
+      initializeProviders({
+        apiKeys: { anthropic: "test-key" },
+        provider: "anthropic",
+        model: "test-model",
+      });
+      const registered = listProviders();
+      expect(registered).toContain("openai");
+      expect(registered).toContain("fireworks");
+      expect(registered).toContain("openrouter");
+    } finally {
+      disableManagedProxy();
+    }
+  });
+
+  test("user key takes precedence over managed fallback", () => {
+    enableManagedProxy();
+    try {
+      initializeProviders({
+        apiKeys: { anthropic: "test-key", openai: "user-openai-key" },
+        provider: "anthropic",
+        model: "test-model",
+      });
+      // openai should be registered (via user key, not managed)
+      const registered = listProviders();
+      expect(registered).toContain("openai");
+      // fireworks/openrouter should also be registered via managed fallback
+      expect(registered).toContain("fireworks");
+      expect(registered).toContain("openrouter");
+    } finally {
+      disableManagedProxy();
+    }
+  });
+
+  test("managed fallback not activated when proxy context is disabled", () => {
+    disableManagedProxy();
+    initializeProviders({
+      apiKeys: { anthropic: "test-key" },
+      provider: "anthropic",
+      model: "test-model",
+    });
+    const registered = listProviders();
+    expect(registered).not.toContain("openai");
+    expect(registered).not.toContain("fireworks");
+    expect(registered).not.toContain("openrouter");
+  });
+
+  test("managed providers participate in failover selection", () => {
+    enableManagedProxy();
+    try {
+      initializeProviders({
+        apiKeys: { anthropic: "test-key" },
+        provider: "anthropic",
+        model: "test-model",
+      });
+      const selection = resolveProviderSelection("anthropic", [
+        "openai",
+        "fireworks",
+      ]);
+      expect(selection.availableProviders).toEqual([
+        "anthropic",
+        "openai",
+        "fireworks",
+      ]);
+      expect(selection.selectedPrimary).toBe("anthropic");
+      expect(selection.usedFallbackPrimary).toBe(false);
+    } finally {
+      disableManagedProxy();
+    }
+  });
+
+  test("managed provider selected as primary when configured primary unavailable", () => {
+    enableManagedProxy();
+    try {
+      // No anthropic key, no gemini key — only managed providers available
+      initializeProviders({
+        apiKeys: {},
+        provider: "openai",
+        model: "test-model",
+      });
+      const selection = resolveProviderSelection("openai", ["fireworks"]);
+      expect(selection.selectedPrimary).toBe("openai");
+      expect(selection.usedFallbackPrimary).toBe(false);
+    } finally {
+      disableManagedProxy();
+    }
   });
 });
