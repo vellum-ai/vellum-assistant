@@ -8,10 +8,7 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
-import {
-  touchChannelLastSeen,
-  touchContactInteraction,
-} from "../../../contacts/contacts-write.js";
+import { touchChannelLastSeen } from "../../../contacts/contacts-write.js";
 import type {
   ChannelStatus,
   ContactChannel,
@@ -635,9 +632,12 @@ export async function enforceIngressAcl(
         };
       }
 
-      // 'allow' or 'escalate' — update last seen and continue
+      // 'allow' or 'escalate' — update last seen timestamp.
+      // touchContactInteraction is intentionally NOT called here because
+      // duplicate detection hasn't run yet. It's called in
+      // inbound-message-handler.ts after dedup so webhook retries don't
+      // inflate interaction counts.
       touchChannelLastSeen(resolvedMember.channel.id);
-      touchContactInteraction(resolvedMember.contact.id);
     }
   }
 
