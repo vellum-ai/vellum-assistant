@@ -144,9 +144,39 @@ struct MarkdownSegmentView: View {
         case horizontalRule
     }
 
+    // Bounded LRU cache for groupedSegments results, keyed by a hash of
+    // the segment array. Avoids recomputing grouping on every body evaluation
+    // when the segment array hasn't changed (the common case during scrolling).
+    @MainActor private static var groupedSegmentsCache: [Int: (value: [SegmentGroup], accessTime: Int)] = [:]
+    @MainActor private static var groupedLRUCounter: Int = 0
+    private static let groupedCacheLimit = 200
+
     /// Groups consecutive text-selectable segments together so they render
     /// as a single Text view, enabling cross-paragraph text selection.
     private var groupedSegments: [SegmentGroup] {
+        var hasher = Hasher()
+        for segment in segments { hasher.combine(segment) }
+        let key = hasher.finalize()
+
+        if let cached = Self.groupedSegmentsCache[key] {
+            Self.groupedLRUCounter += 1
+            Self.groupedSegmentsCache[key] = (cached.value, Self.groupedLRUCounter)
+            return cached.value
+        }
+
+        let result = computeGroupedSegments()
+
+        if Self.groupedSegmentsCache.count >= Self.groupedCacheLimit {
+            if let lruKey = Self.groupedSegmentsCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                Self.groupedSegmentsCache.removeValue(forKey: lruKey)
+            }
+        }
+        Self.groupedLRUCounter += 1
+        Self.groupedSegmentsCache[key] = (result, Self.groupedLRUCounter)
+        return result
+    }
+
+    private func computeGroupedSegments() -> [SegmentGroup] {
         var groups: [SegmentGroup] = []
         var currentRun: [MarkdownSegment] = []
 
@@ -185,6 +215,12 @@ struct MarkdownSegmentView: View {
 
         flushRun()
         return groups
+    }
+
+    /// Clears the grouped segments cache. Called alongside `clearAttributedStringCache`
+    /// when switching threads or archiving a conversation to reclaim memory.
+    static func clearGroupedSegmentsCache() {
+        groupedSegmentsCache.removeAll()
     }
 
     // MARK: - Combined AttributedString

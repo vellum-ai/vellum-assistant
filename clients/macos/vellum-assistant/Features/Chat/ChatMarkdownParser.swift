@@ -4,14 +4,14 @@ import VellumAssistantShared
 // MARK: - Markdown Table Support
 
 /// A segment of message content — either plain text or a parsed table.
-struct ListItem {
+struct ListItem: Hashable {
     let indent: Int
     let ordered: Bool
     let number: Int      // meaningful only when ordered == true
     let text: String
 }
 
-enum MarkdownSegment {
+enum MarkdownSegment: Hashable {
     case text(String)
     case table(headers: [String], rows: [[String]])
     case image(alt: String, url: String)

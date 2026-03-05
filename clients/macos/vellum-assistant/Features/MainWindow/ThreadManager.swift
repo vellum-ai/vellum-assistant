@@ -666,6 +666,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         ChatBubble.lastStreamingInlineMarkdown = nil
         ChatBubble.lastStreamingMarkdown = nil
         MarkdownSegmentView.clearAttributedStringCache()
+        MarkdownSegmentView.clearGroupedSegmentsCache()
     }
 
     /// Returns true if the thread has at least one user message.
