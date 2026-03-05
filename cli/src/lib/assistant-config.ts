@@ -16,19 +16,13 @@ import { probePort } from "./port-probe.js";
  */
 export interface LocalInstanceResources {
   /**
-   * Instance-specific data root. For named instances this is
-   * `~/.vellum/instances/<name>/`; the daemon's working directory
-   * (`.vellum/`) lives inside it (e.g. `~/.vellum/instances/<name>/.vellum/`).
-   * Distinct from `AssistantEntry.baseDataDir`, which is a legacy field from
-   * the pre-multi-instance layout kept for backward compatibility.
+   * Instance-specific data root (e.g. `~/.vellum/instances/<name>/`).
+   * The daemon's `.vellum/` directory lives inside it. Equivalent to
+   * `AssistantEntry.baseDataDir` minus the trailing `/.vellum` suffix —
+   * `baseDataDir` is kept on the flat entry for legacy lockfile compat.
    */
   instanceDir: string;
-  /**
-   * Allocated port for process management — detecting conflicts, displaying
-   * status, and waking/sleeping. Overlaps with `AssistantEntry.runtimeUrl`
-   * (which is the full URL clients connect to) but kept separately so
-   * lifecycle commands can reason about port numbers directly.
-   */
+  /** HTTP port for the daemon runtime server */
   daemonPort: number;
   /** HTTP port for the gateway */
   gatewayPort: number;
@@ -36,7 +30,7 @@ export interface LocalInstanceResources {
   qdrantPort: number;
   /** Absolute path to the Unix domain socket for IPC */
   socketPath: string;
-  /** Absolute path to the daemon PID file used for process lifecycle */
+  /** Absolute path to the daemon PID file */
   pidFile: string;
 }
 
@@ -46,6 +40,7 @@ export interface AssistantEntry {
   /** Loopback URL for same-machine health checks (e.g. `http://127.0.0.1:7831`).
    *  Avoids mDNS resolution issues when the machine checks its own gateway. */
   localUrl?: string;
+  /** @deprecated Use `resources.instanceDir` for multi-instance entries. Legacy equivalent of `join(instanceDir, ".vellum")`. */
   baseDataDir?: string;
   bearerToken?: string;
   cloud: string;
