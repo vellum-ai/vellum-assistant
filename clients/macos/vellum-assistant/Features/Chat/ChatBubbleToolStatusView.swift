@@ -61,36 +61,39 @@ extension ChatBubble {
 
     func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
         let isApproved = confirmation.state == .approved
+        let isDenied = confirmation.state == .denied
+        let chipColor: Color = isApproved ? VColor.success : isDenied ? VColor.error : VColor.textMuted
+
         return HStack(spacing: VSpacing.xs) {
             Group {
                 switch confirmation.state {
                 case .approved:
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(chipColor)
                 case .denied:
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(VColor.error)
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(chipColor)
                 case .timedOut:
                     Image(systemName: "clock.fill")
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(chipColor)
                 default:
                     EmptyView()
                 }
             }
             .font(.system(size: 12))
 
-            Text(isApproved ? "\(confirmation.toolCategory) allowed" :
-                 confirmation.state == .denied ? "\(confirmation.toolCategory) denied" : "Timed out")
-                .font(VFont.caption)
-                .foregroundColor(isApproved ? VColor.success : VColor.textSecondary)
+            Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
+                 isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")
+                .font(VFont.captionMedium)
+                .foregroundColor(chipColor)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
         .background(
-            Capsule().fill(isApproved ? VColor.success.opacity(0.1) : VColor.surface)
+            Capsule().fill(chipColor.opacity(0.1))
         )
         .overlay(
-            Capsule().stroke(isApproved ? VColor.success.opacity(0.3) : VColor.surfaceBorder, lineWidth: 0.5)
+            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 0.5)
         )
     }
 }

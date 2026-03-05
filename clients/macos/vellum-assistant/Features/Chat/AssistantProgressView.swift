@@ -206,6 +206,7 @@ struct AssistantProgressView: View {
                     .padding(.bottom, VSpacing.md)
             }
         }
+        .padding(.bottom, isExpanded ? VSpacing.sm : 0)
         .background(VColor.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onChange(of: phase) { _, newPhase in
@@ -254,8 +255,8 @@ struct AssistantProgressView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.md)
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - Status Icon
@@ -264,22 +265,30 @@ struct AssistantProgressView: View {
     private var statusIcon: some View {
         switch phase {
         case .complete:
-            Image(systemName: hasAnyErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .font(.system(size: 16))
-                .foregroundColor(hasAnyErrors ? VColor.warning : VColor.success)
+            statusIconTile(
+                systemName: hasAnyErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+                iconColor: hasAnyErrors ? VColor.warning : VColor.success,
+                tileColor: hasAnyErrors ? Amber._200 : Forest._200
+            )
         case .error:
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.system(size: 16))
-                .foregroundColor(VColor.error)
+            statusIconTile(
+                systemName: "exclamationmark.circle.fill",
+                iconColor: VColor.error,
+                tileColor: Danger._200
+            )
         case .denied:
             if decidedConfirmation?.state == .timedOut {
-                Image(systemName: "clock.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(VColor.textMuted)
+                statusIconTile(
+                    systemName: "clock.fill",
+                    iconColor: VColor.textMuted,
+                    tileColor: Moss._200
+                )
             } else {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(VColor.error)
+                statusIconTile(
+                    systemName: "exclamationmark.circle.fill",
+                    iconColor: VColor.error,
+                    tileColor: Danger._200
+                )
             }
         default:
             Circle()
@@ -287,6 +296,17 @@ struct AssistantProgressView: View {
                 .frame(width: 8, height: 8)
                 .modifier(AssistantProgressPulsingModifier())
         }
+    }
+
+    private func statusIconTile(systemName: String, iconColor: Color, tileColor: Color) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 14))
+            .foregroundColor(iconColor)
+            .padding(VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(tileColor)
+            )
     }
 
     // MARK: - Headline Label
@@ -297,7 +317,7 @@ struct AssistantProgressView: View {
                 processingLabel
             } else {
                 Text(headlineText)
-                    .font(VFont.captionMedium)
+                    .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: headlineText)
             }
@@ -323,7 +343,7 @@ struct AssistantProgressView: View {
 
             HStack(spacing: VSpacing.xs) {
                 Text(labels[labelIndex])
-                    .font(VFont.captionMedium)
+                    .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
@@ -477,7 +497,7 @@ private struct StepDetailRow: View {
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         if toolCall.isComplete {
                             Text(toolCall.actionDescription)
-                                .font(VFont.captionMedium)
+                                .font(VFont.bodyMedium)
                                 .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -487,7 +507,7 @@ private struct StepDetailRow: View {
                                 inputSummary: toolCall.inputSummary,
                                 buildingStatus: toolCall.buildingStatus
                             ))
-                            .font(VFont.captionMedium)
+                            .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textMuted)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -497,7 +517,7 @@ private struct StepDetailRow: View {
                                 inputSummary: toolCall.inputSummary,
                                 buildingStatus: toolCall.buildingStatus
                             ))
-                            .font(VFont.captionMedium)
+                            .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -506,7 +526,7 @@ private struct StepDetailRow: View {
                         // Reason subtitle — only for completed tools
                         if let reason = toolCall.reasonDescription, !reason.isEmpty, toolCall.isComplete {
                             Text(reason)
-                                .font(VFont.small)
+                                .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -534,9 +554,13 @@ private struct StepDetailRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, VSpacing.lg)
+            .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
-            .background(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.3) : .clear)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(isHovered && hasDetails ? Moss._100 : .clear)
+            )
+            .padding(.horizontal, VSpacing.sm)
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
