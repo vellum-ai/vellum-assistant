@@ -115,10 +115,16 @@ export class InviteAdapterRegistry {
 export async function resolveAdapterHandle(
   adapter: ChannelInviteAdapter,
 ): Promise<string | undefined> {
-  if (adapter.resolveChannelHandleAsync) {
-    return adapter.resolveChannelHandleAsync();
+  try {
+    if (adapter.resolveChannelHandleAsync) {
+      return await adapter.resolveChannelHandleAsync();
+    }
+    return adapter.resolveChannelHandle?.();
+  } catch {
+    // Handle resolution is optional metadata — degrade gracefully so
+    // callers (e.g. readiness endpoints) don't fail on transient errors.
+    return undefined;
   }
-  return adapter.resolveChannelHandle?.();
 }
 
 // ---------------------------------------------------------------------------

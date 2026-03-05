@@ -77,6 +77,30 @@ describe("resolveAdapterHandle", () => {
     const handle = await resolveAdapterHandle(adapter);
     expect(handle).toBeUndefined();
   });
+
+  test("returns undefined when async resolveChannelHandleAsync rejects", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "email",
+      resolveChannelHandleAsync: async () => {
+        throw new Error("transient API failure");
+      },
+    };
+
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBeUndefined();
+  });
+
+  test("returns undefined when sync resolveChannelHandle throws", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "telegram",
+      resolveChannelHandle: () => {
+        throw new Error("credential lookup failed");
+      },
+    };
+
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
