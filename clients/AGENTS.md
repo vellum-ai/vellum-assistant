@@ -67,8 +67,8 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 | Multi-line text input | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
 | Auto-growing height | `.lineLimit(1...N)` | Manual height sync + frame clamping |
-| Return-to-send in chat input | `.onSubmit { }` + check `NSEvent.modifierFlags` inside the closure to distinguish plain Return from Shift+Return | `.onKeyPress(.return)` (returning `.ignored` doesn't reach the TextField) |
-| Newline on Shift+Return | Inside `.onSubmit`, check `NSEvent.modifierFlags.contains(.shift)` and call `NSTextView.insertText("\n")` on the field editor | Returning `.ignored` from `.onKeyPress` (doesn't fall back to TextField) or passing Return through to field editor (triggers "end editing" and selects all text) |
+| Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
+| Newline in chat input | Option+Return (native macOS convention, free with `.onSubmit`) | Custom Shift+Return handling (`.onSubmit` fires on Shift+Return too and cannot distinguish modifiers) |
 | Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
 | Attributed/colored text display | `AttributedString` + `Text` overlay | `layoutManager.addTemporaryAttributes` |
 | File drag-drop | `.onDrop(of: [.fileURL])` | `performDragOperation` override |

@@ -215,7 +215,7 @@ struct ComposerView: View {
         .focused($composerFocus)
         .disabled(!hasAPIKey)
         .onSubmit {
-            handleSubmit()
+            performSendAction()
         }
         .onKeyPress(.tab, phases: .down) { press in
             if !press.modifiers.contains(.shift), showSlashMenu {
@@ -410,48 +410,8 @@ struct ComposerView: View {
         }
     }
 
-    /// Handles the `.onSubmit` callback. Checks modifier keys via AppKit to
-    /// decide whether to send the message or insert a newline.
-    ///
-    /// `.onSubmit` fires on all Return variants (plain, Shift, Cmd, etc.)
-    /// so we inspect `NSEvent.modifierFlags` to distinguish them:
-    /// - Default mode: plain Return sends; Shift+Return inserts newline.
-    /// - Cmd+Enter mode: all Returns insert newline (Cmd+Return send is
-    ///   handled by the bridge before reaching SwiftUI).
-    private func handleSubmit() {
-        #if os(macOS)
-        let modifiers = NSEvent.modifierFlags.intersection([.shift, .command, .control, .option])
-
-        // In Cmd+Enter mode, plain Return should insert a newline.
-        // (Cmd+Return is intercepted by the bridge and never reaches here.)
-        if cmdEnterToSend {
-            insertNewlineInComposer()
-            return
-        }
-
-        // Default mode: Shift+Return inserts a newline.
-        if modifiers.contains(.shift) {
-            insertNewlineInComposer()
-            return
-        }
-        #endif
-
-        performSendAction()
-    }
-
-    /// Inserts a newline at the cursor position by writing directly to the
-    /// field editor. Called from `handleSubmit` when the Return event should
-    /// produce a newline rather than sending.
-    private func insertNewlineInComposer() {
-        #if os(macOS)
-        if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
-            textView.insertText("\n", replacementRange: textView.selectedRange())
-        }
-        #endif
-    }
-
-    /// Shared send logic used by both `handleSubmit` and the AppKit
-    /// `ComposerFocusBridge` Cmd+Enter interception. Keeps slash-menu
+    /// Shared send logic used by `.onSubmit` (native Return-to-send) and the
+    /// AppKit `ComposerFocusBridge` Cmd+Enter interception. Keeps slash-menu
     /// selection, ghost-text acceptance, and pending-confirmation approval
     /// all working regardless of how "send" is triggered.
     private func performSendAction() {
