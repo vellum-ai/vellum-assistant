@@ -51,7 +51,7 @@ struct SidebarThreadItem: View {
                         }
                     } label: {
                         Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
@@ -85,7 +85,7 @@ struct SidebarThreadItem: View {
                                 .transition(.opacity)
                         } else if thread.isPinned {
                             Image(systemName: "pin.fill")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: 10, weight: .medium))
                                 .foregroundColor(VColor.textMuted)
                                 .rotationEffect(.degrees(-45))
                                 .frame(width: 20, height: 20)
@@ -150,7 +150,7 @@ struct SidebarThreadItem: View {
                     sidebar.threadPendingDeletion = thread.id
                 } label: {
                     Image(systemName: "archivebox")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundColor(VColor.textSecondary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
