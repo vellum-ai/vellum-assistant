@@ -150,8 +150,8 @@ export interface ApplyGuardianDecisionParams {
   approval: GuardianApprovalRequest;
   /** The parsed decision (action + source + optional requestId). */
   decision: ApprovalDecisionResult;
-  /** External user ID of the actor making the decision. */
-  actorExternalUserId: string | undefined;
+  /** Principal ID of the actor making the decision. */
+  actorPrincipalId: string | undefined;
   /** Channel the decision arrived on. */
   actorChannel: ChannelId;
   /** Optional decision context passed to handleChannelDecision. */
@@ -180,7 +180,7 @@ export function applyGuardianDecision(
   const {
     approval,
     decision,
-    actorExternalUserId,
+    actorPrincipalId,
     actorChannel,
     decisionContext,
   } = params;
@@ -222,22 +222,22 @@ export function applyGuardianDecision(
       : ("approved" as const);
   updateApprovalDecision(approval.id, {
     status: approvalStatus,
-    decidedByExternalUserId: actorExternalUserId,
+    decidedByExternalUserId: actorPrincipalId,
   });
 
   // Mint a scoped grant when a guardian approves a tool-approval request.
-  // Skip when actorExternalUserId is undefined -- minting a grant without
+  // Skip when actorPrincipalId is undefined -- minting a grant without
   // a known guardian identity is meaningless (e.g. requester self-cancel).
   if (
     effectiveDecision.action !== "reject" &&
     matchedInfo &&
-    actorExternalUserId
+    actorPrincipalId
   ) {
     tryMintToolApprovalGrant({
       approvalInfo: matchedInfo,
       approval,
       decisionChannel: actorChannel,
-      guardianExternalUserId: actorExternalUserId,
+      guardianExternalUserId: actorPrincipalId,
     });
   }
 

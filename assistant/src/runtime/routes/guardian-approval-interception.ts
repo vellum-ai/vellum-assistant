@@ -232,7 +232,7 @@ export async function handleApprovalInterception(
             const cancelApplyResult = applyGuardianDecision({
               approval: guardianApprovalForRequest,
               decision: rejectDecision,
-              actorExternalUserId: actorExternalId,
+              actorPrincipalId: actorExternalId,
               actorChannel: sourceChannel,
             });
             if (cancelApplyResult.applied) {

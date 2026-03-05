@@ -297,7 +297,7 @@ async function handleCallbackDecision(params: {
   const result = applyGuardianDecision({
     approval: guardianApproval,
     decision: callbackDecision,
-    actorExternalUserId: actorExternalId,
+    actorPrincipalId: actorExternalId,
     actorChannel: sourceChannel,
   });
 
@@ -491,7 +491,7 @@ async function handleConversationalDecision(params: {
   const result = applyGuardianDecision({
     approval: targetApproval,
     decision: engineDecision,
-    actorExternalUserId: actorExternalId,
+    actorPrincipalId: actorExternalId,
     actorChannel: sourceChannel,
   });
 
@@ -675,7 +675,7 @@ async function handleLegacyDecision(params: {
     const result = applyGuardianDecision({
       approval: targetLegacyApproval,
       decision: legacyGuardianDecision,
-      actorExternalUserId: actorExternalId,
+      actorPrincipalId: actorExternalId,
       actorChannel: sourceChannel,
     });
 
