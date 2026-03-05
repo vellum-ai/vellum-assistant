@@ -193,6 +193,21 @@ export async function handleRideShotgunStart(
             { watchId, status: session.status },
             "Session no longer active after CDP launch — skipping recording",
           );
+          // If we launched Chrome, minimize it since completeSession already ran and won't find it
+          if (cdpSession.launchedByUs) {
+            try {
+              await minimizeChromeWindow(cdpSession.baseUrl);
+              log.info(
+                { watchId },
+                "Minimized assistant-launched Chrome window (post-session)",
+              );
+            } catch (err) {
+              log.debug(
+                { err, watchId },
+                "Failed to minimize Chrome window (post-session)",
+              );
+            }
+          }
           return;
         }
         activeCdpSessions.set(watchId, cdpSession);
