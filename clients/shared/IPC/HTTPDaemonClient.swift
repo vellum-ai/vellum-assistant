@@ -489,27 +489,19 @@ public final class HTTPTransport {
                 self.setSSEConnected(true)
                 log.info("SSE stream connected to \(url.absoluteString, privacy: .public)")
 
-                var dataBuffer = ""
-
                 for try await line in bytes.lines {
                     if Task.isCancelled { break }
 
                     if line.hasPrefix("data: ") {
-                        dataBuffer += String(line.dropFirst(6))
-                    } else {
-                        // Any non-data line (event:, id:, empty, heartbeat) flushes
-                        // the accumulated data buffer. AsyncLineSequence skips empty
-                        // lines, so we can't rely on line.isEmpty as the SSE spec
-                        // event boundary.
-                        if !dataBuffer.isEmpty {
-                            self.parseSSEData(dataBuffer)
-                            dataBuffer = ""
-                        }
+                        // AsyncLineSequence strips blank lines, so we never
+                        // see the empty-line boundary that the SSE spec uses
+                        // to delimit events. Flush each data line immediately
+                        // to avoid delaying the last event of a turn until an
+                        // unrelated line (e.g. heartbeat) arrives.
+                        let payload = String(line.dropFirst(6))
+                        self.parseSSEData(payload)
                     }
-                }
-                // Flush any remaining data at end of stream
-                if !dataBuffer.isEmpty {
-                    self.parseSSEData(dataBuffer)
+                    // Non-data lines (event:, id:, heartbeat) are ignored.
                 }
             } catch {
                 if !Task.isCancelled {
@@ -541,7 +533,17 @@ public final class HTTPTransport {
                 }
             }
             if let remoteId = remoteSessionId {
-                jsonString = jsonString.replacingOccurrences(of: remoteId, with: localId)
+                // Replace only the sessionId JSON value — not arbitrary occurrences
+                // of the UUID elsewhere in the payload. Handle both compact
+                // ("sessionId":"…") and pretty-printed ("sessionId": "…") JSON.
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"sessionId\":\"\(remoteId)\"",
+                    with: "\"sessionId\":\"\(localId)\""
+                )
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"sessionId\": \"\(remoteId)\"",
+                    with: "\"sessionId\": \"\(localId)\""
+                )
             }
         }
 
@@ -591,7 +593,7 @@ public final class HTTPTransport {
             // For HTTP transport, session creation is implicit — the conversationKey
             // acts as the session. Emit a synthetic session_info so ChatViewModel
             // records the session ID.
-            let sessionId = msg.correlationId ?? UUID().uuidString
+            let sessionId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
             activeLocalSessionId = sessionId
             remoteSessionId = nil  // Reset — will be learned from the first SSE event
             let info = ServerMessage.sessionInfo(
