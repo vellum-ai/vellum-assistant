@@ -82,10 +82,10 @@
       "defaultEnabled": false
     },
     {
-      "id": "contacts-tab",
-      "scope": "macos",
-      "key": "contacts_tab",
-      "label": "Contacts Tab",
+      "id": "contacts",
+      "scope": "assistant",
+      "key": "feature_flags.contacts.enabled",
+      "label": "Contacts",
       "description": "Show the Contacts tab in Settings for viewing and managing contacts",
       "defaultEnabled": false
     },

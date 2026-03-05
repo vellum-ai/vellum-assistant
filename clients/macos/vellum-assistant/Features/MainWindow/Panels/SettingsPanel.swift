@@ -14,12 +14,12 @@ enum SettingsTab: String {
     case advanced = "Advanced"
 
     /// Tabs shown in the sidebar. Contacts requires a feature flag; Advanced is only visible in dev mode.
-    static func visibleTabs(isDevMode: Bool) -> [SettingsTab] {
+    static func visibleTabs(isDevMode: Bool, contactsEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .account, .channels, .modelsAndServices, .voice,
             .automation, .appearance, .permissions, .privacy
         ]
-        if MacOSClientFeatureFlagManager.shared.isEnabled("contacts_tab") {
+        if contactsEnabled {
             tabs.append(.contacts)
         }
         if isDevMode {
@@ -31,7 +31,7 @@ enum SettingsTab: String {
     /// Maps legacy tab names (from IPC or saved state) to current tabs.
     /// The `isDevMode` parameter gates dev-only tabs so external callers
     /// (e.g. daemon IPC) cannot navigate to them when dev mode is off.
-    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false) -> SettingsTab? {
+    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false, contactsEnabled: Bool = false) -> SettingsTab? {
         let tab: SettingsTab?
         // Try current values first
         if let direct = SettingsTab(rawValue: value) {
@@ -49,7 +49,7 @@ enum SettingsTab: String {
             }
         }
         // Block feature-flagged tabs when disabled
-        if tab == .contacts && !MacOSClientFeatureFlagManager.shared.isEnabled("contacts_tab") { return nil }
+        if tab == .contacts && !contactsEnabled { return nil }
         // Block dev-only tabs when dev mode is disabled
         if tab == .advanced && !isDevMode { return nil }
         return tab
@@ -96,6 +96,8 @@ struct SettingsPanel: View {
     @State private var notificationBadgesGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .account
+    @State private var isContactsEnabled: Bool = false
+    private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
 
     var body: some View {
         // Two-column layout: bare nav on window background, content in its own surface panel
@@ -123,8 +125,9 @@ struct SettingsPanel: View {
             }
         }
         .task {
-            // Refresh permission status when the view appears
+            // Refresh permission status and contacts feature flag when the view appears
             await refreshPermissionStatus()
+            await loadContactsFeatureFlag()
         }
         .onAppear {
             store.refreshAPIKeyState()
@@ -135,7 +138,7 @@ struct SettingsPanel: View {
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
             if let pending = store.pendingSettingsTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode).contains(pending) {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(pending) {
                     selectedTab = pending
                 }
                 store.pendingSettingsTab = nil
@@ -143,7 +146,7 @@ struct SettingsPanel: View {
         }
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode).contains(tab) {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(tab) {
                     selectedTab = tab
                 }
                 store.pendingSettingsTab = nil
@@ -156,7 +159,7 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
-                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode).contains(tab) else { return }
+                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(tab) else { return }
                 selectedTab = tab
             }
         }
@@ -219,7 +222,7 @@ struct SettingsPanel: View {
             .padding(.bottom, VSpacing.md)
 
             // Tab nav items
-            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode), id: \.self) { tab in
+            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -1041,6 +1044,27 @@ struct SettingsPanel: View {
         speechRecognitionGranted = PermissionManager.speechRecognitionStatus() == .granted
         notificationsGranted = await PermissionManager.notificationStatus() == .granted
         notificationBadgesGranted = await PermissionManager.notificationBadgeStatus() == .granted
+    }
+
+    // MARK: - Contacts Feature Flag
+
+    private func loadContactsFeatureFlag() async {
+        if let daemonClient {
+            do {
+                let flags = try await daemonClient.getFeatureFlags()
+                if let flag = flags.first(where: { $0.key == Self.contactsFeatureFlagKey }) {
+                    isContactsEnabled = flag.enabled
+                    return
+                }
+            } catch {
+                // Fall through to local config fallback.
+            }
+        }
+        let config = WorkspaceConfigIO.read()
+        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool],
+           let enabled = canonicalFlags[Self.contactsFeatureFlagKey] {
+            isContactsEnabled = enabled
+        }
     }
 
     private func startPermissionPolling() {
