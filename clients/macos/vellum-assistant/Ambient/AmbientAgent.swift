@@ -180,7 +180,9 @@ public final class AmbientAgent: ObservableObject {
             log.error("Ride shotgun session failed: \(reason)")
             progressWindow?.close()
             progressWindow = nil
-            showSummary("The assistant failed to start the session:\n\n\(reason)")
+            let failureMessage = "The assistant failed to start the session:\n\n\(reason)"
+            setCurrentSession(nil)
+            showSummary(failureMessage)
             sessionCancellable?.cancel()
             sessionCancellable = nil
 
