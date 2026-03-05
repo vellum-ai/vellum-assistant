@@ -26,6 +26,7 @@ import {
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { getInviteAdapterRegistry } from "./channel-invite-transport.js";
+import { generateInviteInstruction } from "./invite-instruction-generator.js";
 import {
   type InviteRedemptionOutcome,
   redeemInvite as redeemInviteTyped,
@@ -140,7 +141,7 @@ export type IngressResult<T> =
 // Invite operations
 // ---------------------------------------------------------------------------
 
-export function createIngressInvite(params: {
+export async function createIngressInvite(params: {
   sourceChannel?: string;
   note?: string;
   maxUses?: number;
@@ -152,7 +153,7 @@ export function createIngressInvite(params: {
   voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
-}): IngressResult<InviteResponseData> {
+}): Promise<IngressResult<InviteResponseData>> {
   if (!params.sourceChannel) {
     return { ok: false, error: "sourceChannel is required for create" };
   }
@@ -230,27 +231,18 @@ export function createIngressInvite(params: {
     const adapter = channelId
       ? getInviteAdapterRegistry().get(channelId)
       : undefined;
+    channelHandle = adapter?.resolveChannelHandle?.();
 
-    if (adapter?.buildGuardianInstruction) {
-      try {
-        const adapterResult = adapter.buildGuardianInstruction({
-          inviteCode,
-          contactName: params.contactName,
-        });
-        if (adapterResult) {
-          guardianInstruction = adapterResult.instruction;
-          channelHandle = adapterResult.channelHandle;
-        }
-      } catch {
-        // Fall through to generic instruction if adapter fails
-      }
-    }
+    // Build share URL if adapter supports it
+    const share = buildSharePayload(params.sourceChannel, rawToken);
 
-    if (!guardianInstruction) {
-      const contactLabel = params.contactName || "the contact";
-      const channelLabel = params.sourceChannel;
-      guardianInstruction = `Tell ${contactLabel} to contact the assistant on ${channelLabel} and provide the code ${inviteCode}.`;
-    }
+    guardianInstruction = await generateInviteInstruction({
+      contactName: params.contactName,
+      channelType: params.sourceChannel,
+      channelHandle,
+      inviteCode,
+      shareUrl: share?.url,
+    });
   }
 
   // Voice invites must not expose the token — callers must redeem via the
