@@ -260,6 +260,24 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+  } else {
+    // No user Gemini key — try managed proxy fallback
+    const managedBaseUrl = buildManagedBaseUrl("gemini");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "gemini");
+      registerProvider(
+        "gemini",
+        new RetryProvider(
+          wrapWithLogfire(
+            new GeminiProvider(ctx.assistantApiKey, model, {
+              streamTimeoutMs,
+              managedBaseUrl,
+            }),
+          ),
+        ),
+      );
+    }
   }
   if (config.provider === "ollama" || config.apiKeys.ollama) {
     const model = resolveModel(config, "ollama");
