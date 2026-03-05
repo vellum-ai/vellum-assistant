@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.4.30",
+  "version": "0.4.31",
   "type": "module",
   "bin": {
     "vellum": "./src/index.ts"
