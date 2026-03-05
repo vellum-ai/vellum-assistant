@@ -10,9 +10,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
   deleteSecureKey,
-  getBackendType,
   getSecureKey,
-  isDowngradedFromKeychain,
   listSecureKeys,
   setSecureKey,
 } from "../../security/secure-keys.js";
@@ -426,30 +424,21 @@ class CredentialStoreTool implements Tool {
         }
 
         const allMetadata = listCredentialMetadata();
-        // On the encrypted backend we can verify secrets still exist by reading
-        // all key names once (instead of per-entry getSecureKey calls that each
-        // re-read/re-derive the store). On keychain we trust metadata since the
-        // OS keychain has no batch list API.
-        // In downgraded mode (keychain failed, switched to encrypted), skip
-        // batch verification because listSecureKeys() only returns keys from
-        // the encrypted store — keychain-only credentials would be hidden.
-        const downgraded = isDowngradedFromKeychain();
-        const verifySecrets = getBackendType() === "encrypted" && !downgraded;
+        // Verify secrets still exist by reading all key names once (instead of
+        // per-entry getSecureKey calls that each re-read/re-derive the store).
         let secureKeySet: Set<string> | undefined;
-        if (verifySecrets) {
-          try {
-            secureKeySet = new Set(listSecureKeys());
-          } catch (err) {
-            log.error(
-              { err },
-              "Failed to read secure store while listing credentials",
-            );
-            return {
-              content:
-                "Error: failed to read secure storage; cannot list credentials",
-              isError: true,
-            };
-          }
+        try {
+          secureKeySet = new Set(listSecureKeys());
+        } catch (err) {
+          log.error(
+            { err },
+            "Failed to read secure store while listing credentials",
+          );
+          return {
+            content:
+              "Error: failed to read secure storage; cannot list credentials",
+            isError: true,
+          };
         }
         const entries = allMetadata
           .filter((m) => {

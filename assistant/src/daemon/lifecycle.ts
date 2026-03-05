@@ -47,7 +47,6 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { migrateKeychainToEncrypted } from "../security/keychain-to-encrypted-migration.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -142,10 +141,6 @@ export async function runDaemon(): Promise<void> {
     migrateToDataLayout();
     migrateToWorkspaceLayout();
     ensureDataDir();
-
-    // Copy any existing macOS keychain secrets into the encrypted file store
-    // before config loads, so the new encrypted-store-first read path sees them.
-    migrateKeychainToEncrypted();
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
