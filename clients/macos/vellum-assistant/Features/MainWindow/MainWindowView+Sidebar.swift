@@ -482,22 +482,21 @@ extension MainWindowView {
             }
 
             // MARK: Thread Section (collapsed)
-            if let activeThread = threadManager.activeThread {
+            let switcher = CollapsedThreadSwitcherPresentation(
+                regularThreads: regularThreads,
+                activeThreadId: threadManager.activeThreadId
+            )
+            if switcher.showsSwitcher {
                 Button {
-                    guard regularThreads.count > 1 else { return }
-                    threadSwitcherHoverTask?.cancel()
-                    threadSwitcherHoverTask = nil
                     showThreadSwitcher.toggle()
                 } label: {
                     ZStack(alignment: .bottomTrailing) {
-                        // Active thread icon — SF Symbol chat bubble matching SidebarNavRow style
                         Image(systemName: "ellipsis.message")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                             .frame(width: 28, height: 28)
 
-                        // Unseen dot overlay (bottom-right) — shows when any thread has unseen messages
-                        if regularThreads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+                        if switcher.switchTargets.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                             Circle()
                                 .fill(Color(hex: 0xE86B40))
                                 .frame(width: 8, height: 8)
@@ -506,48 +505,15 @@ extension MainWindowView {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Switch threads: \(activeThread.title)")
-                .accessibilityValue(regularThreads.count > 1 ? "\(regularThreads.count) threads" : "")
+                .accessibilityLabel(switcher.accessibilityLabel)
+                .accessibilityValue(switcher.accessibilityValue)
                 .onDisappear {
-                    threadSwitcherHoverTask?.cancel()
-                    threadSwitcherHoverTask = nil
-                    threadSwitcherDismissTask?.cancel()
-                    threadSwitcherDismissTask = nil
                     showThreadSwitcher = false
                 }
-                .if(regularThreads.count > 1) { view in
-                    view.pointerCursor()
-                }
-                .onHover { hovering in
-                    guard regularThreads.count > 1 else { return }
-                    if hovering {
-                        // Cancel any pending dismiss
-                        threadSwitcherDismissTask?.cancel()
-                        threadSwitcherDismissTask = nil
-                        // Start open timer
-                        threadSwitcherHoverTask?.cancel()
-                        threadSwitcherHoverTask = Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(300))
-                            guard !Task.isCancelled else { return }
-                            showThreadSwitcher = true
-                        }
-                    } else {
-                        threadSwitcherHoverTask?.cancel()
-                        threadSwitcherHoverTask = nil
-                        // Schedule dismiss — gives time to move mouse into the popover
-                        if showThreadSwitcher {
-                            threadSwitcherDismissTask = Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(300))
-                                guard !Task.isCancelled else { return }
-                                showThreadSwitcher = false
-                            }
-                        }
-                    }
-                }
+                .pointerCursor()
                 .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
                     VStack(alignment: .leading, spacing: 0) {
-                        // Header
-                        Text("\(regularThreads.count) threads")
+                        Text("\(switcher.switchTargets.count) threads")
                             .font(VFont.body)
                             .foregroundColor(VColor.textMuted)
                             .padding(.leading, VSpacing.md)
@@ -560,10 +526,9 @@ extension MainWindowView {
                             .padding(.horizontal, VSpacing.xs)
                             .padding(.bottom, VSpacing.sm)
 
-                        // Thread list
                         ScrollView {
                             VStack(spacing: 0) {
-                                ForEach(regularThreads) { thread in
+                                ForEach(switcher.switchTargets) { thread in
                                     SidebarThreadItem(
                                         thread: thread,
                                         threadManager: threadManager,
@@ -613,29 +578,10 @@ extension MainWindowView {
                         showThreadSwitcher = false
                     }
                     .onDisappear {
-                        // Clean up hover state when popover dismisses —
-                        // onHover(false) may not fire if the view is removed.
-                        // Cursor cleanup is handled by PointerCursorModifier.
                         if sidebar.isHoveredThread != nil {
                             sidebar.isHoveredThread = nil
                         }
                         sidebar.threadPendingDeletion = nil
-                    }
-                    // Hover→pending-deletion invariant is now owned by
-                    // SidebarInteractionState.setThreadHover(threadId:hovering:)
-                    .onHover { hovering in
-                        if hovering {
-                            // Mouse entered popover — cancel pending dismiss
-                            threadSwitcherDismissTask?.cancel()
-                            threadSwitcherDismissTask = nil
-                        } else {
-                            // Mouse left popover — dismiss after short delay
-                            threadSwitcherDismissTask = Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(300))
-                                guard !Task.isCancelled else { return }
-                                showThreadSwitcher = false
-                            }
-                        }
                     }
                 }
             }
