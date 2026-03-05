@@ -43,6 +43,7 @@ struct ComposerView: View {
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     @FocusState private var composerFocus: Bool
     @State private var isComposerFocused = false
+    @State private var contentHeight: CGFloat = 34
 
     @State var showSlashMenu = false
     @State var slashFilter = ""
@@ -140,10 +141,6 @@ struct ComposerView: View {
             avatarSeed = identity?.name ?? "default"
         }
     }
-
-    // isComposerExpanded is a @Binding — sticky latch set true when text
-    // wraps past a single line, reset when text clears. Prevents layout
-    // oscillation and keeps ChatView.composerReservedHeight in sync.
 
     private var clampedComposerHeight: CGFloat {
         min(max(editorContentHeight, composerCompactHeight), composerMaxHeight)
@@ -268,18 +265,21 @@ struct ComposerView: View {
             // Reserve bottom space so the last visible line isn't hidden
             // behind the buttons when the composer is expanded.
             .padding(.bottom, isComposerExpanded ? composerActionButtonSize : 0)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: ComposerEditorHeightKey.self, value: geo.size.height)
+                }
+            )
+        }
+        .onPreferenceChange(ComposerEditorHeightKey.self) { newHeight in
+            contentHeight = newHeight
+            editorContentHeight = min(max(newHeight, composerCompactHeight), composerMaxHeight)
+            isComposerExpanded = newHeight > composerCompactHeight
         }
         .scrollBounceBehavior(.basedOnSize)
         .accessibilityLabel("Message")
-        .frame(maxWidth: .infinity, maxHeight: composerMaxHeight, alignment: .topLeading)
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(key: ComposerEditorHeightKey.self, value: geo.size.height)
-            }
-        )
-        .onPreferenceChange(ComposerEditorHeightKey.self) { newHeight in
-            editorContentHeight = newHeight
-        }
+        .frame(height: min(max(contentHeight, composerCompactHeight), composerMaxHeight), alignment: .topLeading)
+        .frame(maxWidth: .infinity)
         .background(
             ComposerFocusBridge(
                 isFocused: composerFocus,
@@ -321,17 +321,9 @@ struct ComposerView: View {
         }
         .onChange(of: inputText) {
             if inputText.isEmpty {
-                withAnimation(VAnimation.fast) { isComposerExpanded = false }
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
             } else {
                 updateSlashState()
-            }
-        }
-        .onChange(of: editorContentHeight) {
-            // Only expand — never collapse based on height alone.
-            // Collapsing is handled when inputText becomes empty (see above).
-            if editorContentHeight > composerCompactHeight && !isComposerExpanded {
-                withAnimation(VAnimation.fast) { isComposerExpanded = true }
             }
         }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: nil) { providers in
