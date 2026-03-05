@@ -29,7 +29,11 @@ function readPreferredNameFromUserMd(): string | null {
  * file is missing, unreadable, or the field is empty.
  */
 export function resolveUserReference(): string {
-  return readPreferredNameFromUserMd() ?? DEFAULT_USER_REFERENCE;
+  const preferredName = readPreferredNameFromUserMd();
+  if (preferredName != null && preferredName !== DECLINED_BY_USER_SENTINEL) {
+    return preferredName;
+  }
+  return DEFAULT_USER_REFERENCE;
 }
 
 /**
