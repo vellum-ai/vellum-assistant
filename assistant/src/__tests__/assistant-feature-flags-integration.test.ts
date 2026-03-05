@@ -241,8 +241,8 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     const result = buildSystemPrompt();
 
-    // browser is declared in the registry with defaultEnabled: false
-    expect(result).not.toContain('id="browser"');
+    // browser is declared in the registry with defaultEnabled: true
+    expect(result).toContain('id="browser"');
   });
 });
 

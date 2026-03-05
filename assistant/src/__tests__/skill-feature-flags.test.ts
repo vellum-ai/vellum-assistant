@@ -120,10 +120,10 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("declared keys with no persisted override use registry default", () => {
     const config = makeConfig();
-    // browser is declared in the registry with defaultEnabled: false
+    // browser is declared in the registry with defaultEnabled: true
     expect(
       isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
