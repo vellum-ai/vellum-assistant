@@ -90,6 +90,11 @@ end tell
       encoding: "utf-8",
       timeout: 30_000,
     }).trim();
+    if (output.startsWith("ERROR:")) {
+      return {
+        result: { success: false, data: output },
+      };
+    }
     return {
       result: { success: true, data: output || "(no text found)" },
     };

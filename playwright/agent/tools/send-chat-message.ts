@@ -50,7 +50,7 @@ export async function execute(
   const waitSeconds = (input.wait_seconds as number) ?? 10;
 
   // Escape the message for AppleScript string literal
-  const escaped = message.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const escaped = message.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
 
   // Step 1: Focus the text field, clear it, type the message, and press Enter.
   // We find the text field via entire contents to handle any nesting.
@@ -194,11 +194,13 @@ end tell
     // Initial read to get baseline
     writeFileSync(readPath, readScript, "utf-8");
     let baseline = "";
+    let anyReadSucceeded = false;
     try {
       baseline = execSync(`osascript ${readPath}`, {
         encoding: "utf-8",
         timeout: 15_000,
       }).trim();
+      anyReadSucceeded = true;
     } catch {}
 
     // Poll for changes
@@ -210,6 +212,7 @@ end tell
           encoding: "utf-8",
           timeout: 15_000,
         }).trim();
+        anyReadSucceeded = true;
 
         // If a new window appeared (e.g., Secure Credential popup), return immediately
         if (lastOutput.startsWith("WINDOWS:") && !lastOutput.startsWith("WINDOWS:1\n")) {
@@ -231,6 +234,16 @@ end tell
           };
         }
       } catch {}
+    }
+
+    // If every read attempt failed, the app/window likely disappeared
+    if (!anyReadSucceeded) {
+      return {
+        result: {
+          success: false,
+          data: `Message was sent but all subsequent read attempts failed — the app window may have closed or crashed.`,
+        },
+      };
     }
 
     // Timeout — return whatever we have
