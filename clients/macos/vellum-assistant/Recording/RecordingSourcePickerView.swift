@@ -21,13 +21,13 @@ struct RecordingSourcePickerView: View {
             Text("Screen Recording")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
-                .padding(.top, VSpacing.md)
+                .padding(.top, VSpacing.sm)
                 .padding(.bottom, VSpacing.sm)
 
             Text("Choose what to record")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
-                .padding(.bottom, VSpacing.md)
+                .padding(.bottom, VSpacing.sm)
 
             // Scope picker (Display / Window)
             VSegmentedControl(
@@ -338,7 +338,7 @@ struct RecordingSourcePickerView: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.vertical, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
     }
 }
 
