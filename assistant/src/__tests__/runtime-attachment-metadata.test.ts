@@ -64,7 +64,6 @@ import * as conversationStore from "../memory/conversation-store.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
 
@@ -238,6 +237,8 @@ describe("Runtime attachment metadata", () => {
 
 describe("WhatsApp channel ingress attachment resolution", () => {
   const WHATSAPP_USER_ID = "whatsapp-user-123";
+  let ingressServer: RuntimeHttpServer;
+  let ingressPort: number;
 
   function resetIngressTables(): void {
     resetTestTables(
@@ -270,10 +271,10 @@ describe("WhatsApp channel ingress attachment resolution", () => {
     });
   }
 
-  function makeInboundRequest(
+  function makeInboundBody(
     overrides: Record<string, unknown> = {},
-  ): Request {
-    const body = {
+  ): Record<string, unknown> {
+    return {
       sourceChannel: "whatsapp",
       interface: "whatsapp",
       conversationExternalId: "whatsapp-chat-1",
@@ -283,11 +284,6 @@ describe("WhatsApp channel ingress attachment resolution", () => {
       replyCallbackUrl: "https://gateway.test/deliver",
       ...overrides,
     };
-    return new Request("http://localhost/channels/inbound", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
   }
 
   // Create a real message in the DB so the background dispatch's
@@ -303,10 +299,22 @@ describe("WhatsApp channel ingress attachment resolution", () => {
     },
   );
 
-  beforeEach(() => {
+  beforeEach(async () => {
     resetIngressTables();
     ensureWhatsAppContact();
     noopProcessMessage.mockClear();
+
+    ingressPort = 18000 + Math.floor(Math.random() * 1000);
+    ingressServer = new RuntimeHttpServer({
+      port: ingressPort,
+      bearerToken: TEST_TOKEN,
+      processMessage: noopProcessMessage,
+    });
+    await ingressServer.start();
+  });
+
+  afterEach(async () => {
+    await ingressServer?.stop();
   });
 
   test("inbound handler accepts request with valid gateway-uploaded attachment IDs", async () => {
@@ -319,11 +327,16 @@ describe("WhatsApp channel ingress attachment resolution", () => {
     );
     const doc = uploadAttachment("receipt.pdf", "application/pdf", "JVBERi0x");
 
-    const req = makeInboundRequest({
-      attachmentIds: [img.id, doc.id],
-    });
-
-    const res = await handleChannelInbound(req, noopProcessMessage);
+    const res = await fetch(
+      `http://127.0.0.1:${ingressPort}/v1/channels/inbound`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(
+          makeInboundBody({ attachmentIds: [img.id, doc.id] }),
+        ),
+      },
+    );
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(res.status).toBe(200);
@@ -335,11 +348,18 @@ describe("WhatsApp channel ingress attachment resolution", () => {
     // the missing ID and returns a 400.
     const valid = uploadAttachment("ok.jpg", "image/jpeg", "base64ok");
 
-    const req = makeInboundRequest({
-      attachmentIds: [valid.id, "nonexistent-whatsapp-att"],
-    });
-
-    const res = await handleChannelInbound(req, noopProcessMessage);
+    const res = await fetch(
+      `http://127.0.0.1:${ingressPort}/v1/channels/inbound`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(
+          makeInboundBody({
+            attachmentIds: [valid.id, "nonexistent-whatsapp-att"],
+          }),
+        ),
+      },
+    );
     const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
@@ -350,12 +370,16 @@ describe("WhatsApp channel ingress attachment resolution", () => {
     // WhatsApp allows sending images/documents without caption text.
     const img = uploadAttachment("photo.jpg", "image/jpeg", "/9j/4AAQ");
 
-    const req = makeInboundRequest({
-      content: "",
-      attachmentIds: [img.id],
-    });
-
-    const res = await handleChannelInbound(req, noopProcessMessage);
+    const res = await fetch(
+      `http://127.0.0.1:${ingressPort}/v1/channels/inbound`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(
+          makeInboundBody({ content: "", attachmentIds: [img.id] }),
+        ),
+      },
+    );
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(res.status).toBe(200);
