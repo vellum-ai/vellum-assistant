@@ -9,11 +9,15 @@ import { describe, expect, mock, test } from "bun:test";
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey = "";
 
+const actualEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
+  ...actualEnv,
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
 }));
 
+const actualSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
+  ...actualSecureKeys,
   getSecureKey: (key: string) => {
     if (key === "credential:vellum:assistant_api_key") {
       return mockAssistantApiKey || null;
