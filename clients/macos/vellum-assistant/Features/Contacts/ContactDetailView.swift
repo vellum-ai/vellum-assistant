@@ -420,7 +420,7 @@ struct ContactDetailView: View {
                             Text("Open Telegram")
                                 .font(VFont.caption)
                         }
-                        .foregroundColor(VColor.link)
+                        .foregroundColor(VColor.accent)
                     }
                     .buttonStyle(.plain)
                     .onHover { hovering in
