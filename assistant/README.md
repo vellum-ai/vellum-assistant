@@ -495,6 +495,22 @@ docker run --rm -p 3001:3001 \
 
 The image exposes port `3001` and bundles the `vellum` CLI binary.
 
+## Ride Shotgun
+
+Ride Shotgun is a background screen-watching feature that observes user workflows. It has two modes:
+
+- **Observe mode** — captures periodic screenshots and generates a workflow summary via the LLM.
+- **Learn mode** — records browser network traffic alongside screenshots to capture API patterns. The assistant owns CDP browser lifecycle: `ride-shotgun-handler.ts` calls `ensureChromeWithCdp()` to launch or connect to Chrome with remote debugging, so clients do not need to pre-launch Chrome with `--remote-debugging-port`.
+
+Key modules:
+
+| File                                    | Purpose                                                 |
+| --------------------------------------- | ------------------------------------------------------- |
+| `src/daemon/ride-shotgun-handler.ts`    | Session orchestration, CDP bootstrap, network recording |
+| `src/tools/browser/chrome-cdp.ts`       | Reusable Chrome CDP launcher (`ensureChromeWithCdp`)    |
+| `src/tools/browser/network-recorder.ts` | CDP-based network traffic capture                       |
+| `src/tools/browser/recording-store.ts`  | Session recording persistence                           |
+
 ## Troubleshooting
 
 ### Guardian and gateway-origin issues
