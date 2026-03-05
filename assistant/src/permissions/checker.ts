@@ -788,7 +788,12 @@ export async function check(
 
   // Workspace mode: auto-allow workspace-scoped operations that don't have
   // an explicit rule. Non-workspace operations fall through to risk-based policy.
-  if (permissionsMode === "workspace" && !matchedRule) {
+  // High-risk operations always require approval regardless of scope.
+  if (
+    permissionsMode === "workspace" &&
+    !matchedRule &&
+    risk !== RiskLevel.High
+  ) {
     // When sandbox is disabled, bash runs on the host — don't auto-allow
     const sandboxEnabled = getConfig().sandbox.enabled;
     if (toolName === "bash" && !sandboxEnabled) {

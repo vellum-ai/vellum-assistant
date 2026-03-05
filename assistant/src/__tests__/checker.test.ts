@@ -681,10 +681,20 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("file_write with no rule → prompt", async () => {
+    test("file_write within workspace with no rule → auto-allowed in workspace mode", async () => {
       const result = await check(
         "file_write",
         { path: "/tmp/file.txt" },
+        "/tmp",
+      );
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("workspace-scoped");
+    });
+
+    test("file_write outside workspace with no rule → prompt", async () => {
+      const result = await check(
+        "file_write",
+        { path: "/etc/some-file.txt" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
@@ -1351,12 +1361,10 @@ describe("Permission Checker", () => {
     });
 
     test("core tool (no origin) still follows risk-based fallback", async () => {
-      // file_read is a core tool with Low risk → should auto-allow as before
-      const result = await check(
-        "file_read",
-        { path: "/tmp/test.txt" },
-        "/tmp",
-      );
+      // file_read is a core tool with Low risk — in workspace mode,
+      // workspace-scoped invocations are auto-allowed before risk fallback.
+      // Use a path outside the workspace to test the risk-based fallback.
+      const result = await check("file_read", { path: "/etc/hosts" }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("Low risk");
     });
@@ -1485,7 +1493,8 @@ describe("Permission Checker", () => {
 
     test("file_write of non-workspace file is not auto-allowed", async () => {
       const otherPath = join(checkerTestDir, "workspace", "OTHER.md");
-      const result = await check("file_write", { path: otherPath }, "/tmp");
+      // Use a workingDir that doesn't contain the path so it's not workspace-scoped
+      const result = await check("file_write", { path: otherPath }, "/home");
       // Medium risk with no matching allow rule → prompt
       expect(result.decision).toBe("prompt");
     });
@@ -4453,6 +4462,8 @@ describe("scope matching behavior", () => {
   });
 
   test("project-scoped rule does NOT match invocations from sibling directory", async () => {
+    // Use strict mode to test rule-matching isolation without workspace auto-allow
+    testConfig.permissions.mode = "strict";
     const projectDir = "/home/user/my-project";
     // Use a broad pattern that matches any file, scoped to the project
     addRule("file_write", "file_write:*", projectDir);
@@ -4467,6 +4478,8 @@ describe("scope matching behavior", () => {
   });
 
   test("project-scoped rule does NOT match invocations from parent directory", async () => {
+    // Use strict mode to test rule-matching isolation without workspace auto-allow
+    testConfig.permissions.mode = "strict";
     const projectDir = "/home/user/my-project";
     addRule("file_write", "file_write:*", projectDir);
 
@@ -4480,6 +4493,8 @@ describe("scope matching behavior", () => {
   });
 
   test("project-scoped rule does NOT match directory with shared prefix", async () => {
+    // Use strict mode to test rule-matching isolation without workspace auto-allow
+    testConfig.permissions.mode = "strict";
     // A rule for /home/user/project should NOT match /home/user/project-evil
     // (directory-boundary enforcement in matchesScope)
     const projectDir = "/home/user/project";
