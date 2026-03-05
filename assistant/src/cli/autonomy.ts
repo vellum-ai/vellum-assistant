@@ -2,8 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { Command } from "commander";
+
+import { getCliLogger } from "../util/logger.js";
+
+const log = getCliLogger("cli");
+
 // ---------------------------------------------------------------------------
-// Types & constants (ported from assistant/src/autonomy/types.ts)
+// Types & constants
 // ---------------------------------------------------------------------------
 
 type AutonomyTier = "auto" | "draft" | "notify";
@@ -25,7 +31,7 @@ const DEFAULT_AUTONOMY_CONFIG: AutonomyConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// Config persistence (ported from assistant/src/autonomy/autonomy-store.ts)
+// Config persistence
 // ---------------------------------------------------------------------------
 
 function getConfigPath(): string {
@@ -74,7 +80,7 @@ function loadConfig(): AutonomyConfig {
     const raw = readFileSync(configPath, "utf-8");
     return validateConfig(JSON.parse(raw));
   } catch {
-    console.error("Warning: failed to parse autonomy config; using defaults");
+    log.error("Warning: failed to parse autonomy config; using defaults");
     return structuredClone(DEFAULT_AUTONOMY_CONFIG);
   }
 }
@@ -116,10 +122,8 @@ function applyUpdate(updates: Partial<AutonomyConfig>): AutonomyConfig {
 // Output helpers
 // ---------------------------------------------------------------------------
 
-function output(data: unknown, json: boolean): void {
-  process.stdout.write(
-    json ? JSON.stringify(data) + "\n" : JSON.stringify(data, null, 2) + "\n",
-  );
+function outputJson(data: unknown): void {
+  process.stdout.write(JSON.stringify(data) + "\n");
 }
 
 function formatConfigForHuman(config: AutonomyConfig): string {
@@ -159,162 +163,128 @@ function formatConfigForHuman(config: AutonomyConfig): string {
 }
 
 // ---------------------------------------------------------------------------
-// Arg parsing helpers
+// Command registration
 // ---------------------------------------------------------------------------
 
-function hasFlag(args: string[], flag: string): boolean {
-  return args.includes(flag);
-}
+export function registerAutonomyCommand(program: Command): void {
+  const autonomy = program
+    .command("autonomy")
+    .description("View and configure autonomy tiers");
 
-function getFlagValue(args: string[], flag: string): string | undefined {
-  const idx = args.indexOf(flag);
-  if (idx === -1 || idx + 1 >= args.length) return undefined;
-  return args[idx + 1];
-}
-
-// ---------------------------------------------------------------------------
-// Usage
-// ---------------------------------------------------------------------------
-
-function printUsage(): void {
-  console.log("Usage: vellum autonomy <subcommand> [options]");
-  console.log("");
-  console.log("Subcommands:");
-  console.log(
-    "  get                              Show current autonomy configuration",
-  );
-  console.log("  set --default <tier>             Set the global default tier");
-  console.log("  set --channel <ch> --tier <t>    Set tier for a channel");
-  console.log("  set --category <cat> --tier <t>  Set tier for a category");
-  console.log("  set --contact <id> --tier <t>    Set tier for a contact");
-  console.log("");
-  console.log("Options:");
-  console.log("  --json    Machine-readable JSON output");
-  console.log("");
-  console.log("Tiers: auto, draft, notify");
-}
-
-// ---------------------------------------------------------------------------
-// Command entry point
-// ---------------------------------------------------------------------------
-
-export function autonomy(): void {
-  const args = process.argv.slice(3);
-  const subcommand = args[0];
-  const json = hasFlag(args, "--json");
-
-  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
-    printUsage();
-    return;
-  }
-
-  switch (subcommand) {
-    case "get": {
+  autonomy
+    .command("get")
+    .description("Show current autonomy configuration")
+    .option("--json", "Machine-readable JSON output")
+    .action((opts: { json?: boolean }) => {
       const config = loadConfig();
-      if (json) {
-        output({ ok: true, config }, true);
+      if (opts.json) {
+        outputJson({ ok: true, config });
       } else {
         process.stdout.write("Autonomy configuration:\n\n");
         process.stdout.write(formatConfigForHuman(config) + "\n");
       }
-      break;
-    }
+    });
 
-    case "set": {
-      const defaultTier = getFlagValue(args, "--default");
-      const channel = getFlagValue(args, "--channel");
-      const category = getFlagValue(args, "--category");
-      const contact = getFlagValue(args, "--contact");
-      const tier = getFlagValue(args, "--tier");
-
-      if (defaultTier) {
-        if (!isValidTier(defaultTier)) {
-          output(
-            {
+  autonomy
+    .command("set")
+    .description("Set autonomy tier for default, channel, category, or contact")
+    .option("--json", "Machine-readable JSON output")
+    .option("--default <tier>", "Set the global default tier")
+    .option("--channel <channel>", "Channel to configure")
+    .option("--category <category>", "Category to configure")
+    .option("--contact <contactId>", "Contact to configure")
+    .option("--tier <tier>", "Tier to set (auto, draft, notify)")
+    .action(
+      (opts: {
+        json?: boolean;
+        default?: string;
+        channel?: string;
+        category?: string;
+        contact?: string;
+        tier?: string;
+      }) => {
+        if (opts.default) {
+          if (!isValidTier(opts.default)) {
+            outputJson({
               ok: false,
-              error: `Invalid tier "${defaultTier}". Must be one of: ${AUTONOMY_TIERS.join(", ")}`,
-            },
-            true,
-          );
+              error: `Invalid tier "${opts.default}". Must be one of: ${AUTONOMY_TIERS.join(", ")}`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+          const config = applyUpdate({ defaultTier: opts.default });
+          if (opts.json) {
+            outputJson({ ok: true, config });
+          } else {
+            log.info(`Set global default tier to "${opts.default}".`);
+          }
+          return;
+        }
+
+        if (!opts.tier) {
+          outputJson({
+            ok: false,
+            error: "Missing --tier. Use --tier <auto|draft|notify>.",
+          });
           process.exitCode = 1;
           return;
         }
-        const config = applyUpdate({ defaultTier });
-        if (json) {
-          output({ ok: true, config }, true);
-        } else {
-          console.log(`Set global default tier to "${defaultTier}".`);
-        }
-        return;
-      }
-
-      if (!tier) {
-        output(
-          {
+        if (!isValidTier(opts.tier)) {
+          outputJson({
             ok: false,
-            error: "Missing --tier. Use --tier <auto|draft|notify>.",
-          },
-          true,
+            error: `Invalid tier "${opts.tier}". Must be one of: ${AUTONOMY_TIERS.join(", ")}`,
+          });
+          process.exitCode = 1;
+          return;
+        }
+
+        if (opts.channel) {
+          const config = applyUpdate({
+            channelDefaults: { [opts.channel]: opts.tier },
+          });
+          if (opts.json) {
+            outputJson({ ok: true, config });
+          } else {
+            log.info(
+              `Set channel "${opts.channel}" default to "${opts.tier}".`,
+            );
+          }
+          return;
+        }
+
+        if (opts.category) {
+          const config = applyUpdate({
+            categoryOverrides: { [opts.category]: opts.tier },
+          });
+          if (opts.json) {
+            outputJson({ ok: true, config });
+          } else {
+            log.info(
+              `Set category "${opts.category}" override to "${opts.tier}".`,
+            );
+          }
+          return;
+        }
+
+        if (opts.contact) {
+          const config = applyUpdate({
+            contactOverrides: { [opts.contact]: opts.tier },
+          });
+          if (opts.json) {
+            outputJson({ ok: true, config });
+          } else {
+            log.info(
+              `Set contact "${opts.contact}" override to "${opts.tier}".`,
+            );
+          }
+          return;
+        }
+
+        log.error(
+          "Specify one of: --default <tier>, --channel <channel> --tier <tier>, " +
+            "--category <category> --tier <tier>, or --contact <contactId> --tier <tier>.",
         );
         process.exitCode = 1;
-        return;
-      }
-      if (!isValidTier(tier)) {
-        output(
-          {
-            ok: false,
-            error: `Invalid tier "${tier}". Must be one of: ${AUTONOMY_TIERS.join(", ")}`,
-          },
-          true,
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      if (channel) {
-        const config = applyUpdate({ channelDefaults: { [channel]: tier } });
-        if (json) {
-          output({ ok: true, config }, true);
-        } else {
-          console.log(`Set channel "${channel}" default to "${tier}".`);
-        }
-        return;
-      }
-
-      if (category) {
-        const config = applyUpdate({
-          categoryOverrides: { [category]: tier },
-        });
-        if (json) {
-          output({ ok: true, config }, true);
-        } else {
-          console.log(`Set category "${category}" override to "${tier}".`);
-        }
-        return;
-      }
-
-      if (contact) {
-        const config = applyUpdate({ contactOverrides: { [contact]: tier } });
-        if (json) {
-          output({ ok: true, config }, true);
-        } else {
-          console.log(`Set contact "${contact}" override to "${tier}".`);
-        }
-        return;
-      }
-
-      console.error(
-        "Specify one of: --default <tier>, --channel <channel> --tier <tier>, " +
-          "--category <category> --tier <tier>, or --contact <contactId> --tier <tier>.",
-      );
-      process.exitCode = 1;
-      break;
-    }
-
-    default: {
-      console.error(`Unknown autonomy subcommand: ${subcommand}`);
-      printUsage();
-      process.exit(1);
-    }
-  }
+      },
+    );
 }
