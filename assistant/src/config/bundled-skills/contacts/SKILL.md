@@ -205,18 +205,21 @@ Replace `<channel_id>` with the channel's `id` from the contact's `channels` arr
 Before creating an invite for any channel, check whether that channel is ready to accept messages. Creating an invite for an unready channel produces an unusable invite — the invitee redeems the code but cannot actually reach the assistant.
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/channels/readiness" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum channels readiness --json
 ```
 
 The response contains `{ success: true, snapshots: [...] }` where each snapshot has:
 
 - `channel` -- the channel type (e.g., `telegram`, `email`, `whatsapp`, `sms`, `slack`, `voice`)
 - `ready` -- boolean indicating whether the channel is fully operational
+- `checkedAt` -- timestamp (ms since epoch) of when readiness was evaluated
+- `stale` -- boolean indicating whether cached remote check data is outdated
+- `reasons` -- array of `{ code, text }` objects summarizing why the channel is not ready (empty when ready)
 - `localChecks` -- array of local prerequisite checks, each with `name`, `passed` (boolean), and `message` (human-readable explanation)
 - `remoteChecks` -- optional array of remote prerequisite checks (same shape: `name`, `passed`, `message`), present when the channel supports remote verification (e.g. confirming an email inbox exists)
+- `channelHandle` -- optional human-readable channel identifier (e.g. bot username, phone number, email address)
 
-If the target channel's `ready` field is `false`, do **not** create the invite. Instead, tell the guardian which prerequisites are missing (from the `localChecks` and `remoteChecks` arrays — look for entries with `passed: false`) so they can resolve them first.
+If the target channel's `ready` field is `false`, do **not** create the invite. Instead, tell the guardian which prerequisites are missing (from `reasons` or from the `localChecks`/`remoteChecks` arrays — look for entries with `passed: false`) so they can resolve them first.
 
 ## Invite Links
 
