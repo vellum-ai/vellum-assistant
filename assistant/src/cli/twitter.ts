@@ -166,7 +166,7 @@ export function registerTwitterCommand(program: Command): void {
 
           // Hide Chrome after capturing session
           try {
-            await minimizeChromeWindow();
+            await minimizeChromeWindow(); // uses default CDP port
           } catch {
             /* best-effort */
           }
@@ -613,108 +613,13 @@ function sendDaemonMessage(
 }
 
 // ---------------------------------------------------------------------------
-// Chrome CDP restart helper
+// Chrome CDP helpers (shared)
 // ---------------------------------------------------------------------------
 
-import { spawn as spawnChild } from "node:child_process";
-import { homedir } from "node:os";
-import { join as pathJoin } from "node:path";
-
-const CDP_BASE = "http://localhost:9222";
-const CHROME_DATA_DIR = pathJoin(
-  homedir(),
-  "Library/Application Support/Google/Chrome-CDP",
-);
-
-async function isCdpReady(): Promise<boolean> {
-  try {
-    const res = await fetch(`${CDP_BASE}/json/version`);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureChromeWithCDP(): Promise<void> {
-  // Already running with CDP?
-  if (await isCdpReady()) return;
-
-  // Launch a separate Chrome instance with CDP flags alongside any existing Chrome.
-  // Using a dedicated --user-data-dir allows coexistence without killing the user's browser.
-  const chromeApp =
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  spawnChild(
-    chromeApp,
-    [
-      `--remote-debugging-port=9222`,
-      `--force-renderer-accessibility`,
-      `--user-data-dir=${CHROME_DATA_DIR}`,
-      "https://x.com/login",
-    ],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  ).unref();
-
-  // Wait for CDP to be ready
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (await isCdpReady()) return;
-  }
-  throw new Error("Chrome started but CDP endpoint not responding after 15s");
-}
-
-async function minimizeChromeWindow(): Promise<void> {
-  const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{
-    type: string;
-    webSocketDebuggerUrl: string;
-  }>;
-  const pageTarget = targets.find((t) => t.type === "page");
-  if (!pageTarget) return;
-
-  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("CDP minimize timed out"));
-    }, 5000);
-
-    ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data)) as {
-        id: number;
-        result?: { windowId: number };
-      };
-      if (msg.id === 1 && msg.result) {
-        ws.send(
-          JSON.stringify({
-            id: 2,
-            method: "Browser.setWindowBounds",
-            params: {
-              windowId: msg.result.windowId,
-              bounds: { windowState: "minimized" },
-            },
-          }),
-        );
-      } else if (msg.id === 2) {
-        clearTimeout(timeout);
-        ws.close();
-        resolve();
-      }
-    });
-
-    ws.addEventListener("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
+import {
+  ensureChromeWithCdp,
+  minimizeChromeWindow,
+} from "../tools/browser/chrome-cdp.js";
 
 // ---------------------------------------------------------------------------
 // Ride Shotgun learn session helper
@@ -725,9 +630,9 @@ interface LearnResult {
   recordingPath?: string;
 }
 
-async function navigateToX(): Promise<void> {
+async function navigateToX(cdpBase: string): Promise<void> {
   try {
-    const res = await fetch(`${CDP_BASE}/json/list`);
+    const res = await fetch(`${cdpBase}/json/list`);
     if (!res.ok) return;
     const targets = (await res.json()) as Array<{
       id: string;
@@ -737,7 +642,7 @@ async function navigateToX(): Promise<void> {
     const tab = targets.find((t) => t.type === "page");
     if (!tab) return;
     await fetch(
-      `${CDP_BASE}/json/navigate?url=${encodeURIComponent(
+      `${cdpBase}/json/navigate?url=${encodeURIComponent(
         "https://x.com/login",
       )}&id=${tab.id}`,
       { method: "PUT" },
@@ -750,8 +655,10 @@ async function navigateToX(): Promise<void> {
 async function startLearnSession(
   durationSeconds: number,
 ): Promise<LearnResult> {
-  await ensureChromeWithCDP();
-  await navigateToX();
+  const cdpSession = await ensureChromeWithCdp({
+    startUrl: "https://x.com/login",
+  });
+  await navigateToX(cdpSession.baseUrl);
 
   return new Promise((resolve, reject) => {
     const socketPath = getSocketPath();
