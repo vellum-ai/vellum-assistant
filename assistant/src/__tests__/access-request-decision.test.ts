@@ -333,7 +333,8 @@ describe("access request notification delivery", () => {
 
   test("slack approval notification is sent as DM using requesterExternalUserId", async () => {
     await notifyRequesterOfApproval({
-      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      replyCallbackUrl:
+        "http://localhost:7830/deliver/slack?threadTs=1234.5678",
       requesterChatId: "C12345-channel",
       requesterExternalUserId: "U98765-user",
       channel: "slack",
@@ -345,11 +346,14 @@ describe("access request notification delivery", () => {
     const call = deliverReplyCalls[0];
     // Should target the user ID (DM) not the channel
     expect(call.payload.chatId).toBe("U98765-user");
+    // threadTs should be stripped — it belongs to the guardian's channel thread
+    expect(call.url).not.toContain("threadTs");
   });
 
   test("slack denial notification is sent as DM using requesterExternalUserId", async () => {
     await notifyRequesterOfDenial({
-      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      replyCallbackUrl:
+        "http://localhost:7830/deliver/slack?threadTs=1234.5678",
       requesterChatId: "C12345-channel",
       requesterExternalUserId: "U98765-user",
       channel: "slack",
@@ -360,11 +364,13 @@ describe("access request notification delivery", () => {
     expect(deliverReplyCalls.length).toBe(1);
     const call = deliverReplyCalls[0];
     expect(call.payload.chatId).toBe("U98765-user");
+    expect(call.url).not.toContain("threadTs");
   });
 
   test("slack delivery failure notification is sent as DM using requesterExternalUserId", async () => {
     await notifyRequesterOfDeliveryFailure({
-      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      replyCallbackUrl:
+        "http://localhost:7830/deliver/slack?threadTs=1234.5678",
       requesterChatId: "C12345-channel",
       requesterExternalUserId: "U98765-user",
       channel: "slack",
@@ -375,11 +381,13 @@ describe("access request notification delivery", () => {
     expect(deliverReplyCalls.length).toBe(1);
     const call = deliverReplyCalls[0];
     expect(call.payload.chatId).toBe("U98765-user");
+    expect(call.url).not.toContain("threadTs");
   });
 
-  test("non-slack channels still use requesterChatId", async () => {
+  test("non-slack channels still use requesterChatId and preserve threadTs", async () => {
     await notifyRequesterOfApproval({
-      replyCallbackUrl: "http://localhost:7830/deliver/telegram",
+      replyCallbackUrl:
+        "http://localhost:7830/deliver/telegram?threadTs=1234.5678",
       requesterChatId: "chat-123",
       requesterExternalUserId: "user-456",
       channel: "telegram",
@@ -389,6 +397,8 @@ describe("access request notification delivery", () => {
 
     expect(deliverReplyCalls.length).toBe(1);
     expect(deliverReplyCalls[0].payload.chatId).toBe("chat-123");
+    // threadTs should be preserved for non-slack channels
+    expect(deliverReplyCalls[0].url).toContain("threadTs=1234.5678");
   });
 
   test("slack without requesterExternalUserId falls back to requesterChatId", async () => {
