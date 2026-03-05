@@ -340,8 +340,6 @@ struct SettingsAccountTab: View {
         if assistant.isRemote { return true }
         // Mid-transition — prevent double-toggle
         if transitioningStates.contains(assistant.assistantId) { return true }
-        // Can't sleep the currently active assistant
-        if assistant.assistantId == selectedAssistantId && (awakeStates[assistant.assistantId] ?? false) { return true }
         return false
     }
 
@@ -369,6 +367,16 @@ struct SettingsAccountTab: View {
                     try await cli.sleep(name: assistant.assistantId)
                 }
                 awakeStates[assistant.assistantId] = awake
+                // If we just slept the active assistant, auto-switch to
+                // another awake one so the app stays connected.
+                if !awake && assistant.assistantId == selectedAssistantId {
+                    if let next = lockfileAssistants.first(where: {
+                        $0.assistantId != assistant.assistantId && (awakeStates[$0.assistantId] ?? false)
+                    }) {
+                        switchToAssistant(next)
+                        selectedAssistantId = next.assistantId
+                    }
+                }
             } catch {
                 // On failure, re-check actual state
                 let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
