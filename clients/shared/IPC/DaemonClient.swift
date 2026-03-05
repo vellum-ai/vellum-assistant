@@ -1368,7 +1368,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             bearerToken = httpTransport.bearerToken
         } else if let gatewayBaseURL {
             baseURL = gatewayBaseURL
-            bearerToken = readHttpToken()
+            bearerToken = ActorTokenManager.getToken() ?? readHttpToken()
         } else {
             return nil
         }
@@ -1688,7 +1688,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = readHttpToken(), !token.isEmpty {
+        if let token = ActorTokenManager.getToken() ?? readHttpToken(), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -1748,7 +1748,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = readHttpToken(), !token.isEmpty {
+        if let token = ActorTokenManager.getToken() ?? readHttpToken(), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -1835,12 +1835,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let flags: [AssistantFeatureFlag]
     }
 
-    /// Resolve the runtime bearer token from either `httpTransport` or the on-disk token file.
+    /// Resolve the runtime bearer token from either `httpTransport`, the JWT access token, or the on-disk token file.
     /// Returns `nil` when no runtime token is available.
     private func resolveRuntimeBearerToken() -> String? {
         if let httpTransport = self.httpTransport, let bt = httpTransport.bearerToken, !bt.isEmpty {
             return bt
         }
+        if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty { return jwt }
         return readHttpToken()
     }
 
