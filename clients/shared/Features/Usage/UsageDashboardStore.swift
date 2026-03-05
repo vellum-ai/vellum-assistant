@@ -73,6 +73,11 @@ public final class UsageDashboardStore {
 
     private let client: any DaemonClientProtocol
 
+    /// Generation counters to discard results from stale in-flight requests
+    /// when the user changes filters faster than fetches complete.
+    private var refreshGeneration: UInt = 0
+    private var breakdownGeneration: UInt = 0
+
     public init(client: any DaemonClientProtocol) {
         self.client = client
     }
@@ -81,6 +86,9 @@ public final class UsageDashboardStore {
 
     /// Load all usage data (totals, daily, breakdown) for the currently selected range.
     public func refresh() async {
+        refreshGeneration &+= 1
+        let capturedGeneration = refreshGeneration
+
         let range = selectedRange.epochMillisRange()
 
         totalsState = .loading
@@ -96,6 +104,8 @@ public final class UsageDashboardStore {
         let totals = await totalsResult
         let daily = await dailyResult
         let breakdown = await breakdownResult
+
+        guard capturedGeneration == refreshGeneration else { return }
 
         if let totals {
             totalsState = .loaded(totals)
@@ -125,6 +135,8 @@ public final class UsageDashboardStore {
     /// Convenience to change the group-by dimension and refresh the breakdown.
     public func selectGroupBy(_ dimension: UsageGroupByDimension) async {
         selectedGroupBy = dimension
+        breakdownGeneration &+= 1
+        let capturedGeneration = breakdownGeneration
 
         let range = selectedRange.epochMillisRange()
         breakdownState = .loading
@@ -132,6 +144,9 @@ public final class UsageDashboardStore {
         let result = await client.fetchUsageBreakdown(
             from: range.from, to: range.to, groupBy: dimension.rawValue
         )
+
+        guard capturedGeneration == breakdownGeneration else { return }
+
         if let result {
             breakdownState = .loaded(result)
         } else {

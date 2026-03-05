@@ -293,6 +293,172 @@ struct UsageDashboardStoreGroupTests {
     }
 }
 
+// MARK: - Delayed Mock Client (for race-condition tests)
+
+/// A mock client where each fetch method blocks on a continuation until the
+/// test explicitly resumes it — giving full control over completion order.
+@MainActor
+private final class DelayedMockUsageClient: DaemonClientProtocol {
+    var isConnected: Bool = true
+    var isBlobTransportAvailable: Bool = false
+
+    func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
+    func send<T: Encodable>(_ message: T) throws {}
+    func connect() async throws {}
+    func disconnect() {}
+    func startSSE() {}
+    func stopSSE() {}
+
+    /// Each call to a fetch method appends a continuation here.
+    /// Tests pop and resume them in whatever order they want.
+    var totalsContinuations: [CheckedContinuation<UsageTotalsResponse?, Never>] = []
+    var dailyContinuations: [CheckedContinuation<UsageDailyResponse?, Never>] = []
+    var breakdownContinuations: [CheckedContinuation<UsageBreakdownResponse?, Never>] = []
+
+    func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
+        await withCheckedContinuation { continuation in
+            totalsContinuations.append(continuation)
+        }
+    }
+
+    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
+        await withCheckedContinuation { continuation in
+            dailyContinuations.append(continuation)
+        }
+    }
+
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
+        await withCheckedContinuation { continuation in
+            breakdownContinuations.append(continuation)
+        }
+    }
+}
+
+// MARK: - Race Condition Tests
+
+@Suite("UsageDashboardStore — Race Condition Guards")
+struct UsageDashboardStoreRaceTests {
+
+    private static func makeTotals(inputTokens: Int) -> UsageTotalsResponse {
+        UsageTotalsResponse(
+            totalInputTokens: inputTokens, totalOutputTokens: 0,
+            totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0, eventCount: 0,
+            pricedEventCount: 0, unpricedEventCount: 0
+        )
+    }
+
+    private static func makeDaily() -> UsageDailyResponse {
+        UsageDailyResponse(buckets: [])
+    }
+
+    private static func makeBreakdown(group: String) -> UsageBreakdownResponse {
+        UsageBreakdownResponse(breakdown: [
+            UsageGroupBreakdownEntry(
+                group: group, totalInputTokens: 0, totalOutputTokens: 0,
+                totalEstimatedCostUsd: 0, eventCount: 0
+            )
+        ])
+    }
+
+    /// Yield the main actor repeatedly until `condition` becomes true.
+    @MainActor
+    private static func yieldUntil(_ condition: () -> Bool) async {
+        for _ in 0..<100 {
+            if condition() { return }
+            await Task.yield()
+        }
+    }
+
+    @Test @MainActor
+    func staleRefreshResultsAreDiscarded() async {
+        let client = DelayedMockUsageClient()
+        let store = UsageDashboardStore(client: client)
+
+        // Launch first refresh (simulates selecting "Last 7 Days")
+        let firstRefresh = Task { @MainActor in await store.selectRange(.last7Days) }
+        // Wait until the first refresh's fetch calls have registered their continuations
+        await Self.yieldUntil { client.totalsContinuations.count >= 1 }
+
+        // Launch second refresh before the first completes (simulates rapid re-select)
+        let secondRefresh = Task { @MainActor in await store.selectRange(.last30Days) }
+        // Wait until the second refresh's continuations are all registered
+        await Self.yieldUntil {
+            client.totalsContinuations.count >= 2
+            && client.dailyContinuations.count >= 2
+            && client.breakdownContinuations.count >= 2
+        }
+
+        // Complete the SECOND request first (the "latest" one).
+        #expect(client.totalsContinuations.count == 2)
+        client.totalsContinuations[1].resume(returning: Self.makeTotals(inputTokens: 999))
+        client.dailyContinuations[1].resume(returning: Self.makeDaily())
+        client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "latest"))
+        await secondRefresh.value
+
+        // Store should now show the second request's data
+        if case .loaded(let totals) = store.totalsState {
+            #expect(totals.totalInputTokens == 999)
+        } else {
+            Issue.record("Expected .loaded state after second refresh")
+        }
+
+        // Now complete the FIRST (stale) request — it should NOT overwrite the store
+        client.totalsContinuations[0].resume(returning: Self.makeTotals(inputTokens: 111))
+        client.dailyContinuations[0].resume(returning: Self.makeDaily())
+        client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "stale"))
+        await firstRefresh.value
+
+        // Verify the store still holds the second request's data, not the stale first
+        if case .loaded(let totals) = store.totalsState {
+            #expect(totals.totalInputTokens == 999, "Stale refresh should not overwrite newer data")
+        } else {
+            Issue.record("Store state was overwritten by stale refresh")
+        }
+
+        if case .loaded(let breakdown) = store.breakdownState {
+            #expect(breakdown.breakdown[0].group == "latest", "Stale breakdown should not overwrite newer data")
+        } else {
+            Issue.record("Breakdown state was overwritten by stale refresh")
+        }
+    }
+
+    @Test @MainActor
+    func staleSelectGroupByResultsAreDiscarded() async {
+        let client = DelayedMockUsageClient()
+        let store = UsageDashboardStore(client: client)
+
+        // Launch first selectGroupBy
+        let first = Task { @MainActor in await store.selectGroupBy(.model) }
+        await Self.yieldUntil { client.breakdownContinuations.count >= 1 }
+
+        // Launch second selectGroupBy before the first completes
+        let second = Task { @MainActor in await store.selectGroupBy(.provider) }
+        await Self.yieldUntil { client.breakdownContinuations.count >= 2 }
+
+        // Complete the second (latest) request first
+        #expect(client.breakdownContinuations.count == 2)
+        client.breakdownContinuations[1].resume(returning: Self.makeBreakdown(group: "provider-result"))
+        await second.value
+
+        if case .loaded(let breakdown) = store.breakdownState {
+            #expect(breakdown.breakdown[0].group == "provider-result")
+        } else {
+            Issue.record("Expected .loaded state after second selectGroupBy")
+        }
+
+        // Complete the first (stale) request — should be discarded
+        client.breakdownContinuations[0].resume(returning: Self.makeBreakdown(group: "model-stale"))
+        await first.value
+
+        if case .loaded(let breakdown) = store.breakdownState {
+            #expect(breakdown.breakdown[0].group == "provider-result", "Stale selectGroupBy should not overwrite newer data")
+        } else {
+            Issue.record("Breakdown state was overwritten by stale selectGroupBy")
+        }
+    }
+}
+
 // MARK: - Time Range Bounds
 
 @Suite("UsageTimeRange — Epoch Bounds")
