@@ -1,4 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
+import { tableHasColumn } from "./schema-introspection.js";
 
 /**
  * Add bootstrap_token_hash column to channel_guardian_verification_challenges.
@@ -16,7 +17,19 @@ export function migrateGuardianBootstrapToken(database: DrizzleDb): void {
   }
 
   // Index for looking up pending_bootstrap sessions by bootstrap token hash
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_bootstrap ON channel_guardian_verification_challenges(assistant_id, channel, bootstrap_token_hash, status)`,
-  );
+  if (
+    tableHasColumn(
+      database,
+      "channel_guardian_verification_challenges",
+      "assistant_id",
+    )
+  ) {
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_bootstrap ON channel_guardian_verification_challenges(assistant_id, channel, bootstrap_token_hash, status)`,
+    );
+  } else {
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_bootstrap ON channel_guardian_verification_challenges(channel, bootstrap_token_hash, status)`,
+    );
+  }
 }
