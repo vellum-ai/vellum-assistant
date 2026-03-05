@@ -10,6 +10,9 @@ struct RecordingSourcePickerView: View {
     var onStart: (IPCRecordingOptions) -> Void
     var onCancel: () -> Void
 
+    @State private var hoveredDisplayId: UInt32?
+    @State private var hoveredWindowId: Int?
+
     /// Row thumbnail size (80x50pt).
     private let rowThumbnailSize = CGSize(width: 80, height: 50)
     /// Preview pane height.
@@ -136,6 +139,8 @@ struct RecordingSourcePickerView: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.xs)
+        .animation(VAnimation.fast, value: hoveredDisplayId)
+        .animation(VAnimation.fast, value: hoveredWindowId)
     }
 
     /// Source list that hugs content when items fit, scrolls when they overflow.
@@ -197,7 +202,7 @@ struct RecordingSourcePickerView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
+                    .fill(isSelected ? VColor.accent.opacity(0.1) : (hoveredWindowId == window.id ? VColor.ghostHover : Color.clear))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -205,6 +210,7 @@ struct RecordingSourcePickerView: View {
             )
         }
         .buttonStyle(.plain)
+        .onHover { hovering in hoveredWindowId = hovering ? window.id : nil }
     }
 
     /// Row for a display source showing name, resolution + scale, and a badge
@@ -252,7 +258,7 @@ struct RecordingSourcePickerView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
+                    .fill(isSelected ? VColor.accent.opacity(0.1) : (hoveredDisplayId == display.id ? VColor.ghostHover : Color.clear))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -260,6 +266,7 @@ struct RecordingSourcePickerView: View {
             )
         }
         .buttonStyle(.plain)
+        .onHover { hovering in hoveredDisplayId = hovering ? display.id : nil }
     }
 
     private func emptyState(_ message: String) -> some View {
