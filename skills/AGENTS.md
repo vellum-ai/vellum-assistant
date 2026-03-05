@@ -12,6 +12,7 @@
 
 - **Write portable instructions**
   - Avoid referring to tools by specific names (prefer "Take a browser screenshot" over "Use browser_screen_grab")
+  - It is fine to refer to tools/utils/etc. directly by name if it is bundled with the skill (likely in `scripts/`)
   - Use standard frontmatter according to the [Agent Skills specification](https://agentskills.io/home) — linters validate this
 
 - **Vellum-specific extensions**
