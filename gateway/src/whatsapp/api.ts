@@ -306,6 +306,129 @@ export async function sendWhatsAppInteractiveMessage(
  * Mark an incoming WhatsApp message as read.
  * Best-effort — callers should not propagate errors from this.
  */
+export interface WhatsAppMediaMetadata {
+  url: string;
+  mime_type: string;
+  sha256: string;
+  file_size: number;
+  id: string;
+}
+
+/**
+ * Resolve media metadata (download URL, MIME type, size) from a WhatsApp media ID.
+ * The returned URL is short-lived and requires the access token as a Bearer header.
+ */
+export async function getWhatsAppMediaMetadata(
+  config: GatewayConfig,
+  mediaId: string,
+): Promise<WhatsAppMediaMetadata> {
+  if (!config.whatsappAccessToken) {
+    throw new Error("WhatsApp credentials not configured");
+  }
+
+  return retryableWhatsAppFetch<WhatsAppMediaMetadata>(
+    config,
+    "getMediaMetadata",
+    () =>
+      fetchImpl(`${WHATSAPP_API_BASE}/${mediaId}`, {
+        headers: {
+          Authorization: `Bearer ${config.whatsappAccessToken}`,
+        },
+        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      }),
+  );
+}
+
+/**
+ * Download the raw bytes of a WhatsApp media object given its CDN URL.
+ * The URL comes from getWhatsAppMediaMetadata and requires the access token.
+ * Returns the raw Response so callers can stream or buffer as needed.
+ */
+export async function downloadWhatsAppMediaBytes(
+  config: GatewayConfig,
+  mediaUrl: string,
+): Promise<Response> {
+  if (!config.whatsappAccessToken) {
+    throw new Error("WhatsApp credentials not configured");
+  }
+
+  return retryableWhatsAppRawFetch(config, "downloadMedia", () =>
+    fetchImpl(mediaUrl, {
+      headers: {
+        Authorization: `Bearer ${config.whatsappAccessToken}`,
+      },
+      signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+    }),
+  );
+}
+
+/**
+ * Like retryableWhatsAppFetch but returns the raw Response instead of parsing JSON.
+ * Used for binary downloads where the response body is not JSON.
+ */
+async function retryableWhatsAppRawFetch(
+  config: GatewayConfig,
+  operation: string,
+  doFetch: () => Promise<Response>,
+): Promise<Response> {
+  let lastError: Error | null = null;
+  let lastRetryAfter: string | null = null;
+
+  for (let attempt = 0; attempt <= config.whatsappMaxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = computeDelay(
+        attempt,
+        config.whatsappInitialBackoffMs,
+        lastRetryAfter,
+      );
+      log.debug({ attempt, delay, operation }, "Retrying WhatsApp API call");
+      await new Promise((r) => setTimeout(r, delay));
+    }
+
+    lastRetryAfter = null;
+
+    let response: Response;
+    try {
+      response = await doFetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      lastError = new Error(`WhatsApp ${operation} request failed: ${message}`);
+      log.warn(
+        { error: message, attempt, operation },
+        "WhatsApp API fetch failed",
+      );
+      continue;
+    }
+
+    if (!isRetryable(response.status) && !response.ok) {
+      throw new Error(
+        `WhatsApp ${operation} failed with status ${response.status}`,
+      );
+    }
+
+    if (isRetryable(response.status)) {
+      lastRetryAfter = response.headers.get("retry-after");
+      lastError = new Error(
+        `WhatsApp ${operation} failed with status ${response.status}`,
+      );
+      log.warn(
+        {
+          status: response.status,
+          attempt,
+          operation,
+          retryAfter: lastRetryAfter,
+        },
+        "WhatsApp API returned retryable error",
+      );
+      continue;
+    }
+
+    return response;
+  }
+
+  throw lastError ?? new Error(`WhatsApp ${operation} failed after retries`);
+}
+
 export async function markWhatsAppMessageRead(
   config: GatewayConfig,
   messageId: string,
