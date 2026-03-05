@@ -8,6 +8,7 @@ Bun + TypeScript monorepo with multiple packages:
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
 - `scripts/` — Utility scripts
+- `skills/` — First-party skill catalog (portable skill packages). See `skills/AGENTS.md`.
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories.
 
 ## Conventions
