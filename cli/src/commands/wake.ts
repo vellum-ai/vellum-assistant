@@ -77,8 +77,8 @@ export async function wake(): Promise<void> {
     await startLocalDaemon(watch, resources);
   }
 
-  // Start gateway (non-desktop only)
-  if (!process.env.VELLUM_DESKTOP_APP) {
+  // Start gateway
+  {
     const vellumDir = join(resources.instanceDir, ".vellum");
     const gatewayPidFile = join(vellumDir, "gateway.pid");
     const { alive, pid } = isProcessAlive(gatewayPidFile);
