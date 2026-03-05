@@ -591,6 +591,14 @@ export class RelayConnection {
         this.startNameCapture(outcome.assistantId, outcome.fromNumber);
         return;
       case "guardian_verification":
+        if (resolved.actorTrust.memberRecord) {
+          touchContactInteraction(resolved.actorTrust.memberRecord.contact.id);
+        }
+        if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
+          this.controller.setTrustContext(
+            toTrustContext(resolved.actorTrust, msg.from),
+          );
+        }
         this.startInboundGuardianVerification(
           outcome.assistantId,
           outcome.fromNumber,
