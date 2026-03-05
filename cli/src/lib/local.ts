@@ -401,9 +401,12 @@ function normalizeIngressUrl(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
-function readWorkspaceIngressPublicBaseUrl(): string | undefined {
+function readWorkspaceIngressPublicBaseUrl(
+  instanceDir?: string,
+): string | undefined {
   const baseDataDir =
-    process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir());
+    instanceDir ??
+    (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
   const workspaceConfigPath = join(
     baseDataDir,
     ".vellum",
@@ -911,7 +914,9 @@ export async function startGateway(
   if (resolvedAssistantId) {
     gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID = resolvedAssistantId;
   }
-  const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
+  const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl(
+    resources?.instanceDir,
+  );
   const ingressPublicBaseUrl =
     workspaceIngressPublicBaseUrl ??
     normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL) ??
