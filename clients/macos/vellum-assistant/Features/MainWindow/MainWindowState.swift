@@ -92,8 +92,6 @@ public final class MainWindowState: ObservableObject {
     /// app-editing mode (which shows a chat dock alongside the app),
     /// and panel mode when the chat bubble is enabled (split-view with
     /// a live conversation alongside the panel).
-    /// Used by zoom intent routing to decide whether Cmd+/- should
-    /// target conversation text zoom or fall through to window zoom.
     public var isConversationVisible: Bool {
         switch selection {
         case .thread, .none, .appEditing: return true
