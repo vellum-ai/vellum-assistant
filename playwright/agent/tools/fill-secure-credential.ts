@@ -6,14 +6,15 @@
  * This tool uses AppleScript to:
  *   1. Find the panel via its accessibility identifier
  *   2. Focus the SecureField
- *   3. Type the env var value
+ *   3. Paste the env var value via clipboard (generates real input events that
+ *      update SwiftUI's @State binding, unlike `set value` which doesn't)
  *   4. Click Save using a three-strategy cascade:
  *      - Strategy 1: AXIdentifier — reads `value of attribute "AXIdentifier"` to
  *        match the SwiftUI `.accessibilityIdentifier("secure-credential-save")`
  *      - Strategy 2: Name/title — checks `name of elem` / `title of elem` for "Save",
  *        backed by explicit `.accessibilityLabel("Save")` on the SwiftUI button
- *      - Strategy 3: Positional fallback — clicks the first non-Cancel button,
- *        skipping buttons whose AXIdentifier is "secure-credential-cancel"
+ *      - Strategy 3: Positional fallback — clicks the second button by count,
+ *        skipping Cancel (first) to land on Save (second)
  *
  * The secret value is never returned in the tool result.
  */
@@ -121,7 +122,15 @@ tell application "System Events"
       error "Could not find a Secure Credential panel window"
     end if
 
+    -- Save the current clipboard so we can restore it after pasting.
+    set savedClip to ""
+    try
+      set savedClip to the clipboard as text
+    end try
+
     -- Find and fill the text field using entire contents (works regardless of nesting depth).
+    -- We use clipboard paste instead of `set value` because SecureField's SwiftUI
+    -- @State binding only updates from real input events, not programmatic value sets.
     set foundField to false
     set allElems to entire contents of credentialWindow
     repeat with elem in allElems
@@ -134,18 +143,28 @@ tell application "System Events"
           -- Clear any existing content
           keystroke "a" using command down
           delay 0.1
-          set value of elem to "${escaped}"
+          set the clipboard to "${escaped}"
+          delay 0.1
+          keystroke "v" using command down
+          delay 0.3
           set foundField to true
           exit repeat
         end if
       end try
     end repeat
 
+    -- Restore the clipboard to its original value.
+    set the clipboard to savedClip
+
     if not foundField then
       error "Could not find or focus the text field in the Secure Credential panel"
     end if
 
-    delay 0.3
+    -- Wait for SwiftUI to re-render (the Save button becomes enabled after input).
+    delay 0.5
+
+    -- Re-query AX elements so button references are fresh after the fill.
+    set allElems to entire contents of credentialWindow
 
     -- Click the Save button.
     -- We search entire contents for a button with the accessibility identifier or name "Save".
@@ -180,16 +199,17 @@ tell application "System Events"
       end repeat
     end if
 
-    -- Strategy 3: Positional fallback — click the first non-Cancel button.
-    -- The AX tree order is: Cancel, Save, [Send Once]. Taking the last button
-    -- would pick "Send Once" when allowOneTimeSend is true, so we skip Cancel
-    -- (identified by AXIdentifier) and take the first remaining button (Save).
+    -- Strategy 3: Positional fallback — click the second button (Save).
+    -- The AX tree order is: Cancel, Save, [Send Once]. The panel uses .hudWindow
+    -- style with a hidden titlebar so no system buttons exist. We skip the first
+    -- button (Cancel) and click the second (Save) by counting.
     if not clickedSave then
+      set buttonCount to 0
       repeat with elem in allElems
         try
           if class of elem is button then
-            set elemId to value of attribute "AXIdentifier" of elem
-            if elemId is not "secure-credential-cancel" then
+            set buttonCount to buttonCount + 1
+            if buttonCount is 2 then
               click elem
               set clickedSave to true
               exit repeat
