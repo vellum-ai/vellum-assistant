@@ -796,6 +796,18 @@ final class AssistantCli {
             if let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
                 env["RUNTIME_HTTP_PORT"] = port
             }
+            // Tell the daemon where the keychain broker socket is.
+            // Only set in release builds where the broker is running.
+            #if !DEBUG
+            let brokerBaseDir: String
+            if let baseDir = fullEnv["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+                brokerBaseDir = (baseDir as NSString).appendingPathComponent(".vellum")
+            } else {
+                brokerBaseDir = (NSHomeDirectory() as NSString).appendingPathComponent(".vellum")
+            }
+            env["VELLUM_KEYCHAIN_BROKER_SOCKET"] = (brokerBaseDir as NSString)
+                .appendingPathComponent("keychain-broker.sock")
+            #endif
             // Fall back to UserDefaults for the Anthropic API key when
             // it's not in the process environment (e.g. app launched from
             // Finder, not a terminal with ANTHROPIC_API_KEY set).

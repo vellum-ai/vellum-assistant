@@ -89,6 +89,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     #if DEBUG
     var galleryWindow: ComponentGalleryWindow?
     #endif
+    #if !DEBUG
+    var keychainBroker: KeychainBrokerServer?
+    #endif
     var windowObserver: Any?
     weak var recordingViewModel: ChatViewModel?
     /// Text that was in the chat input before PTT voice recording started,
@@ -320,6 +323,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
         debugStateWriter.stop()
+        #if !DEBUG
+        keychainBroker?.stop()
+        #endif
         assistantCli.stop()
     }
 

@@ -133,6 +133,13 @@ extension AppDelegate {
             setenv("RUNTIME_HTTP_PORT", "7821", 0)
         }
 
+        // Start the keychain broker before the daemon so it is listening
+        // when the daemon process launches and reads the socket path.
+        #if !DEBUG
+        keychainBroker = KeychainBrokerServer()
+        keychainBroker?.start()
+        #endif
+
         configureDaemonTransport(for: assistant)
 
         // Rebind the menu bar icon observer after transport reconfiguration
@@ -448,6 +455,9 @@ extension AppDelegate {
 
     func setupAutoUpdate() {
         updateManager.onWillInstallUpdate = { [weak self] in
+            #if !DEBUG
+            self?.keychainBroker?.stop()
+            #endif
             self?.assistantCli.stop()
         }
         updateManager.startAutomaticChecks()
