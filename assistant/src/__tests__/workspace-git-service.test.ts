@@ -655,7 +655,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const oldGitignore =
-        "# Runtime state - excluded from git tracking\ndata/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\nhttp-token\n";
+        "# Runtime state - excluded from git tracking\ndata/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\n";
       writeFileSync(join(testDir, ".gitignore"), oldGitignore);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });
