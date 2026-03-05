@@ -455,7 +455,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
               text,
             );
           },
-          log,
+          tlog,
         );
       }
 
