@@ -382,24 +382,47 @@ struct ContactDetailView: View {
                 Text("Not set up")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
+            }
 
+            // Guardian contacts get the full verification flow; others get invite button
+            if displayContact.role == "guardian" {
+                if Self.guardianSupportedChannels.contains(type), let store {
+                    let state = store.guardianChannelState(for: type)
+                    let destinationBinding = Binding<String>(
+                        get: { guardianDestinationTexts[type] ?? "" },
+                        set: { guardianDestinationTexts[type] = $0 }
+                    )
+                    GuardianVerificationFlowView(
+                        state: state,
+                        countdownNow: $guardianCountdownNow,
+                        destinationText: destinationBinding,
+                        onStartOutbound: { dest in store.startOutboundGuardianVerification(channel: type, destination: dest) },
+                        onResend: { store.resendOutboundGuardian(channel: type) },
+                        onCancelOutbound: { store.cancelOutboundGuardian(channel: type) },
+                        onRevoke: { store.revokeChannelGuardian(channel: type) },
+                        onStartChallenge: { rebind in store.startChannelGuardianVerification(channel: type, rebind: rebind) },
+                        onCancelChallenge: { store.cancelGuardianChallenge(channel: type) },
+                        botUsername: store.telegramBotUsername,
+                        phoneNumber: store.twilioPhoneNumber,
+                        showLabel: false
+                    )
+                }
+            } else if type != "voice" {
                 // Voice invites require additional fields (phone number, friend/guardian
                 // names) that aren't available in this context, so hide the button.
                 // Row visibility is already gated on channelReadiness[type]?.ready == true,
                 // so no additional readiness check is needed here.
-                if displayContact.role != "guardian" && type != "voice" {
-                    if inviteInProgress == type {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        VButton(
-                            label: "Invite",
-                            style: .secondary,
-                            size: .medium,
-                            isDisabled: inviteInProgress != nil
-                        ) {
-                            createInviteForChannel(type: type)
-                        }
+                if inviteInProgress == type {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    VButton(
+                        label: "Invite",
+                        style: .secondary,
+                        size: .medium,
+                        isDisabled: inviteInProgress != nil
+                    ) {
+                        createInviteForChannel(type: type)
                     }
                 }
             }
