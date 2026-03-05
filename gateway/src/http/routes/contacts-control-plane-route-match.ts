@@ -7,7 +7,8 @@ export type ContactsControlPlaneRoute =
   | { kind: "listInvites" }
   | { kind: "createInvite" }
   | { kind: "redeemInvite" }
-  | { kind: "revokeInvite"; inviteId: string };
+  | { kind: "revokeInvite"; inviteId: string }
+  | { kind: "verifyContactChannel"; contactId: string; channelId: string };
 
 export function matchContactsControlPlaneRoute(
   pathname: string,
@@ -28,6 +29,18 @@ export function matchContactsControlPlaneRoute(
   const channelMatch = pathname.match(/^\/v1\/contacts\/channels\/([^/]+)$/);
   if (channelMatch && method === "PATCH") {
     return { kind: "updateContactChannel", channelId: channelMatch[1] };
+  }
+
+  // Trusted channel verification
+  const verifyMatch = pathname.match(
+    /^\/v1\/contacts\/([^/]+)\/channels\/([^/]+)\/verify$/,
+  );
+  if (verifyMatch && method === "POST") {
+    return {
+      kind: "verifyContactChannel",
+      contactId: verifyMatch[1],
+      channelId: verifyMatch[2],
+    };
   }
 
   // ── Invite routes ──
