@@ -30,7 +30,6 @@ export function buildFallbackInstruction(params: {
   contactName?: string;
   channelLabel: string;
   channelHandle?: string;
-  inviteCode: string;
   shareUrl?: string;
 }): string {
   const contact = params.contactName || "the contact";
@@ -52,7 +51,6 @@ export async function generateInviteInstruction(params: {
   contactName?: string;
   channelType: string;
   channelHandle?: string;
-  inviteCode: string;
   shareUrl?: string;
 }): Promise<string> {
   const channelLabel = channelDisplayLabel(params.channelType);
@@ -141,7 +139,9 @@ function channelDisplayLabel(type: string): string {
       return "Email";
     case "slack":
       return "Slack";
+    case "voice":
+      return "Voice";
     default:
-      return type;
+      return type.charAt(0).toUpperCase() + type.slice(1);
   }
 }

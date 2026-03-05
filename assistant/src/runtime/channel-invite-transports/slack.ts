@@ -1,19 +1,15 @@
 /**
  * Slack channel invite adapter.
  *
- * Provides guardian instruction text that includes the assistant's Slack
- * bot @username and workspace name when available. Slack invites use the
- * universal 6-digit code path for redemption, so this adapter only
- * implements `buildGuardianInstruction` — no `buildShareLink` or
- * `extractInboundToken` needed.
+ * Resolves the assistant's Slack bot @username for invite instructions.
+ * Slack invites use the universal 6-digit code path for redemption, so
+ * this adapter only implements `resolveChannelHandle` — no
+ * `buildShareLink` or `extractInboundToken` needed.
  */
 
 import type { ChannelId } from "../../channels/types.js";
 import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
-import type {
-  ChannelInviteAdapter,
-  GuardianInstruction,
-} from "../channel-invite-transport.js";
+import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
 // Slack bot info resolution
@@ -53,31 +49,6 @@ function resolveSlackBotInfo(): SlackBotInfo | undefined {
 
 export const slackInviteAdapter: ChannelInviteAdapter = {
   channel: "slack" as ChannelId,
-
-  buildGuardianInstruction(params: {
-    inviteCode: string;
-    contactName?: string;
-  }): GuardianInstruction {
-    const botInfo = resolveSlackBotInfo();
-    const contactLabel = params.contactName || "the contact";
-
-    if (!botInfo) {
-      return {
-        instruction: `Tell ${contactLabel} to message the assistant on Slack and provide the code ${params.inviteCode}.`,
-      };
-    }
-
-    let instruction = `Tell ${contactLabel} to message @${botInfo.botUsername} on Slack and provide the code ${params.inviteCode}`;
-    if (botInfo.teamName) {
-      instruction += ` (workspace: ${botInfo.teamName})`;
-    }
-    instruction += ".";
-
-    return {
-      instruction,
-      channelHandle: `@${botInfo.botUsername}`,
-    };
-  },
 
   resolveChannelHandle(): string | undefined {
     const botInfo = resolveSlackBotInfo();

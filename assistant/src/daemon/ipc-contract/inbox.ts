@@ -23,6 +23,8 @@ export interface ContactsInviteRequest {
   externalChatId?: string;
   /** Filter by status (list only). */
   status?: string;
+  /** Contact display name for personalizing invite instructions (create only). */
+  contactName?: string;
   /** Invitee's first name (voice invite create only). */
   friendName?: string;
   /** Guardian's first name (voice invite create only). */

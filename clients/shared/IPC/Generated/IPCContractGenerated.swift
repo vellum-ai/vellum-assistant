@@ -914,12 +914,14 @@ public struct IPCContactsInviteRequest: Codable, Sendable {
     public let externalChatId: String?
     /// Filter by status (list only).
     public let status: String?
+    /// Contact display name for personalizing invite instructions (create only).
+    public let contactName: String?
     /// Invitee's first name (voice invite create only).
     public let friendName: String?
     /// Guardian's first name (voice invite create only).
     public let guardianName: String?
 
-    public init(type: String, action: String, sourceChannel: String? = nil, note: String? = nil, maxUses: Double? = nil, expiresInMs: Double? = nil, inviteId: String? = nil, token: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, status: String? = nil, friendName: String? = nil, guardianName: String? = nil) {
+    public init(type: String, action: String, sourceChannel: String? = nil, note: String? = nil, maxUses: Double? = nil, expiresInMs: Double? = nil, inviteId: String? = nil, token: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, status: String? = nil, contactName: String? = nil, friendName: String? = nil, guardianName: String? = nil) {
         self.type = type
         self.action = action
         self.sourceChannel = sourceChannel
@@ -931,6 +933,7 @@ public struct IPCContactsInviteRequest: Codable, Sendable {
         self.externalUserId = externalUserId
         self.externalChatId = externalChatId
         self.status = status
+        self.contactName = contactName
         self.friendName = friendName
         self.guardianName = guardianName
     }

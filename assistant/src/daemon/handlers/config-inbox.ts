@@ -45,6 +45,7 @@ export async function handleContactsInvite(
           note: msg.note,
           maxUses: msg.maxUses,
           expiresInMs: msg.expiresInMs,
+          contactName: msg.contactName,
           friendName: msg.friendName,
           guardianName: msg.guardianName,
         });

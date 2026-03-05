@@ -2,13 +2,13 @@
  * Channel invite adapter abstraction.
  *
  * Defines an adapter interface for building shareable invite links,
- * extracting inbound invite tokens, and generating guardian instructions
- * from channel-specific payloads. Each channel (Telegram, voice, etc.)
+ * extracting inbound invite tokens, and resolving channel handles from
+ * channel-specific payloads. Each channel (Telegram, voice, etc.)
  * registers an adapter that knows how to handle invite flows for that
  * channel.
  *
  * All methods are optional: a channel that only provides
- * `buildGuardianInstruction` (e.g. SMS) is a valid adapter. The adapter
+ * `resolveChannelHandle` (e.g. SMS) is a valid adapter. The adapter
  * layer is intentionally thin — redemption logic lives in
  * `invite-redemption-service.ts`.
  */
@@ -24,13 +24,6 @@ export interface InviteShareLink {
   url: string;
   /** Human-readable text suitable for display alongside the link. */
   displayText: string;
-}
-
-export interface GuardianInstruction {
-  /** Human-readable instruction text for the guardian. */
-  instruction: string;
-  /** Channel-specific handle to reach the assistant (e.g. "@botName", "+15551234567", "hello@domain.agentmail.to"). */
-  channelHandle?: string;
 }
 
 export interface ChannelInviteAdapter {
@@ -56,16 +49,6 @@ export interface ChannelInviteAdapter {
     content: string;
     sourceMetadata?: Record<string, unknown>;
   }): string | undefined;
-
-  /**
-   * Build guardian instruction for this channel. Returns structured data
-   * with the instruction text and an optional channel-specific handle.
-   * Optional — falls back to generic instruction if not implemented.
-   */
-  buildGuardianInstruction?(params: {
-    inviteCode: string;
-    contactName?: string;
-  }): GuardianInstruction;
 
   /**
    * Resolve the channel-specific handle to reach the assistant (e.g.
