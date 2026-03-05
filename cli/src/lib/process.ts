@@ -45,12 +45,13 @@ export function isProcessAlive(pidFile: string): {
 }
 
 /**
- * Stop a process by PID: SIGTERM, wait up to 2s, then SIGKILL if still alive.
+ * Stop a process by PID: SIGTERM, wait up to `timeoutMs`, then SIGKILL if still alive.
  * Returns true if the process was stopped, false if it wasn't alive.
  */
 export async function stopProcess(
   pid: number,
   label: string,
+  timeoutMs: number = 2000,
 ): Promise<boolean> {
   try {
     process.kill(pid, 0);
@@ -61,7 +62,7 @@ export async function stopProcess(
   console.log(`Stopping ${label} (pid ${pid})...`);
   process.kill(pid, "SIGTERM");
 
-  const deadline = Date.now() + 2000;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       process.kill(pid, 0);
@@ -90,6 +91,7 @@ export async function stopProcessByPidFile(
   pidFile: string,
   label: string,
   cleanupFiles?: string[],
+  timeoutMs?: number,
 ): Promise<boolean> {
   const { alive, pid } = isProcessAlive(pidFile);
 
@@ -129,7 +131,7 @@ export async function stopProcessByPidFile(
     return false;
   }
 
-  const stopped = await stopProcess(pid, label);
+  const stopped = await stopProcess(pid, label, timeoutMs);
 
   try {
     unlinkSync(pidFile);

@@ -27,8 +27,14 @@ export async function sleep(): Promise<void> {
     console.log("Assistant stopped.");
   }
 
-  // Stop gateway
-  const gatewayStopped = await stopProcessByPidFile(gatewayPidFile, "gateway");
+  // Stop gateway — use a longer timeout because the gateway has a configurable
+  // drain window (GATEWAY_SHUTDOWN_DRAIN_MS, default 5s) before it exits.
+  const gatewayStopped = await stopProcessByPidFile(
+    gatewayPidFile,
+    "gateway",
+    undefined,
+    7000,
+  );
   if (!gatewayStopped) {
     console.log("Gateway is not running.");
   } else {

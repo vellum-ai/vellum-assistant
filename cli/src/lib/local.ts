@@ -825,6 +825,12 @@ export async function startGateway(
     GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
     RUNTIME_PROXY_BEARER_TOKEN: runtimeProxyBearerToken,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+    // Skip the drain window for locally-launched gateways — there is no load
+    // balancer draining connections, so waiting serves no purpose and causes
+    // `vellum sleep` to SIGKILL the gateway when the CLI timeout is shorter
+    // than the drain window.  Respect an explicit env override.
+    GATEWAY_SHUTDOWN_DRAIN_MS:
+      process.env.GATEWAY_SHUTDOWN_DRAIN_MS || "0",
   };
 
   if (process.env.GATEWAY_UNMAPPED_POLICY) {
@@ -940,5 +946,5 @@ export async function stopLocalProcesses(): Promise<void> {
   await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
-  await stopProcessByPidFile(gatewayPidFile, "gateway");
+  await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 }
