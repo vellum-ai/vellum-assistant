@@ -1389,6 +1389,17 @@ extension ChatViewModel {
                 messages.append(newMsg)
             }
 
+            // Eagerly request preview for app surfaces that don't have one yet
+            if case .dynamicPage(let dpData) = surface.data,
+               let appId = dpData.appId,
+               dpData.preview?.previewImage == nil {
+                NotificationCenter.default.post(
+                    name: Notification.Name("MainWindow.requestAppPreview"),
+                    object: nil,
+                    userInfo: ["appId": appId]
+                )
+            }
+
         case .uiSurfaceUndoResult(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             surfaceUndoCount = msg.remainingUndos
