@@ -48,6 +48,15 @@ import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import type { RelayConnection } from "./relay-server.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
 import {
+  ASK_GUARDIAN_CAPTURE_REGEX,
+  CALL_OPENING_ACK_MARKER,
+  CALL_OPENING_MARKER,
+  couldBeControlMarker,
+  END_CALL_MARKER,
+  extractBalancedJson,
+  stripInternalSpeechMarkers,
+} from "./voice-control-protocol.js";
+import {
   startVoiceTurn,
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
@@ -68,133 +77,6 @@ interface PendingGuardianInput {
   questionId: string;
   toolApprovalMeta: { toolName: string; inputDigest: string } | null;
   timer: ReturnType<typeof setTimeout>;
-}
-
-const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
-const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
-
-// Flexible prefix for ASK_GUARDIAN_APPROVAL — tolerates variable whitespace
-// after the colon so the marker is recognized even if the model omits the
-// space or inserts a newline.
-const ASK_GUARDIAN_APPROVAL_PREFIX_RE = /\[ASK_GUARDIAN_APPROVAL:\s*/;
-
-/**
- * Extract a balanced JSON object from text that starts with an
- * ASK_GUARDIAN_APPROVAL prefix. Uses brace counting with string-literal
- * awareness so that `}` or `}]` inside JSON string values does not
- * terminate the match prematurely.
- *
- * Returns the extracted JSON string, the full marker text
- * (prefix + JSON + "]"), and the start index — or null when:
- *   - no prefix is found,
- *   - braces are unbalanced (still streaming), or
- *   - the closing `]` has not yet arrived (prevents stripping
- *     the marker body while the bracket leaks into TTS in a later delta).
- */
-function extractBalancedJson(
-  text: string,
-): { json: string; fullMatch: string; startIndex: number } | null {
-  const prefixMatch = ASK_GUARDIAN_APPROVAL_PREFIX_RE.exec(text);
-  if (!prefixMatch) return null;
-
-  const prefixIdx = prefixMatch.index;
-  const jsonStart = prefixIdx + prefixMatch[0].length;
-  if (jsonStart >= text.length || text[jsonStart] !== "{") return null;
-
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-
-  for (let i = jsonStart; i < text.length; i++) {
-    const ch = text[i];
-
-    if (escape) {
-      escape = false;
-      continue;
-    }
-
-    if (ch === "\\" && inString) {
-      escape = true;
-      continue;
-    }
-
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) continue;
-
-    if (ch === "{") {
-      depth++;
-    } else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        const jsonEnd = i + 1;
-        const json = text.slice(jsonStart, jsonEnd);
-        // Skip any whitespace between the closing '}' and the expected ']'.
-        // Models sometimes emit formatted markers with spaces or newlines
-        // before the bracket (e.g. `{ ... }\n]` or `{ ... } ]`).
-        let bracketIdx = jsonEnd;
-        while (bracketIdx < text.length && /\s/.test(text[bracketIdx])) {
-          bracketIdx++;
-        }
-        // Require the closing ']' to be present before considering this
-        // a complete match. If it hasn't arrived yet (streaming), return
-        // null so the caller keeps buffering.
-        if (bracketIdx >= text.length || text[bracketIdx] !== "]") {
-          return null;
-        }
-        const fullMatchEnd = bracketIdx + 1;
-        const fullMatch = text.slice(prefixIdx, fullMatchEnd);
-        return { json, fullMatch, startIndex: prefixIdx };
-      }
-    }
-  }
-
-  return null; // Unbalanced braces — still streaming
-}
-
-/**
- * Strip all balanced ASK_GUARDIAN_APPROVAL markers from text, handling
- * nested braces, string literals, and flexible whitespace correctly.
- * Only strips complete markers (prefix + balanced JSON + closing `]`).
- */
-function stripGuardianApprovalMarkers(text: string): string {
-  let result = text;
-  for (;;) {
-    const match = extractBalancedJson(result);
-    if (!match) break;
-    result =
-      result.slice(0, match.startIndex) +
-      result.slice(match.startIndex + match.fullMatch.length);
-  }
-  return result;
-}
-
-const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
-const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
-const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
-const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
-const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
-const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
-const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
-const CALL_OPENING_MARKER = "[CALL_OPENING]";
-const CALL_OPENING_ACK_MARKER = "[CALL_OPENING_ACK]";
-const END_CALL_MARKER = "[END_CALL]";
-
-function stripInternalSpeechMarkers(text: string): string {
-  let result = stripGuardianApprovalMarkers(text);
-  result = result
-    .replace(ASK_GUARDIAN_MARKER_REGEX, "")
-    .replace(USER_ANSWERED_MARKER_REGEX, "")
-    .replace(USER_INSTRUCTION_MARKER_REGEX, "")
-    .replace(CALL_OPENING_MARKER_REGEX, "")
-    .replace(CALL_OPENING_ACK_MARKER_REGEX, "")
-    .replace(END_CALL_MARKER_REGEX, "")
-    .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, "")
-    .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, "");
-  return result;
 }
 
 export class CallController {
@@ -588,30 +470,7 @@ export class CallController {
           // known control marker. Otherwise flush immediately so ordinary
           // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
           const afterBracket = ttsBuffer;
-          const couldBeControl =
-            "[ASK_GUARDIAN_APPROVAL:".startsWith(afterBracket) ||
-            "[ASK_GUARDIAN:".startsWith(afterBracket) ||
-            "[USER_ANSWERED:".startsWith(afterBracket) ||
-            "[USER_INSTRUCTION:".startsWith(afterBracket) ||
-            "[CALL_OPENING]".startsWith(afterBracket) ||
-            "[CALL_OPENING_ACK]".startsWith(afterBracket) ||
-            "[END_CALL]".startsWith(afterBracket) ||
-            "[GUARDIAN_TIMEOUT]".startsWith(afterBracket) ||
-            "[GUARDIAN_UNAVAILABLE]".startsWith(afterBracket) ||
-            afterBracket.startsWith("[ASK_GUARDIAN_APPROVAL:") ||
-            afterBracket.startsWith("[ASK_GUARDIAN:") ||
-            afterBracket.startsWith("[USER_ANSWERED:") ||
-            afterBracket.startsWith("[USER_INSTRUCTION:") ||
-            afterBracket === "[CALL_OPENING" ||
-            afterBracket.startsWith("[CALL_OPENING]") ||
-            afterBracket === "[CALL_OPENING_ACK" ||
-            afterBracket.startsWith("[CALL_OPENING_ACK]") ||
-            afterBracket === "[END_CALL" ||
-            afterBracket.startsWith("[END_CALL]") ||
-            afterBracket === "[GUARDIAN_TIMEOUT" ||
-            afterBracket.startsWith("[GUARDIAN_TIMEOUT]") ||
-            afterBracket === "[GUARDIAN_UNAVAILABLE" ||
-            afterBracket.startsWith("[GUARDIAN_UNAVAILABLE]");
+          const couldBeControl = couldBeControlMarker(afterBracket);
 
           if (!couldBeControl) {
             // Not a control marker prefix — flush up to the next '[' (if any)
