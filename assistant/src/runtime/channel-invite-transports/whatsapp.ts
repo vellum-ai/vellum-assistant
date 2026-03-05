@@ -11,43 +11,12 @@
  */
 
 import type { ChannelId } from "../../channels/types.js";
-import { getTwilioPhoneNumberEnv } from "../../config/env.js";
-import { loadRawConfig } from "../../config/loader.js";
-import { getSecureKey } from "../../security/secure-keys.js";
 import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
+import { resolveTwilioInvitePhoneNumber } from "./sms.js";
 
 // ---------------------------------------------------------------------------
 // Phone number resolution
 // ---------------------------------------------------------------------------
-
-/**
- * Resolve the WhatsApp phone number with canonical precedence:
- * env override -> config whatsapp.phoneNumber -> config sms.phoneNumber
- * -> secure key fallback.
- *
- * WhatsApp typically shares the Twilio phone number with SMS, but
- * allows a channel-specific override via config.
- */
-function resolveWhatsAppPhoneNumber(): string | undefined {
-  try {
-    const raw = loadRawConfig();
-    const whatsappConfig = (raw?.whatsapp ?? {}) as Record<string, unknown>;
-    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    return (
-      getTwilioPhoneNumberEnv() ||
-      (whatsappConfig.phoneNumber as string) ||
-      (smsConfig.phoneNumber as string) ||
-      getSecureKey("credential:twilio:phone_number") ||
-      undefined
-    );
-  } catch {
-    return (
-      getTwilioPhoneNumberEnv() ||
-      getSecureKey("credential:twilio:phone_number") ||
-      undefined
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Adapter implementation
@@ -57,6 +26,6 @@ export const whatsappInviteAdapter: ChannelInviteAdapter = {
   channel: "whatsapp" as ChannelId,
 
   resolveChannelHandle(): string | undefined {
-    return resolveWhatsAppPhoneNumber();
+    return resolveTwilioInvitePhoneNumber({ includeWhatsappOverride: true });
   },
 };

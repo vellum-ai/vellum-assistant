@@ -18,16 +18,21 @@ import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the SMS phone number with canonical precedence:
- * env override -> config sms.phoneNumber -> secure key fallback.
- * Mirrors the resolution strategy in `channel-readiness-service.ts`.
+ * Keep Twilio-backed invite transports on a single secure-key reader so the
+ * credential boundary stays narrow even as SMS and WhatsApp share resolution.
  */
-function resolveSmsPhoneNumber(): string | undefined {
+export function resolveTwilioInvitePhoneNumber(options?: {
+  includeWhatsappOverride?: boolean;
+}): string | undefined {
   try {
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+    const whatsappConfig = options?.includeWhatsappOverride
+      ? ((raw?.whatsapp ?? {}) as Record<string, unknown>)
+      : undefined;
     return (
       getTwilioPhoneNumberEnv() ||
+      (whatsappConfig?.phoneNumber as string | undefined) ||
       (smsConfig.phoneNumber as string) ||
       getSecureKey("credential:twilio:phone_number") ||
       undefined
@@ -49,6 +54,6 @@ export const smsInviteAdapter: ChannelInviteAdapter = {
   channel: "sms" as ChannelId,
 
   resolveChannelHandle(): string | undefined {
-    return resolveSmsPhoneNumber();
+    return resolveTwilioInvitePhoneNumber();
   },
 };

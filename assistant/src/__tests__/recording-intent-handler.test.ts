@@ -342,8 +342,10 @@ mock.module("../providers/provider-send-message.js", () => ({
 // ── Mock external conversation store ───────────────────────────────────────
 
 mock.module("../memory/external-conversation-store.js", () => ({
+  getBindingByChannelChat: () => null,
   getBindingsForConversations: () => new Map(),
   upsertBinding: () => {},
+  upsertOutboundBinding: () => {},
 }));
 
 // ── Mock subagent manager ──────────────────────────────────────────────────
