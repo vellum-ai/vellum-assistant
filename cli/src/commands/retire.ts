@@ -6,12 +6,14 @@ import { basename, dirname, join } from "path";
 import {
   defaultLocalResources,
   findAssistantByName,
+  loadAllAssistants,
   removeAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
 import {
+  isProcessAlive,
   stopOrphanedDaemonProcesses,
   stopProcessByPidFile,
 } from "../lib/process";
@@ -66,9 +68,17 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway");
 
-  // Stop outbound proxy via PID file
-  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
-  await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
+  // Outbound proxy is a shared singleton — always use the global PID path.
+  // Only stop it if no other local assistants still have a running daemon.
+  const outboundProxyPidFile = join(homedir(), ".vellum", "outbound-proxy.pid");
+  const otherLocalRunning = loadAllAssistants().some((other) => {
+    if (other.cloud !== "local" || !other.resources) return false;
+    if (other.assistantId === name) return false;
+    return isProcessAlive(other.resources.pidFile).alive;
+  });
+  if (!otherLocalRunning) {
+    await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
+  }
 
   // If the PID file didn't track a running daemon, scan for orphaned
   // daemon processes that may have been started without writing a PID.
