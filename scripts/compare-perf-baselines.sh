@@ -43,8 +43,10 @@ with open(results_log) as f:
             results[m.group(1)] = float(m.group(2))
 
 if not results:
-    print("No XCTest performance measurements found in log. Skipping comparison.")
-    sys.exit(0)
+    print("ERROR: No XCTest performance measurements found in log.")
+    print("This likely means the performance tests did not run or produced no output.")
+    print("Check that MarkdownPerformanceTests executed successfully.")
+    sys.exit(1)
 
 print("=== Performance Results ===")
 for name, avg in sorted(results.items()):
