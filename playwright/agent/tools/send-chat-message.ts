@@ -120,6 +120,32 @@ tell application "System Events"
 end tell
 `;
 
+  // Capture window count BEFORE sending so popups triggered by Enter are
+  // detected as new windows (if we waited until after, a fast popup would
+  // be baked into the baseline and never noticed).
+  const countScript = `
+tell application "System Events"
+  tell process "${processName}"
+    return count of windows
+  end tell
+end tell
+`;
+  const countPath = `/tmp/pw-agent-count-win-w${context.workerIndex}.scpt`;
+  let baselineWindowCount = 1;
+  try {
+    writeFileSync(countPath, countScript, "utf-8");
+    const raw = execSync(`osascript ${countPath}`, {
+      encoding: "utf-8",
+      timeout: 10_000,
+    }).trim();
+    const parsed = parseInt(raw, 10);
+    if (!Number.isNaN(parsed)) {
+      baselineWindowCount = parsed;
+    }
+  } catch {} finally {
+    try { unlinkSync(countPath); } catch {}
+  }
+
   const sendPath = `/tmp/pw-agent-send-msg-w${context.workerIndex}.scpt`;
   try {
     writeFileSync(sendPath, sendScript, "utf-8");
@@ -191,10 +217,9 @@ end tell
   let lastOutput = "";
 
   try {
-    // Initial read to get baseline
+    // Initial read to get baseline content (window count baseline already captured pre-send)
     writeFileSync(readPath, readScript, "utf-8");
     let baseline = "";
-    let baselineWindowCount = 1;
     let anyReadSucceeded = false;
     try {
       baseline = execSync(`osascript ${readPath}`, {
@@ -202,11 +227,6 @@ end tell
         timeout: 15_000,
       }).trim();
       anyReadSucceeded = true;
-      // Extract window count from "WINDOWS:<n>\n..."
-      const baselineMatch = baseline.match(/^WINDOWS:(\d+)/);
-      if (baselineMatch) {
-        baselineWindowCount = parseInt(baselineMatch[1], 10);
-      }
     } catch {}
 
     // Poll for changes
