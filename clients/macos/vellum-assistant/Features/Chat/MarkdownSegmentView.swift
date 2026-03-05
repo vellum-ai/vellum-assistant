@@ -144,37 +144,12 @@ struct MarkdownSegmentView: View {
         case horizontalRule
     }
 
-    // Bounded LRU cache for groupedSegments results. Keyed by a full content
-    // hash of the segment array; the entry also stores the original segments for
-    // an equality check on hit, guarding against hash collisions.
-    @MainActor private static var groupedSegmentsCache: [Int: (segments: [MarkdownSegment], value: [SegmentGroup], accessTime: Int)] = [:]
-    @MainActor private static var groupedLRUCounter: Int = 0
-    private static let groupedCacheLimit = 200
-
     /// Groups consecutive text-selectable segments together so they render
     /// as a single Text view, enabling cross-paragraph text selection.
-    private var groupedSegments: [SegmentGroup] {
-        var hasher = Hasher()
-        for segment in segments { hasher.combine(segment) }
-        let key = hasher.finalize()
-
-        if let cached = Self.groupedSegmentsCache[key], cached.segments == segments {
-            Self.groupedLRUCounter += 1
-            Self.groupedSegmentsCache[key] = (cached.segments, cached.value, Self.groupedLRUCounter)
-            return cached.value
-        }
-
-        let result = computeGroupedSegments()
-
-        if Self.groupedSegmentsCache.count >= Self.groupedCacheLimit {
-            if let lruKey = Self.groupedSegmentsCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
-                Self.groupedSegmentsCache.removeValue(forKey: lruKey)
-            }
-        }
-        Self.groupedLRUCounter += 1
-        Self.groupedSegmentsCache[key] = (segments, result, Self.groupedLRUCounter)
-        return result
-    }
+    /// `computeGroupedSegments` is a pure O(segment-count) switch/append walk
+    /// with no string operations, so it is cheap enough to call on every body
+    /// evaluation without a separate cache.
+    private var groupedSegments: [SegmentGroup] { computeGroupedSegments() }
 
     private func computeGroupedSegments() -> [SegmentGroup] {
         var groups: [SegmentGroup] = []
@@ -215,12 +190,6 @@ struct MarkdownSegmentView: View {
 
         flushRun()
         return groups
-    }
-
-    /// Clears the grouped segments cache. Called alongside `clearAttributedStringCache`
-    /// when switching threads or archiving a conversation to reclaim memory.
-    static func clearGroupedSegmentsCache() {
-        groupedSegmentsCache.removeAll()
     }
 
     // MARK: - Combined AttributedString
