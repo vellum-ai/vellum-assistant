@@ -1,91 +1,88 @@
 #!/usr/bin/env bash
 # compare-perf-baselines.sh
-# Parses XCTest performance output from swift test and compares against stored
-# baselines. Exits 1 if any metric exceeds baseline by more than REGRESSION_THRESHOLD_PCT.
-set -euo pipefail
+# Parses XCTest performance output and compares against stored baselines.
+# Exits 1 if any metric regresses by more than REGRESSION_THRESHOLD_PCT.
+set -uo pipefail
 
 BASELINE_DIR=".perf-baselines"
 BASELINE_FILE="$BASELINE_DIR/baselines.json"
 RESULTS_LOG="$BASELINE_DIR/results.log"
 REGRESSION_THRESHOLD_PCT=15
 
-# swift test --filter writes timing lines like:
-#   measured [Time, seconds] average: 0.001234, relative standard deviation: 3.456%, values: [...]
-# Capture these from the test run log (swift test output was redirected to results.log in the workflow).
-# If the log doesn't exist yet (first run or no redirect), skip gracefully.
 if [[ ! -f "$RESULTS_LOG" ]]; then
-  echo "No results log found at $RESULTS_LOG. Skipping baseline comparison."
+  echo "No results log at $RESULTS_LOG. Skipping baseline comparison."
   exit 0
 fi
 
-# Parse average times from the log. Output: "TestName average_seconds"
-parse_results() {
-  grep -E "measured \[Time, seconds\] average:" "$RESULTS_LOG" | \
-    sed -E 's/.*-\[.*\.([^]]+)\].* average: ([0-9.]+).*/\1 \2/'
-}
+# Delegate all parsing, comparison, and baseline update to Python.
+# Avoids bash/sed fragility with test names that contain spaces, and handles
+# the set-e + subprocess-exit-code pitfall by using a single Python invocation.
+python3 - "$RESULTS_LOG" "$BASELINE_FILE" "$REGRESSION_THRESHOLD_PCT" "$BASELINE_DIR" << 'PYEOF'
+import re, sys, json, os
 
-RESULTS=$(parse_results)
-if [[ -z "$RESULTS" ]]; then
-  echo "No performance measurements found in $RESULTS_LOG. Skipping regression check."
-  exit 0
-fi
+results_log    = sys.argv[1]
+baseline_file  = sys.argv[2]
+threshold      = float(sys.argv[3])
+baseline_dir   = sys.argv[4]
 
-echo "=== Performance Results ==="
-echo "$RESULTS"
-echo ""
+# Parse XCTest timing lines. Format:
+#   Test Case '-[Suite.ClassName testMethodName]' measured [Time, seconds] average: N.NNN, ...
+# The regex captures the method name (last whitespace-separated token before ']').
+pattern = re.compile(
+    r"-\[(?:[^\]]*\s+)?(\w+)\]\s+measured \[Time, seconds\] average:\s+([0-9.]+)"
+)
 
-# If no stored baseline, save current as baseline and pass.
-if [[ ! -f "$BASELINE_FILE" ]]; then
-  echo "No baseline found. Recording current results as baseline."
-  mkdir -p "$BASELINE_DIR"
-  echo "$RESULTS" | python3 -c "
-import sys, json
-data = {}
-for line in sys.stdin:
-    parts = line.strip().split()
-    if len(parts) == 2:
-        data[parts[0]] = float(parts[1])
-print(json.dumps(data, indent=2))
-" > "$BASELINE_FILE"
-  echo "Baseline saved to $BASELINE_FILE"
-  exit 0
-fi
+results = {}
+with open(results_log) as f:
+    for line in f:
+        m = pattern.search(line)
+        if m:
+            results[m.group(1)] = float(m.group(2))
 
-# Compare against stored baseline.
-REGRESSIONS=$(echo "$RESULTS" | python3 -c "
-import sys, json
+if not results:
+    print("No XCTest performance measurements found in log. Skipping comparison.")
+    sys.exit(0)
 
-threshold = $REGRESSION_THRESHOLD_PCT
-with open('$BASELINE_FILE') as f:
+print("=== Performance Results ===")
+for name, avg in sorted(results.items()):
+    print(f"  {name}: {avg:.4f}s")
+print()
+
+# First run: no baseline file yet — record current results and pass.
+if not os.path.exists(baseline_file):
+    os.makedirs(baseline_dir, exist_ok=True)
+    with open(baseline_file, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"No baseline found. Recorded current results as baseline ({baseline_file}).")
+    sys.exit(0)
+
+# Load and compare against stored baseline.
+with open(baseline_file) as f:
     baselines = json.load(f)
 
 regressions = []
-for line in sys.stdin:
-    parts = line.strip().split()
-    if len(parts) != 2:
-        continue
-    name, actual = parts[0], float(parts[1])
+print("=== Regression Check (threshold: {}%) ===".format(int(threshold)))
+for name, actual in sorted(results.items()):
     if name not in baselines:
+        print(f"  NEW      {name}: {actual:.4f}s (no prior baseline)")
         continue
-    baseline = baselines[name]
+    baseline  = baselines[name]
     delta_pct = (actual - baseline) / baseline * 100
-    status = 'REGRESSED' if delta_pct > threshold else 'ok'
-    print(f'{status:10s} {name}: baseline={baseline:.4f}s actual={actual:.4f}s delta={delta_pct:+.1f}%')
+    status    = "REGRESSED" if delta_pct > threshold else "ok       "
+    print(f"  {status} {name}: baseline={baseline:.4f}s actual={actual:.4f}s delta={delta_pct:+.1f}%")
     if delta_pct > threshold:
         regressions.append(name)
 
+print()
+
 if regressions:
+    print(f"FAIL: {len(regressions)} regression(s) exceed {threshold:.0f}% threshold: {', '.join(regressions)}")
     sys.exit(1)
-")
 
-EXIT_CODE=$?
-echo "$REGRESSIONS"
-echo ""
+# Update baseline with latest results so it tracks gradual performance changes.
+updated = {**baselines, **results}
+with open(baseline_file, "w") as f:
+    json.dump(updated, f, indent=2)
 
-if [[ $EXIT_CODE -ne 0 ]]; then
-  echo "FAIL: Performance regressions detected (threshold: ${REGRESSION_THRESHOLD_PCT}%)."
-  exit 1
-fi
-
-echo "PASS: No performance regressions detected."
-exit 0
+print("PASS: No regressions detected. Baseline updated.")
+PYEOF

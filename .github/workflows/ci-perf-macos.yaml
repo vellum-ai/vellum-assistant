@@ -42,10 +42,9 @@ jobs:
         continue-on-error: true
 
       - name: Run performance tests
-        working-directory: clients/macos
         run: |
-          mkdir -p ../.perf-baselines
-          swift test --filter MarkdownPerformanceTests 2>&1 | tee ../.perf-baselines/results.log
+          mkdir -p .perf-baselines
+          swift test --package-path clients --filter MarkdownPerformanceTests 2>&1 | tee .perf-baselines/results.log
 
       - name: Compare baselines
         run: bash scripts/compare-perf-baselines.sh
