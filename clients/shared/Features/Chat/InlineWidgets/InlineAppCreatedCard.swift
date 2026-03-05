@@ -85,7 +85,8 @@ struct InlineAppCreatedCard: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             previewImage = preview.previewImage
-            // If no preview image yet, request one from the daemon
+            // Fallback request for history-loaded surfaces that didn't go
+            // through the uiSurfaceShow IPC handler (app restart, reconnect).
             if previewImage == nil, let appId = appId {
                 NotificationCenter.default.post(
                     name: Notification.Name("MainWindow.requestAppPreview"),
