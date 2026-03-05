@@ -145,7 +145,7 @@ end tell
   const readScript = `
 tell application "System Events"
   tell process "${processName}"
-    -- Count windows (>1 means a popup appeared)
+    -- Count windows (increase from baseline means a popup appeared)
     set windowCount to count of windows
 
     -- Find the main window (largest)
@@ -194,6 +194,7 @@ end tell
     // Initial read to get baseline
     writeFileSync(readPath, readScript, "utf-8");
     let baseline = "";
+    let baselineWindowCount = 1;
     let anyReadSucceeded = false;
     try {
       baseline = execSync(`osascript ${readPath}`, {
@@ -201,6 +202,11 @@ end tell
         timeout: 15_000,
       }).trim();
       anyReadSucceeded = true;
+      // Extract window count from "WINDOWS:<n>\n..."
+      const baselineMatch = baseline.match(/^WINDOWS:(\d+)/);
+      if (baselineMatch) {
+        baselineWindowCount = parseInt(baselineMatch[1], 10);
+      }
     } catch {}
 
     // Poll for changes
@@ -214,8 +220,10 @@ end tell
         }).trim();
         anyReadSucceeded = true;
 
-        // If a new window appeared (e.g., Secure Credential popup), return immediately
-        if (lastOutput.startsWith("WINDOWS:") && !lastOutput.startsWith("WINDOWS:1\n")) {
+        // If a new window appeared since baseline (e.g., Secure Credential popup), return immediately
+        const windowMatch = lastOutput.match(/^WINDOWS:(\d+)/);
+        const currentWindowCount = windowMatch ? parseInt(windowMatch[1], 10) : baselineWindowCount;
+        if (currentWindowCount > baselineWindowCount) {
           return {
             result: {
               success: true,
