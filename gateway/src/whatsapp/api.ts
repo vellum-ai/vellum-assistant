@@ -432,10 +432,10 @@ async function retryableWhatsAppRawFetch(
           ? `WhatsApp ${operation} failed with status ${response.status}: ${body}`
           : `WhatsApp ${operation} failed with status ${response.status}`;
 
-      if (isTerminalMediaFailure(response.status)) {
-        throw new WhatsAppNonRetryableError(message);
+      if (isAuthError(response.status)) {
+        throw new Error(message);
       }
-      throw new Error(message);
+      throw new WhatsAppNonRetryableError(message);
     }
 
     if (isRetryable(response.status)) {
