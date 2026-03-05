@@ -22,8 +22,15 @@ import Sentry
 extension MetricKitManager: MXMetricManagerSubscriber {
     nonisolated func didReceive(_ payloads: [MXMetricPayload]) {
         for payload in payloads {
-            // Always log — regardless of opt-out preference
-            let hangRate = payload.applicationResponsivenessMetrics?.hangRate?.averageMeasurement.converted(to: .percent).value ?? 0
+            // Always log — regardless of opt-out preference.
+            // MXAppResponsivenessMetric.hangRate requires macOS 14+; guard with
+            // @available so the property is not accessed on older OS versions.
+            let hangRate: Double
+            if #available(macOS 14.0, *) {
+                hangRate = payload.applicationResponsivenessMetrics?.hangRate?.averageMeasurement.converted(to: .percent).value ?? 0
+            } else {
+                hangRate = 0
+            }
             let scrollHitch = payload.animationMetrics?.scrollHitchTimeRatio?.averageMeasurement.converted(to: .milliseconds).value ?? 0
             let peakMemory = payload.memoryMetrics?.peakMemoryUsage.converted(to: .megabytes).value ?? 0
             let cpuTime = payload.cpuMetrics?.cumulativeCPUTime.converted(to: .seconds).value ?? 0
@@ -38,17 +45,21 @@ extension MetricKitManager: MXMetricManagerSubscriber {
             // Only send noteworthy events to avoid flooding
             guard hangRate > 5 || scrollHitch > 50 else { continue }
 
-            let crumb = Breadcrumb()
-            crumb.category = "performance"
-            crumb.level = .warning
-            crumb.message = "MetricKit: hangRate=\(String(format: "%.1f", hangRate))% scrollHitch=\(String(format: "%.1f", scrollHitch))ms/s"
-            crumb.data = [
+            // Use a full Sentry event so performance data is visible in the Sentry
+            // Issues dashboard — breadcrumbs are only attached to subsequent error
+            // events and would not surface MetricKit metrics on their own.
+            let event = Event(level: .warning)
+            event.message = SentryMessage(
+                formatted: "MetricKit: hangRate=\(String(format: "%.1f", hangRate))% scrollHitch=\(String(format: "%.1f", scrollHitch))ms/s"
+            )
+            event.tags = ["source": "metrickit_payload"]
+            event.extra = [
                 "hang_rate_percent": hangRate,
                 "scroll_hitch_ms_per_s": scrollHitch,
                 "peak_memory_mb": peakMemory,
                 "cpu_time_s": cpuTime,
             ]
-            SentrySDK.addBreadcrumb(crumb)
+            SentrySDK.capture(event: event)
         }
     }
 
