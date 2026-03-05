@@ -62,10 +62,7 @@ Response shape:
     {
       "id": "uuid",
       "displayName": "Alice",
-      "relationship": "friend",
-      "importance": 0.5,
-      "responseExpectation": null,
-      "preferredTone": null,
+      "notes": null,
       "lastInteraction": 1700000000000,
       "interactionCount": 12,
       "createdAt": 1699000000000,

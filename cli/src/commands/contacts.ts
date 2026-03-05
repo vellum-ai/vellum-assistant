@@ -82,10 +82,7 @@ interface ContactChannel {
 interface Contact {
   id: string;
   displayName: string;
-  relationship: string | null;
-  importance: number;
-  responseExpectation: string | null;
-  preferredTone: string | null;
+  notes: string | null;
   lastInteraction: number | null;
   interactionCount: number;
   channels: ContactChannel[];
@@ -109,10 +106,7 @@ function formatContact(c: Contact): string {
   const lines = [
     `  ID:           ${c.id}`,
     `  Name:         ${c.displayName}`,
-    `  Relationship: ${c.relationship ?? "(none)"}`,
-    `  Importance:   ${c.importance.toFixed(2)}`,
-    `  Response:     ${c.responseExpectation ?? "(none)"}`,
-    `  Tone:         ${c.preferredTone ?? "(none)"}`,
+    `  Notes:        ${c.notes ?? "(none)"}`,
     `  Interactions: ${c.interactionCount}`,
   ];
   if (c.lastInteraction) {
