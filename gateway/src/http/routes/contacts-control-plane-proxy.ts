@@ -121,6 +121,18 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return proxyToRuntime(req, `/v1/contacts/channels/${channelId}`, "");
     },
 
+    async handleVerifyContactChannel(
+      req: Request,
+      contactId: string,
+      channelId: string,
+    ): Promise<Response> {
+      return proxyToRuntime(
+        req,
+        `/v1/contacts/${contactId}/channels/${channelId}/verify`,
+        "",
+      );
+    },
+
     // ── Invite routes ──
     async handleListInvites(req: Request): Promise<Response> {
       const url = new URL(req.url);

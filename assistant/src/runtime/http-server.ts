@@ -140,6 +140,7 @@ import {
   handleMergeContacts,
   handleUpdateContactChannel,
   handleUpsertContact,
+  handleVerifyContactChannel,
 } from "./routes/contact-routes.js";
 import { handleListConversationAttention } from "./routes/conversation-attention-routes.js";
 // Route handlers — grouped by domain
@@ -1127,6 +1128,17 @@ export class RuntimeHttpServer {
         policyKey: "contacts/channels",
         handler: async ({ req, params, authContext }) =>
           handleUpdateContactChannel(req, params.id, authContext.assistantId),
+      },
+      {
+        endpoint: "contacts/:contactId/channels/:channelId/verify",
+        method: "POST",
+        policyKey: "contacts/channels",
+        handler: async ({ params, authContext }) =>
+          handleVerifyContactChannel(
+            params.contactId,
+            params.channelId,
+            authContext.assistantId,
+          ),
       },
 
       // ------------------------------------------------------------------
