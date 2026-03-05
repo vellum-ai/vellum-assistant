@@ -5,13 +5,30 @@ const handleInboundMock = mock(() =>
   Promise.resolve({ forwarded: true, rejected: false }),
 );
 const resetConversationMock = mock(() => Promise.resolve());
+const uploadAttachmentMock = mock(() =>
+  Promise.resolve({ id: "att-uploaded-1" }),
+);
 const sendWhatsAppReplyMock = mock(() => Promise.resolve());
 const markWhatsAppMessageReadMock = mock(() => Promise.resolve());
+const downloadWhatsAppFileMock = mock(() =>
+  Promise.resolve({
+    filename: "photo.jpg",
+    mimeType: "image/jpeg",
+    data: "base64data",
+  }),
+);
 const normalizeWhatsAppWebhookMock = mock(
   () =>
     [] as Array<{ event: Record<string, unknown>; whatsappMessageId: string }>,
 );
 const verifyWhatsAppWebhookSignatureMock = mock(() => true);
+
+class MockAttachmentValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AttachmentValidationError";
+  }
+}
 
 mock.module("../../handlers/handle-inbound.js", () => ({
   handleInbound: handleInboundMock,
@@ -19,7 +36,13 @@ mock.module("../../handlers/handle-inbound.js", () => ({
 
 mock.module("../../runtime/client.js", () => ({
   resetConversation: resetConversationMock,
+  uploadAttachment: uploadAttachmentMock,
+  AttachmentValidationError: MockAttachmentValidationError,
   CircuitBreakerOpenError: class extends Error {},
+}));
+
+mock.module("../../whatsapp/download.js", () => ({
+  downloadWhatsAppFile: downloadWhatsAppFileMock,
 }));
 
 mock.module("../../whatsapp/send.js", () => ({
@@ -103,6 +126,18 @@ describe("whatsapp-webhook", () => {
       Promise.resolve({ forwarded: true, rejected: false }),
     );
     resetConversationMock.mockClear();
+    uploadAttachmentMock.mockClear();
+    uploadAttachmentMock.mockImplementation(() =>
+      Promise.resolve({ id: "att-uploaded-1" }),
+    );
+    downloadWhatsAppFileMock.mockClear();
+    downloadWhatsAppFileMock.mockImplementation(() =>
+      Promise.resolve({
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        data: "base64data",
+      }),
+    );
     sendWhatsAppReplyMock.mockClear();
     markWhatsAppMessageReadMock.mockClear();
     normalizeWhatsAppWebhookMock.mockClear();
@@ -269,5 +304,295 @@ describe("whatsapp-webhook", () => {
     expect(res.status).toBe(500);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe("Internal error");
+  });
+
+  it("downloads and uploads media attachments, passing attachmentIds to handleInbound", async () => {
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+
+    uploadAttachmentMock.mockImplementation(() =>
+      Promise.resolve({ id: "att-img-1" }),
+    );
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-media-1",
+        mediaType: "image",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "check this out",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-media-1",
+            attachments: [
+              {
+                type: "image",
+                fileId: "media-id-123",
+                mimeType: "image/jpeg",
+                fileSize: 1024,
+              },
+            ],
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-media-1",
+            messageId: "wamid-media-1",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(downloadWhatsAppFileMock).toHaveBeenCalledTimes(1);
+    expect(downloadWhatsAppFileMock).toHaveBeenCalledWith(
+      baseConfig,
+      "media-id-123",
+    );
+    expect(uploadAttachmentMock).toHaveBeenCalledTimes(1);
+
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const [, , options] = handleInboundMock.mock.calls[0] as unknown as [
+      GatewayConfig,
+      Record<string, unknown>,
+      { attachmentIds?: string[] },
+    ];
+    expect(options.attachmentIds).toEqual(["att-img-1"]);
+  });
+
+  it("forwards media-only messages (no caption) when attachment upload succeeds", async () => {
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+
+    uploadAttachmentMock.mockImplementation(() =>
+      Promise.resolve({ id: "att-img-2" }),
+    );
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-media-only",
+        mediaType: "image",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-media-only",
+            attachments: [
+              {
+                type: "image",
+                fileId: "media-id-456",
+                mimeType: "image/png",
+                fileSize: 2048,
+              },
+            ],
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-media-only",
+            messageId: "wamid-media-only",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const [, , options] = handleInboundMock.mock.calls[0] as unknown as [
+      GatewayConfig,
+      Record<string, unknown>,
+      { attachmentIds?: string[] },
+    ];
+    expect(options.attachmentIds).toEqual(["att-img-2"]);
+  });
+
+  it("skips validation errors for one attachment without dropping the message", async () => {
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+
+    let callCount = 0;
+    uploadAttachmentMock.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        throw new MockAttachmentValidationError("Unsupported MIME type");
+      }
+      return Promise.resolve({ id: "att-good" });
+    });
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-mixed",
+        mediaType: "image",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "two attachments",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-mixed",
+            attachments: [
+              {
+                type: "image",
+                fileId: "bad-media-id",
+                mimeType: "image/tiff",
+                fileSize: 1024,
+              },
+              {
+                type: "document",
+                fileId: "good-media-id",
+                mimeType: "application/pdf",
+                fileSize: 2048,
+              },
+            ],
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-mixed",
+            messageId: "wamid-mixed",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const [, , options] = handleInboundMock.mock.calls[0] as unknown as [
+      GatewayConfig,
+      Record<string, unknown>,
+      { attachmentIds?: string[] },
+    ];
+    expect(options.attachmentIds).toEqual(["att-good"]);
+  });
+
+  it("returns 500 on transient download failure so Meta retries", async () => {
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+
+    downloadWhatsAppFileMock.mockImplementation(() => {
+      throw new Error("Network timeout");
+    });
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-transient",
+        mediaType: "image",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "photo",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-transient",
+            attachments: [
+              {
+                type: "image",
+                fileId: "media-transient",
+                mimeType: "image/jpeg",
+                fileSize: 1024,
+              },
+            ],
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-transient",
+            messageId: "wamid-transient",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(500);
+    expect(handleInboundMock).not.toHaveBeenCalled();
+  });
+
+  it("skips oversized attachments without failing the message", async () => {
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-oversize",
+        mediaType: "video",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "big video",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-oversize",
+            attachments: [
+              {
+                type: "video",
+                fileId: "media-big",
+                mimeType: "video/mp4",
+                fileSize: 100 * 1024 * 1024, // 100 MB — over limit
+              },
+            ],
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-oversize",
+            messageId: "wamid-oversize",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(downloadWhatsAppFileMock).not.toHaveBeenCalled();
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const [, , options] = handleInboundMock.mock.calls[0] as unknown as [
+      GatewayConfig,
+      Record<string, unknown>,
+      { attachmentIds?: string[] },
+    ];
+    // No attachmentIds since the only attachment was oversized
+    expect(options.attachmentIds).toEqual([]);
   });
 });

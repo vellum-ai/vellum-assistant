@@ -10,12 +10,17 @@ import {
   isRejection,
 } from "../../routing/resolve-assistant.js";
 import {
+  AttachmentValidationError,
+  uploadAttachment,
+} from "../../runtime/client.js";
+import {
   handleCircuitBreakerError,
   handleNewCommand,
   isNewCommand,
   processInboundResult,
 } from "../../webhook-pipeline.js";
 import { ROUTING_REJECTION_NOTICE } from "../../webhook-copy.js";
+import { downloadWhatsAppFile } from "../../whatsapp/download.js";
 import { markWhatsAppMessageRead } from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
@@ -147,29 +152,6 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
         "WhatsApp webhook received",
       );
 
-      if (mediaType) {
-        tlog.warn(
-          {
-            whatsappMessageId,
-            mediaType,
-            hasCaption: event.message.content.length > 0,
-          },
-          "WhatsApp media attachment not processed — media download not yet supported",
-        );
-
-        // No caption and no text — nothing to forward to the assistant
-        if (event.message.content.length === 0) {
-          markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
-            tlog.debug(
-              { err, messageId: whatsappMessageId },
-              "Failed to mark WhatsApp message as read",
-            );
-          });
-          dedupCache.mark(whatsappMessageId);
-          continue;
-        }
-      }
-
       // Mark message as read (best-effort, do not await)
       markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
         tlog.debug(
@@ -231,8 +213,95 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
         continue;
       }
 
+      // Download and upload attachments if present
+      let attachmentIds: string[] | undefined;
+      const eventAttachments = event.message.attachments;
+      if (eventAttachments && eventAttachments.length > 0) {
+        try {
+          attachmentIds = [];
+
+          // Filter oversized attachments
+          const eligible = eventAttachments.filter((att) => {
+            if (
+              att.fileSize !== undefined &&
+              att.fileSize > config.maxAttachmentBytes
+            ) {
+              tlog.warn(
+                {
+                  fileId: att.fileId,
+                  fileSize: att.fileSize,
+                  limit: config.maxAttachmentBytes,
+                },
+                "Skipping oversized WhatsApp attachment",
+              );
+              return false;
+            }
+            return true;
+          });
+
+          // Process with bounded concurrency. Validation errors (unsupported
+          // MIME type, dangerous extension) are skipped so that a bad attachment
+          // doesn't drop the user's message. Transient errors (download timeout,
+          // upload 5xx, network failures) are propagated so that Meta retries
+          // the webhook delivery.
+          for (
+            let i = 0;
+            i < eligible.length;
+            i += config.maxAttachmentConcurrency
+          ) {
+            const batch = eligible.slice(
+              i,
+              i + config.maxAttachmentConcurrency,
+            );
+            const results = await Promise.allSettled(
+              batch.map(async (att) => {
+                const downloaded = await downloadWhatsAppFile(
+                  config,
+                  att.fileId,
+                );
+                return uploadAttachment(config, downloaded);
+              }),
+            );
+            for (const result of results) {
+              if (result.status === "fulfilled") {
+                attachmentIds.push(result.value.id);
+              } else if (result.reason instanceof AttachmentValidationError) {
+                tlog.warn(
+                  { err: result.reason },
+                  "Skipping WhatsApp attachment with validation error",
+                );
+              } else {
+                // Transient failure — propagate so the webhook returns 500 and
+                // Meta retries the update delivery.
+                throw result.reason;
+              }
+            }
+          }
+        } catch (err) {
+          // Transient attachment failure — return 500 so Meta retries.
+          tlog.error(
+            { err },
+            "WhatsApp attachment processing failed with transient error",
+          );
+          dedupCache.unreserve(whatsappMessageId);
+          hasFailure = true;
+          continue;
+        }
+      }
+
+      // Media-only messages with no successfully uploaded attachments have
+      // nothing to forward — skip silently.
+      if (
+        event.message.content.length === 0 &&
+        (!attachmentIds || attachmentIds.length === 0)
+      ) {
+        dedupCache.mark(whatsappMessageId);
+        continue;
+      }
+
       try {
         const result = await handleInbound(config, event, {
+          attachmentIds,
           transportMetadata: buildWhatsAppTransportMetadata(),
           replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/whatsapp`,
           traceId,
