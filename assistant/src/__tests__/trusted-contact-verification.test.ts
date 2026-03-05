@@ -91,7 +91,6 @@ describe("trusted contact verification → member activation", () => {
   test("successful verification creates active member with allow policy", () => {
     // Simulate M3: guardian approves, outbound session created for the requester
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-123",
       expectedChatId: "requester-chat-123",
@@ -102,7 +101,6 @@ describe("trusted contact verification → member activation", () => {
 
     // Requester enters the 6-digit code
     const result = validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "requester-user-123",
@@ -237,7 +235,6 @@ describe("trusted contact verification → member activation", () => {
   test("post-verify message is accepted (ACL check passes)", () => {
     // Create and verify a trusted contact
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-456",
       expectedChatId: "requester-chat-456",
@@ -247,7 +244,6 @@ describe("trusted contact verification → member activation", () => {
     });
 
     validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "requester-user-456",
@@ -278,7 +274,6 @@ describe("trusted contact verification → member activation", () => {
   test("member lookup is scoped by channel type", () => {
     // Create member on the telegram channel
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "user-cross-test",
       expectedChatId: "chat-cross-test",
@@ -288,7 +283,6 @@ describe("trusted contact verification → member activation", () => {
     });
 
     validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "user-cross-test",
@@ -345,7 +339,6 @@ describe("trusted contact verification → member activation", () => {
 
     // Guardian re-approves, new outbound session created
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "user-revoked",
       expectedChatId: "chat-revoked",
@@ -356,7 +349,6 @@ describe("trusted contact verification → member activation", () => {
 
     // Requester enters the new code
     const result = validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "user-revoked",
@@ -400,7 +392,6 @@ describe("trusted contact verification → member activation", () => {
 
     // Create an outbound session for a requester (different user than guardian)
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-789",
       expectedChatId: "requester-chat-789",
@@ -410,7 +401,6 @@ describe("trusted contact verification → member activation", () => {
     });
 
     const result = validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "requester-user-789",
@@ -437,10 +427,9 @@ describe("trusted contact verification → member activation", () => {
 
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { secret } = createVerificationChallenge("telegram");
 
     const result = validateAndConsumeChallenge(
-      "self",
       "telegram",
       secret,
       "guardian-user",

@@ -8,6 +8,7 @@
 
 import { and, count, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
 import { channelGuardianVerificationChallenges } from "./schema.js";
 
@@ -101,7 +102,6 @@ function rowToChallenge(
 
 export function createChallenge(params: {
   id: string;
-  assistantId: string;
   channel: string;
   challengeHash: string;
   expiresAt: number;
@@ -110,16 +110,12 @@ export function createChallenge(params: {
   const db = getDb();
   const now = Date.now();
 
-  // Revoke any prior pending challenges for the same (assistantId, channel)
+  // Revoke any prior pending challenges for the same channel
   // to close the replay window — only the latest challenge should be valid.
   db.update(channelGuardianVerificationChallenges)
     .set({ status: "revoked", updatedAt: now })
     .where(
       and(
-        eq(
-          channelGuardianVerificationChallenges.assistantId,
-          params.assistantId,
-        ),
         eq(channelGuardianVerificationChallenges.channel, params.channel),
         eq(channelGuardianVerificationChallenges.status, "pending"),
       ),
@@ -128,7 +124,7 @@ export function createChallenge(params: {
 
   const row = {
     id: params.id,
-    assistantId: params.assistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     channel: params.channel,
     challengeHash: params.challengeHash,
     expiresAt: params.expiresAt,
@@ -157,16 +153,12 @@ export function createChallenge(params: {
   return rowToChallenge(row);
 }
 
-export function revokePendingChallenges(
-  assistantId: string,
-  channel: string,
-): void {
+export function revokePendingChallenges(channel: string): void {
   const db = getDb();
   db.update(channelGuardianVerificationChallenges)
     .set({ status: "revoked", updatedAt: Date.now() })
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.status, "pending"),
       ),
@@ -175,7 +167,6 @@ export function revokePendingChallenges(
 }
 
 export function findPendingChallengeByHash(
-  assistantId: string,
   channel: string,
   challengeHash: string,
 ): VerificationChallenge | null {
@@ -188,7 +179,6 @@ export function findPendingChallengeByHash(
     .from(channelGuardianVerificationChallenges)
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.challengeHash, challengeHash),
         inArray(channelGuardianVerificationChallenges.status, [
@@ -205,7 +195,7 @@ export function findPendingChallengeByHash(
 }
 
 /**
- * Find any pending inbound (non-expired) challenge for a given (assistantId, channel).
+ * Find any pending inbound (non-expired) challenge for a given channel.
  * Scoped to 'pending' status only — this is the inbound verification path used by
  * the relay-server to gate incoming voice calls. Outbound session states
  * (pending_bootstrap, awaiting_response) are excluded so that an active outbound
@@ -213,7 +203,6 @@ export function findPendingChallengeByHash(
  * guardian verification flow.
  */
 export function findPendingChallengeForChannel(
-  assistantId: string,
   channel: string,
 ): VerificationChallenge | null {
   const db = getDb();
@@ -224,7 +213,6 @@ export function findPendingChallengeForChannel(
     .from(channelGuardianVerificationChallenges)
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.status, "pending"),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
@@ -261,11 +249,10 @@ export function consumeChallenge(
 /**
  * Create an outbound verification session with expected-identity binding.
  * Auto-revokes prior pending/awaiting_response sessions for the same
- * (assistantId, channel) to close the replay window.
+ * channel to close the replay window.
  */
 export function createVerificationSession(params: {
   id: string;
-  assistantId: string;
   channel: string;
   challengeHash: string;
   expiresAt: number;
@@ -284,15 +271,11 @@ export function createVerificationSession(params: {
   const db = getDb();
   const now = Date.now();
 
-  // Revoke any prior pending/awaiting_response sessions for the same (assistantId, channel)
+  // Revoke any prior pending/awaiting_response sessions for the same channel
   db.update(channelGuardianVerificationChallenges)
     .set({ status: "revoked", updatedAt: now })
     .where(
       and(
-        eq(
-          channelGuardianVerificationChallenges.assistantId,
-          params.assistantId,
-        ),
         eq(channelGuardianVerificationChallenges.channel, params.channel),
         inArray(channelGuardianVerificationChallenges.status, [
           "pending",
@@ -305,7 +288,7 @@ export function createVerificationSession(params: {
 
   const row = {
     id: params.id,
-    assistantId: params.assistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     channel: params.channel,
     challengeHash: params.challengeHash,
     expiresAt: params.expiresAt,
@@ -336,10 +319,9 @@ export function createVerificationSession(params: {
 
 /**
  * Find the most recent pending_bootstrap or awaiting_response session
- * for a given (assistantId, channel).
+ * for a given channel.
  */
 export function findActiveSession(
-  assistantId: string,
   channel: string,
 ): VerificationChallenge | null {
   const db = getDb();
@@ -350,7 +332,6 @@ export function findActiveSession(
     .from(channelGuardianVerificationChallenges)
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
         inArray(channelGuardianVerificationChallenges.status, [
           "pending_bootstrap",
@@ -370,7 +351,6 @@ export function findActiveSession(
  * Used by the Telegram /start gv_<token> bootstrap flow.
  */
 export function findSessionByBootstrapTokenHash(
-  assistantId: string,
   channel: string,
   tokenHash: string,
 ): VerificationChallenge | null {
@@ -382,7 +362,6 @@ export function findSessionByBootstrapTokenHash(
     .from(channelGuardianVerificationChallenges)
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.bootstrapTokenHash, tokenHash),
         eq(channelGuardianVerificationChallenges.status, "pending_bootstrap"),
@@ -399,7 +378,6 @@ export function findSessionByBootstrapTokenHash(
  * given identity fields with an active status.
  */
 export function findSessionByIdentity(
-  assistantId: string,
   channel: string,
   externalUserId?: string,
   chatId?: string,
@@ -415,7 +393,6 @@ export function findSessionByIdentity(
   const now = Date.now();
 
   const conditions = [
-    eq(channelGuardianVerificationChallenges.assistantId, assistantId),
     eq(channelGuardianVerificationChallenges.channel, channel),
     inArray(channelGuardianVerificationChallenges.status, [
       "pending_bootstrap",

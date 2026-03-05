@@ -91,11 +91,7 @@ export function createGuardianChallenge(
     };
   }
 
-  const result = createVerificationChallenge(
-    resolvedAssistantId,
-    resolvedChannel,
-    sessionId,
-  );
+  const result = createVerificationChallenge(resolvedChannel, sessionId);
 
   return {
     success: true,
@@ -133,15 +129,11 @@ export function getGuardianStatus(
       guardianUsername = ext.username;
     }
   }
-  const hasPendingChallenge =
-    getPendingChallenge(resolvedAssistantId, resolvedChannel) != null;
+  const hasPendingChallenge = getPendingChallenge(resolvedChannel) != null;
 
   // Include active outbound session state so the UI can resume
   // after app restart and detect bootstrap completion.
-  const activeOutboundSession = findActiveSession(
-    resolvedAssistantId,
-    resolvedChannel,
-  );
+  const activeOutboundSession = findActiveSession(resolvedChannel);
   const outboundFields: Record<string, unknown> = {};
   if (activeOutboundSession) {
     outboundFields.verificationSessionId = activeOutboundSession.id;
@@ -180,7 +172,7 @@ export function revokeGuardianForChannel(
   // Always revoke pending challenges first — the macOS app uses
   // action: "revoke" to cancel an in-flight challenge even before
   // a binding exists (e.g. during verification setup).
-  revokePendingChallenges(assistantId, resolvedChannel);
+  revokePendingChallenges(resolvedChannel);
 
   // Capture binding before revoking so we can revoke the guardian's
   // contact record — without this, the guardian would still pass

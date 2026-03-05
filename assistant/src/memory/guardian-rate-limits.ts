@@ -8,6 +8,7 @@
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
 import { channelGuardianRateLimits } from "./schema.js";
 
@@ -69,7 +70,6 @@ function rowToRateLimit(
  * Get the rate-limit record for a given actor on a specific channel.
  */
 export function getRateLimit(
-  assistantId: string,
   channel: string,
   actorExternalUserId: string,
   actorChatId: string,
@@ -80,7 +80,6 @@ export function getRateLimit(
     .from(channelGuardianRateLimits)
     .where(
       and(
-        eq(channelGuardianRateLimits.assistantId, assistantId),
         eq(channelGuardianRateLimits.channel, channel),
         eq(channelGuardianRateLimits.actorExternalUserId, actorExternalUserId),
         eq(channelGuardianRateLimits.actorChatId, actorChatId),
@@ -101,7 +100,6 @@ export function getRateLimit(
  * accumulate indefinitely.
  */
 export function recordInvalidAttempt(
-  assistantId: string,
   channel: string,
   actorExternalUserId: string,
   actorChatId: string,
@@ -113,12 +111,7 @@ export function recordInvalidAttempt(
   const now = Date.now();
   const cutoff = now - windowMs;
 
-  const existing = getRateLimit(
-    assistantId,
-    channel,
-    actorExternalUserId,
-    actorChatId,
-  );
+  const existing = getRateLimit(channel, actorExternalUserId, actorChatId);
 
   if (existing) {
     // Keep only timestamps within the sliding window, then add the new one
@@ -158,7 +151,7 @@ export function recordInvalidAttempt(
   const lockedUntil = 1 >= maxAttempts ? now + lockoutMs : null;
   const row = {
     id,
-    assistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     channel,
     actorExternalUserId,
     actorChatId,
@@ -181,7 +174,6 @@ export function recordInvalidAttempt(
  * successful verification).
  */
 export function resetRateLimit(
-  assistantId: string,
   channel: string,
   actorExternalUserId: string,
   actorChatId: string,
@@ -197,7 +189,6 @@ export function resetRateLimit(
     })
     .where(
       and(
-        eq(channelGuardianRateLimits.assistantId, assistantId),
         eq(channelGuardianRateLimits.channel, channel),
         eq(channelGuardianRateLimits.actorExternalUserId, actorExternalUserId),
         eq(channelGuardianRateLimits.actorChatId, actorChatId),

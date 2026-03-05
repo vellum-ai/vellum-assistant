@@ -482,7 +482,6 @@ const accessRequestResolver: GuardianRequestResolver = {
     // Non-voice approvals: mint an identity-bound verification session so the
     // requester can verify their identity.
     const session = createOutboundSession({
-      assistantId,
       channel,
       expectedExternalUserId: requesterExternalUserId,
       expectedChatId: requesterChatId,

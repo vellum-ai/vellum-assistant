@@ -191,14 +191,8 @@ export async function enforceIngressAcl(
         // omitted: rebind sessions create a consumable challenge while a
         // binding already exists, and the identity check inside
         // validateAndConsumeChallenge prevents unauthorized takeovers.
-        const hasPendingChallenge = !!getPendingChallenge(
-          canonicalAssistantId,
-          sourceChannel,
-        );
-        const hasActiveOutboundSession = !!findActiveSession(
-          canonicalAssistantId,
-          sourceChannel,
-        );
+        const hasPendingChallenge = !!getPendingChallenge(sourceChannel);
+        const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
         if (hasPendingChallenge || hasActiveOutboundSession) {
           denyNonMember = false;
         } else {
@@ -219,7 +213,6 @@ export async function enforceIngressAcl(
         ).payload as string;
         const bootstrapTokenForAcl = bootstrapPayload.slice(3); // strip 'gv_' prefix
         const bootstrapSessionForAcl = resolveBootstrapToken(
-          canonicalAssistantId,
           sourceChannel,
           bootstrapTokenForAcl,
         );
@@ -420,14 +413,8 @@ export async function enforceIngressAcl(
         // revoked/blocked — otherwise the user can never re-verify.
         let denyInactiveMember = true;
         if (isGuardianVerifyCode) {
-          const hasPendingChallenge = !!getPendingChallenge(
-            canonicalAssistantId,
-            sourceChannel,
-          );
-          const hasActiveOutboundSession = !!findActiveSession(
-            canonicalAssistantId,
-            sourceChannel,
-          );
+          const hasPendingChallenge = !!getPendingChallenge(sourceChannel);
+          const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
           if (hasPendingChallenge || hasActiveOutboundSession) {
             denyInactiveMember = false;
           } else {
@@ -448,7 +435,6 @@ export async function enforceIngressAcl(
           ).payload as string;
           const bootstrapTokenForAcl = bootstrapPayload.slice(3);
           const bootstrapSessionForAcl = resolveBootstrapToken(
-            canonicalAssistantId,
             sourceChannel,
             bootstrapTokenForAcl,
           );
@@ -1112,14 +1098,8 @@ function initiateSlackVerificationChallenge(params: {
   // this sender to avoid flooding them with duplicate codes. We scope by
   // sender identity (expectedExternalUserId) so that a pending session for
   // user A does not suppress challenges for user B.
-  const existingChallenge = getPendingChallenge(
-    canonicalAssistantId,
-    sourceChannel,
-  );
-  const existingSession = findActiveSession(
-    canonicalAssistantId,
-    sourceChannel,
-  );
+  const existingChallenge = getPendingChallenge(sourceChannel);
+  const existingSession = findActiveSession(sourceChannel);
   const senderHasPending =
     (existingChallenge &&
       existingChallenge.expectedExternalUserId === senderUserId) ||
@@ -1140,7 +1120,6 @@ function initiateSlackVerificationChallenge(params: {
 
   try {
     const session = createOutboundSession({
-      assistantId: canonicalAssistantId,
       channel: sourceChannel,
       expectedExternalUserId: senderUserId,
       expectedChatId: senderUserId,

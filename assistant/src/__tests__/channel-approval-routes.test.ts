@@ -1056,7 +1056,7 @@ describe("SMS guardian verify intercept", () => {
   test("verification code reply works with sourceChannel sms", async () => {
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("self", "sms");
+    const { secret } = createVerificationChallenge("sms");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1100,7 +1100,7 @@ describe("SMS guardian verify intercept", () => {
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
     // Ensure there is a pending challenge so bare-code verification is intercepted.
-    createVerificationChallenge("self", "sms");
+    createVerificationChallenge("sms");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1148,7 +1148,6 @@ describe("SMS guardian verify intercept", () => {
     const challengeHash = createHash("sha256").update(secret).digest("hex");
     createChallenge({
       id: `challenge-hex-${Date.now()}`,
-      assistantId: "self",
       channel: "sms",
       challengeHash,
       expiresAt: Date.now() + 600_000,
@@ -1510,7 +1509,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
   test("verification code uses the threaded assistantId (default: self)", async () => {
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { secret } = createVerificationChallenge("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1538,7 +1537,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
       await import("../runtime/channel-guardian-service.js");
 
     // All assistant IDs canonicalize to 'self' in the single-tenant daemon
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { secret } = createVerificationChallenge("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1572,7 +1571,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
       await import("../runtime/channel-guardian-service.js");
 
     // Both IDs canonicalize to 'self', so the challenge is found
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { secret } = createVerificationChallenge("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,

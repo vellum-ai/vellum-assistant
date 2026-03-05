@@ -111,7 +111,6 @@ function generateNumericSecret(digits: number = 6): string {
  * the user; only the hash is persisted.
  */
 export function createVerificationChallenge(
-  assistantId: string,
   channel: string,
   sessionId?: string,
 ): CreateChallengeResult {
@@ -124,7 +123,6 @@ export function createVerificationChallenge(
 
   createChallenge({
     id: challengeId,
-    assistantId,
     channel,
     challengeHash,
     expiresAt,
@@ -162,7 +160,6 @@ export function createVerificationChallenge(
  * period. On success the counter resets.
  */
 export function validateAndConsumeChallenge(
-  assistantId: string,
   channel: string,
   secret: string,
   actorExternalUserId: string,
@@ -171,12 +168,7 @@ export function validateAndConsumeChallenge(
   _actorDisplayName?: string,
 ): ValidateChallengeResult {
   // ── Rate-limit check ──
-  const existing = getRateLimit(
-    assistantId,
-    channel,
-    actorExternalUserId,
-    actorChatId,
-  );
+  const existing = getRateLimit(channel, actorExternalUserId, actorChatId);
   if (
     existing &&
     existing.lockedUntil != null &&
@@ -195,14 +187,9 @@ export function validateAndConsumeChallenge(
 
   const challengeHash = hashSecret(secret);
 
-  const challenge = findPendingChallengeByHash(
-    assistantId,
-    channel,
-    challengeHash,
-  );
+  const challenge = findPendingChallengeByHash(channel, challengeHash);
   if (!challenge) {
     recordInvalidAttempt(
-      assistantId,
       channel,
       actorExternalUserId,
       actorChatId,
@@ -221,7 +208,6 @@ export function validateAndConsumeChallenge(
 
   if (Date.now() > challenge.expiresAt) {
     recordInvalidAttempt(
-      assistantId,
       channel,
       actorExternalUserId,
       actorChatId,
@@ -295,7 +281,6 @@ export function validateAndConsumeChallenge(
       // Anti-oracle: use the same generic error message to avoid leaking
       // whether the identity is wrong vs. the code is wrong.
       recordInvalidAttempt(
-        assistantId,
         channel,
         actorExternalUserId,
         actorChatId,
@@ -319,7 +304,7 @@ export function validateAndConsumeChallenge(
   consumeChallenge(challenge.id, actorExternalUserId, actorChatId);
 
   // Reset the rate-limit counter on success
-  resetRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
+  resetRateLimit(channel, actorExternalUserId, actorChatId);
 
   // Return the verification type — role-specific side effects are
   // handled by callers: verification-intercept (channel) and
@@ -389,27 +374,23 @@ export function revokeBinding(assistantId: string, channel: string): boolean {
 }
 
 /**
- * Revoke all pending challenges for a given assistant and channel.
+ * Revoke all pending challenges for a given channel.
  * Called when the user cancels verification so that stale challenges
  * don't gate inbound calls.
  */
-export function revokePendingChallenges(
-  assistantId: string,
-  channel: string,
-): void {
-  storeRevokePendingChallenges(assistantId, channel);
+export function revokePendingChallenges(channel: string): void {
+  storeRevokePendingChallenges(channel);
 }
 
 /**
  * Look up a pending (non-expired) verification challenge for a given
- * assistant and channel. Used by relay setup to detect whether an active
+ * channel. Used by relay setup to detect whether an active
  * voice verification session exists.
  */
 export function getPendingChallenge(
-  assistantId: string,
   channel: string,
 ): VerificationChallenge | null {
-  return findPendingChallengeForChannel(assistantId, channel);
+  return findPendingChallengeForChannel(channel);
 }
 
 // ---------------------------------------------------------------------------
@@ -435,7 +416,6 @@ export interface CreateOutboundSessionResult {
  * the TTL window.
  */
 export function createOutboundSession(params: {
-  assistantId: string;
   channel: string;
   expectedExternalUserId?: string;
   expectedChatId?: string;
@@ -460,7 +440,6 @@ export function createOutboundSession(params: {
 
   createVerificationSession({
     id: sessionId,
-    assistantId: params.assistantId,
     channel: params.channel,
     challengeHash,
     expiresAt,
@@ -489,33 +468,24 @@ export function createOutboundSession(params: {
 }
 
 /**
- * Find the most recent active outbound session for a given
- * (assistantId, channel).
+ * Find the most recent active outbound session for a given channel.
  */
 export function findActiveSession(
-  assistantId: string,
   channel: string,
 ): VerificationChallenge | null {
-  return storeFindActiveSession(assistantId, channel);
+  return storeFindActiveSession(channel);
 }
 
 /**
  * Identity-bound session lookup for the consume path.
  */
 export function findSessionByIdentity(
-  assistantId: string,
   channel: string,
   externalUserId?: string,
   chatId?: string,
   phoneE164?: string,
 ): VerificationChallenge | null {
-  return storeFindSessionByIdentity(
-    assistantId,
-    channel,
-    externalUserId,
-    chatId,
-    phoneE164,
-  );
+  return storeFindSessionByIdentity(channel, externalUserId, chatId, phoneE164);
 }
 
 /**
@@ -578,10 +548,9 @@ export function bindSessionIdentity(
  * Hashes the raw token with SHA-256 and looks up the session.
  */
 export function resolveBootstrapToken(
-  assistantId: string,
   channel: string,
   token: string,
 ): VerificationChallenge | null {
   const tokenHash = hashSecret(token);
-  return storeFindSessionByBootstrapTokenHash(assistantId, channel, tokenHash);
+  return storeFindSessionByBootstrapTokenHash(channel, tokenHash);
 }

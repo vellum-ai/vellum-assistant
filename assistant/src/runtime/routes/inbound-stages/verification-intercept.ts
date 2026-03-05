@@ -95,8 +95,8 @@ export async function handleVerificationIntercept(
   // Only intercept when there is a pending challenge or active outbound session
   const shouldIntercept =
     guardianVerifyCode !== undefined &&
-    (!!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
-      !!findActiveSession(canonicalAssistantId, sourceChannel));
+    (!!getPendingChallenge(sourceChannel) ||
+      !!findActiveSession(sourceChannel));
 
   if (
     isDuplicate ||
@@ -108,7 +108,6 @@ export async function handleVerificationIntercept(
   }
 
   const verifyResult = validateAndConsumeChallenge(
-    canonicalAssistantId,
     sourceChannel,
     guardianVerifyCode,
     canonicalSenderId ?? rawSenderId,

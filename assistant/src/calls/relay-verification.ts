@@ -126,7 +126,6 @@ export function attemptGuardianCodeVerification(
   } = params;
 
   const result = validateAndConsumeChallenge(
-    guardianChallengeAssistantId,
     "voice",
     enteredCode,
     guardianVerificationFromNumber,

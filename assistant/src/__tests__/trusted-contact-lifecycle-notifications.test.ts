@@ -402,7 +402,6 @@ describe("trusted contact activated notification signal", () => {
 
     // Create an identity-bound outbound session (simulates M3 approval flow)
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-456",
       expectedChatId: "chat-123",
@@ -468,7 +467,6 @@ describe("trusted contact activated notification signal", () => {
     });
 
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-456",
       expectedChatId: "chat-123",
@@ -499,7 +497,7 @@ describe("trusted contact activated notification signal", () => {
     // Create an inbound challenge (guardian flow, not trusted contact)
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { secret } = createVerificationChallenge("telegram");
 
     // "Guardian" enters the verification code
     const verifyReq = buildInboundRequest({
@@ -539,7 +537,6 @@ describe("trusted contact activated notification signal", () => {
     });
 
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-456",
       expectedChatId: "chat-123",

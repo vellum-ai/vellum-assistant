@@ -363,7 +363,6 @@ function startOutboundSms(
   }
 
   const sessionResult = createOutboundSession({
-    assistantId,
     channel,
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
@@ -456,7 +455,6 @@ function startOutboundTelegram(
     }
 
     const sessionResult = createOutboundSession({
-      assistantId,
       channel,
       expectedChatId: destination,
       identityBindingStatus: "bound",
@@ -514,7 +512,6 @@ function startOutboundTelegram(
     .digest("hex");
 
   const sessionResult = createOutboundSession({
-    assistantId,
     channel,
     identityBindingStatus: "pending_bootstrap",
     destinationAddress: normalizedDestination,
@@ -589,7 +586,6 @@ function startOutboundVoice(
   }
 
   const sessionResult = createOutboundSession({
-    assistantId,
     channel,
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
@@ -709,7 +705,6 @@ function startOutboundSlack(
   }
 
   const sessionResult = createOutboundSession({
-    assistantId,
     channel,
     expectedExternalUserId: destination,
     expectedChatId: destination,
@@ -756,7 +751,7 @@ export function resendOutbound(
   const channel = params.channel;
   const originConversationId = params.originConversationId;
 
-  const session = findActiveSession(assistantId, channel);
+  const session = findActiveSession(channel);
   if (!session) {
     return {
       success: false,
@@ -831,7 +826,6 @@ export function resendOutbound(
 
   if (channel === "telegram") {
     const newSession = createOutboundSession({
-      assistantId,
       channel,
       expectedChatId: destination,
       identityBindingStatus: "bound",
@@ -870,7 +864,6 @@ export function resendOutbound(
     };
   } else if (channel === "voice") {
     const newSession = createOutboundSession({
-      assistantId,
       channel,
       expectedPhoneE164: destination,
       expectedExternalUserId: destination,
@@ -907,7 +900,6 @@ export function resendOutbound(
     };
   } else if (channel === "slack") {
     const newSession = createOutboundSession({
-      assistantId,
       channel,
       expectedExternalUserId: destination,
       expectedChatId: destination,
@@ -949,7 +941,6 @@ export function resendOutbound(
 
   // SMS resend
   const newSession = createOutboundSession({
-    assistantId,
     channel,
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
@@ -990,7 +981,7 @@ export function cancelOutbound(
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
 
-  const session = findActiveSession(assistantId, channel);
+  const session = findActiveSession(channel);
   if (!session) {
     return {
       success: false,

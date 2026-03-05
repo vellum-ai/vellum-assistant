@@ -258,7 +258,6 @@ for (const config of CHANNEL_CONFIGS) {
 
     test("verification creates active member for channel", () => {
       const session = createOutboundSession({
-        assistantId: "self",
         channel: config.channel,
         expectedExternalUserId: config.senderExternalUserId,
         expectedChatId: config.externalChatId,
@@ -268,7 +267,6 @@ for (const config of CHANNEL_CONFIGS) {
       });
 
       const challengeResult = validateAndConsumeChallenge(
-        "self",
         config.channel,
         session.secret,
         config.senderExternalUserId,
@@ -345,7 +343,6 @@ describe("SMS identity binding with E.164 phone numbers", () => {
   test("SMS verification session binds to phone E.164", () => {
     const phone = "+15551234567";
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "sms",
       expectedExternalUserId: phone,
       expectedPhoneE164: phone,
@@ -357,7 +354,6 @@ describe("SMS identity binding with E.164 phone numbers", () => {
 
     // Verify with matching phone identity
     const result = validateAndConsumeChallenge(
-      "self",
       "sms",
       session.secret,
       phone,
@@ -374,7 +370,6 @@ describe("SMS identity binding with E.164 phone numbers", () => {
     const wrongPhone = "+15559999999";
 
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "sms",
       expectedExternalUserId: expectedPhone,
       expectedPhoneE164: expectedPhone,
@@ -385,7 +380,6 @@ describe("SMS identity binding with E.164 phone numbers", () => {
 
     // Try to verify with a different phone (anti-oracle: same error message)
     const result = validateAndConsumeChallenge(
-      "self",
       "sms",
       session.secret,
       wrongPhone,
@@ -407,7 +401,6 @@ describe("cross-channel isolation", () => {
   test("verification sessions are scoped per channel", () => {
     // Create sessions on both channels
     const telegramSession = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "user-123",
       expectedChatId: "chat-123",
@@ -416,7 +409,6 @@ describe("cross-channel isolation", () => {
     });
 
     const smsSession = createOutboundSession({
-      assistantId: "self",
       channel: "sms",
       expectedExternalUserId: "+15551234567",
       expectedPhoneE164: "+15551234567",
@@ -427,7 +419,6 @@ describe("cross-channel isolation", () => {
 
     // Telegram code should not work on SMS channel
     const wrongChannelResult = validateAndConsumeChallenge(
-      "self",
       "sms",
       telegramSession.secret,
       "+15551234567",
@@ -437,7 +428,6 @@ describe("cross-channel isolation", () => {
 
     // SMS code should work on SMS channel
     const correctChannelResult = validateAndConsumeChallenge(
-      "self",
       "sms",
       smsSession.secret,
       "+15551234567",

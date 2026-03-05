@@ -555,7 +555,6 @@ export async function handleVerifyContactChannel(
     }
 
     const sessionResult = createOutboundSession({
-      assistantId,
       channel: verificationChannel,
       expectedPhoneE164: phoneE164,
       expectedExternalUserId: channel.externalUserId ?? undefined,
@@ -589,7 +588,6 @@ export async function handleVerifyContactChannel(
     // Telegram with known chat ID: identity is already bound
     if (channel.externalChatId) {
       const sessionResult = createOutboundSession({
-        assistantId,
         channel: verificationChannel,
         expectedChatId: channel.externalChatId,
         expectedExternalUserId: channel.externalUserId ?? undefined,
@@ -639,7 +637,6 @@ export async function handleVerifyContactChannel(
       .digest("hex");
 
     const sessionResult = createOutboundSession({
-      assistantId,
       channel: verificationChannel,
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: effectiveDestination,
@@ -675,7 +672,6 @@ export async function handleVerifyContactChannel(
     }
 
     const sessionResult = createOutboundSession({
-      assistantId,
       channel: verificationChannel,
       expectedExternalUserId: channel.externalUserId ?? undefined,
       expectedChatId: channel.externalChatId ?? undefined,

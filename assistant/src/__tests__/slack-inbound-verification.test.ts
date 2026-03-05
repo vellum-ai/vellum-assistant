@@ -176,7 +176,7 @@ describe("Slack inbound trusted contact verification", () => {
     await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
 
     // An active outbound session should exist for the slack channel
-    const session = findActiveSession("self", "slack");
+    const session = findActiveSession("slack");
     expect(session).not.toBeNull();
     expect(session!.expectedExternalUserId).toBe("U0123UNKNOWN");
     expect(session!.expectedChatId).toBe("U0123UNKNOWN");
@@ -285,7 +285,7 @@ describe("Slack inbound trusted contact verification", () => {
     const req = buildSlackInboundRequest();
     await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
 
-    const session = findActiveSession("self", "slack");
+    const session = findActiveSession("slack");
     expect(session).not.toBeNull();
 
     // The challenge hash is stored in the session — extract the secret
@@ -317,7 +317,6 @@ describe("Slack inbound trusted contact verification", () => {
       await import("../runtime/channel-guardian-service.js");
 
     const outboundSession = createOutboundSession({
-      assistantId: "self",
       channel: "slack",
       expectedExternalUserId: "U0123UNKNOWN",
       expectedChatId: "U0123UNKNOWN",

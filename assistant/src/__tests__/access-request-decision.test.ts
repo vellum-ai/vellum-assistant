@@ -156,7 +156,7 @@ describe("access request decision handler", () => {
     expect(result.type).toBe("approved");
 
     // There should be an active session for this channel
-    const session = findActiveSession("self", "telegram");
+    const session = findActiveSession("telegram");
     expect(session).not.toBeNull();
     expect(session!.expectedExternalUserId).toBe("user-unknown-456");
     expect(session!.expectedChatId).toBe("chat-123");
@@ -185,7 +185,7 @@ describe("access request decision handler", () => {
     expect(updated!.decidedByExternalUserId).toBe("guardian-user-789");
 
     // No verification session should be created
-    const session = findActiveSession("self", "telegram");
+    const session = findActiveSession("telegram");
     expect(session).toBeNull();
   });
 

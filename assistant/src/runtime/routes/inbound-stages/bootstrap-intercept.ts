@@ -74,11 +74,7 @@ export async function handleBootstrapIntercept(
   }
 
   const bootstrapToken = (commandIntent.payload as string).slice(3);
-  const bootstrapSession = resolveBootstrapToken(
-    canonicalAssistantId,
-    sourceChannel,
-    bootstrapToken,
-  );
+  const bootstrapSession = resolveBootstrapToken(sourceChannel, bootstrapToken);
 
   if (!bootstrapSession || bootstrapSession.status !== "pending_bootstrap") {
     // Not found or expired — fall through to normal /start handling
@@ -94,7 +90,6 @@ export async function handleBootstrapIntercept(
   // Create a new identity-bound outbound session with a fresh secret.
   // The old bootstrap session is auto-revoked by createOutboundSession.
   const newSession = createOutboundSession({
-    assistantId: canonicalAssistantId,
     channel: sourceChannel,
     expectedExternalUserId: rawSenderId,
     expectedChatId: conversationExternalId,

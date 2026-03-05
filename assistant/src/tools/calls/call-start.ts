@@ -1,6 +1,5 @@
 import { startCall } from "../../calls/call-domain.js";
 import { getConfig } from "../../config/loader.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { findActiveSession } from "../../runtime/channel-guardian-service.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
@@ -22,8 +21,7 @@ export async function executeCallStart(
       ? normalizePhoneNumber(input.phone_number)
       : null;
   if (requestedPhone) {
-    const assistantId = context.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-    const activeVoiceVerification = findActiveSession(assistantId, "voice");
+    const activeVoiceVerification = findActiveSession("voice");
     const verificationDestination =
       activeVoiceVerification?.destinationAddress ??
       activeVoiceVerification?.expectedPhoneE164;

@@ -297,12 +297,10 @@ function addTrustedVoiceContact(
 }
 
 function createVoiceVerificationSession(
-  assistantId: string,
   expectedPhoneE164: string,
   sessionId?: string,
 ): string {
   const { secret } = createOutboundSession({
-    assistantId,
     channel: "voice",
     expectedExternalUserId: expectedPhoneE164,
     expectedChatId: expectedPhoneE164,
@@ -313,12 +311,10 @@ function createVoiceVerificationSession(
 }
 
 function createPendingVoiceGuardianChallenge(
-  assistantId: string,
   secret: string = "123456",
 ): string {
   createChallenge({
     id: randomUUID(),
-    assistantId,
     channel: "voice",
     challengeHash: createHash("sha256").update(secret).digest("hex"),
     expiresAt: Date.now() + 10 * 60 * 1000,
@@ -1337,7 +1333,7 @@ describe("relay-server", () => {
     });
 
     // Create a pending voice guardian challenge
-    const secret = createPendingVoiceGuardianChallenge("self");
+    const secret = createPendingVoiceGuardianChallenge();
 
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Hello, how can I help you?"]),
@@ -1414,7 +1410,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    const secret = createPendingVoiceGuardianChallenge("self");
+    const secret = createPendingVoiceGuardianChallenge();
 
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Hello, verified caller!"]),
@@ -1678,7 +1674,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    const secret = createPendingVoiceGuardianChallenge("self");
+    const secret = createPendingVoiceGuardianChallenge();
     const spokenCode = secret.split("").join(" ");
 
     const { relay } = createMockWs(session.id);
@@ -1735,7 +1731,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    createPendingVoiceGuardianChallenge("self");
+    createPendingVoiceGuardianChallenge();
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1779,7 +1775,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    createPendingVoiceGuardianChallenge("self");
+    createPendingVoiceGuardianChallenge();
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1889,7 +1885,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    createPendingVoiceGuardianChallenge("self");
+    createPendingVoiceGuardianChallenge();
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1947,7 +1943,6 @@ describe("relay-server", () => {
     });
 
     const secret = createVoiceVerificationSession(
-      "self",
       "+15559999999",
       "gv-session-ptr-success",
     );
@@ -2002,11 +1997,7 @@ describe("relay-server", () => {
       initiatedFromConversationId: "conv-gv-pointer-fail-origin",
     });
 
-    createVoiceVerificationSession(
-      "self",
-      "+15559999999",
-      "gv-session-ptr-fail",
-    );
+    createVoiceVerificationSession("+15559999999", "gv-session-ptr-fail");
 
     const { relay } = createMockWs(session.id);
 
@@ -3894,7 +3885,6 @@ describe("relay-server", () => {
     const tcSecret = "654321";
     createVerificationSession({
       id: randomUUID(),
-      assistantId: "self",
       channel: "voice",
       challengeHash: createHash("sha256").update(tcSecret).digest("hex"),
       expiresAt: Date.now() + 10 * 60 * 1000,
@@ -3971,7 +3961,7 @@ describe("relay-server", () => {
     });
 
     // Create a guardian challenge (default verificationPurpose = 'guardian')
-    const secret = createPendingVoiceGuardianChallenge("self");
+    const secret = createPendingVoiceGuardianChallenge();
 
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Hello, how can I help you?"]),
