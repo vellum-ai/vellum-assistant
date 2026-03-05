@@ -114,8 +114,15 @@ struct SettingsAppearanceTab: View {
                             stopRecording()
                         }
                     } else {
-                        VButton(label: "Record", style: .outlined) {
-                            startRecording()
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Record", style: .outlined) {
+                                startRecording()
+                            }
+                            if !store.globalHotkeyShortcut.isEmpty {
+                                VButton(label: "Unbind", style: .outlined) {
+                                    store.globalHotkeyShortcut = ""
+                                }
+                            }
                         }
                     }
                 }
@@ -147,8 +154,16 @@ struct SettingsAppearanceTab: View {
                             stopRecording()
                         }
                     } else {
-                        VButton(label: "Record", style: .outlined) {
-                            startRecordingQuickInput()
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Record", style: .outlined) {
+                                startRecordingQuickInput()
+                            }
+                            if !store.quickInputHotkeyShortcut.isEmpty {
+                                VButton(label: "Unbind", style: .outlined) {
+                                    store.quickInputHotkeyShortcut = ""
+                                    store.quickInputHotkeyKeyCode = 0
+                                }
+                            }
                         }
                     }
                 }
