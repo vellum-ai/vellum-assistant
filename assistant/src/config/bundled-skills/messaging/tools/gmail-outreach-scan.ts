@@ -15,7 +15,7 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { storeScanResult } from "./scan-result-store.js";
-import { assertPlatformEnabled, err, ok } from "./shared.js";
+import { err, ok } from "./shared.js";
 
 const MAX_MESSAGES_CAP = 5000;
 const MAX_IDS_PER_SENDER = 5000;
@@ -97,7 +97,6 @@ export async function run(
   const query = `in:inbox -has:unsubscribe newer_than:${timeRange}`;
 
   try {
-    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       // Pipeline: fire metadata fetches for each page of IDs as they arrive

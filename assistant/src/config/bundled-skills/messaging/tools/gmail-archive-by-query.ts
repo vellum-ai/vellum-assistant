@@ -8,7 +8,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { assertPlatformEnabled, err, ok } from "./shared.js";
+import { err, ok } from "./shared.js";
 
 const BATCH_MODIFY_LIMIT = 1000;
 const MAX_MESSAGES = 5000;
@@ -30,7 +30,6 @@ export async function run(
   }
 
   try {
-    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       // Paginate through matching messages, capped to prevent unbounded API/memory usage

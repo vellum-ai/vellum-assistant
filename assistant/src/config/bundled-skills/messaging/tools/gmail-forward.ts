@@ -11,7 +11,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { assertPlatformEnabled, err, ok } from "./shared.js";
+import { err, ok } from "./shared.js";
 
 function extractHeader(
   headers: Array<{ name: string; value: string }> | undefined,
@@ -76,7 +76,6 @@ export async function run(
   if (!forwardTo) return err("to is required.");
 
   try {
-    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       const message = await getMessage(token, messageId, "full");

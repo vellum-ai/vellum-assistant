@@ -13,7 +13,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { assertPlatformEnabled, err, ok } from "./shared.js";
+import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -26,7 +26,6 @@ export async function run(
   }
 
   try {
-    assertPlatformEnabled("gmail");
     const provider = getMessagingProvider("gmail");
     return withValidToken(provider.credentialService, async (token) => {
       switch (action) {
