@@ -17,6 +17,7 @@ import type {
   ExtractedCredential,
   SessionRecording,
 } from "../tools/browser/network-recording-types.js";
+import { ConfigError } from "./errors.js";
 import { getDataDir } from "./platform.js";
 
 export interface CookieSession {
@@ -58,7 +59,9 @@ export function createSessionStore(providerKey: string): CookieSessionStore {
   function saveSession(session: CookieSession): void {
     const dir = getSessionDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(getSessionPath(), JSON.stringify(session, null, 2));
+    writeFileSync(getSessionPath(), JSON.stringify(session, null, 2), {
+      mode: 0o600,
+    });
   }
 
   function clearSession(): void {
@@ -87,13 +90,13 @@ export function importFromRecordingBase(
   validate: (cookieNames: Set<string>) => void,
 ): CookieSession {
   if (!existsSync(recordingPath)) {
-    throw new Error(`Recording not found: ${recordingPath}`);
+    throw new ConfigError(`Recording not found: ${recordingPath}`);
   }
   const recording = JSON.parse(
     readFileSync(recordingPath, "utf-8"),
   ) as SessionRecording;
   if (!recording.cookies?.length) {
-    throw new Error("Recording contains no cookies");
+    throw new ConfigError("Recording contains no cookies");
   }
 
   const cookieNames = new Set(recording.cookies.map((c) => c.name));
