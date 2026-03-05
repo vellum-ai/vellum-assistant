@@ -177,10 +177,7 @@ extension MainWindowView {
                 }
                 .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
-                VColor.divider
-                    .frame(height: 1)
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.sm)
+                sidebarSectionDivider(isExpanded: true)
             }
 
             // MARK: Nav Items (fixed)
@@ -192,10 +189,7 @@ extension MainWindowView {
             }
 
             // Divider between nav items and threads
-            VColor.divider
-                .frame(height: 1)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+            sidebarSectionDivider(isExpanded: true)
 
             // MARK: Threads (scrollable)
             SidebarThreadsHeader(
@@ -240,7 +234,7 @@ extension MainWindowView {
                             sidebar: sidebar,
                             selectThread: { selectThread(thread) }
                         )
-                            .padding(.bottom, VSpacing.xxs)
+                            .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                 if sidebar.dropTargetThreadId == thread.id {
                                     Rectangle()
@@ -295,10 +289,10 @@ extension MainWindowView {
                                 .foregroundColor(VColor.textMuted)
                             Spacer()
                         }
-                        .padding(.leading, 20)
+                        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
                         .padding(.trailing, VSpacing.md)
-                        .padding(.top, VSpacing.md)
-                        .padding(.bottom, VSpacing.xs)
+                        .padding(.top, SidebarLayoutMetrics.scheduledHeaderTopGap)
+                        .padding(.bottom, SidebarLayoutMetrics.scheduledHeaderBottomGap)
 
                         ForEach(displayedScheduleGroups, id: \.key) { group in
                             if group.threads.count == 1, let thread = group.threads.first {
@@ -310,7 +304,7 @@ extension MainWindowView {
                                     sidebar: sidebar,
                                     selectThread: { selectThread(thread) }
                                 )
-                                    .padding(.bottom, VSpacing.xxs)
+                                    .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                         if sidebar.dropTargetThreadId == thread.id {
                                             Rectangle()
@@ -349,7 +343,7 @@ extension MainWindowView {
                                                 sidebar: sidebar,
                                                 selectThread: { selectThread(thread) }
                                             )
-                                                .padding(.bottom, VSpacing.xxs)
+                                                .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                                 .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                                     if sidebar.dropTargetThreadId == thread.id {
                                                         Rectangle()
@@ -409,7 +403,7 @@ extension MainWindowView {
                                     .pointerCursor()
                                 }
                                 .padding(.horizontal, VSpacing.sm)
-                                .padding(.bottom, VSpacing.xxs)
+                                .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                 // Drop target on the group header so collapsed groups accept drops
                                 // (only from threads within the same schedule group).
                                 .onDrop(of: [.plainText], delegate: ScheduleGroupHeaderDropDelegate(
@@ -467,9 +461,7 @@ extension MainWindowView {
                 }
                 .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
-                VColor.divider
-                    .frame(height: 1)
-                    .padding(.horizontal, VSpacing.xs)
+                sidebarSectionDivider(isExpanded: false)
             }
 
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
@@ -479,9 +471,7 @@ extension MainWindowView {
                 windowState.showAppsPanel()
             }
 
-            VColor.divider
-                .frame(height: 1)
-                .padding(.horizontal, VSpacing.xs)
+            sidebarSectionDivider(isExpanded: false)
 
             SidebarNavRow(icon: "square.and.pencil", label: "New Chat", isActive: false, isExpanded: false) {
                 windowState.selection = nil
@@ -579,7 +569,7 @@ extension MainWindowView {
                                         selectThread: { selectThread(thread) },
                                         onSelect: { showThreadSwitcher = false }
                                     )
-                                        .padding(.bottom, VSpacing.xxs)
+                                        .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                         .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                             if sidebar.dropTargetThreadId == thread.id {
                                                 Rectangle()
@@ -657,6 +647,20 @@ extension MainWindowView {
 
             Spacer().frame(height: 0)
         }
+    }
+
+    // MARK: - Section Divider
+
+    /// Uniform section divider using canonical metrics.
+    /// Horizontal inset adapts to expanded/collapsed; vertical rhythm is always compact.
+    @ViewBuilder
+    func sidebarSectionDivider(isExpanded: Bool) -> some View {
+        VColor.divider
+            .frame(height: 1)
+            .padding(.horizontal, isExpanded
+                ? SidebarLayoutMetrics.dividerHorizontalPaddingExpanded
+                : SidebarLayoutMetrics.dividerHorizontalPaddingCollapsed)
+            .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
     }
 
     // MARK: - App View Helpers

@@ -27,9 +27,10 @@ struct SidebarThreadsHeader: View {
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }
-        .padding(.leading, 20)
+        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
         .padding(.trailing, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.top, SidebarLayoutMetrics.sectionTitleTopGap)
+        .padding(.bottom, SidebarLayoutMetrics.sectionTitleBottomGap)
         .contextMenu {
             Button {
                 onMarkAllSeen()

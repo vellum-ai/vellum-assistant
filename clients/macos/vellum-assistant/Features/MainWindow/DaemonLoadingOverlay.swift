@@ -23,7 +23,8 @@ struct DaemonLoadingThreadsSkeleton: View {
                 VSkeletonBone(height: 13)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, VSpacing.xs)
-                    .padding(.vertical, 11)
+                    .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+                    .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
                     .padding(.horizontal, VSpacing.sm)
             }
         }
