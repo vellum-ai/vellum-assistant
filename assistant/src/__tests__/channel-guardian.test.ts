@@ -1370,8 +1370,8 @@ describe("assistant-scoped approval request lookups", () => {
     resetTables();
   });
 
-  test("createApprovalRequest stores assistantId and defaults to self", () => {
-    const reqWithoutId = createApprovalRequest({
+  test("createApprovalRequest no longer exposes assistantId on the returned interface", () => {
+    const req = createApprovalRequest({
       runId: "run-1",
       requestId: "req-1",
       conversationId: "conv-1",
@@ -1383,30 +1383,16 @@ describe("assistant-scoped approval request lookups", () => {
       toolName: "shell",
       expiresAt: Date.now() + 300_000,
     });
-    expect(reqWithoutId.assistantId).toBe("self");
-
-    const reqWithId = createApprovalRequest({
-      runId: "run-2",
-      requestId: "req-2",
-      conversationId: "conv-2",
-      assistantId: "asst-A",
-      channel: "telegram",
-      requesterExternalUserId: "user-99",
-      requesterChatId: "chat-99",
-      guardianExternalUserId: "user-42",
-      guardianChatId: "chat-42",
-      toolName: "browser",
-      expiresAt: Date.now() + 300_000,
-    });
-    expect(reqWithId.assistantId).toBe("asst-A");
+    // assistantId is no longer on the public interface
+    expect(req.id).toBeDefined();
+    expect(req.toolName).toBe("shell");
   });
 
-  test("approval requests from different assistants are independent", () => {
+  test("approval requests from different conversations are independent", () => {
     createApprovalRequest({
       runId: "run-A",
       requestId: "req-A",
       conversationId: "conv-A",
-      assistantId: "asst-A",
       channel: "telegram",
       requesterExternalUserId: "user-99",
       requesterChatId: "chat-99",
@@ -1419,7 +1405,6 @@ describe("assistant-scoped approval request lookups", () => {
       runId: "run-B",
       requestId: "req-B",
       conversationId: "conv-B",
-      assistantId: "asst-B",
       channel: "telegram",
       requesterExternalUserId: "user-88",
       requesterChatId: "chat-88",
@@ -1433,8 +1418,6 @@ describe("assistant-scoped approval request lookups", () => {
     const foundB = getPendingApprovalForRequest("req-B");
     expect(foundA).not.toBeNull();
     expect(foundB).not.toBeNull();
-    expect(foundA!.assistantId).toBe("asst-A");
-    expect(foundB!.assistantId).toBe("asst-B");
     expect(foundA!.toolName).toBe("shell");
     expect(foundB!.toolName).toBe("browser");
   });

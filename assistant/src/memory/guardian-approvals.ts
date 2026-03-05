@@ -29,7 +29,6 @@ export interface GuardianApprovalRequest {
   runId: string;
   requestId: string;
   conversationId: string;
-  assistantId: string;
   channel: string;
   requesterExternalUserId: string;
   requesterChatId: string;
@@ -57,7 +56,6 @@ function rowToApprovalRequest(
     runId: row.runId,
     requestId: row.requestId ?? row.runId,
     conversationId: row.conversationId,
-    assistantId: row.assistantId,
     channel: row.channel,
     requesterExternalUserId: row.requesterExternalUserId,
     requesterChatId: row.requesterChatId,
@@ -88,7 +86,6 @@ export function createApprovalRequest(params: {
   runId: string;
   requestId?: string;
   conversationId: string;
-  assistantId?: string;
   channel: string;
   requesterExternalUserId: string;
   requesterChatId: string;
@@ -108,7 +105,7 @@ export function createApprovalRequest(params: {
     runId: params.runId,
     requestId: params.requestId ?? null,
     conversationId: params.conversationId,
-    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     channel: params.channel,
     requesterExternalUserId: params.requesterExternalUserId,
     requesterChatId: params.requesterChatId,
@@ -172,34 +169,25 @@ export function getUnresolvedApprovalForRequest(
 /**
  * Find a pending guardian approval request by the guardian's chat ID.
  * Used when the guardian sends a decision from their chat.
- *
- * When `assistantId` is provided, the lookup is scoped to that assistant,
- * preventing cross-assistant approval consumption in shared guardian chats.
  */
 export function getPendingApprovalByGuardianChat(
   channel: string,
   guardianChatId: string,
-  assistantId?: string,
 ): GuardianApprovalRequest | null {
   const db = getDb();
   const now = Date.now();
 
-  const conditions = [
-    eq(channelGuardianApprovalRequests.channel, channel),
-    eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-    eq(channelGuardianApprovalRequests.status, "pending"),
-    gt(channelGuardianApprovalRequests.expiresAt, now),
-  ];
-  if (assistantId) {
-    conditions.push(
-      eq(channelGuardianApprovalRequests.assistantId, assistantId),
-    );
-  }
-
   const row = db
     .select()
     .from(channelGuardianApprovalRequests)
-    .where(and(...conditions))
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.channel, channel),
+        eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+        eq(channelGuardianApprovalRequests.status, "pending"),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
+      ),
+    )
     .orderBy(desc(channelGuardianApprovalRequests.createdAt))
     .get();
 
@@ -216,28 +204,22 @@ export function getPendingApprovalByRequestAndGuardianChat(
   requestId: string,
   channel: string,
   guardianChatId: string,
-  assistantId?: string,
 ): GuardianApprovalRequest | null {
   const db = getDb();
   const now = Date.now();
 
-  const conditions = [
-    eq(channelGuardianApprovalRequests.requestId, requestId),
-    eq(channelGuardianApprovalRequests.channel, channel),
-    eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-    eq(channelGuardianApprovalRequests.status, "pending"),
-    gt(channelGuardianApprovalRequests.expiresAt, now),
-  ];
-  if (assistantId) {
-    conditions.push(
-      eq(channelGuardianApprovalRequests.assistantId, assistantId),
-    );
-  }
-
   const row = db
     .select()
     .from(channelGuardianApprovalRequests)
-    .where(and(...conditions))
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.requestId, requestId),
+        eq(channelGuardianApprovalRequests.channel, channel),
+        eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+        eq(channelGuardianApprovalRequests.status, "pending"),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
+      ),
+    )
     .get();
 
   return row ? rowToApprovalRequest(row) : null;
@@ -247,34 +229,25 @@ export function getPendingApprovalByRequestAndGuardianChat(
  * Return all pending (non-expired) guardian approval requests for a given
  * guardian chat and channel. Used to detect ambiguity when a guardian sends
  * a plain-text decision while multiple approvals are pending.
- *
- * When `assistantId` is provided, the results are scoped to that assistant
- * to prevent cross-assistant approval consumption.
  */
 export function getAllPendingApprovalsByGuardianChat(
   channel: string,
   guardianChatId: string,
-  assistantId?: string,
 ): GuardianApprovalRequest[] {
   const db = getDb();
   const now = Date.now();
 
-  const conditions = [
-    eq(channelGuardianApprovalRequests.channel, channel),
-    eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-    eq(channelGuardianApprovalRequests.status, "pending"),
-    gt(channelGuardianApprovalRequests.expiresAt, now),
-  ];
-  if (assistantId) {
-    conditions.push(
-      eq(channelGuardianApprovalRequests.assistantId, assistantId),
-    );
-  }
-
   const rows = db
     .select()
     .from(channelGuardianApprovalRequests)
-    .where(and(...conditions))
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.channel, channel),
+        eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+        eq(channelGuardianApprovalRequests.status, "pending"),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
+      ),
+    )
     .orderBy(desc(channelGuardianApprovalRequests.createdAt))
     .all();
 
@@ -326,11 +299,10 @@ export function updateApprovalDecision(
 // ---------------------------------------------------------------------------
 
 /**
- * List approval requests filtered by assistant, and optionally by channel,
- * conversation, and status. Returns a paginated list of escalations.
+ * List approval requests optionally filtered by channel, conversation, and
+ * status. Returns a paginated list of escalations.
  */
 export function listPendingApprovalRequests(params: {
-  assistantId?: string;
   channel?: string;
   conversationId?: string;
   status?: ApprovalRequestStatus;
@@ -339,12 +311,7 @@ export function listPendingApprovalRequests(params: {
 }): GuardianApprovalRequest[] {
   const db = getDb();
 
-  const conditions = [
-    eq(
-      channelGuardianApprovalRequests.assistantId,
-      params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-    ),
-  ];
+  const conditions: ReturnType<typeof eq>[] = [];
   if (params.channel) {
     conditions.push(
       eq(channelGuardianApprovalRequests.channel, params.channel),
@@ -447,26 +414,18 @@ export function resolveApprovalRequest(
  * Count pending approval requests for a given conversation.
  * Used by thread state projection to compute `pending_escalation_count`.
  */
-export function countPendingByConversation(
-  conversationId: string,
-  assistantId?: string,
-): number {
+export function countPendingByConversation(conversationId: string): number {
   const db = getDb();
-
-  const conditions = [
-    eq(channelGuardianApprovalRequests.conversationId, conversationId),
-    eq(channelGuardianApprovalRequests.status, "pending"),
-  ];
-  if (assistantId) {
-    conditions.push(
-      eq(channelGuardianApprovalRequests.assistantId, assistantId),
-    );
-  }
 
   const result = db
     .select({ count: count() })
     .from(channelGuardianApprovalRequests)
-    .where(and(...conditions))
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.conversationId, conversationId),
+        eq(channelGuardianApprovalRequests.status, "pending"),
+      ),
+    )
     .get();
 
   return result?.count ?? 0;
@@ -478,7 +437,6 @@ export function countPendingByConversation(
  * Retained for existing test fixtures that check legacy approval dedup.
  */
 export function findPendingAccessRequestForRequester(
-  assistantId: string,
   channel: string,
   requesterExternalUserId: string,
   toolName: string,
@@ -491,7 +449,6 @@ export function findPendingAccessRequestForRequester(
     .from(channelGuardianApprovalRequests)
     .where(
       and(
-        eq(channelGuardianApprovalRequests.assistantId, assistantId),
         eq(channelGuardianApprovalRequests.channel, channel),
         eq(
           channelGuardianApprovalRequests.requesterExternalUserId,

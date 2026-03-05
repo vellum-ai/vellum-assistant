@@ -359,7 +359,6 @@ describe("guardian-action-conversation-turn", () => {
     });
 
     const deliveries = getFollowupDeliveriesByDestination(
-      "self",
       "telegram",
       "chat-abc",
     );
@@ -370,11 +369,7 @@ describe("guardian-action-conversation-turn", () => {
   test("getFollowupDeliveriesByDestination returns empty for non-matching channel", () => {
     createAwaitingChoiceRequest("conv-turn-2", { chatId: "chat-abc" });
 
-    const deliveries = getFollowupDeliveriesByDestination(
-      "self",
-      "sms",
-      "chat-abc",
-    );
+    const deliveries = getFollowupDeliveriesByDestination("sms", "chat-abc");
     expect(deliveries).toHaveLength(0);
   });
 
@@ -410,7 +405,6 @@ describe("guardian-action-conversation-turn", () => {
 
     // followup_state is 'none' — should not appear
     const deliveries = getFollowupDeliveriesByDestination(
-      "self",
       "telegram",
       "chat-none",
     );

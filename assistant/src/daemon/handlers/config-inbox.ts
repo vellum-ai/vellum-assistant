@@ -12,6 +12,7 @@ import {
 } from "../../memory/channel-guardian-store.js";
 import { addMessage, getMessages } from "../../memory/conversation-store.js";
 import { getBindingByConversation } from "../../memory/external-conversation-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
 import { deliverChannelReply } from "../../runtime/gateway-client.js";
 import {
@@ -153,7 +154,6 @@ export function handleInboxEscalation(
     switch (msg.action) {
       case "list": {
         const escalations = listPendingApprovalRequests({
-          assistantId: msg.assistantId,
           status: (msg.status as ApprovalRequestStatus) ?? undefined,
         });
         ctx.send(socket, {
@@ -279,7 +279,7 @@ async function executeApprove(
   approval: GuardianApprovalRequest,
   ctx: HandlerContext,
 ): Promise<void> {
-  const { conversationId, assistantId, channel } = approval;
+  const { conversationId, channel } = approval;
 
   // Recover the original message content from the stored payload
   const payload = getLatestStoredPayload(conversationId);
@@ -316,7 +316,7 @@ async function executeApprove(
       });
     }
   }
-  session.setAssistantId(assistantId);
+  session.setAssistantId(DAEMON_INTERNAL_ASSISTANT_ID);
   // The guardian already approved this escalation via the inbox, so we
   // directly set guardian trust. Going through resolveLocalIpcTrustContext
   // would look up the vellum binding's guardian ID and compare it against
@@ -368,7 +368,7 @@ async function executeApprove(
             {
               chatId: externalChatId,
               text: rendered.text,
-              assistantId,
+              assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
             },
             bearerToken,
           );
@@ -388,7 +388,7 @@ async function executeDeny(
   approval: GuardianApprovalRequest,
   reason: string | undefined,
 ): Promise<void> {
-  const { conversationId, assistantId, channel } = approval;
+  const { conversationId, channel } = approval;
 
   const binding = getBindingByConversation(conversationId);
   if (!binding) {
@@ -423,7 +423,7 @@ async function executeDeny(
     {
       chatId: binding.externalChatId,
       text: denialText,
-      assistantId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     },
     bearerToken,
   );

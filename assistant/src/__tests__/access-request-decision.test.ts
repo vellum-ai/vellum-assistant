@@ -99,7 +99,6 @@ function createTestApproval(overrides: Record<string, unknown> = {}) {
   return createApprovalRequest({
     runId: `ingress-access-request-${Date.now()}`,
     conversationId: `access-req-telegram-user-unknown-456`,
-    assistantId: "self",
     channel: "telegram",
     requesterExternalUserId: "user-unknown-456",
     requesterChatId: "chat-123",

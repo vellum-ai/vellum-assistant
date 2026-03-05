@@ -1959,7 +1959,6 @@ describe("guardian conversational approval via conversation engine", () => {
     const pending = getAllPendingApprovalsByGuardianChat(
       "telegram",
       "guardian-conv-chat",
-      "self",
     );
     expect(pending).toHaveLength(1);
 
@@ -2031,7 +2030,6 @@ describe("guardian conversational approval via conversation engine", () => {
     const pending = getAllPendingApprovalsByGuardianChat(
       "telegram",
       "guardian-nlp-chat",
-      "self",
     );
     expect(pending).toHaveLength(0);
 
@@ -2291,7 +2289,6 @@ describe("keep_pending remains conversational — guardian path", () => {
       runId: "run-gfb-1",
       requestId: "req-gfb-1",
       conversationId: convId,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-user-fb",
       requesterChatId: "requester-chat-fb",
@@ -2394,7 +2391,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       runId: "run-cancel-1",
       requestId: "req-cancel-1",
       conversationId: conversationId!,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-cancel-user",
       requesterChatId: "requester-cancel-chat",
@@ -2476,7 +2472,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       runId: "run-cancel-2",
       requestId: "req-cancel-2",
       conversationId: conversationId!,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-cancel-user",
       requesterChatId: "requester-cancel-chat",
@@ -2552,7 +2547,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       runId: "run-cancel-3",
       requestId: "req-cancel-3",
       conversationId: conversationId!,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-cancel-user",
       requesterChatId: "requester-cancel-chat",
@@ -2621,7 +2615,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       runId: "run-cancel-4",
       requestId: "req-cancel-4",
       conversationId: conversationId!,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-cancel-user",
       requesterChatId: "requester-cancel-chat",
@@ -2747,7 +2740,6 @@ describe("engine decision race condition — guardian path", () => {
       runId: "run-grc-1",
       requestId: "req-grc-1",
       conversationId: convId,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-race-user",
       requesterChatId: "requester-race-chat",
