@@ -4,6 +4,13 @@ import { getLogger } from "../logger.js";
 
 const log = getLogger("whatsapp-api");
 
+export class WhatsAppNonRetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WhatsAppNonRetryableError";
+  }
+}
+
 // Meta Cloud API v20 endpoint template
 const WHATSAPP_API_BASE = "https://graph.facebook.com/v20.0";
 
@@ -84,7 +91,7 @@ async function retryableWhatsAppFetch<T>(
       const data = (await response
         .json()
         .catch(() => ({}))) as WhatsAppApiErrorResponse;
-      throw new Error(
+      throw new WhatsAppNonRetryableError(
         data.error?.message
           ? `WhatsApp ${operation} failed: ${data.error.message}`
           : `WhatsApp ${operation} failed with status ${response.status}`,
@@ -409,7 +416,7 @@ async function retryableWhatsAppRawFetch(
       } catch {
         // Response body is not JSON — include raw text if available
       }
-      throw new Error(
+      throw new WhatsAppNonRetryableError(
         errorMessage
           ? `WhatsApp ${operation} failed: ${errorMessage}`
           : body

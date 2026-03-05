@@ -14,6 +14,7 @@ mock.module("../fetch.js", () => ({
 }));
 
 const { downloadWhatsAppFile } = await import("../whatsapp/download.js");
+const { WhatsAppNonRetryableError } = await import("../whatsapp/api.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
@@ -281,7 +282,7 @@ describe("downloadWhatsAppFile", () => {
     expect(result.filename).toBe("1234567890");
   });
 
-  test("throws on non-retryable 4xx metadata response", async () => {
+  test("throws WhatsAppNonRetryableError on non-retryable 4xx metadata response", async () => {
     fetchMock = mock(async (input: string | URL | Request) => {
       const url =
         typeof input === "string"
@@ -305,12 +306,12 @@ describe("downloadWhatsAppFile", () => {
       return new Response("unexpected", { status: 500 });
     });
 
-    await expect(downloadWhatsAppFile(makeConfig(), MEDIA_ID)).rejects.toThrow(
-      "Invalid media ID",
-    );
+    const promise = downloadWhatsAppFile(makeConfig(), MEDIA_ID);
+    await expect(promise).rejects.toThrow("Invalid media ID");
+    await expect(promise).rejects.toBeInstanceOf(WhatsAppNonRetryableError);
   });
 
-  test("throws on non-retryable 4xx download response", async () => {
+  test("throws WhatsAppNonRetryableError on non-retryable 4xx download response", async () => {
     fetchMock = mock(async (input: string | URL | Request) => {
       const url =
         typeof input === "string"
@@ -335,9 +336,11 @@ describe("downloadWhatsAppFile", () => {
       return new Response("Not Found", { status: 404 });
     });
 
-    await expect(downloadWhatsAppFile(makeConfig(), MEDIA_ID)).rejects.toThrow(
+    const promise = downloadWhatsAppFile(makeConfig(), MEDIA_ID);
+    await expect(promise).rejects.toThrow(
       "WhatsApp downloadMedia failed with status 404",
     );
+    await expect(promise).rejects.toBeInstanceOf(WhatsAppNonRetryableError);
   });
 
   test("retries on 500 and eventually succeeds", async () => {

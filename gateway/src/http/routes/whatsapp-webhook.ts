@@ -21,7 +21,10 @@ import {
 } from "../../webhook-pipeline.js";
 import { ROUTING_REJECTION_NOTICE } from "../../webhook-copy.js";
 import { downloadWhatsAppFile } from "../../whatsapp/download.js";
-import { markWhatsAppMessageRead } from "../../whatsapp/api.js";
+import {
+  markWhatsAppMessageRead,
+  WhatsAppNonRetryableError,
+} from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
 import { verifyWhatsAppWebhookSignature } from "../../whatsapp/verify.js";
@@ -269,6 +272,11 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
                 tlog.warn(
                   { err: result.reason },
                   "Skipping WhatsApp attachment with validation error",
+                );
+              } else if (result.reason instanceof WhatsAppNonRetryableError) {
+                tlog.warn(
+                  { err: result.reason },
+                  "Skipping WhatsApp attachment with non-retryable error",
                 );
               } else {
                 // Transient failure — propagate so the webhook returns 500 and

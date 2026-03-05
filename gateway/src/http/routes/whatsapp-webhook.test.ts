@@ -30,6 +30,13 @@ class MockAttachmentValidationError extends Error {
   }
 }
 
+class MockWhatsAppNonRetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WhatsAppNonRetryableError";
+  }
+}
+
 mock.module("../../handlers/handle-inbound.js", () => ({
   handleInbound: handleInboundMock,
 }));
@@ -54,6 +61,7 @@ mock.module("../../whatsapp/send.js", () => ({
 
 mock.module("../../whatsapp/api.js", () => ({
   markWhatsAppMessageRead: markWhatsAppMessageReadMock,
+  WhatsAppNonRetryableError: MockWhatsAppNonRetryableError,
 }));
 
 mock.module("../../whatsapp/normalize.js", () => ({
@@ -540,6 +548,67 @@ describe("whatsapp-webhook", () => {
 
     expect(res.status).toBe(500);
     expect(handleInboundMock).not.toHaveBeenCalled();
+  });
+
+  it("skips non-retryable 4xx download errors and forwards message with empty attachments", async () => {
+    const { handler, dedupCache } = createWhatsAppWebhookHandler(baseConfig);
+
+    downloadWhatsAppFileMock.mockImplementation(() => {
+      throw new MockWhatsAppNonRetryableError(
+        "WhatsApp downloadMedia failed with status 404: Not Found",
+      );
+    });
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-nonretryable",
+        mediaType: "image",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "check this photo",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-nonretryable",
+            attachments: [
+              {
+                type: "image",
+                fileId: "media-expired",
+                mimeType: "image/jpeg",
+                fileSize: 1024,
+              },
+            ],
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-nonretryable",
+            messageId: "wamid-nonretryable",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const [, , options] = handleInboundMock.mock.calls[0] as unknown as [
+      GatewayConfig,
+      Record<string, unknown>,
+      { attachmentIds?: string[] },
+    ];
+    expect(options.attachmentIds).toEqual([]);
+
+    // Dedup cache should be marked (not unreserved)
+    expect(dedupCache.reserve("wamid-nonretryable")).toBe(false);
   });
 
   it("deduplicates messages with the same WhatsApp message ID", async () => {
