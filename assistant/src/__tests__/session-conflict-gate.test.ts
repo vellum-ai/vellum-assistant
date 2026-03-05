@@ -6,10 +6,8 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 
 let runCalls: Message[][] = [];
 let resolverCallCount = 0;
-let markAskedCalls: string[] = [];
 let conflictScopeCalls: string[] = [];
 let memoryEnabled = true;
-let askOnIrrelevantTurns = false;
 let resolveConflictCalls: Array<{
   id: string;
   input: { status: string; resolutionNote?: string | null };
@@ -31,6 +29,8 @@ let pendingConflicts: Array<{
   candidateStatement: string;
   existingKind: string;
   candidateKind: string;
+  existingVerificationState: string;
+  candidateVerificationState: string;
 }> = [];
 
 let resolverResult: {
@@ -131,7 +131,7 @@ mock.module("../config/loader.js", () => ({
         reaskCooldownTurns: 3,
         resolverLlmTimeoutMs: 250,
         relevanceThreshold: 0.2,
-        askOnIrrelevantTurns,
+        askOnIrrelevantTurns: false,
         conflictableKinds: [
           "preference",
           "profile",
@@ -268,10 +268,7 @@ mock.module("../memory/conflict-store.js", () => ({
     conflictScopeCalls.push(scopeId);
     return pendingConflicts;
   },
-  markConflictAsked: (conflictId: string) => {
-    markAskedCalls.push(conflictId);
-    return true;
-  },
+  markConflictAsked: () => true,
   applyConflictResolution: () => true,
   resolveConflict: (
     id: string,
@@ -394,15 +391,13 @@ function extractText(message: Message): string {
     .join("\n");
 }
 
-describe("Session conflict soft gate", () => {
+describe("Session conflict soft gate (non-interruptive)", () => {
   beforeEach(() => {
     runCalls = [];
     resolverCallCount = 0;
-    markAskedCalls = [];
     conflictScopeCalls = [];
     resolveConflictCalls = [];
     memoryEnabled = true;
-    askOnIrrelevantTurns = false;
     pendingConflicts = [];
     persistedMessages.length = 0;
     resolverResult = {
@@ -413,7 +408,7 @@ describe("Session conflict soft gate", () => {
     };
   });
 
-  test("relevant unresolved conflict asks clarification and skips agent loop", async () => {
+  test("relevant conflict does not produce user-facing clarification — agent loop runs normally", async () => {
     pendingConflicts = [
       {
         id: "conflict-relevant",
@@ -432,6 +427,8 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "Use Vue for frontend work.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
 
@@ -445,25 +442,24 @@ describe("Session conflict soft gate", () => {
       (event) => events.push(event),
     );
 
-    expect(runCalls).toHaveLength(0);
-    expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual(["conflict-relevant"]);
-    const clarificationEvent = events.find(
+    // Agent loop runs — no clarification prompt blocks it
+    expect(runCalls).toHaveLength(1);
+    // No clarification text delta emitted
+    const textDeltas = events.filter(
       (event) => event.type === "assistant_text_delta",
     );
-    expect(clarificationEvent).toBeDefined();
-    if (
-      clarificationEvent &&
-      clarificationEvent.type === "assistant_text_delta"
-    ) {
-      expect(clarificationEvent.text).toContain("Do you want React or Vue");
+    for (const delta of textDeltas) {
+      if (delta.type === "assistant_text_delta") {
+        expect(delta.text).not.toContain("conflicting");
+        expect(delta.text).not.toContain("React or Vue");
+      }
     }
     expect(events.some((event) => event.type === "message_complete")).toBe(
       true,
     );
   });
 
-  test("irrelevant unresolved conflict does not inject side-question when askOnIrrelevantTurns is false (default)", async () => {
+  test("irrelevant conflict does not inject side-question and agent loop runs normally", async () => {
     pendingConflicts = [
       {
         id: "conflict-irrelevant-silent",
@@ -482,6 +478,8 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "Use MySQL as the default database.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
     const session = makeSession();
@@ -501,20 +499,18 @@ describe("Session conflict soft gate", () => {
     const injectedText = extractText(injectedUser);
     expect(injectedText).not.toContain("Memory clarification request");
     expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual([]);
     expect(events.some((event) => event.type === "message_complete")).toBe(
       true,
     );
   });
 
-  test("irrelevant unresolved conflict injects soft clarification when askOnIrrelevantTurns is explicitly true", async () => {
-    askOnIrrelevantTurns = true;
+  test("topically relevant explicit clarification reply resolves conflict", async () => {
     pendingConflicts = [
       {
-        id: "conflict-irrelevant",
+        id: "conflict-resolve",
         scopeId: "default",
-        existingItemId: "existing-b",
-        candidateItemId: "candidate-b",
+        existingItemId: "existing-resolve",
+        candidateItemId: "candidate-resolve",
         relationship: "ambiguous_contradiction",
         status: "pending_clarification",
         clarificationQuestion: "Should I assume Postgres or MySQL?",
@@ -527,90 +523,37 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "Use MySQL as the default database.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
-    const session = makeSession();
-    await session.loadFromDb();
-
-    const events: ServerMessage[] = [];
-    await session.processMessage(
-      "How do I set up pre-commit hooks?",
-      [],
-      (event) => events.push(event),
-    );
-
-    // Agent loop still runs (soft ask, not a hard block)
-    expect(runCalls).toHaveLength(1);
-    const injectedUser = runCalls[0][runCalls[0].length - 1];
-    expect(injectedUser.role).toBe("user");
-    const injectedText = extractText(injectedUser);
-    // With askOnIrrelevantTurns=true, the irrelevant conflict is soft-injected
-    expect(injectedText).toContain("Memory clarification request");
-    expect(injectedText).toContain("Should I assume Postgres or MySQL?");
-    expect(resolverCallCount).toBe(0);
-    // Zero-relevance conflicts are surfaced but not tracked as asked
-    expect(markAskedCalls).toEqual([]);
-    expect(events.some((event) => event.type === "message_complete")).toBe(
-      true,
-    );
-  });
-
-  test("recently asked conflicts still resolve directional clarification replies", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-followup",
-        scopeId: "default",
-        existingItemId: "existing-followup",
-        candidateItemId: "candidate-followup",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Should I assume Postgres or MySQL?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use Postgres as the default database.",
-        candidateStatement: "Use MySQL as the default database.",
-        existingKind: "preference",
-        candidateKind: "preference",
-      },
-    ];
-
-    const session = makeSession();
-    await session.loadFromDb();
-
-    // First turn asks the clarification and records it as asked.
-    await session.processMessage(
-      "Should I assume Postgres or MySQL?",
-      [],
-      () => {},
-    );
-    expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual(["conflict-followup"]);
 
     resolverResult = {
       resolution: "keep_candidate",
       strategy: "heuristic",
       resolvedStatement: null,
-      explanation: "Directional clarification received.",
+      explanation: "User prefers MySQL.",
     };
 
-    // Follow-up reply does not overlap statement tokens but should still resolve.
-    await session.processMessage("Keep the new one.", [], () => {});
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // "use MySQL" is a clarification reply (action cue "use") with topical
+    // relevance to the conflict statements.
+    await session.processMessage("use MySQL", [], () => {});
 
     expect(resolverCallCount).toBe(1);
-    expect(markAskedCalls).toEqual(["conflict-followup"]);
+    // Agent loop still runs — no blocking
     expect(runCalls).toHaveLength(1);
   });
 
-  test('concise directional replies like "both" or "option B" resolve recently asked conflicts', async () => {
+  test("non-clarification message does not attempt resolution", async () => {
     pendingConflicts = [
       {
-        id: "conflict-concise",
+        id: "conflict-no-resolve",
         scopeId: "default",
-        existingItemId: "existing-concise",
-        candidateItemId: "candidate-concise",
+        existingItemId: "existing-nr",
+        candidateItemId: "candidate-nr",
         relationship: "ambiguous_contradiction",
         status: "pending_clarification",
         clarificationQuestion: "Should I assume Postgres or MySQL?",
@@ -623,92 +566,27 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "Use MySQL as the default database.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
 
     const session = makeSession();
     await session.loadFromDb();
 
-    // First turn asks the clarification.
-    await session.processMessage(
-      "Should I assume Postgres or MySQL?",
-      [],
-      () => {},
-    );
-    expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual(["conflict-concise"]);
-
-    resolverResult = {
-      resolution: "merge",
-      strategy: "heuristic",
-      resolvedStatement: "Support both Postgres and MySQL.",
-      explanation: "User wants both.",
-    };
-
-    // Short directional reply with no action verb should still resolve.
-    await session.processMessage("both", [], () => {});
-
-    expect(resolverCallCount).toBe(1);
-    expect(runCalls).toHaveLength(1);
-  });
-
-  test("unrelated message during cooldown does not accidentally resolve conflict", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-unrelated",
-        scopeId: "default",
-        existingItemId: "existing-unrelated",
-        candidateItemId: "candidate-unrelated",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Should I assume Postgres or MySQL?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use Postgres as the default database.",
-        candidateStatement: "Use MySQL as the default database.",
-        existingKind: "preference",
-        candidateKind: "preference",
-      },
-    ];
-
-    const session = makeSession();
-    await session.loadFromDb();
-
-    // First turn: relevant question triggers clarification ask.
-    await session.processMessage(
-      "Should I assume Postgres or MySQL?",
-      [],
-      () => {},
-    );
-    expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual(["conflict-unrelated"]);
-
-    // Second turn: unrelated question containing the cue word "new" should NOT
-    // resolve the conflict — it is not a clarification reply.
-    resolverResult = {
-      resolution: "keep_candidate",
-      strategy: "heuristic",
-      resolvedStatement: null,
-      explanation: "Directional clarification received.",
-    };
     await session.processMessage("What's new in Bun?", [], () => {});
 
-    // The resolver should NOT have been called for this unrelated question.
     expect(resolverCallCount).toBe(0);
-    // Normal agent loop should still run.
     expect(runCalls).toHaveLength(1);
   });
 
-  test("unrelated statement without question mark does not accidentally resolve conflict", async () => {
+  test("clarification reply without topical relevance does not resolve conflict", async () => {
     pendingConflicts = [
       {
-        id: "conflict-unrelated-no-qmark",
+        id: "conflict-no-overlap",
         scopeId: "default",
-        existingItemId: "existing-unrelated2",
-        candidateItemId: "candidate-unrelated2",
+        existingItemId: "existing-no",
+        candidateItemId: "candidate-no",
         relationship: "ambiguous_contradiction",
         status: "pending_clarification",
         clarificationQuestion: "Should I assume Postgres or MySQL?",
@@ -721,129 +599,20 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "Use MySQL as the default database.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
 
     const session = makeSession();
     await session.loadFromDb();
 
-    // First turn: triggers clarification ask.
-    await session.processMessage(
-      "Should I assume Postgres or MySQL?",
-      [],
-      () => {},
-    );
-    expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual(["conflict-unrelated-no-qmark"]);
-
-    resolverResult = {
-      resolution: "keep_candidate",
-      strategy: "heuristic",
-      resolvedStatement: null,
-      explanation: "Directional clarification received.",
-    };
-
-    // Unrelated statement with cue word "new" but no question mark and > 4 words.
-    // Should NOT resolve the conflict.
-    await session.processMessage("I started a new project today", [], () => {});
+    // "keep it" is a clarification reply but has zero topical overlap
+    // with Postgres/MySQL conflict statements
+    await session.processMessage("keep it", [], () => {});
 
     expect(resolverCallCount).toBe(0);
     expect(runCalls).toHaveLength(1);
-  });
-
-  test("irrelevant conflicts remain silent across subsequent turns when askOnIrrelevantTurns is false (default)", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-silent-multi",
-        scopeId: "default",
-        existingItemId: "existing-c",
-        candidateItemId: "candidate-c",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Should I use pnpm or npm?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use pnpm for workspace installs.",
-        candidateStatement: "Use npm for workspace installs.",
-        existingKind: "preference",
-        candidateKind: "preference",
-      },
-    ];
-
-    const session = makeSession();
-    await session.loadFromDb();
-
-    await session.processMessage(
-      "How should I structure my repo?",
-      [],
-      () => {},
-    );
-    await session.processMessage(
-      "What branch naming should I use?",
-      [],
-      () => {},
-    );
-
-    expect(runCalls).toHaveLength(2);
-    const firstUserText = extractText(runCalls[0][runCalls[0].length - 1]);
-    const secondUserText = extractText(runCalls[1][runCalls[1].length - 1]);
-    // Both turns: no soft injection because askOnIrrelevantTurns=false
-    expect(firstUserText).not.toContain("Memory clarification request");
-    expect(secondUserText).not.toContain("Memory clarification request");
-    expect(markAskedCalls).toEqual([]);
-  });
-
-  test("zero-relevance conflict is soft-asked on every turn (not tracked) when askOnIrrelevantTurns is explicitly true", async () => {
-    askOnIrrelevantTurns = true;
-    pendingConflicts = [
-      {
-        id: "conflict-cooldown",
-        scopeId: "default",
-        existingItemId: "existing-c",
-        candidateItemId: "candidate-c",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Should I use pnpm or npm?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use pnpm for workspace installs.",
-        candidateStatement: "Use npm for workspace installs.",
-        existingKind: "preference",
-        candidateKind: "preference",
-      },
-    ];
-
-    const session = makeSession();
-    await session.loadFromDb();
-
-    await session.processMessage(
-      "How should I structure my repo?",
-      [],
-      () => {},
-    );
-    await session.processMessage(
-      "What branch naming should I use?",
-      [],
-      () => {},
-    );
-
-    expect(runCalls).toHaveLength(2);
-    const firstUserText = extractText(runCalls[0][runCalls[0].length - 1]);
-    const secondUserText = extractText(runCalls[1][runCalls[1].length - 1]);
-    // First turn: askOnIrrelevantTurns=true causes soft injection
-    expect(firstUserText).toContain("Memory clarification request");
-    // Second turn: cooldown prevents re-asking (but since relevance is 0,
-    // the first ask was not tracked, so cooldown doesn't apply — the conflict
-    // is surfaced again on the second turn too)
-    expect(secondUserText).toContain("Memory clarification request");
-    // Zero-relevance conflicts are never tracked as asked
-    expect(markAskedCalls).toEqual([]);
   });
 
   test("passes session scopeId through to conflict store queries", async () => {
@@ -865,6 +634,8 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "Use spaces for indentation.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
 
@@ -918,6 +689,8 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "Use Vue for frontend work.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
 
@@ -934,10 +707,9 @@ describe("Session conflict soft gate", () => {
     // Agent loop should run normally — conflict gate should be bypassed
     expect(runCalls).toHaveLength(1);
     expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual([]);
   });
 
-  test("pending transient conflict is dismissed and not asked", async () => {
+  test("pending transient conflict is dismissed and not resolved", async () => {
     pendingConflicts = [
       {
         id: "conflict-transient",
@@ -956,6 +728,8 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "Track PR #5525 for review.",
         existingKind: "instruction",
         candidateKind: "instruction",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
 
@@ -967,9 +741,8 @@ describe("Session conflict soft gate", () => {
       events.push(event),
     );
 
-    // Should run normal agent loop, no clarification asked
+    // Should run normal agent loop
     expect(runCalls).toHaveLength(1);
-    expect(markAskedCalls).toEqual([]);
     // The conflict should have been dismissed
     expect(resolveConflictCalls).toEqual([
       {
@@ -1004,6 +777,8 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "User's favorite color is blue.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
 
@@ -1015,9 +790,8 @@ describe("Session conflict soft gate", () => {
       events.push(event),
     );
 
-    // Should run normal agent loop, no clarification asked
+    // Should run normal agent loop
     expect(runCalls).toHaveLength(1);
-    expect(markAskedCalls).toEqual([]);
     // The conflict should have been dismissed as incoherent
     expect(resolveConflictCalls).toEqual([
       {
@@ -1031,13 +805,13 @@ describe("Session conflict soft gate", () => {
     ]);
   });
 
-  test("pending durable preference conflict still follows normal flow", async () => {
+  test("non-user-evidenced conflict (assistant-inferred only) is dismissed", async () => {
     pendingConflicts = [
       {
-        id: "conflict-durable",
+        id: "conflict-no-user-evidence",
         scopeId: "default",
-        existingItemId: "existing-durable",
-        candidateItemId: "candidate-durable",
+        existingItemId: "existing-inferred",
+        candidateItemId: "candidate-inferred",
         relationship: "ambiguous_contradiction",
         status: "pending_clarification",
         clarificationQuestion: "Do you want React or Vue?",
@@ -1050,6 +824,90 @@ describe("Session conflict soft gate", () => {
         candidateStatement: "Use Vue for frontend work.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "assistant_inferred",
+        candidateVerificationState: "assistant_inferred",
+      },
+    ];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage("Should I use React or Vue?", [], () => {});
+
+    // Agent loop runs normally
+    expect(runCalls).toHaveLength(1);
+    // Conflict is dismissed because neither side has user-evidenced provenance
+    expect(resolveConflictCalls).toEqual([
+      {
+        id: "conflict-no-user-evidence",
+        input: {
+          status: "dismissed",
+          resolutionNote:
+            "Dismissed by conflict policy (no user-evidenced provenance).",
+        },
+      },
+    ]);
+  });
+
+  test("user-evidenced conflict is not dismissed when one side has user provenance", async () => {
+    pendingConflicts = [
+      {
+        id: "conflict-user-evidenced",
+        scopeId: "default",
+        existingItemId: "existing-ue",
+        candidateItemId: "candidate-ue",
+        relationship: "ambiguous_contradiction",
+        status: "pending_clarification",
+        clarificationQuestion: "Do you want React or Vue?",
+        resolutionNote: null,
+        lastAskedAt: null,
+        resolvedAt: null,
+        createdAt: 1,
+        updatedAt: 1,
+        existingStatement: "Use React for frontend work.",
+        candidateStatement: "Use Vue for frontend work.",
+        existingKind: "preference",
+        candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "assistant_inferred",
+      },
+    ];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage("Should I use React or Vue?", [], () => {});
+
+    // Agent loop runs normally (no blocking)
+    expect(runCalls).toHaveLength(1);
+    // Conflict should NOT be dismissed — has user-evidenced provenance
+    expect(resolveConflictCalls).toEqual([]);
+  });
+
+  test("regression: OAuth/Gmail-style conflicting statements with command request produces no clarification", async () => {
+    pendingConflicts = [
+      {
+        id: "conflict-oauth-gmail",
+        scopeId: "default",
+        existingItemId: "existing-oauth",
+        candidateItemId: "candidate-oauth",
+        relationship: "ambiguous_contradiction",
+        status: "pending_clarification",
+        clarificationQuestion:
+          "Which OAuth provider should be the default for email integration?",
+        resolutionNote: null,
+        lastAskedAt: null,
+        resolvedAt: null,
+        createdAt: 1,
+        updatedAt: 1,
+        existingStatement:
+          "Gmail OAuth is the default email integration provider.",
+        candidateStatement:
+          "Microsoft OAuth is the default email integration provider.",
+        existingKind: "preference",
+        candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
 
@@ -1057,15 +915,29 @@ describe("Session conflict soft gate", () => {
     await session.loadFromDb();
 
     const events: ServerMessage[] = [];
-    await session.processMessage("Should I use React or Vue?", [], (event) =>
-      events.push(event),
+    // A command request that is unrelated to the conflict
+    await session.processMessage(
+      "Set up a new Slack channel for the team",
+      [],
+      (event) => events.push(event),
     );
 
-    // Should ask clarification for relevant durable conflict
-    expect(runCalls).toHaveLength(0);
-    expect(markAskedCalls).toEqual(["conflict-durable"]);
-    // No dismissal should have happened
+    // Agent loop runs — no clarification prompt produced
+    expect(runCalls).toHaveLength(1);
+    expect(resolverCallCount).toBe(0);
+    // No clarification text in any event
+    for (const event of events) {
+      if (event.type === "assistant_text_delta") {
+        expect(event.text).not.toContain("OAuth");
+        expect(event.text).not.toContain("Gmail");
+        expect(event.text).not.toContain("conflicting");
+      }
+    }
+    // Conflict should NOT be dismissed (it's user-evidenced and actionable)
     expect(resolveConflictCalls).toEqual([]);
+    expect(events.some((event) => event.type === "message_complete")).toBe(
+      true,
+    );
   });
 });
 
@@ -1145,13 +1017,14 @@ describe("looksLikeClarificationReply", () => {
   });
 });
 
-describe("ConflictGate askOnIrrelevantTurns knob", () => {
+describe("ConflictGate (unit)", () => {
   const baseConfig = {
     enabled: true,
     gateMode: "soft" as const,
     relevanceThreshold: 0.2,
     reaskCooldownTurns: 3,
     resolverLlmTimeoutMs: 250,
+    askOnIrrelevantTurns: false,
     conflictableKinds: [
       "preference",
       "profile",
@@ -1162,10 +1035,10 @@ describe("ConflictGate askOnIrrelevantTurns knob", () => {
   };
 
   beforeEach(() => {
-    markAskedCalls = [];
     pendingConflicts = [];
     resolveConflictCalls = [];
     resolverCallCount = 0;
+    conflictScopeCalls = [];
     resolverResult = {
       resolution: "still_unclear",
       strategy: "heuristic",
@@ -1174,176 +1047,16 @@ describe("ConflictGate askOnIrrelevantTurns knob", () => {
     };
   });
 
-  test("with askOnIrrelevantTurns=false, irrelevant conflict is not asked", async () => {
+  test("evaluate returns void (never produces user-facing output)", async () => {
     pendingConflicts = [
       {
-        id: "conflict-irrel-false",
+        id: "conflict-void",
         scopeId: "default",
-        existingItemId: "existing-irrel",
-        candidateItemId: "candidate-irrel",
+        existingItemId: "existing-void",
+        candidateItemId: "candidate-void",
         relationship: "ambiguous_contradiction",
         status: "pending_clarification",
-        clarificationQuestion: "Should I assume Postgres or MySQL?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use Postgres as the default database.",
-        candidateStatement: "Use MySQL as the default database.",
-        existingKind: "preference",
-        candidateKind: "preference",
-      },
-    ];
-
-    const gate = new ConflictGate();
-    const result = await gate.evaluate("How do I set up pre-commit hooks?", {
-      ...baseConfig,
-      askOnIrrelevantTurns: false,
-    });
-
-    expect(result).toBeNull();
-    expect(markAskedCalls).toEqual([]);
-  });
-
-  test("with askOnIrrelevantTurns=true, irrelevant conflict is asked as non-relevant", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-irrel-true",
-        scopeId: "default",
-        existingItemId: "existing-irrel2",
-        candidateItemId: "candidate-irrel2",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Should I assume Postgres or MySQL?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use Postgres as the default database.",
-        candidateStatement: "Use MySQL as the default database.",
-        existingKind: "preference",
-        candidateKind: "preference",
-      },
-    ];
-
-    const gate = new ConflictGate();
-    const result = await gate.evaluate("How do I set up pre-commit hooks?", {
-      ...baseConfig,
-      askOnIrrelevantTurns: true,
-    });
-
-    expect(result).not.toBeNull();
-    expect(result!.relevant).toBe(false);
-    expect(result!.question).toContain("Postgres or MySQL");
-    // Zero-relevance conflicts are surfaced but not tracked as asked
-    expect(markAskedCalls).toEqual([]);
-  });
-
-  test("zero-relevance conflict asked via askOnIrrelevantTurns does not cause wasRecentlyAsked on next turn", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-zero-rel",
-        scopeId: "default",
-        existingItemId: "existing-zero",
-        candidateItemId: "candidate-zero",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Should I assume Postgres or MySQL?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use Postgres as the default database.",
-        candidateStatement: "Use MySQL as the default database.",
-        existingKind: "preference",
-        candidateKind: "preference",
-      },
-    ];
-
-    const gate = new ConflictGate();
-
-    // First turn: zero-relevance conflict is surfaced via askOnIrrelevantTurns
-    const result1 = await gate.evaluate("How do I set up pre-commit hooks?", {
-      ...baseConfig,
-      askOnIrrelevantTurns: true,
-    });
-    expect(result1).not.toBeNull();
-    expect(result1!.relevant).toBe(false);
-    // Not tracked as asked because relevance is 0
-    expect(markAskedCalls).toEqual([]);
-
-    // Second turn: an unrelated short imperative that looks like a clarification reply.
-    // If the zero-relevance conflict had been tracked, wasRecentlyAsked would return
-    // true and shouldAttemptConflictResolution would try to resolve it — which is wrong.
-    // Since we don't track zero-relevance asks, the resolver should NOT be called.
-    const result2 = await gate.evaluate("keep it", {
-      ...baseConfig,
-      askOnIrrelevantTurns: false,
-    });
-
-    // The conflict should not have been resolved by the resolver
-    expect(resolverCallCount).toBe(0);
-    // With askOnIrrelevantTurns=false and the conflict being irrelevant, result is null
-    expect(result2).toBeNull();
-  });
-
-  test("zero-relevance conflict on primary askable path (relevanceThreshold=0) is tracked as asked", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-zero-threshold",
-        scopeId: "default",
-        existingItemId: "existing-zt",
-        candidateItemId: "candidate-zt",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Should I assume Postgres or MySQL?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use Postgres as the default database.",
-        candidateStatement: "Use MySQL as the default database.",
-        existingKind: "preference",
-        candidateKind: "preference",
-      },
-    ];
-
-    const gate = new ConflictGate();
-    // relevanceThreshold=0 means zero-relevance conflicts pass the primary askable filter
-    const result1 = await gate.evaluate("How do I set up pre-commit hooks?", {
-      ...baseConfig,
-      relevanceThreshold: 0,
-      askOnIrrelevantTurns: false,
-    });
-
-    expect(result1).not.toBeNull();
-    expect(result1!.relevant).toBe(true);
-    // Should be tracked as asked since it came through the primary askable path
-    expect(markAskedCalls).toEqual(["conflict-zero-threshold"]);
-
-    // Second turn within cooldown: the conflict should NOT be re-asked
-    const result2 = await gate.evaluate("Another unrelated question", {
-      ...baseConfig,
-      relevanceThreshold: 0,
-      askOnIrrelevantTurns: false,
-    });
-    expect(result2).toBeNull();
-  });
-
-  test("relevant conflict is asked regardless of askOnIrrelevantTurns value", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-rel-knob",
-        scopeId: "default",
-        existingItemId: "existing-rel",
-        candidateItemId: "candidate-rel",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Do you want React or Vue for frontend work?",
+        clarificationQuestion: "Do you want React or Vue?",
         resolutionNote: null,
         lastAskedAt: null,
         resolvedAt: null,
@@ -1353,19 +1066,156 @@ describe("ConflictGate askOnIrrelevantTurns knob", () => {
         candidateStatement: "Use Vue for frontend work.",
         existingKind: "preference",
         candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
       },
     ];
 
-    // Test with askOnIrrelevantTurns=false — relevant conflicts should still be asked
     const gate = new ConflictGate();
-    const result = await gate.evaluate("Should I use React or Vue here?", {
-      ...baseConfig,
-      askOnIrrelevantTurns: false,
-    });
+    const result = await gate.evaluate(
+      "Should I use React or Vue here?",
+      baseConfig,
+    );
 
-    expect(result).not.toBeNull();
-    expect(result!.relevant).toBe(true);
-    expect(result!.question).toContain("React or Vue");
-    expect(markAskedCalls).toEqual(["conflict-rel-knob"]);
+    expect(result).toBeUndefined();
+  });
+
+  test("dismisses assistant-inferred-only conflicts via provenance check", async () => {
+    pendingConflicts = [
+      {
+        id: "conflict-inferred-only",
+        scopeId: "default",
+        existingItemId: "existing-inf",
+        candidateItemId: "candidate-inf",
+        relationship: "ambiguous_contradiction",
+        status: "pending_clarification",
+        clarificationQuestion: "Should I assume Postgres or MySQL?",
+        resolutionNote: null,
+        lastAskedAt: null,
+        resolvedAt: null,
+        createdAt: 1,
+        updatedAt: 1,
+        existingStatement: "Use Postgres as the default database.",
+        candidateStatement: "Use MySQL as the default database.",
+        existingKind: "preference",
+        candidateKind: "preference",
+        existingVerificationState: "assistant_inferred",
+        candidateVerificationState: "assistant_inferred",
+      },
+    ];
+
+    const gate = new ConflictGate();
+    await gate.evaluate("anything", baseConfig);
+
+    expect(resolveConflictCalls).toEqual([
+      {
+        id: "conflict-inferred-only",
+        input: {
+          status: "dismissed",
+          resolutionNote:
+            "Dismissed by conflict policy (no user-evidenced provenance).",
+        },
+      },
+    ]);
+  });
+
+  test("keeps user-evidenced conflict actionable", async () => {
+    pendingConflicts = [
+      {
+        id: "conflict-ue",
+        scopeId: "default",
+        existingItemId: "existing-ue2",
+        candidateItemId: "candidate-ue2",
+        relationship: "ambiguous_contradiction",
+        status: "pending_clarification",
+        clarificationQuestion: "Should I assume Postgres or MySQL?",
+        resolutionNote: null,
+        lastAskedAt: null,
+        resolvedAt: null,
+        createdAt: 1,
+        updatedAt: 1,
+        existingStatement: "Use Postgres as the default database.",
+        candidateStatement: "Use MySQL as the default database.",
+        existingKind: "preference",
+        candidateKind: "preference",
+        existingVerificationState: "user_confirmed",
+        candidateVerificationState: "assistant_inferred",
+      },
+    ];
+
+    const gate = new ConflictGate();
+    await gate.evaluate("anything", baseConfig);
+
+    // No dismissal for user-evidenced conflicts
+    expect(resolveConflictCalls).toEqual([]);
+  });
+
+  test("explicit clarification with topical relevance triggers resolver", async () => {
+    pendingConflicts = [
+      {
+        id: "conflict-resolve-unit",
+        scopeId: "default",
+        existingItemId: "existing-ru",
+        candidateItemId: "candidate-ru",
+        relationship: "ambiguous_contradiction",
+        status: "pending_clarification",
+        clarificationQuestion: "Should I assume Postgres or MySQL?",
+        resolutionNote: null,
+        lastAskedAt: null,
+        resolvedAt: null,
+        createdAt: 1,
+        updatedAt: 1,
+        existingStatement: "Use Postgres as the default database.",
+        candidateStatement: "Use MySQL as the default database.",
+        existingKind: "preference",
+        candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
+      },
+    ];
+
+    resolverResult = {
+      resolution: "keep_existing",
+      strategy: "heuristic",
+      resolvedStatement: null,
+      explanation: "User prefers Postgres.",
+    };
+
+    const gate = new ConflictGate();
+    // "use Postgres" has action cue "use" and topical overlap with "Postgres"
+    await gate.evaluate("use Postgres", baseConfig);
+
+    expect(resolverCallCount).toBe(1);
+  });
+
+  test("clarification reply without topical relevance does not trigger resolver", async () => {
+    pendingConflicts = [
+      {
+        id: "conflict-no-rel",
+        scopeId: "default",
+        existingItemId: "existing-nrel",
+        candidateItemId: "candidate-nrel",
+        relationship: "ambiguous_contradiction",
+        status: "pending_clarification",
+        clarificationQuestion: "Should I assume Postgres or MySQL?",
+        resolutionNote: null,
+        lastAskedAt: null,
+        resolvedAt: null,
+        createdAt: 1,
+        updatedAt: 1,
+        existingStatement: "Use Postgres as the default database.",
+        candidateStatement: "Use MySQL as the default database.",
+        existingKind: "preference",
+        candidateKind: "preference",
+        existingVerificationState: "user_reported",
+        candidateVerificationState: "user_reported",
+      },
+    ];
+
+    const gate = new ConflictGate();
+    // "keep it" looks like clarification but has no topical overlap
+    await gate.evaluate("keep it", baseConfig);
+
+    expect(resolverCallCount).toBe(0);
   });
 });

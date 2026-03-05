@@ -193,16 +193,13 @@ export function looksLikeClarificationReply(userMessage: string): boolean {
 }
 
 /**
- * Conflict resolution should require explicit clarification intent and either:
- * - non-zero topical overlap with the conflict statements, or
- * - a very recent explicit ask from the assistant.
+ * Conflict resolution requires explicit clarification intent with non-zero
+ * topical overlap with the conflict statements.
  */
 export function shouldAttemptConflictResolution(input: {
   clarificationReply: boolean;
   relevance: number;
-  wasRecentlyAsked: boolean;
 }): boolean {
   if (!input.clarificationReply) return false;
-  if (input.relevance > 0) return true;
-  return input.wasRecentlyAsked;
+  return input.relevance > 0;
 }
