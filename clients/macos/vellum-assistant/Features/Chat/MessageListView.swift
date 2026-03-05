@@ -6,6 +6,26 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
 
+/// Holds the last-known anchor minY without triggering SwiftUI re-renders.
+/// Only `isVisible` is @Published so re-renders happen only when the
+/// visible/invisible boundary is crossed — not on every scroll tick.
+private final class AnchorVisibilityTracker: ObservableObject {
+    var lastMinY: CGFloat = .infinity  // NOT @Published — no re-render on scroll
+    @Published var isVisible: Bool = true
+
+    func update(minY: CGFloat, viewportHeight: CGFloat) {
+        lastMinY = minY
+        let newVisible = minY >= -20 && minY <= viewportHeight + 20
+        if isVisible != newVisible { isVisible = newVisible }
+    }
+
+    func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) {
+        storedViewportHeight = height
+        let newVisible = lastMinY >= -20 && lastMinY <= height + 20
+        if isVisible != newVisible { isVisible = newVisible }
+    }
+}
+
 struct MessageListView: View {
     let messages: [ChatMessage]
     let isSending: Bool
@@ -85,21 +105,20 @@ struct MessageListView: View {
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
     /// resign first responder exactly once per new confirmation appearance.
     @State private var lastAutoFocusedRequestId: String?
-    /// Whether the scroll-bottom-anchor is physically within the scroll view's
-    /// visible viewport. Used alongside `isNearBottom` to suppress the "Scroll
-    /// to latest" button when all content fits on screen.
-    @State private var anchorIsVisible: Bool = true
+    /// Tracks whether the scroll-bottom-anchor is physically within the scroll
+    /// view's visible viewport. Used alongside `isNearBottom` to suppress the
+    /// "Scroll to latest" button when all content fits on screen. Stored as an
+    /// ObservableObject so only boundary crossings (not every scroll tick)
+    /// trigger re-renders.
+    @StateObject private var anchorTracker = AnchorVisibilityTracker()
     /// Whether a physical scroll event (wheel/trackpad) has been received since
     /// the current thread loaded. Before any scroll event, `isNearBottom`
     /// (which defaults to `true`) is not trusted; the button relies solely on
-    /// `anchorIsVisible` to decide visibility.
+    /// `anchorTracker.isVisible` to decide visibility.
     @State private var hasReceivedScrollEvent: Bool = false
     /// The scroll view's viewport height, captured via preference key. Used by
     /// the anchor GeometryReader to determine if the anchor is within bounds.
     @State private var scrollViewportHeight: CGFloat = .infinity
-    /// Last known anchor Y position, stored so `anchorIsVisible` can be
-    /// recalculated when the viewport height changes (e.g., window resize).
-    @State private var lastAnchorMinY: CGFloat = .infinity
     /// Timestamp when anchorMessageId was set. Used together with pagination
     /// exhaustion to decide when a stale anchor should be cleared.
     @State private var anchorSetTime: Date?
@@ -476,7 +495,7 @@ struct MessageListView: View {
                         .onAppear {
                             // Only auto-tether on initial load (before any scroll events).
                             // After the user has scrolled, rely on ScrollWheelDetector and
-                            // anchorIsVisible preference tracking to manage isNearBottom —
+                            // anchorTracker preference tracking to manage isNearBottom —
                             // LazyVStack fires onAppear in the prefetch zone (several screens
                             // ahead) which would prematurely re-tether during normal scrolling.
                             if !hasReceivedScrollEvent {
@@ -522,16 +541,14 @@ struct MessageListView: View {
                 )
                 ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
-            .onPreferenceChange(ScrollViewportHeightKey.self) {
-                scrollViewportHeight = $0
-                anchorIsVisible = lastAnchorMinY >= -20 && lastAnchorMinY <= $0 + 20
+            .onPreferenceChange(ScrollViewportHeightKey.self) { height in
+                anchorTracker.updateViewport(height: height, storedViewportHeight: &scrollViewportHeight)
             }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
-                lastAnchorMinY = minY
-                anchorIsVisible = minY >= -20 && minY <= scrollViewportHeight + 20
+                anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
             }
             .overlay(alignment: .bottom) {
-                if (!isNearBottom || !hasReceivedScrollEvent) && !anchorIsVisible {
+                if (!isNearBottom || !hasReceivedScrollEvent) && !anchorTracker.isVisible {
                     Button(action: {
                         hasReceivedScrollEvent = true
                         isNearBottom = true
@@ -746,7 +763,7 @@ struct MessageListView: View {
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
-                anchorIsVisible = true
+                anchorTracker.isVisible = true
                 hasReceivedScrollEvent = false
                 lastHandledContainerWidth = containerWidth
                 hoverExitDebounceTask?.cancel()
