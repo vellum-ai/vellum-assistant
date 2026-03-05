@@ -591,7 +591,11 @@ export class RelayConnection {
         this.startNameCapture(outcome.assistantId, outcome.fromNumber);
         return;
       case "guardian_verification":
-        if (resolved.actorTrust.memberRecord) {
+        if (
+          resolved.actorTrust.memberRecord &&
+          (resolved.actorTrust.trustClass === "guardian" ||
+            resolved.actorTrust.trustClass === "trusted_contact")
+        ) {
           touchContactInteraction(resolved.actorTrust.memberRecord.contact.id);
         }
         if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
@@ -606,7 +610,11 @@ export class RelayConnection {
         return;
       case "normal_call":
         if (outcome.isInbound) {
-          if (resolved.actorTrust.memberRecord) {
+          if (
+            resolved.actorTrust.memberRecord &&
+            (resolved.actorTrust.trustClass === "guardian" ||
+              resolved.actorTrust.trustClass === "trusted_contact")
+          ) {
             touchContactInteraction(
               resolved.actorTrust.memberRecord.contact.id,
             );
