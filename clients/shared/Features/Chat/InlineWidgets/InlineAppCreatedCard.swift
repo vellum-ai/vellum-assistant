@@ -85,14 +85,6 @@ struct InlineAppCreatedCard: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             previewImage = preview.previewImage
-            // If no preview image yet, request one from the daemon
-            if previewImage == nil, let appId = appId {
-                NotificationCenter.default.post(
-                    name: Notification.Name("MainWindow.requestAppPreview"),
-                    object: nil,
-                    userInfo: ["appId": appId]
-                )
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("MainWindow.appPreviewImageCaptured"))) { notification in
             guard let notifAppId = notification.userInfo?["appId"] as? String,
