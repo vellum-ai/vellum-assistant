@@ -72,7 +72,6 @@ function grantParams(
 ): CreateScopedApprovalGrantParams {
   const futureExpiry = new Date(Date.now() + 60_000).toISOString();
   return {
-    assistantId: "self",
     scopeMode: "request_id",
     requestChannel: "telegram",
     decisionChannel: "telegram",
@@ -95,11 +94,7 @@ describe("scoped-approval-grants / request_id scope", () => {
     expect(grant.status).toBe("active");
     expect(grant.requestId).toBe("req-1");
 
-    const result = consumeScopedApprovalGrantByRequestId(
-      "req-1",
-      "consumer-1",
-      "self",
-    );
+    const result = consumeScopedApprovalGrantByRequestId("req-1", "consumer-1");
     expect(result.ok).toBe(true);
     expect(result.grant).not.toBeNull();
     expect(result.grant!.status).toBe("consumed");
@@ -111,18 +106,10 @@ describe("scoped-approval-grants / request_id scope", () => {
       grantParams({ scopeMode: "request_id", requestId: "req-2" }),
     );
 
-    const first = consumeScopedApprovalGrantByRequestId(
-      "req-2",
-      "consumer-a",
-      "self",
-    );
+    const first = consumeScopedApprovalGrantByRequestId("req-2", "consumer-a");
     expect(first.ok).toBe(true);
 
-    const second = consumeScopedApprovalGrantByRequestId(
-      "req-2",
-      "consumer-b",
-      "self",
-    );
+    const second = consumeScopedApprovalGrantByRequestId("req-2", "consumer-b");
     expect(second.ok).toBe(false);
     expect(second.grant).toBeNull();
   });
@@ -131,7 +118,6 @@ describe("scoped-approval-grants / request_id scope", () => {
     const result = consumeScopedApprovalGrantByRequestId(
       "nonexistent",
       "consumer-x",
-      "self",
     );
     expect(result.ok).toBe(false);
   });
@@ -149,7 +135,6 @@ describe("scoped-approval-grants / request_id scope", () => {
     const result = consumeScopedApprovalGrantByRequestId(
       "req-expired",
       "consumer-1",
-      "self",
     );
     expect(result.ok).toBe(false);
   });
@@ -421,11 +406,7 @@ describe("scoped-approval-grants / expiry", () => {
     expect(count).toBe(2);
 
     // Verify the alive grant is still active
-    const alive = consumeScopedApprovalGrantByRequestId(
-      "req-alive",
-      "c1",
-      "self",
-    );
+    const alive = consumeScopedApprovalGrantByRequestId("req-alive", "c1");
     expect(alive.ok).toBe(true);
   });
 
@@ -438,7 +419,7 @@ describe("scoped-approval-grants / expiry", () => {
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
       }),
     );
-    consumeScopedApprovalGrantByRequestId("req-consumed", "c1", "self");
+    consumeScopedApprovalGrantByRequestId("req-consumed", "c1");
 
     // Force the expiry time to the past for the consumed grant (simulating time passing)
     // The sweep should not touch consumed grants
@@ -483,15 +464,11 @@ describe("scoped-approval-grants / revoke", () => {
     expect(count).toBe(2);
 
     // Revoked grant cannot be consumed
-    const revoked = consumeScopedApprovalGrantByRequestId(
-      "req-r1",
-      "c1",
-      "self",
-    );
+    const revoked = consumeScopedApprovalGrantByRequestId("req-r1", "c1");
     expect(revoked.ok).toBe(false);
 
     // Unaffected grant is still consumable
-    const alive = consumeScopedApprovalGrantByRequestId("req-r3", "c1", "self");
+    const alive = consumeScopedApprovalGrantByRequestId("req-r3", "c1");
     expect(alive.ok).toBe(true);
   });
 
@@ -506,11 +483,7 @@ describe("scoped-approval-grants / revoke", () => {
 
     revokeScopedApprovalGrantsForContext({ conversationId: "conv-1" });
 
-    const result = consumeScopedApprovalGrantByRequestId(
-      "req-revoke",
-      "c1",
-      "self",
-    );
+    const result = consumeScopedApprovalGrantByRequestId("req-revoke", "c1");
     expect(result.ok).toBe(false);
   });
 
@@ -530,11 +503,7 @@ describe("scoped-approval-grants / revoke", () => {
     );
 
     // The grant should still be active (not revoked)
-    const result = consumeScopedApprovalGrantByRequestId(
-      "req-guard",
-      "c1",
-      "self",
-    );
+    const result = consumeScopedApprovalGrantByRequestId("req-guard", "c1");
     expect(result.ok).toBe(true);
   });
 });

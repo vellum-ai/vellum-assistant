@@ -131,7 +131,6 @@ export async function tryMintGuardianActionGrant(params: {
   }
 
   const result = mintGrantFromDecision({
-    assistantId: request.assistantId,
     scopeMode: "tool_signature",
     toolName: request.toolName,
     inputDigest: request.inputDigest,

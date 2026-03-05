@@ -254,7 +254,6 @@ function grantParams(
 ): CreateScopedApprovalGrantParams {
   const futureExpiry = new Date(Date.now() + 60_000).toISOString();
   return {
-    assistantId: ASSISTANT_ID,
     scopeMode: "tool_signature",
     toolName: TOOL_NAME,
     inputDigest: computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT),
@@ -420,42 +419,6 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     expect(decision).not.toBeNull();
     expect(decision!.decision).toBe("allow");
     expect(decision!.reason).toContain("guardian voice call");
-  });
-
-  test("non-guardian with grant for different assistantId: auto-denied", async () => {
-    // Create a grant scoped to a different assistant
-    createScopedApprovalGrant(
-      grantParams({
-        assistantId: "other-assistant",
-      }),
-    );
-
-    const mockData = createMockSession();
-    setupBridgeDeps(() => mockData.session);
-
-    const trustContext: TrustContext = {
-      sourceChannel: "voice",
-      trustClass: "trusted_contact",
-      requesterExternalUserId: "caller-123",
-    };
-
-    await startVoiceTurn({
-      conversationId: CONVERSATION_ID,
-      callSessionId: CALL_SESSION_ID,
-      content: "test utterance",
-      assistantId: ASSISTANT_ID,
-      trustContext,
-      isInbound: true,
-      onTextDelta: () => {},
-      onComplete: () => {},
-      onError: () => {},
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    const decision = mockData.getConfirmationDecision();
-    expect(decision).not.toBeNull();
-    expect(decision!.decision).toBe("deny");
   });
 
   test("grants revoked when revokeScopedApprovalGrantsForContext is called with callSessionId", () => {

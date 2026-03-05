@@ -14,6 +14,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { getDb, rawChanges } from "./db.js";
 import { scopedApprovalGrants } from "./schema.js";
@@ -29,7 +30,6 @@ export type GrantStatus = "active" | "consumed" | "expired" | "revoked";
 
 export interface ScopedApprovalGrant {
   id: string;
-  assistantId: string;
   scopeMode: ScopeMode;
   requestId: string | null;
   toolName: string | null;
@@ -65,7 +65,6 @@ function rowToGrant(
 ): ScopedApprovalGrant {
   return {
     id: row.id,
-    assistantId: row.assistantId,
     scopeMode: row.scopeMode as ScopeMode,
     requestId: row.requestId,
     toolName: row.toolName,
@@ -91,7 +90,6 @@ function rowToGrant(
 // ---------------------------------------------------------------------------
 
 export interface CreateScopedApprovalGrantParams {
-  assistantId: string;
   scopeMode: ScopeMode;
   requestId?: string | null;
   toolName?: string | null;
@@ -115,7 +113,7 @@ function createScopedApprovalGrant(
 
   const row = {
     id,
-    assistantId: params.assistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     scopeMode: params.scopeMode,
     requestId: params.requestId ?? null,
     toolName: params.toolName ?? null,
@@ -143,7 +141,6 @@ function createScopedApprovalGrant(
       grantId: id,
       scopeMode: params.scopeMode,
       toolName: params.toolName ?? null,
-      assistantId: params.assistantId,
       requestChannel: params.requestChannel,
       decisionChannel: params.decisionChannel,
       executionChannel: params.executionChannel ?? null,
@@ -168,13 +165,12 @@ export interface ConsumeByRequestIdResult {
  * Atomically consume a grant by request ID.
  *
  * Only succeeds when exactly one active, non-expired grant matches the
- * given `requestId` and `assistantId`.  Uses compare-and-swap on the
- * `status` column so concurrent consumers race safely — at most one wins.
+ * given `requestId`.  Uses compare-and-swap on the `status` column so
+ * concurrent consumers race safely — at most one wins.
  */
 function consumeScopedApprovalGrantByRequestId(
   requestId: string,
   consumingRequestId: string,
-  assistantId: string,
   now?: string,
 ): ConsumeByRequestIdResult {
   const db = getDb();
@@ -189,7 +185,6 @@ function consumeScopedApprovalGrantByRequestId(
       .where(
         and(
           eq(scopedApprovalGrants.requestId, requestId),
-          eq(scopedApprovalGrants.assistantId, assistantId),
           eq(scopedApprovalGrants.scopeMode, "request_id"),
           eq(scopedApprovalGrants.status, "active"),
           sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
@@ -204,7 +199,6 @@ function consumeScopedApprovalGrantByRequestId(
           event: "scoped_grant_consume_miss",
           requestId,
           consumingRequestId,
-          assistantId,
           scopeMode: "request_id",
           attempt,
         },
@@ -247,7 +241,6 @@ function consumeScopedApprovalGrantByRequestId(
         grantId: grant?.id,
         requestId,
         consumingRequestId,
-        assistantId,
         scopeMode: "request_id",
       },
       "Scoped approval grant consumed by request ID",
@@ -262,7 +255,6 @@ function consumeScopedApprovalGrantByRequestId(
       event: "scoped_grant_consume_miss",
       requestId,
       consumingRequestId,
-      assistantId,
       scopeMode: "request_id",
       reason: "cas_exhausted",
     },
@@ -280,7 +272,6 @@ export interface ConsumeByToolSignatureParams {
   inputDigest: string;
   consumingRequestId: string;
   /** Optional context constraints — only matched when the grant has a non-null value */
-  assistantId?: string;
   executionChannel?: string;
   conversationId?: string;
   callSessionId?: string;
@@ -318,12 +309,6 @@ function consumeScopedApprovalGrantByToolSignature(
     eq(scopedApprovalGrants.status, "active"),
     sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
   ];
-
-  // assistantId is always set on grants — scope consumption to the current
-  // assistant so grants minted for one assistant cannot be consumed by another.
-  if (params.assistantId !== undefined) {
-    conditions.push(eq(scopedApprovalGrants.assistantId, params.assistantId));
-  }
 
   // Context constraints: grant field must be NULL (any) or match exactly
   if (params.executionChannel !== undefined) {
@@ -488,7 +473,6 @@ export function expireScopedApprovalGrants(now?: string): number {
 // ---------------------------------------------------------------------------
 
 export interface RevokeContextParams {
-  assistantId?: string;
   conversationId?: string;
   callSessionId?: string;
   requestChannel?: string;
@@ -510,9 +494,6 @@ export function revokeScopedApprovalGrantsForContext(
 
   const conditions = [eq(scopedApprovalGrants.status, "active")];
 
-  if (params.assistantId !== undefined) {
-    conditions.push(eq(scopedApprovalGrants.assistantId, params.assistantId));
-  }
   if (params.conversationId !== undefined) {
     conditions.push(
       eq(scopedApprovalGrants.conversationId, params.conversationId),
@@ -550,7 +531,6 @@ export function revokeScopedApprovalGrantsForContext(
       {
         event: "scoped_grant_revoked",
         count,
-        assistantId: params.assistantId,
         conversationId: params.conversationId,
         callSessionId: params.callSessionId,
         requestChannel: params.requestChannel,

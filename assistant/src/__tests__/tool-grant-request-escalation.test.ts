@@ -684,7 +684,6 @@ describe("inline wait-and-resume", () => {
         toolName: "bash",
         inputDigest: "sha256:waitgrant",
         consumingRequestId: "consume-1",
-        assistantId: "self",
         conversationId: "conv-1",
         requesterExternalUserId: "requester-1",
         executionChannel: "telegram",
@@ -727,7 +726,6 @@ describe("inline wait-and-resume", () => {
         toolName: "bash",
         inputDigest: "sha256:denywait",
         consumingRequestId: "consume-1",
-        assistantId: "self",
       },
       { maxWaitMs: 2_000, intervalMs: 20 },
     );
@@ -759,7 +757,6 @@ describe("inline wait-and-resume", () => {
         toolName: "bash",
         inputDigest: "sha256:timeoutwait",
         consumingRequestId: "consume-1",
-        assistantId: "self",
       },
       { maxWaitMs: 100, intervalMs: 20 },
     );
@@ -797,7 +794,6 @@ describe("inline wait-and-resume", () => {
         toolName: "bash",
         inputDigest: "sha256:abortwait",
         consumingRequestId: "consume-1",
-        assistantId: "self",
       },
       { maxWaitMs: 5_000, intervalMs: 20, signal: controller.signal },
     );
