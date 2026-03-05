@@ -563,7 +563,7 @@ struct ContactDetailView: View {
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy Code",
                     icon: "doc.on.doc",
-                    style: result.shareUrl != nil ? .tertiary : .secondary,
+                    style: (result.shareUrl != nil || result.channelHandle != nil) ? .tertiary : .secondary,
                     size: .medium
                 ) {
                     NSPasteboard.general.clearContents()
