@@ -9,7 +9,6 @@ struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 200
     private let composerActionButtonSize: CGFloat = 34
     private let composerActionIconSize: CGFloat = 14
-    private let compactActionOpticalYOffset: CGFloat = 0
 
     private enum ComposerActionFocus: Hashable {
         case stop
@@ -455,12 +454,12 @@ struct ComposerView: View {
             return .handled // consume other modifier+Return combos silently
         }
 
-        // Default mode: plain Enter sends, modifier+Return inserts newline
+        // Default mode: plain Enter sends, Shift+Return inserts newline
+        // (handled above). All other modifier combos are consumed silently.
         if semanticModifiers.isEmpty {
             performSendAction()
-            return .handled
         }
-        return .ignored
+        return .handled
     }
 
     @ViewBuilder
