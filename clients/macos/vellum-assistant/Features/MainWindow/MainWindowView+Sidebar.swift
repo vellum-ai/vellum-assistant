@@ -165,12 +165,12 @@ extension MainWindowView {
 
     @ViewBuilder
     var expandedSidebarContent: some View {
-        VStack(spacing: VSpacing.sm) {
+        VStack(spacing: SidebarLayoutMetrics.listRowGap) {
             Spacer().frame(height: 0)
 
             // MARK: Pinned Apps (above nav items)
             if !appListManager.pinnedApps.isEmpty {
-                VStack(spacing: VSpacing.sm) {
+                VStack(spacing: SidebarLayoutMetrics.listRowGap) {
                     ForEach(appListManager.pinnedApps) { app in
                         sidebarPinnedAppRow(app)
                     }
@@ -449,12 +449,12 @@ extension MainWindowView {
 
     @ViewBuilder
     var collapsedSidebarContent: some View {
-        VStack(spacing: VSpacing.sm) {
+        VStack(spacing: SidebarLayoutMetrics.listRowGap) {
             Spacer().frame(height: 0)
 
             // MARK: Pinned Apps (collapsed)
             if !appListManager.pinnedApps.isEmpty {
-                VStack(spacing: VSpacing.sm) {
+                VStack(spacing: SidebarLayoutMetrics.listRowGap) {
                     ForEach(appListManager.pinnedApps) { app in
                         sidebarPinnedAppRow(app, isExpanded: false)
                     }
