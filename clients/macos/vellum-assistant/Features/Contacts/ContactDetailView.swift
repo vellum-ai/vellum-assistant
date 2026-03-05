@@ -30,6 +30,7 @@ struct ContactDetailView: View {
     )?
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
+    @State private var channelReadiness: [String: Bool] = [:]
 
     // Metadata editing state (accessed from ContactDetailView+EditableMetadata.swift)
     @State var isEditingNotes = false
@@ -198,6 +199,14 @@ struct ContactDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .task {
+            do {
+                channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
+            } catch {
+                // Silently fail — default to empty dict means no Invite buttons shown
+                // until readiness is fetched, which is the safe default
+            }
+        }
     }
 
     @ViewBuilder
@@ -275,7 +284,9 @@ struct ContactDetailView: View {
 
                 // Voice invites require additional fields (phone number, friend/guardian
                 // names) that aren't available in this context, so hide the button.
-                if displayContact.role != "guardian" && type != "voice" {
+                // channelReadiness gating: only show Invite when the assistant is
+                // configured for this channel (nil/false = not ready or not fetched yet).
+                if displayContact.role != "guardian" && type != "voice" && channelReadiness[type] == true {
                     if inviteInProgress == type {
                         ProgressView()
                             .controlSize(.small)
