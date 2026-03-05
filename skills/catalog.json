@@ -3,6 +3,15 @@
   "version": 1,
   "skills": [
     {
+      "id": "google-oauth-setup",
+      "name": "Google OAuth Setup",
+      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation",
+      "includes": [
+        "browser",
+        "public-ingress"
+      ]
+    },
+    {
       "id": "weather",
       "name": "weather",
       "description": "Get current weather conditions and forecasts for any location",
