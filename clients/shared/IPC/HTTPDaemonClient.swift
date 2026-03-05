@@ -164,6 +164,7 @@ public final class HTTPTransport {
         case contactsChannelUpdate(channelId: String)
         case contactsChannelVerify(contactId: String, channelId: String)
         case contactsUpsert
+        case contactsInvitesCreate
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -258,6 +259,8 @@ public final class HTTPTransport {
             return ("/v1/contacts/\(cEncoded)/channels/\(chEncoded)/verify", nil)
         case .contactsUpsert:
             return ("/v1/contacts", nil)
+        case .contactsInvitesCreate:
+            return ("/v1/contacts/invites", nil)
         }
     }
 
@@ -333,6 +336,8 @@ public final class HTTPTransport {
             return ("\(prefix)/contacts/\(cEncoded)/channels/\(chEncoded)/verify/", nil)
         case .contactsUpsert:
             return ("\(prefix)/contacts/", nil)
+        case .contactsInvitesCreate:
+            return ("\(prefix)/contacts/invites/", nil)
         }
     }
 
@@ -1054,6 +1059,18 @@ public final class HTTPTransport {
         let contact: ContactPayload
     }
 
+    /// Response wrapper for `POST /v1/contacts/invites` (create invite).
+    private struct HTTPCreateInviteResponse: Decodable {
+        let ok: Bool
+        let invite: InvitePayload?
+        struct InvitePayload: Decodable {
+            let id: String
+            let sourceChannel: String
+            let token: String?
+            let status: String
+        }
+    }
+
     /// Update a contact's metadata via `POST /v1/contacts` and return the updated payload.
     /// Routes through `buildURL`/`applyAuth` so managed-mode URL paths and auth headers
     /// are applied correctly.
@@ -1142,6 +1159,45 @@ public final class HTTPTransport {
 
         let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
         return decoded.contact
+    }
+
+    // MARK: - Invite Creation
+
+    /// Create an invite for a contact channel via `POST /v1/contacts/invites`.
+    func createInvite(
+        sourceChannel: String,
+        note: String? = nil,
+        maxUses: Int? = nil,
+        isRetry: Bool = false
+    ) async throws -> (inviteId: String, token: String)? {
+        guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = ["sourceChannel": sourceChannel]
+        if let note { body["note"] = note }
+        if let maxUses { body["maxUses"] = maxUses }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, isRetry: true)
+                }
+                return nil
+            }
+            guard (200...201).contains(http.statusCode) else { return nil }
+        }
+
+        let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
+        guard let invite = decoded.invite, let token = invite.token else { return nil }
+        return (inviteId: invite.id, token: token)
     }
 
     // MARK: - Channel Verification

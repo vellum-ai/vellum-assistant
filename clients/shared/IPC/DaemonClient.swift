@@ -1668,6 +1668,57 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return decoded.contact
     }
 
+    /// Create an invite for a contact channel via `POST /v1/contacts/invites`.
+    /// Routes through `HTTPTransport` when available. Falls back to the
+    /// local gateway (port 7830) for socket-based connections.
+    public func createInvite(
+        sourceChannel: String,
+        note: String? = nil,
+        maxUses: Int? = nil
+    ) async throws -> (inviteId: String, token: String)? {
+        if let httpTransport {
+            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses)
+        }
+
+        #if os(macOS)
+        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            .flatMap(Int.init) ?? 7830
+        let baseURL = "http://127.0.0.1:\(gatewayPort)"
+
+        guard let url = URL(string: "\(baseURL)/v1/contacts/invites") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = readHttpToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body: [String: Any] = ["sourceChannel": sourceChannel]
+        if let note { body["note"] = note }
+        if let maxUses { body["maxUses"] = maxUses }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...201).contains(http.statusCode) else { return nil }
+
+        struct CreateInviteResponse: Decodable {
+            let ok: Bool
+            let invite: InviteData?
+            struct InviteData: Decodable {
+                let id: String
+                let token: String?
+            }
+        }
+        let decoded = try JSONDecoder().decode(CreateInviteResponse.self, from: data)
+        guard let invite = decoded.invite, let token = invite.token else { return nil }
+        return (inviteId: invite.id, token: token)
+        #else
+        return nil
+        #endif
+    }
+
     /// Send a verification code to a contact's channel via the gateway.
     /// Routes through `HTTPTransport` when available. Falls back to the
     /// local gateway (port 7830) for socket-based connections.
