@@ -168,10 +168,17 @@ function ensureBunInstalled(): void {
 
   console.log("   Installing bun...");
   try {
+    const installEnv: Record<string, string> = {
+      HOME: process.env.HOME || homedir(),
+      PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+      TMPDIR: process.env.TMPDIR || "/tmp",
+      USER: process.env.USER || "",
+      LANG: process.env.LANG || "",
+    };
     execSync("curl -fsSL https://bun.sh/install | bash", {
       stdio: "pipe",
       timeout: 60_000,
-      env: { ...process.env },
+      env: installEnv,
     });
     console.log("   Bun installed successfully");
   } catch {
@@ -599,6 +606,10 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
     const pidFile = join(vellumDir, "vellum.pid");
     const socketFile = join(vellumDir, "vellum.sock");
 
+    // Ensure bun is available for runtime features (browser, skills install)
+    // Run unconditionally so bun is present even when reusing an existing daemon.
+    ensureBunInstalled();
+
     // If a daemon is already running, skip spawning a new one.
     // This prevents cascading kill→restart cycles when multiple callers
     // invoke hatch() concurrently (setupDaemonClient + ensureDaemonConnected).
@@ -646,9 +657,6 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       } catch {}
 
       console.log("🔨 Starting assistant...");
-
-      // Ensure bun is available for runtime features (browser, skills install)
-      ensureBunInstalled();
 
       // Ensure ~/.vellum/ exists for PID/socket files
       mkdirSync(vellumDir, { recursive: true });
