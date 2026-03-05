@@ -7,6 +7,7 @@
 
 import type { ChannelId } from "../../channels/types.js";
 import { getReadinessService } from "../../daemon/handlers/config-channels.js";
+import { getInviteAdapterRegistry } from "../channel-invite-transport.js";
 import type { RouteDefinition } from "../http-router.js";
 
 /**
@@ -21,18 +22,23 @@ export async function handleGetChannelReadiness(url: URL): Promise<Response> {
 
   const service = getReadinessService();
   const snapshots = await service.getReadiness(channel, includeRemote);
+  const adapterRegistry = getInviteAdapterRegistry();
 
   return Response.json({
     success: true,
-    snapshots: snapshots.map((s) => ({
-      channel: s.channel,
-      ready: s.ready,
-      checkedAt: s.checkedAt,
-      stale: s.stale,
-      reasons: s.reasons,
-      localChecks: s.localChecks,
-      remoteChecks: s.remoteChecks,
-    })),
+    snapshots: snapshots.map((s) => {
+      const adapter = adapterRegistry.get(s.channel);
+      return {
+        channel: s.channel,
+        ready: s.ready,
+        checkedAt: s.checkedAt,
+        stale: s.stale,
+        reasons: s.reasons,
+        localChecks: s.localChecks,
+        remoteChecks: s.remoteChecks,
+        channelHandle: adapter?.resolveChannelHandle?.() ?? undefined,
+      };
+    }),
   });
 }
 
@@ -62,18 +68,23 @@ export async function handleRefreshChannelReadiness(
     body.channel,
     body.includeRemote,
   );
+  const adapterRegistry = getInviteAdapterRegistry();
 
   return Response.json({
     success: true,
-    snapshots: snapshots.map((s) => ({
-      channel: s.channel,
-      ready: s.ready,
-      checkedAt: s.checkedAt,
-      stale: s.stale,
-      reasons: s.reasons,
-      localChecks: s.localChecks,
-      remoteChecks: s.remoteChecks,
-    })),
+    snapshots: snapshots.map((s) => {
+      const adapter = adapterRegistry.get(s.channel);
+      return {
+        channel: s.channel,
+        ready: s.ready,
+        checkedAt: s.checkedAt,
+        stale: s.stale,
+        reasons: s.reasons,
+        localChecks: s.localChecks,
+        remoteChecks: s.remoteChecks,
+        channelHandle: adapter?.resolveChannelHandle?.() ?? undefined,
+      };
+    }),
   });
 }
 
