@@ -651,17 +651,17 @@ describe("Shell tool input validation", () => {
     expect(result.isError).toBe(true);
   });
 
-  test("default network mode is off but starts platform-only proxy", async () => {
-    // When network_mode is not specified, it defaults to 'off' but a
-    // platform-only proxy session is started so commands can reach
-    // platform.vellum.ai (e.g. `vellum skills list`).
+  test("default network mode is off", async () => {
+    // When network_mode is not specified, it should default to 'off'.
+    // Verify by checking that the proxy session is never started — the
+    // observable effect of network_mode defaulting to 'off'.
     proxyGetOrStartSession.mockClear();
     const result = await shellTool.execute(
       { command: "echo network_default", reason: "testing" },
       baseContext,
     );
     expect(result.isError).toBe(false);
-    expect(proxyGetOrStartSession).toHaveBeenCalledTimes(1);
+    expect(proxyGetOrStartSession).not.toHaveBeenCalled();
   });
 
   test("tool definition includes required schema fields", () => {

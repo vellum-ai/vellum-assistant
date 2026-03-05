@@ -179,32 +179,26 @@ class ShellTool implements Tool {
         ? { ...config.sandbox, enabled: context.sandboxOverride }
         : config.sandbox;
 
-    // Acquire a proxy session.  The policy engine always allows trusted
-    // hosts (*.vellum.ai, localhost) so commands like `vellum skills list`
-    // work even in network_mode="off".  For "proxied" mode, credential
-    // injection also kicks in.
-    //
-    // `getOrStartSession` serializes per-conversation so concurrent commands
-    // share a single session instead of each creating one.
+    // Acquire proxy session if proxied mode is requested.
+    // `getOrStartSession` serializes per-conversation so concurrent proxied
+    // commands share a single session instead of each creating one.
     // Sessions are NOT stopped here — the session manager's idle timer handles
     // cleanup after all commands finish (see resetIdleTimer / stopAllSessions).
     let proxyEnv: ProxyEnvVars | null = null;
 
-    try {
-      const { session } = await getOrStartSession(
-        context.conversationId,
-        credentialIds,
-        undefined,
-        getDataDir(),
-        context.proxyApprovalCallback,
-      );
-      proxyEnv = getSessionEnv(session.id);
-    } catch (err) {
-      log.error({ err }, "Failed to start proxy session");
-      // For network_mode="off", failing to start the proxy is non-fatal —
-      // the command simply won't be able to reach trusted hosts, which is
-      // the same behavior as before this change.
-      if (networkMode === "proxied") {
+    if (networkMode === "proxied") {
+      try {
+        const { session } = await getOrStartSession(
+          context.conversationId,
+          credentialIds,
+          undefined,
+          getDataDir(),
+          context.proxyApprovalCallback,
+          undefined,
+        );
+        proxyEnv = getSessionEnv(session.id);
+      } catch (err) {
+        log.error({ err }, "Failed to start proxy session");
         return {
           content: `Error: failed to start proxy session — ${
             err instanceof Error ? err.message : String(err)
@@ -224,11 +218,8 @@ class ShellTool implements Tool {
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
-      // When a proxy session is active the sandbox must allow network access
-      // so the process can reach the local proxy on 127.0.0.1.
-      const effectiveNetworkMode = proxyEnv != null ? "proxied" : networkMode;
       const wrapped = wrapCommand(command, context.workingDir, sandboxConfig, {
-        networkMode: effectiveNetworkMode,
+        networkMode,
       });
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,

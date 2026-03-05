@@ -195,33 +195,31 @@ afterEach(() => {
 });
 
 describe("shell tool proxy mode", () => {
-  test("default mode starts platform-only proxy session", async () => {
+  test("default mode does not inject proxy env vars", async () => {
     const result = await shellTool.execute(
       { command: "echo hello" },
       makeContext(),
     );
 
     expect(result.isError).toBe(false);
-    // A platform-only proxy session is started so commands can reach
-    // platform.vellum.ai even in network_mode=off.
-    expect(getOrStartSessionCalls).toHaveLength(1);
+    expect(getOrStartSessionCalls).toHaveLength(0);
 
     const lastCall = spawnCalls[spawnCalls.length - 1];
-    expect(lastCall.env?.HTTP_PROXY).toBeDefined();
-    expect(lastCall.env?.HTTPS_PROXY).toBeDefined();
+    expect(lastCall.env?.HTTP_PROXY).toBeUndefined();
+    expect(lastCall.env?.HTTPS_PROXY).toBeUndefined();
   });
 
-  test("network_mode=off starts platform-only proxy session", async () => {
+  test("network_mode=off does not inject proxy env vars", async () => {
     const result = await shellTool.execute(
       { command: "echo hello", network_mode: "off" },
       makeContext(),
     );
 
     expect(result.isError).toBe(false);
-    expect(getOrStartSessionCalls).toHaveLength(1);
+    expect(getOrStartSessionCalls).toHaveLength(0);
 
     const lastCall = spawnCalls[spawnCalls.length - 1];
-    expect(lastCall.env?.HTTP_PROXY).toBeDefined();
+    expect(lastCall.env?.HTTP_PROXY).toBeUndefined();
   });
 
   test("network_mode=proxied creates session and injects proxy env", async () => {
@@ -324,7 +322,7 @@ describe("shell tool proxy mode", () => {
     expect(wrapCommandCalls[0].options).toEqual({ networkMode: "proxied" });
   });
 
-  test('wrapCommand receives { networkMode: "proxied" } when network_mode is absent (platform-only proxy active)', async () => {
+  test('wrapCommand receives { networkMode: "off" } when network_mode is absent', async () => {
     const result = await shellTool.execute(
       { command: "echo default-wrap" },
       makeContext(),
@@ -332,11 +330,10 @@ describe("shell tool proxy mode", () => {
 
     expect(result.isError).toBe(false);
     expect(wrapCommandCalls).toHaveLength(1);
-    // Sandbox allows network so the process can reach the platform-only proxy.
-    expect(wrapCommandCalls[0].options).toEqual({ networkMode: "proxied" });
+    expect(wrapCommandCalls[0].options).toEqual({ networkMode: "off" });
   });
 
-  test('wrapCommand receives { networkMode: "proxied" } when network_mode=off (platform-only proxy active)', async () => {
+  test('wrapCommand receives { networkMode: "off" } when network_mode=off', async () => {
     const result = await shellTool.execute(
       { command: "echo off-wrap", network_mode: "off" },
       makeContext(),
@@ -344,7 +341,6 @@ describe("shell tool proxy mode", () => {
 
     expect(result.isError).toBe(false);
     expect(wrapCommandCalls).toHaveLength(1);
-    // Sandbox allows network so the process can reach the platform-only proxy.
-    expect(wrapCommandCalls[0].options).toEqual({ networkMode: "proxied" });
+    expect(wrapCommandCalls[0].options).toEqual({ networkMode: "off" });
   });
 });

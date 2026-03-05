@@ -222,8 +222,6 @@ describe("shell tool credential ref resolution", () => {
 
     // Should not fail — credential resolution only happens in proxied mode
     expect(result.isError).toBeFalsy();
-    // A platform-only proxy session is started even in "off" mode so commands
-    // can reach platform.vellum.ai, but credential refs are not resolved.
-    expect(mockGetOrStartSession).toHaveBeenCalledTimes(1);
+    expect(mockGetOrStartSession).not.toHaveBeenCalled();
   });
 });
