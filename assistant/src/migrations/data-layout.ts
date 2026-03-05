@@ -51,7 +51,14 @@ export function migrateToDataLayout(): void {
   migrateItem(join(root, "qdrant.pid"), join(data, "qdrant", "qdrant.pid"));
 
   // Qdrant binary: ~/.vellum/bin/ → ~/.vellum/data/qdrant/bin/
-  migrateItem(join(root, "bin"), join(data, "qdrant", "bin"));
+  // Only migrate if the directory actually contains a qdrant binary.
+  // After the CLI-launcher feature landed, ~/.vellum/bin/ is used for
+  // launcher scripts (doordash, map, etc.), not qdrant, so moving it
+  // blindly would break CLI launchers on every fresh hatch.
+  const legacyBinDir = join(root, "bin");
+  if (existsSync(join(legacyBinDir, "qdrant"))) {
+    migrateItem(legacyBinDir, join(data, "qdrant", "bin"));
+  }
 
   // Logs: ~/.vellum/logs/ → ~/.vellum/data/logs/
   migrateItem(join(root, "logs"), join(data, "logs"));
