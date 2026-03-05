@@ -13,6 +13,8 @@ private let log = Logger(
 public actor SurfaceRefetchManager {
     public typealias FetchBlock = (String, String) async -> SurfaceData?
 
+    private static let maxRetries = 3
+
     private let fetch: FetchBlock
 
     /// FIFO queue of surfaces awaiting fetch.
@@ -24,6 +26,9 @@ public actor SurfaceRefetchManager {
     /// Whether the serial processing loop is currently active.
     private var isProcessing = false
 
+    /// Tracks consecutive failure count per surface to cap retries.
+    private var failureCount: [String: Int] = [:]
+
     public init(fetch: @escaping FetchBlock) {
         self.fetch = fetch
     }
@@ -31,9 +36,15 @@ public actor SurfaceRefetchManager {
     /// Enqueue a surface for re-fetch. Suspends the caller until the fetch
     /// completes and returns the resulting `SurfaceData`, or `nil` on failure.
     /// Duplicate requests for the same surface ID are coalesced so only one
-    /// network request is made.
+    /// network request is made. Returns `nil` immediately if the surface has
+    /// exceeded the maximum retry count.
     @discardableResult
     public func enqueue(surfaceId: String, sessionId: String) async -> SurfaceData? {
+        if (failureCount[surfaceId] ?? 0) >= Self.maxRetries {
+            log.info("Skipping refetch for \(surfaceId): exceeded \(Self.maxRetries) retries")
+            return nil
+        }
+
         return await withCheckedContinuation { continuation in
             if waiters[surfaceId] != nil {
                 waiters[surfaceId]?.append(continuation)
@@ -66,6 +77,11 @@ public actor SurfaceRefetchManager {
             queue.removeFirst()
             log.info("Fetching surface content: \(next.surfaceId)")
             let data = await fetch(next.surfaceId, next.sessionId)
+            if data != nil {
+                failureCount.removeValue(forKey: next.surfaceId)
+            } else {
+                failureCount[next.surfaceId, default: 0] += 1
+            }
             resumeWaiters(for: next.surfaceId, with: data)
         }
     }

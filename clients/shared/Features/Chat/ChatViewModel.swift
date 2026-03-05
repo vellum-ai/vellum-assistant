@@ -1403,9 +1403,14 @@ public final class ChatViewModel: ObservableObject {
         return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
     }
 
+    /// In-flight refetch tasks, keyed by surface ID for cancellation.
+    private var refetchTasks: [String: Task<Void, Never>] = [:]
+
     /// Re-fetch the full payload for a stripped surface and replace it in the message list.
     public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
-        Task { [weak self] in
+        guard refetchTasks[surfaceId] == nil else { return }
+        refetchTasks[surfaceId] = Task { [weak self] in
+            defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
             guard let self else { return }
             guard let data = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId) else { return }
             for msgIndex in self.messages.indices {
@@ -1415,6 +1420,12 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Cancel all in-flight surface refetch tasks.
+    private func cancelRefetchTasks() {
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
@@ -2419,6 +2430,7 @@ public final class ChatViewModel: ObservableObject {
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
+        cancelRefetchTasks()
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
