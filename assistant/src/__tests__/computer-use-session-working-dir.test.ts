@@ -49,7 +49,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => false,
   isLinux: () => true,
   isWindows: () => false,
-  readHttpToken: () => null,
   normalizeAssistantId: (id: string) => id,
 }));
 

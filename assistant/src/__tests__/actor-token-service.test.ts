@@ -39,7 +39,6 @@ mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => false,
   getInternalGatewayTarget: () => "http://localhost:7822",
   getGatewayBaseUrl: () => "http://localhost:7822",
-  getRuntimeProxyBearerToken: () => undefined,
   getRuntimeGatewayOriginSecret: () => undefined,
   isHttpAuthDisabledWithoutSafetyGate: () => false,
   getEnableMonitoring: () => false,
