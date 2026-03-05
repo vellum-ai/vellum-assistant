@@ -62,6 +62,8 @@ struct ChatView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -211,6 +213,7 @@ struct ChatView: View {
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onRehydrateMessage: onRehydrateMessage,
+                            onSurfaceRefetch: onSurfaceRefetch,
                             subagentDetailStore: subagentDetailStore,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,

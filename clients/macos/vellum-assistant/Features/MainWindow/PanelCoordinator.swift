@@ -811,6 +811,9 @@ struct ActiveChatViewWrapper: View {
             onRehydrateMessage: { messageId in
                 viewModel.rehydrateMessage(id: messageId)
             },
+            onSurfaceRefetch: { surfaceId, sessionId in
+                viewModel.refetchStrippedSurface(surfaceId: surfaceId, sessionId: sessionId)
+            },
             subagentDetailStore: viewModel.subagentDetailStore,
             resolveHttpPort: daemonClient.httpPortResolver,
             isHistoryLoaded: viewModel.isHistoryLoaded,

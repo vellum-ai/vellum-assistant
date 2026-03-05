@@ -1395,6 +1395,48 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Surface Refetch
+
+    /// Lazily created manager that serializes surface content fetches.
+    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, sessionId in
+        guard let self else { return nil }
+        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+    }
+
+    /// In-flight refetch tasks, keyed by surface ID for cancellation.
+    private var refetchTasks: [String: Task<Void, Never>] = [:]
+
+    /// Re-fetch the full payload for a stripped surface and replace it in the message list.
+    public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
+        guard refetchTasks[surfaceId] == nil else { return }
+        refetchTasks[surfaceId] = Task { @MainActor [weak self] in
+            defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
+            guard let self else { return }
+            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId)
+            for msgIndex in self.messages.indices {
+                if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
+                    if let data = result.data {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = data
+                    } else if result.retriesExhausted {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = .strippedFailed
+                    }
+                    // When data is nil but retries are not exhausted, leave the
+                    // surface in .stripped state so a future onAppear re-triggers
+                    // the fetch attempt.
+                    return
+                }
+            }
+        }
+    }
+
+    /// Cancel all in-flight surface refetch tasks and reset the manager's
+    /// failure counts so surfaces can be retried in the new session.
+    private func cancelRefetchTasks() {
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
+        Task { await surfaceRefetchManager.resetFailureCounts() }
+    }
+
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
     /// Used when archiving a thread before session_info arrives: we want to
     /// discard the pending message (so it isn't sent once the session is claimed)
@@ -2323,6 +2365,7 @@ public final class ChatViewModel: ObservableObject {
         // after the messages array is replaced, creating an orphan assistant message
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
+        cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
         lastContentWasToolCall = false
@@ -2397,6 +2440,8 @@ public final class ChatViewModel: ObservableObject {
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],

@@ -114,6 +114,12 @@ public protocol DaemonClientProtocol {
     func disconnect()
     func startSSE()
     func stopSSE()
+    func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData?
+}
+
+extension DaemonClientProtocol {
+    /// Default no-op implementation for clients that don't support HTTP surface fetches.
+    public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
 }
 
 extension Notification.Name {
@@ -753,6 +759,35 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             data: data
         )
         try send(message)
+    }
+
+    // MARK: - Surface Content Fetch
+
+    /// Fetch the full surface payload for a stripped surface from the daemon HTTP API.
+    /// For remote connections, delegates to `HTTPTransport`. For local connections,
+    /// builds a request against the daemon's HTTP server directly.
+    /// Returns the parsed `SurfaceData`, or `nil` on failure.
+    public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? {
+        if let httpTransport {
+            return await httpTransport.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+        }
+
+        // Local daemon path — build request using the daemon HTTP port.
+        let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
+        let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+        guard let request = buildLocalRequest(
+            target: .daemon,
+            path: "v1/surfaces/\(sEncoded)?sessionId=\(qEncoded)",
+            timeout: 10
+        ) else { return nil }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+            return Surface.parseSurfaceDataFromResponse(data)
+        } catch {
+            return nil
+        }
     }
 
     // MARK: - Surface Undo

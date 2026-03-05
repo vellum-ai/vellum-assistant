@@ -13,6 +13,8 @@ struct ChatBubble: View {
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when expanding a tool call with truncated content to fetch the full text.
     var onRehydrate: (() -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -167,7 +169,7 @@ struct ChatBubble: View {
                         // Skip surfaces that are currently shown in the floating overlay
                         if !message.inlineSurfaces.isEmpty {
                             ForEach(message.inlineSurfaces.filter { $0.id != activeSurfaceId }) { surface in
-                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
+                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                             }
                         }
 
