@@ -9,7 +9,6 @@
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
 import {
   conversationAssistantAttentionState,
@@ -79,10 +78,7 @@ function rowToEvent(
 }
 
 function rowToState(
-  row: Omit<
-    typeof conversationAssistantAttentionState.$inferSelect,
-    "assistantId"
-  >,
+  row: typeof conversationAssistantAttentionState.$inferSelect,
 ): AttentionState {
   return {
     conversationId: row.conversationId,
@@ -128,7 +124,6 @@ export function projectAssistantMessage(params: {
     db.insert(conversationAssistantAttentionState)
       .values({
         conversationId,
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         latestAssistantMessageId: messageId,
         latestAssistantMessageAt: messageAt,
         lastSeenAssistantMessageId: null,
@@ -202,7 +197,6 @@ export function recordConversationSeenSignal(params: {
   const event: typeof conversationAttentionEvents.$inferInsert = {
     id: eventId,
     conversationId,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     sourceChannel,
     signalType,
     confidence,
@@ -249,7 +243,6 @@ export function recordConversationSeenSignal(params: {
       tx.insert(conversationAssistantAttentionState)
         .values({
           conversationId,
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
           latestAssistantMessageId: latestMsgId,
           latestAssistantMessageAt: latestMsgAt,
           lastSeenAssistantMessageId: latestMsgId,

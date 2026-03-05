@@ -10,7 +10,6 @@ import { and, eq } from "drizzle-orm";
 
 import { getDb, rawChanges } from "../memory/db.js";
 import { notificationDeliveries } from "../memory/schema.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type {
   NotificationChannel,
   NotificationDeliveryStatus,
@@ -100,7 +99,6 @@ export function createDelivery(
   const row = {
     id: params.id,
     notificationDecisionId: params.notificationDecisionId,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     channel: params.channel,
     destination: params.destination,
     status: params.status,

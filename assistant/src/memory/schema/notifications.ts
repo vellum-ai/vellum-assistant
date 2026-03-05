@@ -11,7 +11,6 @@ import { conversations } from "./conversations.js";
 
 export const notificationEvents = sqliteTable("notification_events", {
   id: text("id").primaryKey(),
-  assistantId: text("assistant_id").notNull(),
   sourceEventName: text("source_event_name").notNull(),
   sourceChannel: text("source_channel").notNull(),
   sourceSessionId: text("source_session_id").notNull(),
@@ -39,7 +38,6 @@ export const notificationDecisions = sqliteTable("notification_decisions", {
 
 export const notificationPreferences = sqliteTable("notification_preferences", {
   id: text("id").primaryKey(),
-  assistantId: text("assistant_id").notNull(),
   preferenceText: text("preference_text").notNull(),
   appliesWhenJson: text("applies_when_json").notNull().default("{}"),
   priority: integer("priority").notNull().default(0),
@@ -95,7 +93,6 @@ export const notificationDeliveries = sqliteTable(
     notificationDecisionId: text("notification_decision_id")
       .notNull()
       .references(() => notificationDecisions.id, { onDelete: "cascade" }),
-    assistantId: text("assistant_id").notNull(),
     channel: text("channel").notNull(),
     destination: text("destination").notNull(),
     status: text("status").notNull().default("pending"),
@@ -132,7 +129,6 @@ export const conversationAttentionEvents = sqliteTable(
     conversationId: text("conversation_id")
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
-    assistantId: text("assistant_id").notNull(),
     sourceChannel: text("source_channel").notNull(),
     signalType: text("signal_type").notNull(),
     confidence: text("confidence").notNull(),
@@ -147,10 +143,7 @@ export const conversationAttentionEvents = sqliteTable(
       table.conversationId,
       table.observedAt,
     ),
-    index("idx_conv_attn_events_assistant_observed").on(
-      table.assistantId,
-      table.observedAt,
-    ),
+    index("idx_conv_attn_events_observed").on(table.observedAt),
     index("idx_conv_attn_events_channel_observed").on(
       table.sourceChannel,
       table.observedAt,
@@ -164,7 +157,6 @@ export const conversationAssistantAttentionState = sqliteTable(
     conversationId: text("conversation_id")
       .primaryKey()
       .references(() => conversations.id, { onDelete: "cascade" }),
-    assistantId: text("assistant_id").notNull(),
     latestAssistantMessageId: text("latest_assistant_message_id"),
     latestAssistantMessageAt: integer("latest_assistant_message_at"),
     lastSeenAssistantMessageId: text("last_seen_assistant_message_id"),
@@ -179,13 +171,7 @@ export const conversationAssistantAttentionState = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("idx_conv_attn_state_assistant_latest_msg").on(
-      table.assistantId,
-      table.latestAssistantMessageAt,
-    ),
-    index("idx_conv_attn_state_assistant_last_seen").on(
-      table.assistantId,
-      table.lastSeenAssistantMessageAt,
-    ),
+    index("idx_conv_attn_state_latest_msg").on(table.latestAssistantMessageAt),
+    index("idx_conv_attn_state_last_seen").on(table.lastSeenAssistantMessageAt),
   ],
 );

@@ -14,7 +14,6 @@ import { v4 as uuid } from "uuid";
 import { getDb } from "../memory/db.js";
 import { actorTokenRecords } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 const log = getLogger("actor-token-store");
 
@@ -27,7 +26,6 @@ export type ActorTokenStatus = "active" | "revoked";
 export interface ActorTokenRecord {
   id: string;
   tokenHash: string;
-  assistantId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
@@ -60,7 +58,6 @@ export function createActorTokenRecord(params: {
   const row = {
     id,
     tokenHash: params.tokenHash,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
@@ -221,7 +218,6 @@ function rowToRecord(
   return {
     id: row.id,
     tokenHash: row.tokenHash,
-    assistantId: row.assistantId,
     guardianPrincipalId: row.guardianPrincipalId,
     hashedDeviceId: row.hashedDeviceId,
     platform: row.platform,

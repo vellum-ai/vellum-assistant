@@ -10,7 +10,6 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { and, desc, eq, gt } from "drizzle-orm";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
 import { assistantIngressInvites } from "./schema.js";
 
@@ -119,7 +118,6 @@ export function createInvite(params: {
 
   const row = {
     id,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     sourceChannel: params.sourceChannel,
     tokenHash: tokenH,
     createdBySessionId: params.createdBySessionId ?? null,
@@ -158,9 +156,8 @@ export function listInvites(params: {
 }): IngressInvite[] {
   const db = getDb();
 
-  const conditions = [
-    eq(assistantIngressInvites.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
-  ];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const conditions: any[] = [];
 
   if (params.sourceChannel) {
     conditions.push(
@@ -171,10 +168,9 @@ export function listInvites(params: {
     conditions.push(eq(assistantIngressInvites.status, params.status));
   }
 
-  const rows = db
-    .select()
-    .from(assistantIngressInvites)
-    .where(and(...conditions))
+  const query = db.select().from(assistantIngressInvites);
+
+  const rows = (conditions.length > 0 ? query.where(and(...conditions)) : query)
     .orderBy(desc(assistantIngressInvites.createdAt))
     .limit(params.limit ?? 100)
     .offset(params.offset ?? 0)
@@ -335,7 +331,6 @@ export function findActiveVoiceInvites(params: {
     .from(assistantIngressInvites)
     .where(
       and(
-        eq(assistantIngressInvites.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
         eq(assistantIngressInvites.sourceChannel, "voice"),
         eq(assistantIngressInvites.status, "active"),
         eq(

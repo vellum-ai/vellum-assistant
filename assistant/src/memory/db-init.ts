@@ -36,6 +36,7 @@ import {
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateCallSessionMode,
+  migrateDropAssistantIdColumns,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
   migrateChannelInboundDeliveredSegments,
@@ -288,6 +289,9 @@ export function initializeDb(): void {
 
   // 39. Backfill contact interaction stats from channel lastSeenAt
   migrateBackfillContactInteractionStats(database);
+
+  // 40. Drop assistant_id columns from all 16 daemon tables
+  migrateDropAssistantIdColumns(database);
 
   validateMigrationState(database);
 

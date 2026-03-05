@@ -14,7 +14,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { getDb, rawChanges } from "./db.js";
 import { scopedApprovalGrants } from "./schema.js";
@@ -113,7 +112,6 @@ function createScopedApprovalGrant(
 
   const row = {
     id,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     scopeMode: params.scopeMode,
     requestId: params.requestId ?? null,
     toolName: params.toolName ?? null,

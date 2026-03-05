@@ -6,7 +6,6 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { conversations } from "./conversations.js";
 
 export const callSessions = sqliteTable(
@@ -26,7 +25,6 @@ export const callSessions = sqliteTable(
     guardianVerificationSessionId: text("guardian_verification_session_id"),
     callerIdentityMode: text("caller_identity_mode"),
     callerIdentitySource: text("caller_identity_source"),
-    assistantId: text("assistant_id"),
     initiatedFromConversationId: text("initiated_from_conversation_id"),
     startedAt: integer("started_at"),
     endedAt: integer("ended_at"),
@@ -91,7 +89,6 @@ export const channelGuardianVerificationChallenges = sqliteTable(
   "channel_guardian_verification_challenges",
   {
     id: text("id").primaryKey(),
-    assistantId: text("assistant_id").notNull(),
     channel: text("channel").notNull(),
     challengeHash: text("challenge_hash").notNull(),
     expiresAt: integer("expires_at").notNull(),
@@ -128,9 +125,6 @@ export const channelGuardianApprovalRequests = sqliteTable(
     runId: text("run_id").notNull(),
     requestId: text("request_id"),
     conversationId: text("conversation_id").notNull(),
-    assistantId: text("assistant_id")
-      .notNull()
-      .default(DAEMON_INTERNAL_ASSISTANT_ID),
     channel: text("channel").notNull(),
     requesterExternalUserId: text("requester_external_user_id").notNull(),
     requesterChatId: text("requester_chat_id").notNull(),
@@ -151,7 +145,6 @@ export const channelGuardianRateLimits = sqliteTable(
   "channel_guardian_rate_limits",
   {
     id: text("id").primaryKey(),
-    assistantId: text("assistant_id").notNull(),
     channel: text("channel").notNull(),
     actorExternalUserId: text("actor_external_user_id").notNull(),
     actorChatId: text("actor_chat_id").notNull(),
