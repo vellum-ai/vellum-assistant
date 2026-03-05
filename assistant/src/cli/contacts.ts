@@ -1,13 +1,15 @@
 import type { Command } from "commander";
 
 import {
-  gatewayGet,
-  gatewayPost,
-  runRead,
-  toQueryString,
-} from "./integrations.js";
-
-type IngressChannel = "telegram" | "voice" | "sms";
+  getContact,
+  listContacts,
+  mergeContacts,
+  searchContacts,
+} from "../contacts/contact-store.js";
+import type { ContactRole } from "../contacts/types.js";
+import { initializeDb } from "../memory/db.js";
+import { listIngressInvites } from "../runtime/invite-service.js";
+import { writeOutput } from "./integrations.js";
 
 export function registerContactsCommand(program: Command): void {
   const contacts = program
@@ -17,7 +19,7 @@ export function registerContactsCommand(program: Command): void {
 
   contacts
     .command("list")
-    .description("List contacts (calls /v1/contacts)")
+    .description("List contacts")
     .option("--role <role>", "Filter by role (default: contact)", "contact")
     .option("--limit <limit>", "Maximum number of contacts to return")
     .option("--query <query>", "Search query to filter contacts")
@@ -30,12 +32,21 @@ export function registerContactsCommand(program: Command): void {
         },
         cmd: Command,
       ) => {
-        const query = toQueryString({
-          role: opts.role,
-          limit: opts.limit,
-          query: opts.query,
-        });
-        await runRead(cmd, async () => gatewayGet(`/v1/contacts${query}`));
+        try {
+          initializeDb();
+          const role = opts.role as ContactRole | undefined;
+          const limit = opts.limit ? Number(opts.limit) : undefined;
+
+          const results = opts.query
+            ? searchContacts({ query: opts.query, role, limit })
+            : listContacts(limit ?? 50, role);
+
+          writeOutput(cmd, { ok: true, contacts: results });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
       },
     );
 
@@ -43,9 +54,20 @@ export function registerContactsCommand(program: Command): void {
     .command("get <id>")
     .description("Get a contact by ID")
     .action(async (id: string, _opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet(`/v1/contacts/${encodeURIComponent(id)}`),
-      );
+      try {
+        initializeDb();
+        const contact = getContact(id);
+        if (!contact) {
+          writeOutput(cmd, { ok: false, error: "Contact not found" });
+          process.exitCode = 1;
+          return;
+        }
+        writeOutput(cmd, { ok: true, contact });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeOutput(cmd, { ok: false, error: message });
+        process.exitCode = 1;
+      }
     });
 
   contacts
@@ -53,9 +75,15 @@ export function registerContactsCommand(program: Command): void {
     .description("Merge two contacts")
     .action(
       async (keepId: string, mergeId: string, _opts: unknown, cmd: Command) => {
-        await runRead(cmd, async () =>
-          gatewayPost("/v1/contacts/merge", { keepId, mergeId }),
-        );
+        try {
+          initializeDb();
+          const contact = mergeContacts(keepId, mergeId);
+          writeOutput(cmd, { ok: true, contact });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
       },
     );
 
@@ -66,16 +94,21 @@ export function registerContactsCommand(program: Command): void {
     .option("--status <status>", "Filter by invite status")
     .action(
       async (
-        opts: { sourceChannel?: IngressChannel; status?: string },
+        opts: { sourceChannel?: string; status?: string },
         cmd: Command,
       ) => {
-        const query = toQueryString({
-          sourceChannel: opts.sourceChannel,
-          status: opts.status,
-        });
-        await runRead(cmd, async () =>
-          gatewayGet(`/v1/contacts/invites${query}`),
-        );
+        try {
+          initializeDb();
+          const result = listIngressInvites({
+            sourceChannel: opts.sourceChannel,
+            status: opts.status,
+          });
+          writeOutput(cmd, result);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
       },
     );
 }
