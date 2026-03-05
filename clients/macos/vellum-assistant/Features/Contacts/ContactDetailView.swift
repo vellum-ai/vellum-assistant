@@ -8,24 +8,24 @@ struct ContactDetailView: View {
     let contact: ContactPayload
     var daemonClient: DaemonClient?
 
-    @State private var currentContact: ContactPayload?
+    @State var currentContact: ContactPayload?
     @State private var actionInProgress: String?
-    @State private var errorMessage: String?
+    @State var errorMessage: String?
     @State private var isEditingName = false
     @State private var editedName = ""
     @State private var isHoveringHeader = false
 
-    // Metadata editing state
-    @State private var isEditingRelationship = false
-    @State private var editedRelationship = ""
-    @State private var isEditingImportance = false
-    @State private var editedImportance: Double = 0.5
-    @State private var isEditingResponseExpectation = false
-    @State private var editedResponseExpectation = ""
-    @State private var isEditingPreferredTone = false
-    @State private var editedPreferredTone = ""
+    // Metadata editing state (accessed from ContactDetailView+EditableMetadata.swift)
+    @State var isEditingRelationship = false
+    @State var editedRelationship = ""
+    @State var isEditingImportance = false
+    @State var editedImportance: Double = 0.5
+    @State var isEditingResponseExpectation = false
+    @State var editedResponseExpectation = ""
+    @State var isEditingPreferredTone = false
+    @State var editedPreferredTone = ""
 
-    private var displayContact: ContactPayload {
+    var displayContact: ContactPayload {
         currentContact ?? contact
     }
 
@@ -346,161 +346,7 @@ struct ContactDetailView: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Editable Metadata Rows
-
-    private var editableRelationshipRow: some View {
-        EditableMetadataRow(
-            label: "Relationship",
-            value: displayContact.relationship,
-            isEditing: $isEditingRelationship,
-            editor: {
-                TextField("Relationship", text: $editedRelationship)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .textFieldStyle(.plain)
-                    .onSubmit { Task { await saveRelationship() } }
-            },
-            onStartEditing: {
-                editedRelationship = displayContact.relationship ?? ""
-            },
-            onCancel: {
-                isEditingRelationship = false
-            }
-        )
-    }
-
-    private var editableImportanceRow: some View {
-        HStack(spacing: VSpacing.sm) {
-            Text("Importance")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: 140, alignment: .leading)
-
-            if isEditingImportance {
-                HStack(spacing: VSpacing.sm) {
-                    Slider(value: $editedImportance, in: 0...1, step: 0.1)
-                        .frame(maxWidth: 160)
-
-                    Text(String(format: "%.1f", editedImportance))
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .frame(width: 30, alignment: .trailing)
-
-                    Button {
-                        Task { await saveImportance() }
-                    } label: {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Save importance")
-
-                    Button {
-                        isEditingImportance = false
-                    } label: {
-                        Image(systemName: "xmark")
-                            .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Cancel editing")
-                }
-            } else {
-                Text(String(format: "%.1f", displayContact.importance))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .onTapGesture {
-                        editedImportance = displayContact.importance
-                        isEditingImportance = true
-                    }
-            }
-
-            Spacer()
-        }
-    }
-
-    private var editableResponseExpectationRow: some View {
-        HStack(spacing: VSpacing.sm) {
-            Text("Response expectation")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: 140, alignment: .leading)
-
-            if isEditingResponseExpectation {
-                HStack(spacing: VSpacing.sm) {
-                    Picker("", selection: $editedResponseExpectation) {
-                        Text("Immediate").tag("immediate")
-                        Text("Within hours").tag("within_hours")
-                        Text("Within a day").tag("within_day")
-                        Text("Flexible").tag("flexible")
-                        Divider()
-                        Text("Clear").tag("")
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .onChange(of: editedResponseExpectation) { _, newValue in
-                        Task { await saveResponseExpectation(newValue.isEmpty ? nil : newValue) }
-                    }
-
-                    Button {
-                        isEditingResponseExpectation = false
-                    } label: {
-                        Image(systemName: "xmark")
-                            .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Cancel editing")
-                }
-            } else if let expectation = displayContact.responseExpectation,
-                      !expectation.isEmpty {
-                Text(formatResponseExpectation(expectation))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .onTapGesture {
-                        editedResponseExpectation = expectation
-                        isEditingResponseExpectation = true
-                    }
-            } else {
-                Button {
-                    editedResponseExpectation = ""
-                    isEditingResponseExpectation = true
-                } label: {
-                    Text("+ Add")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.accent)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Spacer()
-        }
-    }
-
-    private var editablePreferredToneRow: some View {
-        EditableMetadataRow(
-            label: "Preferred tone",
-            value: displayContact.preferredTone,
-            isEditing: $isEditingPreferredTone,
-            formatValue: { capitalizeFirst($0) },
-            editor: {
-                TextField("Preferred tone", text: $editedPreferredTone)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .textFieldStyle(.plain)
-                    .onSubmit { Task { await savePreferredTone() } }
-            },
-            onStartEditing: {
-                editedPreferredTone = displayContact.preferredTone ?? ""
-            },
-            onCancel: {
-                isEditingPreferredTone = false
-            }
-        )
-    }
-
-    private func metadataRow(label: String, value: String) -> some View {
+    func metadataRow(label: String, value: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             Text(label)
                 .font(VFont.caption)
@@ -524,7 +370,7 @@ struct ContactDetailView: View {
         }
     }
 
-    private func formatResponseExpectation(_ value: String) -> String {
+    func formatResponseExpectation(_ value: String) -> String {
         switch value {
         case "immediate":
             return "Immediate"
@@ -539,7 +385,7 @@ struct ContactDetailView: View {
         }
     }
 
-    private func capitalizeFirst(_ value: String) -> String {
+    func capitalizeFirst(_ value: String) -> String {
         guard let first = value.first else { return value }
         return first.uppercased() + value.dropFirst()
     }
@@ -604,51 +450,6 @@ struct ContactDetailView: View {
         }
     }
 
-    private func saveMetadataField(
-        relationship: String? = nil,
-        importance: Double? = nil,
-        responseExpectation: String? = nil,
-        preferredTone: String? = nil
-    ) async {
-        errorMessage = nil
-        do {
-            if let updated = try await daemonClient?.updateContact(
-                contactId: displayContact.id,
-                displayName: displayContact.displayName,
-                relationship: relationship,
-                importance: importance,
-                responseExpectation: responseExpectation,
-                preferredTone: preferredTone
-            ) {
-                currentContact = updated
-            }
-        } catch {
-            errorMessage = "Failed to update contact: \(error.localizedDescription)"
-        }
-    }
-
-    private func saveRelationship() async {
-        let trimmed = editedRelationship.trimmingCharacters(in: .whitespacesAndNewlines)
-        await saveMetadataField(relationship: trimmed)
-        isEditingRelationship = false
-    }
-
-    private func saveImportance() async {
-        await saveMetadataField(importance: editedImportance)
-        isEditingImportance = false
-    }
-
-    private func saveResponseExpectation(_ value: String?) async {
-        await saveMetadataField(responseExpectation: value ?? "")
-        isEditingResponseExpectation = false
-    }
-
-    private func savePreferredTone() async {
-        let trimmed = editedPreferredTone.trimmingCharacters(in: .whitespacesAndNewlines)
-        await saveMetadataField(preferredTone: trimmed)
-        isEditingPreferredTone = false
-    }
-
     private func updateChannelStatus(channelId: String, status: String) {
         guard let daemonClient else { return }
         guard actionInProgress == nil else { return }
@@ -693,65 +494,6 @@ struct ContactDetailView: View {
             }
 
             actionInProgress = nil
-        }
-    }
-}
-
-// MARK: - EditableMetadataRow
-
-/// A reusable row for editable text metadata fields. Shows the current value
-/// (or a "+ Add" link when empty) and transforms into an inline editor on click.
-private struct EditableMetadataRow<Editor: View>: View {
-    let label: String
-    let value: String?
-    @Binding var isEditing: Bool
-    var formatValue: (String) -> String = { $0 }
-    @ViewBuilder let editor: () -> Editor
-    let onStartEditing: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: 140, alignment: .leading)
-
-            if isEditing {
-                HStack(spacing: VSpacing.sm) {
-                    editor()
-
-                    Button {
-                        onCancel()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Cancel editing")
-                }
-            } else if let value, !value.isEmpty {
-                Text(formatValue(value))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .onTapGesture {
-                        onStartEditing()
-                        isEditing = true
-                    }
-            } else {
-                Button {
-                    onStartEditing()
-                    isEditing = true
-                } label: {
-                    Text("+ Add")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.accent)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Spacer()
         }
     }
 }
