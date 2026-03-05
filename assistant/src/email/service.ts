@@ -137,25 +137,27 @@ export class EmailService {
       this.cachedPrimaryAddress = undefined;
     }
 
-    // Fall back to the statically configured email address in workspace config
-    // when the provider can't list inboxes (e.g. provider temporarily unavailable).
-    if (this.cachedPrimaryAddress === undefined) {
-      try {
-        const raw = loadRawConfig();
-        const configured = getNestedValue(raw, "email.address");
-        if (typeof configured === "string" && configured.length > 0) {
-          this.cachedPrimaryAddress = configured;
-        }
-      } catch {
-        // Config unavailable — leave as undefined
-      }
-    }
-    // Only cache positive results so a missing inbox is retried on next call
-    // (e.g. user sets up email after initial miss).
+    // Only cache positive results from the provider so a missing inbox is
+    // retried on next call (e.g. user sets up email after initial miss).
     if (this.cachedPrimaryAddress !== undefined) {
       this.primaryAddressResolved = true;
+      return this.cachedPrimaryAddress;
     }
-    return this.cachedPrimaryAddress;
+
+    // Fall back to the statically configured email address in workspace config
+    // when the provider can't list inboxes (e.g. provider temporarily unavailable).
+    // Intentionally NOT setting primaryAddressResolved so the provider is retried
+    // on the next call — the fallback is a best-effort stopgap, not authoritative.
+    try {
+      const raw = loadRawConfig();
+      const configured = getNestedValue(raw, "email.address");
+      if (typeof configured === "string" && configured.length > 0) {
+        return configured;
+      }
+    } catch {
+      // Config unavailable — leave as undefined
+    }
+    return undefined;
   }
 
   // =========================================================================
