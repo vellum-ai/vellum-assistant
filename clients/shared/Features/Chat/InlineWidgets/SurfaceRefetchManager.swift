@@ -28,7 +28,7 @@ public actor SurfaceRefetchManager {
     }
 
     /// Continuations for callers waiting on a specific surface's result.
-    private var waiters: [String: [CheckedContinuation<RefetchResult, Never>]] = []
+    private var waiters: [String: [CheckedContinuation<RefetchResult, Never>]] = [:]
 
     /// Whether the serial processing loop is currently active.
     private var isProcessing = false
