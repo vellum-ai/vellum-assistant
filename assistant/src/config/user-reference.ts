@@ -1,7 +1,7 @@
 import { readTextFileSync } from "../util/fs.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
-const DEFAULT_USER_REFERENCE = "my human";
+export const DEFAULT_USER_REFERENCE = "my human";
 
 /**
  * Resolve the name/reference the assistant uses when referring to
@@ -65,4 +65,29 @@ function cleanPronounValue(raw: string): string | null {
   if (raw === "declined_by_user") return null;
   // Strip "inferred: " prefix for clean output
   return raw.replace(/^inferred:\s*/i, "");
+}
+
+/**
+ * Resolve the guardian's display name.
+ *
+ * Priority:
+ *   1. USER.md "Preferred name/reference:" — the user-editable, actively
+ *      maintained source of truth.
+ *   2. guardianDisplayName (fallback for when USER.md is missing or empty,
+ *      e.g. pre-onboarding). Callers pass in Contact.displayName.
+ *   3. DEFAULT_USER_REFERENCE ("my human").
+ */
+export function resolveGuardianName(
+  guardianDisplayName?: string | null,
+): string {
+  const userRef = resolveUserReference();
+  if (userRef !== DEFAULT_USER_REFERENCE) {
+    return userRef;
+  }
+
+  if (guardianDisplayName && guardianDisplayName.trim().length > 0) {
+    return guardianDisplayName.trim();
+  }
+
+  return DEFAULT_USER_REFERENCE;
 }
