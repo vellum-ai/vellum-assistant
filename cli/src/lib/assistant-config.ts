@@ -225,13 +225,31 @@ export async function allocateLocalResources(
   const instanceDir = join(homedir(), ".vellum", "instances", instanceName);
   mkdirSync(instanceDir, { recursive: true });
 
+  // Collect ports already assigned to other local instances in the lockfile.
+  // Even if those instances are stopped, we must avoid reusing their ports
+  // to prevent binding collisions when both are woken.
+  const reservedPorts: number[] = [];
+  for (const entry of loadAllAssistants()) {
+    if (entry.cloud !== "local" || !entry.resources) continue;
+    reservedPorts.push(
+      entry.resources.daemonPort,
+      entry.resources.gatewayPort,
+      entry.resources.qdrantPort,
+    );
+  }
+
   // Allocate ports sequentially to avoid overlapping ranges assigning the
   // same port to multiple services (e.g. daemon 7821-7920 overlaps gateway 7830-7929).
-  const daemonPort = await findAvailablePort(DEFAULT_DAEMON_PORT);
+  const daemonPort = await findAvailablePort(
+    DEFAULT_DAEMON_PORT,
+    reservedPorts,
+  );
   const gatewayPort = await findAvailablePort(DEFAULT_GATEWAY_PORT, [
+    ...reservedPorts,
     daemonPort,
   ]);
   const qdrantPort = await findAvailablePort(DEFAULT_QDRANT_PORT, [
+    ...reservedPorts,
     daemonPort,
     gatewayPort,
   ]);

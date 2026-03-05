@@ -740,7 +740,7 @@ async function hatchLocal(
     throw error;
   }
 
-  await startOutboundProxy(watch, resources);
+  await startOutboundProxy(watch);
 
   // Read the bearer token (JWT) written by the daemon so the CLI can
   // authenticate with the gateway. The daemon writes under
