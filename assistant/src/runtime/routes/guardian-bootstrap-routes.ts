@@ -123,13 +123,13 @@ export async function handleGuardianBootstrap(
       );
     }
 
-    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-    const { guardianPrincipalId, isNew } = ensureGuardianPrincipal(assistantId);
+    const { guardianPrincipalId, isNew } = ensureGuardianPrincipal(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+    );
     const hashedDeviceId = hashDeviceId(deviceId);
 
     // Mint credential pair (access token + refresh token)
     const credentials = mintCredentialPair({
-      assistantId,
       platform,
       deviceId,
       guardianPrincipalId,
@@ -137,7 +137,7 @@ export async function handleGuardianBootstrap(
     });
 
     log.info(
-      { assistantId, platform, guardianPrincipalId, isNew },
+      { platform, guardianPrincipalId, isNew },
       "Guardian bootstrap completed",
     );
 

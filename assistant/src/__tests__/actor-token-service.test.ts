@@ -129,7 +129,6 @@ describe("actor-token store (hash-only)", () => {
 
     const record = createActorTokenRecord({
       tokenHash,
-      assistantId: "self",
       guardianPrincipalId: "principal-store",
       hashedDeviceId: "hashed-dev-store",
       platform: "macos",
@@ -148,7 +147,6 @@ describe("actor-token store (hash-only)", () => {
 
     createActorTokenRecord({
       tokenHash,
-      assistantId: "self",
       guardianPrincipalId: "principal-bind",
       hashedDeviceId: "hashed-dev-bind",
       platform: "ios",
@@ -156,7 +154,6 @@ describe("actor-token store (hash-only)", () => {
     });
 
     const found = findActiveByDeviceBinding(
-      "self",
       "principal-bind",
       "hashed-dev-bind",
     );
@@ -169,7 +166,6 @@ describe("actor-token store (hash-only)", () => {
 
     createActorTokenRecord({
       tokenHash,
-      assistantId: "self",
       guardianPrincipalId: "principal-revoke",
       hashedDeviceId: "hashed-dev-revoke",
       platform: "macos",
@@ -177,7 +173,6 @@ describe("actor-token store (hash-only)", () => {
     });
 
     const count = revokeByDeviceBinding(
-      "self",
       "principal-revoke",
       "hashed-dev-revoke",
     );
@@ -192,7 +187,6 @@ describe("actor-token store (hash-only)", () => {
 
     createActorTokenRecord({
       tokenHash,
-      assistantId: "self",
       guardianPrincipalId: "principal-single",
       hashedDeviceId: "hashed-dev-single",
       platform: "macos",

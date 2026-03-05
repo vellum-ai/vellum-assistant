@@ -12,6 +12,7 @@ import { getDb } from "../memory/db.js";
 import { rawChanges } from "../memory/raw-query.js";
 import { actorRefreshTokenRecords } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 const log = getLogger("actor-refresh-token-store");
 
@@ -38,7 +39,6 @@ export interface RefreshTokenRecord {
 export function createRefreshTokenRecord(params: {
   tokenHash: string;
   familyId: string;
-  assistantId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
@@ -54,7 +54,7 @@ export function createRefreshTokenRecord(params: {
     id,
     tokenHash: params.tokenHash,
     familyId: params.familyId,
-    assistantId: params.assistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
@@ -120,7 +120,6 @@ export function revokeFamily(familyId: string): number {
 
 /** Revoke all active refresh tokens for a device binding. */
 export function revokeByDeviceBinding(
-  assistantId: string,
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): number {
@@ -130,7 +129,6 @@ export function revokeByDeviceBinding(
     .set({ status: "revoked", updatedAt: now })
     .where(
       and(
-        eq(actorRefreshTokenRecords.assistantId, assistantId),
         eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
         eq(actorRefreshTokenRecords.status, "active"),

@@ -132,7 +132,6 @@ function mintAccessToken(guardianPrincipalId: string): {
 // ---------------------------------------------------------------------------
 
 function mintRefreshTokenInternal(params: {
-  assistantId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
@@ -155,7 +154,6 @@ function mintRefreshTokenInternal(params: {
   createRefreshTokenRecord({
     tokenHash: refreshTokenHash,
     familyId,
-    assistantId: params.assistantId,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
@@ -184,20 +182,14 @@ function mintRefreshTokenInternal(params: {
  * Revokes any existing credentials for the device before minting.
  */
 export function mintCredentialPair(params: {
-  assistantId: string;
   platform: string;
   deviceId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
 }): CredentialPairResult {
   // Revoke any existing credentials for this device
-  revokeActorTokensByDevice(
-    params.assistantId,
-    params.guardianPrincipalId,
-    params.hashedDeviceId,
-  );
+  revokeActorTokensByDevice(params.guardianPrincipalId, params.hashedDeviceId);
   revokeRefreshTokensByDevice(
-    params.assistantId,
     params.guardianPrincipalId,
     params.hashedDeviceId,
   );
@@ -207,7 +199,6 @@ export function mintCredentialPair(params: {
 
   createActorTokenRecord({
     tokenHash: access.tokenHash,
-    assistantId: params.assistantId,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
@@ -217,7 +208,6 @@ export function mintCredentialPair(params: {
 
   // Mint new refresh token
   const refresh = mintRefreshTokenInternal({
-    assistantId: params.assistantId,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
@@ -270,7 +260,6 @@ export function rotateCredentials(params: {
     );
     revokeFamily(record.familyId);
     revokeActorTokensByDevice(
-      record.assistantId,
       record.guardianPrincipalId,
       record.hashedDeviceId,
     );
@@ -314,7 +303,6 @@ export function rotateCredentials(params: {
 
     // Revoke old access tokens for this device
     revokeActorTokensByDevice(
-      record.assistantId,
       record.guardianPrincipalId,
       record.hashedDeviceId,
     );
@@ -324,7 +312,6 @@ export function rotateCredentials(params: {
 
     createActorTokenRecord({
       tokenHash: access.tokenHash,
-      assistantId: record.assistantId,
       guardianPrincipalId: record.guardianPrincipalId,
       hashedDeviceId: record.hashedDeviceId,
       platform: params.platform,
@@ -336,7 +323,6 @@ export function rotateCredentials(params: {
     // absolute expiry so rotation resets inactivity but never extends
     // the session lifetime.
     const refresh = mintRefreshTokenInternal({
-      assistantId: record.assistantId,
       guardianPrincipalId: record.guardianPrincipalId,
       hashedDeviceId: record.hashedDeviceId,
       platform: params.platform,

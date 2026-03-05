@@ -290,7 +290,6 @@ export function createInboundVoiceSession(
     provider: "twilio",
     fromNumber,
     toNumber,
-    assistantId,
   });
 
   updateCallSession(session.id, { providerCallSid: callSid });
@@ -411,7 +410,6 @@ export async function startCall(
       task: callContext ? `${task}\n\nContext: ${callContext}` : task,
       callerIdentityMode: identityResult.mode,
       callerIdentitySource: identityResult.source,
-      assistantId,
       initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
@@ -935,7 +933,6 @@ export async function startGuardianVerificationCall(
       toNumber: phoneNumber,
       callMode: "guardian_verification",
       guardianVerificationSessionId,
-      assistantId,
       initiatedFromConversationId: originConversationId,
     });
     sessionId = session.id;
