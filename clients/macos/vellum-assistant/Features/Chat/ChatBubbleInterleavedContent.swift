@@ -73,7 +73,7 @@ extension ChatBubble {
             case .surface(let i):
                 if i < message.inlineSurfaces.count,
                    message.inlineSurfaces[i].id != activeSurfaceId {
-                    InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
+                    InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction, onPreviewImageUpdate: onPreviewImageUpdate)
                 }
             }
         }

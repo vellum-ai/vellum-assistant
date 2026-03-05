@@ -596,6 +596,19 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Persist a captured preview image into the ChatMessage model so it survives thread switches.
+    public func updateSurfacePreviewImage(appId: String, base64: String) {
+        for msgIdx in messages.indices {
+            for surfIdx in messages[msgIdx].inlineSurfaces.indices {
+                if case .dynamicPage(var dpData) = messages[msgIdx].inlineSurfaces[surfIdx].data,
+                   dpData.appId == appId {
+                    dpData.preview?.previewImage = base64
+                    messages[msgIdx].inlineSurfaces[surfIdx].data = .dynamicPage(dpData)
+                }
+            }
+        }
+    }
+
     /// Handle a `message_content_response` from the daemon, updating the matching
     /// message with full (untruncated) text and tool call results.
     public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {

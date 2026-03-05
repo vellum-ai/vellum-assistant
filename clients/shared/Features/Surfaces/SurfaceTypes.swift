@@ -314,7 +314,7 @@ public struct DynamicPageSurfaceData: Sendable, Equatable {
     public let height: Int?
     public let appId: String?
     public let appType: String?
-    public let preview: DynamicPagePreview?
+    public var preview: DynamicPagePreview?
     public let reloadGeneration: Int?
     public let status: String?
 

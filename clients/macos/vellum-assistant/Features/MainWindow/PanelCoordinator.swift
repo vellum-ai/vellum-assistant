@@ -714,6 +714,9 @@ struct ActiveChatViewWrapper: View {
             onRehydrateMessage: { messageId in
                 viewModel.rehydrateMessage(id: messageId)
             },
+            onPreviewImageUpdate: { appId, base64 in
+                viewModel.updateSurfacePreviewImage(appId: appId, base64: base64)
+            },
             subagentDetailStore: viewModel.subagentDetailStore,
             resolveHttpPort: daemonClient.httpPortResolver,
             isHistoryLoaded: viewModel.isHistoryLoaded,
