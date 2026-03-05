@@ -142,7 +142,7 @@ struct ContactsListView: View {
                 .accessibilityLabel("Add contact")
             }
 
-            if viewModel.otherContacts.isEmpty {
+            if !viewModel.hasNonGuardianContacts {
                 Text("No contacts yet. Tap + to add one.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)

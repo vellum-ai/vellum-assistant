@@ -57,6 +57,13 @@ final class ContactsViewModel: ObservableObject {
         filteredContacts.filter { $0.role != "guardian" }
     }
 
+    /// Whether any non-guardian contacts exist in the unfiltered list.
+    /// Used for empty-state checks so search filtering doesn't
+    /// incorrectly trigger the "No contacts yet" message.
+    var hasNonGuardianContacts: Bool {
+        contacts.contains { $0.role != "guardian" }
+    }
+
     // MARK: - Actions
 
     /// Request the list of contacts from the daemon.
