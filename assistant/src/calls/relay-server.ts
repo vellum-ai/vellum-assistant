@@ -13,7 +13,6 @@ import type { ServerWebSocket } from "bun";
 import { getConfig } from "../config/loader.js";
 import { resolveUserReference } from "../config/user-reference.js";
 import {
-  findContactChannel,
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
@@ -28,7 +27,6 @@ import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.
 import * as conversationStore from "../memory/conversation-store.js";
 import { findActiveVoiceInvites } from "../memory/invite-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import {
   resolveActorTrust,
@@ -47,10 +45,6 @@ import { parseJsonSafe } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import {
   getAccessRequestPollIntervalMs,
-  getGuardianWaitUpdateInitialIntervalMs,
-  getGuardianWaitUpdateInitialWindowMs,
-  getGuardianWaitUpdateSteadyMaxIntervalMs,
-  getGuardianWaitUpdateSteadyMinIntervalMs,
   getTtsPlaybackDelayMs,
   getUserConsultationTimeoutMs,
 } from "./call-constants.js";
@@ -64,6 +58,12 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { finalizeCall } from "./finalize-call.js";
+import {
+  classifyWaitUtterance,
+  emitAccessRequestCallbackHandoff,
+  getHeartbeatMessage,
+  scheduleNextHeartbeat,
+} from "./relay-access-wait.js";
 import {
   attemptGuardianCodeVerification,
   attemptInviteCodeRedemption,
@@ -426,7 +426,7 @@ export class RelayConnection {
     // If the call was still in guardian-wait with callback opt-in, emit the
     // handoff notification before cleaning up wait state.
     if (this.accessRequestWaitActive && this.callbackOptIn) {
-      this.emitAccessRequestCallbackHandoff("transport_closed");
+      this.emitAccessRequestCallbackHandoffForReason("transport_closed");
     }
 
     // Clean up access request wait state on disconnect to stop polling
@@ -1618,7 +1618,7 @@ export class RelayConnection {
    */
   private handleAccessRequestTimeout(): void {
     // Emit callback handoff notification before clearing wait state
-    this.emitAccessRequestCallbackHandoff("timeout");
+    this.emitAccessRequestCallbackHandoffForReason("timeout");
 
     this.clearAccessRequestWait();
 
@@ -1656,118 +1656,20 @@ export class RelayConnection {
     }, getTtsPlaybackDelayMs());
   }
 
-  /**
-   * Emit a callback handoff notification to the guardian when the caller
-   * opted into a callback during guardian wait but the wait ended without
-   * resolution (timeout or transport close).
-   *
-   * Idempotent: uses callbackHandoffNotified guard + deterministic dedupeKey
-   * to ensure at most one notification per call/request.
-   */
-  private emitAccessRequestCallbackHandoff(
+  private emitAccessRequestCallbackHandoffForReason(
     reason: "timeout" | "transport_closed",
   ): void {
-    if (!this.callbackOptIn) return;
-    if (!this.accessRequestId) return;
-    if (this.callbackHandoffNotified) return;
-
-    this.callbackHandoffNotified = true;
-
-    const assistantId =
-      this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-    const fromNumber = this.accessRequestFromNumber ?? null;
-
-    // Resolve canonical request for requestCode and conversationId
-    const canonicalRequest = this.accessRequestId
-      ? getCanonicalGuardianRequest(this.accessRequestId)
-      : null;
-
-    // Resolve trusted-contact member reference when possible
-    let requesterMemberId: string | null = null;
-    if (fromNumber) {
-      try {
-        const contactResult = findContactChannel({
-          channelType: "voice",
-          externalUserId: fromNumber,
-          externalChatId: fromNumber,
-        });
-        if (
-          contactResult &&
-          contactResult.channel.status === "active" &&
-          contactResult.channel.policy === "allow"
-        ) {
-          requesterMemberId = contactResult.channel.id;
-        }
-      } catch (err) {
-        log.warn(
-          { err, callSessionId: this.callSessionId },
-          "Failed to resolve member for callback handoff",
-        );
-      }
-    }
-
-    const dedupeKey = `access-request-callback-handoff:${this.accessRequestId}`;
-    const sourceSessionId =
-      canonicalRequest?.conversationId ??
-      `access-req-callback-${this.accessRequestId}`;
-
-    void emitNotificationSignal({
-      sourceEventName: "ingress.access_request.callback_handoff",
-      sourceChannel: "voice",
-      sourceSessionId,
-      assistantId,
-      attentionHints: {
-        requiresAction: false,
-        urgency: "medium",
-        isAsyncBackground: true,
-        visibleInSourceNow: false,
-      },
-      contextPayload: {
-        requestId: this.accessRequestId,
-        requestCode: canonicalRequest?.requestCode ?? null,
-        callSessionId: this.callSessionId,
-        sourceChannel: "voice",
-        reason,
-        callbackOptIn: true,
-        callerPhoneNumber: fromNumber,
-        callerName: this.accessRequestCallerName ?? null,
-        requesterExternalUserId: fromNumber,
-        requesterChatId: fromNumber,
-        requesterMemberId,
-        requesterMemberSourceChannel: requesterMemberId ? "voice" : null,
-      },
-      dedupeKey,
-    })
-      .then(() => {
-        recordCallEvent(this.callSessionId, "callback_handoff_notified", {
-          requestId: this.accessRequestId,
-          reason,
-          requesterMemberId,
-        });
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            requestId: this.accessRequestId,
-            reason,
-          },
-          "Callback handoff notification emitted",
-        );
-      })
-      .catch((err) => {
-        recordCallEvent(this.callSessionId, "callback_handoff_failed", {
-          requestId: this.accessRequestId,
-          reason,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        log.error(
-          {
-            err,
-            callSessionId: this.callSessionId,
-            requestId: this.accessRequestId,
-          },
-          "Failed to emit callback handoff notification",
-        );
-      });
+    const result = emitAccessRequestCallbackHandoff({
+      reason,
+      callbackOptIn: this.callbackOptIn,
+      accessRequestId: this.accessRequestId,
+      callbackHandoffNotified: this.callbackHandoffNotified,
+      accessRequestAssistantId: this.accessRequestAssistantId,
+      accessRequestFromNumber: this.accessRequestFromNumber,
+      accessRequestCallerName: this.accessRequestCallerName,
+      callSessionId: this.callSessionId,
+    });
+    this.callbackHandoffNotified = result.callbackHandoffNotified;
   }
 
   /**
@@ -1963,148 +1865,25 @@ export class RelayConnection {
     }
   }
 
-  /**
-   * Generate a non-repetitive heartbeat message for the caller based
-   * on the current sequence counter and guardian label.
-   */
   private getHeartbeatMessage(): string {
-    const guardianLabel = this.resolveGuardianLabel();
     const seq = this.heartbeatSequence++;
-    const messages = [
-      `Still waiting to hear back from ${guardianLabel}. Thank you for your patience.`,
-      `I'm still trying to reach ${guardianLabel}. One moment please.`,
-      `Hang tight, still waiting on ${guardianLabel}.`,
-      `Still checking with ${guardianLabel}. I appreciate you waiting.`,
-      `I haven't heard back from ${guardianLabel} yet. Thanks for holding.`,
-    ];
-    return messages[seq % messages.length];
+    return getHeartbeatMessage(seq, this.resolveGuardianLabel());
   }
 
-  /**
-   * Schedule the next heartbeat update. Uses the initial fixed interval
-   * during the initial window, then jitters between steady min/max.
-   */
   private scheduleNextHeartbeat(): void {
-    if (!this.accessRequestWaitActive) return;
-
-    const elapsed = Date.now() - this.accessRequestWaitStartedAt;
-    const initialWindow = getGuardianWaitUpdateInitialWindowMs();
-    const intervalMs =
-      elapsed < initialWindow
-        ? getGuardianWaitUpdateInitialIntervalMs()
-        : getGuardianWaitUpdateSteadyMinIntervalMs() +
-          Math.floor(
-            Math.random() *
-              Math.max(
-                0,
-                getGuardianWaitUpdateSteadyMaxIntervalMs() -
-                  getGuardianWaitUpdateSteadyMinIntervalMs(),
-              ),
-          );
-
-    this.accessRequestHeartbeatTimer = setTimeout(() => {
-      if (!this.accessRequestWaitActive) return;
-
-      const message = this.getHeartbeatMessage();
-      this.sendTextToken(message, true);
-
-      recordCallEvent(
-        this.callSessionId,
-        "voice_guardian_wait_heartbeat_sent",
-        {
-          sequence: this.heartbeatSequence - 1,
-          message,
-        },
-      );
-
-      log.debug(
-        {
-          callSessionId: this.callSessionId,
-          sequence: this.heartbeatSequence - 1,
-        },
-        "Guardian wait heartbeat sent",
-      );
-
-      // Schedule the next heartbeat
-      this.scheduleNextHeartbeat();
-    }, intervalMs);
+    this.accessRequestHeartbeatTimer = scheduleNextHeartbeat({
+      accessRequestWaitActive: this.accessRequestWaitActive,
+      accessRequestWaitStartedAt: this.accessRequestWaitStartedAt,
+      callSessionId: this.callSessionId,
+      consumeSequence: () => this.heartbeatSequence++,
+      resolveGuardianLabel: () => this.resolveGuardianLabel(),
+      sendTextToken: (text, last) => this.sendTextToken(text, last),
+      scheduleNext: () => this.scheduleNextHeartbeat(),
+    });
   }
 
-  /**
-   * Classify a caller utterance during guardian wait into one of:
-   * - 'empty': whitespace or noise
-   * - 'patience_check': asking for status or checking in
-   * - 'impatient': expressing frustration or wanting to end
-   * - 'callback_opt_in': explicitly agreeing to a callback
-   * - 'callback_decline': explicitly declining a callback
-   * - 'neutral': anything else
-   */
-  private classifyWaitUtterance(
-    text: string,
-  ):
-    | "empty"
-    | "patience_check"
-    | "impatient"
-    | "callback_opt_in"
-    | "callback_decline"
-    | "neutral" {
-    const lower = text.toLowerCase().trim();
-    if (lower.length === 0) return "empty";
-
-    // Callback opt-in patterns (check before impatience to catch "yes call me back")
-    if (this.callbackOfferMade) {
-      if (
-        /\b(yes|yeah|yep|sure|okay|ok|please)\b.*\b(call\s*(me\s*)?back|callback)\b/.test(
-          lower,
-        ) ||
-        /\b(call\s*(me\s*)?back|callback)\b.*\b(yes|yeah|please|sure)\b/.test(
-          lower,
-        ) ||
-        /^(yes|yeah|yep|sure|okay|ok|please)\s*[.,!]?\s*$/.test(lower) ||
-        /\bcall\s*(me\s*)?back\b/.test(lower) ||
-        /\bplease\s+do\b/.test(lower)
-      ) {
-        return "callback_opt_in";
-      }
-      if (
-        /\b(no|nah|nope)\b/.test(lower) ||
-        /\bi('?ll| will)\s+hold\b/.test(lower) ||
-        /\bi('?ll| will)\s+wait\b/.test(lower)
-      ) {
-        return "callback_decline";
-      }
-    }
-
-    // Impatience patterns
-    if (
-      /\bhurry\s*(up)?\b/.test(lower) ||
-      /\btaking\s+(too\s+|so\s+)?long\b/.test(lower) ||
-      /\bforget\s+it\b/.test(lower) ||
-      /\bnever\s*mind\b/.test(lower) ||
-      /\bdon'?t\s+have\s+time\b/.test(lower) ||
-      /\bhow\s+much\s+longer\b/.test(lower) ||
-      /\bi('?m| am)\s+(getting\s+)?impatient\b/.test(lower) ||
-      /\bthis\s+is\s+(ridiculous|absurd|crazy)\b/.test(lower) ||
-      /\bcome\s+on\b/.test(lower) ||
-      /\bi\s+(gotta|have\s+to|need\s+to)\s+go\b/.test(lower)
-    ) {
-      return "impatient";
-    }
-
-    // Patience check / status inquiry patterns
-    if (
-      /\bhello\??\s*$/.test(lower) ||
-      /\bstill\s+there\b/.test(lower) ||
-      /\bany\s+(update|news)\b/.test(lower) ||
-      /\bwhat('?s| is)\s+(happening|going\s+on)\b/.test(lower) ||
-      /\bare\s+you\s+still\b/.test(lower) ||
-      /\bhow\s+(long|much\s+longer)\b/.test(lower) ||
-      /\banyone\s+there\b/.test(lower)
-    ) {
-      return "patience_check";
-    }
-
-    return "neutral";
+  private classifyWaitUtterance(text: string) {
+    return classifyWaitUtterance(text, this.callbackOfferMade);
   }
 
   /**
