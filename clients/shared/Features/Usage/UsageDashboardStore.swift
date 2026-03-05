@@ -96,7 +96,7 @@ public final class UsageDashboardStore {
 
     // MARK: - Dependencies
 
-    private let client: any DaemonClientProtocol
+    private var client: any DaemonClientProtocol
 
     /// Generation counters to discard results from stale in-flight requests
     /// when the user changes filters faster than fetches complete.
@@ -105,6 +105,15 @@ public final class UsageDashboardStore {
 
     public init(client: any DaemonClientProtocol) {
         self.client = client
+    }
+
+    /// Replace the underlying client and reset all loaded data so the next
+    /// `refresh()` fetches from the new client.
+    public func updateClient(_ newClient: any DaemonClientProtocol) {
+        client = newClient
+        totalsState = .idle
+        dailyState = .idle
+        breakdownState = .idle
     }
 
     /// Whether any section needs a (re)fetch — used by views to auto-refresh
