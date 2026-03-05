@@ -41,6 +41,7 @@ export { migrateNormalizePhoneIdentities } from "./036-normalize-phone-identitie
 export { migrateVoiceInviteColumns } from "./037-voice-invite-columns.js";
 export { createActorTokenRecordsTable } from "./038-actor-token-records.js";
 export { createActorRefreshTokenRecordsTable } from "./039-actor-refresh-token-records.js";
+export { migrateInviteCodeHashColumn } from "./040-invite-code-hash-column.js";
 export { createCoreTables } from "./100-core-tables.js";
 export { createWatchersAndLogsTables } from "./101-watchers-and-logs.js";
 export { addCoreColumns } from "./102-alter-table-columns.js";

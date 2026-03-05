@@ -87,6 +87,8 @@ export const assistantIngressInvites = sqliteTable(
     expectedExternalUserId: text("expected_external_user_id"),
     voiceCodeHash: text("voice_code_hash"),
     voiceCodeDigits: integer("voice_code_digits"),
+    // 6-digit invite code hash (nullable — voice invites use voiceCodeHash instead)
+    inviteCodeHash: text("invite_code_hash"),
     // Display metadata for personalized voice prompts (nullable — non-voice invites leave these NULL)
     friendName: text("friend_name"),
     guardianName: text("guardian_name"),

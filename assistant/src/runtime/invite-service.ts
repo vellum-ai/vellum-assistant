@@ -52,6 +52,9 @@ export interface InviteResponseData {
   voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
+  // Non-voice invite fields (present only for non-voice invites)
+  inviteCode?: string;
+  guardianInstruction?: string;
   createdAt: number;
 }
 
@@ -81,7 +84,12 @@ function buildSharePayload(
 
 function inviteToResponse(
   inv: IngressInvite,
-  opts?: { rawToken?: string; voiceCode?: string },
+  opts?: {
+    rawToken?: string;
+    voiceCode?: string;
+    inviteCode?: string;
+    guardianInstruction?: string;
+  },
 ): InviteResponseData {
   const share = buildSharePayload(inv.sourceChannel, opts?.rawToken);
   return {
@@ -104,6 +112,10 @@ function inviteToResponse(
       : {}),
     ...(inv.friendName ? { friendName: inv.friendName } : {}),
     ...(inv.guardianName ? { guardianName: inv.guardianName } : {}),
+    ...(opts?.inviteCode ? { inviteCode: opts.inviteCode } : {}),
+    ...(opts?.guardianInstruction
+      ? { guardianInstruction: opts.guardianInstruction }
+      : {}),
     createdAt: inv.createdAt,
   };
 }
@@ -125,6 +137,8 @@ export function createIngressInvite(params: {
   note?: string;
   maxUses?: number;
   expiresInMs?: number;
+  // Contact display name for personalizing guardian instructions
+  contactName?: string;
   // Voice invite parameters
   expectedExternalUserId?: string;
   voiceCodeDigits?: number;
@@ -141,6 +155,12 @@ export function createIngressInvite(params: {
   let voiceCode: string | undefined;
   let voiceCodeHash: string | undefined;
   const isVoice = params.sourceChannel === "voice";
+
+  // For non-voice invites: generate a 6-digit invite code for guardian-mediated
+  // redemption. The plaintext code is returned once in the response; only the
+  // hash is persisted for later redemption lookup.
+  let inviteCode: string | undefined;
+  let inviteCodeHash: string | undefined;
 
   if (isVoice) {
     if (!params.expectedExternalUserId) {
@@ -167,6 +187,9 @@ export function createIngressInvite(params: {
     }
     voiceCode = generateVoiceCode(6);
     voiceCodeHash = hashVoiceCode(voiceCode);
+  } else {
+    inviteCode = generateVoiceCode(6);
+    inviteCodeHash = hashVoiceCode(inviteCode);
   }
 
   const { invite, rawToken } = createInvite({
@@ -182,8 +205,37 @@ export function createIngressInvite(params: {
           friendName: params.friendName,
           guardianName: params.guardianName,
         }
-      : {}),
+      : { inviteCodeHash }),
   });
+
+  // Build guardian instruction for non-voice invites
+  let guardianInstruction: string | undefined;
+  if (!isVoice && inviteCode) {
+    const channelId = isChannelId(params.sourceChannel)
+      ? params.sourceChannel
+      : undefined;
+    const adapter = channelId
+      ? getInviteAdapterRegistry().get(channelId)
+      : undefined;
+
+    if (adapter?.buildGuardianInstruction) {
+      try {
+        guardianInstruction = adapter.buildGuardianInstruction({
+          inviteCode,
+          contactName: params.contactName,
+        });
+      } catch {
+        // Fall through to generic instruction if adapter fails
+      }
+    }
+
+    if (!guardianInstruction) {
+      const contactLabel = params.contactName || "the contact";
+      const channelLabel = params.sourceChannel;
+      guardianInstruction = `Tell ${contactLabel} to contact the assistant on ${channelLabel} and provide the code ${inviteCode}.`;
+    }
+  }
+
   // Voice invites must not expose the token — callers must redeem via the
   // identity-bound voice code flow, not the generic token redemption path.
   return {
@@ -191,6 +243,8 @@ export function createIngressInvite(params: {
     data: inviteToResponse(invite, {
       rawToken: isVoice ? undefined : rawToken,
       voiceCode,
+      inviteCode,
+      guardianInstruction,
     }),
   };
 }
