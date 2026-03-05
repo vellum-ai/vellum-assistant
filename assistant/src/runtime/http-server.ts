@@ -130,6 +130,7 @@ import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { twilioRouteDefinitions } from "./routes/twilio-routes.js";
+import { usageRouteDefinitions } from "./routes/usage-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -684,6 +685,7 @@ export class RuntimeHttpServer {
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
+      ...usageRouteDefinitions(),
 
       // Browser relay — not extracted into a domain module because
       // these two routes depend on the in-process extensionRelayServer
