@@ -52,6 +52,7 @@ export async function handleCreateInvite(req: Request): Promise<Response> {
     note: body.note as string | undefined,
     maxUses: body.maxUses as number | undefined,
     expiresInMs: body.expiresInMs as number | undefined,
+    contactName: body.contactName as string | undefined,
     expectedExternalUserId: body.expectedExternalUserId as string | undefined,
     voiceCodeDigits: body.voiceCodeDigits as number | undefined,
     friendName: body.friendName as string | undefined,
