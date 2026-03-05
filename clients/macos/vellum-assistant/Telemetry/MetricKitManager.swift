@@ -119,8 +119,13 @@ extension MetricKitManager: MXMetricManagerSubscriber {
                 self.logger.error("MetricKit hang diagnostic: \(hangs.count, privacy: .public) hang(s) reported")
             }
 
-            // Only send to Sentry if crash reporting opted in
-            guard UserDefaults.standard.bool(forKey: "sendPerformanceReports") else { continue }
+            // Only send to Sentry if both opt-in flags are set.
+            // collectUsageDataEnabled defaults to true when unset (matches the
+            // daemon flag's defaultEnabled: true) so events are sent until the
+            // user explicitly opts out, closing the startup-window gap.
+            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
+            guard collectUsageData,
+                  UserDefaults.standard.bool(forKey: "sendPerformanceReports") else { continue }
 
             let event = Event(level: .warning)
             event.message = SentryMessage(formatted: "MetricKit hang diagnostic: \(hangs.count) hang(s)")

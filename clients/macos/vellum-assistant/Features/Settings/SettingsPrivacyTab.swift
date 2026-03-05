@@ -127,6 +127,9 @@ struct SettingsPrivacyTab: View {
             // reconnect to call checkAndApplyPrivacyFlag(). Both paths are serialised
             // through sentrySerialQueue so they don't race with concurrent MetricKit
             // captures or manual report sends.
+            // Persist so MetricKitManager can check this flag synchronously
+            // during the startup window before the daemon connects.
+            UserDefaults.standard.set(enabled, forKey: "collectUsageDataEnabled")
             if enabled {
                 MetricKitManager.startSentry()
             } else {
