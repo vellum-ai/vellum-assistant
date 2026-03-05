@@ -1,4 +1,5 @@
 @preconcurrency import AppKit
+import os
 import SwiftUI
 import VellumAssistantShared
 
@@ -152,6 +153,8 @@ struct MarkdownSegmentView: View {
     private var groupedSegments: [SegmentGroup] { computeGroupedSegments() }
 
     private func computeGroupedSegments() -> [SegmentGroup] {
+        os_signpost(.begin, log: PerfSignposts.log, name: "markdownGroupSegments")
+        defer { os_signpost(.end, log: PerfSignposts.log, name: "markdownGroupSegments") }
         var groups: [SegmentGroup] = []
         var currentRun: [MarkdownSegment] = []
 
@@ -244,6 +247,8 @@ struct MarkdownSegmentView: View {
     /// Builds (or retrieves from cache) a single AttributedString from
     /// consecutive text-selectable segments.
     private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
+        os_signpost(.begin, log: PerfSignposts.log, name: "attributedStringBuild")
+        defer { os_signpost(.end, log: PerfSignposts.log, name: "attributedStringBuild") }
         // Build a stable cache key from the segment contents and style
         // inputs that affect the output (e.g. secondaryTextColor for list
         // prefix coloring, zoomScale for font sizing) so different visual
