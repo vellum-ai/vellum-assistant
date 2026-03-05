@@ -1407,11 +1407,27 @@ public final class ChatViewModel: ObservableObject {
     private var refetchTasks: [String: Task<Void, Never>] = [:]
 
     /// Re-fetch the full payload for a stripped surface and replace it in the message list.
+    /// Also handles manual retry from the `.strippedFailed` state by resetting the
+    /// failure count and transitioning back to `.stripped` so the loading indicator
+    /// appears while the fetch is in flight.
     public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
         guard refetchTasks[surfaceId] == nil else { return }
         refetchTasks[surfaceId] = Task { @MainActor [weak self] in
             defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
             guard let self else { return }
+
+            // If the surface was permanently failed, reset its failure count and
+            // show the loading indicator while the new fetch cycle runs.
+            for msgIndex in self.messages.indices {
+                if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
+                    if case .strippedFailed = self.messages[msgIndex].inlineSurfaces[surfIndex].data {
+                        await self.surfaceRefetchManager.resetFailureCount(for: surfaceId)
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = .stripped
+                    }
+                    break
+                }
+            }
+
             let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId)
             for msgIndex in self.messages.indices {
                 if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {

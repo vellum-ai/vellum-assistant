@@ -175,6 +175,8 @@ public struct InlineSurfaceRouter: View {
     }
 
     /// Placeholder shown when a stripped surface could not be re-fetched after retries.
+    /// Includes a manual retry button that resets the failure count and re-triggers
+    /// the fetch cycle via the same `onRefetch` callback.
     @ViewBuilder
     private var strippedFailedPlaceholder: some View {
         HStack(spacing: VSpacing.sm) {
@@ -184,6 +186,21 @@ public struct InlineSurfaceRouter: View {
             Text("Failed to load surface")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
+            Spacer()
+            if let onRefetch, let sessionId = surface.surfaceRef?.sessionId {
+                Button {
+                    onRefetch(surface.id, sessionId)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10))
+                        Text("Retry")
+                            .font(VFont.caption)
+                    }
+                    .foregroundColor(VColor.accent)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(VSpacing.md)
         .frame(maxWidth: 540, alignment: .leading)

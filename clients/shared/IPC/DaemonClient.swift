@@ -772,14 +772,27 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return await httpTransport.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
         }
 
-        // Local daemon path — build request using the daemon HTTP port.
+        // Local daemon path — use URLComponents for correct percent-encoding
+        // of both the path segment and the query value. URLQueryItem encodes
+        // delimiter characters (& = +) that `.urlQueryAllowed` would leave
+        // unescaped, preventing malformed URLs if IDs ever contain them.
+        guard let port = httpPort else { return nil }
         let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-        let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
-        guard let request = buildLocalRequest(
-            target: .daemon,
-            path: "v1/surfaces/\(sEncoded)?sessionId=\(qEncoded)",
-            timeout: 10
-        ) else { return nil }
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "localhost"
+        components.port = port
+        components.path = "/v1/surfaces/\(sEncoded)"
+        components.queryItems = [URLQueryItem(name: "sessionId", value: sessionId)]
+        guard let url = components.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        let token = ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 }
+        if let token, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

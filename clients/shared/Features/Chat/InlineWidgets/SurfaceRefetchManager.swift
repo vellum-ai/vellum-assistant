@@ -81,6 +81,12 @@ public actor SurfaceRefetchManager {
         failureCount.removeAll()
     }
 
+    /// Clear the failure count for a single surface, allowing it to be retried
+    /// even if it previously reached the maximum retry limit.
+    public func resetFailureCount(for surfaceId: String) {
+        failureCount.removeValue(forKey: surfaceId)
+    }
+
     // MARK: - Internal
 
     /// Drains the queue one item at a time, fetching each surface serially.
