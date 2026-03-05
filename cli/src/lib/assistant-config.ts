@@ -43,6 +43,9 @@ export interface LocalInstanceResources {
 export interface AssistantEntry {
   assistantId: string;
   runtimeUrl: string;
+  /** Loopback URL for same-machine health checks (e.g. `http://127.0.0.1:7831`).
+   *  Avoids mDNS resolution issues when the machine checks its own gateway. */
+  localUrl?: string;
   baseDataDir?: string;
   bearerToken?: string;
   cloud: string;

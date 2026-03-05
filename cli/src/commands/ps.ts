@@ -412,7 +412,7 @@ async function listAllAssistants(): Promise<void> {
 
   await Promise.all(
     assistants.map(async (a, rowIndex) => {
-      const health = await checkHealth(a.runtimeUrl, a.bearerToken);
+      const health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
 
       const infoParts = [a.runtimeUrl];
       if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);

@@ -588,6 +588,8 @@ async function waitForDaemonReady(
 async function displayPairingQRCode(
   runtimeUrl: string,
   bearerToken: string | undefined,
+  /** External gateway URL for the QR payload. When omitted, runtimeUrl is used. */
+  externalGatewayUrl?: string,
 ): Promise<void> {
   try {
     const pairingRequestId = randomUUID();
@@ -614,7 +616,7 @@ async function displayPairingQRCode(
       body: JSON.stringify({
         pairingRequestId,
         pairingSecret,
-        gatewayUrl: runtimeUrl,
+        gatewayUrl: externalGatewayUrl ?? runtimeUrl,
       }),
     });
 
@@ -633,7 +635,7 @@ async function displayPairingQRCode(
       type: "vellum-daemon",
       v: 4,
       id: hostId,
-      g: runtimeUrl,
+      g: externalGatewayUrl ?? runtimeUrl,
       pairingRequestId,
       pairingSecret,
     });
@@ -761,6 +763,7 @@ async function hatchLocal(
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
+    localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
     baseDataDir,
     bearerToken,
     cloud: "local",
@@ -784,8 +787,11 @@ async function hatchLocal(
     console.log(`  Runtime: ${runtimeUrl}`);
     console.log("");
 
-    // Generate and display pairing QR code
-    await displayPairingQRCode(runtimeUrl, bearerToken);
+    // Use loopback for HTTP calls (health check + pairing register) since
+    // mDNS hostnames may not resolve on the local machine, but keep the
+    // external runtimeUrl in the QR payload so iOS devices can reach it.
+    const localGatewayUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+    await displayPairingQRCode(localGatewayUrl, bearerToken, runtimeUrl);
   }
 }
 

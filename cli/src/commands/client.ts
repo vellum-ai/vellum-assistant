@@ -67,7 +67,10 @@ function parseArgs(): ParsedArgs {
   }
 
   let runtimeUrl =
-    process.env.RUNTIME_URL || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
+    process.env.RUNTIME_URL ||
+    entry?.localUrl ||
+    entry?.runtimeUrl ||
+    FALLBACK_RUNTIME_URL;
   let assistantId =
     process.env.ASSISTANT_ID || entry?.assistantId || FALLBACK_ASSISTANT_ID;
   const bearerToken =
