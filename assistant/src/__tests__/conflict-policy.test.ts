@@ -3,9 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   isConflictKindEligible,
   isConflictKindPairEligible,
+  isConflictUserEvidenced,
   isDurableInstructionStatement,
   isStatementConflictEligible,
   isTransientTrackingStatement,
+  isUserEvidencedVerificationState,
 } from "../memory/conflict-policy.js";
 
 describe("conflict-policy", () => {
@@ -188,6 +190,80 @@ describe("conflict-policy", () => {
       expect(
         isStatementConflictEligible("fact", "User works at Acme Corp"),
       ).toBe(true);
+    });
+  });
+
+  describe("isUserEvidencedVerificationState", () => {
+    test("accepts user_reported", () => {
+      expect(isUserEvidencedVerificationState("user_reported")).toBe(true);
+    });
+
+    test("accepts user_confirmed", () => {
+      expect(isUserEvidencedVerificationState("user_confirmed")).toBe(true);
+    });
+
+    test("accepts legacy_import", () => {
+      expect(isUserEvidencedVerificationState("legacy_import")).toBe(true);
+    });
+
+    test("rejects assistant_inferred", () => {
+      expect(isUserEvidencedVerificationState("assistant_inferred")).toBe(
+        false,
+      );
+    });
+
+    test("rejects unknown states", () => {
+      expect(isUserEvidencedVerificationState("")).toBe(false);
+      expect(isUserEvidencedVerificationState("auto_detected")).toBe(false);
+      expect(isUserEvidencedVerificationState("pending")).toBe(false);
+    });
+  });
+
+  describe("isConflictUserEvidenced", () => {
+    test("returns true when existing side is user-evidenced", () => {
+      expect(
+        isConflictUserEvidenced("user_reported", "assistant_inferred"),
+      ).toBe(true);
+      expect(
+        isConflictUserEvidenced("user_confirmed", "assistant_inferred"),
+      ).toBe(true);
+      expect(
+        isConflictUserEvidenced("legacy_import", "assistant_inferred"),
+      ).toBe(true);
+    });
+
+    test("returns true when candidate side is user-evidenced", () => {
+      expect(
+        isConflictUserEvidenced("assistant_inferred", "user_reported"),
+      ).toBe(true);
+      expect(
+        isConflictUserEvidenced("assistant_inferred", "user_confirmed"),
+      ).toBe(true);
+      expect(
+        isConflictUserEvidenced("assistant_inferred", "legacy_import"),
+      ).toBe(true);
+    });
+
+    test("returns true when both sides are user-evidenced", () => {
+      expect(isConflictUserEvidenced("user_reported", "user_confirmed")).toBe(
+        true,
+      );
+      expect(isConflictUserEvidenced("legacy_import", "user_reported")).toBe(
+        true,
+      );
+    });
+
+    test("returns false when neither side is user-evidenced", () => {
+      expect(
+        isConflictUserEvidenced("assistant_inferred", "assistant_inferred"),
+      ).toBe(false);
+    });
+
+    test("returns false for unknown states on both sides", () => {
+      expect(isConflictUserEvidenced("auto_detected", "pending")).toBe(false);
+      expect(
+        isConflictUserEvidenced("assistant_inferred", "auto_detected"),
+      ).toBe(false);
     });
   });
 });
