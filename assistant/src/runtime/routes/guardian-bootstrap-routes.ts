@@ -114,7 +114,7 @@ export async function handleGuardianBootstrap(
       );
     }
 
-    if (platform !== "macos" && platform !== "cli") {
+    if (platform !== "macos" && platform !== "cli" && platform !== "web") {
       return httpError(
         "BAD_REQUEST",
         "Invalid platform. Bootstrap is macOS/CLI-only; iOS uses QR pairing.",
