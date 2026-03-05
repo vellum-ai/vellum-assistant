@@ -71,6 +71,16 @@ mock.module("../util/platform.js", () => ({
   getDataDir: () => "/tmp",
 }));
 
+mock.module("../workspace/turn-commit.js", () => ({
+  commitTurnChanges: async () => {},
+}));
+
+mock.module("../workspace/git-service.js", () => ({
+  getWorkspaceGitService: () => ({
+    ensureInitialized: async () => {},
+  }),
+}));
+
 mock.module("../memory/guardian-action-store.js", () => ({
   getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
