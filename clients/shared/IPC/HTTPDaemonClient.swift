@@ -544,6 +544,14 @@ public final class HTTPTransport {
                     of: "\"sessionId\": \"\(remoteId)\"",
                     with: "\"sessionId\": \"\(localId)\""
                 )
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"parentSessionId\":\"\(remoteId)\"",
+                    with: "\"parentSessionId\":\"\(localId)\""
+                )
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"parentSessionId\": \"\(remoteId)\"",
+                    with: "\"parentSessionId\": \"\(localId)\""
+                )
             }
         }
 
