@@ -187,19 +187,22 @@ extension MainWindowView {
         let windowWidth: Double = Double(geometry.size.width) / zoomManager.zoomLevel
         let availableWidth: Double = windowWidth - Double(sidebarWidth) - Double(hstackSpacing) - Double(outerPadding)
 
-        let minPanel: Double = 300
-        let minMain: Double = 300
+        let preferredMinPanel: Double = 300
+        let preferredMinMain: Double = 300
         // VSplitView internals: leading padding (xs=4) + divider (8) = 12
         let dividerBudget: Double = Double(VSpacing.xs) + 12
-        let maxPanel = max(availableWidth - minMain - dividerBudget, minPanel)
+        let maxPanel: Double = availableWidth - preferredMinMain - dividerBudget
+        // When the window is too narrow, allow the panel to shrink below the
+        // preferred minimum so the main pane isn't crushed below its minimum.
+        let effectiveMinPanel: Double = min(preferredMinPanel, max(maxPanel, 100))
 
         return Binding<Double>(
             get: {
                 let raw = appPanelWidth > 0 ? appPanelWidth : availableWidth * 0.7
-                return min(max(raw, minPanel), maxPanel)
+                return min(max(raw, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
             },
             set: {
-                appPanelWidth = min(max($0, minPanel), maxPanel)
+                appPanelWidth = min(max($0, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
             }
         )
     }

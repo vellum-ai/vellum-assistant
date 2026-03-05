@@ -726,11 +726,13 @@ struct MessageListView: View {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                     guard !Task.isCancelled else { return }
 
-                    if isNearBottom {
-                        // Pin to bottom without animation to avoid visual bounce
+                    if isNearBottom && anchorMessageId == nil {
+                        // Pin to bottom without animation to avoid visual bounce.
+                        // Skip when an anchor is pending (deep-link / notification)
+                        // to avoid yanking the viewport away from the target message.
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
-                    // If not near bottom, preserve viewport — no forced scroll.
+                    // If not near bottom or anchor is set, preserve viewport.
                 }
             }
             .onChange(of: threadId) {
