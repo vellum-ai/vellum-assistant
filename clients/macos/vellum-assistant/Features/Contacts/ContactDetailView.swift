@@ -205,9 +205,15 @@ struct ContactDetailView: View {
                 by: { $0.type }
             )
             let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
-            let totalRows = Self.allChannelTypes.count + extraChannels.count
 
-            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { index, type in
+            // Compute which standard types are visible (have channels or readiness==true)
+            let visibleTypes = Self.allChannelTypes.filter { type in
+                channelsByType[type] != nil || channelReadiness[type]?.ready == true
+            }
+            let lastVisibleType = visibleTypes.last
+            let hasExtraChannels = !extraChannels.isEmpty
+
+            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { _, type in
                 if let channels = channelsByType[type] {
                     ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
                         channelRow(channel)
@@ -217,13 +223,13 @@ struct ContactDetailView: View {
                         }
                     }
 
-                    if index < totalRows - 1 {
+                    if type != lastVisibleType || hasExtraChannels {
                         Divider().background(VColor.divider)
                     }
                 } else if channelReadiness[type]?.ready == true {
                     unconfiguredChannelRow(type: type)
 
-                    if index < totalRows - 1 {
+                    if type != lastVisibleType || hasExtraChannels {
                         Divider().background(VColor.divider)
                     }
                 }
@@ -232,7 +238,7 @@ struct ContactDetailView: View {
             ForEach(Array(extraChannels.enumerated()), id: \.element.id) { index, channel in
                 channelRow(channel)
 
-                if Self.allChannelTypes.count + index < totalRows - 1 {
+                if index < extraChannels.count - 1 {
                     Divider().background(VColor.divider)
                 }
             }
