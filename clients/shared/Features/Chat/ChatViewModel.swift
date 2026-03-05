@@ -2430,7 +2430,8 @@ public final class ChatViewModel: ObservableObject {
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
-        cancelRefetchTasks()
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
