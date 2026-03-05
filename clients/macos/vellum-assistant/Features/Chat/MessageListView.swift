@@ -9,7 +9,7 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Me
 /// Holds the last-known anchor minY without triggering SwiftUI re-renders.
 /// Only `isVisible` is @Published so re-renders happen only when the
 /// visible/invisible boundary is crossed — not on every scroll tick.
-@MainActor private final class AnchorVisibilityTracker: ObservableObject {
+@MainActor final class AnchorVisibilityTracker: ObservableObject {
     var lastMinY: CGFloat = .infinity  // NOT @Published — no re-render on scroll
     @Published var isVisible: Bool = true
 

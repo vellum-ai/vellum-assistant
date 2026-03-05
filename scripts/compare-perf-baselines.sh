@@ -54,10 +54,14 @@ with open(results_log) as f:
             if test_name not in results:  # first match wins (wall-time before CPU-cycles lines)
                 results[test_name] = float(m.group(3))
 
+summary_file = os.path.join(baseline_dir, "summary.md")
+
 if not results:
     print("ERROR: No XCTest performance measurements found in log.")
     print("This likely means the performance tests did not run or produced no output.")
     print("Check that MarkdownPerformanceTests executed successfully.")
+    with open(summary_file, "w") as sf:
+        sf.write("## Performance Baselines\n\nNo performance measurements found in test output.\n")
     sys.exit(1)
 
 print("=== Performance Results ===")
@@ -75,10 +79,14 @@ if not os.path.exists(baseline_file):
         with open(baseline_file, "w") as f:
             json.dump(results, f, indent=2)
         print(f"No baseline found. Recorded current results as baseline ({baseline_file}).")
+        with open(summary_file, "w") as sf:
+            sf.write("## Performance Baselines\n\nBaseline recorded for the first time. Future runs will compare against these values.\n")
     else:
         print("WARNING: No baseline found and this is a PR run (UPDATE_BASELINE=false).")
         print("Run the workflow on main to establish a baseline before regressions can be detected.")
         print("Skipping regression check for this PR run.")
+        with open(summary_file, "w") as sf:
+            sf.write("## Performance Baselines\n\nNo baseline available yet. Run the workflow on `main` to establish baselines.\n")
     sys.exit(0)
 
 # Load and compare against stored baseline.
@@ -102,6 +110,28 @@ for name, actual in sorted(results.items()):
         regressions.append(name)
 
 print()
+
+# Write summary.md with a formatted table for PR comments and step summaries.
+rows = []
+for name, actual in sorted(results.items()):
+    if name not in baselines:
+        rows.append(f"| {name} | — | {actual:.4f}s | — | 🆕 NEW |")
+        continue
+    baseline = baselines[name]
+    if baseline == 0:
+        dp = float('inf') if actual > 0 else 0.0
+    else:
+        dp = (actual - baseline) / baseline * 100
+    status = "❌ REGRESSED" if dp > threshold else "✅ ok"
+    rows.append(f"| {name} | {baseline:.4f}s | {actual:.4f}s | {dp:+.1f}% | {status} |")
+
+with open(summary_file, "w") as sf:
+    sf.write("## Performance Baselines\n\n")
+    sf.write("| Test | Baseline | Actual | Delta | Status |\n")
+    sf.write("|------|----------|--------|-------|--------|\n")
+    for row in rows:
+        sf.write(row + "\n")
+    sf.write(f"\n**Threshold**: {int(threshold)}%\n")
 
 if regressions:
     print(f"FAIL: {len(regressions)} regression(s) exceed {threshold:.0f}% threshold: {', '.join(regressions)}")
