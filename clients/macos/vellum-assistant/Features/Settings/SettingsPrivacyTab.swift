@@ -252,12 +252,10 @@ private struct ReportProblemSheet: View {
                     SentrySDK.start { options in
                         options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
                         options.sendDefaultPii = false
-                        // Disable automatic capture — only the explicit capture(event:)
-                        // below should send data even if the SDK is restarted.
+                        // Disable crash capture and session tracking so the temporary
+                        // restart only sends the explicit capture(event:) below.
                         options.enableCrashHandler = false
                         options.enableAutoSessionTracking = false
-                        options.enableOutOfMemoryTracking = false
-                        options.enableWatchdogTerminationTracking = false
                     }
                 }
                 SentrySDK.capture(event: event)
