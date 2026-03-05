@@ -87,9 +87,13 @@ export function registerContactsCommand(program: Command): void {
       },
     );
 
-  contacts
+  const invites = contacts
     .command("invites")
-    .description("List contact invites")
+    .description("Manage contact invites");
+
+  invites
+    .command("list")
+    .description("List invites")
     .option("--source-channel <sourceChannel>", "Filter by source channel")
     .option("--status <status>", "Filter by invite status")
     .action(
