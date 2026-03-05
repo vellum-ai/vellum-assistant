@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 
 import cliPkg from "../package.json";
 import { client } from "./commands/client";
-import { config } from "./commands/config";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { pair } from "./commands/pair";
@@ -23,7 +22,6 @@ import { wake } from "./commands/wake";
 
 const commands = {
   client,
-  config,
   hatch,
   login,
   logout,
@@ -80,7 +78,6 @@ async function main() {
     console.log("");
     console.log("Commands:");
     console.log("  client   Connect to a hatched assistant");
-    console.log("  config   Manage configuration");
     console.log("  hatch    Create a new assistant instance");
     console.log("  login    Log in to the Vellum platform");
     console.log("  logout   Log out of the Vellum platform");
