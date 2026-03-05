@@ -572,17 +572,7 @@ private func resolveGatewayBaseUrl() -> String {
 
 /// Fetch raw attachment bytes via the gateway's runtime proxy.
 private func fetchAttachmentContent(gatewayBaseUrl: String, attachmentId: String) async throws -> Data {
-    let tokenBase: String
-    if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-       !baseDir.isEmpty {
-        tokenBase = baseDir
-    } else {
-        tokenBase = NSHomeDirectory()
-    }
-    let tokenPath = tokenBase + "/.vellum/http-token"
-    guard let tokenData = try? Data(contentsOf: URL(fileURLWithPath: tokenPath)),
-          let token = String(data: tokenData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !token.isEmpty else {
+    guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
         throw URLError(.userAuthenticationRequired)
     }
     let url = URL(string: "\(gatewayBaseUrl)/v1/attachments/\(attachmentId)/content")!

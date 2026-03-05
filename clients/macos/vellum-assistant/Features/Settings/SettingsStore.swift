@@ -1000,14 +1000,7 @@ public final class SettingsStore: ObservableObject {
         // Local mode: direct to daemon runtime HTTP server
         let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
             .flatMap(Int.init) ?? 7821
-        let token: String
-        if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty {
-            token = jwt
-        } else if let httpToken = readHttpToken() {
-            token = httpToken
-        } else {
-            return nil
-        }
+        guard let token = ActorTokenManager.getToken(), !token.isEmpty else { return nil }
         guard let url = URL(string: "http://localhost:\(port)/\(path)") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -1257,7 +1250,7 @@ public final class SettingsStore: ObservableObject {
         let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
             .flatMap(Int.init) ?? 7830
         let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        let bearerToken = ActorTokenManager.getToken() ?? readHttpToken()
+        let bearerToken = ActorTokenManager.getToken()
         return (baseURL, bearerToken)
     }
 
