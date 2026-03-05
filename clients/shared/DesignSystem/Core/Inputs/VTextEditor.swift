@@ -20,7 +20,7 @@ public struct VTextEditor: View {
 
     public var body: some View {
         TextField(placeholder, text: $text, axis: .vertical)
-            .lineLimit(1...10)
+            .lineLimit(1...100)
             .textFieldStyle(.plain)
             .font(VFont.body)
             .foregroundColor(VColor.textPrimary)
