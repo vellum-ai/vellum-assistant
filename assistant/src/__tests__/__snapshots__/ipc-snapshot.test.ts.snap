@@ -1641,6 +1641,15 @@ exports[`IPC message snapshots ServerMessage types task_routed serializes to exp
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types ride_shotgun_error serializes to expected JSON 1`] = `
+{
+  "message": "Failed to start browser — Chrome CDP could not be launched.",
+  "sessionId": "sess-shotgun-001",
+  "type": "ride_shotgun_error",
+  "watchId": "watch-shotgun-001",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types ride_shotgun_progress serializes to expected JSON 1`] = `
 {
   "message": "Observing user activity...",
