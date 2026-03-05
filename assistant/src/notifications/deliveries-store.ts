@@ -202,17 +202,6 @@ export function updateDeliveryClientOutcome(
   return rawChanges() > 0;
 }
 
-/** List all delivery records for a given notification decision. */
-export function listDeliveries(decisionId: string): NotificationDeliveryRow[] {
-  const db = getDb();
-  const rows = db
-    .select()
-    .from(notificationDeliveries)
-    .where(eq(notificationDeliveries.notificationDecisionId, decisionId))
-    .all();
-  return rows.map(rowToDelivery);
-}
-
 /** Check whether a delivery already exists for a given decision+channel pair. */
 export function findDeliveryByDecisionAndChannel(
   decisionId: string,
