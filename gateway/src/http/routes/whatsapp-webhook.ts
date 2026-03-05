@@ -263,6 +263,13 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           continue;
         }
 
+        // Rejected messages are processed successfully (ok: true) but should
+        // not be logged as "forwarded" — the rejection callback already handled them.
+        if (result.rejected) {
+          dedupCache.mark(whatsappMessageId);
+          continue;
+        }
+
         dedupCache.mark(whatsappMessageId);
         tlog.info(
           { status: "forwarded", whatsappMessageId },
