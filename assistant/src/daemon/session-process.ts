@@ -518,11 +518,12 @@ async function drainBatchPassthrough(
   );
   if (queuedInterfaceCtx) session.setTurnInterfaceContext(queuedInterfaceCtx);
 
-  const combinedParts: string[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    combinedParts.push(`[Message ${i + 1}]\n${messages[i].content}`);
-  }
-  const combinedContent = combinedParts.join("\n\n");
+  // Combine queued messages into a single user message.
+  // Use a simple format: join with newlines, prefixed with context note.
+  const contentParts = messages.map((m) => m.content);
+  const combinedContent =
+    `[The user sent ${messages.length} messages while you were working. Respond to all of them together naturally.]\n\n` +
+    contentParts.join("\n");
 
   const mergedAttachments: UserMessageAttachment[] = [];
   for (const msg of messages) mergedAttachments.push(...msg.attachments);
