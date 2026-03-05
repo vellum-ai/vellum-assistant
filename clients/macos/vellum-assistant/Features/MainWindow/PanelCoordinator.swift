@@ -751,7 +751,10 @@ struct ActiveChatViewWrapper: View {
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
-            isBootstrapping: isBootstrapping
+            isBootstrapping: isBootstrapping,
+            onDeleteQueuedMessage: { viewModel.deleteQueuedMessage(messageId: $0) },
+            onSendDirectQueuedMessage: { viewModel.sendDirectQueuedMessage(messageId: $0) },
+            onReorderQueuedMessages: { viewModel.reorderQueuedMessages(orderedMessageIds: $0) }
         )
         .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
     }

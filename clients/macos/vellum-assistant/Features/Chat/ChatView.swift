@@ -87,9 +87,13 @@ struct ChatView: View {
     /// When true, suppresses `ChatEmptyStateView` during first-launch bootstrap
     /// and shows a loading panel instead.
     var isBootstrapping: Bool = false
+    var onDeleteQueuedMessage: ((UUID) -> Void)?
+    var onSendDirectQueuedMessage: ((UUID) -> Void)?
+    var onReorderQueuedMessages: (([UUID]) -> Void)?
 
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
+    @State private var isQueueExpanded = false
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
     @State private var containerWidth: CGFloat = 0
@@ -231,6 +235,19 @@ struct ChatView: View {
                             guard displayedMessageCount < all.count else { return all }
                             return Array(all.suffix(displayedMessageCount))
                         }()
+
+                        let queuedMessages = messages.filter { msg in
+                            if case .queued = msg.status { return true }
+                            return false
+                        }
+
+                        ChatQueueSummaryView(
+                            queuedMessages: queuedMessages,
+                            onDeleteQueuedMessage: onDeleteQueuedMessage,
+                            onSendDirectQueuedMessage: onSendDirectQueuedMessage,
+                            onReorderQueuedMessages: onReorderQueuedMessages,
+                            isExpanded: $isQueueExpanded
+                        )
 
                         ComposerSection(
                             inputText: $inputText,
