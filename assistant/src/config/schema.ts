@@ -49,6 +49,7 @@ export type {
   ThinkingConfig,
   TimeoutConfig,
   UiConfig,
+  WhatsAppConfig,
 } from "./core-schema.js";
 export {
   AuditLogConfigSchema,
@@ -69,6 +70,7 @@ export {
   ThinkingConfigSchema,
   TimeoutConfigSchema,
   UiConfigSchema,
+  WhatsAppConfigSchema,
 } from "./core-schema.js";
 export type { ElevenLabsConfig } from "./elevenlabs-schema.js";
 export {
@@ -161,6 +163,7 @@ import {
   ThinkingConfigSchema,
   TimeoutConfigSchema,
   UiConfigSchema,
+  WhatsAppConfigSchema,
 } from "./core-schema.js";
 import { ElevenLabsConfigSchema } from "./elevenlabs-schema.js";
 import { McpConfigSchema } from "./mcp-schema.js";
@@ -261,6 +264,7 @@ export const AssistantConfigSchema = z
       ElevenLabsConfigSchema.parse({}),
     ),
     sms: SmsConfigSchema.default(SmsConfigSchema.parse({})),
+    whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
     ingress: IngressConfigSchema,
     platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),
     daemon: DaemonConfigSchema.default(DaemonConfigSchema.parse({})),

@@ -9,7 +9,7 @@
  */
 
 import type { ChannelId } from "../../channels/types.js";
-import { loadRawConfig } from "../../config/loader.js";
+import { getConfig } from "../../config/loader.js";
 import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
@@ -23,9 +23,8 @@ import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
  */
 export function resolveWhatsAppDisplayNumber(): string | undefined {
   try {
-    const raw = loadRawConfig();
-    const waConfig = (raw?.whatsapp ?? {}) as Record<string, unknown>;
-    return (waConfig.phoneNumber as string) || undefined;
+    const config = getConfig();
+    return config.whatsapp.phoneNumber || undefined;
   } catch {
     return undefined;
   }

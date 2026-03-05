@@ -252,6 +252,12 @@ export const SmsConfigSchema = z.object({
     .optional(),
 });
 
+export const WhatsAppConfigSchema = z.object({
+  phoneNumber: z
+    .string({ error: "whatsapp.phoneNumber must be a string" })
+    .default(""),
+});
+
 export const IngressWebhookConfigSchema = z.object({
   secret: z
     .string({ error: "ingress.webhook.secret must be a string" })
@@ -392,6 +398,7 @@ export type ContextOverflowRecoveryConfig = z.infer<
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type SmsConfig = z.infer<typeof SmsConfigSchema>;
+export type WhatsAppConfig = z.infer<typeof WhatsAppConfigSchema>;
 export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<
   typeof IngressRateLimitConfigSchema
