@@ -1,20 +1,5 @@
 import { spawn } from "child_process";
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
-export function clearLine(): void {
-  process.stdout.write("\r\x1b[K");
-}
-
-export function showSpinner(name: string): NodeJS.Timeout {
-  let frameIndex = 0;
-  return setInterval(() => {
-    clearLine();
-    process.stdout.write(`  ${SPINNER_FRAMES[frameIndex]} ${name}...`);
-    frameIndex = (frameIndex + 1) % SPINNER_FRAMES.length;
-  }, 80);
-}
-
 export function exec(
   command: string,
   args: string[],
