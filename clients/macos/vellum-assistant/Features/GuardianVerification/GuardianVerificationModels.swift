@@ -2,9 +2,8 @@ import Foundation
 
 // MARK: - Guardian Channel State
 
-/// Bundles all per-channel guardian verification state into a single value type.
-/// This replaces the giant switch-statement blocks in SettingsChannelsTab.guardianStatusRow
-/// by providing a single struct that can be built from SettingsStore's @Published properties.
+/// Bundles all per-channel guardian verification state into a single value type,
+/// built from SettingsStore's @Published properties for use in guardian verification UI.
 struct GuardianChannelState {
     let channel: String
     let identity: String?

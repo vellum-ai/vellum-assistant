@@ -322,12 +322,6 @@ struct ChatView: View {
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
-        .onChange(of: inputText) {
-            // Reset composer height when input is cleared
-            if inputText.isEmpty {
-                editorContentHeight = composerMinHeight
-            }
-        }
     }
 
     @Environment(\.colorScheme) private var colorScheme

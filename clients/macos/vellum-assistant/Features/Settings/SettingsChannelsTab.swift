@@ -40,14 +40,22 @@ struct SettingsChannelsTab: View {
     // Outbound guardian verification destination input (keyed by channel)
     @State private var guardianDestinationText: [String: String] = [:]
 
-    // Countdown timer for outbound verification expiry (ref-counted so
-    // closing one channel row doesn't stop the timer for remaining rows)
+    // Countdown timer for outbound verification expiry — only active when
+    // at least one channel has an outbound verification session pending
     @State private var countdownNow: Date = Date()
     @State private var countdownTimer: Timer?
-    @State private var countdownTimerRefCount: Int = 0
 
     // Shared label column width for channelStatusRow and guardian verification alignment
     private let labelColumnWidth: CGFloat = 140
+
+    /// True when at least one channel has an active outbound guardian verification session
+    /// that needs the 1-second countdown timer for expiry/resend cooldown display.
+    private var hasAnyOutboundSession: Bool {
+        store.telegramOutboundSessionId != nil ||
+        store.smsOutboundSessionId != nil ||
+        store.voiceOutboundSessionId != nil ||
+        store.slackOutboundSessionId != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -70,6 +78,19 @@ struct SettingsChannelsTab: View {
                 if isSmsFeatureEnabled {
                     store.refreshChannelGuardianStatus(channel: "sms")
                 }
+            }
+            if hasAnyOutboundSession {
+                startCountdownTimer()
+            }
+        }
+        .onDisappear {
+            stopCountdownTimer()
+        }
+        .onChange(of: hasAnyOutboundSession) { _, hasOutbound in
+            if hasOutbound {
+                startCountdownTimer()
+            } else {
+                stopCountdownTimer()
             }
         }
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
@@ -806,14 +827,11 @@ struct SettingsChannelsTab: View {
             showLabel: true,
             labelColumnWidth: labelColumnWidth
         )
-        .onAppear { startCountdownTimer() }
-        .onDisappear { stopCountdownTimer() }
     }
 
     // MARK: - Countdown Timer
 
     private func startCountdownTimer() {
-        countdownTimerRefCount += 1
         guard countdownTimer == nil else { return }
         countdownNow = Date()
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
@@ -824,8 +842,6 @@ struct SettingsChannelsTab: View {
     }
 
     private func stopCountdownTimer() {
-        countdownTimerRefCount = max(countdownTimerRefCount - 1, 0)
-        guard countdownTimerRefCount == 0 else { return }
         countdownTimer?.invalidate()
         countdownTimer = nil
     }

@@ -30,6 +30,8 @@ struct GuardianVerificationFlowView: View {
 
     @State private var codeCopied: Bool = false
     @State private var commandCopied: Bool = false
+    @State private var codeCopyResetTask: Task<Void, Never>?
+    @State private var commandCopyResetTask: Task<Void, Never>?
 
     // MARK: - Body
 
@@ -175,10 +177,11 @@ struct GuardianVerificationFlowView: View {
                         Button {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(outboundCode, forType: .string)
+                            codeCopyResetTask?.cancel()
                             codeCopied = true
-                            // Use GCD instead of Task to avoid Swift concurrency executor
-                            // tracking issues when the countdown timer rebuilds this view.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            codeCopyResetTask = Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                guard !Task.isCancelled else { return }
                                 codeCopied = false
                             }
                         } label: {
@@ -315,8 +318,11 @@ struct GuardianVerificationFlowView: View {
                     Button {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(command, forType: .string)
+                        commandCopyResetTask?.cancel()
                         commandCopied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        commandCopyResetTask = Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
                             commandCopied = false
                         }
                     } label: {

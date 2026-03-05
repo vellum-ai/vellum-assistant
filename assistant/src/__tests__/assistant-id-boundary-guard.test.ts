@@ -481,8 +481,8 @@ describe("assistant ID boundary", () => {
     const repoRoot = getRepoRoot();
 
     // Scan all Drizzle schema files for assistantId column definitions.
-    // The Drizzle ORM pattern is `assistantId: text(` for defining a text
-    // column named assistantId.
+    // Match `assistantId:` followed by any Drizzle column builder (text(,
+    // integer(, blob(, real(, etc.) — not just text(.
     const schemaGlobs = [
       "assistant/src/memory/schema/*.ts",
       "assistant/src/memory/schema/**/*.ts",
@@ -492,7 +492,7 @@ describe("assistant ID boundary", () => {
     try {
       grepOutput = execFileSync(
         "git",
-        ["grep", "-nE", "assistantId\\s*:\\s*text\\(", "--", ...schemaGlobs],
+        ["grep", "-nE", "assistantId\\s*:", "--", ...schemaGlobs],
         { encoding: "utf-8", cwd: repoRoot },
       ).trim();
     } catch (err) {
@@ -546,6 +546,9 @@ describe("assistant ID boundary", () => {
     // Scan store files for exported function signatures that include
     // assistantId as a parameter. This covers memory stores, contact stores,
     // notification stores, credential/token stores, and call stores.
+    //
+    // We read each file and extract full parameter lists (which may span
+    // multiple lines) from exported functions to catch multiline signatures.
     const storeGlobs = [
       "assistant/src/memory/*.ts",
       "assistant/src/contacts/*.ts",
@@ -556,52 +559,68 @@ describe("assistant ID boundary", () => {
       "assistant/src/calls/call-store.ts",
     ];
 
-    // Match exported function declarations/expressions with assistantId in
-    // their parameter lists. Patterns:
-    //   export function foo(assistantId
-    //   export function foo(bar, assistantId
-    //   export async function foo(assistantId
-    //   export const foo = (assistantId
-    //   export const foo = async (assistantId
-    // We use a broad pattern that catches assistantId appearing after an
-    // opening paren in an export context.
-    const pattern =
-      "export\\s+(async\\s+)?function\\s+\\w+\\s*\\([^)]*assistantId|export\\s+const\\s+\\w+\\s*=\\s*(async\\s+)?\\([^)]*assistantId";
-
-    let grepOutput = "";
-    try {
-      grepOutput = execFileSync(
-        "git",
-        ["grep", "-nE", pattern, "--", ...storeGlobs],
-        { encoding: "utf-8", cwd: repoRoot },
-      ).trim();
-    } catch (err) {
-      // Exit code 1 means no matches — happy path
-      if ((err as { status?: number }).status === 1) {
-        return;
+    // Find matching files using git ls-files with each glob
+    const matchedFiles: string[] = [];
+    for (const glob of storeGlobs) {
+      try {
+        const output = execFileSync("git", ["ls-files", "--", glob], {
+          encoding: "utf-8",
+          cwd: repoRoot,
+        }).trim();
+        if (output) {
+          matchedFiles.push(...output.split("\n").filter((f) => f.length > 0));
+        }
+      } catch {
+        // Ignore errors — glob may not match anything
       }
-      throw err;
     }
 
-    const allLines = grepOutput.split("\n").filter((l) => l.length > 0);
-    const violations = allLines.filter((line) => {
-      const filePath = line.split(":")[0];
-      if (isTestFile(filePath)) return false;
-      if (isMigrationFile(filePath)) return false;
+    const violations: string[] = [];
 
-      // Allow comments
-      const parts = line.split(":");
-      const content = parts.slice(2).join(":").trim();
-      if (
-        content.startsWith("//") ||
-        content.startsWith("*") ||
-        content.startsWith("/*")
+    // Regex to find the start of an exported function declaration or
+    // arrow-function expression. We capture everything from `export` up to
+    // and including the opening parenthesis of the parameter list.
+    const exportFnStartRegex =
+      /export\s+(?:async\s+)?function\s+\w+\s*\(|export\s+const\s+\w+\s*=\s*(?:async\s+)?\(/g;
+
+    for (const relPath of matchedFiles) {
+      if (isTestFile(relPath) || isMigrationFile(relPath)) continue;
+
+      const content = readFileSync(join(repoRoot, relPath), "utf-8");
+
+      exportFnStartRegex.lastIndex = 0;
+      for (
+        let match = exportFnStartRegex.exec(content);
+        match;
+        match = exportFnStartRegex.exec(content)
       ) {
-        return false;
-      }
+        // Find the matching closing paren to extract the full parameter list,
+        // which may span multiple lines.
+        const parenStart = match.index + match[0].length - 1; // index of '('
+        let depth = 1;
+        let paramEnd = parenStart + 1;
+        for (let i = parenStart + 1; i < content.length && depth > 0; i++) {
+          if (content[i] === "(") depth++;
+          if (content[i] === ")") depth--;
+          if (depth === 0) {
+            paramEnd = i;
+            break;
+          }
+        }
 
-      return true;
-    });
+        const paramList = content.slice(parenStart + 1, paramEnd);
+
+        // Check if the parameter list contains assistantId as a word boundary
+        if (/\bassistantId\b/.test(paramList)) {
+          // Determine the line number of the export keyword for reporting
+          const lineNum = content.slice(0, match.index).split("\n").length;
+          const firstLine = content
+            .slice(match.index, match.index + match[0].length)
+            .trim();
+          violations.push(`${relPath}:${lineNum}: ${firstLine}...`);
+        }
+      }
+    }
 
     if (violations.length > 0) {
       const message = [
