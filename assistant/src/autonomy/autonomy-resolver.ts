@@ -10,9 +10,20 @@
  *   5. Global default tier (falls back to 'notify')
  */
 
-import type { TriageResult } from "../messaging/types.js";
 import { getAutonomyConfig } from "./autonomy-store.js";
 import type { AutonomyTier } from "./types.js";
+
+/** Local stand-in — the canonical TriageResult was removed with the triage engine. */
+interface TriageResult {
+  category: string;
+  confidence: number;
+  suggestedAction: string;
+  matchedPlaybooks: Array<{
+    trigger: string;
+    action: string;
+    autonomyLevel: string;
+  }>;
+}
 import { AUTONOMY_TIERS } from "./types.js";
 
 /**
