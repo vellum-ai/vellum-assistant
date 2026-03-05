@@ -38,15 +38,30 @@ jobs:
             macos-spm-
 
       - name: Download previous baseline artifact
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          name: perf-baselines
-          path: .perf-baselines
-          # Always pull the baseline from the last successful main-branch run so
-          # PR runs compare against a known-good reference, not their own history.
-          workflow: ci-perf-macos.yaml
-          branch: main
-          if_no_artifact_found: warn
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Find the latest successful run of this workflow on main and download
+          # its perf-baselines artifact.  The gh CLI natively supports v4 artifacts,
+          # avoiding compatibility issues with third-party download actions.
+          RUN_ID=$(gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow ci-perf-macos.yaml \
+            --branch main \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId')
+          if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
+            echo "Downloading perf-baselines from run $RUN_ID"
+            gh run download "$RUN_ID" \
+              --repo "${{ github.repository }}" \
+              --name perf-baselines \
+              --dir .perf-baselines \
+            || echo "Warning: Could not download baseline artifact from run $RUN_ID"
+          else
+            echo "Warning: No previous successful run found on main — first run will establish the baseline"
+          fi
         continue-on-error: true
 
       - name: Run performance tests
