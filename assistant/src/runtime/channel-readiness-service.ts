@@ -275,6 +275,52 @@ const telegramProbe: ChannelProbe = {
   // Telegram has no remote checks currently
 };
 
+// ── Email Probe ────────────────────────────────────────────────────────────
+
+const emailProbe: ChannelProbe = {
+  channel: "email",
+  runLocalChecks(): ReadinessCheckResult[] {
+    const hasApiKey = !!(
+      getSecureKey("agentmail") || getSecureKey("credential:agentmail:api_key")
+    );
+    return [
+      {
+        name: "agentmail_api_key",
+        passed: hasApiKey,
+        message: hasApiKey
+          ? "AgentMail API key is configured"
+          : "AgentMail API key is not configured",
+      },
+    ];
+  },
+};
+
+// ── Slack Probe ────────────────────────────────────────────────────────────
+
+const slackProbe: ChannelProbe = {
+  channel: "slack",
+  runLocalChecks(): ReadinessCheckResult[] {
+    const hasBotToken = !!getSecureKey("credential:slack_channel:bot_token");
+    const hasAppToken = !!getSecureKey("credential:slack_channel:app_token");
+    return [
+      {
+        name: "bot_token",
+        passed: hasBotToken,
+        message: hasBotToken
+          ? "Slack bot token is configured"
+          : "Slack bot token is not configured",
+      },
+      {
+        name: "app_token",
+        passed: hasAppToken,
+        message: hasAppToken
+          ? "Slack app token is configured"
+          : "Slack app token is not configured",
+      },
+    ];
+  },
+};
+
 // ── Service ─────────────────────────────────────────────────────────────────
 
 export class ChannelReadinessService {
@@ -416,11 +462,13 @@ export class ChannelReadinessService {
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
-/** Create a service instance with built-in SMS, Voice, and Telegram probes registered. */
+/** Create a service instance with built-in SMS, Voice, Telegram, Email, and Slack probes registered. */
 export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
   service.registerProbe(smsProbe);
   service.registerProbe(voiceProbe);
   service.registerProbe(telegramProbe);
+  service.registerProbe(emailProbe);
+  service.registerProbe(slackProbe);
   return service;
 }
