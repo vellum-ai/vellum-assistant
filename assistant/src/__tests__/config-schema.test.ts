@@ -527,11 +527,12 @@ describe("AssistantConfigSchema", () => {
     expect(result.permissions.mode).toBe("strict");
   });
 
-  test("accepts explicit permissions.mode legacy", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { mode: "legacy" },
-    });
-    expect(result.permissions.mode).toBe("legacy");
+  test("rejects permissions.mode legacy", () => {
+    expect(() =>
+      AssistantConfigSchema.parse({
+        permissions: { mode: "legacy" },
+      }),
+    ).toThrow();
   });
 
   test("accepts explicit permissions.mode workspace", () => {
