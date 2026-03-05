@@ -5,9 +5,9 @@
   - Do not install CLIs into Vellum or the host system; provide instructions for users to install external packages if needed
   - Do not create new assistant tools and reference them from SKILL.md — this couples skills to Vellum internals and breaks compatibility with other agent systems
 
-- **API interactions should use Vellum's proxy**
-  - Update proxy settings so the bash tool can inject correct auth headers
-  - Applies to curl, fetch(), CLI commands — the proxy intercepts network traffic for approved domains
+- **API interactions use Vellum's outbound proxy**
+  - Outbound network traffic from the bash tool is automatically intercepted by an outbound proxy in a manner that's transparent to the assistant
+  - Update proxy settings so the bash tool can inject correct auth headers for approved domains
   - Avoid instructions that tell the assistant to find and use secrets directly
 
 - **Write portable instructions**
