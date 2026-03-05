@@ -1,6 +1,7 @@
 import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
+import { resolveGuardianName } from "../../config/user-reference.js";
 import { findContactChannel } from "../../contacts/contact-store.js";
 import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
@@ -108,8 +109,11 @@ export function getGuardianStatus(
   const resolvedChannel = channel ?? "telegram";
 
   const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
+  const guardianDisplayName = resolveGuardianName();
+
+  // Resolve guardianUsername from binding metadata or external conversation store.
+  // Usernames are a channel-specific concept and not part of the guardian name dedup.
   let guardianUsername: string | undefined;
-  let guardianDisplayName: string | undefined;
   if (binding?.metadataJson) {
     try {
       const parsed = JSON.parse(binding.metadataJson) as Record<
@@ -122,29 +126,17 @@ export function getGuardianStatus(
       ) {
         guardianUsername = parsed.username.trim();
       }
-      if (
-        typeof parsed.displayName === "string" &&
-        parsed.displayName.trim().length > 0
-      ) {
-        guardianDisplayName = parsed.displayName.trim();
-      }
     } catch {
       // ignore malformed metadata
     }
   }
-  if (
-    binding?.guardianDeliveryChatId &&
-    (!guardianUsername || !guardianDisplayName)
-  ) {
+  if (binding?.guardianDeliveryChatId && !guardianUsername) {
     const ext = externalConversationStore.getBindingByChannelChat(
       resolvedChannel,
       binding.guardianDeliveryChatId,
     );
-    if (!guardianUsername && ext?.username) {
+    if (ext?.username) {
       guardianUsername = ext.username;
-    }
-    if (!guardianDisplayName && ext?.displayName) {
-      guardianDisplayName = ext.displayName;
     }
   }
   const hasPendingChallenge =

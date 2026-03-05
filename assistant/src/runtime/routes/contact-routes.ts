@@ -12,6 +12,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import type { ChannelId } from "../../channels/types.js";
+import { resolveGuardianName } from "../../config/user-reference.js";
 import {
   getAssistantContactMetadata,
   getChannelById,
@@ -56,6 +57,18 @@ import {
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
+function withGuardianNameOverride<
+  T extends { role: string; displayName: string },
+>(contact: T): T {
+  if (contact.role === "guardian") {
+    return {
+      ...contact,
+      displayName: resolveGuardianName(contact.displayName),
+    };
+  }
+  return contact;
+}
+
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
 const VALID_ASSISTANT_SPECIES: readonly AssistantSpecies[] = [
   "vellum",
@@ -99,7 +112,10 @@ export function handleListContacts(url: URL, assistantId: string): Response {
       contactType,
       limit,
     });
-    return Response.json({ ok: true, contacts });
+    return Response.json({
+      ok: true,
+      contacts: contacts.map(withGuardianNameOverride),
+    });
   }
 
   const contacts = listContacts(
@@ -108,7 +124,10 @@ export function handleListContacts(url: URL, assistantId: string): Response {
     role ?? undefined,
     contactType,
   );
-  return Response.json({ ok: true, contacts });
+  return Response.json({
+    ok: true,
+    contacts: contacts.map(withGuardianNameOverride),
+  });
 }
 
 /**
@@ -128,7 +147,7 @@ export function handleGetContact(
       : undefined;
   return Response.json({
     ok: true,
-    contact,
+    contact: withGuardianNameOverride(contact),
     assistantMetadata: assistantMeta ?? undefined,
   });
 }
@@ -323,7 +342,7 @@ export async function handleUpsertContact(
     }
 
     return Response.json(
-      { ok: true, contact },
+      { ok: true, contact: withGuardianNameOverride(contact) },
       { status: contact.created ? 201 : 200 },
     );
   } catch (err) {
@@ -405,7 +424,12 @@ export async function handleUpdateContactChannel(
   }
 
   const parentContact = getContact(updated.contactId, assistantId);
-  return Response.json({ ok: true, contact: parentContact ?? undefined });
+  return Response.json({
+    ok: true,
+    contact: parentContact
+      ? withGuardianNameOverride(parentContact)
+      : undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------

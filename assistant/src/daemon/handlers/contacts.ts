@@ -1,5 +1,6 @@
 import * as net from "node:net";
 
+import { resolveGuardianName } from "../../config/user-reference.js";
 import {
   getContact,
   listContacts,
@@ -36,7 +37,10 @@ function toChannelPayload(
 function toContactPayload(contact: ContactWithChannels): ContactPayload {
   return {
     id: contact.id,
-    displayName: contact.displayName,
+    displayName:
+      contact.role === "guardian"
+        ? resolveGuardianName(contact.displayName)
+        : contact.displayName,
     role: contact.role,
     notes: contact.notes ?? undefined,
     contactType: contact.contactType ?? undefined,
