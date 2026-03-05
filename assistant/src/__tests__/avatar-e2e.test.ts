@@ -156,7 +156,7 @@ function mockFetchReturning(response: {
       status: response.status,
       json: async () => response.body,
     }),
-  ) as typeof globalThis.fetch;
+  ) as unknown as typeof globalThis.fetch;
 }
 
 const originalFetch = globalThis.fetch;
@@ -229,10 +229,14 @@ describe("avatar E2E integration", () => {
     expect(renameSyncFn).toHaveBeenCalledTimes(1);
 
     // Verify rename target is the expected avatar path
-    expect(renameSyncFn.mock.calls[0][1]).toBe(expectedAvatarPath);
+    expect((renameSyncFn.mock.calls[0] as unknown[])[1]).toBe(
+      expectedAvatarPath,
+    );
 
     // Verify the written buffer content matches the base64 data
-    const writtenBuffer = writeFileSyncFn.mock.calls[0][1] as Buffer;
+    const writtenBuffer = (
+      writeFileSyncFn.mock.calls[0] as unknown[]
+    )[1] as Buffer;
     const expectedBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUg==", "base64");
     expect(writtenBuffer.equals(expectedBuffer)).toBe(true);
 
@@ -335,7 +339,7 @@ describe("avatar E2E integration", () => {
     const fetchMock = mock(() =>
       Promise.resolve({ ok: true, status: 200, json: async () => ({}) }),
     );
-    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 
     const result = await executeAvatar("a whimsical owl");
 

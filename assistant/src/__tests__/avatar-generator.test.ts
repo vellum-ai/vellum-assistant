@@ -175,17 +175,19 @@ describe("setAvatarTool", () => {
 
     // Verify mkdirSync was called for the directory
     expect(mkdirSyncFn).toHaveBeenCalledTimes(1);
-    expect(mkdirSyncFn.mock.calls[0][1]).toEqual({ recursive: true });
+    expect((mkdirSyncFn.mock.calls[0] as unknown[])[1]).toEqual({
+      recursive: true,
+    });
 
     // Verify writeFileSync writes to a unique tmp path
     expect(writeFileSyncFn).toHaveBeenCalledTimes(1);
-    const tmpPath = writeFileSyncFn.mock.calls[0][0] as string;
+    const tmpPath = (writeFileSyncFn.mock.calls[0] as unknown[])[0] as string;
     expect(tmpPath).toStartWith(expectedPath + ".");
     expect(tmpPath).toEndWith(".tmp");
 
     // Verify renameSync moves tmp to final path
     expect(renameSyncFn).toHaveBeenCalledTimes(1);
-    expect(renameSyncFn.mock.calls[0][0]).toBe(tmpPath);
-    expect(renameSyncFn.mock.calls[0][1]).toBe(expectedPath);
+    expect((renameSyncFn.mock.calls[0] as unknown[])[0]).toBe(tmpPath);
+    expect((renameSyncFn.mock.calls[0] as unknown[])[1]).toBe(expectedPath);
   });
 });
