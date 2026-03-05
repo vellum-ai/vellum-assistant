@@ -40,6 +40,13 @@ export interface TransportConfig {
   authHeader?: string;
   /** Header name for auth. Defaults to "Authorization" for runtime, "X-Session-Token" for managed. */
   authHeaderName?: string;
+  /**
+   * Additional headers to include with every request.
+   * Merged after Content-Type but before auth-header injection,
+   * so an explicit auth header from the transport always wins
+   * over a same-named entry in defaultHeaders.
+   */
+  defaultHeaders?: Record<string, string>;
   /** Custom fetch implementation for testing or environments without global fetch. */
   fetchFn?: typeof fetch;
 }
@@ -277,6 +284,12 @@ function buildHeaders(
     headers["Content-Type"] = contentType;
   }
 
+  // Merge defaultHeaders after Content-Type but before auth injection
+  if (config.defaultHeaders) {
+    Object.assign(headers, config.defaultHeaders);
+  }
+
+  // Auth header is applied last so it always wins over defaultHeaders
   if (config.authHeader) {
     const headerName =
       config.authHeaderName ??
