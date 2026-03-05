@@ -38,6 +38,13 @@ export interface Contact {
   updatedAt: number;
   role: ContactRole;
   contactType: ContactType;
+  /**
+   * Internal auth identity (e.g. "vellum-principal-<uuid>"). Only meaningful
+   * for guardian contacts — it ties the contact record to the auth layer so
+   * the system can verify "this API caller IS this guardian" via JWT
+   * actorPrincipalId. Always null for non-guardian contacts, which are
+   * identified by channel address instead.
+   */
   principalId: string | null;
   assistantId: string | null;
 }
