@@ -42,10 +42,6 @@ describe("CommitEnrichmentService", () => {
   beforeEach(() => {
     _resetGitServiceRegistry();
     _resetEnrichmentService();
-    // Previous tests' enrichment jobs may leave a stale index.lock if
-    // the git process exits but the lock file isn't flushed before the
-    // next test runs git operations in the shared testDir.
-    rmSync(join(testDir, ".git", "index.lock"), { force: true });
   });
 
   afterEach(async () => {

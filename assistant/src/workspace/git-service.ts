@@ -871,10 +871,12 @@ export class WorkspaceGitService {
     noteContent: string,
     signal?: AbortSignal,
   ): Promise<void> {
-    await this.execGit(
-      ["notes", "--ref=vellum", "add", "-f", "-m", noteContent, commitHash],
-      { signal },
-    );
+    await this.mutex.withLock(async () => {
+      await this.execGit(
+        ["notes", "--ref=vellum", "add", "-f", "-m", noteContent, commitHash],
+        { signal },
+      );
+    });
   }
 
   /**
