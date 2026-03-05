@@ -17,17 +17,6 @@ extension EnvironmentValues {
     }
 }
 
-// MARK: - Composer Editor Height Preference Key
-
-/// PreferenceKey used to measure the natural height of the TextField composer
-/// so that ChatView can compute the correct bottom safe-area inset.
-struct ComposerEditorHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 // MARK: - Composer Focus Bridge
 
 /// Minimal NSViewRepresentable that provides AppKit integration for the

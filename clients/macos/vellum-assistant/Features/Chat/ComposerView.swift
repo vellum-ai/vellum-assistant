@@ -32,18 +32,11 @@ struct ComposerView: View {
     var onEndVoiceMode: (() -> Void)? = nil
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 34
-    /// Bound to ChatView's state so it can compute composerReservedHeight for safe area insets.
-    @Binding var editorContentHeight: CGFloat
-
-    /// Exposed to ChatView so composerReservedHeight stays in sync with the
-    /// sticky expansion state (set true when text wraps, reset when text clears).
-    @Binding var isComposerExpanded: Bool
 
     @Environment(\.conversationZoomScale) private var zoomScale
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     @FocusState private var composerFocus: Bool
     @State private var isComposerFocused = false
-    @State private var contentHeight: CGFloat = 34
 
     @State var showSlashMenu = false
     @State var slashFilter = ""
@@ -94,18 +87,14 @@ struct ComposerView: View {
                     }
                     .frame(height: compactRowHeight, alignment: .center)
                 } else {
-                    // Text field with action buttons pinned to trailing edge.
-                    // In compact (single-line) mode buttons are vertically centered;
-                    // in expanded (multi-line) mode they pin to the bottom-right.
                     composerTextField
                         .frame(minHeight: composerCompactHeight)
-                        .overlay(alignment: isComposerExpanded ? .bottomTrailing : .trailing) {
+                        .overlay(alignment: .bottomTrailing) {
                             composerActionButtons
-                                .padding(.bottom, isComposerExpanded ? VSpacing.xs : 0)
                         }
                 }
             }
-            .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.sm)
+            .padding(.top, VSpacing.sm)
             .padding(.bottom, VSpacing.sm)
             .padding(.leading, VSpacing.lg)
             .padding(.trailing, VSpacing.lg)
@@ -133,7 +122,6 @@ struct ComposerView: View {
         .padding(.top, VSpacing.sm)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
-        .animation(VAnimation.fast, value: isComposerExpanded)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {
             composerFocus = true
@@ -142,12 +130,8 @@ struct ComposerView: View {
         }
     }
 
-    private var clampedComposerHeight: CGFloat {
-        min(max(editorContentHeight, composerCompactHeight), composerMaxHeight)
-    }
-
     private var compactRowHeight: CGFloat {
-        max(clampedComposerHeight, composerActionButtonSize)
+        composerActionButtonSize
     }
 
     /// The text overlays (slash highlighting, ghost text) rendered behind / on
@@ -162,7 +146,6 @@ struct ComposerView: View {
         if hasSlashHighlight {
             Text(slashHighlightedText(font: font))
                 .lineLimit(1...)
-                .fixedSize(horizontal: false, vertical: true)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
@@ -176,7 +159,6 @@ struct ComposerView: View {
                 .font(font)
                 .foregroundColor(VColor.textSecondary.opacity(0.55)))
                 .lineLimit(1...)
-                .fixedSize(horizontal: false, vertical: true)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
@@ -256,31 +238,12 @@ struct ComposerView: View {
                 composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
                 composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
             }
-            // minHeight keeps single-line text vertically centered in the
-            // compact row; .leading alignment pins text to the left edge.
             .frame(maxWidth: .infinity, minHeight: composerCompactHeight, alignment: .leading)
-            // Reserve trailing space so text wraps before reaching the
-            // overlaid action buttons (attach + send/mic ≈ 70pt wide).
             .padding(.trailing, 70)
-            // Measure content height BEFORE the conditional bottom padding
-            // so expansion state isn't inflated by its own padding.
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: ComposerEditorHeightKey.self, value: geo.size.height)
-                }
-            )
-            // Reserve bottom space so the last visible line isn't hidden
-            // behind the buttons when the composer is expanded.
-            .padding(.bottom, isComposerExpanded ? composerActionButtonSize : 0)
-        }
-        .onPreferenceChange(ComposerEditorHeightKey.self) { newHeight in
-            contentHeight = newHeight
-            editorContentHeight = min(max(newHeight, composerCompactHeight), composerMaxHeight)
-            isComposerExpanded = newHeight > composerCompactHeight
         }
         .scrollBounceBehavior(.basedOnSize)
+        .frame(minHeight: composerCompactHeight, maxHeight: inputText.isEmpty ? composerCompactHeight : composerMaxHeight)
         .accessibilityLabel("Message")
-        .frame(height: min(max(contentHeight, composerCompactHeight), composerMaxHeight), alignment: .topLeading)
         .frame(maxWidth: .infinity)
         .background(
             ComposerFocusBridge(
@@ -305,15 +268,8 @@ struct ComposerView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            // Auto-focus the composer on app reactivation so the user can
-            // start typing immediately after cmd+tab or Dock click.
             guard !hasPendingConfirmation else { return }
-            // Only claim focus when the main window is key. If a floating
-            // panel or other window is frontmost, skip to avoid intercepting
-            // shortcuts (Cmd+V, Cmd+Enter) in the wrong context.
             guard let window = NSApp.keyWindow as? TitleBarZoomableWindow else { return }
-            // Preserve focus if another input (NSTextView, WKWebView, etc.)
-            // already owns first-responder status in split-panel mode.
             if let responder = window.firstResponder as? NSView,
                responder != window.contentView,
                window.composerContainerView.map({ !responder.isDescendant(of: $0) }) ?? false {
@@ -323,13 +279,6 @@ struct ComposerView: View {
         }
         .onChange(of: inputText) {
             if inputText.isEmpty {
-                // Reset all height state atomically so the ScrollView frame
-                // shrinks immediately. Without this, the GeometryReader
-                // re-measures the old (large) ScrollView frame and confirms
-                // the stale contentHeight, preventing collapse.
-                contentHeight = composerCompactHeight
-                editorContentHeight = composerCompactHeight
-                isComposerExpanded = false
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
             } else {
                 updateSlashState()

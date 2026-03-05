@@ -92,29 +92,10 @@ struct ChatView: View {
 
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
-    @State private var editorContentHeight: CGFloat = 20
-    @State private var isComposerExpanded = false
     @State private var containerWidth: CGFloat = 0
 
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
-    }
-
-    private let composerMinHeight: CGFloat = 34
-
-    /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
-    private var composerReservedHeight: CGFloat {
-        let editorClamped = min(max(editorContentHeight, 34), 200)
-        let contentHeight = max(editorClamped, 34)
-        let expanded = isComposerExpanded
-        let topPad: CGFloat = expanded ? VSpacing.md : VSpacing.sm
-        let bottomPad: CGFloat = VSpacing.sm
-        // Buttons are overlaid on the text area, so they don't add to height.
-        let base: CGFloat = VSpacing.sm + topPad + bottomPad + contentHeight
-        let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
-        let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
-        let sessionErrorToast: CGFloat = sessionError != nil ? 52 : 0
-        return base + attachments + error + sessionErrorToast
     }
 
     var body: some View {
@@ -157,9 +138,7 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
-                            editorContentHeight: $editorContentHeight,
-                            isComposerExpanded: $isComposerExpanded
+                            onDismissError: onDismissError
                         )
                     } else {
                         ChatEmptyStateView(
@@ -180,13 +159,11 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
-                            editorContentHeight: $editorContentHeight,
-                            isComposerExpanded: $isComposerExpanded
+                            onDismissError: onDismissError
                         )
                     }
                 } else {
-                    ZStack(alignment: .bottom) {
+                    VStack(spacing: 0) {
                         MessageListView(
                             messages: messages,
                             isSending: isSending,
@@ -224,10 +201,6 @@ struct ChatView: View {
                             isNearBottom: $isNearBottom,
                             containerWidth: containerWidth
                         )
-                        .safeAreaInset(edge: .bottom) {
-                            Color.clear.frame(height: composerReservedHeight)
-                                .animation(VAnimation.fast, value: editorContentHeight)
-                        }
 
                         let composerMessages: [ChatMessage] = {
                             let all = messages.filter { !$0.isSubagentNotification }
@@ -278,9 +251,7 @@ struct ChatView: View {
                             idleHint: idleHint,
                             voiceModeManager: voiceModeManager,
                             voiceService: voiceService,
-                            onEndVoiceMode: onEndVoiceMode,
-                            editorContentHeight: $editorContentHeight,
-                            isComposerExpanded: $isComposerExpanded
+                            onEndVoiceMode: onEndVoiceMode
                         )
                     }
                 }
