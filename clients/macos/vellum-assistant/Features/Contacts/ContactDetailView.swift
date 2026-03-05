@@ -235,10 +235,17 @@ struct ContactDetailView: View {
                 by: { $0.type }
             )
             let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
-            let totalRows = Self.allChannelTypes.count + extraChannels.count
 
-            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { index, type in
+            // Compute which standard types are visible (have channels or readiness==true)
+            let visibleTypes = Self.allChannelTypes.filter { type in
+                channelsByType[type] != nil || channelReadiness[type]?.ready == true
+            }
+            let lastVisibleType = visibleTypes.last
+            let hasExtraChannels = !extraChannels.isEmpty
+
+            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { _, type in
                 if let channels = channelsByType[type] {
+                    // Configured channel — always show
                     ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
                         channelRow(channel)
 
@@ -246,19 +253,25 @@ struct ContactDetailView: View {
                             Divider().background(VColor.divider)
                         }
                     }
-                } else {
-                    unconfiguredChannelRow(type: type)
-                }
 
-                if index < totalRows - 1 {
-                    Divider().background(VColor.divider)
+                    if type != lastVisibleType || hasExtraChannels {
+                        Divider().background(VColor.divider)
+                    }
+                } else if channelReadiness[type]?.ready == true {
+                    // Unconfigured but assistant has this channel set up — show
+                    unconfiguredChannelRow(type: type)
+
+                    if type != lastVisibleType || hasExtraChannels {
+                        Divider().background(VColor.divider)
+                    }
                 }
+                // else: channel not configured, hide entirely
             }
 
             ForEach(Array(extraChannels.enumerated()), id: \.element.id) { index, channel in
                 channelRow(channel)
 
-                if Self.allChannelTypes.count + index < totalRows - 1 {
+                if index < extraChannels.count - 1 {
                     Divider().background(VColor.divider)
                 }
             }
@@ -282,9 +295,8 @@ struct ContactDetailView: View {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
             } catch {
-                // Silently fail — empty dict means probed channels (SMS, Telegram,
-                // Voice) hide their Invite buttons until a successful fetch, while
-                // non-probed channels (email, Slack) default to showing Invite.
+                // Silently fail — empty dict means unconfigured channels stay
+                // hidden until a successful readiness fetch.
             }
         }
     }
@@ -373,15 +385,9 @@ struct ContactDetailView: View {
 
                 // Voice invites require additional fields (phone number, friend/guardian
                 // names) that aren't available in this context, so hide the button.
-                // Channels that require infrastructure probing (SMS, Telegram) only
-                // show Invite when the server has explicitly confirmed readiness.
-                // Non-probed channels (email, Slack) default to ready unless
-                // explicitly marked false.
-                let probedChannels: Set<String> = ["sms", "telegram", "voice"]
-                let channelIsReady = probedChannels.contains(type)
-                    ? channelReadiness[type]?.ready == true
-                    : channelReadiness[type]?.ready != false
-                if displayContact.role != "guardian" && type != "voice" && channelIsReady {
+                // Row visibility is already gated on channelReadiness[type]?.ready == true,
+                // so no additional readiness check is needed here.
+                if displayContact.role != "guardian" && type != "voice" {
                     if inviteInProgress == type {
                         ProgressView()
                             .controlSize(.small)
