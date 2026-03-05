@@ -624,10 +624,6 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
     const pidFile = join(vellumDir, "vellum.pid");
     const socketFile = join(vellumDir, "vellum.sock");
 
-    // Ensure bun is available for runtime features (browser, skills install)
-    // Run unconditionally so bun is present even when reusing an existing daemon.
-    ensureBunInstalled();
-
     // If a daemon is already running, skip spawning a new one.
     // This prevents cascading kill→restart cycles when multiple callers
     // invoke hatch() concurrently (setupDaemonClient + ensureDaemonConnected).
@@ -666,6 +662,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         } else {
           console.log("   Assistant socket is responsive — skipping restart\n");
         }
+        // Ensure bun is available for runtime features (browser, skills install)
+        // even when reusing an existing daemon.
+        ensureBunInstalled();
         return;
       }
 
@@ -675,6 +674,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       } catch {}
 
       console.log("🔨 Starting assistant...");
+
+      // Ensure bun is available for runtime features (browser, skills install)
+      ensureBunInstalled();
 
       // Ensure ~/.vellum/ exists for PID/socket files
       mkdirSync(vellumDir, { recursive: true });
@@ -730,6 +732,13 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       if (daemonPid) {
         writeFileSync(pidFile, String(daemonPid), "utf-8");
       }
+    }
+
+    // Ensure bun is available for runtime features (browser, skills install)
+    // Runs after daemon-reuse checks so the fast attach path is not blocked
+    // by a potentially slow bun install when the daemon is already alive.
+    if (daemonAlive) {
+      ensureBunInstalled();
     }
 
     // Wait for socket at ~/.vellum/vellum.sock (up to 60s — fresh installs
