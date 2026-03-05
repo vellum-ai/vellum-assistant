@@ -11,7 +11,6 @@ import {
 import {
   AttachmentValidationError,
   CircuitBreakerOpenError,
-  resetConversation,
   uploadAttachment,
 } from "../../runtime/client.js";
 import { callTelegramApi } from "../../telegram/api.js";
@@ -20,11 +19,10 @@ import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
 import { sendTelegramReply } from "../../telegram/send.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 import {
-  NEW_COMMAND_ERROR,
-  NEW_COMMAND_SUCCESS,
   ROUTING_REJECTION_NOTICE,
   SERVICE_UNAVAILABLE_ERROR,
 } from "../../webhook-copy.js";
+import { handleNewCommand, isNewCommand } from "../../webhook-pipeline.js";
 
 const log = getLogger("telegram-webhook");
 
@@ -416,7 +414,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     }
 
     // Handle /new command — reset conversation before it reaches the runtime
-    if (normalized.message.content.trim() === "/new") {
+    if (isNewCommand(normalized.message.content)) {
       const routing = resolveAssistant(
         config,
         normalized.message.conversationExternalId,
@@ -446,29 +444,18 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           });
         }
       } else {
-        try {
-          await resetConversation(
-            config,
-            normalized.sourceChannel,
-            normalized.message.conversationExternalId,
-          );
-          sendTelegramReply(
-            config,
-            normalized.message.conversationExternalId,
-            NEW_COMMAND_SUCCESS,
-          ).catch((err) => {
-            tlog.error({ err }, "Failed to send /new confirmation");
-          });
-        } catch (err) {
-          tlog.error({ err }, "Failed to reset conversation");
-          sendTelegramReply(
-            config,
-            normalized.message.conversationExternalId,
-            NEW_COMMAND_ERROR,
-          ).catch((replyErr) => {
-            tlog.error({ err: replyErr }, "Failed to send /new error reply");
-          });
-        }
+        await handleNewCommand(
+          config,
+          normalized.sourceChannel,
+          normalized.message.conversationExternalId,
+          async (text) => {
+            await sendTelegramReply(
+              config,
+              normalized.message.conversationExternalId,
+              text,
+            );
+          },
+        );
       }
 
       // Acknowledge callback query so the button spinner clears
