@@ -175,6 +175,7 @@ public final class HTTPTransport {
         case contactsUpsert
         case contactsInvitesCreate
         case channelsReadiness
+        case surfaceContent(surfaceId: String, sessionId: String)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -273,6 +274,10 @@ public final class HTTPTransport {
             return ("/v1/contacts/invites", nil)
         case .channelsReadiness:
             return ("/v1/channels/readiness", nil)
+        case .surfaceContent(let surfaceId, let sessionId):
+            let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            return ("/v1/surfaces/\(sEncoded)", "sessionId=\(qEncoded)")
         }
     }
 
@@ -352,6 +357,10 @@ public final class HTTPTransport {
             return ("\(prefix)/contacts/invites/", nil)
         case .channelsReadiness:
             return ("\(prefix)/channels/readiness/", nil)
+        case .surfaceContent(let surfaceId, let sessionId):
+            let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            return ("\(prefix)/surfaces/\(sEncoded)/", "sessionId=\(qEncoded)")
         }
     }
 
@@ -1365,6 +1374,50 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("HTTPTransport: surface action error: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Surface Content Fetch
+
+    /// Fetch the full surface payload from the daemon for a stripped surface.
+    /// Returns the parsed `SurfaceData` on success, or `nil` if the surface
+    /// was not found or the response could not be parsed.
+    func fetchSurfaceData(surfaceId: String, sessionId: String, isRetry: Bool = false) async -> SurfaceData? {
+        guard let url = buildURL(for: .surfaceContent(surfaceId: surfaceId, sessionId: sessionId)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else {
+                    log.error("HTTPTransport: surface content fetch failed (\(http.statusCode))")
+                    return nil
+                }
+            }
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let surfaceTypeRaw = json["surfaceType"] as? String,
+                  let surfaceType = SurfaceType(rawValue: surfaceTypeRaw),
+                  let dataDict = json["data"] as? [String: Any?] else {
+                log.error("HTTPTransport: surface content response could not be parsed")
+                return nil
+            }
+
+            return Surface.parseSurfaceData(type: surfaceType, dict: dataDict)
+        } catch {
+            log.error("HTTPTransport: surface content fetch error: \(error.localizedDescription)")
+            return nil
         }
     }
 

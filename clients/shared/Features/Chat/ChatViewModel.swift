@@ -1395,6 +1395,30 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Surface Refetch
+
+    /// Lazily created manager that serializes surface content fetches.
+    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, sessionId in
+        guard let self else { return nil }
+        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+    }
+
+    /// Re-fetch the full payload for a stripped surface and replace it in the message list.
+    public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            guard let data = await surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId) else { return }
+            await MainActor.run {
+                for msgIndex in self.messages.indices {
+                    if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = data
+                        return
+                    }
+                }
+            }
+        }
+    }
+
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
     /// Used when archiving a thread before session_info arrives: we want to
     /// discard the pending message (so it isn't sent once the session is claimed)

@@ -1,0 +1,104 @@
+/**
+ * Route handler for fetching surface content by ID.
+ *
+ * GET /v1/surfaces/:surfaceId — return the full surface payload from the
+ * session's in-memory surface state. Used by clients to re-hydrate surfaces
+ * whose data was stripped during memory compaction.
+ */
+import type { SurfaceData, SurfaceType } from "../../daemon/ipc-contract/surfaces.js";
+import { getLogger } from "../../util/logger.js";
+import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
+
+const log = getLogger("surface-content-routes");
+
+/** Narrow interface for looking up surface state from a session. */
+interface SurfaceContentTarget {
+  surfaceState: Map<
+    string,
+    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+  >;
+  currentTurnSurfaces: Array<{
+    surfaceId: string;
+    surfaceType: SurfaceType;
+    title?: string;
+    data: SurfaceData;
+    actions?: Array<{ id: string; label: string; style?: string }>;
+  }>;
+}
+
+export type SurfaceContentSessionLookup = (
+  sessionId: string,
+) => SurfaceContentTarget | undefined;
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function surfaceContentRouteDefinitions(deps: {
+  findSession?: SurfaceContentSessionLookup;
+}): RouteDefinition[] {
+  return [
+    {
+      endpoint: "surfaces/:surfaceId",
+      method: "GET",
+      handler: ({ url, params }) => {
+        if (!deps.findSession) {
+          return httpError(
+            "NOT_IMPLEMENTED",
+            "Surface content lookup not available",
+            501,
+          );
+        }
+
+        const sessionId = url.searchParams.get("sessionId");
+        if (!sessionId) {
+          return httpError("BAD_REQUEST", "sessionId query parameter is required", 400);
+        }
+
+        const surfaceId = params.surfaceId;
+        if (!surfaceId) {
+          return httpError("BAD_REQUEST", "surfaceId path parameter is required", 400);
+        }
+
+        const session = deps.findSession(sessionId);
+        if (!session) {
+          return httpError(
+            "NOT_FOUND",
+            "No active session found for this sessionId",
+            404,
+          );
+        }
+
+        // Look up the surface in the session's in-memory state.
+        const stored = session.surfaceState.get(surfaceId);
+        if (stored) {
+          log.info({ sessionId, surfaceId }, "Surface content served from surfaceState");
+          return Response.json({
+            surfaceId,
+            surfaceType: stored.surfaceType,
+            title: stored.title ?? null,
+            data: stored.data,
+          });
+        }
+
+        // Fall back to currentTurnSurfaces in case the surface hasn't been
+        // committed to surfaceState yet (e.g. mid-turn).
+        const turnSurface = session.currentTurnSurfaces.find(
+          (s) => s.surfaceId === surfaceId,
+        );
+        if (turnSurface) {
+          log.info({ sessionId, surfaceId }, "Surface content served from currentTurnSurfaces");
+          return Response.json({
+            surfaceId,
+            surfaceType: turnSurface.surfaceType,
+            title: turnSurface.title ?? null,
+            data: turnSurface.data,
+          });
+        }
+
+        return httpError("NOT_FOUND", "Surface not found in session", 404);
+      },
+    },
+  ];
+}

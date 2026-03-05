@@ -547,7 +547,7 @@ public extension Surface {
 
     // MARK: - Private Helpers
 
-    private static func parseSurfaceData(type: SurfaceType, dict: [String: Any?]) -> SurfaceData? {
+    static func parseSurfaceData(type: SurfaceType, dict: [String: Any?]) -> SurfaceData? {
         switch type {
         case .card:
             return parseCardData(dict).map { .card($0) }

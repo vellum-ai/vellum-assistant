@@ -48,6 +48,7 @@ final class MockDaemonClient: DaemonClientProtocol {
 
     func startSSE() {}
     func stopSSE() {}
+    func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
 }
 
 // MARK: - Mocks

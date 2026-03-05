@@ -127,6 +127,7 @@ import {
 } from "./routes/pairing-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
+import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { twilioRouteDefinitions } from "./routes/twilio-routes.js";
 
@@ -847,6 +848,7 @@ export class RuntimeHttpServer {
       ...approvalRouteDefinitions(),
       ...trustRulesRouteDefinitions(),
       ...surfaceActionRouteDefinitions({ findSession: this.findSession }),
+      ...surfaceContentRouteDefinitions({ findSession: this.findSession }),
       ...guardianActionRouteDefinitions(),
 
       ...contactRouteDefinitions(),

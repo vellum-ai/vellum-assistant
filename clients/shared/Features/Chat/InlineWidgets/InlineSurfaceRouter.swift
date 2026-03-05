@@ -4,13 +4,21 @@ import SwiftUI
 public struct InlineSurfaceRouter: View {
     public let surface: InlineSurfaceData
     public let onAction: (String, String, [String: AnyCodable]?) -> Void
+    /// Called when a `.stripped` surface appears and needs its data re-fetched.
+    public let onRefetch: ((String, String) -> Void)?
 
     @State private var selectionPayload: [String: AnyCodable]?
     @State private var clickedActionLabel: String?
+    @State private var isRefetching = false
 
-    public init(surface: InlineSurfaceData, onAction: @escaping (String, String, [String: AnyCodable]?) -> Void) {
+    public init(
+        surface: InlineSurfaceData,
+        onAction: @escaping (String, String, [String: AnyCodable]?) -> Void,
+        onRefetch: ((String, String) -> Void)? = nil
+    ) {
         self.surface = surface
         self.onAction = onAction
+        self.onRefetch = onRefetch
     }
 
     /// Whether the surface content handles its own header/chrome.
@@ -49,7 +57,9 @@ public struct InlineSurfaceRouter: View {
 
     public var body: some View {
         Group {
-        if let completion = surface.completionState {
+        if case .stripped = surface.data {
+            strippedPlaceholder
+        } else if let completion = surface.completionState {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
         } else if case .confirmation(let data) = surface.data {
             // Confirmations manage their own card chrome — collapse to a chip after user acts
@@ -133,6 +143,29 @@ public struct InlineSurfaceRouter: View {
             if oldSurface.data != newSurface.data || oldSurface.actions != newSurface.actions || oldSurface.completionState != nil {
                 clickedActionLabel = nil
             }
+            // Clear loading state once data arrives after a refetch.
+            if case .stripped = oldSurface.data, newSurface.data != .stripped {
+                isRefetching = false
+            }
+        }
+    }
+
+    /// Placeholder shown while a stripped surface's data is being re-fetched.
+    @ViewBuilder
+    private var strippedPlaceholder: some View {
+        HStack(spacing: VSpacing.sm) {
+            VLoadingIndicator(size: 14, color: VColor.textSecondary)
+            Text(surface.title ?? "Loading surface…")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: 540, alignment: .leading)
+        .inlineWidgetCard(interactive: false)
+        .onAppear {
+            guard !isRefetching, let sessionId = surface.surfaceRef?.sessionId else { return }
+            isRefetching = true
+            onRefetch?(surface.id, sessionId)
         }
     }
 
