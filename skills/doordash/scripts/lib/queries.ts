@@ -8,7 +8,6 @@
  */
 
 export {
-  ADD_CART_ITEM_QUERY,
   DETAILED_CART_QUERY,
   LIST_CARTS_QUERY,
   REMOVE_CART_ITEM_QUERY,
@@ -19,7 +18,7 @@ export {
   DROPOFF_OPTIONS_QUERY,
   PAYMENT_METHODS_QUERY,
 } from "./order-queries.js";
-export { HOME_PAGE_QUERY, SEARCH_QUERY } from "./search-queries.js";
+export { HOME_PAGE_QUERY } from "./search-queries.js";
 export {
   ITEM_PAGE_QUERY,
   RETAIL_SEARCH_QUERY,

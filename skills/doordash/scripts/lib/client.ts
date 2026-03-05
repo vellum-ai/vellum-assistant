@@ -15,7 +15,6 @@ import {
   REMOVE_CART_ITEM_QUERY,
   RETAIL_SEARCH_QUERY,
   RETAIL_STORE_FEED_QUERY,
-  SEARCH_QUERY,
   STORE_PAGE_QUERY,
   UPDATE_CART_ITEM_QUERY,
 } from "./queries.js";
@@ -83,7 +82,7 @@ async function findDoordashTab(): Promise<string> {
   const res = await fetch(`${CDP_BASE}/json/list`).catch(() => null);
   if (!res?.ok) {
     throw new SessionExpiredError(
-      "Chrome CDP not available. Run `bun run scripts/doordash.ts refresh` first.",
+      "Chrome CDP not available. Run `doordash refresh` first.",
     );
   }
   const targets = (await res.json()) as Array<{
@@ -288,18 +287,8 @@ export interface SearchResult {
   storeId?: string;
 }
 
-export async function search(query: string): Promise<SearchResult[]> {
-  const data = await graphql<{ autocompleteFacetFeed: DDFacetFeed }>(
-    "autocompleteFacetFeed",
-    getQuery("autocompleteFacetFeed", SEARCH_QUERY),
-    { query, serializedBundleGlobalSearchContext: null },
-  );
-  return extractSearchResults(data.autocompleteFacetFeed);
-}
-
 /**
- * Search for items/stores using the home page feed with a filter query.
- * This works for convenience/retail stores that don't expose menus through storepageFeed.
+ * Search for stores using the home page feed with a filter query.
  */
 export async function searchItems(
   query: string,
@@ -714,11 +703,7 @@ export async function getPaymentMethods(): Promise<PaymentMethod[]> {
   const data = await graphql<{ getPaymentMethodList: DDPaymentMethod[] }>(
     "paymentMethodQuery",
     getQuery("paymentMethodQuery", PAYMENT_METHODS_QUERY),
-    {
-      country: "US",
-      usePaymentConfigQuery: true,
-      usePaymentConfigQueryV2: true,
-    },
+    {},
   );
   return (data.getPaymentMethodList ?? []).map((p) => ({
     id: String(p.id ?? ""),

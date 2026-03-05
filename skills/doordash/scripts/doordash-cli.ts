@@ -552,11 +552,12 @@ export function registerDoordashCommand(program: Command): void {
   dd.command("search")
     .description("Search for restaurants on DoorDash")
     .argument("<query>", 'Search query (e.g. "pizza", "thai food")')
-    .action(async (query: string, _opts: unknown, cmd: Command) => {
+    .option("--debug", "Print raw response to stderr")
+    .action(async (query: string, opts: { debug?: boolean }, cmd: Command) => {
       await run(cmd, async () => {
         // Use homePageFacetFeed (store search) instead of autocompleteFacetFeed
         // (which only returns autocomplete suggestions, not actual stores)
-        const results = await searchItems(query);
+        const results = await searchItems(query, { debug: opts.debug });
         return { results, count: results.length };
       });
     });
@@ -586,22 +587,6 @@ export function registerDoordashCommand(program: Command): void {
         });
       },
     );
-
-  // =========================================================================
-  // search-items — search for items across all stores (works for convenience/retail)
-  // =========================================================================
-  dd.command("search-items")
-    .description(
-      "Search for items across all stores (works for convenience/retail stores)",
-    )
-    .argument("<query>", 'Search query (e.g. "tylenol", "advil")')
-    .option("--debug", "Print raw response to stderr")
-    .action(async (query: string, opts: { debug?: boolean }, cmd: Command) => {
-      await run(cmd, async () => {
-        const results = await searchItems(query, { debug: opts.debug });
-        return { results, count: results.length };
-      });
-    });
 
   // =========================================================================
   // menu — get a store's menu
