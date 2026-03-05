@@ -424,22 +424,6 @@ export async function runDaemon(): Promise<void> {
           sourceChannel,
           sourceInterface,
         ),
-      persistAndProcessMessage: (
-        conversationId,
-        content,
-        attachmentIds,
-        options,
-        sourceChannel,
-        sourceInterface,
-      ) =>
-        server.persistAndProcessMessage(
-          conversationId,
-          content,
-          attachmentIds,
-          options,
-          sourceChannel,
-          sourceInterface,
-        ),
       interfacesDir: getInterfacesDir(),
       approvalCopyGenerator: createApprovalCopyGenerator(),
       approvalConversationGenerator: createApprovalConversationGenerator(),

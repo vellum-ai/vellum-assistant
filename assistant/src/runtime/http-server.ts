@@ -229,7 +229,6 @@ export type {
   GuardianActionCopyGenerator,
   GuardianFollowUpConversationGenerator,
   MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
   RuntimeHttpServerOptions,
   RuntimeMessageSessionOptions,
@@ -242,7 +241,6 @@ import type {
   GuardianActionCopyGenerator,
   GuardianFollowUpConversationGenerator,
   MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   SendMessageDeps,
 } from "./http-types.js";
@@ -262,7 +260,6 @@ export class RuntimeHttpServer {
   /** Legacy shared secret for pairing routes (not used for delivery or auth). */
   private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
-  private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
   private guardianActionCopyGenerator?: GuardianActionCopyGenerator;
@@ -291,7 +288,6 @@ export class RuntimeHttpServer {
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
     this.bearerToken = options.bearerToken;
     this.processMessage = options.processMessage;
-    this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
@@ -996,9 +992,7 @@ export class RuntimeHttpServer {
           handleSendMessage(
             req,
             {
-              processMessage: this.processMessage,
-              persistAndProcessMessage: this.persistAndProcessMessage,
-              sendMessageDeps: this.sendMessageDeps,
+              sendMessageDeps: this.sendMessageDeps!,
               approvalConversationGenerator: this.approvalConversationGenerator,
             },
             authContext,

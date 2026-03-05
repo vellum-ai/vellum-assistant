@@ -41,8 +41,6 @@ import { routeGuardianReply } from "../guardian-reply-router.js";
 import { httpError } from "../http-errors.js";
 import type {
   ApprovalConversationGenerator,
-  MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
   RuntimeMessagePayload,
   SendMessageDeps,
@@ -453,9 +451,7 @@ function makeHubPublisher(
 export async function handleSendMessage(
   req: Request,
   deps: {
-    processMessage?: MessageProcessor;
-    persistAndProcessMessage?: NonBlockingMessageProcessor;
-    sendMessageDeps?: SendMessageDeps;
+    sendMessageDeps: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
   },
   authContext: AuthContext,
@@ -535,9 +531,7 @@ export async function handleSendMessage(
 
   const mapping = getOrCreateConversation(conversationKey);
 
-  // Always wired in production (constructed in lifecycle.ts); type will be
-  // tightened to non-optional in a follow-up.
-  const smDeps = deps.sendMessageDeps!;
+  const smDeps = deps.sendMessageDeps;
   const session = await smDeps.getOrCreateSession(mapping.conversationId);
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.

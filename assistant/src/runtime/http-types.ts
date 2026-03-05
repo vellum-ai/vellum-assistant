@@ -133,20 +133,6 @@ export type MessageProcessor = (
 ) => Promise<{ messageId: string }>;
 
 /**
- * Non-blocking message processor that persists the user message and
- * starts the agent loop in the background, returning the messageId
- * immediately.
- */
-export type NonBlockingMessageProcessor = (
-  conversationId: string,
-  content: string,
-  attachmentIds?: string[],
-  options?: RuntimeMessageSessionOptions,
-  sourceChannel?: ChannelId,
-  sourceInterface?: InterfaceId,
-) => Promise<{ messageId: string }>;
-
-/**
  * Dependencies for the POST /v1/messages handler.
  *
  * The handler needs direct access to the session so it can check busy state,
@@ -171,8 +157,6 @@ export interface RuntimeHttpServerOptions {
   /** Legacy shared secret for pairing routes (not used for delivery or auth). */
   bearerToken?: string;
   processMessage?: MessageProcessor;
-  /** Non-blocking processor for POST /messages (persists + fires agent loop). */
-  persistAndProcessMessage?: NonBlockingMessageProcessor;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;
   /** Daemon-injected generator for approval copy (provider-backed). */
