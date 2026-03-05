@@ -911,6 +911,23 @@ async function handleInviteCodeIntercept(params: {
     // channel — if so, inform the user instead of silently ignoring it.
     const crossChannelInvite = findByInviteCodeHashAnyChannel(codeHash);
     if (crossChannelInvite) {
+      // Record inbound for dedup tracking — without this, duplicate webhook
+      // deliveries would re-enter ACL and send the mismatch reply again.
+      const dedupResult = channelDeliveryStore.recordInbound(
+        sourceChannel,
+        externalChatId,
+        externalMessageId,
+        { assistantId: canonicalAssistantId },
+      );
+
+      if (dedupResult.duplicate) {
+        return Response.json({
+          accepted: true,
+          duplicate: true,
+          eventId: dedupResult.eventId,
+        });
+      }
+
       const mismatchReply = "This invite is not valid for this channel.";
       if (replyCallbackUrl) {
         try {
@@ -930,8 +947,10 @@ async function handleInviteCodeIntercept(params: {
           );
         }
       }
+      channelDeliveryStore.markProcessed(dedupResult.eventId);
       return Response.json({
         accepted: true,
+        eventId: dedupResult.eventId,
         denied: true,
         inviteRedemption: "channel_mismatch",
       });

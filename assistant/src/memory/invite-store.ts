@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
@@ -400,6 +400,7 @@ export function findByInviteCodeHashAnyChannel(
   hash: string,
 ): IngressInvite | null {
   const db = getDb();
+  const now = Date.now();
 
   const row = db
     .select()
@@ -408,6 +409,7 @@ export function findByInviteCodeHashAnyChannel(
       and(
         eq(assistantIngressInvites.inviteCodeHash, hash),
         eq(assistantIngressInvites.status, "active"),
+        gt(assistantIngressInvites.expiresAt, now),
       ),
     )
     .get();
