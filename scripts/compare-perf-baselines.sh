@@ -28,11 +28,14 @@ threshold        = float(sys.argv[3])
 baseline_dir     = sys.argv[4]
 update_baseline  = sys.argv[5].lower() == "true"
 
-# Parse XCTest timing lines. Format:
+# Parse XCTest timing lines. Format (macOS XCTest via swift test):
 #   Test Case '-[Suite.ClassName testMethodName]' measured [Time, seconds] average: N.NNN, ...
-# The regex captures the method name (last whitespace-separated token before ']').
+#
+# After the closing ']' the output includes a single quote "'" before the
+# whitespace and "measured". The regex accounts for that trailing quote so
+# the pattern matches real swift-test output rather than silently finding nothing.
 pattern = re.compile(
-    r"-\[(?:[^\]]*\s+)?(\w+)\]\s+measured \[Time, seconds\] average:\s+([0-9.]+)"
+    r"-\[(?:[^\]]*\s+)?(\w+)\]['\"]*\s+measured \[Time, seconds\] average:\s+([0-9.]+)"
 )
 
 results = {}

@@ -242,17 +242,29 @@ private struct ReportProblemSheet: View {
             let event = Event(level: .info)
             event.message = SentryMessage(formatted: message)
             event.tags = ["source": "manual_report", "app_version": appVersion]
-            let wasDisabled = !SentrySDK.isEnabled
-            if wasDisabled {
-                SentrySDK.start { options in
-                    options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
-                    options.sendDefaultPii = false
+            // Use the shared serial queue to serialise SDK lifecycle changes and
+            // to ensure the user's crash-reporting opt-out is honoured — automatic
+            // capture is disabled when Sentry is temporarily restarted so only
+            // this explicit capture(event:) call sends data.
+            MetricKitManager.sentrySerialQueue.sync {
+                let wasDisabled = !SentrySDK.isEnabled
+                if wasDisabled {
+                    SentrySDK.start { options in
+                        options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                        options.sendDefaultPii = false
+                        // Disable automatic capture — only the explicit capture(event:)
+                        // below should send data even if the SDK is restarted.
+                        options.enableCrashHandler = false
+                        options.enableAutoSessionTracking = false
+                        options.enableOutOfMemoryTracking = false
+                        options.enableWatchdogTerminationTracking = false
+                    }
                 }
-            }
-            SentrySDK.capture(event: event)
-            if wasDisabled {
-                SentrySDK.flush(timeout: 5)
-                SentrySDK.close()
+                SentrySDK.capture(event: event)
+                if wasDisabled {
+                    SentrySDK.flush(timeout: 5)
+                    SentrySDK.close()
+                }
             }
             await MainActor.run {
                 isSending = false
