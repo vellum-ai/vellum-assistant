@@ -1257,7 +1257,7 @@ public final class SettingsStore: ObservableObject {
         let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
             .flatMap(Int.init) ?? 7830
         let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        let bearerToken = readHttpToken()
+        let bearerToken = ActorTokenManager.getToken() ?? readHttpToken()
         return (baseURL, bearerToken)
     }
 
