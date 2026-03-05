@@ -1412,10 +1412,17 @@ public final class ChatViewModel: ObservableObject {
         refetchTasks[surfaceId] = Task { [weak self] in
             defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
             guard let self else { return }
-            let data = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId)
+            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId)
             for msgIndex in self.messages.indices {
                 if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
-                    self.messages[msgIndex].inlineSurfaces[surfIndex].data = data ?? .strippedFailed
+                    if let data = result.data {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = data
+                    } else if result.retriesExhausted {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = .strippedFailed
+                    }
+                    // When data is nil but retries are not exhausted, leave the
+                    // surface in .stripped state so a future onAppear re-triggers
+                    // the fetch attempt.
                     return
                 }
             }

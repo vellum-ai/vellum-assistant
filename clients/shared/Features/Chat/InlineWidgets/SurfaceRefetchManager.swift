@@ -20,8 +20,15 @@ public actor SurfaceRefetchManager {
     /// FIFO queue of surfaces awaiting fetch.
     private var queue: [(surfaceId: String, sessionId: String)] = []
 
+    /// Result returned by `enqueue`, allowing callers to distinguish between
+    /// a transient failure (retry later) and a permanent failure (retries exhausted).
+    public struct RefetchResult: Sendable {
+        public let data: SurfaceData?
+        public let retriesExhausted: Bool
+    }
+
     /// Continuations for callers waiting on a specific surface's result.
-    private var waiters: [String: [CheckedContinuation<SurfaceData?, Never>]] = [:]
+    private var waiters: [String: [CheckedContinuation<RefetchResult, Never>]] = []
 
     /// Whether the serial processing loop is currently active.
     private var isProcessing = false
@@ -34,15 +41,16 @@ public actor SurfaceRefetchManager {
     }
 
     /// Enqueue a surface for re-fetch. Suspends the caller until the fetch
-    /// completes and returns the resulting `SurfaceData`, or `nil` on failure.
-    /// Duplicate requests for the same surface ID are coalesced so only one
-    /// network request is made. Returns `nil` immediately if the surface has
-    /// exceeded the maximum retry count.
+    /// completes and returns a `RefetchResult` indicating success/failure and
+    /// whether the maximum retry count has been reached. Duplicate requests
+    /// for the same surface ID are coalesced so only one network request is
+    /// made. Returns immediately with `retriesExhausted: true` if the surface
+    /// has already exceeded the maximum retry count.
     @discardableResult
-    public func enqueue(surfaceId: String, sessionId: String) async -> SurfaceData? {
+    public func enqueue(surfaceId: String, sessionId: String) async -> RefetchResult {
         if (failureCount[surfaceId] ?? 0) >= Self.maxRetries {
             log.info("Skipping refetch for \(surfaceId): exceeded \(Self.maxRetries) retries")
-            return nil
+            return RefetchResult(data: nil, retriesExhausted: true)
         }
 
         return await withCheckedContinuation { continuation in
@@ -61,10 +69,10 @@ public actor SurfaceRefetchManager {
         }
     }
 
-    /// Remove a pending surface from the queue and resume its waiters with `nil`.
+    /// Remove a pending surface from the queue and resume its waiters with a cancelled result.
     public func cancel(surfaceId: String) {
         queue.removeAll(where: { $0.surfaceId == surfaceId })
-        resumeWaiters(for: surfaceId, with: nil)
+        resumeWaiters(for: surfaceId, with: RefetchResult(data: nil, retriesExhausted: false))
     }
 
     // MARK: - Internal
@@ -82,15 +90,16 @@ public actor SurfaceRefetchManager {
             } else {
                 failureCount[next.surfaceId, default: 0] += 1
             }
-            resumeWaiters(for: next.surfaceId, with: data)
+            let exhausted = (failureCount[next.surfaceId] ?? 0) >= Self.maxRetries
+            resumeWaiters(for: next.surfaceId, with: RefetchResult(data: data, retriesExhausted: exhausted))
         }
     }
 
     /// Resume all continuations waiting for a given surface ID.
-    private func resumeWaiters(for surfaceId: String, with data: SurfaceData?) {
+    private func resumeWaiters(for surfaceId: String, with result: RefetchResult) {
         guard let continuations = waiters.removeValue(forKey: surfaceId) else { return }
         for continuation in continuations {
-            continuation.resume(returning: data)
+            continuation.resume(returning: result)
         }
     }
 }

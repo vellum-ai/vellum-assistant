@@ -57,6 +57,8 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
     var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Pagination
@@ -373,6 +375,7 @@ struct MessageListView: View {
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
                             onRehydrateMessage: onRehydrateMessage,
+                            onSurfaceRefetch: onSurfaceRefetch,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onModelPickerSelect: onModelPickerSelect,
@@ -822,6 +825,8 @@ private struct MessageCellView: View {
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
     var onRehydrateMessage: ((UUID) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     var onModelPickerSelect: ((UUID, String) -> Void)?
@@ -943,6 +948,7 @@ private struct MessageCellView: View {
                 },
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                 onReportMessage: onReportMessage,
+                onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
                 resolveHttpPort: resolveHttpPort,
