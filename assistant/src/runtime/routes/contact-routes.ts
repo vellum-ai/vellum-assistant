@@ -727,6 +727,16 @@ export function contactRouteDefinitions(): RouteDefinition[] {
           authContext.assistantId,
         ),
     },
+  ];
+}
+
+/**
+ * Catch-all `contacts/:id` route. Must be registered AFTER any routes that
+ * share the `contacts/` prefix (e.g. `inviteRouteDefinitions()`) to avoid
+ * the `:id` parameter matching literal sub-paths like "invites".
+ */
+export function contactCatchAllRouteDefinitions(): RouteDefinition[] {
+  return [
     {
       endpoint: "contacts/:id",
       method: "GET",

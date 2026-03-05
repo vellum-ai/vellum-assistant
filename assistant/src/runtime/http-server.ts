@@ -102,7 +102,10 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
-import { contactRouteDefinitions } from "./routes/contact-routes.js";
+import {
+  contactCatchAllRouteDefinitions,
+  contactRouteDefinitions,
+} from "./routes/contact-routes.js";
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { debugRouteDefinitions } from "./routes/debug-routes.js";
@@ -847,9 +850,10 @@ export class RuntimeHttpServer {
       ...surfaceActionRouteDefinitions({ findSession: this.findSession }),
       ...guardianActionRouteDefinitions(),
 
-      // Invites must precede contacts/:id to avoid shadowing
-      ...inviteRouteDefinitions(),
       ...contactRouteDefinitions(),
+      ...inviteRouteDefinitions(),
+      // contacts/:id catch-all must follow invite routes to avoid shadowing
+      ...contactCatchAllRouteDefinitions(),
 
       ...integrationRouteDefinitions(),
       ...twilioRouteDefinitions(),
