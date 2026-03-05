@@ -11,6 +11,7 @@ final class ContactsViewModel: ObservableObject {
 
     @Published var contacts: [ContactPayload] = []
     @Published var isLoading = false
+    @Published var isCreatingContact = false
     @Published var searchQuery = ""
 
     // MARK: - Dependencies
