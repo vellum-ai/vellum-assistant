@@ -671,8 +671,15 @@ export class WorkspaceGitService {
       // This keeps user-tracked files under data/ visible to git.
       const lines = content.split("\n");
       const hadLegacyDataRule = lines.some((line) => line.trim() === "data/");
-      if (hadLegacyDataRule) {
-        content = lines.filter((line) => line.trim() !== "data/").join("\n");
+      const hadLegacyHttpToken = lines.some(
+        (line) => line.trim() === "http-token",
+      );
+      if (hadLegacyDataRule || hadLegacyHttpToken) {
+        content = lines
+          .filter(
+            (line) => line.trim() !== "data/" && line.trim() !== "http-token",
+          )
+          .join("\n");
         if (!content.endsWith("\n")) {
           content += "\n";
         }
@@ -681,7 +688,7 @@ export class WorkspaceGitService {
       const missingRules = WORKSPACE_GITIGNORE_RULES.filter(
         (rule) => !content.includes(rule),
       );
-      if (hadLegacyDataRule || missingRules.length > 0) {
+      if (hadLegacyDataRule || hadLegacyHttpToken || missingRules.length > 0) {
         let updated = content;
         if (missingRules.length > 0) {
           if (!updated.endsWith("\n")) {
