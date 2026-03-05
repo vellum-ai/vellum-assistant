@@ -134,5 +134,10 @@ private final class NavigationDelegate: NSObject, WKNavigationDelegate {
         continuation?.resume(returning: false)
         continuation = nil
     }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        continuation?.resume(returning: false)
+        continuation = nil
+    }
 }
 #endif
