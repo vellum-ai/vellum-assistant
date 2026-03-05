@@ -24,7 +24,6 @@ import {
   placeOrder,
   removeFromCart,
   retailSearch,
-  search,
   searchItems,
   SessionExpiredError,
   viewCart,
@@ -555,7 +554,9 @@ export function registerDoordashCommand(program: Command): void {
     .argument("<query>", 'Search query (e.g. "pizza", "thai food")')
     .action(async (query: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
-        const results = await search(query);
+        // Use homePageFacetFeed (store search) instead of autocompleteFacetFeed
+        // (which only returns autocomplete suggestions, not actual stores)
+        const results = await searchItems(query);
         return { results, count: results.length };
       });
     });

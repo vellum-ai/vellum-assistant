@@ -839,14 +839,31 @@ function extractSearchResults(
         try {
           const clickData = JSON.parse(events.click.data) as DDSearchClickData;
           storeId = String(clickData.store_id ?? clickData.storeId ?? "");
+          // Click data may use {domain, uri} format instead of {store_id}
+          // e.g. uri: "convenience/store/30924236/?pickup=false"
+          if (!storeId && clickData.uri) {
+            const uriMatch = String(clickData.uri).match(/store\/(\d+)/);
+            if (uriMatch) storeId = uriMatch[1];
+          }
         } catch {
           /* ignore */
         }
       }
-      // Fall back to parsing from the item ID (format: "row.search-result:STORE_ID:INDEX")
+      // Fall back to parsing store ID from custom JSON (has store_id field)
+      if (!storeId && item.custom) {
+        try {
+          const customData = JSON.parse(String(item.custom)) as {
+            store_id?: string;
+          };
+          if (customData.store_id) storeId = String(customData.store_id);
+        } catch {
+          /* ignore */
+        }
+      }
+      // Fall back to parsing from the item ID (format: "row.store:STORE_ID:INDEX" or "row.search-result:STORE_ID:INDEX")
       if (!storeId) {
         const idStr = String(item.id ?? "");
-        const match = idStr.match(/search-result:(\d+)/);
+        const match = idStr.match(/(?:store|search-result):(\d+)/);
         if (match) storeId = match[1];
       }
       if (text?.title) {

@@ -72,6 +72,7 @@ export interface DDFacetItem {
   images?: DDImages;
   events?: DDEvents;
   childrenMap?: DDFacetItem[];
+  custom?: string;
 }
 
 export interface DDFeedSection {
@@ -93,6 +94,8 @@ export interface DDFacetFeed {
 export interface DDSearchClickData {
   store_id?: string | number;
   storeId?: string | number;
+  domain?: string;
+  uri?: string;
 }
 
 // ---------------------------------------------------------------------------
