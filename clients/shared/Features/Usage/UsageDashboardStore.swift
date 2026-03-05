@@ -58,6 +58,21 @@ public enum UsageGroupByDimension: String, CaseIterable, Sendable {
     case model
 }
 
+// MARK: - Formatting Helpers
+
+/// Formatting helpers for usage dashboard values, shared across platforms.
+public enum UsageFormatting {
+    public static func formatCost(_ usd: Double) -> String {
+        String(format: "$%.4f", usd)
+    }
+
+    public static func formatCount(_ n: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+}
+
 // MARK: - UsageDashboardStore
 
 /// Shared store that owns the selected time range, fetches usage data from the

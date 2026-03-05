@@ -161,24 +161,26 @@ final class UsageDashboardViewTests: XCTestCase {
         let _ = view.body
     }
 
+    #endif
+
+    // MARK: - Formatting Helpers (platform-independent)
+
     func testFormatCostProducesDollarString() {
-        let result = UsageDashboardView.formatCost(1.2345)
+        let result = UsageFormatting.formatCost(1.2345)
         XCTAssertEqual(result, "$1.2345")
     }
 
     func testFormatCostZero() {
-        let result = UsageDashboardView.formatCost(0)
+        let result = UsageFormatting.formatCost(0)
         XCTAssertEqual(result, "$0.0000")
     }
 
     func testFormatCountUsesDecimalGrouping() {
-        let result = UsageDashboardView.formatCount(1_000_000)
+        let result = UsageFormatting.formatCount(1_000_000)
         // NumberFormatter with .decimal style uses locale-specific grouping.
         XCTAssertTrue(result.contains("1"), "Formatted count should contain the digit 1")
         XCTAssertTrue(result.count > 1, "Formatted count should have grouping separators or multiple digits")
     }
-
-    #endif
 }
 
 // MARK: - Stub Client

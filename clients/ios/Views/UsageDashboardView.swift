@@ -63,11 +63,11 @@ struct UsageDashboardView: View {
                     Spacer()
                 }
             case .loaded(let totals):
-                LabeledContent("Estimated Cost", value: Self.formatCost(totals.totalEstimatedCostUsd))
-                LabeledContent("Input Tokens", value: Self.formatCount(totals.totalInputTokens))
-                LabeledContent("Output Tokens", value: Self.formatCount(totals.totalOutputTokens))
-                LabeledContent("Cache Creation", value: Self.formatCount(totals.totalCacheCreationTokens))
-                LabeledContent("Cache Read", value: Self.formatCount(totals.totalCacheReadTokens))
+                LabeledContent("Estimated Cost", value: UsageFormatting.formatCost(totals.totalEstimatedCostUsd))
+                LabeledContent("Input Tokens", value: UsageFormatting.formatCount(totals.totalInputTokens))
+                LabeledContent("Output Tokens", value: UsageFormatting.formatCount(totals.totalOutputTokens))
+                LabeledContent("Cache Creation", value: UsageFormatting.formatCount(totals.totalCacheCreationTokens))
+                LabeledContent("Cache Read", value: UsageFormatting.formatCount(totals.totalCacheReadTokens))
                 LabeledContent("Events", value: "\(totals.eventCount)")
             case .failed(let message):
                 Text(message)
@@ -98,7 +98,7 @@ struct UsageDashboardView: View {
                             Text(bucket.date)
                                 .font(.footnote.monospaced())
                             Spacer()
-                            Text(Self.formatCost(bucket.totalEstimatedCostUsd))
+                            Text(UsageFormatting.formatCost(bucket.totalEstimatedCostUsd))
                                 .font(.footnote)
                             Text("\(bucket.eventCount) events")
                                 .font(.caption)
@@ -147,13 +147,13 @@ struct UsageDashboardView: View {
                             Text(entry.group)
                                 .font(.subheadline.weight(.medium))
                             HStack {
-                                Text(Self.formatCost(entry.totalEstimatedCostUsd))
+                                Text(UsageFormatting.formatCost(entry.totalEstimatedCostUsd))
                                     .font(.footnote)
                                 Text("\(entry.eventCount) events")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 Spacer()
-                                Text("\(Self.formatCount(entry.totalInputTokens)) in / \(Self.formatCount(entry.totalOutputTokens)) out")
+                                Text("\(UsageFormatting.formatCount(entry.totalInputTokens)) in / \(UsageFormatting.formatCount(entry.totalOutputTokens)) out")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -169,17 +169,6 @@ struct UsageDashboardView: View {
         }
     }
 
-    // MARK: - Formatting Helpers
-
-    static func formatCost(_ usd: Double) -> String {
-        String(format: "$%.4f", usd)
-    }
-
-    static func formatCount(_ n: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
-    }
 }
 
 #Preview {

@@ -289,7 +289,7 @@ struct UsageDashboardPanel: View {
 
     private func formatCost(_ usd: Double) -> String {
         if usd < 0.01 {
-            return String(format: "$%.4f", usd)
+            return UsageFormatting.formatCost(usd)
         }
         return String(format: "$%.2f", usd)
     }
@@ -305,7 +305,7 @@ struct UsageDashboardPanel: View {
     }
 
     private func formatCount(_ count: Int) -> String {
-        "\(count)"
+        UsageFormatting.formatCount(count)
     }
 }
 
