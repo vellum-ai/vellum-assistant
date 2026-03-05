@@ -14,7 +14,7 @@ Bun + TypeScript monorepo with multiple packages:
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: All imports use `.js` extensions (NodeNext module resolution).
-- **Package manager**: Use `bun install` for dependencies, `bun test` for tests, `bunx tsc --noEmit` for type-checking.
+- **Package manager**: Use `bun install` for dependencies, `bun test <file>` for tests (always scope to specific files), `bunx tsc --noEmit` for type-checking.
 - **Install dependencies**: `cd assistant && bun install` (each package has its own `bun.lock`).
 
 ## Development
