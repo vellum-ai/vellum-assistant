@@ -85,6 +85,15 @@ struct InlineAppCreatedCard: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             previewImage = preview.previewImage
+            // Fallback request for history-loaded surfaces that didn't go
+            // through the uiSurfaceShow IPC handler (app restart, reconnect).
+            if previewImage == nil, let appId = appId {
+                NotificationCenter.default.post(
+                    name: Notification.Name("MainWindow.requestAppPreview"),
+                    object: nil,
+                    userInfo: ["appId": appId]
+                )
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("MainWindow.appPreviewImageCaptured"))) { notification in
             guard let notifAppId = notification.userInfo?["appId"] as? String,
