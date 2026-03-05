@@ -1357,8 +1357,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         request.httpMethod = method
         request.timeoutInterval = timeout
 
-        let token = tokenOverride
-            ?? ActorTokenManager.getToken()
+        let token = tokenOverride.flatMap { $0.isEmpty ? nil : $0 }
+            ?? ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 }
             ?? readHttpToken()
         if let token, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -1389,7 +1389,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             bearerToken = httpTransport.bearerToken
         } else if let gatewayBaseURL {
             baseURL = gatewayBaseURL
-            bearerToken = ActorTokenManager.getToken() ?? readHttpToken()
+            bearerToken = ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 } ?? readHttpToken()
         } else {
             return nil
         }
