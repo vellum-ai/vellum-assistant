@@ -263,6 +263,11 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/shared:DELETE", scopes: ["settings.write"] },
   { endpoint: "apps/shared/metadata", scopes: ["settings.read"] },
 
+  // Usage / cost telemetry
+  { endpoint: "usage/totals", scopes: ["settings.read"] },
+  { endpoint: "usage/daily", scopes: ["settings.read"] },
+  { endpoint: "usage/breakdown", scopes: ["settings.read"] },
+
   // Debug
   { endpoint: "debug", scopes: ["settings.read"] },
 
