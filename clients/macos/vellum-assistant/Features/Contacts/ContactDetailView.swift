@@ -13,8 +13,10 @@ struct ContactDetailView: View {
     @State var currentContact: ContactPayload?
     @State private var actionInProgress: String?
     @State var errorMessage: String?
-    @State private var isEditingName = false
+    @State private var isEditing = false
     @State private var editedName = ""
+    @State private var editedNotes = ""
+    @State private var isSaving = false
     @State private var isHoveringHeader = false
     @State private var verificationInProgress: String?
     @State private var verificationSuccessChannelId: String?
@@ -31,10 +33,6 @@ struct ContactDetailView: View {
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
     @State private var channelReadiness: [String: Bool] = [:]
-
-    // Metadata editing state (accessed from ContactDetailView+EditableMetadata.swift)
-    @State var isEditingNotes = false
-    @State var editedNotes = ""
 
     var displayContact: ContactPayload {
         currentContact ?? contact
@@ -58,44 +56,41 @@ struct ContactDetailView: View {
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            if isEditingName {
-                HStack(spacing: VSpacing.sm) {
+            HStack {
+                if isEditing {
                     TextField("Display name", text: $editedName)
                         .font(VFont.largeTitle)
                         .foregroundColor(VColor.textPrimary)
                         .textFieldStyle(.plain)
-                        .onSubmit { Task { await saveDisplayName() } }
-
-                    Button {
-                        Task { await saveDisplayName() }
-                    } label: {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Save name")
-
-                    Button {
-                        isEditingName = false
-                    } label: {
-                        Image(systemName: "xmark")
-                            .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .accessibilityLabel("Cancel editing")
-                }
-            } else {
-                HStack(spacing: VSpacing.sm) {
+                        .onSubmit { Task { await saveCardEdits() } }
+                } else {
                     Text(displayContact.displayName)
                         .font(VFont.largeTitle)
                         .foregroundColor(VColor.textPrimary)
+                }
 
+                Spacer()
+
+                if isEditing {
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Save", style: .primary, size: .medium, isDisabled: isSaving) {
+                            Task { await saveCardEdits() }
+                        }
+                        Button {
+                            isEditing = false
+                        } label: {
+                            Text("Cancel")
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.escape, modifiers: [])
+                    }
+                } else {
                     Button {
                         editedName = displayContact.displayName
-                        isEditingName = true
+                        editedNotes = displayContact.notes ?? ""
+                        isEditing = true
                     } label: {
                         Image(systemName: "pencil")
                             .foregroundColor(VColor.textSecondary)
@@ -104,7 +99,7 @@ struct ContactDetailView: View {
                     .buttonStyle(.plain)
                     .opacity(isHoveringHeader ? 1 : 0)
                     .animation(VAnimation.fast, value: isHoveringHeader)
-                    .accessibilityLabel("Edit display name")
+                    .accessibilityLabel("Edit contact")
                 }
             }
 
@@ -134,7 +129,7 @@ struct ContactDetailView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
 
-                if isEditingNotes {
+                if isEditing {
                     TextEditor(text: $editedNotes)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
@@ -685,28 +680,28 @@ struct ContactDetailView: View {
 
     // MARK: - Actions
 
-    private func saveDisplayName() async {
-        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        errorMessage = nil
+    private func saveCardEdits() async {
+        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        let trimmedNotes = editedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        isSaving = true
+        errorMessage = nil
         do {
-            guard let daemonClient else {
-                errorMessage = "Failed to update name"
-                return
-            }
-            if let updated = try await daemonClient.updateContact(
+            if let updated = try await daemonClient?.updateContact(
                 contactId: displayContact.id,
-                displayName: trimmed
+                displayName: trimmedName,
+                notes: trimmedNotes.isEmpty ? nil : trimmedNotes
             ) {
                 currentContact = updated
-                isEditingName = false
+                isEditing = false
             } else {
-                errorMessage = "Failed to update name"
+                errorMessage = "Failed to save changes"
             }
         } catch {
-            errorMessage = "Failed to update name: \(error.localizedDescription)"
+            errorMessage = "Failed to save: \(error.localizedDescription)"
         }
+        isSaving = false
     }
 
     private func initiateVerification(for channel: ContactChannelPayload) {
