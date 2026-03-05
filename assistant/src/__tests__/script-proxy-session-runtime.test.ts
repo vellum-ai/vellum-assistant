@@ -1,7 +1,12 @@
 import { createServer, request as httpRequest, type Server } from "node:http";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { createSession, startSession, stopAllSessions, stopSession } from '../tools/network/script-proxy/session-manager.js';
+import {
+  createSession,
+  startSession,
+  stopAllSessions,
+  stopSession,
+} from "../tools/network/script-proxy/session-manager.js";
 
 let upstreamServer: Server | null = null;
 
