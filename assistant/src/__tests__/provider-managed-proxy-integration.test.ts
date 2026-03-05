@@ -3,29 +3,23 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
 
 // ---------------------------------------------------------------------------
-// Mock managed-proxy context so we can control managed fallback prereqs
+// Mock the underlying dependencies that the real context module relies on.
+// This avoids mocking the context module directly and prevents mock conflicts
+// with context.test.ts (which also mocks these same underlying deps).
 // ---------------------------------------------------------------------------
-let mockManagedEnabled = false;
 let mockPlatformBaseUrl = "";
-let mockAssistantApiKey = "";
+let mockAssistantApiKey: string | null = null;
 
-mock.module("../providers/managed-proxy/context.js", () => ({
-  resolveManagedProxyContext: () => ({
-    enabled: mockManagedEnabled,
-    platformBaseUrl: mockPlatformBaseUrl,
-    assistantApiKey: mockAssistantApiKey,
-  }),
-  hasManagedProxyPrereqs: () => mockManagedEnabled,
-  buildManagedBaseUrl: (provider: string) => {
-    if (!mockManagedEnabled) return undefined;
-    const meta = MANAGED_PROVIDER_META[provider];
-    if (!meta?.managed || !meta.proxyPath) return undefined;
-    return `${mockPlatformBaseUrl}${meta.proxyPath}`;
-  },
-  managedFallbackEnabledFor: (provider: string) => {
-    if (!mockManagedEnabled) return false;
-    const meta = MANAGED_PROVIDER_META[provider];
-    return !!meta?.managed;
+mock.module("../config/env.js", () => ({
+  getPlatformBaseUrl: () => mockPlatformBaseUrl,
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKey: (key: string) => {
+    if (key === "credential:vellum:assistant_api_key") {
+      return mockAssistantApiKey;
+    }
+    return null;
   },
 }));
 
@@ -47,15 +41,13 @@ const MANAGED_PROVIDERS: string[] = [
 ];
 
 function enableManagedProxy() {
-  mockManagedEnabled = true;
   mockPlatformBaseUrl = PLATFORM_BASE;
   mockAssistantApiKey = MANAGED_API_KEY;
 }
 
 function disableManagedProxy() {
-  mockManagedEnabled = false;
   mockPlatformBaseUrl = "";
-  mockAssistantApiKey = "";
+  mockAssistantApiKey = null;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Mock logger to suppress output
-mock.module("../../util/logger.js", () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -12,11 +12,11 @@ mock.module("../../util/logger.js", () => ({
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey: string | null = null;
 
-mock.module("../../config/env.js", () => ({
+mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
 }));
 
-mock.module("../../security/secure-keys.js", () => ({
+mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => {
     if (key === "credential:vellum:assistant_api_key") {
       return mockAssistantApiKey;
@@ -30,7 +30,7 @@ import {
   hasManagedProxyPrereqs,
   managedFallbackEnabledFor,
   resolveManagedProxyContext,
-} from "./context.js";
+} from "../providers/managed-proxy/context.js";
 
 describe("resolveManagedProxyContext", () => {
   beforeEach(() => {
