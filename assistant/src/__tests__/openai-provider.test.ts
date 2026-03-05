@@ -858,13 +858,13 @@ describe("managed proxy initialization", () => {
 
   test("OpenAIProvider initializes with managed proxy base URL", () => {
     const managed = new OpenAIProvider("ast-key-123", "gpt-4o", {
-      baseURL: "https://platform.example.com/v1/proxy/openai",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/openai",
     });
 
     expect(managed.name).toBe("openai");
     expect(lastConstructorOptions).toEqual({
       apiKey: "ast-key-123",
-      baseURL: "https://platform.example.com/v1/proxy/openai",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/openai",
     });
   });
 
@@ -882,14 +882,14 @@ describe("managed proxy initialization", () => {
       "ast-key-123",
       "accounts/fireworks/models/llama-v3p1-70b-instruct",
       {
-        baseURL: "https://platform.example.com/v1/proxy/fireworks",
+        baseURL: "https://platform.example.com/v1/runtime-proxy/fireworks",
       },
     );
 
     expect(managed.name).toBe("fireworks");
     expect(lastConstructorOptions).toEqual({
       apiKey: "ast-key-123",
-      baseURL: "https://platform.example.com/v1/proxy/fireworks",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/fireworks",
     });
   });
 
@@ -907,13 +907,13 @@ describe("managed proxy initialization", () => {
 
   test("OpenRouterProvider initializes with managed proxy base URL", () => {
     const managed = new OpenRouterProvider("ast-key-123", "openai/gpt-4o", {
-      baseURL: "https://platform.example.com/v1/proxy/openrouter",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter",
     });
 
     expect(managed.name).toBe("openrouter");
     expect(lastConstructorOptions).toEqual({
       apiKey: "ast-key-123",
-      baseURL: "https://platform.example.com/v1/proxy/openrouter",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter",
     });
   });
 
