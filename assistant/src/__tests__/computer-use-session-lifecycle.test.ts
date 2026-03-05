@@ -8,7 +8,7 @@ mock.module("../config/loader.js", () => ({
     ui: {},
 
     provider: "mock-provider",
-    permissions: { mode: "legacy" },
+    permissions: { mode: "workspace" },
     apiKeys: {},
     sandbox: { enabled: false },
     timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },

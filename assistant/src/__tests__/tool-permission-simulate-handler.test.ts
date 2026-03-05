@@ -39,7 +39,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const testConfig: Record<string, any> = {
-  permissions: { mode: "legacy" as "legacy" | "strict" | "workspace" },
+  permissions: { mode: "workspace" as "strict" | "workspace" },
   skills: { load: { extraDirs: [] as string[] } },
   sandbox: { enabled: true },
 };
@@ -111,7 +111,7 @@ describe("tool_permission_simulate handler", () => {
   beforeEach(() => {
     clearAllRules();
     clearCache();
-    testConfig.permissions.mode = "legacy";
+    testConfig.permissions.mode = "workspace";
   });
 
   test("validation: returns error when toolName is missing", async () => {

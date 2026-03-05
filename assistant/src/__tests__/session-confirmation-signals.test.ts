@@ -85,7 +85,7 @@ mock.module("../config/loader.js", () => ({
     apiKeys: {},
     skills: { entries: {}, allowBundled: true },
     memory: { retrieval: { injectionStrategy: "inline" } },
-    permissions: { mode: "legacy" },
+    permissions: { mode: "workspace" },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
