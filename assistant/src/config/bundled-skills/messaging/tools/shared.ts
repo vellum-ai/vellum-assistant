@@ -7,6 +7,8 @@ import {
   type RequestOptions as HttpsRequestOptions,
 } from "node:https";
 
+import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
+import { getConfig } from "../../../../config/loader.js";
 import type { MessagingProvider } from "../../../../messaging/provider.js";
 import {
   getConnectedProviders,
@@ -14,6 +16,16 @@ import {
 } from "../../../../messaging/registry.js";
 import { withValidToken } from "../../../../security/token-manager.js";
 import type { ToolExecutionResult } from "../../../../tools/types.js";
+
+/**
+ * Per-platform feature flag keys. Platforms not listed here are allowed
+ * by default (undeclared keys resolve to `true`).
+ */
+const PLATFORM_FLAG_KEYS: Record<string, string> = {
+  gmail: "feature_flags.messaging.gmail.enabled",
+  telegram: "feature_flags.messaging.telegram.enabled",
+  sms: "feature_flags.sms.enabled",
+};
 
 export function ok(content: string): ToolExecutionResult {
   return { content, isError: false };
@@ -30,8 +42,15 @@ export function err(message: string): ToolExecutionResult {
  * Otherwise, throw asking the user to specify.
  */
 export function resolveProvider(platformInput?: string): MessagingProvider {
-  if (platformInput) return getMessagingProvider(platformInput);
+  const provider = platformInput
+    ? getMessagingProvider(platformInput)
+    : autoSelectProvider();
 
+  assertPlatformEnabled(provider.id);
+  return provider;
+}
+
+function autoSelectProvider(): MessagingProvider {
   const connected = getConnectedProviders();
   if (connected.length === 1) return connected[0];
   if (connected.length === 0) {
@@ -44,6 +63,16 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
   throw new Error(
     `Multiple platforms connected (${names}). Specify platform parameter.`,
   );
+}
+
+function assertPlatformEnabled(platformId: string): void {
+  const flagKey = PLATFORM_FLAG_KEYS[platformId];
+  if (!flagKey) return; // no flag declared → allowed
+  if (!isAssistantFeatureFlagEnabled(flagKey, getConfig())) {
+    throw new Error(
+      `The ${platformId} platform is not enabled. Enable it in Settings > Features.`,
+    );
+  }
 }
 
 /**
