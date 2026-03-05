@@ -692,7 +692,7 @@ struct ContactDetailView: View {
             if let updated = try await daemonClient?.updateContact(
                 contactId: displayContact.id,
                 displayName: trimmedName,
-                notes: trimmedNotes.isEmpty ? nil : trimmedNotes
+                notes: trimmedNotes
             ) {
                 currentContact = updated
                 isEditing = false
