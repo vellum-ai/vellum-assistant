@@ -542,6 +542,221 @@ describe("whatsapp-webhook", () => {
     expect(handleInboundMock).not.toHaveBeenCalled();
   });
 
+  it("deduplicates messages with the same WhatsApp message ID", async () => {
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-dedup-1",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "first delivery",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-dedup-1",
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-dedup-1",
+            messageId: "wamid-dedup-1",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    // First delivery succeeds
+    const res1 = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+    expect(res1.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+
+    // Second delivery of same message ID is silently ignored
+    const res2 = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+    expect(res2.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1); // still 1
+  });
+
+  it("marks each message as read even for media-only messages", async () => {
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+
+    uploadAttachmentMock.mockImplementation(() =>
+      Promise.resolve({ id: "att-read-1" }),
+    );
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-read-media",
+        mediaType: "image",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-read-media",
+            attachments: [
+              {
+                type: "image",
+                fileId: "media-read-1",
+                mimeType: "image/jpeg",
+                fileSize: 1024,
+              },
+            ],
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-read-media",
+            messageId: "wamid-read-media",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(markWhatsAppMessageReadMock).toHaveBeenCalledWith(
+      baseConfig,
+      "wamid-read-media",
+    );
+  });
+
+  it("handles multiple attachments in a single message", async () => {
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+
+    let uploadCount = 0;
+    uploadAttachmentMock.mockImplementation(() => {
+      uploadCount++;
+      return Promise.resolve({ id: `att-multi-${uploadCount}` });
+    });
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-multi-attach",
+        mediaType: "document",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "here are some files",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-multi-attach",
+            attachments: [
+              {
+                type: "image",
+                fileId: "media-multi-1",
+                mimeType: "image/jpeg",
+                fileSize: 1024,
+              },
+              {
+                type: "document",
+                fileId: "media-multi-2",
+                mimeType: "application/pdf",
+                fileSize: 2048,
+              },
+            ],
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-multi-attach",
+            messageId: "wamid-multi-attach",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(downloadWhatsAppFileMock).toHaveBeenCalledTimes(2);
+    expect(uploadAttachmentMock).toHaveBeenCalledTimes(2);
+
+    const [, , options] = handleInboundMock.mock.calls[0] as unknown as [
+      GatewayConfig,
+      Record<string, unknown>,
+      { attachmentIds?: string[] },
+    ];
+    expect(options.attachmentIds).toEqual(["att-multi-1", "att-multi-2"]);
+  });
+
+  it("unreserves dedup cache on transient failure so retries can succeed", async () => {
+    const { handler, dedupCache } = createWhatsAppWebhookHandler(baseConfig);
+
+    downloadWhatsAppFileMock.mockImplementation(() => {
+      throw new Error("Transient network error");
+    });
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => [
+      {
+        whatsappMessageId: "wamid-retry-ok",
+        mediaType: "image",
+        event: {
+          version: "v1",
+          sourceChannel: "whatsapp",
+          receivedAt: new Date().toISOString(),
+          message: {
+            content: "photo",
+            conversationExternalId: "15551230000",
+            externalMessageId: "wamid-retry-ok",
+            attachments: [
+              {
+                type: "image",
+                fileId: "media-retry",
+                mimeType: "image/jpeg",
+                fileSize: 1024,
+              },
+            ],
+          },
+          actor: {
+            actorExternalId: "15551230000",
+            displayName: "Alice",
+          },
+          source: {
+            updateId: "wamid-retry-ok",
+            messageId: "wamid-retry-ok",
+            chatType: "private",
+          },
+          raw: {},
+        },
+      },
+    ]);
+
+    // First attempt fails with 500
+    const res1 = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+    expect(res1.status).toBe(500);
+
+    // The dedup cache should have unreserved the ID so a retry can proceed
+    expect(dedupCache.reserve("wamid-retry-ok")).toBe(true);
+  });
+
   it("skips oversized attachments without failing the message", async () => {
     const { handler } = createWhatsAppWebhookHandler(baseConfig);
 
