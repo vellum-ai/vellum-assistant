@@ -51,6 +51,12 @@ export async function downloadWhatsAppFile(
 ): Promise<DownloadedFile> {
   const meta = await getWhatsAppMediaMetadata(config, mediaId);
 
+  if (meta.file_size > config.maxAttachmentBytes) {
+    throw new Error(
+      `WhatsApp media ${mediaId} exceeds size limit (${meta.file_size} > ${config.maxAttachmentBytes} bytes)`,
+    );
+  }
+
   const response = await downloadWhatsAppMediaBytes(config, meta.url);
   const buffer = await response.arrayBuffer();
 

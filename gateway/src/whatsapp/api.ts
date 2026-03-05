@@ -309,10 +309,7 @@ export async function sendWhatsAppInteractiveMessage(
   );
 }
 
-/**
- * Mark an incoming WhatsApp message as read.
- * Best-effort — callers should not propagate errors from this.
- */
+/** Metadata returned by the WhatsApp media endpoint. */
 export interface WhatsAppMediaMetadata {
   url: string;
   mime_type: string;
@@ -458,6 +455,10 @@ async function retryableWhatsAppRawFetch(
   throw lastError ?? new Error(`WhatsApp ${operation} failed after retries`);
 }
 
+/**
+ * Mark an incoming WhatsApp message as read.
+ * Best-effort — callers should not propagate errors from this.
+ */
 export async function markWhatsAppMessageRead(
   config: GatewayConfig,
   messageId: string,
