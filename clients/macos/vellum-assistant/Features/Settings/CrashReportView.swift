@@ -149,6 +149,10 @@ extension AppDelegate {
 
     func showCrashReportWindow(url: URL, content: String) {
         let dismiss: () -> Void = { [weak self] in
+            if let observer = self?.crashReportWindowObserver {
+                NotificationCenter.default.removeObserver(observer)
+                self?.crashReportWindowObserver = nil
+            }
             self?.crashReportWindow?.close()
             self?.crashReportWindow = nil
             self?.scheduleActivationPolicyRevert()
@@ -179,11 +183,13 @@ extension AppDelegate {
 
         // Handle native close-button dismissal so crashReportWindow is cleared
         // and activation policy is reverted even when the user clicks the red ✕.
-        NotificationCenter.default.addObserver(
+        // Store the token so the observer can be removed and doesn't leak.
+        crashReportWindowObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
+            self?.crashReportWindowObserver = nil
             self?.crashReportWindow = nil
             self?.scheduleActivationPolicyRevert()
         }

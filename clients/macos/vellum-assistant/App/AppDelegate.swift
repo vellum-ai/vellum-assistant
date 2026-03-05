@@ -74,6 +74,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Window shown during first-launch bootstrap when daemon is slow to start.
     var bootstrapInterstitialWindow: NSWindow?
     var crashReportWindow: NSWindow?
+    var crashReportWindowObserver: NSObjectProtocol?
     /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
     var bootstrapRetryTask: Task<Void, Never>?
     /// Tracks the most recent failure kind during bootstrap retries so that
