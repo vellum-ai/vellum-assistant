@@ -23,6 +23,7 @@ struct MainWindowView: View {
     /// so we can restore it when they exit instead of jumping to visibleThreads.first
     /// (which may be a pinned thread unrelated to what they were doing).
     @State private var preTemporaryChatThreadId: UUID?
+    @State private var hasSessionToken: Bool = false
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -446,7 +447,7 @@ struct MainWindowView: View {
                                 sidebar.showPreferencesDrawer = false
                                 AppDelegate.shared?.performLogout()
                             },
-                            showLogOut: SessionTokenManager.getToken() != nil
+                            showLogOut: hasSessionToken
                         )
                         .frame(width: drawerWidth)
                         .offset(x: drawerX, y: -28)
@@ -502,6 +503,7 @@ struct MainWindowView: View {
                 windowState.persistentThreadId = activeId
             }
             daemonClient.startSSE()
+            hasSessionToken = SessionTokenManager.getToken() != nil
         }
         .onDisappear {
             copyThread.cancel()

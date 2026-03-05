@@ -26,7 +26,7 @@ struct DrawerMenuView: View {
                 VColor.surfaceBorder.frame(height: 1)
                     .padding(.vertical, VSpacing.xs)
 
-                DrawerMenuItem(icon: "rectangle.portrait.and.arrow.right", label: "Log Out", action: onLogOut)
+                DrawerMenuItem(icon: "rectangle.portrait.and.arrow.right", label: String(localized: "Log Out"), action: onLogOut)
             }
         }
         .padding(.vertical, VSpacing.sm)
