@@ -220,8 +220,6 @@ function formatDetectionInfo(proc: DetectedProcess): string {
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
 
-  const PROXY_PORT = Number(process.env.PROXY_PORT) || 7829;
-
   const specs: ProcessSpec[] = [
     {
       name: "assistant",
@@ -240,12 +238,6 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
       pgrepName: "vellum-gateway",
       port: GATEWAY_PORT,
       pidFile: join(vellumDir, "gateway.pid"),
-    },
-    {
-      name: "outbound-proxy",
-      pgrepName: "outbound-proxy",
-      port: PROXY_PORT,
-      pidFile: join(vellumDir, "outbound-proxy.pid"),
     },
     {
       name: "embed-worker",

@@ -39,7 +39,6 @@ import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import {
   startLocalDaemon,
   startGateway,
-  startOutboundProxy,
   stopLocalProcesses,
 } from "../lib/local";
 import { probePort } from "../lib/port-probe";
@@ -756,8 +755,6 @@ async function hatchLocal(
     await stopLocalProcesses();
     throw error;
   }
-
-  await startOutboundProxy(watch);
 
   // Read the bearer token written by the daemon so the client can authenticate
   // with the gateway (which requires auth by default).
