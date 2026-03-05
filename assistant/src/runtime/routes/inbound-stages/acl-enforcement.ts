@@ -17,7 +17,9 @@ import type {
   MemberStatus,
 } from "../../../contacts/types.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
+import { findByInviteCodeHash } from "../../../memory/invite-store.js";
 import { getLogger } from "../../../util/logger.js";
+import { hashVoiceCode } from "../../../util/voice-code.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
 import {
   createOutboundSession,
@@ -895,34 +897,20 @@ async function handleInviteCodeIntercept(params: {
     return null;
   }
 
-  const outcome = redeemInviteByCode({
-    code,
-    sourceChannel,
-    externalUserId: senderExternalUserId,
-    externalChatId,
-    displayName: senderName,
-    username: senderUsername,
-    assistantId: canonicalAssistantId,
-  });
-
-  // Non-matching codes fall through to normal message processing — a bare
-  // 6-digit number may be a regular message, not an invite code.
-  if (!outcome.ok && outcome.reason === "invalid_token") {
+  // Pre-check: verify a matching invite exists before committing to handle
+  // this message. A bare 6-digit number may be a regular message, so we
+  // must not record inbound dedup until we know the code maps to an invite.
+  const codeHash = hashVoiceCode(code);
+  const candidateInvite = findByInviteCodeHash(codeHash, sourceChannel);
+  if (!candidateInvite) {
     return null;
   }
 
-  log.info(
-    {
-      sourceChannel,
-      externalChatId,
-      ok: outcome.ok,
-      type: outcome.ok ? outcome.type : undefined,
-      reason: !outcome.ok ? outcome.reason : undefined,
-    },
-    "Invite code intercept: redemption result",
-  );
-
-  // Record the inbound event for dedup tracking after a successful match.
+  // Record the inbound event for dedup tracking BEFORE performing redemption,
+  // matching the token intercept path. Without this, duplicate webhook
+  // deliveries could slip through: the first delivery redeems the invite and
+  // activates membership, then a retry finds an active member, passes ACL,
+  // and the raw 6-digit message leaks into the agent pipeline.
   const dedupResult = channelDeliveryStore.recordInbound(
     sourceChannel,
     externalChatId,
@@ -937,6 +925,27 @@ async function handleInviteCodeIntercept(params: {
       eventId: dedupResult.eventId,
     });
   }
+
+  const outcome = redeemInviteByCode({
+    code,
+    sourceChannel,
+    externalUserId: senderExternalUserId,
+    externalChatId,
+    displayName: senderName,
+    username: senderUsername,
+    assistantId: canonicalAssistantId,
+  });
+
+  log.info(
+    {
+      sourceChannel,
+      externalChatId,
+      ok: outcome.ok,
+      type: outcome.ok ? outcome.type : undefined,
+      reason: !outcome.ok ? outcome.reason : undefined,
+    },
+    "Invite code intercept: redemption result",
+  );
 
   // already_member: deliver acknowledgement and short-circuit
   if (outcome.ok && outcome.type === "already_member") {

@@ -444,7 +444,9 @@ export function redeemInviteByCode(params: {
   }
 
   const codeHash = hashVoiceCode(code);
-  const invite = findByInviteCodeHash(codeHash);
+  // Scope the lookup to the caller's channel so 6-digit code collisions
+  // across channels don't return the wrong invite.
+  const invite = findByInviteCodeHash(codeHash, sourceChannel);
 
   if (!invite) {
     return { ok: false, reason: "invalid_token" };

@@ -359,20 +359,30 @@ export function findActiveVoiceInvites(params: {
 
 /**
  * Find an active invite by its 6-digit invite code hash.
- * Used by the channel-agnostic code redemption flow.
+ *
+ * When `sourceChannel` is provided the lookup is scoped to that channel,
+ * preventing 6-digit code collisions across channels from returning the
+ * wrong invite.
  */
-export function findByInviteCodeHash(hash: string): IngressInvite | undefined {
+export function findByInviteCodeHash(
+  hash: string,
+  sourceChannel?: string,
+): IngressInvite | undefined {
   const db = getDb();
+
+  const conditions = [
+    eq(assistantIngressInvites.inviteCodeHash, hash),
+    eq(assistantIngressInvites.status, "active"),
+  ];
+
+  if (sourceChannel) {
+    conditions.push(eq(assistantIngressInvites.sourceChannel, sourceChannel));
+  }
 
   const row = db
     .select()
     .from(assistantIngressInvites)
-    .where(
-      and(
-        eq(assistantIngressInvites.inviteCodeHash, hash),
-        eq(assistantIngressInvites.status, "active"),
-      ),
-    )
+    .where(and(...conditions))
     .get();
 
   return row ? rowToInvite(row) : undefined;
