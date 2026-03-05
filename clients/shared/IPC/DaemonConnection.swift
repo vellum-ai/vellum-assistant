@@ -27,8 +27,13 @@ extension DaemonClient {
         shouldReconnect = true
 
         // Check if we should use HTTP transport (both platforms).
+        // The bearer token may be nil at config time (e.g. managed mode or
+        // localHttpEnabled where the token isn't known until bootstrap).
+        // Resolve lazily from ActorTokenManager (Keychain) so connections
+        // started after a previous bootstrap carry the persisted JWT.
         if case .http(let baseURL, let bearerToken, let conversationKey) = config.transport {
             let resolvedToken = bearerToken
+                ?? ActorTokenManager.getToken().flatMap { $0.isEmpty ? nil : $0 }
             try await connectHTTP(baseURL: baseURL, bearerToken: resolvedToken, conversationKey: conversationKey)
             return
         }
