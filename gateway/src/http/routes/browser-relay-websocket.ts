@@ -10,7 +10,7 @@ const log = getLogger("browser-relay-ws");
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
 
-function isPrivateAddress(addr: string): boolean {
+export function isPrivateAddress(addr: string): boolean {
   const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
   const normalized = v4Mapped ? v4Mapped[1] : addr;
 
@@ -39,7 +39,7 @@ function isPrivateAddress(addr: string): boolean {
   return false;
 }
 
-function isPrivateNetworkPeer(
+export function isPrivateNetworkPeer(
   server: import("bun").Server<unknown>,
   req: Request,
 ): boolean {

@@ -50,7 +50,11 @@ import type {
   ExtensionResponse,
 } from "../browser-extension-relay/protocol.js";
 import { extensionRelayServer } from "../browser-extension-relay/server.js";
-import { isSigningKeyInitialized } from "../runtime/auth/token-service.js";
+import {
+  initAuthSigningKey,
+  isSigningKeyInitialized,
+  loadOrCreateSigningKey,
+} from "../runtime/auth/token-service.js";
 import { gatewayPost } from "../runtime/gateway-internal-client.js";
 
 // ---------------------------------------------------------------------------
@@ -135,12 +139,10 @@ async function sendRelayCommand(
 
   // Fall back to HTTP relay endpoint via the gateway.
   // The gateway validates edge JWTs (aud=vellum-gateway) and mints an
-  // exchange token for the runtime. Without the signing key (CLI
-  // out-of-process), we cannot mint JWTs at all.
+  // exchange token for the runtime. In CLI out-of-process contexts the
+  // signing key may not be initialized yet — load it from disk.
   if (!isSigningKeyInitialized()) {
-    throw new Error(
-      "Auth signing key not initialized — browser-relay commands require the daemon to be running",
-    );
+    initAuthSigningKey(loadOrCreateSigningKey());
   }
 
   const { data } = await gatewayPost<ExtensionResponse>(

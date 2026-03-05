@@ -6,7 +6,10 @@ import {
   loadOrCreateSigningKey,
   initSigningKey,
 } from "./auth/token-service.js";
-import { validateEdgeToken } from "./auth/token-exchange.js";
+import {
+  validateEdgeToken,
+  mintBrowserRelayToken,
+} from "./auth/token-exchange.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig, isSlackChannelConfigured } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
@@ -14,6 +17,7 @@ import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import {
   createBrowserRelayWebsocketHandler,
   getBrowserRelayWebsocketHandlers,
+  isPrivateNetworkPeer,
   type BrowserRelaySocketData,
 } from "./http/routes/browser-relay-websocket.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
@@ -741,6 +745,22 @@ function main() {
         const upgradeResult = handleBrowserRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
+      }
+
+      // ── Pre-router: browser relay token endpoint ──
+      if (
+        config.runtimeProxyEnabled &&
+        url.pathname === "/v1/browser-relay/token" &&
+        req.method === "GET"
+      ) {
+        if (!isPrivateNetworkPeer(svr, req)) {
+          return Response.json(
+            { error: "Browser relay token only available from localhost" },
+            { status: 403 },
+          );
+        }
+        const token = mintBrowserRelayToken();
+        return Response.json({ token });
       }
 
       // Attach a trace ID to every non-healthcheck request for
