@@ -97,8 +97,6 @@ private struct PillSegment: View {
 
     @State private var isHovered = false
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         Button(action: action) {
             Text(label)
@@ -127,7 +125,7 @@ private struct PillSegment: View {
 
     private var segmentBackground: Color {
         if isSelected {
-            return colorScheme == .dark ? Moss._600 : Color.white
+            return VColor.segmentSelected
         } else if isHovered {
             return VColor.navHover
         } else {
