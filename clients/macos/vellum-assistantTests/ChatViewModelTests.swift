@@ -1943,10 +1943,14 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
+        // The data model keeps separate text segments and interleaved contentOrder.
         XCTAssertEqual(msg.textSegments.count, 2)
         XCTAssertEqual(msg.textSegments[0], "Let me check.")
         XCTAssertEqual(msg.textSegments[1], "Here are the files.")
         XCTAssertEqual(msg.contentOrder, [.text(0), .toolCall(0), .text(1)])
+        // Note: the view layer (ChatBubble.groupContentBlocks) coalesces these text
+        // segments across tool call boundaries so the user can drag-select across them.
+        // Tool calls render as EmptyView and produce no visual gap between text runs.
     }
 
     func testStreamingCompletionPreservesFinalJoinedText() {

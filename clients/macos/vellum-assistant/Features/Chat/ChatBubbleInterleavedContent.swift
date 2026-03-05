@@ -50,7 +50,50 @@ extension ChatBubble {
                 groups.append(.surface(i))
             }
         }
-        return groups
+
+        // Post-process: coalesce text groups that are only separated by tool call
+        // groups so that the user can drag-select across text that spans a tool
+        // invocation (tool calls render as EmptyView and produce no visual gap).
+        // Only .surface entries break a text run because they render visible content.
+        var coalesced: [ContentGroup] = []
+        var pendingTexts: [Int]?
+        var pendingToolCalls: [ContentGroup] = []
+
+        for group in groups {
+            switch group {
+            case .texts(let indices):
+                if var existing = pendingTexts {
+                    existing.append(contentsOf: indices)
+                    pendingTexts = existing
+                } else {
+                    pendingTexts = indices
+                }
+            case .toolCalls:
+                if pendingTexts != nil {
+                    // Buffer the tool calls; they might sit between two text groups.
+                    pendingToolCalls.append(group)
+                } else {
+                    coalesced.append(group)
+                }
+            case .surface:
+                // A surface breaks the text run — flush pending state.
+                if let texts = pendingTexts {
+                    coalesced.append(.texts(texts))
+                    coalesced.append(contentsOf: pendingToolCalls)
+                    pendingTexts = nil
+                    pendingToolCalls = []
+                }
+                coalesced.append(group)
+            }
+        }
+
+        // Flush any remaining pending state.
+        if let texts = pendingTexts {
+            coalesced.append(.texts(texts))
+            coalesced.append(contentsOf: pendingToolCalls)
+        }
+
+        return coalesced
     }
 
     @ViewBuilder
