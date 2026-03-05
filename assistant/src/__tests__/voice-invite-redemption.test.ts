@@ -147,7 +147,6 @@ describe("redeemVoiceInviteCode", () => {
     const codeHash = hashVoiceCode(code);
 
     const { invite } = createInvite({
-      assistantId: opts.assistantId ?? "self",
       sourceChannel: "voice",
       maxUses: opts.maxUses ?? 1,
       expiresInMs: opts.expiresInMs,

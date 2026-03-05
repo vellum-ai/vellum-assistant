@@ -22,7 +22,6 @@ export type InviteStatus = "active" | "redeemed" | "revoked" | "expired";
 
 export interface IngressInvite {
   id: string;
-  assistantId: string;
   sourceChannel: string;
   tokenHash: string;
   createdBySessionId: string | null;
@@ -71,7 +70,6 @@ function rowToInvite(
 ): IngressInvite {
   return {
     id: row.id,
-    assistantId: row.assistantId,
     sourceChannel: row.sourceChannel,
     tokenHash: row.tokenHash,
     createdBySessionId: row.createdBySessionId,
@@ -99,7 +97,6 @@ function rowToInvite(
 // ---------------------------------------------------------------------------
 
 export function createInvite(params: {
-  assistantId?: string;
   sourceChannel: string;
   createdBySessionId?: string;
   note?: string;
@@ -122,7 +119,7 @@ export function createInvite(params: {
 
   const row = {
     id,
-    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     sourceChannel: params.sourceChannel,
     tokenHash: tokenH,
     createdBySessionId: params.createdBySessionId ?? null,
@@ -154,16 +151,16 @@ export function createInvite(params: {
 // ---------------------------------------------------------------------------
 
 export function listInvites(params: {
-  assistantId?: string;
   sourceChannel?: string;
   status?: InviteStatus;
   limit?: number;
   offset?: number;
 }): IngressInvite[] {
   const db = getDb();
-  const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
-  const conditions = [eq(assistantIngressInvites.assistantId, assistantId)];
+  const conditions = [
+    eq(assistantIngressInvites.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
+  ];
 
   if (params.sourceChannel) {
     conditions.push(
@@ -329,7 +326,6 @@ export function findByTokenHash(tokenHash: string): IngressInvite | null {
  * before code hash matching.
  */
 export function findActiveVoiceInvites(params: {
-  assistantId: string;
   expectedExternalUserId: string;
 }): IngressInvite[] {
   const db = getDb();
@@ -339,7 +335,7 @@ export function findActiveVoiceInvites(params: {
     .from(assistantIngressInvites)
     .where(
       and(
-        eq(assistantIngressInvites.assistantId, params.assistantId),
+        eq(assistantIngressInvites.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
         eq(assistantIngressInvites.sourceChannel, "voice"),
         eq(assistantIngressInvites.status, "active"),
         eq(

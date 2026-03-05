@@ -81,7 +81,7 @@ const VALID_ASSISTANT_SPECIES: readonly AssistantSpecies[] = [
  * Also supports search query params: query, channelAddress, channelType.
  * When any search param is provided, delegates to searchContacts() instead of listContacts().
  */
-export function handleListContacts(url: URL, assistantId: string): Response {
+export function handleListContacts(url: URL): Response {
   const limit = Number(url.searchParams.get("limit") ?? 50);
   const role = url.searchParams.get("role") as ContactRole | null;
   const contactTypeParam = url.searchParams.get("contactType");
@@ -104,7 +104,6 @@ export function handleListContacts(url: URL, assistantId: string): Response {
 
   if (hasSearchParams) {
     const contacts = searchContacts({
-      assistantId,
       query: query ?? undefined,
       channelAddress: channelAddress ?? undefined,
       channelType: channelType ?? undefined,
@@ -118,12 +117,7 @@ export function handleListContacts(url: URL, assistantId: string): Response {
     });
   }
 
-  const contacts = listContacts(
-    assistantId,
-    limit,
-    role ?? undefined,
-    contactType,
-  );
+  const contacts = listContacts(limit, role ?? undefined, contactType);
   return Response.json({
     ok: true,
     contacts: contacts.map(withGuardianNameOverride),
@@ -133,11 +127,8 @@ export function handleListContacts(url: URL, assistantId: string): Response {
 /**
  * GET /v1/contacts/:id
  */
-export function handleGetContact(
-  contactId: string,
-  assistantId: string,
-): Response {
-  const contact = getContact(contactId, assistantId);
+export function handleGetContact(contactId: string): Response {
+  const contact = getContact(contactId);
   if (!contact) {
     return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
   }
@@ -155,10 +146,7 @@ export function handleGetContact(
 /**
  * POST /v1/contacts/merge { keepId, mergeId }
  */
-export async function handleMergeContacts(
-  req: Request,
-  assistantId: string,
-): Promise<Response> {
+export async function handleMergeContacts(req: Request): Promise<Response> {
   const body = (await req.json()) as { keepId?: string; mergeId?: string };
 
   if (!body.keepId || !body.mergeId) {
@@ -166,7 +154,7 @@ export async function handleMergeContacts(
   }
 
   try {
-    const contact = mergeContacts(body.keepId, body.mergeId, assistantId);
+    const contact = mergeContacts(body.keepId, body.mergeId);
     return Response.json({
       ok: true,
       contact: withGuardianNameOverride(contact),
@@ -209,10 +197,7 @@ function isChannelPolicy(value: string): value is ChannelPolicy {
 /**
  * POST /v1/contacts { displayName, id?, notes?, contactType?, assistantMetadata?, ... }
  */
-export async function handleUpsertContact(
-  req: Request,
-  assistantId: string,
-): Promise<Response> {
+export async function handleUpsertContact(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     id?: string;
     displayName?: string;
@@ -328,7 +313,6 @@ export async function handleUpsertContact(
       notes: body.notes,
       role: body.role as ContactRole | undefined,
       contactType: body.contactType as ContactType | undefined,
-      assistantId,
       channels: body.channels?.map((ch) => ({
         ...ch,
         status: ch.status as ChannelStatus | undefined,
@@ -360,7 +344,6 @@ export async function handleUpsertContact(
 export async function handleUpdateContactChannel(
   req: Request,
   channelId: string,
-  assistantId: string,
 ): Promise<Response> {
   const body = (await req.json()) as {
     status?: string;
@@ -426,7 +409,7 @@ export async function handleUpdateContactChannel(
     return httpError("NOT_FOUND", `Channel "${channelId}" not found`, 404);
   }
 
-  const parentContact = getContact(updated.contactId, assistantId);
+  const parentContact = getContact(updated.contactId);
   return Response.json({
     ok: true,
     contact: parentContact
@@ -487,7 +470,7 @@ export async function handleVerifyContactChannel(
   channelId: string,
   assistantId: string,
 ): Promise<Response> {
-  const contact = getContact(contactId, assistantId);
+  const contact = getContact(contactId);
   if (!contact) {
     return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
   }
@@ -717,27 +700,24 @@ export function contactRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "contacts",
       method: "GET",
-      handler: ({ url, authContext }) =>
-        handleListContacts(url, authContext.assistantId),
+      handler: ({ url }) => handleListContacts(url),
     },
     {
       endpoint: "contacts",
       method: "POST",
-      handler: async ({ req, authContext }) =>
-        handleUpsertContact(req, authContext.assistantId),
+      handler: async ({ req }) => handleUpsertContact(req),
     },
     {
       endpoint: "contacts/merge",
       method: "POST",
-      handler: async ({ req, authContext }) =>
-        handleMergeContacts(req, authContext.assistantId),
+      handler: async ({ req }) => handleMergeContacts(req),
     },
     {
       endpoint: "contacts/channels/:id",
       method: "PATCH",
       policyKey: "contacts/channels",
-      handler: async ({ req, params, authContext }) =>
-        handleUpdateContactChannel(req, params.id, authContext.assistantId),
+      handler: async ({ req, params }) =>
+        handleUpdateContactChannel(req, params.id),
     },
     {
       endpoint: "contacts/:contactId/channels/:channelId/verify",
@@ -764,8 +744,7 @@ export function contactCatchAllRouteDefinitions(): RouteDefinition[] {
       endpoint: "contacts/:id",
       method: "GET",
       policyKey: "contacts",
-      handler: ({ params, authContext }) =>
-        handleGetContact(params.id, authContext.assistantId),
+      handler: ({ params }) => handleGetContact(params.id),
     },
   ];
 }

@@ -92,7 +92,6 @@ function resetTables(): void {
 function ensureTestContact(): void {
   upsertContact({
     displayName: "Test User",
-    assistantId: "self",
     channels: [
       {
         type: "telegram",
@@ -297,7 +296,6 @@ describe("Telegram callback seen signals", () => {
     const { createGuardianBinding } =
       await import("../contacts/contacts-write.js");
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",

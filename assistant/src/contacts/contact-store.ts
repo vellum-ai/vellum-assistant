@@ -8,6 +8,7 @@ import {
   contactChannels,
   contacts,
 } from "../memory/schema.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { emitContactChange } from "./contact-events.js";
 import type {
   AssistantContactMetadata,
@@ -41,7 +42,6 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     role: row.role as Contact["role"],
     contactType: (row.contactType as Contact["contactType"]) ?? "human",
     principalId: row.principalId,
-    assistantId: row.assistantId ?? null,
   };
 }
 
@@ -114,10 +114,7 @@ export function getContactInternal(id: string): ContactWithChannels | null {
   return withChannels(parseContact(row));
 }
 
-export function getContact(
-  id: string,
-  assistantId: string,
-): ContactWithChannels | null {
+export function getContact(id: string): ContactWithChannels | null {
   const db = getDb();
   const row = db
     .select()
@@ -125,7 +122,10 @@ export function getContact(
     .where(
       and(
         eq(contacts.id, id),
-        or(eq(contacts.assistantId, assistantId), isNull(contacts.assistantId)),
+        or(
+          eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
+          isNull(contacts.assistantId),
+        ),
       ),
     )
     .get();
@@ -154,7 +154,6 @@ export function upsertContact(params: {
   role?: ContactRole;
   contactType?: ContactType;
   principalId?: string | null;
-  assistantId: string;
   channels?: SyncChannelData[];
 }): ContactWithChannels & { created: boolean } {
   const db = getDb();
@@ -180,8 +179,6 @@ export function upsertContact(params: {
         updateSet.contactType = params.contactType;
       if (params.principalId !== undefined)
         updateSet.principalId = params.principalId;
-      if (params.assistantId !== undefined)
-        updateSet.assistantId = params.assistantId;
 
       db.update(contacts)
         .set(updateSet)
@@ -245,8 +242,6 @@ export function upsertContact(params: {
           updateSet.contactType = params.contactType;
         if (params.principalId !== undefined)
           updateSet.principalId = params.principalId;
-        if (params.assistantId !== undefined)
-          updateSet.assistantId = params.assistantId;
 
         db.update(contacts)
           .set(updateSet)
@@ -272,7 +267,7 @@ export function upsertContact(params: {
       role: params.role ?? "contact",
       contactType: params.contactType ?? "human",
       principalId: params.principalId ?? null,
-      assistantId: params.assistantId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       createdAt: now,
       updatedAt: now,
     })
@@ -404,7 +399,6 @@ function syncChannels(
 }
 
 export function searchContacts(params: {
-  assistantId: string;
   query?: string;
   channelAddress?: string;
   channelType?: string;
@@ -427,7 +421,7 @@ export function searchContacts(params: {
         params.channelType
           ? and(
               or(
-                eq(contacts.assistantId, params.assistantId),
+                eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
                 isNull(contacts.assistantId),
               ),
               eq(contactChannels.type, params.channelType),
@@ -435,7 +429,7 @@ export function searchContacts(params: {
             )
           : and(
               or(
-                eq(contacts.assistantId, params.assistantId),
+                eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
                 isNull(contacts.assistantId),
               ),
               like(contactChannels.address, `%${normalizedAddress}%`),
@@ -470,7 +464,7 @@ export function searchContacts(params: {
       .where(
         and(
           or(
-            eq(contacts.assistantId, params.assistantId),
+            eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
             isNull(contacts.assistantId),
           ),
           eq(contactChannels.type, params.channelType),
@@ -499,7 +493,7 @@ export function searchContacts(params: {
   // Search by display name, optionally filtered by channelType
   const conditions = [
     or(
-      eq(contacts.assistantId, params.assistantId),
+      eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
       isNull(contacts.assistantId),
     )!,
   ];
@@ -560,7 +554,6 @@ export function searchContacts(params: {
 }
 
 export function listContacts(
-  assistantId: string,
   limit = 50,
   role?: ContactRole,
   contactType?: ContactType,
@@ -569,7 +562,10 @@ export function listContacts(
   const db = getDb();
   const effectiveLimit = opts?.uncapped ? limit : Math.min(limit, 200);
   const conditions = [
-    or(eq(contacts.assistantId, assistantId), isNull(contacts.assistantId))!,
+    or(
+      eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
+      isNull(contacts.assistantId),
+    )!,
   ];
   if (role) conditions.push(eq(contacts.role, role));
   if (contactType) conditions.push(eq(contacts.contactType, contactType));
@@ -595,7 +591,6 @@ export function listContacts(
 export function mergeContacts(
   keepId: string,
   mergeId: string,
-  assistantId: string,
 ): ContactWithChannels {
   const db = getDb();
 
@@ -611,7 +606,7 @@ export function mergeContacts(
         and(
           eq(contacts.id, keepId),
           or(
-            eq(contacts.assistantId, assistantId),
+            eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
             isNull(contacts.assistantId),
           ),
         ),
@@ -626,7 +621,7 @@ export function mergeContacts(
         and(
           eq(contacts.id, mergeId),
           or(
-            eq(contacts.assistantId, assistantId),
+            eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
             isNull(contacts.assistantId),
           ),
         ),
@@ -646,8 +641,10 @@ export function mergeContacts(
         lastInteraction: mergedLastInteraction,
         notes: [keep.notes, merge.notes].filter(Boolean).join("\n") || null,
         updatedAt: now,
-        // Rebind legacy null-scoped contacts to prevent cross-assistant leakage
-        ...(keep.assistantId == null ? { assistantId } : {}),
+        // Rebind legacy null-scoped contacts to DAEMON_INTERNAL_ASSISTANT_ID
+        ...(keep.assistantId == null
+          ? { assistantId: DAEMON_INTERNAL_ASSISTANT_ID }
+          : {}),
       })
       .where(eq(contacts.id, keepId))
       .run();
@@ -805,14 +802,13 @@ export function findContactChannel(params: {
  */
 export function findGuardianForChannel(
   channelType: string,
-  assistantId: string,
 ): { contact: Contact; channel: ContactChannel } | null {
   const db = getDb();
   const conditions = [
     eq(contacts.role, "guardian"),
     eq(contactChannels.type, channelType),
     eq(contactChannels.status, "active"),
-    eq(contacts.assistantId, assistantId),
+    eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
   ];
   const rows = db
     .select({
@@ -841,16 +837,13 @@ export function findGuardianForChannel(
  *
  * Returns true if a channel was found and revoked, false otherwise.
  */
-export function revokeGuardianChannel(
-  channelType: string,
-  assistantId: string,
-): boolean {
+export function revokeGuardianChannel(channelType: string): boolean {
   const db = getDb();
   const conditions = [
     eq(contacts.role, "guardian"),
     eq(contactChannels.type, channelType),
     eq(contactChannels.status, "active"),
-    eq(contacts.assistantId, assistantId),
+    eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
   ];
   const rows = db
     .select({
@@ -885,7 +878,7 @@ export function revokeGuardianChannel(
  * pick a guardian that has no active channels.
  * Returns channels ordered by most-recently-verified first.
  */
-export function listGuardianChannels(assistantId: string): {
+export function listGuardianChannels(): {
   contact: Contact;
   channels: ContactChannel[];
 } | null {
@@ -901,7 +894,7 @@ export function listGuardianChannels(assistantId: string): {
       and(
         eq(contacts.role, "guardian"),
         eq(contactChannels.status, "active"),
-        eq(contacts.assistantId, assistantId),
+        eq(contacts.assistantId, DAEMON_INTERNAL_ASSISTANT_ID),
       ),
     )
     .orderBy(desc(contactChannels.verifiedAt))

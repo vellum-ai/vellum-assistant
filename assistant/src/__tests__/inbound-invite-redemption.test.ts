@@ -329,7 +329,6 @@ describe("inbound invite redemption intercept", () => {
   test("existing active member sending normal message is unaffected", async () => {
     // Pre-create an active member
     upsertMember({
-      assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "user-active-member",
       externalChatId: "chat-active",
@@ -379,7 +378,6 @@ describe("inbound invite redemption intercept", () => {
 
     // Pre-create an active member that will click the invite link
     upsertMember({
-      assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "user-already-active",
       externalChatId: "chat-invite-test",
@@ -406,7 +404,6 @@ describe("inbound invite redemption intercept", () => {
     });
 
     upsertMember({
-      assistantId: "self",
       sourceChannel: "telegram",
       externalUserId: "user-invite-123",
       externalChatId: "chat-invite-test",

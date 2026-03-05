@@ -217,10 +217,7 @@ async function simulateNotifierPoll(params: {
   notifiedRequestIds.set(info.requestId, conversationId);
 
   // Resolve guardian name via the contacts-based approach
-  const guardian = findGuardianForChannel(
-    params.sourceChannel,
-    params.assistantId ?? "self",
-  );
+  const guardian = findGuardianForChannel(params.sourceChannel);
   const guardianName = resolveGuardianName(guardian?.contact.displayName);
 
   const waitingText = `Waiting for ${guardianName}'s approval...`;
@@ -286,7 +283,6 @@ describe("trusted-contact pending-approval notifier", () => {
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       bearerToken: "test-token",
-      assistantId: "self",
       notifiedRequestIds: notified,
     });
 

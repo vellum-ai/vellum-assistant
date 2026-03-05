@@ -111,10 +111,7 @@ export function getGuardianStatus(
 
   // Read the contact directly to get displayName — getGuardianBinding is a
   // compatibility shim that doesn't carry metadataJson.
-  const guardianResult = findGuardianForChannel(
-    resolvedChannel,
-    resolvedAssistantId,
-  );
+  const guardianResult = findGuardianForChannel(resolvedChannel);
   const bindingDisplayName = guardianResult?.contact.displayName;
   const guardianDisplayName = resolveGuardianName(bindingDisplayName);
 

@@ -30,7 +30,6 @@ import {
   resolveActorTrust,
   toTrustContext,
 } from "../runtime/actor-trust-resolver.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -787,7 +786,6 @@ export class RelayConnection {
     if (!params.skipMemberActivation) {
       try {
         upsertMember({
-          assistantId,
           sourceChannel: "voice",
           externalUserId: fromNumber,
           externalChatId: fromNumber,
@@ -972,9 +970,8 @@ export class RelayConnection {
             "Guardian binding conflict: another user already holds the voice binding",
           );
         } else {
-          revokeGuardianBinding(assistantId, "voice");
+          revokeGuardianBinding("voice");
           createGuardianBinding({
-            assistantId,
             channel: "voice",
             guardianExternalUserId: fromNumber,
             guardianDeliveryChatId: fromNumber,
@@ -1600,14 +1597,9 @@ export class RelayConnection {
    * first, then falls back to Contact.displayName, then DEFAULT_USER_REFERENCE.
    */
   private resolveGuardianLabel(): string {
-    const assistantId =
-      this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-
     // Look up the guardian contact for a displayName fallback
-    const voiceGuardian = findGuardianForChannel("voice", assistantId);
-    const guardianChannels = voiceGuardian
-      ? null
-      : listGuardianChannels(assistantId);
+    const voiceGuardian = findGuardianForChannel("voice");
+    const guardianChannels = voiceGuardian ? null : listGuardianChannels();
     const guardianContact = voiceGuardian?.contact ?? guardianChannels?.contact;
 
     return resolveGuardianName(guardianContact?.displayName);

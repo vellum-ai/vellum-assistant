@@ -45,7 +45,7 @@ function ensureGuardianPrincipal(assistantId: string): {
   guardianPrincipalId: string;
   isNew: boolean;
 } {
-  const guardianResult = findGuardianForChannel("vellum", assistantId);
+  const guardianResult = findGuardianForChannel("vellum");
   if (guardianResult && guardianResult.contact.principalId) {
     return {
       guardianPrincipalId: guardianResult.contact.principalId,
@@ -57,7 +57,6 @@ function ensureGuardianPrincipal(assistantId: string): {
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
 
   createGuardianBinding({
-    assistantId,
     channel: "vellum",
     guardianExternalUserId: guardianPrincipalId,
     guardianDeliveryChatId: "local",

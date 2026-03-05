@@ -230,7 +230,6 @@ for (const config of CHANNEL_CONFIGS) {
 
     test("guardian is notified when a non-member messages", async () => {
       createGuardianBinding({
-        assistantId: "self",
         channel: config.channel,
         guardianExternalUserId: config.guardianExternalUserId,
         guardianDeliveryChatId: config.guardianChatId,
@@ -281,7 +280,6 @@ for (const config of CHANNEL_CONFIGS) {
       }
 
       upsertMember({
-        assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,
@@ -305,7 +303,6 @@ for (const config of CHANNEL_CONFIGS) {
     test("no cross-channel leakage between member records", () => {
       // Create a member for this channel
       upsertMember({
-        assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,

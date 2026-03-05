@@ -8,7 +8,6 @@
 
 import type { ChannelId } from "../channels/types.js";
 import type { GuardianBinding } from "../memory/channel-guardian-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";
@@ -58,7 +57,6 @@ function parseDisplayNameFromMetadata(
  * (so callers expecting binding.id still work).
  */
 export function createGuardianBinding(params: {
-  assistantId: string;
   channel: string;
   guardianExternalUserId: string;
   guardianDeliveryChatId: string;
@@ -81,7 +79,6 @@ export function createGuardianBinding(params: {
     role: "guardian",
     notes: "guardian",
     principalId: params.guardianPrincipalId,
-    assistantId: params.assistantId,
     channels: [
       {
         type: params.channel,
@@ -98,7 +95,7 @@ export function createGuardianBinding(params: {
   const now = Date.now();
   const result: GuardianBinding = {
     id: `contact-binding-${params.channel}`,
-    assistantId: params.assistantId,
+    assistantId: "self",
     channel: params.channel,
     guardianExternalUserId: params.guardianExternalUserId,
     guardianDeliveryChatId: params.guardianDeliveryChatId,
@@ -118,11 +115,8 @@ export function createGuardianBinding(params: {
  * Revoke a guardian binding by updating the contacts table.
  * Returns true when a guardian channel was found and revoked, false otherwise.
  */
-export function revokeGuardianBinding(
-  assistantId: string,
-  channel: string,
-): boolean {
-  const guardian = findGuardianForChannel(channel, assistantId);
+export function revokeGuardianBinding(channel: string): boolean {
+  const guardian = findGuardianForChannel(channel);
   if (!guardian) return false;
 
   updateChannelStatus(guardian.channel.id, {
@@ -150,7 +144,6 @@ export function upsertMember(params: {
   status?: string;
   inviteId?: string;
   createdBySessionId?: string;
-  assistantId?: string;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -179,7 +172,6 @@ export function upsertMember(params: {
 
   upsertContact({
     displayName,
-    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     channels: [
       {
         type: params.sourceChannel,

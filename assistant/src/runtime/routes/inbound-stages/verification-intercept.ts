@@ -143,7 +143,6 @@ export async function handleVerificationIntercept(
         : actorDisplayName;
 
     upsertMember({
-      assistantId: canonicalAssistantId,
       sourceChannel,
       externalUserId: canonicalSenderId ?? rawSenderId,
       externalChatId: conversationExternalId,
@@ -180,7 +179,7 @@ export async function handleVerificationIntercept(
         );
       } else {
         // Revoke any existing active binding before creating a new one (same-user re-verification)
-        revokeGuardianBinding(canonicalAssistantId, sourceChannel);
+        revokeGuardianBinding(sourceChannel);
 
         const metadata: Record<string, string> = {};
         if (actorUsername && actorUsername.trim().length > 0) {
@@ -201,7 +200,6 @@ export async function handleVerificationIntercept(
           rawSenderId;
 
         createGuardianBinding({
-          assistantId: canonicalAssistantId,
           channel: sourceChannel,
           guardianExternalUserId: canonicalSenderId ?? rawSenderId,
           guardianDeliveryChatId: conversationExternalId,

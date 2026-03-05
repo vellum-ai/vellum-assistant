@@ -21,7 +21,6 @@ import {
 } from "../memory/invite-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { hashVoiceCode } from "../util/voice-code.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 // ---------------------------------------------------------------------------
 // Outcome type
@@ -84,7 +83,6 @@ export function redeemInvite(params: {
     externalChatId,
     displayName,
     username,
-    assistantId,
   } = params;
 
   if (!externalUserId && !externalChatId) {
@@ -180,7 +178,6 @@ export function redeemInvite(params: {
       getSqlite()
         .transaction(() => {
           reactivated = upsertMember({
-            assistantId: assistantId ?? invite.assistantId,
             sourceChannel,
             externalUserId,
             externalChatId,
@@ -227,7 +224,6 @@ export function redeemInvite(params: {
     getSqlite()
       .transaction(() => {
         freshResult = upsertMember({
-          assistantId: assistantId ?? invite.assistantId,
           sourceChannel,
           externalUserId,
           externalChatId,
@@ -288,11 +284,7 @@ export function redeemVoiceInviteCode(params: {
   sourceChannel: "voice";
   code: string;
 }): VoiceRedemptionOutcome {
-  const {
-    assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
-    callerExternalUserId,
-    code,
-  } = params;
+  const { callerExternalUserId, code } = params;
 
   if (!callerExternalUserId) {
     return { ok: false, reason: "invalid_or_expired" };
@@ -300,7 +292,6 @@ export function redeemVoiceInviteCode(params: {
 
   // Find all active voice invites bound to the caller's phone number
   const candidates = findActiveVoiceInvites({
-    assistantId,
     expectedExternalUserId: callerExternalUserId,
   });
 
@@ -372,7 +363,6 @@ export function redeemVoiceInviteCode(params: {
     getSqlite()
       .transaction(() => {
         const writeResult = upsertMember({
-          assistantId: invite.assistantId,
           sourceChannel: "voice",
           externalUserId: callerExternalUserId,
           externalChatId: callerExternalUserId,
@@ -436,7 +426,6 @@ export function redeemInviteByCode(params: {
     externalChatId,
     displayName,
     username,
-    assistantId,
   } = params;
 
   if (!externalUserId && !externalChatId) {
@@ -520,7 +509,6 @@ export function redeemInviteByCode(params: {
       getSqlite()
         .transaction(() => {
           reactivated = upsertMember({
-            assistantId: assistantId ?? invite.assistantId,
             sourceChannel,
             externalUserId,
             externalChatId,
@@ -563,7 +551,6 @@ export function redeemInviteByCode(params: {
     getSqlite()
       .transaction(() => {
         freshResult = upsertMember({
-          assistantId: assistantId ?? invite.assistantId,
           sourceChannel,
           externalUserId,
           externalChatId,
