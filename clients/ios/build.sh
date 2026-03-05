@@ -85,13 +85,30 @@ else
     exit 1
 fi
 
+# ── Resolve simulator destination ────────────────────────────────────
+# Finds the first available iPhone simulator instead of hardcoding a
+# device name that may not exist on every Xcode version.
+resolve_simulator_destination() {
+    local sim_name
+    sim_name=$(xcrun simctl list devices available 2>/dev/null \
+        | grep -oE 'iPhone [^(]+' \
+        | head -1 \
+        | sed 's/[[:space:]]*$//')
+    if [ -n "$sim_name" ]; then
+        echo "platform=iOS Simulator,name=$sim_name"
+    else
+        echo "generic/platform=iOS Simulator"
+    fi
+}
+
 # ── Run command ───────────────────────────────────────────────────────
 if [ "$CMD" = "test" ]; then
-    echo "Running iOS tests..."
+    SIM_DEST=$(resolve_simulator_destination)
+    echo "Running iOS tests (destination: $SIM_DEST)..."
     xcodebuild test \
         -project "$PROJECT" \
         -scheme "$SCHEME" \
-        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -destination "$SIM_DEST" \
         -configuration Debug \
         CODE_SIGNING_ALLOWED=NO
     exit $?
@@ -105,7 +122,7 @@ if [ "$CMD" = "build" ]; then
     xcodebuild build \
         -project "$PROJECT" \
         -scheme "$SCHEME" \
-        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -destination 'generic/platform=iOS Simulator' \
         -configuration Debug \
         CODE_SIGNING_ALLOWED=NO \
         -derivedDataPath "$DIST_DIR/DerivedData" \
