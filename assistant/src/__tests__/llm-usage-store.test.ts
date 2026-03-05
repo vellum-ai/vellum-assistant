@@ -26,6 +26,9 @@ mock.module("../util/logger.js", () => ({
 
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
+  getUsageDayBuckets,
+  getUsageGroupBreakdown,
+  getUsageTotals,
   listUsageEvents,
   recordUsageEvent,
 } from "../memory/llm-usage-store.js";
@@ -68,6 +71,19 @@ const unpricedResult: PricingResult = {
   estimatedCostUsd: null,
   pricingStatus: "unpriced",
 };
+
+/** Insert an event at a specific epoch-millis timestamp. */
+function insertEventAt(
+  timestamp: number,
+  inputOverrides?: Partial<UsageEventInput>,
+  pricing: PricingResult = pricedResult,
+): void {
+  const event = recordUsageEvent(makeInput(inputOverrides), pricing);
+  const db = getDb();
+  db.run(
+    `UPDATE llm_usage_events SET created_at = ${timestamp} WHERE id = '${event.id}'`,
+  );
+}
 
 describe("recordUsageEvent", () => {
   beforeEach(() => {
@@ -243,5 +259,333 @@ describe("listUsageEvents", () => {
     expect(typeof event.cacheReadInputTokens).toBe("number");
     expect(typeof event.estimatedCostUsd).toBe("number");
     expect(typeof event.pricingStatus).toBe("string");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Aggregation query tests
+// ---------------------------------------------------------------------------
+
+describe("getUsageTotals", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  test("returns zeros when no events exist in range", () => {
+    const totals = getUsageTotals({ from: 0, to: 99999 });
+    expect(totals.totalInputTokens).toBe(0);
+    expect(totals.totalOutputTokens).toBe(0);
+    expect(totals.totalCacheCreationTokens).toBe(0);
+    expect(totals.totalCacheReadTokens).toBe(0);
+    expect(totals.totalEstimatedCostUsd).toBe(0);
+    expect(totals.eventCount).toBe(0);
+    expect(totals.pricedEventCount).toBe(0);
+    expect(totals.unpricedEventCount).toBe(0);
+  });
+
+  test("sums tokens and cost across priced events", () => {
+    insertEventAt(
+      1000,
+      { inputTokens: 100, outputTokens: 50 },
+      {
+        estimatedCostUsd: 0.01,
+        pricingStatus: "priced",
+      },
+    );
+    insertEventAt(
+      2000,
+      { inputTokens: 200, outputTokens: 100 },
+      {
+        estimatedCostUsd: 0.02,
+        pricingStatus: "priced",
+      },
+    );
+
+    const totals = getUsageTotals({ from: 0, to: 5000 });
+    expect(totals.totalInputTokens).toBe(300);
+    expect(totals.totalOutputTokens).toBe(150);
+    expect(totals.totalEstimatedCostUsd).toBeCloseTo(0.03);
+    expect(totals.eventCount).toBe(2);
+    expect(totals.pricedEventCount).toBe(2);
+    expect(totals.unpricedEventCount).toBe(0);
+  });
+
+  test("counts priced and unpriced events separately", () => {
+    insertEventAt(1000, {}, pricedResult);
+    insertEventAt(
+      2000,
+      { provider: "ollama", model: "llama3" },
+      unpricedResult,
+    );
+
+    const totals = getUsageTotals({ from: 0, to: 5000 });
+    expect(totals.eventCount).toBe(2);
+    expect(totals.pricedEventCount).toBe(1);
+    expect(totals.unpricedEventCount).toBe(1);
+  });
+
+  test("respects time range boundaries (inclusive)", () => {
+    insertEventAt(1000);
+    insertEventAt(2000);
+    insertEventAt(3000);
+
+    // Only the middle event
+    const totals = getUsageTotals({ from: 2000, to: 2000 });
+    expect(totals.eventCount).toBe(1);
+  });
+
+  test("excludes events outside the time range", () => {
+    insertEventAt(500);
+    insertEventAt(5000);
+
+    const totals = getUsageTotals({ from: 1000, to: 4000 });
+    expect(totals.eventCount).toBe(0);
+  });
+
+  test("sums cache tokens including nulls", () => {
+    insertEventAt(1000, {
+      cacheCreationInputTokens: 50,
+      cacheReadInputTokens: 100,
+    });
+    insertEventAt(2000, {
+      cacheCreationInputTokens: null,
+      cacheReadInputTokens: null,
+    });
+
+    const totals = getUsageTotals({ from: 0, to: 5000 });
+    expect(totals.totalCacheCreationTokens).toBe(50);
+    expect(totals.totalCacheReadTokens).toBe(100);
+  });
+});
+
+describe("getUsageDayBuckets", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  // Helper: epoch millis for a UTC date
+  function utcMs(year: number, month: number, day: number, hour = 0): number {
+    return Date.UTC(year, month - 1, day, hour);
+  }
+
+  test("returns empty array when no events exist", () => {
+    const buckets = getUsageDayBuckets({ from: 0, to: 99999999999 });
+    expect(buckets).toHaveLength(0);
+  });
+
+  test("groups events into correct day buckets", () => {
+    const day1Start = utcMs(2025, 3, 1, 0);
+    const day1Mid = utcMs(2025, 3, 1, 12);
+    const day2Start = utcMs(2025, 3, 2, 6);
+
+    insertEventAt(day1Start, { inputTokens: 100, outputTokens: 10 });
+    insertEventAt(day1Mid, { inputTokens: 200, outputTokens: 20 });
+    insertEventAt(day2Start, { inputTokens: 300, outputTokens: 30 });
+
+    const buckets = getUsageDayBuckets({
+      from: utcMs(2025, 3, 1),
+      to: utcMs(2025, 3, 3),
+    });
+
+    expect(buckets).toHaveLength(2);
+    expect(buckets[0].date).toBe("2025-03-01");
+    expect(buckets[0].totalInputTokens).toBe(300);
+    expect(buckets[0].totalOutputTokens).toBe(30);
+    expect(buckets[0].eventCount).toBe(2);
+
+    expect(buckets[1].date).toBe("2025-03-02");
+    expect(buckets[1].totalInputTokens).toBe(300);
+    expect(buckets[1].totalOutputTokens).toBe(30);
+    expect(buckets[1].eventCount).toBe(1);
+  });
+
+  test("buckets are ordered by date ascending", () => {
+    insertEventAt(utcMs(2025, 3, 3));
+    insertEventAt(utcMs(2025, 3, 1));
+    insertEventAt(utcMs(2025, 3, 2));
+
+    const buckets = getUsageDayBuckets({
+      from: utcMs(2025, 3, 1),
+      to: utcMs(2025, 3, 4),
+    });
+    expect(buckets.map((b) => b.date)).toEqual([
+      "2025-03-01",
+      "2025-03-02",
+      "2025-03-03",
+    ]);
+  });
+
+  test("handles day boundary correctly (midnight UTC)", () => {
+    // Last millisecond of March 1 and first millisecond of March 2
+    const endOfDay1 = utcMs(2025, 3, 1, 23) + 59 * 60 * 1000 + 59 * 1000;
+    const startOfDay2 = utcMs(2025, 3, 2, 0);
+
+    insertEventAt(endOfDay1, { inputTokens: 111 });
+    insertEventAt(startOfDay2, { inputTokens: 222 });
+
+    const buckets = getUsageDayBuckets({
+      from: utcMs(2025, 3, 1),
+      to: utcMs(2025, 3, 3),
+    });
+
+    expect(buckets).toHaveLength(2);
+    expect(buckets[0].date).toBe("2025-03-01");
+    expect(buckets[0].totalInputTokens).toBe(111);
+    expect(buckets[1].date).toBe("2025-03-02");
+    expect(buckets[1].totalInputTokens).toBe(222);
+  });
+
+  test("sums cost correctly with mixed priced/unpriced events", () => {
+    const day = utcMs(2025, 3, 1);
+    insertEventAt(day, {}, { estimatedCostUsd: 0.05, pricingStatus: "priced" });
+    insertEventAt(day + 1000, { provider: "ollama" }, unpricedResult);
+
+    const buckets = getUsageDayBuckets({
+      from: utcMs(2025, 3, 1),
+      to: utcMs(2025, 3, 2),
+    });
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
+    expect(buckets[0].eventCount).toBe(2);
+  });
+});
+
+describe("getUsageGroupBreakdown", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  test("returns empty array when no events exist", () => {
+    const groups = getUsageGroupBreakdown({ from: 0, to: 99999 }, "actor");
+    expect(groups).toHaveLength(0);
+  });
+
+  test("groups by actor", () => {
+    insertEventAt(
+      1000,
+      { actor: "main_agent", inputTokens: 100 },
+      {
+        estimatedCostUsd: 0.01,
+        pricingStatus: "priced",
+      },
+    );
+    insertEventAt(
+      2000,
+      { actor: "main_agent", inputTokens: 200 },
+      {
+        estimatedCostUsd: 0.02,
+        pricingStatus: "priced",
+      },
+    );
+    insertEventAt(
+      3000,
+      { actor: "title_generator", inputTokens: 50 },
+      {
+        estimatedCostUsd: 0.005,
+        pricingStatus: "priced",
+      },
+    );
+
+    const groups = getUsageGroupBreakdown({ from: 0, to: 5000 }, "actor");
+    expect(groups).toHaveLength(2);
+
+    // Ordered by cost descending
+    expect(groups[0].group).toBe("main_agent");
+    expect(groups[0].totalInputTokens).toBe(300);
+    expect(groups[0].totalEstimatedCostUsd).toBeCloseTo(0.03);
+    expect(groups[0].eventCount).toBe(2);
+
+    expect(groups[1].group).toBe("title_generator");
+    expect(groups[1].totalInputTokens).toBe(50);
+    expect(groups[1].eventCount).toBe(1);
+  });
+
+  test("groups by provider", () => {
+    insertEventAt(
+      1000,
+      { provider: "anthropic" },
+      {
+        estimatedCostUsd: 0.05,
+        pricingStatus: "priced",
+      },
+    );
+    insertEventAt(2000, { provider: "ollama" }, unpricedResult);
+
+    const groups = getUsageGroupBreakdown({ from: 0, to: 5000 }, "provider");
+    expect(groups).toHaveLength(2);
+    expect(groups[0].group).toBe("anthropic");
+    expect(groups[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
+    expect(groups[1].group).toBe("ollama");
+    expect(groups[1].totalEstimatedCostUsd).toBe(0);
+  });
+
+  test("groups by model", () => {
+    insertEventAt(
+      1000,
+      { model: "claude-sonnet-4-20250514" },
+      {
+        estimatedCostUsd: 0.03,
+        pricingStatus: "priced",
+      },
+    );
+    insertEventAt(
+      2000,
+      { model: "claude-sonnet-4-20250514" },
+      {
+        estimatedCostUsd: 0.02,
+        pricingStatus: "priced",
+      },
+    );
+    insertEventAt(3000, { model: "llama3" }, unpricedResult);
+
+    const groups = getUsageGroupBreakdown({ from: 0, to: 5000 }, "model");
+    expect(groups).toHaveLength(2);
+    expect(groups[0].group).toBe("claude-sonnet-4-20250514");
+    expect(groups[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
+    expect(groups[0].eventCount).toBe(2);
+    expect(groups[1].group).toBe("llama3");
+  });
+
+  test("respects time range", () => {
+    insertEventAt(1000, { actor: "main_agent" });
+    insertEventAt(5000, { actor: "title_generator" });
+
+    const groups = getUsageGroupBreakdown({ from: 2000, to: 4000 }, "actor");
+    expect(groups).toHaveLength(0);
+  });
+
+  test("orders groups by estimated cost descending", () => {
+    insertEventAt(
+      1000,
+      { actor: "main_agent" },
+      {
+        estimatedCostUsd: 0.01,
+        pricingStatus: "priced",
+      },
+    );
+    insertEventAt(
+      2000,
+      { actor: "title_generator" },
+      {
+        estimatedCostUsd: 0.05,
+        pricingStatus: "priced",
+      },
+    );
+    insertEventAt(
+      3000,
+      { actor: "context_compactor" },
+      {
+        estimatedCostUsd: 0.03,
+        pricingStatus: "priced",
+      },
+    );
+
+    const groups = getUsageGroupBreakdown({ from: 0, to: 5000 }, "actor");
+    expect(groups[0].group).toBe("title_generator");
+    expect(groups[1].group).toBe("context_compactor");
+    expect(groups[2].group).toBe("main_agent");
   });
 });

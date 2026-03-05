@@ -63,6 +63,7 @@ import {
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
+  migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
   recoverCrashedMigrations,
@@ -292,6 +293,9 @@ export function initializeDb(): void {
 
   // 40. Drop assistant_id columns from all 16 daemon tables
   migrateDropAssistantIdColumns(database);
+
+  // 41. Indexes on llm_usage_events for usage dashboard time-range and breakdown queries
+  migrateUsageDashboardIndexes(database);
 
   validateMigrationState(database);
 
