@@ -107,12 +107,14 @@ struct ComposerView: View {
                     }
                     .frame(height: compactRowHeight, alignment: .center)
                 } else {
-                    // Text field with action buttons pinned to bottom-trailing.
+                    // Text field with action buttons pinned to trailing edge.
+                    // In compact (single-line) mode buttons are vertically centered;
+                    // in expanded (multi-line) mode they pin to the bottom-right.
                     composerTextField
                         .frame(minHeight: composerCompactHeight)
-                        .overlay(alignment: .bottomTrailing) {
+                        .overlay(alignment: isComposerExpanded ? .bottomTrailing : .trailing) {
                             composerActionButtons
-                                .padding(.bottom, VSpacing.xs)
+                                .padding(.bottom, isComposerExpanded ? VSpacing.xs : 0)
                         }
                 }
             }
@@ -259,9 +261,14 @@ struct ComposerView: View {
                 composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
                 composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Reserve space so the last line of text isn't hidden behind the
-            // overlaid action buttons (attach + send/mic ≈ composerActionButtonSize).
+            // minHeight keeps single-line text vertically centered in the
+            // compact row; .leading alignment pins text to the left edge.
+            .frame(maxWidth: .infinity, minHeight: composerCompactHeight, alignment: .leading)
+            // Reserve trailing space so text wraps before reaching the
+            // overlaid action buttons (attach + send/mic ≈ 70pt wide).
+            .padding(.trailing, 70)
+            // Reserve bottom space so the last visible line isn't hidden
+            // behind the buttons when the composer is expanded.
             .padding(.bottom, isComposerExpanded ? composerActionButtonSize : 0)
         }
         .scrollBounceBehavior(.basedOnSize)

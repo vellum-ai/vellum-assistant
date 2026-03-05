@@ -118,6 +118,19 @@ struct ComposerFocusBridge: NSViewRepresentable {
                     return nil
                 }
 
+                // Cmd+Return or Ctrl+Return in default mode -> insert newline.
+                // Option+Return inserts a newline natively on macOS;
+                // Cmd/Ctrl+Return do not, so we insert one manually at
+                // the cursor position via the field editor.
+                if !self.parent.cmdEnterToSend,
+                   (modifiers == [.command] || modifiers == [.control]),
+                   event.keyCode == 36 || event.keyCode == 76 {
+                    if let textView = event.window?.firstResponder as? NSTextView {
+                        textView.insertNewlineIgnoringFieldEditor(nil)
+                        return nil
+                    }
+                }
+
                 // Let zoom shortcuts propagate instead of being consumed
                 if modifiers == [.command] || modifiers == [.command, .option] {
                     let key = event.charactersIgnoringModifiers ?? ""
