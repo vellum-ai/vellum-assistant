@@ -86,7 +86,10 @@ for name, actual in sorted(results.items()):
         print(f"  NEW      {name}: {actual:.4f}s (no prior baseline)")
         continue
     baseline  = baselines[name]
-    delta_pct = (actual - baseline) / baseline * 100
+    if baseline == 0:
+        delta_pct = float('inf') if actual > 0 else 0.0
+    else:
+        delta_pct = (actual - baseline) / baseline * 100
     status    = "REGRESSED" if delta_pct > threshold else "ok       "
     print(f"  {status} {name}: baseline={baseline:.4f}s actual={actual:.4f}s delta={delta_pct:+.1f}%")
     if delta_pct > threshold:

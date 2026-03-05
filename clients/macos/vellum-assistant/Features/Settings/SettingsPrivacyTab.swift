@@ -159,6 +159,13 @@ struct SettingsPrivacyTab: View {
             try await daemonClient.setFeatureFlag(key: Self.collectUsageDataKey, enabled: enabled)
             // Clear any previous error so stale failure messages don't persist after a successful save.
             loadError = nil
+            // Apply Sentry state immediately rather than waiting for the next daemon
+            // reconnect to call checkAndApplyPrivacyFlag(). Mirrors that function's
+            // behaviour: close Sentry when the user opts out so crash/error events
+            // stop being captured in the current session right away.
+            if !enabled {
+                SentrySDK.close()
+            }
         } catch {
             // Revert the optimistic toggle on failure
             collectUsageData = !enabled
@@ -242,28 +249,11 @@ private struct ReportProblemSheet: View {
             let event = Event(level: .info)
             event.message = SentryMessage(formatted: message)
             event.tags = ["source": "manual_report", "app_version": appVersion]
-            // Use the shared serial queue to serialise SDK lifecycle changes and
-            // to ensure the user's crash-reporting opt-out is honoured — automatic
-            // capture is disabled when Sentry is temporarily restarted so only
-            // this explicit capture(event:) call sends data.
-            MetricKitManager.sentrySerialQueue.sync {
-                let wasDisabled = !SentrySDK.isEnabled
-                if wasDisabled {
-                    SentrySDK.start { options in
-                        options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
-                        options.sendDefaultPii = false
-                        // Disable crash capture and session tracking so the temporary
-                        // restart only sends the explicit capture(event:) below.
-                        options.enableCrashHandler = false
-                        options.enableAutoSessionTracking = false
-                    }
-                }
-                SentrySDK.capture(event: event)
-                if wasDisabled {
-                    SentrySDK.flush(timeout: 5)
-                    SentrySDK.close()
-                }
-            }
+            // captureSentryEvent uses .async on the serial queue so it never blocks
+            // the cooperative thread pool (unlike .sync which would block for up to
+            // 5 seconds during SentrySDK.flush). The event is enqueued and delivered
+            // by Sentry's internal transport; the UI can update immediately.
+            MetricKitManager.captureSentryEvent(event)
             await MainActor.run {
                 isSending = false
                 didSend = true
