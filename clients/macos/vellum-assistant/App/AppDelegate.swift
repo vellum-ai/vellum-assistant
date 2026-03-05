@@ -48,6 +48,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
+    private var metricKitManager: MetricKitManager?
 
     // Forwarding accessors — ownership lives in `services`, these keep
     // existing internal references working without a mass-rename.
@@ -132,6 +133,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
+        metricKitManager = MetricKitManager()
 
         // Initialize crash reporting eagerly so crashes before the daemon connects
         // are captured. Privacy opt-out is checked after the daemon is ready and
