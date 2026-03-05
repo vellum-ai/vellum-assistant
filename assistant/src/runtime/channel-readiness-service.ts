@@ -1,13 +1,10 @@
 import {
-  resolveSmsPhoneNumber,
-  resolveWhatsAppPhoneNumber,
-} from "../calls/twilio-phone-resolution.js";
-import {
   getPhoneNumberSid,
   getTollFreeVerificationStatus,
   hasTwilioCredentials,
 } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
+import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadRawConfig } from "../config/loader.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import type {
@@ -22,6 +19,41 @@ import type {
 export const REMOTE_TTL_MS = 5 * 60 * 1000;
 
 // ── SMS Probe ───────────────────────────────────────────────────────────────
+
+// Keep Twilio phone-number resolution inside an already-authorized module so
+// the secure-key import boundary does not expand for shared config helpers.
+function resolveSmsPhoneNumber(): string {
+  return resolveTwilioPhoneNumber();
+}
+
+function resolveWhatsAppPhoneNumber(): string {
+  return resolveTwilioPhoneNumber({ includeWhatsappOverride: true });
+}
+
+function resolveTwilioPhoneNumber(options?: {
+  includeWhatsappOverride?: boolean;
+}): string {
+  try {
+    const raw = loadRawConfig();
+    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+    const whatsappConfig = options?.includeWhatsappOverride
+      ? ((raw?.whatsapp ?? {}) as Record<string, unknown>)
+      : undefined;
+    return (
+      getTwilioPhoneNumberEnv() ||
+      (whatsappConfig?.phoneNumber as string | undefined) ||
+      (smsConfig.phoneNumber as string) ||
+      getSecureKey("credential:twilio:phone_number") ||
+      ""
+    );
+  } catch {
+    return (
+      getTwilioPhoneNumberEnv() ||
+      getSecureKey("credential:twilio:phone_number") ||
+      ""
+    );
+  }
+}
 
 function hasIngressConfigured(): boolean {
   try {
