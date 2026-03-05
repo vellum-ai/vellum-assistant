@@ -5,6 +5,8 @@ struct UsageDashboardPanel: View {
     let store: UsageDashboardStore
     var onClose: () -> Void
 
+    @State private var activeTask: Task<Void, Never>?
+
     var body: some View {
         VSidePanel(title: "Usage", onClose: onClose, pinnedContent: {
             timeRangeStrip(store: store)
@@ -13,11 +15,15 @@ struct UsageDashboardPanel: View {
             contentView(store: store)
         }
         .onAppear {
-            Task {
+            activeTask = Task {
                 if store.needsRefresh {
                     await store.refresh()
                 }
             }
+        }
+        .onDisappear {
+            activeTask?.cancel()
+            activeTask = nil
         }
     }
 
@@ -29,7 +35,8 @@ struct UsageDashboardPanel: View {
             HStack(spacing: VSpacing.sm) {
                 ForEach(UsageTimeRange.allCases, id: \.rawValue) { range in
                     Button {
-                        Task { await store.selectRange(range) }
+                        activeTask?.cancel()
+                        activeTask = Task { await store.selectRange(range) }
                     } label: {
                         Text(range.rawValue)
                             .font(VFont.captionMedium)
@@ -171,7 +178,8 @@ struct UsageDashboardPanel: View {
         HStack(spacing: VSpacing.xs) {
             ForEach(UsageGroupByDimension.allCases, id: \.rawValue) { dimension in
                 Button {
-                    Task { await store.selectGroupBy(dimension) }
+                    activeTask?.cancel()
+                    activeTask = Task { await store.selectGroupBy(dimension) }
                 } label: {
                     Text(dimension.rawValue.capitalized)
                         .font(VFont.small)
