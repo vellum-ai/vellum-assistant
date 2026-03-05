@@ -58,7 +58,7 @@ interface GlobalSearchSchedule {
 interface GlobalSearchContact {
   id: string;
   displayName: string;
-  relationship: string | null;
+  notes: string | null;
   lastInteraction: number | null;
 }
 
@@ -256,7 +256,7 @@ export async function handleGlobalSearch(url: URL): Promise<Response> {
     results.contacts = contactResults.map((c) => ({
       id: c.id,
       displayName: c.displayName,
-      relationship: c.relationship,
+      notes: c.notes,
       lastInteraction: c.lastInteraction,
     }));
   }

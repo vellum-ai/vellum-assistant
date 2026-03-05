@@ -406,10 +406,7 @@ export const sharedAppLinks = sqliteTable("shared_app_links", {
 export const contacts = sqliteTable("contacts", {
   id: text("id").primaryKey(),
   displayName: text("display_name").notNull(),
-  relationship: text("relationship"), // e.g. 'colleague', 'friend', 'manager', 'client'
-  importance: real("importance").notNull().default(0.5), // 0-1 scale, learned from interaction patterns
-  responseExpectation: text("response_expectation"), // e.g. 'immediate', 'within_hours', 'casual'
-  preferredTone: text("preferred_tone"), // e.g. 'formal', 'casual', 'friendly'
+  notes: text("notes"),
   lastInteraction: integer("last_interaction"), // epoch ms
   interactionCount: integer("interaction_count").notNull().default(0),
   createdAt: integer("created_at").notNull(),
