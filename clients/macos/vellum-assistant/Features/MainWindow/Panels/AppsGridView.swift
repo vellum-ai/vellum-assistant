@@ -185,6 +185,7 @@ struct AppsGridView: View {
                                 }
                                 try? daemonClient.sendAppDelete(appId: app.id)
                                 appListManager.removeApp(id: app.id)
+                                AppPreviewImageStore.remove(appId: app.id)
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }

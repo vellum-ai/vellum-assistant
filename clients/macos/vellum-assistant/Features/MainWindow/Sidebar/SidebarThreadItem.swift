@@ -188,7 +188,9 @@ struct SidebarThreadItem: View {
         }
         .pointerCursor()
         .onHover { hovering in
-            sidebar.setThreadHover(threadId: thread.id, hovering: hovering)
+            withAnimation(VAnimation.fast) {
+                sidebar.setThreadHover(threadId: thread.id, hovering: hovering)
+            }
         }
         .onDrag {
             sidebar.draggingThreadId = thread.id
