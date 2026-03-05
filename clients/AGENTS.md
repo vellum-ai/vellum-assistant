@@ -65,9 +65,10 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 
 | Need | Use this | Not this |
 |------|----------|----------|
-| Multi-line text input | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
+| Multi-line text input (short-form) | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
+| Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with GeometryReader height measurement (see chat composer) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
-| Auto-growing height | `.lineLimit(1...N)` for simple cases | Manual height sync + frame clamping (exception: the chat composer uses ScrollView + GeometryReader because `.lineLimit` truncates instead of scrolling on macOS when content exceeds max lines) |
+| Auto-growing height | `ScrollView` + `GeometryReader` on inner content + `.frame(height: clamp(measured, min, max))` | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
 | Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
 | Newline in chat input | Shift+Return via AppKit bridge (intercepts before `.onSubmit`); Option+Return also works natively | Relying solely on `.onSubmit` modifier detection (SwiftUI's `.onSubmit` cannot distinguish Shift+Return from plain Return) |
 | Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
