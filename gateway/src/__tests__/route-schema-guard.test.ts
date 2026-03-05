@@ -188,13 +188,14 @@ describe("route-schema sync guard", () => {
   test("HTTP methods for each path should match between routes and schema", () => {
     const routes = extractRoutesFromSource();
     const HTTP_METHODS = ["get", "post", "put", "patch", "delete"] as const;
+    type HttpMethod = (typeof HTTP_METHODS)[number];
 
     const mismatches: string[] = [];
 
     // Build a map of path → set of methods from the route table.
     // Routes without an explicit method match any method — skip those
     // since the guard can't know which methods they actually handle.
-    const routeMethodsByPath = new Map<string, Set<string>>();
+    const routeMethodsByPath = new Map<string, Set<HttpMethod>>();
     for (const route of routes) {
       if (EXCLUDED_FROM_SCHEMA.has(route.path)) continue;
       if (route.path === "/") continue; // catch-all
@@ -208,7 +209,7 @@ describe("route-schema sync guard", () => {
         methods = new Set();
         routeMethodsByPath.set(normalizedPath, methods);
       }
-      methods.add(route.method.toLowerCase());
+      methods.add(route.method.toLowerCase() as HttpMethod);
     }
 
     // For each path that has explicit methods in the route table,
