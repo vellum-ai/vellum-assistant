@@ -93,10 +93,9 @@ export async function pairDeliveryWithConversation(
 
     const title = copy.threadTitle ?? copy.title ?? signal.sourceEventName;
 
-    // Only start_new_conversation threads should be user-visible. For channels
-    // that intend to continue an existing external conversation (e.g. Telegram),
-    // we still materialize an auditable row but keep it background-only until
-    // true continuation-by-key is implemented.
+    // Only start_new_conversation threads should be user-visible in the sidebar.
+    // Channels with continue_existing_conversation reuse bound external threads
+    // and mark them as background so they don't clutter the sidebar UI.
     const threadType =
       strategy === "start_new_conversation" ? "standard" : "background";
 
