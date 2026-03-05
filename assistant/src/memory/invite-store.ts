@@ -38,6 +38,8 @@ export interface IngressInvite {
   expectedExternalUserId: string | null;
   voiceCodeHash: string | null;
   voiceCodeDigits: number | null;
+  // 6-digit invite code hash (null for voice invites which use voiceCodeHash)
+  inviteCodeHash: string | null;
   // Display metadata for personalized voice prompts (null for non-voice invites)
   friendName: string | null;
   guardianName: string | null;
@@ -84,6 +86,7 @@ function rowToInvite(
     expectedExternalUserId: row.expectedExternalUserId,
     voiceCodeHash: row.voiceCodeHash,
     voiceCodeDigits: row.voiceCodeDigits,
+    inviteCodeHash: row.inviteCodeHash,
     friendName: row.friendName,
     guardianName: row.guardianName,
     createdAt: row.createdAt,
@@ -106,6 +109,8 @@ export function createInvite(params: {
   expectedExternalUserId?: string;
   voiceCodeHash?: string;
   voiceCodeDigits?: number;
+  // 6-digit invite code hash (for non-voice invites)
+  inviteCodeHash?: string;
   friendName?: string;
   guardianName?: string;
 }): { invite: IngressInvite; rawToken: string } {
@@ -132,6 +137,7 @@ export function createInvite(params: {
     expectedExternalUserId: params.expectedExternalUserId ?? null,
     voiceCodeHash: params.voiceCodeHash ?? null,
     voiceCodeDigits: params.voiceCodeDigits ?? null,
+    inviteCodeHash: params.inviteCodeHash ?? null,
     friendName: params.friendName ?? null,
     guardianName: params.guardianName ?? null,
     createdAt: now,
@@ -345,4 +351,29 @@ export function findActiveVoiceInvites(params: {
     .all();
 
   return rows.map(rowToInvite);
+}
+
+// ---------------------------------------------------------------------------
+// findByInviteCodeHash
+// ---------------------------------------------------------------------------
+
+/**
+ * Find an active invite by its 6-digit invite code hash.
+ * Used by the channel-agnostic code redemption flow.
+ */
+export function findByInviteCodeHash(hash: string): IngressInvite | undefined {
+  const db = getDb();
+
+  const row = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(
+      and(
+        eq(assistantIngressInvites.inviteCodeHash, hash),
+        eq(assistantIngressInvites.status, "active"),
+      ),
+    )
+    .get();
+
+  return row ? rowToInvite(row) : undefined;
 }

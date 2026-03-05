@@ -67,6 +67,18 @@ export const telegramInviteAdapter: ChannelInviteAdapter = {
     };
   },
 
+  buildGuardianInstruction(params: {
+    inviteCode: string;
+    contactName?: string;
+  }): string {
+    const botUsername = getTelegramBotUsername();
+    const contactLabel = params.contactName || "the contact";
+    if (!botUsername) {
+      return `Tell ${contactLabel} to message the assistant on Telegram and provide the code ${params.inviteCode}.`;
+    }
+    return `Tell ${contactLabel} to message @${botUsername} on Telegram and provide the code ${params.inviteCode}.`;
+  },
+
   extractInboundToken(params: {
     commandIntent?: Record<string, unknown>;
     content: string;

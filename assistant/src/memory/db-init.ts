@@ -61,6 +61,7 @@ import {
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
+  migrateInviteCodeHashColumn,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
   recoverCrashedMigrations,
@@ -245,6 +246,9 @@ export function initializeDb(): void {
 
   // 27. Voice invite display metadata (friend_name, guardian_name) for personalized prompts
   migrateVoiceInviteDisplayMetadata(database);
+
+  // 27b. 6-digit invite code hash column for non-voice channel invite redemption
+  migrateInviteCodeHashColumn(database);
 
   // 28. Actor token records (hash-only actor token persistence)
   createActorTokenRecordsTable(database);
