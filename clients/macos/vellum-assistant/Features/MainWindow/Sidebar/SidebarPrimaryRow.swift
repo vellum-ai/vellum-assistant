@@ -19,7 +19,7 @@ struct SidebarPrimaryRow: View {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
-                    .frame(width: 20)
+                    .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
                 Text(label)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
@@ -35,7 +35,8 @@ struct SidebarPrimaryRow: View {
             }
             .padding(.leading, isExpanded ? VSpacing.xs : 0)
             .padding(.trailing, isExpanded ? VSpacing.sm : 0)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
             .background(
                 (isActive ? VColor.navActive : isHovered ? VColor.navHover : .clear)

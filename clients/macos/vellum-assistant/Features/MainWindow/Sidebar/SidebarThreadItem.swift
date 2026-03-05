@@ -110,8 +110,9 @@ struct SidebarThreadItem: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs) : VSpacing.sm)
+            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
                 if isSelected {
                     VColor.navActive
