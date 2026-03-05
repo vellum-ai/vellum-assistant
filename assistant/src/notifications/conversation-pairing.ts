@@ -38,6 +38,18 @@ import type { RenderedChannelCopy } from "./types.js";
 
 const log = getLogger("notification-conversation-pairing");
 
+/**
+ * Prefix applied to sourceChannel values in notification bindings so they
+ * occupy a separate namespace from messaging adapter bindings in the
+ * external_conversation_bindings table.  Without this, notification pairing
+ * and messaging adapters (Telegram, SMS, etc.) would destructively overwrite
+ * each other's bindings since both use (sourceChannel, externalChatId) as key.
+ */
+const NOTIFICATION_CHANNEL_PREFIX = "notification:";
+function notificationChannel(sourceChannel: string): string {
+  return `${NOTIFICATION_CHANNEL_PREFIX}${sourceChannel}`;
+}
+
 export interface PairingResult {
   conversationId: string | null;
   messageId: string | null;
@@ -189,7 +201,7 @@ export async function pairDeliveryWithConversation(
       bindingContext?.externalChatId
     ) {
       const existingBinding = getBindingByChannelChat(
-        bindingContext.sourceChannel,
+        notificationChannel(bindingContext.sourceChannel),
         bindingContext.externalChatId,
       );
 
@@ -210,7 +222,7 @@ export async function pairDeliveryWithConversation(
           // Touch the outbound timestamp so the binding stays fresh.
           upsertOutboundBinding({
             conversationId: boundConversation.id,
-            sourceChannel: bindingContext.sourceChannel,
+            sourceChannel: notificationChannel(bindingContext.sourceChannel),
             externalChatId: bindingContext.externalChatId,
           });
 
@@ -274,7 +286,7 @@ export async function pairDeliveryWithConversation(
     if (bindingContext?.sourceChannel && bindingContext?.externalChatId) {
       upsertOutboundBinding({
         conversationId: conversation.id,
-        sourceChannel: bindingContext.sourceChannel,
+        sourceChannel: notificationChannel(bindingContext.sourceChannel),
         externalChatId: bindingContext.externalChatId,
       });
     }

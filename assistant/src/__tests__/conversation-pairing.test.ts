@@ -323,9 +323,9 @@ describe("pairDeliveryWithConversation", () => {
       source: "notification",
       title: "Telegram Thread",
     };
-    mockBindings["telegram:chat-123"] = {
+    mockBindings["notification:telegram:chat-123"] = {
       conversationId: "conv-bound",
-      sourceChannel: "telegram",
+      sourceChannel: "notification:telegram",
       externalChatId: "chat-123",
     };
 
@@ -364,9 +364,9 @@ describe("pairDeliveryWithConversation", () => {
       source: "user",
       title: "User Thread",
     };
-    mockBindings["sms:+15551234567"] = {
+    mockBindings["notification:sms:+15551234567"] = {
       conversationId: "conv-user-owned",
-      sourceChannel: "sms",
+      sourceChannel: "notification:sms",
       externalChatId: "+15551234567",
     };
 
@@ -395,14 +395,14 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(upsertArgs.conversationId).toBe("conv-001");
-    expect(upsertArgs.sourceChannel).toBe("sms");
+    expect(upsertArgs.sourceChannel).toBe("notification:sms");
   });
 
   test("falls back to new conversation when bound conversation no longer exists", async () => {
     // Binding exists but conversation was deleted
-    mockBindings["telegram:chat-456"] = {
+    mockBindings["notification:telegram:chat-456"] = {
       conversationId: "conv-deleted",
-      sourceChannel: "telegram",
+      sourceChannel: "notification:telegram",
       externalChatId: "chat-456",
     };
 
@@ -452,7 +452,7 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(upsertArgs.conversationId).toBe("conv-001");
-    expect(upsertArgs.sourceChannel).toBe("slack");
+    expect(upsertArgs.sourceChannel).toBe("notification:slack");
     expect(upsertArgs.externalChatId).toBe("C0123ABCDEF");
   });
 
@@ -468,9 +468,9 @@ describe("pairDeliveryWithConversation", () => {
       source: "notification",
       title: "Bound Thread",
     };
-    mockBindings["telegram:chat-789"] = {
+    mockBindings["notification:telegram:chat-789"] = {
       conversationId: "conv-bound",
-      sourceChannel: "telegram",
+      sourceChannel: "notification:telegram",
       externalChatId: "chat-789",
     };
 
@@ -509,9 +509,9 @@ describe("pairDeliveryWithConversation", () => {
       source: "notification",
       title: "Vellum Thread",
     };
-    mockBindings["vellum:device-1"] = {
+    mockBindings["notification:vellum:device-1"] = {
       conversationId: "conv-bound-vellum",
-      sourceChannel: "vellum",
+      sourceChannel: "notification:vellum",
       externalChatId: "device-1",
     };
 
