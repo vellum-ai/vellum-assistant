@@ -180,6 +180,14 @@ export async function handleRideShotgunStart(
         cdpSession = await ensureChromeWithCdp({
           startUrl: targetDomain ? `https://${targetDomain}` : undefined,
         });
+        // If session completed while we were awaiting Chrome, skip storing to avoid a stale map entry
+        if (session.status !== "active") {
+          log.info(
+            { watchId, status: session.status },
+            "Session no longer active after CDP launch — skipping recording",
+          );
+          return;
+        }
         activeCdpSessions.set(watchId, cdpSession);
         log.info(
           {
