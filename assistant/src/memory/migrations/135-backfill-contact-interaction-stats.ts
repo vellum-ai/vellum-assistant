@@ -1,0 +1,31 @@
+import type { DrizzleDb } from "../db-connection.js";
+import { withCrashRecovery } from "./validate-migration-state.js";
+
+/**
+ * Backfill contacts.last_interaction from the max lastSeenAt across each
+ * contact's channels. interactionCount cannot be reliably derived from
+ * existing data, so it stays at 0 and accumulates going forward.
+ */
+export function migrateBackfillContactInteractionStats(db: DrizzleDb): void {
+  withCrashRecovery(db, "backfill_contact_interaction_stats", () => {
+    db.run(/*sql*/ `
+      UPDATE contacts
+      SET last_interaction = (
+        SELECT MAX(last_seen_at)
+        FROM contact_channels
+        WHERE contact_id = contacts.id
+          AND last_seen_at IS NOT NULL
+      ),
+      updated_at = CASE
+        WHEN (SELECT MAX(last_seen_at) FROM contact_channels WHERE contact_id = contacts.id AND last_seen_at IS NOT NULL) IS NOT NULL
+        THEN (SELECT MAX(last_seen_at) FROM contact_channels WHERE contact_id = contacts.id AND last_seen_at IS NOT NULL)
+        ELSE updated_at
+      END
+      WHERE last_interaction IS NULL
+        AND EXISTS (
+          SELECT 1 FROM contact_channels
+          WHERE contact_id = contacts.id AND last_seen_at IS NOT NULL
+        )
+    `);
+  });
+}

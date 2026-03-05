@@ -33,6 +33,7 @@ import {
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
   migrateAssistantContactMetadata,
+  migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
@@ -276,6 +277,9 @@ export function initializeDb(): void {
 
   // 37. Add contact_type to contacts and assistant_contact_metadata table
   migrateAssistantContactMetadata(database);
+
+  // 38. Backfill contact interaction stats from channel lastSeenAt
+  migrateBackfillContactInteractionStats(database);
 
   validateMigrationState(database);
 
