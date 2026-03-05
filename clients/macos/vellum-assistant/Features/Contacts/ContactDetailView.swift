@@ -33,7 +33,7 @@ struct ContactDetailView: View {
     )?
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
-    @State private var channelReadiness: [String: Bool] = [:]
+    @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
 
     var displayContact: ContactPayload {
         currentContact ?? contact
@@ -340,8 +340,8 @@ struct ContactDetailView: View {
                 // explicitly marked false.
                 let probedChannels: Set<String> = ["sms", "telegram", "voice"]
                 let channelIsReady = probedChannels.contains(type)
-                    ? channelReadiness[type] == true
-                    : channelReadiness[type] != false
+                    ? channelReadiness[type]?.ready == true
+                    : channelReadiness[type]?.ready != false
                 if displayContact.role != "guardian" && type != "voice" && channelIsReady {
                     if inviteInProgress == type {
                         ProgressView()

@@ -1697,10 +1697,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         #endif
     }
 
+    /// Rich channel readiness information returned by `fetchChannelReadiness()`.
+    public struct ChannelReadinessInfo {
+        public let ready: Bool
+        public let channelHandle: String?
+    }
+
     /// Fetch per-channel readiness state from the gateway.
     /// Routes through `HTTPTransport` when available. Falls back to the
     /// local gateway for socket-based connections.
-    public func fetchChannelReadiness() async throws -> [String: Bool] {
+    public func fetchChannelReadiness() async throws -> [String: ChannelReadinessInfo] {
         if let httpTransport {
             return try await httpTransport.fetchChannelReadiness()
         }
@@ -1718,12 +1724,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             struct Snapshot: Decodable {
                 let channel: String
                 let ready: Bool
+                let channelHandle: String?
             }
         }
         let decoded = try JSONDecoder().decode(ReadinessResponse.self, from: data)
-        var result: [String: Bool] = [:]
+        var result: [String: ChannelReadinessInfo] = [:]
         for snapshot in decoded.snapshots {
-            result[snapshot.channel] = snapshot.ready
+            result[snapshot.channel] = ChannelReadinessInfo(
+                ready: snapshot.ready,
+                channelHandle: snapshot.channelHandle
+            )
         }
         return result
         #else

@@ -1142,6 +1142,7 @@ public final class HTTPTransport {
         struct ChannelReadinessSnapshot: Decodable {
             let channel: String
             let ready: Bool
+            let channelHandle: String?
         }
     }
 
@@ -1272,7 +1273,7 @@ public final class HTTPTransport {
 
     /// Fetch per-channel readiness from `GET /v1/channels/readiness`.
     /// Returns a dictionary mapping channel type strings to their readiness state.
-    func fetchChannelReadiness(isRetry: Bool = false) async throws -> [String: Bool] {
+    func fetchChannelReadiness(isRetry: Bool = false) async throws -> [String: DaemonClient.ChannelReadinessInfo] {
         guard let url = buildURL(for: .channelsReadiness) else { return [:] }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -1291,9 +1292,12 @@ public final class HTTPTransport {
         }
 
         let decoded = try decoder.decode(HTTPChannelReadinessResponse.self, from: data)
-        var result: [String: Bool] = [:]
+        var result: [String: DaemonClient.ChannelReadinessInfo] = [:]
         for snapshot in decoded.snapshots {
-            result[snapshot.channel] = snapshot.ready
+            result[snapshot.channel] = DaemonClient.ChannelReadinessInfo(
+                ready: snapshot.ready,
+                channelHandle: snapshot.channelHandle
+            )
         }
         return result
     }
