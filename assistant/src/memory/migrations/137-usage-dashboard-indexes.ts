@@ -8,9 +8,10 @@ import type { DrizzleDb } from "../db-connection.js";
  * - Composite index on (actor, created_at) for per-actor breakdowns.
  * - Composite index on (provider, model, created_at) for provider/model grouping.
  *
- * NOTE: The two composite indexes created here are superseded by migration
- * 138 which reorders them to lead with created_at, matching the actual
- * query shapes (WHERE created_at range, GROUP BY dimension).
+ * SUPERSEDED: The two composite indexes are dropped by migration 139.
+ * They don't accelerate grouped queries — SQLite still uses temp B-trees
+ * for GROUP BY regardless of index column order. Only the plain
+ * created_at index (kept) provides value for range scans.
  */
 export function migrateUsageDashboardIndexes(database: DrizzleDb): void {
   database.run(
