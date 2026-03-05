@@ -203,9 +203,7 @@ describe("inbound invite redemption intercept", () => {
     expect(deliverReplyCalls.length).toBe(1);
     const replyText = (deliverReplyCalls[0].payload as Record<string, unknown>)
       .text;
-    expect(replyText).toContain(
-      "Welcome! You've been granted access via invite link.",
-    );
+    expect(replyText).toContain("Welcome! You've been granted access.");
   });
 
   test("non-member with invalid token gets refusal text", async () => {
