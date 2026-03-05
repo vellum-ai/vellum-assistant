@@ -254,17 +254,14 @@ public final class HTTPTransport {
     }
 
     /// Builds paths for the platform assistant proxy layout
-    /// (e.g. /v1/assistants/{id}/health, /v1/assistants/{id}/messages/).
+    /// (e.g. /v1/assistants/{id}/healthz/, /v1/assistants/{id}/messages/).
     /// Trailing slashes match the Django URL convention.
     private func buildPlatformProxyPath(for endpoint: Endpoint, assistantId: String) -> (path: String, query: String?) {
         let prefix = "/v1/assistants/\(assistantId)"
 
         switch endpoint {
         case .healthz:
-            // Use /health (no trailing slash) so the gateway proxy rewrites to
-            // /v1/health, which the runtime serves. /healthz is a root-level
-            // endpoint that doesn't exist under /v1/.
-            return ("\(prefix)/health", nil)
+            return ("\(prefix)/healthz/", nil)
         case .events(let conversationKey):
             let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
             return ("\(prefix)/events/", "conversationKey=\(encoded)")
@@ -1697,6 +1694,9 @@ public final class HTTPTransport {
         case .sessionToken:
             if let token = SessionTokenManager.getToken() {
                 request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+            }
+            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+                request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
             }
         }
     }
