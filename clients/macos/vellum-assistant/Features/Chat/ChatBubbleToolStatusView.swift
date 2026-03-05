@@ -16,25 +16,29 @@ extension ChatBubble {
 
     @ViewBuilder
     var trailingStatus: some View {
-        let hasToolCalls = !message.toolCalls.isEmpty && !hideToolCalls
+        let inlineToolProgressRenderedInContent = shouldRenderToolProgressInline
+        let hasToolCalls = !message.toolCalls.isEmpty
+            && !hideToolCalls
+            && !inlineToolProgressRenderedInContent
         let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil
             && !(message.streamingCodePreview?.isEmpty ?? true)
+        let shouldShowProcessing = isProcessingAfterTools && !inlineToolProgressRenderedInContent
 
-        if hasToolCalls || hasStreamingCode || isProcessingAfterTools {
+        if hasToolCalls || hasStreamingCode || shouldShowProcessing {
             // Unified progress view handles all tool/streaming/processing states
             AssistantProgressView(
                 toolCalls: hideToolCalls ? [] : message.toolCalls,
                 isStreaming: message.isStreaming,
                 hasText: hasText,
-                isProcessing: isProcessingAfterTools,
-                processingStatusText: isProcessingAfterTools ? processingStatusText : nil,
+                isProcessing: shouldShowProcessing,
+                processingStatusText: shouldShowProcessing ? processingStatusText : nil,
                 streamingCodePreview: message.streamingCodePreview,
                 streamingCodeToolName: message.streamingCodeToolName,
                 decidedConfirmation: decidedConfirmation,
                 onRehydrate: onRehydrate
             )
             .frame(maxWidth: 520, alignment: .leading)
-        } else if let confirmation = decidedConfirmation {
+        } else if let confirmation = decidedConfirmation, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chip.
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: VSpacing.sm) {

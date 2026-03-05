@@ -4,6 +4,17 @@ import VellumAssistantShared
 // MARK: - Interleaved Content
 
 extension ChatBubble {
+    /// Whether tool progress should be rendered inline at tool-call block positions
+    /// instead of in the trailing status area.
+    var shouldRenderToolProgressInline: Bool {
+        guard !hideToolCalls else { return false }
+        guard hasInterleavedContent else { return false }
+        return message.contentOrder.contains(where: {
+            if case .toolCall = $0 { return true }
+            return false
+        })
+    }
+
     /// Whether this message has meaningful interleaved content (multiple block types).
     var hasInterleavedContent: Bool {
         // Use interleaved path when contentOrder has more than one distinct block type
@@ -96,9 +107,59 @@ extension ChatBubble {
         return coalesced
     }
 
+    /// Returns true when there is non-empty text content after a tool-call group.
+    /// Used to decide whether the inline progress block should remain in
+    /// an active "thinking/processing" phase while the model continues.
+    private func hasTextAfterToolGroup(_ toolIndices: [Int]) -> Bool {
+        let indexSet = Set(toolIndices)
+        guard let lastToolRefIndex = message.contentOrder.lastIndex(where: {
+            if case .toolCall(let i) = $0 { return indexSet.contains(i) }
+            return false
+        }) else {
+            return hasText
+        }
+        let start = message.contentOrder.index(after: lastToolRefIndex)
+        guard start < message.contentOrder.endIndex else { return false }
+        for ref in message.contentOrder[start...] {
+            guard case .text(let textIndex) = ref,
+                  textIndex >= 0,
+                  textIndex < message.textSegments.count else { continue }
+            if !message.textSegments[textIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return true
+            }
+        }
+        return false
+    }
+
+    @ViewBuilder
+    private func inlineToolProgress(toolIndices: [Int], isLatestGroup: Bool) -> some View {
+        let groupedToolCalls: [ToolCallData] = toolIndices.compactMap { idx -> ToolCallData? in
+            guard idx < message.toolCalls.count else { return nil }
+            return message.toolCalls[idx]
+        }
+        if !groupedToolCalls.isEmpty {
+            AssistantProgressView(
+                toolCalls: groupedToolCalls,
+                isStreaming: isLatestGroup ? message.isStreaming : false,
+                hasText: hasTextAfterToolGroup(toolIndices),
+                isProcessing: isLatestGroup && isProcessingAfterTools,
+                processingStatusText: isLatestGroup && isProcessingAfterTools ? processingStatusText : nil,
+                streamingCodePreview: isLatestGroup ? message.streamingCodePreview : nil,
+                streamingCodeToolName: isLatestGroup ? message.streamingCodeToolName : nil,
+                decidedConfirmation: isLatestGroup ? decidedConfirmation : nil,
+                onRehydrate: onRehydrate
+            )
+            .frame(maxWidth: 520, alignment: .leading)
+        }
+    }
+
     @ViewBuilder
     var interleavedContent: some View {
         let groups = groupContentBlocks()
+        let latestToolGroup: [Int]? = groups.reversed().compactMap { group in
+            guard case .toolCalls(let indices) = group else { return nil }
+            return indices
+        }.first
 
         // Render all content groups in order: text, tool calls, and surfaces.
         // Uses \.self identity (backed by Hashable conformance) instead of
@@ -119,9 +180,13 @@ extension ChatBubble {
                 if !joined.isEmpty {
                     textBubble(for: joined)
                 }
-            case .toolCalls:
-                // Tool calls are rendered by trailingStatus below the message
-                EmptyView()
+            case .toolCalls(let indices):
+                if shouldRenderToolProgressInline {
+                    inlineToolProgress(toolIndices: indices, isLatestGroup: indices == latestToolGroup)
+                } else {
+                    // Tool calls are rendered by trailingStatus below the message
+                    EmptyView()
+                }
             case .surface(let i):
                 if i < message.inlineSurfaces.count,
                    message.inlineSurfaces[i].id != activeSurfaceId {
