@@ -3,7 +3,7 @@ import Carbon
 import VellumAssistantShared
 import Combine
 import CoreText
-import Sentry
+@preconcurrency import Sentry
 import SwiftUI
 import UserNotifications
 import os

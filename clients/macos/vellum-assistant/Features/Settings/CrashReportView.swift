@@ -1,5 +1,5 @@
 import AppKit
-import Sentry
+@preconcurrency import Sentry
 import SwiftUI
 import VellumAssistantShared
 
