@@ -36,7 +36,7 @@ export interface ProcessGuardianDecisionParams {
   conversationId?: string;
   channel: string; // e.g. "vellum"
   actorContext: {
-    externalUserId: string | undefined;
+    actorPrincipalId: string | undefined;
     guardianPrincipalId: string | undefined;
   };
 }
@@ -96,7 +96,7 @@ export async function processGuardianDecision(
     requestId,
     action: action as ApprovalAction,
     actorContext: {
-      externalUserId: actorContext.externalUserId,
+      externalUserId: actorContext.actorPrincipalId,
       channel,
       guardianPrincipalId: actorContext.guardianPrincipalId,
     },

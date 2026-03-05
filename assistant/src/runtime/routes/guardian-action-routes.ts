@@ -96,7 +96,7 @@ export async function handleGuardianActionDecision(
     conversationId,
     channel: "vellum",
     actorContext: {
-      externalUserId: authContext.actorPrincipalId ?? undefined,
+      actorPrincipalId: authContext.actorPrincipalId ?? undefined,
       guardianPrincipalId: authContext.actorPrincipalId ?? undefined,
     },
   });
