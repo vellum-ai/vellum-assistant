@@ -326,6 +326,13 @@ struct ContactDetailView: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
 
+                if let handle = channelReadiness[type]?.channelHandle {
+                    Text(handle)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(1)
+                }
+
                 Spacer()
 
                 Text("Not set up")
