@@ -16,9 +16,9 @@ struct MainWindowView: View {
     @State private var selectedThreadId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
-    @State private var copyThread = CopyThreadState()
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
+    @State var showThreadActionsDrawer = false
     /// Stores the thread ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleThreads.first
     /// (which may be a pinned thread unrelated to what they were doing).
@@ -158,7 +158,7 @@ struct MainWindowView: View {
     }
 
     /// Whether the chat bubble toggle is active (chat is open).
-    private var isChatBubbleActive: Bool {
+    var isChatBubbleActive: Bool {
         switch windowState.selection {
         case .appEditing:
             return true
@@ -193,6 +193,28 @@ struct MainWindowView: View {
         )
     }
 
+    func copyActiveThreadToClipboard() {
+        let messages = threadManager.activeViewModel?.messages ?? []
+        let title = threadManager.activeThread?.title
+        let names = resolveParticipantNames()
+        let markdown = ChatTranscriptFormatter.threadMarkdown(
+            messages: messages,
+            threadTitle: title,
+            participantNames: names
+        )
+        guard !markdown.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(markdown, forType: .string)
+        windowState.showToast(message: "Thread copied to clipboard", style: .success)
+    }
+
+    func startRenameActiveThread() {
+        guard let id = threadManager.activeThreadId,
+              let thread = threadManager.activeThread else { return }
+        sidebar.renamingThreadId = id
+        sidebar.renameText = thread.title
+    }
+
     var body: some View {
         coreLayoutView
             .opacity(showComingAlive ? 0 : 1)
@@ -215,6 +237,10 @@ struct MainWindowView: View {
                 // but not on draft promotion (nil → UUID) which happens on first send.
                 if let oldId, oldId != newId, voiceModeManager.state != .off {
                     voiceModeManager.deactivate()
+                }
+                // Dismiss thread actions drawer on thread switch
+                if showThreadActionsDrawer {
+                    showThreadActionsDrawer = false
                 }
             }
             .onChange(of: windowState.selection) { oldSelection, newSelection in
@@ -344,36 +370,6 @@ struct MainWindowView: View {
                 windowState.selection = .panel(.settings)
             }
             if windowState.isShowingChat || isChatBubbleActive {
-                // Copy Thread button — only visible when there's content to copy
-                if threadManager.activeViewModel?.messages.contains(where: {
-                    !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                }) == true {
-                    VIconButton(
-                        label: "Copy thread",
-                        icon: copyThread.showConfirmation ? "checkmark" : "list.clipboard",
-                        isActive: copyThread.showConfirmation,
-                        iconOnly: true,
-                        tooltip: copyThread.showConfirmation ? "Copied!" : "Copy thread"
-                    ) {
-                        let messages = threadManager.activeViewModel?.messages ?? []
-                        let title = threadManager.activeThread?.title
-                        let names = resolveParticipantNames()
-                        let markdown = ChatTranscriptFormatter.threadMarkdown(
-                            messages: messages,
-                            threadTitle: title,
-                            participantNames: names
-                        )
-                        guard !markdown.isEmpty else { return }
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(markdown, forType: .string)
-                        copyThread.cancel()
-                        copyThread.showConfirmation = true
-                        let timer = DispatchWorkItem { [copyThread] in copyThread.showConfirmation = false }
-                        copyThread.confirmationTimer = timer
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-                    }
-                }
-
                 // Voice mode toggle
                 VIconButton(
                     label: "Voice Mode",
@@ -519,7 +515,6 @@ struct MainWindowView: View {
             daemonClient.startSSE()
         }
         .onDisappear {
-            copyThread.cancel()
             sharing.errorDismissTask?.cancel()
             sharing.errorDismissTask = nil
             sharing.credentialPollTimer?.invalidate()

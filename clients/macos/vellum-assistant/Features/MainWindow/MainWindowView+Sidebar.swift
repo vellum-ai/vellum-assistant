@@ -120,15 +120,8 @@ extension MainWindowView {
             ))
             Button("Cancel", role: .cancel) { sidebar.renamingThreadId = nil }
             Button("Save") {
-                if let id = sidebar.renamingThreadId, !sidebar.renameText.isEmpty {
-                    threadManager.updateThreadTitle(id: id, title: sidebar.renameText)
-                    if let sessionId = threadManager.threads.first(where: { $0.id == id })?.sessionId {
-                        try? daemonClient.send(IPCSessionRenameRequest(
-                            type: "session_rename",
-                            sessionId: sessionId,
-                            title: sidebar.renameText
-                        ))
-                    }
+                if let id = sidebar.renamingThreadId {
+                    threadManager.renameThread(id: id, title: sidebar.renameText)
                 }
                 sidebar.renamingThreadId = nil
             }

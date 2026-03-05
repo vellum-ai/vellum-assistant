@@ -244,6 +244,8 @@ extension MainWindowView {
                 AppWorkspaceDockLayout(
                     dockWidth: clampedChatDockWidth(geometry: geometry),
                     showDock: windowState.isChatDockOpen,
+                    dockBackground: VColor.chatBackground,
+                    dockCornerRadius: 0,
                     dock: {
                         chatView
                     },
@@ -271,6 +273,8 @@ extension MainWindowView {
                     VSplitView(
                         panelWidth: clampedPanelWidth(geometry: geometry),
                         showPanel: true,
+                        mainBackground: VColor.chatBackground,
+                        mainCornerRadius: 0,
                         main: {
                             chatView
                         },
@@ -367,6 +371,8 @@ extension MainWindowView {
                 VSplitView(
                     panelWidth: clampedPanelWidth(geometry: geometry),
                     showPanel: true,
+                    mainBackground: VColor.chatBackground,
+                    mainCornerRadius: 0,
                     main: {
                         chatView
                     },
@@ -404,6 +410,8 @@ extension MainWindowView {
         VSplitView(
             panelWidth: $sidePanelWidth,
             showPanel: showConfigPanel || showSubagentPanel,
+            mainBackground: VColor.chatBackground,
+            mainCornerRadius: 0,
             main: { slotView(for: config.center.content) },
             panel: {
                 if let subagentId = windowState.selectedSubagentId,
@@ -428,11 +436,52 @@ extension MainWindowView {
         )
     }
 
+    private var threadHeaderPresentation: ThreadHeaderPresentation {
+        ThreadHeaderPresentation(
+            activeThread: threadManager.activeThread,
+            activeViewModel: threadManager.activeViewModel,
+            isConversationVisible: windowState.isShowingChat || isChatBubbleActive
+        )
+    }
+
+    private func dismissThreadDrawer() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            showThreadActionsDrawer = false
+        }
+    }
+
     @ViewBuilder
     var chatView: some View {
         if let viewModel = threadManager.activeViewModel {
             let activeThread = threadManager.activeThread
+            let presentation = threadHeaderPresentation
             VStack(spacing: 0) {
+                // Thread title header
+                HStack {
+                    ThreadTitleActionsControl(
+                        presentation: presentation,
+                        onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                        onPin: {
+                            guard let id = threadManager.activeThreadId else { return }
+                            threadManager.pinThread(id: id)
+                            dismissThreadDrawer()
+                        },
+                        onUnpin: {
+                            guard let id = threadManager.activeThreadId else { return }
+                            threadManager.unpinThread(id: id)
+                            dismissThreadDrawer()
+                        },
+                        onArchive: {
+                            guard let id = threadManager.activeThreadId else { return }
+                            threadManager.archiveThread(id: id)
+                            dismissThreadDrawer()
+                        },
+                        onRename: { startRenameActiveThread(); dismissThreadDrawer() },
+                        showDrawer: $showThreadActionsDrawer
+                    )
+                    Spacer()
+                }
+
                 ActiveChatViewWrapper(
                     viewModel: viewModel,
                     windowState: windowState,
@@ -458,6 +507,38 @@ extension MainWindowView {
                     }
                 }
                 .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
+            }
+            .overlay {
+                if showThreadActionsDrawer {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { dismissThreadDrawer() }
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if showThreadActionsDrawer {
+                    ThreadActionsDrawer(
+                        presentation: presentation,
+                        onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                        onPin: {
+                            guard let id = threadManager.activeThreadId else { return }
+                            threadManager.pinThread(id: id)
+                            dismissThreadDrawer()
+                        },
+                        onUnpin: {
+                            guard let id = threadManager.activeThreadId else { return }
+                            threadManager.unpinThread(id: id)
+                            dismissThreadDrawer()
+                        },
+                        onArchive: {
+                            guard let id = threadManager.activeThreadId else { return }
+                            threadManager.archiveThread(id: id)
+                            dismissThreadDrawer()
+                        },
+                        onRename: { startRenameActiveThread(); dismissThreadDrawer() }
+                    )
+                    .offset(x: VSpacing.lg, y: 32)
+                }
             }
         }
     }

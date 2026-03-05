@@ -71,17 +71,3 @@ final class SidebarInteractionState {
     /// or the top (false). Set based on drag direction.
     var dropIndicatorAtBottom: Bool = false
 }
-
-/// Copy-thread confirmation state.
-@Observable
-@MainActor
-final class CopyThreadState {
-    var showConfirmation = false
-    var confirmationTimer: DispatchWorkItem?
-
-    func cancel() {
-        confirmationTimer?.cancel()
-        confirmationTimer = nil
-        showConfirmation = false
-    }
-}

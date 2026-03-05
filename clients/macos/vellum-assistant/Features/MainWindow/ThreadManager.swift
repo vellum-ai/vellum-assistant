@@ -83,6 +83,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private let daemonClient: DaemonClient
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
+    /// Queued renames for threads that don't yet have a sessionId.
+    /// Flushed in backfillSessionId when the daemon assigns a session.
+    private var pendingRenames: [UUID: String] = [:]
     /// Flag to suppress lastActiveThreadIdString writes during initialization and session restoration.
     private var isRestoringThreads = false
     /// Subscription to activeViewModel's messages count changes.
@@ -943,6 +946,25 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         threads[index].title = title
     }
 
+    /// Rename a thread and send the rename to the daemon.
+    /// If the thread doesn't have a sessionId yet, the rename is queued
+    /// and flushed when backfillSessionId is called.
+    func renameThread(id: UUID, title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        threads[index].title = trimmed
+        if let sessionId = threads[index].sessionId {
+            try? daemonClient.send(IPCSessionRenameRequest(
+                type: "session_rename",
+                sessionId: sessionId,
+                title: trimmed
+            ))
+        } else {
+            pendingRenames[id] = trimmed
+        }
+    }
+
     func makeViewModel() -> ChatViewModel {
         let viewModel = ChatViewModel(daemonClient: daemonClient)
         viewModel.onToolCallsComplete = { [weak self, weak viewModel] toolCalls in
@@ -1198,6 +1220,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // a session would have been skipped by sendReorderThreads()
         // because it filters out threads without a sessionId.
         sendReorderThreads()
+        // Flush any rename that was queued before the session ID was assigned.
+        if let pendingTitle = pendingRenames.removeValue(forKey: threadId) {
+            try? daemonClient.send(IPCSessionRenameRequest(
+                type: "session_rename",
+                sessionId: sessionId,
+                title: pendingTitle
+            ))
+        }
     }
 
     // MARK: - Lazy VM Creation

@@ -10,6 +10,8 @@ public struct AppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
     public let workspace: Workspace
     @Binding public var dockWidth: Double
     public var showDock: Bool = false
+    public var dockBackground: Color?
+    public var dockCornerRadius: CGFloat?
     @State private var dragStartWidth: Double?
     @State private var dragStartAvailableWidth: CGFloat?
     @State private var isDragging: Bool = false
@@ -25,8 +27,8 @@ public struct AppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
                     dock
                         .frame(width: dockWidth)
                         .animation(nil, value: dockWidth)
-                        .background(VColor.backgroundSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                        .background(dockBackground ?? VColor.backgroundSubtle)
+                        .clipShape(RoundedRectangle(cornerRadius: dockCornerRadius ?? VRadius.lg))
                         .padding([.bottom, .leading], VSpacing.xs)
                         .transition(.move(edge: .leading))
 
@@ -129,6 +131,8 @@ public struct AppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
     public init(
         dockWidth: Binding<Double>,
         showDock: Bool = false,
+        dockBackground: Color? = nil,
+        dockCornerRadius: CGFloat? = nil,
         @ViewBuilder dock: () -> Dock,
         @ViewBuilder workspace: () -> Workspace
     ) {
@@ -136,5 +140,7 @@ public struct AppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
         self.workspace = workspace()
         self._dockWidth = dockWidth
         self.showDock = showDock
+        self.dockBackground = dockBackground
+        self.dockCornerRadius = dockCornerRadius
     }
 }

@@ -10,6 +10,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
     public let panel: Panel?
     @Binding public var panelWidth: Double
     public var showPanel: Bool = false
+    public var mainBackground: Color?
+    public var mainCornerRadius: CGFloat?
     @State private var dragStartWidth: Double?
     @State private var dragStartAvailableWidth: CGFloat?
     @State private var isDragging: Bool = false
@@ -24,8 +26,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
                 // Main content - styled as panel
                 main
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(VColor.backgroundSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .background(mainBackground ?? VColor.backgroundSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: mainCornerRadius ?? VRadius.lg))
                     .padding([.bottom, .leading], VSpacing.xs)
                     .padding(.trailing, showPanel ? 0 : VSpacing.xs)
 
@@ -138,6 +140,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
     public init(
         panelWidth: Binding<Double>,
         showPanel: Bool = false,
+        mainBackground: Color? = nil,
+        mainCornerRadius: CGFloat? = nil,
         @ViewBuilder main: () -> Main,
         @ViewBuilder panel: () -> Panel
     ) {
@@ -145,6 +149,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
         self.panel = panel()
         self._panelWidth = panelWidth
         self.showPanel = showPanel
+        self.mainBackground = mainBackground
+        self.mainCornerRadius = mainCornerRadius
     }
 }
 
