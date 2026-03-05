@@ -451,10 +451,14 @@ struct MessageListView: View {
                 ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
+                os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.updateViewport(height: height, storedViewportHeight: &scrollViewportHeight)
+                os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
+                os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
+                os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .overlay(alignment: .bottom) {
                 if (!isNearBottom || !hasReceivedScrollEvent) && !anchorTracker.isVisible {
