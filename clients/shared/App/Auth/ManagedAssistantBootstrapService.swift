@@ -16,6 +16,7 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
     case serverError(statusCode: Int, detail: String?)
     case hatchFailed(String)
     case unexpectedResponse(String)
+    case multipleOrganizations
 
     public var errorDescription: String? {
         switch self {
@@ -29,6 +30,8 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
             return "Failed to create assistant: \(message)"
         case .unexpectedResponse(let message):
             return "Unexpected response format: \(message)"
+        case .multipleOrganizations:
+            return "Multiple organizations found. Multi-org support is not yet available — please contact support."
         }
     }
 }
@@ -56,17 +59,27 @@ public final class ManagedAssistantBootstrapService {
         anthropicApiKey: String? = nil
     ) async throws -> ManagedBootstrapOutcome {
         // Resolve the user's organization ID first — required for all platform API calls.
+        // Prefer the persisted org to avoid ambiguity for multi-org users.
         let organizationId: String
-        do {
-            let orgs = try await authService.getOrganizations()
-            guard let firstOrg = orgs.first else {
-                throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
+        if let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+            organizationId = persistedOrgId
+            log.info("Using persisted organization: \(organizationId, privacy: .public)")
+        } else {
+            do {
+                let orgs = try await authService.getOrganizations()
+                switch orgs.count {
+                case 0:
+                    throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
+                case 1:
+                    organizationId = orgs[0].id
+                default:
+                    throw ManagedBootstrapError.multipleOrganizations
+                }
+                UserDefaults.standard.set(organizationId, forKey: "connectedOrganizationId")
+                log.info("Resolved organization: \(organizationId, privacy: .public)")
+            } catch let error as PlatformAPIError {
+                throw mapPlatformError(error)
             }
-            organizationId = firstOrg.id
-            UserDefaults.standard.set(organizationId, forKey: "connectedOrganizationId")
-            log.info("Resolved organization: \(organizationId, privacy: .public)")
-        } catch let error as PlatformAPIError {
-            throw mapPlatformError(error)
         }
 
         let currentResult: PlatformAssistantResult
