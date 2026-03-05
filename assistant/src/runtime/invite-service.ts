@@ -158,6 +158,7 @@ export function createIngressInvite(params: {
   // exactly once and never stored.
   let voiceCode: string | undefined;
   let voiceCodeHash: string | undefined;
+  let effectiveGuardianName: string | undefined;
   const isVoice = params.sourceChannel === "voice";
 
   // For non-voice invites: generate a 6-digit invite code for guardian-mediated
@@ -183,7 +184,7 @@ export function createIngressInvite(params: {
     if (typeof params.friendName !== "string" || !params.friendName.trim()) {
       return { ok: false, error: "friendName is required for voice invites" };
     }
-    const effectiveGuardianName =
+    effectiveGuardianName =
       params.guardianName?.trim() || resolveGuardianName();
     if (
       !effectiveGuardianName ||
