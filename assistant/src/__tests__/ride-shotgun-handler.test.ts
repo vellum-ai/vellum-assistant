@@ -25,6 +25,8 @@ mock.module("../tools/browser/chrome-cdp.js", () => ({
     mockMinimizeCalled = true;
     mockMinimizeBaseUrl = baseUrl;
   },
+  isCdpReady: async () => true,
+  restoreChromeWindow: async () => {},
 }));
 
 let mockRecorderStartCalls = 0;
