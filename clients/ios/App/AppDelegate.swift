@@ -13,6 +13,10 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Ap
 @MainActor
 final class ClientProvider: ObservableObject {
     @Published var client: any DaemonClientProtocol
+    /// Monotonically increasing counter bumped on each `rebuildClient()` call.
+    /// Views that cache the client can observe this to detect when the client
+    /// has been replaced.
+    @Published var clientGeneration: UInt = 0
     /// Mirrors the daemon client's `isConnected` state so views can observe a
     /// single source of truth. Automatically synced via Combine when the
     /// underlying client is a `DaemonClient`.
@@ -41,6 +45,7 @@ final class ClientProvider: ObservableObject {
         // Tear down the old client's connection, timers, and monitors before replacing.
         client.disconnect()
         self.client = DaemonClient(config: .fromUserDefaults())
+        self.clientGeneration &+= 1
         self.isConnected = false
         bindCombineBridge()
         bindTraceEvents()

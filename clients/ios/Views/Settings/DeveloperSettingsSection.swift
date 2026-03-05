@@ -31,6 +31,7 @@ private struct DeveloperSettingsSectionContent: View {
     @State private var selectedSessionId: String?
     // Preserved across sheet presentations to avoid redundant network calls
     // and loading spinners each time the usage dashboard is opened.
+    // Updated via .onChange(of: clientGeneration) when rebuildClient() fires.
     @State private var usageDashboardStore: UsageDashboardStore
 
     init(clientProvider: ClientProvider, traceStore: TraceStore) {
@@ -93,6 +94,9 @@ private struct DeveloperSettingsSectionContent: View {
         }
         .sheet(isPresented: $showUsageDashboard) {
             UsageDashboardView(store: usageDashboardStore)
+        }
+        .onChange(of: clientProvider.clientGeneration) {
+            usageDashboardStore.updateClient(clientProvider.client)
         }
     }
 }
