@@ -85,9 +85,10 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
+const mockLastSummaryBySession = new Map<string, string>();
 mock.module("../daemon/watch-handler.js", () => ({
   generateSummary: async () => {},
-  lastSummaryBySession: new Map<string, string>(),
+  lastSummaryBySession: mockLastSummaryBySession,
 }));
 
 // ── Import under test (after mocks) ───────────────────────────────
@@ -141,6 +142,7 @@ describe("ride-shotgun-handler", () => {
       launchedByUs: false,
       userDataDir: "/tmp/cdp-test",
     };
+    mockLastSummaryBySession.clear();
     watchSessions.clear();
   });
 
@@ -366,4 +368,129 @@ describe("ride-shotgun-handler", () => {
       ctx,
     );
   });
+
+  test("sends ride_shotgun_error when ensureChromeWithCdp fails", async () => {
+    mockEnsureChromeShouldThrow = true;
+
+    const socket = makeMockSocket();
+    const ctx = makeMockCtx();
+
+    await handleRideShotgunStart(
+      {
+        type: "ride_shotgun_start",
+        durationSeconds: 60,
+        intervalSeconds: 5,
+        mode: "learn",
+        targetDomain: "example.com",
+        autoNavigate: false,
+      },
+      socket,
+      ctx,
+    );
+
+    // Give background task time to execute and complete session
+    await new Promise((r) => setTimeout(r, 500));
+
+    const errorMsg = ctx.sent.find(
+      (m: any) => m.type === "ride_shotgun_error",
+    ) as any;
+    expect(errorMsg).toBeDefined();
+    expect(errorMsg.watchId).toBeDefined();
+    expect(errorMsg.sessionId).toBeDefined();
+    expect(errorMsg.message).toContain("Chrome CDP");
+  });
+
+  test("cleans up session when ensureChromeWithCdp fails", async () => {
+    mockEnsureChromeShouldThrow = true;
+
+    const socket = makeMockSocket();
+    const ctx = makeMockCtx();
+
+    await handleRideShotgunStart(
+      {
+        type: "ride_shotgun_start",
+        durationSeconds: 60,
+        intervalSeconds: 5,
+        mode: "learn",
+        targetDomain: "example.com",
+        autoNavigate: false,
+      },
+      socket,
+      ctx,
+    );
+
+    // Give background task time to execute
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Session should be completed (not left hanging for the full duration)
+    const session = [...watchSessions.values()][0];
+    expect(session?.status).toBe("completed");
+  });
+
+  test("reports failure summary when no recorder ever started", async () => {
+    mockEnsureChromeShouldThrow = true;
+
+    const socket = makeMockSocket();
+    const ctx = makeMockCtx();
+
+    await handleRideShotgunStart(
+      {
+        type: "ride_shotgun_start",
+        durationSeconds: 60,
+        intervalSeconds: 5,
+        mode: "learn",
+        targetDomain: "example.com",
+        autoNavigate: false,
+      },
+      socket,
+      ctx,
+    );
+
+    // Give background task time to execute
+    await new Promise((r) => setTimeout(r, 500));
+
+    // The result message should indicate failure, not "recording saved"
+    const resultMsg = ctx.sent.find(
+      (m: any) => m.type === "ride_shotgun_result",
+    ) as any;
+    expect(resultMsg).toBeDefined();
+    expect(resultMsg.summary).toContain("failed");
+    expect(resultMsg.summary).not.toContain("recording saved");
+  });
+
+  test("sends ride_shotgun_error when all 10 recorder retries fail", async () => {
+    mockRecorderStartShouldThrow = true;
+    mockRecorderStartThrowCount = 10;
+
+    const socket = makeMockSocket();
+    const ctx = makeMockCtx();
+
+    await handleRideShotgunStart(
+      {
+        type: "ride_shotgun_start",
+        durationSeconds: 60,
+        intervalSeconds: 5,
+        mode: "learn",
+        targetDomain: "example.com",
+        autoNavigate: false,
+      },
+      socket,
+      ctx,
+    );
+
+    // Wait for all 10 retry attempts (each has a 2s delay except the last)
+    // 9 retries * 2s = 18s, but mock doesn't actually wait — it should complete quickly
+    // The mock delays are real setTimeout calls, so we need enough time
+    await new Promise((r) => setTimeout(r, 25000));
+
+    const errorMsg = ctx.sent.find(
+      (m: any) => m.type === "ride_shotgun_error",
+    ) as any;
+    expect(errorMsg).toBeDefined();
+    expect(errorMsg.message).toContain("10 attempts");
+
+    // Session should be completed
+    const session = [...watchSessions.values()][0];
+    expect(session?.status).toBe("completed");
+  }, 30000); // Extended timeout for retry delays
 });

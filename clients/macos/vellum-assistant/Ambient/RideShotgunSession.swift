@@ -69,6 +69,10 @@ public final class RideShotgunSession: ObservableObject {
                 switch message {
                 case .watchStarted(let started):
                     self.handleWatchStarted(started, daemonClient: daemonClient)
+                case .rideShotgunError(let error):
+                    log.error("Ride shotgun bootstrap failure: \(error.message)")
+                    self.state = .failed(error.message)
+                    self.cleanup()
                 case .rideShotgunProgress(let progress):
                     if let count = progress.networkEntryCount {
                         self.networkEntryCount = count

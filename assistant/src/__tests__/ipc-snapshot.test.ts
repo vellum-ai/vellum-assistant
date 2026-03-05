@@ -1041,6 +1041,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: "sess-routed-001",
     interactionType: "computer_use",
   },
+  ride_shotgun_error: {
+    type: "ride_shotgun_error",
+    watchId: "watch-shotgun-001",
+    sessionId: "sess-shotgun-001",
+    message: "Failed to start browser — Chrome CDP could not be launched.",
+  },
   ride_shotgun_progress: {
     type: "ride_shotgun_progress",
     watchId: "watch-shotgun-001",

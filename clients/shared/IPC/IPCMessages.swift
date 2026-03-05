@@ -894,6 +894,9 @@ extension IPCDictationRequest {
     }
 }
 
+/// Bootstrap failure during learn-mode recording setup.
+public typealias RideShotgunErrorMessage = IPCRideShotgunError
+
 /// Progress update from a ride shotgun auto-navigation session.
 public typealias RideShotgunProgressMessage = IPCRideShotgunProgress
 
@@ -2171,6 +2174,7 @@ public enum ServerMessage: Decodable, Sendable {
     case taskRouted(TaskRoutedMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
+    case rideShotgunError(RideShotgunErrorMessage)
     case rideShotgunProgress(RideShotgunProgressMessage)
     case rideShotgunResult(RideShotgunResultMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
@@ -2365,6 +2369,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "error":
             let message = try ErrorMessage(from: decoder)
             self = .error(message)
+        case "ride_shotgun_error":
+            let message = try RideShotgunErrorMessage(from: decoder)
+            self = .rideShotgunError(message)
         case "ride_shotgun_progress":
             let message = try RideShotgunProgressMessage(from: decoder)
             self = .rideShotgunProgress(message)

@@ -278,6 +278,7 @@
     "recording_start",
     "recording_stop",
     "reminders_list_response",
+    "ride_shotgun_error",
     "ride_shotgun_progress",
     "ride_shotgun_result",
     "schedule_thread_created",

@@ -3389,6 +3389,21 @@ public struct IPCReorderThreadsRequestUpdate: Codable, Sendable {
     }
 }
 
+/// Server → Client: bootstrap failure during learn-mode recording setup.
+public struct IPCRideShotgunError: Codable, Sendable {
+    public let type: String
+    public let watchId: String
+    public let sessionId: String
+    public let message: String
+
+    public init(type: String, watchId: String, sessionId: String, message: String) {
+        self.type = type
+        self.watchId = watchId
+        self.sessionId = sessionId
+        self.message = message
+    }
+}
+
 public struct IPCRideShotgunProgress: Codable, Sendable {
     public let type: String
     public let watchId: String

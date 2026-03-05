@@ -64,6 +64,12 @@ final class RideShotgunSession: ObservableObject, Identifiable {
                 switch message {
                 case .watchStarted(let msg):
                     await MainActor.run { self.handleWatchStarted(msg) }
+                case .rideShotgunError(let error):
+                    await MainActor.run {
+                        log.error("Ride shotgun bootstrap failure: \(error.message)")
+                        self.state = .failed(error.message)
+                        self.cleanup()
+                    }
                 case .rideShotgunProgress(let progress):
                     await MainActor.run {
                         if let count = progress.networkEntryCount {
