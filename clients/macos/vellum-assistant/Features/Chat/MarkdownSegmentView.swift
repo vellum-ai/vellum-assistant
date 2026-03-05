@@ -144,41 +144,23 @@ struct MarkdownSegmentView: View {
         case horizontalRule
     }
 
-    // Bounded LRU cache for groupedSegments results, keyed by a hash of
-    // the segment array. Avoids recomputing grouping on every body evaluation
-    // when the segment array hasn't changed (the common case during scrolling).
-    @MainActor private static var groupedSegmentsCache: [Int: (value: [SegmentGroup], accessTime: Int)] = [:]
+    // Bounded LRU cache for groupedSegments results. Keyed by a full content
+    // hash of the segment array; the entry also stores the original segments for
+    // an equality check on hit, guarding against hash collisions.
+    @MainActor private static var groupedSegmentsCache: [Int: (segments: [MarkdownSegment], value: [SegmentGroup], accessTime: Int)] = [:]
     @MainActor private static var groupedLRUCounter: Int = 0
     private static let groupedCacheLimit = 200
-
-    /// Returns a small integer discriminant for each `MarkdownSegment` case,
-    /// used to build a structural cache key without touching string content.
-    private static func segmentTypeDiscriminant(_ segment: MarkdownSegment) -> Int {
-        switch segment {
-        case .text:           return 0
-        case .table:          return 1
-        case .image:          return 2
-        case .heading:        return 3
-        case .codeBlock:      return 4
-        case .horizontalRule: return 5
-        case .list:           return 6
-        }
-    }
 
     /// Groups consecutive text-selectable segments together so they render
     /// as a single Text view, enabling cross-paragraph text selection.
     private var groupedSegments: [SegmentGroup] {
-        // Hash only the structural identity (count + type sequence), NOT string
-        // content. Hashing full payloads is O(total text length) on every body
-        // evaluation and reintroduces the scroll jank the cache was meant to fix.
         var hasher = Hasher()
-        hasher.combine(segments.count)
-        for segment in segments { hasher.combine(Self.segmentTypeDiscriminant(segment)) }
+        for segment in segments { hasher.combine(segment) }
         let key = hasher.finalize()
 
-        if let cached = Self.groupedSegmentsCache[key] {
+        if let cached = Self.groupedSegmentsCache[key], cached.segments == segments {
             Self.groupedLRUCounter += 1
-            Self.groupedSegmentsCache[key] = (cached.value, Self.groupedLRUCounter)
+            Self.groupedSegmentsCache[key] = (cached.segments, cached.value, Self.groupedLRUCounter)
             return cached.value
         }
 
@@ -190,7 +172,7 @@ struct MarkdownSegmentView: View {
             }
         }
         Self.groupedLRUCounter += 1
-        Self.groupedSegmentsCache[key] = (result, Self.groupedLRUCounter)
+        Self.groupedSegmentsCache[key] = (segments, result, Self.groupedLRUCounter)
         return result
     }
 
