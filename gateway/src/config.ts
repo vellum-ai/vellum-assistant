@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { getLogger, type LogFileConfig } from "./logger.js";
 import {
   getRootDir,
-  readKeychainCredential,
   readCredential,
   readTwilioCredentials,
   readWhatsAppCredentials,
@@ -301,7 +300,7 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
-  // Twilio credentials: env var > credential store (keychain / encrypted file)
+  // Twilio credentials: env var > credential store (encrypted file)
   const twilioCreds = readTwilioCredentials();
   const twilioAuthToken =
     process.env.TWILIO_AUTH_TOKEN || twilioCreds?.authToken || undefined;
@@ -344,12 +343,10 @@ export function loadConfig(): GatewayConfig {
   }
   if (!twilioPhoneNumber) {
     twilioPhoneNumber =
-      readKeychainCredential("credential:twilio:phone_number") ||
-      readCredential("credential:twilio:phone_number") ||
-      undefined;
+      readCredential("credential:twilio:phone_number") || undefined;
   }
 
-  // WhatsApp credentials: env var > credential store (keychain / encrypted file)
+  // WhatsApp credentials: env var > credential store (encrypted file)
   const whatsappCreds = readWhatsAppCredentials();
   const whatsappPhoneNumberId =
     process.env.WHATSAPP_PHONE_NUMBER_ID ||
@@ -407,7 +404,7 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
-  // Slack channel credentials: env var > credential store (keychain / encrypted file)
+  // Slack channel credentials: env var > credential store (encrypted file)
   const slackChannelCreds = readSlackChannelCredentials();
   const slackChannelBotToken =
     process.env.SLACK_CHANNEL_BOT_TOKEN ||
