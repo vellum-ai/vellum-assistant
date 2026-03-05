@@ -75,6 +75,11 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
     session: { id: "mock-session" },
   }),
   getSessionEnv: () => ({}),
+  TRUSTED_HOSTS: new Set([
+    "platform.vellum.ai",
+    "dev-platform.vellum.ai",
+    "localhost",
+  ]),
 }));
 
 mock.module("../util/platform.js", () => ({

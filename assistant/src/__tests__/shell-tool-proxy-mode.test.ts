@@ -159,6 +159,11 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
   getCAPath: () => "/tmp/test-data/proxy-ca/ca.pem",
   getSessionsForConversation: () => [],
   stopAllSessions: async () => {},
+  TRUSTED_HOSTS: new Set([
+    "platform.vellum.ai",
+    "dev-platform.vellum.ai",
+    "localhost",
+  ]),
 }));
 
 mock.module("../tools/credentials/resolve.js", () => ({

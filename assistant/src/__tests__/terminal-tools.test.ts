@@ -77,6 +77,11 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
   issueLeafCert: () => {},
   getCAPath: () => "",
   getCombinedCAPath: () => "",
+  TRUSTED_HOSTS: new Set([
+    "platform.vellum.ai",
+    "dev-platform.vellum.ai",
+    "localhost",
+  ]),
 }));
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────

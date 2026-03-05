@@ -66,6 +66,11 @@ const mockGetSessionEnv = mock(() => ({
 mock.module("../tools/network/script-proxy/index.js", () => ({
   getOrStartSession: mockGetOrStartSession,
   getSessionEnv: mockGetSessionEnv,
+  TRUSTED_HOSTS: new Set([
+    "platform.vellum.ai",
+    "dev-platform.vellum.ai",
+    "localhost",
+  ]),
 }));
 
 // Set up metadata store for credential resolution
