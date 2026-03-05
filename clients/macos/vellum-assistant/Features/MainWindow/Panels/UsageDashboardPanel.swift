@@ -54,7 +54,7 @@ struct UsageDashboardPanel: View {
     // MARK: - Content
 
     @ViewBuilder
-    private func contentView(store: UsageDashboardStore) -> some View {
+    func contentView(store: UsageDashboardStore) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             totalsSection(store: store)
             dailySection(store: store)

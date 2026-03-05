@@ -185,6 +185,19 @@ struct UsageDashboardPanelPopulatedTests {
     }
 }
 
+// MARK: - View Content Helper
+
+/// Dumps the panel's content view tree (bypassing the VSidePanel closure wrapper)
+/// so that all Text content is captured as strings in the dump output.
+@MainActor
+private func collectPanelContent(store: UsageDashboardStore) -> String {
+    let panel = UsageDashboardPanel(store: store, onClose: {})
+    let content = panel.contentView(store: store)
+    var output = ""
+    dump(content, to: &output)
+    return output
+}
+
 // MARK: - View Instantiation Tests
 
 /// These tests instantiate the actual UsageDashboardPanel view with stores in
@@ -198,11 +211,10 @@ struct UsageDashboardPanelViewIdleTests {
     func panelCanBeInstantiatedWithIdleStore() {
         let client = MockPanelClient()
         let store = UsageDashboardStore(client: client)
-        let panel = UsageDashboardPanel(store: store, onClose: {})
+        let joined = collectPanelContent(store: store)
 
-        // Evaluating body forces SwiftUI to build the view tree.
-        // A malformed view graph will trap at runtime.
-        _ = panel.body
+        // Idle state shows loading indicators for all sections
+        #expect(joined.contains("Loading"))
     }
 }
 
@@ -224,8 +236,19 @@ struct UsageDashboardPanelViewEmptyTests {
         let store = UsageDashboardStore(client: client)
         await store.refresh()
 
-        let panel = UsageDashboardPanel(store: store, onClose: {})
-        _ = panel.body
+        let joined = collectPanelContent(store: store)
+
+        // Section headers
+        #expect(joined.contains("Totals"))
+        #expect(joined.contains("Daily Trend"))
+        #expect(joined.contains("Breakdown"))
+
+        // Zero cost formatting: formatCost(0) produces "$0.0000"
+        #expect(joined.contains("$0.0000"))
+
+        // Empty-state placeholders
+        #expect(joined.contains("No daily data"))
+        #expect(joined.contains("No breakdown data"))
     }
 }
 
@@ -253,8 +276,28 @@ struct UsageDashboardPanelViewPopulatedTests {
         let store = UsageDashboardStore(client: client)
         await store.refresh()
 
-        let panel = UsageDashboardPanel(store: store, onClose: {})
-        _ = panel.body
+        let joined = collectPanelContent(store: store)
+
+        // Section headers
+        #expect(joined.contains("Totals"))
+        #expect(joined.contains("Daily Trend"))
+        #expect(joined.contains("Breakdown"))
+
+        // Formatted cost: formatCost(1.23) produces "$1.23"
+        #expect(joined.contains("$1.23"))
+
+        // Daily dates
+        #expect(joined.contains("2026-03-04"))
+        #expect(joined.contains("2026-03-05"))
+
+        // Breakdown model names
+        #expect(joined.contains("claude-sonnet-4-20250514"))
+        #expect(joined.contains("claude-haiku-3"))
+
+        // Breakdown table headers
+        #expect(joined.contains("Group"))
+        #expect(joined.contains("Tokens"))
+        #expect(joined.contains("Cost"))
     }
 
     @Test @MainActor
@@ -274,10 +317,10 @@ struct UsageDashboardPanelViewPopulatedTests {
         let store = UsageDashboardStore(client: client)
         await store.selectGroupBy(.provider)
 
-        let panel = UsageDashboardPanel(store: store, onClose: {})
-        _ = panel.body
+        let joined = collectPanelContent(store: store)
 
         #expect(store.selectedGroupBy == .provider)
+        #expect(joined.contains("anthropic"))
     }
 }
 
@@ -292,8 +335,15 @@ struct UsageDashboardPanelViewFailedTests {
         let store = UsageDashboardStore(client: client)
         await store.refresh()
 
-        let panel = UsageDashboardPanel(store: store, onClose: {})
-        _ = panel.body
+        let joined = collectPanelContent(store: store)
+
+        // Error messages should contain "Failed to load" for each section
+        #expect(joined.contains("Failed to load"))
+
+        // Section headers should still render even in failed state
+        #expect(joined.contains("Totals"))
+        #expect(joined.contains("Daily Trend"))
+        #expect(joined.contains("Breakdown"))
     }
 }
 
