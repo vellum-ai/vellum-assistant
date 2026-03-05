@@ -4,6 +4,10 @@ import { AnthropicProvider } from "./anthropic/client.js";
 import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { GeminiProvider } from "./gemini/client.js";
+import {
+  buildManagedBaseUrl,
+  resolveManagedProxyContext,
+} from "./managed-proxy/context.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { OllamaProvider } from "./ollama/client.js";
 import { OpenAIProvider } from "./openai/client.js";
@@ -214,6 +218,26 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+  } else {
+    // No user Anthropic key — try managed proxy fallback
+    const managedBaseUrl = buildManagedBaseUrl("anthropic");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "anthropic");
+      registerProvider(
+        "anthropic",
+        new RetryProvider(
+          wrapWithLogfire(
+            new AnthropicProvider(ctx.assistantApiKey, model, {
+              useNativeWebSearch:
+                config.webSearchProvider === "anthropic-native",
+              streamTimeoutMs,
+              baseURL: managedBaseUrl,
+            }),
+          ),
+        ),
+      );
+    }
   }
   if (config.apiKeys.openai) {
     const model = resolveModel(config, "openai");

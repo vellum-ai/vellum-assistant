@@ -401,9 +401,13 @@ export class AnthropicProvider implements Provider {
   constructor(
     apiKey: string,
     model: string,
-    options: { useNativeWebSearch?: boolean; streamTimeoutMs?: number } = {},
+    options: {
+      useNativeWebSearch?: boolean;
+      streamTimeoutMs?: number;
+      baseURL?: string;
+    } = {},
   ) {
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({ apiKey, baseURL: options.baseURL });
     // Models ending in "-fast" use the beta fast-mode API
     this.fastMode = model.endsWith("-fast");
     this.model = this.fastMode ? model.slice(0, -"-fast".length) : model;
