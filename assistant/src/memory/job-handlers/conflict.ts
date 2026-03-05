@@ -4,12 +4,14 @@ import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { resolveConflictClarification } from "../clarification-resolver.js";
 import {
+  areStatementsCoherent,
   computeConflictRelevance,
   looksLikeClarificationReply,
   shouldAttemptConflictResolution,
 } from "../conflict-intent.js";
 import {
   isConflictKindPairEligible,
+  isConflictUserEvidenced,
   isStatementConflictEligible,
 } from "../conflict-policy.js";
 import {
@@ -81,6 +83,28 @@ export async function resolvePendingConflictsForMessageJob(
       resolveConflict(conflict.id, {
         status: "dismissed",
         resolutionNote: "Dismissed by conflict policy (transient/non-durable).",
+      });
+    } else if (
+      !isConflictUserEvidenced(
+        conflict.existingVerificationState,
+        conflict.candidateVerificationState,
+      )
+    ) {
+      resolveConflict(conflict.id, {
+        status: "dismissed",
+        resolutionNote:
+          "Dismissed by conflict policy (no user-evidenced provenance).",
+      });
+    } else if (
+      !areStatementsCoherent(
+        conflict.existingStatement,
+        conflict.candidateStatement,
+      )
+    ) {
+      resolveConflict(conflict.id, {
+        status: "dismissed",
+        resolutionNote:
+          "Dismissed by conflict policy (incoherent — zero statement overlap).",
       });
     }
   }
