@@ -63,7 +63,12 @@ public enum UsageGroupByDimension: String, CaseIterable, Sendable {
 /// Formatting helpers for usage dashboard values, shared across platforms.
 public enum UsageFormatting {
     public static func formatCost(_ usd: Double) -> String {
-        String(format: "$%.4f", usd)
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 4
+        return formatter.string(from: NSNumber(value: usd)) ?? String(format: "$%.4f", usd)
     }
 
     public static func formatCount(_ n: Int) -> String {
