@@ -1147,14 +1147,23 @@ public final class HTTPTransport {
     // MARK: - Channel Verification
 
     /// Send a verification code to a contact's channel via the gateway.
-    func verifyContactChannel(contactId: String, channelId: String) async throws -> DaemonClient.ChannelVerificationResult? {
+    func verifyContactChannel(contactId: String, channelId: String, isRetry: Bool = false) async throws -> DaemonClient.ChannelVerificationResult? {
         guard let url = buildURL(for: .contactsChannelVerify(contactId: contactId, channelId: channelId)) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await verifyContactChannel(contactId: contactId, channelId: channelId, isRetry: true)
+                }
+                return nil
+            }
+            guard (200...299).contains(http.statusCode) else { return nil }
+        }
         return try JSONDecoder().decode(DaemonClient.ChannelVerificationResult.self, from: data)
     }
 

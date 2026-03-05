@@ -16,6 +16,8 @@ struct ContactDetailView: View {
     @State private var isHoveringHeader = false
     @State private var verificationInProgress: String?
     @State private var verificationSuccessChannelId: String?
+    @State private var telegramBootstrapUrl: String?
+    @State private var telegramBootstrapChannelId: String?
 
     // Metadata editing state (accessed from ContactDetailView+EditableMetadata.swift)
     @State var isEditingRelationship = false
@@ -313,6 +315,36 @@ struct ContactDetailView: View {
                         .foregroundColor(VColor.success)
                 }
             }
+
+            // Telegram bootstrap: the guardian needs to open a deep link before
+            // a verification code can be delivered.
+            if telegramBootstrapChannelId == channel.id, let urlString = telegramBootstrapUrl, let url = URL(string: urlString) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Ask your contact to open this link to start the Telegram chat:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 11))
+                            Text("Open Telegram")
+                                .font(VFont.caption)
+                        }
+                        .foregroundColor(VColor.link)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -498,6 +530,8 @@ struct ContactDetailView: View {
         verificationInProgress = channel.id
         errorMessage = nil
         verificationSuccessChannelId = nil
+        telegramBootstrapUrl = nil
+        telegramBootstrapChannelId = nil
 
         Task {
             do {
@@ -506,12 +540,19 @@ struct ContactDetailView: View {
                     channelId: channel.id
                 )
                 if result?.ok == true {
-                    verificationSuccessChannelId = channel.id
-                    // Auto-clear the success message after 5 seconds
-                    Task {
-                        try? await Task.sleep(nanoseconds: 5_000_000_000)
-                        if verificationSuccessChannelId == channel.id {
-                            verificationSuccessChannelId = nil
+                    // Telegram bootstrap: ok is true but no code was sent yet —
+                    // the user needs to open the bootstrap URL first.
+                    if let bootstrapUrl = result?.telegramBootstrapUrl {
+                        telegramBootstrapUrl = bootstrapUrl
+                        telegramBootstrapChannelId = channel.id
+                    } else {
+                        verificationSuccessChannelId = channel.id
+                        // Auto-clear the success message after 5 seconds
+                        Task {
+                            try? await Task.sleep(nanoseconds: 5_000_000_000)
+                            if verificationSuccessChannelId == channel.id {
+                                verificationSuccessChannelId = nil
+                            }
                         }
                     }
                 } else {
