@@ -3,7 +3,6 @@ name: "google-oauth-setup"
 description: "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation"
 user-invocable: true
 credential-setup-for: "gmail"
-includes: ["browser", "public-ingress"]
 metadata:
   emoji: "🔑"
 ---
