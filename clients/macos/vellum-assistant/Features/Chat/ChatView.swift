@@ -106,9 +106,9 @@ struct ChatView: View {
         let contentHeight = max(editorClamped, 34)
         let expanded = isComposerExpanded
         let topPad: CGFloat = expanded ? VSpacing.md : VSpacing.sm
-        let bottomPad: CGFloat = expanded ? VSpacing.sm : VSpacing.sm
-        let buttonRow: CGFloat = expanded ? 34 + VSpacing.xs : 0
-        let base: CGFloat = VSpacing.sm + topPad + bottomPad + contentHeight + buttonRow
+        let bottomPad: CGFloat = VSpacing.sm
+        // Buttons are overlaid on the text area, so they don't add to height.
+        let base: CGFloat = VSpacing.sm + topPad + bottomPad + contentHeight
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
         let sessionErrorToast: CGFloat = sessionError != nil ? 52 : 0

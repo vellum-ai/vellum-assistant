@@ -107,30 +107,17 @@ struct ComposerView: View {
                     }
                     .frame(height: compactRowHeight, alignment: .center)
                 } else {
-                    // In compact mode, text field and buttons share a row;
-                    // in expanded mode, buttons sit on a separate row below.
-                    HStack(alignment: .center, spacing: VSpacing.md) {
-                        composerTextField
-                        if !isComposerExpanded {
+                    // Text field with action buttons pinned to bottom-trailing.
+                    composerTextField
+                        .frame(minHeight: composerCompactHeight)
+                        .overlay(alignment: .bottomTrailing) {
                             composerActionButtons
-                                .frame(maxHeight: .infinity, alignment: .center)
-                                .offset(y: compactActionOpticalYOffset)
+                                .padding(.bottom, VSpacing.xs)
                         }
-                    }
-                    .frame(minHeight: composerCompactHeight)
-
-                    if isComposerExpanded {
-                        // Expanded: buttons on a separate row below the text area
-                        HStack(spacing: VSpacing.md) {
-                            Spacer()
-                            composerActionButtons
-                        }
-                        .padding(.top, VSpacing.xs)
-                    }
                 }
             }
             .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.sm)
-            .padding(.bottom, isComposerExpanded ? VSpacing.sm : VSpacing.sm)
+            .padding(.bottom, VSpacing.sm)
             .padding(.leading, VSpacing.lg)
             .padding(.trailing, VSpacing.lg)
             .background(
@@ -189,7 +176,7 @@ struct ComposerView: View {
         // visible text coloring.
         if hasSlashHighlight {
             Text(slashHighlightedText(font: font))
-                .lineLimit(1...6)
+                .lineLimit(1...100)
                 .fixedSize(horizontal: false, vertical: true)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -203,7 +190,7 @@ struct ComposerView: View {
             + Text(ghostSuffix)
                 .font(font)
                 .foregroundColor(VColor.textSecondary.opacity(0.55)))
-                .lineLimit(1...6)
+                .lineLimit(1...100)
                 .fixedSize(horizontal: false, vertical: true)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -219,7 +206,7 @@ struct ComposerView: View {
             text: $inputText,
             axis: .vertical
         )
-        .lineLimit(1...6)
+        .lineLimit(1...100)
         .textFieldStyle(.plain)
         .font(font)
         .foregroundColor(hasSlashHighlight ? .clear : VColor.textPrimary)
@@ -267,12 +254,16 @@ struct ComposerView: View {
         let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
         let hasSlashHighlight = slashCommandRange != nil
 
-        return ZStack(alignment: .leading) {
-            composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-            composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
+        return ScrollView(.vertical, showsIndicators: false) {
+            ZStack(alignment: .leading) {
+                composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
+                composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .accessibilityLabel("Message")
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: composerMaxHeight, alignment: .topLeading)
         .background(
             GeometryReader { geo in
                 Color.clear.preference(key: ComposerEditorHeightKey.self, value: geo.size.height)
@@ -454,10 +445,12 @@ struct ComposerView: View {
             return .handled // consume other modifier+Return combos silently
         }
 
-        // Default mode: plain Enter sends, any semantic modifier combo is consumed silently
-        if !semanticModifiers.isEmpty { return .handled }
-        performSendAction()
-        return .handled
+        // Default mode: plain Enter sends, modifier+Return inserts newline
+        if semanticModifiers.isEmpty {
+            performSendAction()
+            return .handled
+        }
+        return .ignored
     }
 
     @ViewBuilder
