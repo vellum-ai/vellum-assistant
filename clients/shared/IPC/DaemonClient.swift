@@ -1520,6 +1520,19 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Contacts Management
 
+    /// A channel to attach when creating a new contact.
+    public struct NewContactChannel: Codable {
+        public let type: String
+        public let address: String
+        public let isPrimary: Bool
+
+        public init(type: String, address: String, isPrimary: Bool = false) {
+            self.type = type
+            self.address = address
+            self.isPrimary = isPrimary
+        }
+    }
+
     /// Request the list of all contacts from the daemon, optionally filtered by role.
     public func sendListContacts(role: String? = nil, limit: Int? = nil) throws {
         try send(ContactsRequestMessage(action: "list", role: role, limit: limit))
@@ -1577,6 +1590,65 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         if let importance { body["importance"] = importance }
         if let responseExpectation { body["responseExpectation"] = responseExpectation }
         if let preferredTone { body["preferredTone"] = preferredTone }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...201).contains(http.statusCode) else { return nil }
+
+        struct UpsertResponse: Decodable {
+            let ok: Bool
+            let contact: ContactPayload
+        }
+        let decoded = try JSONDecoder().decode(UpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
+    /// Create a new contact via the HTTP API (`POST /v1/contacts`).
+    /// Omits the `id` field to trigger creation instead of update.
+    /// Routes through `HTTPTransport` when available so that managed-mode
+    /// URL paths and auth headers are applied correctly. Falls back to the
+    /// local gateway (port 7830) for socket-based connections.
+    public func createContact(
+        displayName: String,
+        relationship: String? = nil,
+        importance: Double? = nil,
+        channels: [NewContactChannel]? = nil
+    ) async throws -> ContactPayload? {
+        if let httpTransport {
+            return try await httpTransport.createContactAndReturn(
+                displayName: displayName,
+                relationship: relationship,
+                importance: importance,
+                channels: channels
+            )
+        }
+
+        #if os(macOS)
+        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            .flatMap(Int.init) ?? 7830
+        let baseURL = "http://127.0.0.1:\(gatewayPort)"
+        #else
+        return nil
+        #endif
+
+        guard let url = URL(string: "\(baseURL)/v1/contacts") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = readHttpToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body: [String: Any] = ["displayName": displayName]
+        if let relationship { body["relationship"] = relationship }
+        if let importance { body["importance"] = importance }
+        if let channels {
+            body["channels"] = channels.map { ch -> [String: Any] in
+                ["type": ch.type, "address": ch.address, "isPrimary": ch.isPrimary]
+            }
+        }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

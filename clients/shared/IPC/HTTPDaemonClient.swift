@@ -1090,6 +1090,51 @@ public final class HTTPTransport {
         return decoded.contact
     }
 
+    /// Create a new contact via `POST /v1/contacts` and return the created payload.
+    /// Omits the `id` field to trigger creation instead of update.
+    func createContactAndReturn(
+        displayName: String,
+        relationship: String? = nil,
+        importance: Double? = nil,
+        channels: [DaemonClient.NewContactChannel]? = nil,
+        isRetry: Bool = false
+    ) async throws -> ContactPayload? {
+        guard let url = buildURL(for: .contactsUpsert) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = ["displayName": displayName]
+        if let relationship { body["relationship"] = relationship }
+        if let importance { body["importance"] = importance }
+        if let channels {
+            body["channels"] = channels.map { ch -> [String: Any] in
+                ["type": ch.type, "address": ch.address, "isPrimary": ch.isPrimary]
+            }
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await createContactAndReturn(displayName: displayName, relationship: relationship, importance: importance, channels: channels, isRetry: true)
+                }
+                return nil
+            }
+            guard (200...201).contains(http.statusCode) else {
+                return nil
+            }
+        }
+
+        let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
     // MARK: - Surface Actions
 
     private func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
