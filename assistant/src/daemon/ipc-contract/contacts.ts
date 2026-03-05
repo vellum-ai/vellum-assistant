@@ -40,10 +40,7 @@ export interface ContactPayload {
   id: string;
   displayName: string;
   role: "guardian" | "contact";
-  relationship?: string;
-  importance: number;
-  responseExpectation?: string;
-  preferredTone?: string;
+  notes?: string;
   contactType?: string;
   lastInteraction?: number;
   interactionCount: number;

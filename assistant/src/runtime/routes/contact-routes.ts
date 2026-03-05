@@ -64,7 +64,7 @@ const VALID_ASSISTANT_SPECIES: readonly AssistantSpecies[] = [
 /**
  * GET /v1/contacts?limit=50&role=guardian&contactType=human
  *
- * Also supports search query params: query, channelAddress, channelType, relationship.
+ * Also supports search query params: query, channelAddress, channelType.
  * When any search param is provided, delegates to searchContacts() instead of listContacts().
  */
 export function handleListContacts(url: URL, assistantId: string): Response {
@@ -74,8 +74,6 @@ export function handleListContacts(url: URL, assistantId: string): Response {
   const query = url.searchParams.get("query");
   const channelAddress = url.searchParams.get("channelAddress");
   const channelType = url.searchParams.get("channelType");
-  const relationship = url.searchParams.get("relationship");
-
   if (contactTypeParam && !isContactType(contactTypeParam)) {
     return httpError(
       "BAD_REQUEST",
@@ -84,8 +82,7 @@ export function handleListContacts(url: URL, assistantId: string): Response {
     );
   }
 
-  const hasSearchParams =
-    query || channelAddress || channelType || relationship;
+  const hasSearchParams = query || channelAddress || channelType;
 
   const contactType = contactTypeParam
     ? (contactTypeParam as ContactType)
@@ -97,7 +94,6 @@ export function handleListContacts(url: URL, assistantId: string): Response {
       query: query ?? undefined,
       channelAddress: channelAddress ?? undefined,
       channelType: channelType ?? undefined,
-      relationship: relationship ?? undefined,
       role: role ?? undefined,
       contactType,
       limit,
@@ -323,10 +319,7 @@ export async function handleUpsertContact(
     const contact = upsertContact({
       id: body.id,
       displayName: body.displayName.trim(),
-      relationship: body.relationship,
-      importance: body.importance,
-      responseExpectation: body.responseExpectation,
-      preferredTone: body.preferredTone,
+      notes: body.notes,
       role: body.role as ContactRole | undefined,
       contactType: body.contactType as ContactType | undefined,
       assistantId,
