@@ -88,7 +88,7 @@ struct SettingsPrivacyTab: View {
                     get: { store.sendPerformanceReports },
                     set: { store.sendPerformanceReports = $0 }
                 ))
-                .disabled(!collectUsageData)
+                .disabled(!collectUsageData || isLoading || isUpdating)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -189,6 +189,9 @@ extension AppDelegate {
             object: window,
             queue: .main
         ) { [weak self] _ in
+            if let observer = self?.crashReportWindowObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
             self?.crashReportWindowObserver = nil
             self?.crashReportWindow = nil
             self?.scheduleActivationPolicyRevert()

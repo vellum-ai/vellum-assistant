@@ -427,6 +427,10 @@ extension AppDelegate {
                     .first(where: { $0.key == "feature_flags.collect-usage-data.enabled" })
                     .map { $0.enabled }
                     ?? true
+                // Persist so MetricKitManager can check this flag synchronously
+                // during the startup window on the next launch, regardless of
+                // whether the user has visited the Privacy settings tab.
+                UserDefaults.standard.set(collectUsageData, forKey: "collectUsageDataEnabled")
                 if !collectUsageData {
                     // Route through sentrySerialQueue to prevent races with
                     // concurrent MetricKit captures or manual report sends.
