@@ -11,6 +11,9 @@ struct ContactDetailView: View {
     @State private var currentContact: ContactPayload?
     @State private var actionInProgress: String?
     @State private var errorMessage: String?
+    @State private var isEditingName = false
+    @State private var editedName = ""
+    @State private var isHoveringHeader = false
 
     private var displayContact: ContactPayload {
         currentContact ?? contact
@@ -35,9 +38,55 @@ struct ContactDetailView: View {
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text(displayContact.displayName)
-                .font(VFont.largeTitle)
-                .foregroundColor(VColor.textPrimary)
+            if isEditingName {
+                HStack(spacing: VSpacing.sm) {
+                    TextField("Display name", text: $editedName)
+                        .font(VFont.largeTitle)
+                        .foregroundColor(VColor.textPrimary)
+                        .textFieldStyle(.plain)
+                        .onSubmit { Task { await saveDisplayName() } }
+
+                    Button {
+                        Task { await saveDisplayName() }
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Save name")
+
+                    Button {
+                        isEditingName = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .foregroundColor(VColor.textMuted)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .accessibilityLabel("Cancel editing")
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    Text(displayContact.displayName)
+                        .font(VFont.largeTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    Button {
+                        editedName = displayContact.displayName
+                        isEditingName = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .foregroundColor(VColor.textSecondary)
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(isHoveringHeader ? 1 : 0)
+                    .animation(VAnimation.fast, value: isHoveringHeader)
+                    .accessibilityLabel("Edit display name")
+                }
+            }
 
             HStack(spacing: VSpacing.sm) {
                 roleBadge
@@ -57,6 +106,9 @@ struct ContactDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .onHover { hovering in
+            isHoveringHeader = hovering
+        }
     }
 
     private var roleBadge: some View {
@@ -346,6 +398,24 @@ struct ContactDetailView: View {
     }
 
     // MARK: - Actions
+
+    private func saveDisplayName() async {
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        errorMessage = nil
+
+        do {
+            if let updated = try await daemonClient?.updateContact(
+                contactId: displayContact.id,
+                displayName: trimmed
+            ) {
+                currentContact = updated
+            }
+            isEditingName = false
+        } catch {
+            errorMessage = "Failed to update name: \(error.localizedDescription)"
+        }
+    }
 
     private func updateChannelStatus(channelId: String, status: String) {
         guard let daemonClient else { return }
