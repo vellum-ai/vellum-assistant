@@ -144,7 +144,7 @@ export class NetworkRecorder {
     if (cdpBaseUrl) this.cdpBaseUrl = cdpBaseUrl;
 
     // Discover the browser's WebSocket debugger URL
-    const versionRes = await fetch(`${cdpBaseUrl}/json/version`);
+    const versionRes = await fetch(`${this.cdpBaseUrl}/json/version`);
     const version = (await versionRes.json()) as {
       webSocketDebuggerUrl: string;
     };
