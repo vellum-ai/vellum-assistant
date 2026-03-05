@@ -31,7 +31,7 @@
       "key": "feature_flags.browser.enabled",
       "label": "Browser",
       "description": "Enable browser skill prerequisites section in the system prompt",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "twitter",
