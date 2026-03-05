@@ -30,11 +30,10 @@ _debug_log() {
     local now
     if command -v gdate &>/dev/null; then
         now=$(gdate +%s%3N)
+    elif [[ "$(date +%s%3N 2>/dev/null)" =~ ^[0-9]+$ ]]; then
+        now=$(date +%s%3N)
     else
-        now=$(date +%s%3N 2>/dev/null)
-        if [[ ! "$now" =~ ^[0-9]+$ ]]; then
-            now=$(( $(date +%s) * 1000 ))
-        fi
+        now=$(( $(date +%s) * 1000 ))
     fi
     if [ -z "$PREPUSH_START_EPOCH" ]; then
         PREPUSH_START_EPOCH="$now"
