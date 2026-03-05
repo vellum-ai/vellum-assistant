@@ -373,6 +373,17 @@ function main() {
       handler: (req, params) =>
         contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
     },
+    {
+      path: /^\/v1\/contacts\/([^/]+)\/channels\/([^/]+)\/verify$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleVerifyContactChannel(
+          req,
+          params[0],
+          params[1],
+        ),
+    },
 
     // ── Contacts/invites control plane ──
     {

@@ -145,7 +145,7 @@ export interface OutboundActionResult {
  * logging -- the response is returned before delivery completes because
  * the caller should not be blocked on Twilio API latency.
  */
-function deliverVerificationSms(
+export function deliverVerificationSms(
   to: string,
   text: string,
   assistantId: string,
@@ -170,7 +170,7 @@ function deliverVerificationSms(
  * Deliver a verification Telegram message via the gateway's /deliver/telegram
  * endpoint. Fire-and-forget with error logging.
  */
-function deliverVerificationTelegram(
+export function deliverVerificationTelegram(
   chatId: string,
   text: string,
   assistantId: string,
@@ -630,7 +630,7 @@ function startOutboundVoice(
  * Deliver a verification Slack DM via the gateway's /deliver/slack endpoint.
  * Fire-and-forget with error logging.
  */
-function deliverVerificationSlack(
+export function deliverVerificationSlack(
   userId: string,
   text: string,
   assistantId: string,
