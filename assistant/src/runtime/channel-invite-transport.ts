@@ -56,6 +56,13 @@ export interface ChannelInviteAdapter {
    * credentials not yet configured).
    */
   resolveChannelHandle?(): string | undefined;
+
+  /**
+   * Async variant of `resolveChannelHandle` for adapters that need to
+   * perform I/O (e.g. querying a provider API for the assigned address).
+   * When both are present, `resolveAdapterHandle()` prefers this method.
+   */
+  resolveChannelHandleAsync?(): Promise<string | undefined>;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +110,25 @@ export class InviteAdapterRegistry {
   _reset(): void {
     this.adapters.clear();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Handle resolution helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the channel handle for an adapter, preferring the async path
+ * when available and falling back to the sync path. Returns `undefined`
+ * when the adapter has no handle resolution method or the handle cannot
+ * be determined.
+ */
+export async function resolveAdapterHandle(
+  adapter: ChannelInviteAdapter,
+): Promise<string | undefined> {
+  if (adapter.resolveChannelHandleAsync) {
+    return adapter.resolveChannelHandleAsync();
+  }
+  return adapter.resolveChannelHandle?.();
 }
 
 // ---------------------------------------------------------------------------

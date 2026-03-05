@@ -7,7 +7,10 @@
 
 import type { ChannelId } from "../../channels/types.js";
 import { getReadinessService } from "../../daemon/handlers/config-channels.js";
-import { getInviteAdapterRegistry } from "../channel-invite-transport.js";
+import {
+  getInviteAdapterRegistry,
+  resolveAdapterHandle,
+} from "../channel-invite-transport.js";
 import type { RouteDefinition } from "../http-router.js";
 
 /**
@@ -24,10 +27,12 @@ export async function handleGetChannelReadiness(url: URL): Promise<Response> {
   const snapshots = await service.getReadiness(channel, includeRemote);
   const adapterRegistry = getInviteAdapterRegistry();
 
-  return Response.json({
-    success: true,
-    snapshots: snapshots.map((s) => {
+  const enriched = await Promise.all(
+    snapshots.map(async (s) => {
       const adapter = adapterRegistry.get(s.channel);
+      const channelHandle = adapter
+        ? await resolveAdapterHandle(adapter)
+        : undefined;
       return {
         channel: s.channel,
         ready: s.ready,
@@ -36,9 +41,14 @@ export async function handleGetChannelReadiness(url: URL): Promise<Response> {
         reasons: s.reasons,
         localChecks: s.localChecks,
         remoteChecks: s.remoteChecks,
-        channelHandle: adapter?.resolveChannelHandle?.() ?? undefined,
+        channelHandle,
       };
     }),
+  );
+
+  return Response.json({
+    success: true,
+    snapshots: enriched,
   });
 }
 
@@ -70,10 +80,12 @@ export async function handleRefreshChannelReadiness(
   );
   const adapterRegistry = getInviteAdapterRegistry();
 
-  return Response.json({
-    success: true,
-    snapshots: snapshots.map((s) => {
+  const enriched = await Promise.all(
+    snapshots.map(async (s) => {
       const adapter = adapterRegistry.get(s.channel);
+      const channelHandle = adapter
+        ? await resolveAdapterHandle(adapter)
+        : undefined;
       return {
         channel: s.channel,
         ready: s.ready,
@@ -82,9 +94,14 @@ export async function handleRefreshChannelReadiness(
         reasons: s.reasons,
         localChecks: s.localChecks,
         remoteChecks: s.remoteChecks,
-        channelHandle: adapter?.resolveChannelHandle?.() ?? undefined,
+        channelHandle,
       };
     }),
+  );
+
+  return Response.json({
+    success: true,
+    snapshots: enriched,
   });
 }
 
