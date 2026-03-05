@@ -378,6 +378,8 @@ struct ContactDetailView: View {
 
         if let inviteCode = result.inviteCode {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
+                // Instruction text (LLM-generated or fallback) — already
+                // references the share URL and channel handle naturally.
                 if let instruction = result.guardianInstruction {
                     Text(instruction)
                         .font(VFont.body)
@@ -385,13 +387,7 @@ struct ContactDetailView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if let channelHandle = result.channelHandle {
-                    Text(channelHandle)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                // When a share URL is available, show it prominently above the code
+                // Copyable share link when present
                 if let shareUrl = result.shareUrl {
                     HStack(spacing: VSpacing.sm) {
                         let truncated = shareUrl.count > 30
@@ -419,12 +415,6 @@ struct ContactDetailView: View {
                             }
                         }
                     }
-
-                    Divider().background(VColor.divider)
-
-                    Text("Or use this code:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
                 }
 
                 // Large monospaced invite code for readability
