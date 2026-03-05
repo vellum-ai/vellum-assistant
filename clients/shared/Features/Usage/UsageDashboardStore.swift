@@ -87,6 +87,14 @@ public final class UsageDashboardStore {
         self.client = client
     }
 
+    /// Whether any section needs a (re)fetch — used by views to auto-refresh
+    /// on first appearance or after a partial/total failure.
+    public var needsRefresh: Bool {
+        totalsState == .idle || totalsState.isFailed ||
+        dailyState == .idle || dailyState.isFailed ||
+        breakdownState == .idle || breakdownState.isFailed
+    }
+
     // MARK: - Refresh
 
     /// Load all usage data (totals, daily, breakdown) for the currently selected range.

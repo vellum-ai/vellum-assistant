@@ -15,7 +15,7 @@ struct UsageDashboardView: View {
                 .navigationTitle("Usage & Cost")
                 .navigationBarTitleDisplayMode(.inline)
                 .task {
-                    if store.totalsState == .idle || store.totalsState.isFailed {
+                    if store.needsRefresh {
                         await store.refresh()
                     }
                 }
