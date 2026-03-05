@@ -220,10 +220,17 @@ export async function pairDeliveryWithConversation(
       bindingContext?.sourceChannel &&
       bindingContext?.externalChatId
     ) {
-      const existingBinding = getBindingByChannelChat(
-        notificationChannel(bindingContext.sourceChannel),
-        bindingContext.externalChatId,
-      );
+      // Look up by namespaced key first; fall back to pre-namespace key for
+      // bindings created before the notification: prefix was introduced.
+      const existingBinding =
+        getBindingByChannelChat(
+          notificationChannel(bindingContext.sourceChannel),
+          bindingContext.externalChatId,
+        ) ??
+        getBindingByChannelChat(
+          bindingContext.sourceChannel,
+          bindingContext.externalChatId,
+        );
 
       if (existingBinding) {
         const boundConversation = getConversation(

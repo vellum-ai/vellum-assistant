@@ -358,6 +358,47 @@ describe("pairDeliveryWithConversation", () => {
     expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
   });
 
+  test("reuses pre-namespace binding when namespaced binding is absent", async () => {
+    // Simulate a binding created before the notification: prefix was introduced
+    mockExistingConversations["conv-legacy"] = {
+      id: "conv-legacy",
+      source: "notification",
+      title: "Legacy Telegram Thread",
+    };
+    mockBindings["telegram:chat-legacy"] = {
+      conversationId: "conv-legacy",
+      sourceChannel: "telegram",
+      externalChatId: "chat-legacy",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy({
+      threadSeedMessage: "Delivery to legacy binding",
+    });
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "telegram" as NotificationChannel,
+      externalChatId: "chat-legacy",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "telegram" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-legacy");
+    expect(result.createdNewConversation).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    // The upsert should write with the new namespaced sourceChannel
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(upsertArgs.sourceChannel).toBe("notification:telegram");
+  });
+
   test("falls back to new conversation when bound conversation is stale (wrong source)", async () => {
     mockExistingConversations["conv-user-owned"] = {
       id: "conv-user-owned",
