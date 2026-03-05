@@ -66,11 +66,18 @@ export function resolveDestinations(
       case "sms": {
         const guardianResult = findGuardianForChannel(channel);
         if (guardianResult && guardianResult.channel.externalChatId) {
+          const externalChatId = guardianResult.channel.externalChatId;
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
-            endpoint: guardianResult.channel.externalChatId ?? undefined,
+            endpoint: externalChatId,
             metadata: {
               externalUserId: guardianResult.channel.externalUserId,
+            },
+            bindingContext: {
+              sourceChannel: channel as NotificationChannel,
+              externalChatId,
+              externalUserId:
+                guardianResult.channel.externalUserId ?? undefined,
             },
           });
         }
@@ -96,6 +103,12 @@ export function resolveDestinations(
             endpoint: chatId,
             metadata: {
               externalUserId: guardianResult.channel.externalUserId,
+            },
+            bindingContext: {
+              sourceChannel: "slack",
+              externalChatId: chatId,
+              externalUserId:
+                guardianResult.channel.externalUserId ?? undefined,
             },
           });
         } else if (guardianResult && chatId) {

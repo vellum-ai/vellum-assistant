@@ -8,9 +8,12 @@
  * - Reports delivery results per channel
  * - Emits notification_thread_created only when a new conversation is created
  * - Does NOT emit notification_thread_created when reusing an existing thread
+ * - Threads destination binding context into conversation pairing for external channels
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { PairingOptions } from "../notifications/conversation-pairing.js";
 
 // -- Mocks (must be declared before importing modules that depend on them) ----
 
@@ -21,12 +24,26 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Mock destination-resolver to return a destination for every requested channel
+// Mock destination-resolver to return a destination for every requested channel.
+// External channels (sms, telegram, slack) include bindingContext.
 mock.module("../notifications/destination-resolver.js", () => ({
   resolveDestinations: (channels: string[]) => {
     const m = new Map();
     for (const ch of channels) {
-      m.set(ch, { channel: ch, endpoint: `mock-${ch}` });
+      const isExternal = ch === "sms" || ch === "telegram" || ch === "slack";
+      m.set(ch, {
+        channel: ch,
+        endpoint: `mock-${ch}`,
+        ...(isExternal
+          ? {
+              bindingContext: {
+                sourceChannel: ch,
+                externalChatId: `ext-chat-${ch}`,
+                externalUserId: `ext-user-${ch}`,
+              },
+            }
+          : {}),
+      });
     }
     return m;
   },
@@ -39,15 +56,27 @@ mock.module("../notifications/deliveries-store.js", () => ({
 }));
 
 // Configurable mock for conversation-pairing.
-// By default returns a "new conversation" result with a stable UUID.
+// Captures call arguments so tests can inspect what was passed in.
 // Set `nextPairingResult` to override the return value for a single call.
 let nextPairingResult:
   | import("../notifications/conversation-pairing.js").PairingResult
   | null = null;
 let pairingCallCount = 0;
 
+interface PairingCall {
+  channel: string;
+  options?: PairingOptions;
+}
+const pairingCalls: PairingCall[] = [];
+
 mock.module("../notifications/conversation-pairing.js", () => ({
-  pairDeliveryWithConversation: async () => {
+  pairDeliveryWithConversation: async (
+    _signal: unknown,
+    channel: string,
+    _copy: unknown,
+    options?: PairingOptions,
+  ) => {
+    pairingCalls.push({ channel, options });
     if (nextPairingResult) {
       const result = nextPairingResult;
       nextPairingResult = null;
@@ -138,6 +167,10 @@ class MockAdapter implements ChannelAdapter {
 // -- Tests -------------------------------------------------------------------
 
 describe("notification broadcaster", () => {
+  beforeEach(() => {
+    pairingCalls.length = 0;
+    nextPairingResult = null;
+  });
   test("dispatches to the vellum adapter when selected", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
@@ -380,5 +413,90 @@ describe("notification broadcaster", () => {
     // delivery bookkeeping).
     expect(dispatchCalls).toHaveLength(1);
     expect(dispatchCalls[0].conversationId).toBe("conv-reused-456");
+  });
+
+  // ── Destination binding context ────────────────────────────────────
+
+  test("SMS delivery carries destination binding context into pairing", async () => {
+    const smsAdapter = new MockAdapter("sms");
+    const broadcaster = new NotificationBroadcaster([smsAdapter]);
+
+    const signal = makeSignal();
+    const decision = makeDecision({
+      selectedChannels: ["sms"],
+      renderedCopy: {
+        sms: { title: "SMS Alert", body: "Something happened" },
+      },
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    const smsCall = pairingCalls.find((c) => c.channel === "sms");
+    expect(smsCall).toBeDefined();
+    expect(smsCall!.options?.bindingContext).toEqual({
+      sourceChannel: "sms",
+      externalChatId: "ext-chat-sms",
+      externalUserId: "ext-user-sms",
+    });
+  });
+
+  test("Telegram delivery carries destination binding context into pairing", async () => {
+    const telegramAdapter = new MockAdapter("telegram");
+    const broadcaster = new NotificationBroadcaster([telegramAdapter]);
+
+    const signal = makeSignal();
+    const decision = makeDecision({
+      selectedChannels: ["telegram"],
+      renderedCopy: {
+        telegram: { title: "Telegram Alert", body: "Something happened" },
+      },
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    const telegramCall = pairingCalls.find((c) => c.channel === "telegram");
+    expect(telegramCall).toBeDefined();
+    expect(telegramCall!.options?.bindingContext).toEqual({
+      sourceChannel: "telegram",
+      externalChatId: "ext-chat-telegram",
+      externalUserId: "ext-user-telegram",
+    });
+  });
+
+  test("Slack delivery carries destination binding context into pairing", async () => {
+    const slackAdapter = new MockAdapter("slack");
+    const broadcaster = new NotificationBroadcaster([slackAdapter]);
+
+    const signal = makeSignal();
+    const decision = makeDecision({
+      selectedChannels: ["slack"],
+      renderedCopy: {
+        slack: { title: "Slack Alert", body: "Something happened" },
+      },
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    const slackCall = pairingCalls.find((c) => c.channel === "slack");
+    expect(slackCall).toBeDefined();
+    expect(slackCall!.options?.bindingContext).toEqual({
+      sourceChannel: "slack",
+      externalChatId: "ext-chat-slack",
+      externalUserId: "ext-user-slack",
+    });
+  });
+
+  test("vellum delivery does NOT carry binding context into pairing", async () => {
+    const vellumAdapter = new MockAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+
+    const signal = makeSignal();
+    const decision = makeDecision();
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    const vellumCall = pairingCalls.find((c) => c.channel === "vellum");
+    expect(vellumCall).toBeDefined();
+    expect(vellumCall!.options?.bindingContext).toBeUndefined();
   });
 });

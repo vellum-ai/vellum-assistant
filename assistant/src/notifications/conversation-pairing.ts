@@ -22,7 +22,11 @@ import {
 import { getLogger } from "../util/logger.js";
 import type { NotificationSignal } from "./signal.js";
 import { composeThreadSeed, isThreadSeedSane } from "./thread-seed-composer.js";
-import type { NotificationChannel, ThreadAction } from "./types.js";
+import type {
+  DestinationBindingContext,
+  NotificationChannel,
+  ThreadAction,
+} from "./types.js";
 import type { RenderedChannelCopy } from "./types.js";
 
 const log = getLogger("notification-conversation-pairing");
@@ -40,6 +44,8 @@ export interface PairingResult {
 export interface PairingOptions {
   /** Per-channel thread action from the decision engine. */
   threadAction?: ThreadAction;
+  /** Destination binding data for channel-scoped conversation continuation. */
+  bindingContext?: DestinationBindingContext;
 }
 
 /**
