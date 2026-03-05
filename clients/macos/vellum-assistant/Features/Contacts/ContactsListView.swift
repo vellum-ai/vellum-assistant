@@ -52,10 +52,8 @@ struct ContactsListView: View {
                 guardianSection(guardian)
             }
 
-            // Other contacts section
-            if !viewModel.otherContacts.isEmpty {
-                otherContactsSection
-            }
+            // Other contacts section — header + add button always visible
+            otherContactsSection
 
             // Filtered-empty state (contacts exist but search yields nothing)
             if viewModel.filteredContacts.isEmpty && !viewModel.contacts.isEmpty {
@@ -144,15 +142,17 @@ struct ContactsListView: View {
                 .accessibilityLabel("Add contact")
             }
 
-            VStack(spacing: 0) {
-                ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
-                    if index > 0 {
-                        Divider().background(VColor.surfaceBorder)
+            if !viewModel.otherContacts.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
+                        if index > 0 {
+                            Divider().background(VColor.surfaceBorder)
+                        }
+                        contactRow(contact)
                     }
-                    contactRow(contact)
                 }
+                .vCard(background: VColor.surfaceSubtle)
             }
-            .vCard(background: VColor.surfaceSubtle)
         }
     }
 
