@@ -237,7 +237,8 @@ function makeToolContext(overrides: Partial<ToolContext> = {}): ToolContext {
 
 function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
-    externalUserId: "guardian-1",
+    actorPrincipalId: "test-principal-id",
+    actorExternalUserId: "guardian-1",
     channel: "telegram",
     guardianPrincipalId: "test-principal-id",
     ...overrides,

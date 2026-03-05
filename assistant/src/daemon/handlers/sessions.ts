@@ -895,7 +895,8 @@ export async function handleUserMessage(
             messageText: messageText.trim(),
             channel: ipcChannel,
             actor: {
-              externalUserId: localCtx.guardianExternalUserId,
+              actorPrincipalId: localCtx.guardianPrincipalId ?? undefined,
+              actorExternalUserId: localCtx.guardianExternalUserId,
               channel: ipcChannel,
               guardianPrincipalId: localCtx.guardianPrincipalId ?? undefined,
             },

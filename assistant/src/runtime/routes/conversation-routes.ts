@@ -124,7 +124,8 @@ async function tryConsumeCanonicalGuardianReply(params: {
     messageText: trimmedContent,
     channel: sourceChannel,
     actor: {
-      externalUserId: verifiedActorExternalUserId,
+      actorPrincipalId: verifiedActorPrincipalId,
+      actorExternalUserId: verifiedActorExternalUserId,
       channel: sourceChannel,
       guardianPrincipalId: verifiedActorPrincipalId,
     },
