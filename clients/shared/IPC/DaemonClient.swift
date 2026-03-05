@@ -1653,7 +1653,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         note: String? = nil,
         maxUses: Int? = nil,
         contactName: String? = nil
-    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?)? {
+    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         if let httpTransport {
             return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName)
         }
@@ -1682,6 +1682,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 let share: ShareData?
                 let inviteCode: String?
                 let guardianInstruction: String?
+                let channelHandle: String?
             }
             struct ShareData: Decodable {
                 let url: String
@@ -1690,7 +1691,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         let decoded = try JSONDecoder().decode(CreateInviteResponse.self, from: data)
         guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction)
+        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
         #else
         return nil
         #endif

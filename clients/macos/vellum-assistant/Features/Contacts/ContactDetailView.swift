@@ -28,7 +28,8 @@ struct ContactDetailView: View {
         token: String,
         shareUrl: String?,
         inviteCode: String?,
-        guardianInstruction: String?
+        guardianInstruction: String?,
+        channelHandle: String?
     )?
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
@@ -377,6 +378,48 @@ struct ContactDetailView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                if let channelHandle = result.channelHandle {
+                    Text(channelHandle)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                // When a share URL is available, show it prominently above the code
+                if let shareUrl = result.shareUrl {
+                    HStack(spacing: VSpacing.sm) {
+                        let truncated = shareUrl.count > 30
+                            ? String(shareUrl.prefix(30)) + "..."
+                            : shareUrl
+                        Text(truncated)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textSecondary)
+
+                        VButton(
+                            label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
+                            icon: "doc.on.doc",
+                            style: .secondary,
+                            size: .medium
+                        ) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(shareUrl, forType: .string)
+                            inviteCopiedType = "\(type)-link"
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                guard !Task.isCancelled else { return }
+                                if inviteCopiedType == "\(type)-link" {
+                                    inviteCopiedType = nil
+                                }
+                            }
+                        }
+                    }
+
+                    Divider().background(VColor.divider)
+
+                    Text("Or use this code:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+
                 // Large monospaced invite code for readability
                 Text(inviteCode)
                     .font(VFont.inviteCode)
@@ -387,7 +430,7 @@ struct ContactDetailView: View {
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy Code",
                     icon: "doc.on.doc",
-                    style: .secondary,
+                    style: result.shareUrl != nil ? .tertiary : .secondary,
                     size: .medium
                 ) {
                     NSPasteboard.general.clearContents()
@@ -398,44 +441,6 @@ struct ContactDetailView: View {
                         guard !Task.isCancelled else { return }
                         if inviteCopiedType == type {
                             inviteCopiedType = nil
-                        }
-                    }
-                }
-
-                // Show share URL as secondary option when available (e.g. Telegram deep link)
-                if let shareUrl = result.shareUrl {
-                    Divider().background(VColor.divider)
-
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Or share this link:")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-
-                        HStack(spacing: VSpacing.sm) {
-                            let truncated = shareUrl.count > 30
-                                ? String(shareUrl.prefix(30)) + "..."
-                                : shareUrl
-                            Text(truncated)
-                                .font(VFont.monoSmall)
-                                .foregroundColor(VColor.textSecondary)
-
-                            VButton(
-                                label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
-                                icon: "doc.on.doc",
-                                style: .tertiary,
-                                size: .medium
-                            ) {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(shareUrl, forType: .string)
-                                inviteCopiedType = "\(type)-link"
-                                Task {
-                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                    guard !Task.isCancelled else { return }
-                                    if inviteCopiedType == "\(type)-link" {
-                                        inviteCopiedType = nil
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -769,7 +774,8 @@ struct ContactDetailView: View {
                         token: result.token,
                         shareUrl: result.shareUrl,
                         inviteCode: result.inviteCode,
-                        guardianInstruction: result.guardianInstruction
+                        guardianInstruction: result.guardianInstruction,
+                        channelHandle: result.channelHandle
                     )
                 } else {
                     inviteError = "Failed to create invite"

@@ -1126,6 +1126,7 @@ public final class HTTPTransport {
             let status: String
             let inviteCode: String?
             let guardianInstruction: String?
+            let channelHandle: String?
         }
         struct SharePayload: Decodable {
             let url: String
@@ -1235,7 +1236,7 @@ public final class HTTPTransport {
         maxUses: Int? = nil,
         contactName: String? = nil,
         isRetry: Bool = false
-    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?)? {
+    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
 
         var request = URLRequest(url: url)
@@ -1264,7 +1265,7 @@ public final class HTTPTransport {
 
         let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
         guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction)
+        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
     }
 
     // MARK: - Channel Readiness
