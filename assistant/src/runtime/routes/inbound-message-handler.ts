@@ -244,14 +244,7 @@ export async function handleChannelInbound(
 
   // ── Edit path: update existing message content, no new agent loop ──
   if (isEdit && sourceMessageId) {
-    // Edits don't go through recordInbound (no dedup concern), so it's safe
-    // to track the interaction here — ensures message edits from active
-    // members still increment interactionCount and update lastInteraction.
-    if (resolvedMember) {
-      touchContactInteraction(resolvedMember.contact.id);
-    }
-
-    return handleEditIntercept({
+    const editResponse = await handleEditIntercept({
       sourceChannel,
       conversationExternalId,
       externalMessageId,
@@ -260,6 +253,18 @@ export async function handleChannelInbound(
       assistantId,
       content,
     });
+
+    // Track contact interaction only for genuinely new edits, not webhook
+    // retries. handleEditIntercept calls recordInbound internally and returns
+    // duplicate: true for retries — mirror the normal message path's guard.
+    const editBody = (await editResponse.clone().json()) as {
+      duplicate?: boolean;
+    };
+    if (!editBody.duplicate && resolvedMember) {
+      touchContactInteraction(resolvedMember.contact.id);
+    }
+
+    return editResponse;
   }
 
   // ── New message path ──
