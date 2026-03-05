@@ -101,10 +101,11 @@ extension AppDelegate {
                 services.reconfigureDaemonClient(config: config)
                 log.info("Configured local HTTP transport (localHttpEnabled flag) on port \(port)")
             } else {
-                // Use the specific assistant's socket path so switching between
-                // local instances connects to the correct daemon.
+                // Use the specific assistant's socket path and instance dir so
+                // switching between local instances connects to the correct daemon
+                // and authenticates with the correct session token.
                 let socketPath = assistant?.socketPath ?? DaemonClient.resolveSocketPath()
-                let config = DaemonConfig(socketPath: socketPath)
+                let config = DaemonConfig(socketPath: socketPath, instanceDir: assistant?.instanceDir)
                 services.reconfigureDaemonClient(config: config)
             }
             return
