@@ -62,6 +62,7 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
+  migrateReorderUsageDashboardIndexes,
   migrateSchemaIndexesAndColumns,
   migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
@@ -296,6 +297,9 @@ export function initializeDb(): void {
 
   // 41. Indexes on llm_usage_events for usage dashboard time-range and breakdown queries
   migrateUsageDashboardIndexes(database);
+
+  // 42. Reorder usage dashboard composite indexes so created_at leads (matches query shape)
+  migrateReorderUsageDashboardIndexes(database);
 
   validateMigrationState(database);
 

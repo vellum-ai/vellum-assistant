@@ -80,6 +80,7 @@ export { migrateContactsNotesColumn } from "./134-contacts-notes-column.js";
 export { migrateBackfillContactInteractionStats } from "./135-backfill-contact-interaction-stats.js";
 export { migrateDropAssistantIdColumns } from "./136-drop-assistant-id-columns.js";
 export { migrateUsageDashboardIndexes } from "./137-usage-dashboard-indexes.js";
+export { migrateReorderUsageDashboardIndexes } from "./138-reorder-usage-dashboard-indexes.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

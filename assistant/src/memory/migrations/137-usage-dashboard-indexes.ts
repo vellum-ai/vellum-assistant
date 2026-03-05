@@ -7,6 +7,10 @@ import type { DrizzleDb } from "../db-connection.js";
  * - Covering index on (created_at) for efficient time-range scans.
  * - Composite index on (actor, created_at) for per-actor breakdowns.
  * - Composite index on (provider, model, created_at) for provider/model grouping.
+ *
+ * NOTE: The two composite indexes created here are superseded by migration
+ * 138 which reorders them to lead with created_at, matching the actual
+ * query shapes (WHERE created_at range, GROUP BY dimension).
  */
 export function migrateUsageDashboardIndexes(database: DrizzleDb): void {
   database.run(
