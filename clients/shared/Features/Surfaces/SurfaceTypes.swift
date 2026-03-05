@@ -296,6 +296,7 @@ public struct DynamicPagePreview: Sendable, Equatable {
               lhs.subtitle == rhs.subtitle,
               lhs.description == rhs.description,
               lhs.icon == rhs.icon,
+              lhs.previewImage == rhs.previewImage,
               lhs.context == rhs.context else { return false }
         switch (lhs.metrics, rhs.metrics) {
         case (.none, .none):
