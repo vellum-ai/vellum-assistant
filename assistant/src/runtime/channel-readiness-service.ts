@@ -1,10 +1,13 @@
 import {
+  resolveSmsPhoneNumber,
+  resolveWhatsAppPhoneNumber,
+} from "../calls/twilio-phone-resolution.js";
+import {
   getPhoneNumberSid,
   getTollFreeVerificationStatus,
   hasTwilioCredentials,
 } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
-import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadRawConfig } from "../config/loader.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import type {
@@ -31,29 +34,6 @@ function hasIngressConfigured(): boolean {
     return enabled && publicBaseUrl.length > 0;
   } catch {
     return false;
-  }
-}
-
-/**
- * Resolve SMS from-number with canonical precedence:
- * env override -> config sms.phoneNumber -> secure key fallback.
- */
-function resolveSmsPhoneNumber(): string {
-  try {
-    const raw = loadRawConfig();
-    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    return (
-      getTwilioPhoneNumberEnv() ||
-      (smsConfig.phoneNumber as string) ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
-  } catch {
-    return (
-      getTwilioPhoneNumberEnv() ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
   }
 }
 
@@ -172,32 +152,6 @@ const smsProbe: ChannelProbe = {
 
 // ── Voice Probe ─────────────────────────────────────────────────────────────
 
-/**
- * Resolve voice from-number with the same precedence as SMS:
- * env override -> config sms.phoneNumber -> secure key fallback.
- *
- * Voice and SMS share the same Twilio phone number infrastructure, so the
- * resolution logic is identical to resolveSmsPhoneNumber.
- */
-function resolveVoicePhoneNumber(): string {
-  try {
-    const raw = loadRawConfig();
-    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    return (
-      getTwilioPhoneNumberEnv() ||
-      (smsConfig.phoneNumber as string) ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
-  } catch {
-    return (
-      getTwilioPhoneNumberEnv() ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
-  }
-}
-
 const voiceProbe: ChannelProbe = {
   channel: "voice",
   runLocalChecks(): ReadinessCheckResult[] {
@@ -212,7 +166,7 @@ const voiceProbe: ChannelProbe = {
         : "Twilio Account SID and Auth Token are not configured",
     });
 
-    const resolvedNumber = resolveVoicePhoneNumber();
+    const resolvedNumber = resolveSmsPhoneNumber();
     const hasPhone = !!resolvedNumber;
     results.push({
       name: "phone_number",
@@ -317,35 +271,6 @@ const emailProbe: ChannelProbe = {
 };
 
 // ── WhatsApp Probe ──────────────────────────────────────────────────────────
-
-/**
- * Resolve the WhatsApp phone number with canonical precedence:
- * env override -> config whatsapp.phoneNumber -> config sms.phoneNumber
- * -> secure key fallback.
- *
- * WhatsApp typically shares the Twilio phone number with SMS, but
- * allows a channel-specific override via config.
- */
-function resolveWhatsAppPhoneNumber(): string {
-  try {
-    const raw = loadRawConfig();
-    const whatsappConfig = (raw?.whatsapp ?? {}) as Record<string, unknown>;
-    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    return (
-      getTwilioPhoneNumberEnv() ||
-      (whatsappConfig.phoneNumber as string) ||
-      (smsConfig.phoneNumber as string) ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
-  } catch {
-    return (
-      getTwilioPhoneNumberEnv() ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
-  }
-}
 
 const whatsappProbe: ChannelProbe = {
   channel: "whatsapp",
