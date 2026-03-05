@@ -52,6 +52,27 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   const legacyDir = entry.baseDataDir;
   const vellumDir = legacyDir ?? join(resources.instanceDir, ".vellum");
 
+  // Check whether another local assistant shares the same data directory.
+  // Legacy entries without `resources` all resolve to ~/.vellum/ — if we
+  // blindly kill processes and archive the directory, we'd destroy the
+  // other assistant's running daemon and data.
+  const otherSharesDir = loadAllAssistants().some((other) => {
+    if (other.cloud !== "local") return false;
+    if (other.assistantId === name) return false;
+    const otherVellumDir =
+      other.baseDataDir ??
+      join((other.resources ?? defaultLocalResources()).instanceDir, ".vellum");
+    return otherVellumDir === vellumDir;
+  });
+
+  if (otherSharesDir) {
+    console.log(
+      `   Skipping process stop and archive — another local assistant shares ${vellumDir}.`,
+    );
+    console.log("\u2705 Local instance retired (config entry removed only).");
+    return;
+  }
+
   // Stop daemon via PID file — prefer resources paths, but for legacy entries
   // with a custom baseDataDir, derive from that directory instead.
   const daemonPidFile = legacyDir
