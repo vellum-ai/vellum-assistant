@@ -111,6 +111,7 @@ struct ContactDetailView: View {
 
             HStack(spacing: VSpacing.sm) {
                 roleBadge
+                contactTypeBadge
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -141,6 +142,15 @@ struct ContactDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
             }
         }
+    }
+
+    private var contactTypeBadge: some View {
+        VBadge(
+            style: .label(formatContactType(displayContact.contactType)),
+            color: displayContact.contactType == "assistant"
+                ? VColor.accent
+                : VColor.textSecondary
+        )
     }
 
     // MARK: - Channels Section
@@ -583,11 +593,6 @@ struct ContactDetailView: View {
                 .foregroundColor(VColor.textPrimary)
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                metadataRow(
-                    label: "Contact type",
-                    value: formatContactType(displayContact.contactType)
-                )
-
                 editableNotesRow
 
                 metadataRow(
