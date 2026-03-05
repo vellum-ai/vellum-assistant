@@ -376,7 +376,7 @@ struct MessageListView: View {
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onModelPickerSelect: onModelPickerSelect,
-                            subagentDetailStore: subagentDetailStore,
+                            eventsBySubagent: subagentDetailStore.eventsBySubagent,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders
                         )
@@ -825,7 +825,7 @@ private struct MessageCellView: View {
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     var onModelPickerSelect: ((UUID, String) -> Void)?
-    @ObservedObject var subagentDetailStore: SubagentDetailStore
+    let eventsBySubagent: [String: [SubagentEventItem]]
     let selectedModel: String
     let configuredProviders: Set<String>
 
@@ -958,7 +958,7 @@ private struct MessageCellView: View {
         ForEach(subagentsByParent[message.id] ?? []) { subagent in
             SubagentThreadView(
                 subagent: subagent,
-                events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
+                events: eventsBySubagent[subagent.id] ?? [],
                 onAbort: { onAbortSubagent?(subagent.id) },
                 onTap: { onSubagentTap?(subagent.id) }
             )
