@@ -3,6 +3,7 @@ import {
   getTollFreeVerificationStatus,
   hasTwilioCredentials,
 } from "../calls/twilio-rest.js";
+import { getChannelInvitePolicy } from "../channels/config.js";
 import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadRawConfig } from "../config/loader.js";
 import { getSecureKey } from "../security/secure-keys.js";
@@ -280,18 +281,115 @@ const telegramProbe: ChannelProbe = {
 const emailProbe: ChannelProbe = {
   channel: "email",
   runLocalChecks(): ReadinessCheckResult[] {
+    const results: ReadinessCheckResult[] = [];
+
     const hasApiKey = !!(
       getSecureKey("agentmail") || getSecureKey("credential:agentmail:api_key")
     );
-    return [
-      {
-        name: "agentmail_api_key",
-        passed: hasApiKey,
-        message: hasApiKey
-          ? "AgentMail API key is configured"
-          : "AgentMail API key is not configured",
-      },
-    ];
+    results.push({
+      name: "agentmail_api_key",
+      passed: hasApiKey,
+      message: hasApiKey
+        ? "AgentMail API key is configured"
+        : "AgentMail API key is not configured",
+    });
+
+    const invitePolicy = getChannelInvitePolicy("email");
+    results.push({
+      name: "invite_policy",
+      passed: invitePolicy.codeRedemptionEnabled,
+      message: invitePolicy.codeRedemptionEnabled
+        ? "Email invite code redemption is enabled"
+        : "Email invite code redemption is disabled",
+    });
+
+    const hasIngress = hasIngressConfigured();
+    results.push({
+      name: "ingress",
+      passed: hasIngress,
+      message: hasIngress
+        ? "Public ingress URL is configured"
+        : "Public ingress URL is not configured or disabled",
+    });
+
+    return results;
+  },
+};
+
+// ── WhatsApp Probe ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve the WhatsApp phone number with canonical precedence:
+ * env override -> config whatsapp.phoneNumber -> config sms.phoneNumber
+ * -> secure key fallback.
+ *
+ * WhatsApp typically shares the Twilio phone number with SMS, but
+ * allows a channel-specific override via config.
+ */
+function resolveWhatsAppPhoneNumber(): string {
+  try {
+    const raw = loadRawConfig();
+    const whatsappConfig = (raw?.whatsapp ?? {}) as Record<string, unknown>;
+    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+    return (
+      getTwilioPhoneNumberEnv() ||
+      (whatsappConfig.phoneNumber as string) ||
+      (smsConfig.phoneNumber as string) ||
+      getSecureKey("credential:twilio:phone_number") ||
+      ""
+    );
+  } catch {
+    return (
+      getTwilioPhoneNumberEnv() ||
+      getSecureKey("credential:twilio:phone_number") ||
+      ""
+    );
+  }
+}
+
+const whatsappProbe: ChannelProbe = {
+  channel: "whatsapp",
+  runLocalChecks(): ReadinessCheckResult[] {
+    const results: ReadinessCheckResult[] = [];
+
+    const hasCreds = hasTwilioCredentials();
+    results.push({
+      name: "twilio_credentials",
+      passed: hasCreds,
+      message: hasCreds
+        ? "Twilio credentials are configured"
+        : "Twilio Account SID and Auth Token are not configured",
+    });
+
+    const resolvedNumber = resolveWhatsAppPhoneNumber();
+    const hasPhone = !!resolvedNumber;
+    results.push({
+      name: "phone_number",
+      passed: hasPhone,
+      message: hasPhone
+        ? "WhatsApp phone number is assigned"
+        : "No WhatsApp phone number assigned",
+    });
+
+    const invitePolicy = getChannelInvitePolicy("whatsapp");
+    results.push({
+      name: "invite_policy",
+      passed: invitePolicy.codeRedemptionEnabled,
+      message: invitePolicy.codeRedemptionEnabled
+        ? "WhatsApp invite code redemption is enabled"
+        : "WhatsApp invite code redemption is disabled",
+    });
+
+    const hasIngress = hasIngressConfigured();
+    results.push({
+      name: "ingress",
+      passed: hasIngress,
+      message: hasIngress
+        ? "Public ingress URL is configured"
+        : "Public ingress URL is not configured or disabled",
+    });
+
+    return results;
   },
 };
 
@@ -462,13 +560,14 @@ export class ChannelReadinessService {
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
-/** Create a service instance with built-in SMS, Voice, Telegram, Email, and Slack probes registered. */
+/** Create a service instance with built-in SMS, Voice, Telegram, Email, WhatsApp, and Slack probes registered. */
 export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
   service.registerProbe(smsProbe);
   service.registerProbe(voiceProbe);
   service.registerProbe(telegramProbe);
   service.registerProbe(emailProbe);
+  service.registerProbe(whatsappProbe);
   service.registerProbe(slackProbe);
   return service;
 }

@@ -379,15 +379,19 @@ All endpoints are bearer-authenticated. Skills and clients should call the gatew
 ### Built-in Channel Probes
 
 - **SMS**: Checks Twilio credentials, phone number assignment, and public ingress URL.
+- **Voice**: Checks Twilio credentials, phone number assignment, and public ingress URL.
 - **Telegram**: Checks bot token, webhook secret, and public ingress URL.
+- **Email**: Checks AgentMail API key, invite policy, and public ingress URL.
+- **WhatsApp**: Checks Twilio credentials, phone number assignment, invite policy, and public ingress URL.
+- **Slack**: Checks bot token and app token.
 
 ### Key modules
 
-| File                                             | Purpose                                                                                              |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `src/runtime/channel-readiness-types.ts`         | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe`        |
-| `src/runtime/channel-readiness-service.ts`       | Service class with probe registration, cached readiness evaluation, and built-in SMS/Telegram probes |
-| `src/runtime/routes/channel-readiness-routes.ts` | HTTP route handlers for `/v1/channels/readiness` and `/v1/channels/readiness/refresh`                |
+| File                                             | Purpose                                                                                         |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-readiness-types.ts`         | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe`   |
+| `src/runtime/channel-readiness-service.ts`       | Service class with probe registration, cached readiness evaluation, and built-in channel probes |
+| `src/runtime/routes/channel-readiness-routes.ts` | HTTP route handlers for `/v1/channels/readiness` and `/v1/channels/readiness/refresh`           |
 
 ## Ingress Membership + Escalation
 
