@@ -465,7 +465,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// True while `populateFromHistory` is actively inserting messages.
     /// Observers can check this to avoid treating the history hydration as new activity.
-    public var isLoadingHistory: Bool = false
+    public internal(set) var isLoadingHistory: Bool = false
 
     // MARK: - Message Pagination
 
