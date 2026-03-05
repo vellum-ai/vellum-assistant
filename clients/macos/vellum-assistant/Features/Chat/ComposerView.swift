@@ -31,7 +31,7 @@ struct ComposerView: View {
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
     var placeholderText: String = "What would you like to do?"
-    var composerCompactHeight: CGFloat = 34
+    var composerCompactHeight: CGFloat = 66
     /// Bound to ChatView's state so it can compute composerReservedHeight for safe area insets.
     @Binding var editorContentHeight: CGFloat
 
