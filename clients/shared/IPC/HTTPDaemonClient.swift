@@ -1117,7 +1117,12 @@ public final class HTTPTransport {
             let id: String
             let sourceChannel: String
             let token: String?
+            let share: SharePayload?
             let status: String
+        }
+        struct SharePayload: Decodable {
+            let url: String
+            let displayText: String
         }
     }
 
@@ -1211,7 +1216,7 @@ public final class HTTPTransport {
         note: String? = nil,
         maxUses: Int? = nil,
         isRetry: Bool = false
-    ) async throws -> (inviteId: String, token: String)? {
+    ) async throws -> (inviteId: String, token: String, shareUrl: String?)? {
         guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
 
         var request = URLRequest(url: url)
@@ -1239,7 +1244,7 @@ public final class HTTPTransport {
 
         let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
         guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token)
+        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url)
     }
 
     // MARK: - Channel Verification

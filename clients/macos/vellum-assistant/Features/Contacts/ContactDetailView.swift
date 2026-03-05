@@ -21,7 +21,7 @@ struct ContactDetailView: View {
     @State private var telegramBootstrapUrl: String?
     @State private var telegramBootstrapChannelId: String?
     @State private var inviteInProgress: String?
-    @State private var inviteResult: (type: String, token: String)?
+    @State private var inviteResult: (type: String, token: String, shareUrl: String?)?
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
 
@@ -267,7 +267,9 @@ struct ContactDetailView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
 
-                if displayContact.role != "guardian" {
+                // Voice invites require additional fields (phone number, friend/guardian
+                // names) that aren't available in this context, so hide the button.
+                if displayContact.role != "guardian" && type != "voice" {
                     if inviteInProgress == type {
                         ProgressView()
                             .controlSize(.small)
@@ -286,12 +288,12 @@ struct ContactDetailView: View {
 
             if inviteResult?.type == type {
                 HStack(spacing: VSpacing.sm) {
-                    let token = inviteResult!.token
-                    let truncated = token.count > 20
-                        ? String(token.prefix(20)) + "..."
-                        : token
+                    let shareableText = inviteResult!.shareUrl ?? inviteResult!.token
+                    let truncated = shareableText.count > 20
+                        ? String(shareableText.prefix(20)) + "..."
+                        : shareableText
                     Text(truncated)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(VFont.monoSmall)
                         .foregroundColor(VColor.textSecondary)
 
                     VButton(
@@ -301,10 +303,11 @@ struct ContactDetailView: View {
                         size: .medium
                     ) {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(token, forType: .string)
+                        NSPasteboard.general.setString(shareableText, forType: .string)
                         inviteCopiedType = type
                         Task {
                             try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
                             if inviteCopiedType == type {
                                 inviteCopiedType = nil
                             }
@@ -652,7 +655,7 @@ struct ContactDetailView: View {
                     sourceChannel: type,
                     note: "Invite for \(displayContact.displayName)"
                 ) {
-                    inviteResult = (type: type, token: result.token)
+                    inviteResult = (type: type, token: result.token, shareUrl: result.shareUrl)
                 } else {
                     inviteError = "Failed to create invite"
                 }
