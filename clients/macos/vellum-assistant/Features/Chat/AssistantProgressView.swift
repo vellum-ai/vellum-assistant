@@ -161,6 +161,10 @@ struct AssistantProgressView: View {
             if isAllAppTools {
                 return "Built your app"
             }
+            // Use the last tool call's reason as a summary of what was done
+            if let lastReason = toolCalls.last(where: { $0.reasonDescription != nil && !$0.reasonDescription!.isEmpty })?.reasonDescription {
+                return lastReason
+            }
             return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")"
         case .error:
             return "Something went wrong"

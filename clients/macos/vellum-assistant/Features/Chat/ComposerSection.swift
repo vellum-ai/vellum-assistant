@@ -95,7 +95,7 @@ struct ComposerSection: View {
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceService,
                 onEndVoiceMode: onEndVoiceMode,
-                placeholderText: "What would you like to do?"
+                placeholderText: isSending ? "Working on it..." : "What would you like to do?"
             )
         }
         .background(
