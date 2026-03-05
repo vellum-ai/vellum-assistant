@@ -180,21 +180,34 @@ struct AssistantProgressView: View {
             // Header row (always visible)
             headerRow
 
+            // Permission chip below header (when not expanded)
+            if !isExpanded, let confirmation = decidedConfirmation, confirmation.state != .pending {
+                compactPermissionChip(confirmation)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.md)
+            }
+
             // Expanded content
             if isExpanded {
                 expandedContent
+
+                // Permission chip at bottom of expanded list
+                if let confirmation = decidedConfirmation, confirmation.state != .pending {
+                    compactPermissionChip(confirmation)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.bottom, VSpacing.md)
+                }
             }
 
             // Code preview (streaming code phase)
             if phase == .streamingCode, let code = streamingCodePreview {
                 CodePreviewView(code: code)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.bottom, VSpacing.xs)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.md)
             }
         }
-        .padding(VSpacing.md)
         .background(VColor.surface.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
                 processingStartDate = Date()
@@ -231,24 +244,18 @@ struct AssistantProgressView: View {
                     elapsedTimeLabel
                 }
 
-                // Permission chip (trailing, when decided)
-                if let confirmation = decidedConfirmation, confirmation.state != .pending {
-                    compactPermissionChip(confirmation)
-                }
-
                 // Chevron (only if tools exist)
                 if hasChevron {
-                    Image(systemName: "chevron.right")
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(VColor.textMuted)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
     }
 
     // MARK: - Status Icon
@@ -258,20 +265,20 @@ struct AssistantProgressView: View {
         switch phase {
         case .complete:
             Image(systemName: hasAnyErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .font(.system(size: 12))
+                .font(.system(size: 16))
                 .foregroundColor(hasAnyErrors ? VColor.warning : VColor.success)
         case .error:
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 12))
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 16))
                 .foregroundColor(VColor.error)
         case .denied:
             if decidedConfirmation?.state == .timedOut {
                 Image(systemName: "clock.fill")
-                    .font(.system(size: 12))
+                    .font(.system(size: 16))
                     .foregroundColor(VColor.textMuted)
             } else {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 12))
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 16))
                     .foregroundColor(VColor.error)
             }
         default:
@@ -290,8 +297,8 @@ struct AssistantProgressView: View {
                 processingLabel
             } else {
                 Text(headlineText)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: headlineText)
             }
         }
@@ -316,8 +323,8 @@ struct AssistantProgressView: View {
 
             HStack(spacing: VSpacing.xs) {
                 Text(labels[labelIndex])
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
                 ForEach(0..<3, id: \.self) { index in
@@ -347,54 +354,56 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(toolCalls) { toolCall in
                 if !toolCall.isComplete && toolCall.toolName == "claude_code"
                     && !toolCall.claudeCodeSteps.isEmpty {
                     ClaudeCodeProgressView(steps: toolCall.claudeCodeSteps, isRunning: true)
-                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.horizontal, VSpacing.lg)
                 } else {
                     StepDetailRow(toolCall: toolCall, phase: phase, onRehydrate: onRehydrate)
                 }
             }
         }
-        .padding(.bottom, VSpacing.xs)
     }
 
     // MARK: - Permission Chip
 
     private func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
         let isApproved = confirmation.state == .approved
+        let isDenied = confirmation.state == .denied
+        let chipColor: Color = isApproved ? VColor.success : isDenied ? VColor.error : VColor.textMuted
+
         return HStack(spacing: VSpacing.xs) {
             Group {
                 switch confirmation.state {
                 case .approved:
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(chipColor)
                 case .denied:
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(VColor.error)
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(chipColor)
                 case .timedOut:
                     Image(systemName: "clock.fill")
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(chipColor)
                 default:
                     EmptyView()
                 }
             }
             .font(.system(size: 12))
 
-            Text(isApproved ? "\(confirmation.toolCategory) allowed" :
-                 confirmation.state == .denied ? "\(confirmation.toolCategory) denied" : "Timed out")
-                .font(VFont.caption)
-                .foregroundColor(isApproved ? VColor.success : VColor.textSecondary)
+            Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
+                 isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")
+                .font(VFont.captionMedium)
+                .foregroundColor(chipColor)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
         .background(
-            Capsule().fill(isApproved ? VColor.success.opacity(0.1) : VColor.surface)
+            Capsule().fill(chipColor.opacity(0.1))
         )
         .overlay(
-            Capsule().stroke(isApproved ? VColor.success.opacity(0.3) : VColor.surfaceBorder, lineWidth: 0.5)
+            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 0.5)
         )
     }
 }
@@ -447,21 +456,21 @@ private struct StepDetailRow: View {
                 HStack(spacing: VSpacing.sm) {
                     // Status icon
                     if toolCall.isComplete {
-                        Image(systemName: toolCall.isError ? "xmark.circle.fill" : "checkmark.circle.fill")
-                            .font(.system(size: 10))
+                        Image(systemName: toolCall.isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                            .font(.system(size: 14))
                             .foregroundColor(toolCall.isError ? VColor.error : VColor.success)
-                            .frame(width: 14)
+                            .frame(width: 16)
                     } else if phase == .denied {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 14))
                             .foregroundColor(VColor.textMuted)
-                            .frame(width: 14)
+                            .frame(width: 16)
                     } else {
                         Circle()
                             .fill(VColor.accent)
                             .frame(width: 6, height: 6)
                             .modifier(AssistantProgressPulsingModifier())
-                            .frame(width: 14)
+                            .frame(width: 16)
                     }
 
                     // Title + reason
@@ -469,7 +478,7 @@ private struct StepDetailRow: View {
                         if toolCall.isComplete {
                             Text(toolCall.actionDescription)
                                 .font(VFont.captionMedium)
-                                .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
+                                .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         } else if phase == .denied {
@@ -489,7 +498,7 @@ private struct StepDetailRow: View {
                                 buildingStatus: toolCall.buildingStatus
                             ))
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         }
@@ -525,10 +534,9 @@ private struct StepDetailRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
             .background(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.3) : .clear)
-            .background(VColor.surface.opacity(0.5))
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
@@ -569,7 +577,7 @@ private struct StepDetailRow: View {
     @ViewBuilder
     private var stepDetailContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Divider().padding(.horizontal, VSpacing.sm)
+            Divider().padding(.horizontal, VSpacing.lg)
 
             // Technical details
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -602,7 +610,7 @@ private struct StepDetailRow: View {
                     }
                 }
             }
-            .padding(.horizontal, VSpacing.md)
+            .padding(.horizontal, VSpacing.lg)
 
             // Claude Code sub-steps
             if !toolCall.claudeCodeSteps.isEmpty {
@@ -617,7 +625,7 @@ private struct StepDetailRow: View {
                         isRunning: false
                     )
                 }
-                .padding(.horizontal, VSpacing.md)
+                .padding(.horizontal, VSpacing.lg)
             }
 
             // Screenshot — Retina rendering + double-click → Preview.app
@@ -629,7 +637,7 @@ private struct StepDetailRow: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .padding(.horizontal, VSpacing.md)
+                    .padding(.horizontal, VSpacing.lg)
                     .onTapGesture(count: 2) { openImageInPreview(img) }
                     .onHover { hovering in
                         if hovering { NSCursor.pointingHand.push() }
@@ -643,7 +651,7 @@ private struct StepDetailRow: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .padding(.horizontal, VSpacing.md)
+                    .padding(.horizontal, VSpacing.lg)
                     .onTapGesture(count: 2) { openImageInPreview(img) }
                     .onHover { hovering in
                         if hovering { NSCursor.pointingHand.push() }
@@ -698,7 +706,7 @@ private struct StepDetailRow: View {
                         .accessibilityLabel("Copy output")
                     }
                 }
-                .padding(.horizontal, VSpacing.md)
+                .padding(.horizontal, VSpacing.lg)
             }
         }
         .padding(.bottom, VSpacing.sm)
