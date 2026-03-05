@@ -738,8 +738,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             throw SendError.notAuthenticated
         }
 
-        var data = try encoder.encode(message)
-        data.append(contentsOf: [0x0A]) // newline byte
+        let data: Data
+        do {
+            var encoded = try encoder.encode(message)
+            encoded.append(contentsOf: [0x0A]) // newline byte
+            data = encoded
+        } catch {
+            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
+            throw error
+        }
 
         if let observation = message as? CuObservationMessage {
             let previousSequence = cuObservationSequenceBySession[observation.sessionId] ?? 0
