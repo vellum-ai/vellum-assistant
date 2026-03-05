@@ -156,11 +156,17 @@ function resolveRequesterTarget(params: {
   requesterExternalUserId?: string;
 }): { chatId: string; callbackUrl: string } {
   if (params.channel === "slack" && params.requesterExternalUserId) {
-    const url = new URL(params.replyCallbackUrl);
-    url.searchParams.delete("threadTs");
+    let callbackUrl = params.replyCallbackUrl;
+    try {
+      const url = new URL(params.replyCallbackUrl);
+      url.searchParams.delete("threadTs");
+      callbackUrl = url.toString();
+    } catch {
+      // Malformed URL — use as-is; the downstream fetch will handle the error.
+    }
     return {
       chatId: params.requesterExternalUserId,
-      callbackUrl: url.toString(),
+      callbackUrl,
     };
   }
   return {
