@@ -49,15 +49,28 @@ public struct SubagentUsageStats {
     }
 }
 
+/// Per-subagent observable state. Each subagent gets its own instance so
+/// SwiftUI tracks observation at the individual-subagent level. Mutating
+/// one subagent's `events` only invalidates views that read that specific
+/// `SubagentState`, leaving other subagent rows untouched.
+@MainActor @Observable
+public final class SubagentState {
+    public var events: [SubagentEventItem] = []
+    public var objective: String?
+    public var usageStats: SubagentUsageStats?
+
+    public init() {}
+}
+
 /// Stores subagent detail data (events, objectives, usage) for display in the side panel.
 ///
-/// Uses the Observation framework (`@Observable`) so SwiftUI tracks property
-/// access at the view level — only views that read a specific subagent's events
-/// are invalidated when that data changes, avoiding whole-list re-layout.
+/// Each subagent's data lives in a separate `SubagentState` object so SwiftUI
+/// observation is per-subagent: mutating one subagent's events only invalidates
+/// views reading that `SubagentState`, not every subagent row.
 ///
 /// High-frequency mutations (e.g. per-token `assistantTextDelta`) are buffered
-/// in `@ObservationIgnored` staging dictionaries and flushed to the observed
-/// properties once per 100ms coalescing window, per AGENTS.md requirements.
+/// in `@ObservationIgnored` staging dictionaries and flushed to the per-subagent
+/// state objects once per 100ms coalescing window, per AGENTS.md requirements.
 @MainActor @Observable
 public final class SubagentDetailStore {
     /// Maximum number of events retained per subagent to prevent unbounded memory growth.
@@ -67,9 +80,10 @@ public final class SubagentDetailStore {
     /// Coalescing window for flushing staged mutations to observed properties.
     static let coalesceInterval: UInt64 = 100_000_000 // 100ms in nanoseconds
 
-    public var eventsBySubagent: [String: [SubagentEventItem]] = [:]
-    public var objectives: [String: String] = [:]
-    public var usageStats: [String: SubagentUsageStats] = [:]
+    /// Per-subagent observable state. The dictionary is only mutated when a new
+    /// subagent is spawned (infrequent); streaming updates go through each
+    /// `SubagentState`'s properties without touching the dictionary.
+    public var subagentStates: [String: SubagentState] = [:]
 
     // MARK: - Staging buffers (untracked by Observation)
 
@@ -136,26 +150,26 @@ public final class SubagentDetailStore {
         }
     }
 
-    /// Copy all staged mutations into the observed properties in a single batch,
-    /// triggering at most one Observation notification per property.
+    /// Copy all staged mutations into the per-subagent state objects,
+    /// triggering observation notifications only on the affected subagents.
     private func flush() {
         if !stagedObjectives.isEmpty {
             for (id, objective) in stagedObjectives {
-                objectives[id] = objective
+                resolveState(for: id).objective = objective
             }
             stagedObjectives.removeAll(keepingCapacity: true)
         }
 
         if !stagedUsage.isEmpty {
             for (id, stats) in stagedUsage {
-                usageStats[id] = stats
+                resolveState(for: id).usageStats = stats
             }
             stagedUsage.removeAll(keepingCapacity: true)
         }
 
         if !stagedEvents.isEmpty {
             for (subagentId, events) in stagedEvents {
-                eventsBySubagent[subagentId] = events
+                resolveState(for: subagentId).events = events
             }
             stagedEvents.removeAll(keepingCapacity: true)
         }
@@ -165,12 +179,23 @@ public final class SubagentDetailStore {
         #endif
     }
 
+    /// Returns the existing `SubagentState` for `subagentId`, creating one if needed.
+    /// Dictionary mutation only occurs the first time a subagent is seen.
+    private func resolveState(for subagentId: String) -> SubagentState {
+        if let existing = subagentStates[subagentId] {
+            return existing
+        }
+        let state = SubagentState()
+        subagentStates[subagentId] = state
+        return state
+    }
+
     // MARK: - Staging helpers
 
     /// Returns the current working copy of events for a subagent,
     /// preferring the staged version over the last-flushed observed version.
     private func currentEvents(for subagentId: String) -> [SubagentEventItem] {
-        stagedEvents[subagentId] ?? eventsBySubagent[subagentId] ?? []
+        stagedEvents[subagentId] ?? subagentStates[subagentId]?.events ?? []
     }
 
     /// Write events back to the staging buffer and schedule a flush.
@@ -189,8 +214,13 @@ public final class SubagentDetailStore {
 
     /// Record that a subagent was spawned with an objective.
     public func recordSpawned(subagentId: String, objective: String) {
+        // Eagerly create the state object so views can reference it immediately.
+        // This is the only place the dictionary is mutated (infrequent).
+        if subagentStates[subagentId] == nil {
+            subagentStates[subagentId] = SubagentState()
+        }
         stagedObjectives[subagentId] = objective
-        if stagedEvents[subagentId] == nil && eventsBySubagent[subagentId] == nil {
+        if stagedEvents[subagentId] == nil {
             stagedEvents[subagentId] = []
         }
         scheduleFlush()
@@ -300,7 +330,7 @@ public final class SubagentDetailStore {
         // Only populate if we don't already have events (avoid duplicates on re-open)
         let existing = currentEvents(for: subagentId)
         guard existing.isEmpty else { return }
-        if stagedEvents[subagentId] == nil && eventsBySubagent[subagentId] == nil {
+        if stagedEvents[subagentId] == nil && (subagentStates[subagentId]?.events ?? []).isEmpty {
             stagedEvents[subagentId] = []
         }
         for event in response.events {

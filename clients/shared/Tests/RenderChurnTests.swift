@@ -10,7 +10,7 @@ final class RenderChurnTests: XCTestCase {
     // MARK: - SubagentDetailStore coalesced event recording
 
     /// Rapid-fire text deltas should accumulate into a single text event per subagent
-    /// and be coalesced into a single flush to the observed property within the 100ms window.
+    /// and be coalesced into a single flush to the per-subagent state within the 100ms window.
     func testSubagentDetailStoreCoalescesTextDeltas() async {
         let store = SubagentDetailStore()
 
@@ -21,16 +21,16 @@ final class RenderChurnTests: XCTestCase {
             )
         }
 
-        // Before the flush fires, the observed property should still be empty.
+        // Before the flush fires, the per-subagent state should have no events yet.
         XCTAssertTrue(
-            (store.eventsBySubagent["agent-1"] ?? []).isEmpty,
-            "Events should be staged, not yet flushed to the observed property"
+            (store.subagentStates["agent-1"]?.events ?? []).isEmpty,
+            "Events should be staged, not yet flushed to the per-subagent state"
         )
 
         // Wait 200ms (2x the 100ms coalesce window) for the flush to fire.
         try? await Task.sleep(nanoseconds: 200_000_000)
 
-        let events = store.eventsBySubagent["agent-1"] ?? []
+        let events = store.subagentStates["agent-1"]?.events ?? []
         XCTAssertEqual(events.count, 1, "Text deltas should accumulate into a single text event")
         XCTAssertTrue(events[0].content.contains("chunk-9"), "Final chunk should be present in accumulated text")
     }

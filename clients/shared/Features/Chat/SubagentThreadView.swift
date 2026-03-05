@@ -225,9 +225,10 @@ public struct SubagentThreadView: View {
 // MARK: - Subagent Events Reader
 
 /// Thin wrapper that isolates `SubagentDetailStore` observation from the
-/// parent `MessageListView`. Observation is scoped at the dictionary-property
-/// level (not per key), so all readers invalidate when any subagent's events
-/// change, but the parent message list is untouched.
+/// parent `MessageListView`. Each reader resolves the per-subagent
+/// `SubagentState` and reads its `events` property, so observation is
+/// per-subagent: only this reader invalidates when this subagent's data
+/// changes. The parent message list is untouched.
 public struct SubagentEventsReader: View {
     var store: SubagentDetailStore
     let subagent: SubagentInfo
@@ -242,9 +243,10 @@ public struct SubagentEventsReader: View {
     }
 
     public var body: some View {
+        let state = store.subagentStates[subagent.id]
         SubagentThreadView(
             subagent: subagent,
-            events: store.eventsBySubagent[subagent.id] ?? [],
+            events: state?.events ?? [],
             onAbort: onAbort,
             onTap: onTap
         )
