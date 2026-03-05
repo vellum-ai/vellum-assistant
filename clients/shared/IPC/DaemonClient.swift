@@ -1674,10 +1674,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public func createInvite(
         sourceChannel: String,
         note: String? = nil,
-        maxUses: Int? = nil
-    ) async throws -> (inviteId: String, token: String, shareUrl: String?)? {
+        maxUses: Int? = nil,
+        contactName: String? = nil
+    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?)? {
         if let httpTransport {
-            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses)
+            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName)
         }
 
         #if os(macOS)
@@ -1687,6 +1688,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         var body: [String: Any] = ["sourceChannel": sourceChannel]
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
+        if let contactName { body["contactName"] = contactName }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -1701,6 +1703,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 let id: String
                 let token: String?
                 let share: ShareData?
+                let inviteCode: String?
+                let guardianInstruction: String?
             }
             struct ShareData: Decodable {
                 let url: String
@@ -1709,7 +1713,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         let decoded = try JSONDecoder().decode(CreateInviteResponse.self, from: data)
         guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url)
+        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction)
         #else
         return nil
         #endif
