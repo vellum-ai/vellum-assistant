@@ -1,8 +1,8 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Detail view for a single contact, showing header info, channels with
-/// verification status, action buttons, and metadata.
+/// Detail view for a single contact, showing header info (including notes),
+/// channels with verification status, and action buttons.
 @MainActor
 struct ContactDetailView: View {
     private static let allChannelTypes = ["telegram", "sms", "email", "voice", "slack"]
@@ -45,7 +45,6 @@ struct ContactDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 headerSection
                 channelsSection
-                metadataSection
             }
             .padding(VSpacing.xl)
         }
@@ -127,6 +126,36 @@ struct ContactDetailView: View {
                         .foregroundColor(VColor.textMuted)
                 }
             }
+
+            Divider().background(VColor.divider)
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Notes")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                if isEditingNotes {
+                    TextEditor(text: $editedNotes)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 60, maxHeight: 160)
+                        .padding(VSpacing.xs)
+                        .background(VColor.inputBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                } else if let notes = displayContact.notes, !notes.isEmpty {
+                    Text(notes)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("No notes")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
@@ -595,36 +624,6 @@ struct ContactDetailView: View {
             return ("Blocked", Color.red.opacity(0.15), VColor.error)
         default:
             return ("Unverified", VColor.surfaceSubtle, VColor.textMuted)
-        }
-    }
-
-    // MARK: - Metadata Section
-
-    private var metadataSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Metadata")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                editableNotesRow
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    func metadataRow(label: String, value: String) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: 140, alignment: .leading)
-            Text(value)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-            Spacer()
         }
     }
 
