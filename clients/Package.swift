@@ -97,6 +97,11 @@ let package = Package(
             name: "VellumAssistantSharedTests",
             dependencies: ["VellumAssistantShared"],
             path: "shared/Tests"
+        ),
+        .testTarget(
+            name: "VellumAssistantIOSTests",
+            dependencies: ["VellumAssistantShared"],
+            path: "ios/Tests"
         )
     ]
 )

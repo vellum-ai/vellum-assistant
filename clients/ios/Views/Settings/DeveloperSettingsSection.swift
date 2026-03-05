@@ -25,6 +25,7 @@ private struct DeveloperSettingsSectionContent: View {
     let clientProvider: ClientProvider
     @ObservedObject var traceStore: TraceStore
     @State private var showDebugPanel = false
+    @State private var showUsageDashboard = false
     // Captured once when the sheet opens so the panel stays on the same session
     // even if newer trace events arrive while the sheet is visible.
     @State private var selectedSessionId: String?
@@ -60,6 +61,14 @@ private struct DeveloperSettingsSectionContent: View {
                 }
             }
 
+            Section("Usage & Cost") {
+                Button {
+                    showUsageDashboard = true
+                } label: {
+                    Label("Usage Dashboard", systemImage: "chart.bar")
+                }
+            }
+
             Section("Connection") {
                 LabeledContent("Status", value: clientProvider.isConnected ? "Connected" : "Disconnected")
             }
@@ -71,6 +80,11 @@ private struct DeveloperSettingsSectionContent: View {
                 traceStore: traceStore,
                 sessionId: selectedSessionId,
                 onClose: { showDebugPanel = false }
+            )
+        }
+        .sheet(isPresented: $showUsageDashboard) {
+            UsageDashboardView(
+                store: UsageDashboardStore(client: clientProvider.client)
             )
         }
     }
