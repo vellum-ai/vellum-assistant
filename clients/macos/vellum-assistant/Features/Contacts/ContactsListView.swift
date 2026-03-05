@@ -52,7 +52,7 @@ struct ContactsListView: View {
                 guardianSection(guardian)
             }
 
-            // Other contacts section — header + add button always visible
+            // Other contacts section (always show header + "+" button)
             otherContactsSection
 
             // Filtered-empty state (contacts exist but search yields nothing)
@@ -142,7 +142,14 @@ struct ContactsListView: View {
                 .accessibilityLabel("Add contact")
             }
 
-            if !viewModel.otherContacts.isEmpty {
+            if viewModel.otherContacts.isEmpty {
+                Text("No contacts yet. Tap + to add one.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(VSpacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .vCard(background: VColor.surfaceSubtle)
+            } else {
                 VStack(spacing: 0) {
                     ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
                         if index > 0 {
