@@ -56,9 +56,10 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     socketFile,
   ]);
 
-  // Stop gateway via PID file
+  // Stop gateway via PID file — use a longer timeout because the gateway has a
+  // configurable drain window (GATEWAY_SHUTDOWN_DRAIN_MS, default 5s) before it exits.
   const gatewayPidFile = join(vellumDir, "gateway.pid");
-  await stopProcessByPidFile(gatewayPidFile, "gateway");
+  await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 
   // If the PID file didn't track a running daemon, scan for orphaned
   // daemon processes that may have been started without writing a PID.
