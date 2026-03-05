@@ -1,10 +1,12 @@
 /**
  * Read-only reader for the assistant's credential stores.
  *
- * Reads secrets from the encrypted-at-rest file (~/.vellum/protected/keys.enc).
+ * Tries the keychain broker (UDS) first, then falls back to the
+ * encrypted-at-rest file (~/.vellum/protected/keys.enc).
  */
 
-import { createDecipheriv, pbkdf2Sync } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { createDecipheriv, pbkdf2Sync, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
@@ -114,12 +116,16 @@ export function getMetadataPath(): string {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Encrypted store reader
+// ---------------------------------------------------------------------------
+
 /**
  * Read a single credential from the encrypted store.
  * Returns `undefined` if the store doesn't exist, the key is missing,
  * or decryption fails.
  */
-export function readCredential(account: string): string | undefined {
+function readEncryptedCredential(account: string): string | undefined {
   try {
     const store = readStore(getEncryptedStorePath());
     if (!store) return undefined;
@@ -134,6 +140,109 @@ export function readCredential(account: string): string | undefined {
     log.debug({ err, account }, "Failed to read from encrypted store");
     return undefined;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Keychain broker reader (UDS)
+// ---------------------------------------------------------------------------
+
+/**
+ * Inline Node script executed via spawnSync to perform a synchronous UDS
+ * round-trip to the keychain broker. Communicates via newline-delimited JSON.
+ *
+ * Environment variables consumed:
+ *   BROKER_SOCKET  — path to the Unix domain socket
+ *   BROKER_TOKEN   — auth token
+ *   BROKER_ACCOUNT — credential account key
+ *   BROKER_REQ_ID  — unique request ID
+ */
+const BROKER_INLINE_SCRIPT = `
+const net = require("net");
+const socket = net.createConnection({ path: process.env.BROKER_SOCKET });
+let buf = "";
+socket.on("connect", () => {
+  const req = JSON.stringify({
+    id: process.env.BROKER_REQ_ID,
+    method: "get",
+    token: process.env.BROKER_TOKEN,
+    account: process.env.BROKER_ACCOUNT,
+  }) + "\\n";
+  socket.write(req);
+});
+socket.on("data", (chunk) => {
+  buf += chunk.toString();
+  const idx = buf.indexOf("\\n");
+  if (idx !== -1) {
+    try {
+      const resp = JSON.parse(buf.slice(0, idx));
+      if (resp.ok && typeof resp.value === "string") {
+        process.stdout.write(resp.value);
+      }
+    } catch {}
+    socket.destroy();
+  }
+});
+socket.on("error", () => process.exit(0));
+setTimeout(() => process.exit(0), 4000);
+`;
+
+function getBrokerTokenPath(): string {
+  return join(getRootDir(), "protected", "keychain-broker.token");
+}
+
+/**
+ * Try to read a credential from the keychain broker over its Unix domain socket.
+ * Returns `undefined` if the broker is unavailable, the socket env var is unset,
+ * the token file is missing, or the broker doesn't have the requested key.
+ */
+function readBrokerCredential(account: string): string | undefined {
+  const socketPath = process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+  if (!socketPath) return undefined;
+
+  const tokenPath = getBrokerTokenPath();
+  let token: string;
+  try {
+    if (!existsSync(tokenPath)) return undefined;
+    token = readFileSync(tokenPath, "utf-8").trim();
+    if (!token) return undefined;
+  } catch {
+    return undefined;
+  }
+
+  try {
+    const result = spawnSync("node", ["-e", BROKER_INLINE_SCRIPT], {
+      env: {
+        ...process.env,
+        BROKER_SOCKET: socketPath,
+        BROKER_TOKEN: token,
+        BROKER_ACCOUNT: account,
+        BROKER_REQ_ID: randomUUID(),
+      },
+      timeout: 5_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const value = result.stdout?.toString();
+    if (!value) return undefined;
+    return value;
+  } catch (err) {
+    log.debug({ err, account }, "Failed to read from keychain broker");
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public credential reader — tries broker, then encrypted store
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a single credential by account key.
+ * Tries the keychain broker first (when available), then falls back
+ * to the encrypted-at-rest store.
+ */
+export function readCredential(account: string): string | undefined {
+  const brokerValue = readBrokerCredential(account);
+  if (brokerValue !== undefined) return brokerValue;
+  return readEncryptedCredential(account);
 }
 
 export type TelegramCredentials = {
