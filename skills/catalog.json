@@ -3,6 +3,17 @@
   "version": 1,
   "skills": [
     {
+      "id": "doordash",
+      "name": "DoorDash",
+      "description": "Order food, groceries, and convenience items from DoorDash using local scripts",
+      "metadata": {
+        "\"vellum\"": {
+          "\"emoji\"": "\"\\uD83C\\uDF55\",",
+          "\"cli\"": "{ \"command\": \"doordash\", \"entry\": \"scripts/doordash.ts\" },"
+        }
+      }
+    },
+    {
       "id": "google-oauth-setup",
       "name": "google-oauth-setup",
       "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using CLI tools or guided manual steps",

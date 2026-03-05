@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { RateLimitError, SessionExpiredError } from "../lib/client.js";
+import { RateLimitError, SessionExpiredError } from "../scripts/lib/client.js";
 
 describe("SessionExpiredError", () => {
   it("is an instance of Error", () => {

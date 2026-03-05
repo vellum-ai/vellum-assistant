@@ -18,13 +18,12 @@ interface DoordashStep {
 const SURFACE_ID = "doordash-progress";
 
 /**
- * Map a DoorDash CLI invocation to the step label it corresponds to.
- * Matches `bun run scripts/doordash.ts <subcommand>`, standalone `doordash <subcommand>`,
- * and legacy `vellum doordash <subcommand>` prefixes.
+ * Map a `doordash <subcommand>` (or `vellum doordash <subcommand>`) to the
+ * step label it corresponds to.
  */
 function doordashCommandToStep(cmd: string): string | undefined {
-  // Match bun script invocation, standalone `doordash`, and legacy `vellum doordash` prefixes
-  const dd = /(?:bun run scripts\/doordash\.ts |(?:vellum )?doordash )/;
+  // Match both standalone `doordash` and legacy `vellum doordash` prefixes
+  const dd = /(?:vellum )?doordash /;
   if (
     new RegExp(dd.source + "status\\b").test(cmd) ||
     new RegExp(dd.source + "refresh\\b").test(cmd) ||
