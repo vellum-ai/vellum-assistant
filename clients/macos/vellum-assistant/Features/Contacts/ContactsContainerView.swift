@@ -59,7 +59,7 @@ struct ContactsContainerView: View {
                 .background(VColor.background)
             }
         }
-        .onChange(of: viewModel.contacts) { _ in
+        .onReceive(viewModel.$contacts) { _ in
             if selectedContactId == nil, let guardian = viewModel.guardianContact {
                 selectedContactId = guardian.id
             }
