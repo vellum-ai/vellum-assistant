@@ -36,15 +36,12 @@ struct ComposerEditorHeightKey: PreferenceKey {
 ///   keystrokes auto-focus the composer when nothing else is focused.
 /// - Registers the composer container view for click-away-to-blur detection.
 /// - Intercepts Cmd+V when the pasteboard contains image content.
-/// - Handles all Return-key routing so that `TextField(axis: .vertical)`
-///   receives the event only when a newline should be inserted.
-///   Default mode: plain Return sends, Shift+Return inserts newline.
-///   Cmd+Enter mode: Cmd+Return sends, all other Returns insert newline.
+/// - Intercepts Cmd+Enter for send when cmdEnterToSend is enabled.
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
     let cmdEnterToSend: Bool
     let onImagePaste: () -> Void
-    let onSend: () -> Void
+    let onCmdEnterSend: () -> Void
     let onRedirectKeystroke: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -113,38 +110,12 @@ struct ComposerFocusBridge: NSViewRepresentable {
                     return nil
                 }
 
-                // Return key routing — handled here (not in SwiftUI
-                // .onKeyPress) so the TextField's native newline insertion
-                // is preserved for Shift+Return. Returning the event lets
-                // TextField(axis: .vertical) insert a newline; returning
-                // nil consumes the event (send or suppress).
-                let isReturn = event.keyCode == 36 || event.keyCode == 76
-                if isReturn {
-                    if self.parent.cmdEnterToSend {
-                        // Cmd+Enter mode: Cmd+Return sends.
-                        if modifiers == [.command] {
-                            self.parent.onSend()
-                            return nil
-                        }
-                        // Plain Return, Shift+Return → pass through for newline.
-                        if modifiers.isEmpty || modifiers == [.shift] {
-                            return event
-                        }
-                        // Other modifier combos → consume silently.
-                        return nil
-                    } else {
-                        // Default mode: plain Return sends.
-                        if modifiers.isEmpty {
-                            self.parent.onSend()
-                            return nil
-                        }
-                        // Shift+Return → pass through for newline.
-                        if modifiers == [.shift] {
-                            return event
-                        }
-                        // Other modifier combos → consume silently.
-                        return nil
-                    }
+                // Cmd+Enter -> send (when cmdEnterToSend is enabled)
+                if self.parent.cmdEnterToSend,
+                   modifiers == [.command],
+                   event.keyCode == 36 || event.keyCode == 76 {
+                    self.parent.onCmdEnterSend()
+                    return nil
                 }
 
                 // Let zoom shortcuts propagate instead of being consumed

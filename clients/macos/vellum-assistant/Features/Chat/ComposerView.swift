@@ -214,6 +214,9 @@ struct ComposerView: View {
         .tint(VColor.accent)
         .focused($composerFocus)
         .disabled(!hasAPIKey)
+        .onSubmit {
+            performSendAction()
+        }
         .onKeyPress(.tab, phases: .down) { press in
             if !press.modifiers.contains(.shift), showSlashMenu {
                 handleSlashNavigation(.tab)
@@ -283,7 +286,7 @@ struct ComposerView: View {
                 isFocused: composerFocus,
                 cmdEnterToSend: cmdEnterToSend,
                 onImagePaste: onPaste,
-                onSend: {
+                onCmdEnterSend: {
                     performSendAction()
                 },
                 onRedirectKeystroke: { chars in
@@ -407,9 +410,9 @@ struct ComposerView: View {
         }
     }
 
-    /// Shared send logic used by both the SwiftUI `.onKeyPress` return handler
-    /// and the AppKit `ComposerFocusBridge` Cmd+Enter interception. Keeps the
-    /// two paths in sync so slash-menu selection, ghost-text acceptance, and
+    /// Shared send logic used by `.onSubmit` (native Return-to-send) and the
+    /// AppKit `ComposerFocusBridge` Cmd+Enter interception. Keeps the two paths
+    /// in sync so slash-menu selection, ghost-text acceptance, and
     /// pending-confirmation approval all work regardless of how "send" is triggered.
     private func performSendAction() {
         inputText = inputText.replacingOccurrences(
