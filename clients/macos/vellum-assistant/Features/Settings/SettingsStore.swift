@@ -256,6 +256,13 @@ public final class SettingsStore: ObservableObject {
     /// disable its button when the other surface is showing trust rules.
     @Published var isAnyTrustRulesSheetOpen = false
 
+    // MARK: - Privacy
+
+    /// Whether the user has opted in to sharing anonymised performance metrics (e.g. hang rate,
+    /// scroll speed). Defaults to `false`. Read by the MetricKit integration (M4) to decide
+    /// whether to forward payloads.
+    @Published var sendPerformanceReports: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? false
+
     // MARK: - Private
 
     private weak var daemonClient: DaemonClient?
@@ -403,6 +410,12 @@ public final class SettingsStore: ObservableObject {
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { value in UserDefaults.standard.set(value, forKey: "cmdEnterToSend") }
+            .store(in: &cancellables)
+
+        $sendPerformanceReports
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { UserDefaults.standard.set($0, forKey: "sendPerformanceReports") }
             .store(in: &cancellables)
 
         // Persist shortcut changes immediately so the hotkey re-registers without delay

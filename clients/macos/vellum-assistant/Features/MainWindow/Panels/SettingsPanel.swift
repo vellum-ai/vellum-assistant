@@ -262,7 +262,7 @@ struct SettingsPanel: View {
         case .appearance:
             SettingsAppearanceTab(store: store)
         case .privacy:
-            SettingsPrivacyTab(daemonClient: daemonClient)
+            SettingsPrivacyTab(daemonClient: daemonClient, store: store)
         case .contacts:
             ContactsContainerView(daemonClient: daemonClient, store: store)
         case .advanced:
