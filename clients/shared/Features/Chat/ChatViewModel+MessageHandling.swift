@@ -42,14 +42,16 @@ extension ChatViewModel {
     private func stampConfirmationOnToolCall(toolName: String, decision: ToolConfirmationState, toolUseId: String? = nil, targetMessageId: UUID? = nil) {
         let assistantId = targetMessageId ?? currentAssistantMessageId
         guard let assistantId, let msgIdx = messages.firstIndex(where: { $0.id == assistantId }) else { return }
-        // Prefer matching by toolUseId for correctness when multiple calls share the same name
-        let tcIdx: Int?
+        // Prefer matching by toolUseId for correctness when multiple calls share the same name.
+        // Fall back to tool name if ID match fails (e.g. after history restore where
+        // ToolCallData entries may not carry toolUseId yet).
+        var tcIdx: Int?
         if let toolUseId = toolUseId {
             tcIdx = messages[msgIdx].toolCalls.firstIndex(where: {
                 $0.toolUseId == toolUseId
             })
-        } else {
-            // Fallback: match by tool name (ambiguous when duplicates exist)
+        }
+        if tcIdx == nil {
             tcIdx = messages[msgIdx].toolCalls.lastIndex(where: {
                 $0.toolName == toolName && $0.confirmationDecision == nil
             })
