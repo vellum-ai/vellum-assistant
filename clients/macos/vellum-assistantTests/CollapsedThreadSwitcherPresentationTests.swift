@@ -26,12 +26,13 @@ final class CollapsedThreadSwitcherPresentationTests: XCTestCase {
 
     // MARK: - Active thread
 
-    func testActiveThread_onlyThatThread_hidesSwitcher() {
+    func testActiveThread_onlyThatThread_showsSwitcherWithBadge() {
         let id = UUID()
         let threads = [makeThread(id: id)]
         let sut = CollapsedThreadSwitcherPresentation(regularThreads: threads, activeThreadId: id)
 
-        XCTAssertFalse(sut.showsSwitcher)
+        XCTAssertTrue(sut.showsSwitcher)
+        XCTAssertEqual(sut.totalRegularThreadCount, 1)
         XCTAssertTrue(sut.switchTargets.isEmpty)
     }
 
@@ -44,6 +45,42 @@ final class CollapsedThreadSwitcherPresentationTests: XCTestCase {
         XCTAssertTrue(sut.showsSwitcher)
         XCTAssertEqual(sut.switchTargets.count, 1)
         XCTAssertEqual(sut.switchTargets.first?.id, otherId)
+    }
+
+    // MARK: - Total count and badge
+
+    func testTotalRegularThreadCount() {
+        let threads = [makeThread(), makeThread(), makeThread()]
+        let sut = CollapsedThreadSwitcherPresentation(regularThreads: threads, activeThreadId: nil)
+
+        XCTAssertEqual(sut.totalRegularThreadCount, 3)
+    }
+
+    func testBadgeText_normalCount() {
+        let threads = [makeThread(), makeThread()]
+        let sut = CollapsedThreadSwitcherPresentation(regularThreads: threads, activeThreadId: nil)
+
+        XCTAssertEqual(sut.badgeText, "2")
+    }
+
+    func testBadgeText_singleThread() {
+        let sut = CollapsedThreadSwitcherPresentation(regularThreads: [makeThread()], activeThreadId: nil)
+
+        XCTAssertEqual(sut.badgeText, "1")
+    }
+
+    func testBadgeText_capsAt99Plus() {
+        let threads = (0..<100).map { _ in makeThread() }
+        let sut = CollapsedThreadSwitcherPresentation(regularThreads: threads, activeThreadId: nil)
+
+        XCTAssertEqual(sut.badgeText, "99+")
+    }
+
+    func testBadgeText_99IsNotCapped() {
+        let threads = (0..<99).map { _ in makeThread() }
+        let sut = CollapsedThreadSwitcherPresentation(regularThreads: threads, activeThreadId: nil)
+
+        XCTAssertEqual(sut.badgeText, "99")
     }
 
     // MARK: - Accessibility
@@ -62,14 +99,14 @@ final class CollapsedThreadSwitcherPresentationTests: XCTestCase {
         XCTAssertEqual(sut.accessibilityLabel, "Switch threads")
     }
 
-    func testAccessibilityValue_reflectsSwitchTargetCount() {
+    func testAccessibilityValue_reflectsTotalCount() {
         let threads = [makeThread(), makeThread(), makeThread()]
         let sut = CollapsedThreadSwitcherPresentation(regularThreads: threads, activeThreadId: nil)
 
         XCTAssertEqual(sut.accessibilityValue, "3 threads")
     }
 
-    func testAccessibilityValue_emptyWhenNoTargets() {
+    func testAccessibilityValue_emptyWhenNoThreads() {
         let sut = CollapsedThreadSwitcherPresentation(regularThreads: [], activeThreadId: nil)
 
         XCTAssertEqual(sut.accessibilityValue, "")

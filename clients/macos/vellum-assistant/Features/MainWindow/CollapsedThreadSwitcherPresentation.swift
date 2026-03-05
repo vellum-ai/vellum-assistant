@@ -3,8 +3,14 @@ import Foundation
 struct CollapsedThreadSwitcherPresentation {
     let switchTargets: [ThreadModel]
     let activeThreadTitle: String?
+    let totalRegularThreadCount: Int
 
-    var showsSwitcher: Bool { !switchTargets.isEmpty }
+    var showsSwitcher: Bool { totalRegularThreadCount > 0 }
+
+    var badgeText: String {
+        if totalRegularThreadCount > 99 { return "99+" }
+        return "\(totalRegularThreadCount)"
+    }
 
     var accessibilityLabel: String {
         if let title = activeThreadTitle {
@@ -14,10 +20,11 @@ struct CollapsedThreadSwitcherPresentation {
     }
 
     var accessibilityValue: String {
-        switchTargets.isEmpty ? "" : "\(switchTargets.count) threads"
+        totalRegularThreadCount == 0 ? "" : "\(totalRegularThreadCount) threads"
     }
 
     init(regularThreads: [ThreadModel], activeThreadId: UUID?) {
+        self.totalRegularThreadCount = regularThreads.count
         if let activeId = activeThreadId {
             self.switchTargets = regularThreads.filter { $0.id != activeId }
             self.activeThreadTitle = regularThreads.first(where: { $0.id == activeId })?.title

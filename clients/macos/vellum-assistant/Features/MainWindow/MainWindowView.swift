@@ -50,6 +50,7 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     @State var showThreadSwitcher = false
+    @State var threadSwitcherTriggerFrame: CGRect = .zero
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
@@ -552,6 +553,41 @@ struct MainWindowView: View {
                         .offset(x: drawerX, y: -28)
                         .zIndex(10)
                         .transition(.opacity)
+                    }
+                }
+                .overlay {
+                    if showThreadSwitcher {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                showThreadSwitcher = false
+                            }
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if showThreadSwitcher {
+                        ThreadSwitcherDrawer(
+                            regularThreads: regularThreads,
+                            activeThreadId: threadManager.activeThreadId,
+                            threadManager: threadManager,
+                            windowState: windowState,
+                            sidebar: sidebar,
+                            selectThread: { selectThread($0) },
+                            onDismiss: { showThreadSwitcher = false }
+                        )
+                        .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
+                        .offset(
+                            x: 16 + sidebarCollapsedWidth - VSpacing.xs,
+                            y: threadSwitcherTriggerFrame.minY
+                        )
+                        .zIndex(10)
+                        .transition(.opacity)
+                        .onChange(of: threadManager.activeThreadId) { _, _ in
+                            showThreadSwitcher = false
+                        }
+                        .onChange(of: sidebarExpanded) { _, expanded in
+                            if expanded { showThreadSwitcher = false }
+                        }
                     }
                 }
             }
