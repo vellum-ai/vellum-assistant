@@ -27,7 +27,6 @@ struct ChatBubble: View {
     var isProcessingAfterTools: Bool = false
     /// Status text from the assistant activity state, forwarded for inline display.
     var processingStatusText: String?
-
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
 

@@ -284,6 +284,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
     private var reconnectObserver: NSObjectProtocol?
+    private var appPreviewCapturedObserver: NSObjectProtocol?
     /// Debounces rapid-fire daemon reconnect notifications so only one history
     /// reload is triggered per reconnect burst (500ms settle window).
     private var reconnectDebounceTask: Task<Void, Never>?
@@ -596,6 +597,19 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Persist a captured preview image into the ChatMessage model so it survives thread switches.
+    public func updateSurfacePreviewImage(appId: String, base64: String) {
+        for msgIdx in messages.indices {
+            for surfIdx in messages[msgIdx].inlineSurfaces.indices {
+                if case .dynamicPage(var dpData) = messages[msgIdx].inlineSurfaces[surfIdx].data,
+                   dpData.appId == appId {
+                    dpData.preview?.previewImage = base64
+                    messages[msgIdx].inlineSurfaces[surfIdx].data = .dynamicPage(dpData)
+                }
+            }
+        }
+    }
+
     /// Handle a `message_content_response` from the daemon, updating the matching
     /// message with full (untruncated) text and tool call results.
     public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
@@ -869,6 +883,20 @@ public final class ChatViewModel: ObservableObject {
                 } else {
                     self?.needsOfflineFlush = true
                 }
+            }
+        }
+
+        // Listen for captured app preview images and persist them into the
+        // ChatMessage model so they survive thread switches and history reloads.
+        appPreviewCapturedObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("MainWindow.appPreviewImageCaptured"),
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            guard let appId = notification.userInfo?["appId"] as? String,
+                  let base64 = notification.userInfo?["previewImage"] as? String else { return }
+            Task { @MainActor [weak self] in
+                self?.updateSurfacePreviewImage(appId: appId, base64: base64)
             }
         }
 
@@ -2377,6 +2405,9 @@ public final class ChatViewModel: ObservableObject {
         reconnectDebounceTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = appPreviewCapturedObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }

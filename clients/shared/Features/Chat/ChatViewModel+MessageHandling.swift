@@ -1389,6 +1389,22 @@ extension ChatViewModel {
                 messages.append(newMsg)
             }
 
+            // Eagerly request preview for app surfaces that don't have one yet.
+            // Include the HTML so the handler can fall back to offscreen capture
+            // when the daemon has no stored preview (e.g. brand new app).
+            if case .dynamicPage(let dpData) = surface.data,
+               let appId = dpData.appId,
+               dpData.preview != nil,
+               dpData.preview?.previewImage == nil {
+                var userInfo: [String: Any] = ["appId": appId]
+                userInfo["html"] = dpData.html
+                NotificationCenter.default.post(
+                    name: Notification.Name("MainWindow.requestAppPreview"),
+                    object: nil,
+                    userInfo: userInfo
+                )
+            }
+
         case .uiSurfaceUndoResult(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             surfaceUndoCount = msg.remainingUndos

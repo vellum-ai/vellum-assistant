@@ -9,7 +9,6 @@ struct InlineAppCreatedCard: View {
     let appId: String?
     let onOpenApp: () -> Void
     let onPinToHomebase: () -> Void
-
     @Environment(\.colorScheme) private var colorScheme
     @State private var previewImage: String?
     @State private var isPinned: Bool = false
@@ -84,7 +83,11 @@ struct InlineAppCreatedCard: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             previewImage = preview.previewImage
-            // If no preview image yet, request one from the daemon
+            // Fallback request: fires for history-loaded surfaces that didn't go
+            // through the eager uiSurfaceShow IPC handler (app restart, reconnect,
+            // thread switch). For live surfaces the eager request in
+            // ChatViewModel+MessageHandling may have already fired; the duplicate
+            // is harmless since the daemon treats preview requests idempotently.
             if previewImage == nil, let appId = appId {
                 NotificationCenter.default.post(
                     name: Notification.Name("MainWindow.requestAppPreview"),
