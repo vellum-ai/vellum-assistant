@@ -476,17 +476,18 @@ describe("Session message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
-  test("[experimental] queued messages are processed in FIFO order", async () => {
+  test("[experimental] queued messages are batch-drained after first completes", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
-    const processedOrder: string[] = [];
+    const dequeueOrder: string[] = [];
+    const completeOrder: string[] = [];
 
     const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === "message_complete") processedOrder.push(label);
+      if (e.type === "message_dequeued") dequeueOrder.push(label);
+      if (e.type === "message_complete") completeOrder.push(label);
     };
 
-    // Start first message
     const p1 = session.processMessage(
       "msg-1",
       [],
@@ -495,25 +496,24 @@ describe("Session message queue", () => {
     );
     await waitForPendingRun(1);
 
-    // Enqueue two more
     session.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
     session.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
     expect(session.getQueueDepth()).toBe(2);
 
-    // Complete first → triggers second
+    // Complete first → batch-drains both queued messages into one agent loop
     resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    // Complete second → triggers third
-    resolveRun(1);
-    await waitForPendingRun(3);
+    expect(dequeueOrder).toEqual(["msg-2", "msg-3"]);
+    expect(session.getQueueDepth()).toBe(0);
 
-    // Complete third
-    resolveRun(2);
+    resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(processedOrder).toEqual(["msg-1", "msg-2", "msg-3"]);
+    expect(completeOrder).toContain("msg-1");
+    expect(completeOrder).toContain("msg-2");
+    expect(completeOrder).toContain("msg-3");
   });
 
   test("message_queued and message_dequeued events are emitted", async () => {
@@ -632,96 +632,54 @@ describe("Session message queue", () => {
     expect(genericErr).toBeDefined();
   });
 
-  test("queue depth is reported correctly as messages are added and drained", async () => {
+  test("queue depth is reported correctly as messages are added and batch-drained", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
-    // Start first message
     const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
-
     expect(session.getQueueDepth()).toBe(0);
 
     session.enqueueMessage("msg-2", [], () => {}, "req-2");
     expect(session.getQueueDepth()).toBe(1);
-
     session.enqueueMessage("msg-3", [], () => {}, "req-3");
     expect(session.getQueueDepth()).toBe(2);
-
     session.enqueueMessage("msg-4", [], () => {}, "req-4");
     expect(session.getQueueDepth()).toBe(3);
 
-    // Complete first → drains one from queue
+    // Complete first → batch-drains all 3 at once
     resolveRun(0);
     await p1;
     await waitForPendingRun(2);
-
-    expect(session.getQueueDepth()).toBe(2);
-
-    // Complete second → drains another
-    resolveRun(1);
-    await waitForPendingRun(3);
-
-    expect(session.getQueueDepth()).toBe(1);
-
-    // Complete third → drains last
-    resolveRun(2);
-    await waitForPendingRun(4);
-
     expect(session.getQueueDepth()).toBe(0);
 
-    // Complete fourth (final queued message)
-    resolveRun(3);
+    resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
-  test("[experimental] drain continues after a queued message fails to persist", async () => {
+  test("[experimental] batch drain with empty + valid messages processes both", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
-    const events1: ServerMessage[] = [];
     const events2: ServerMessage[] = [];
     const events3: ServerMessage[] = [];
 
-    // Start first message — blocks on AgentLoop.run
-    const p1 = session.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
-    // Enqueue a message with empty content (will fail persistUserMessage)
     session.enqueueMessage("", [], (e) => events2.push(e), "req-2");
-    // Enqueue a valid message after the bad one
     session.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
     expect(session.getQueueDepth()).toBe(2);
 
-    // Complete first message — triggers drain. The empty message should fail
-    // to persist, but the drain should continue to msg-3.
     resolveRun(0);
     await p1;
-
-    // msg-3 should have been dequeued and started a new AgentLoop.run
     await waitForPendingRun(2);
 
-    // The empty message should have received an error event
-    const err2 = events2.find((e) => e.type === "error");
-    expect(err2).toBeDefined();
-    if (err2 && err2.type === "error") {
-      expect(err2.message).toContain("required");
-    }
-
-    // msg-3 should have received a dequeued event
+    expect(events2.some((e) => e.type === "message_dequeued")).toBe(true);
     expect(events3.some((e) => e.type === "message_dequeued")).toBe(true);
 
-    // Complete the third message's run
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
-
-    // msg-3 should have completed successfully
-    expect(events3.some((e) => e.type === "message_complete")).toBe(true);
   });
 
   test("queue rejects when at max depth", async () => {
@@ -947,18 +905,15 @@ describe("Session checkpoint handoff", () => {
     await p1;
   });
 
-  test("[experimental] FIFO ordering is preserved through checkpoint handoff", async () => {
+  test("[experimental] batch drain after checkpoint handoff", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
-    const processedOrder: string[] = [];
-
+    const dequeueOrder: string[] = [];
     const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === "message_complete" || e.type === "generation_handoff")
-        processedOrder.push(label);
+      if (e.type === "message_dequeued") dequeueOrder.push(label);
     };
 
-    // Start first message
     const p1 = session.processMessage(
       "msg-1",
       [],
@@ -967,38 +922,25 @@ describe("Session checkpoint handoff", () => {
     );
     await waitForPendingRun(1);
 
-    // Enqueue two messages
     session.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
     session.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
     expect(session.getQueueDepth()).toBe(2);
 
-    // Simulate the agent loop yielding at the checkpoint (first run)
     const run0 = pendingRuns[0];
     expect(run0.onCheckpoint).toBeDefined();
-    const decision = run0.onCheckpoint!({
-      turnIndex: 0,
-      toolCount: 1,
-      hasToolUse: true,
-    });
-    expect(decision).toBe("yield");
+    expect(
+      run0.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+    ).toBe("yield");
 
-    // Complete first run
     resolveRun(0);
     await p1;
-
-    // msg-2 should be draining next
     await waitForPendingRun(2);
 
-    // Complete second run (msg-2)
+    expect(dequeueOrder).toEqual(["msg-2", "msg-3"]);
+    expect(session.getQueueDepth()).toBe(0);
+
     resolveRun(1);
-    await waitForPendingRun(3);
-
-    // Complete third run (msg-3)
-    resolveRun(2);
     await new Promise((r) => setTimeout(r, 10));
-
-    // FIFO order: msg-1 completes first, then msg-2, then msg-3
-    expect(processedOrder).toEqual(["msg-1", "msg-2", "msg-3"]);
   });
 
   test("queue-full rejection still works during checkpoint handoff", async () => {
@@ -1104,33 +1046,23 @@ describe("Session checkpoint handoff", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
-  test("queued messages still drain FIFO under multiple handoffs", async () => {
+  test("queued messages batch-drain after handoff", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     const dequeueOrder: string[] = [];
-
-    const eventsA: ServerMessage[] = [];
     const makeHandler = (label: string) => (e: ServerMessage) => {
       if (e.type === "message_dequeued") dequeueOrder.push(label);
     };
 
-    // Start processing message A
-    const pA = session.processMessage(
-      "msg-A",
-      [],
-      (e) => eventsA.push(e),
-      "req-A",
-    );
+    const pA = session.processMessage("msg-A", [], () => {}, "req-A");
     await waitForPendingRun(1);
 
-    // Enqueue messages B, C, D
     session.enqueueMessage("msg-B", [], makeHandler("B"), "req-B");
     session.enqueueMessage("msg-C", [], makeHandler("C"), "req-C");
     session.enqueueMessage("msg-D", [], makeHandler("D"), "req-D");
     expect(session.getQueueDepth()).toBe(3);
 
-    // Handoff from A -> B
     const runA = pendingRuns[0];
     expect(runA.onCheckpoint).toBeDefined();
     expect(
@@ -1138,88 +1070,44 @@ describe("Session checkpoint handoff", () => {
     ).toBe("yield");
     resolveRun(0);
     await pA;
-
-    // B should be draining
     await waitForPendingRun(2);
 
-    // Handoff from B -> C
-    const runB = pendingRuns[1];
-    expect(runB.onCheckpoint).toBeDefined();
-    expect(
-      runB.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
-    ).toBe("yield");
-    resolveRun(1);
-    await waitForPendingRun(3);
+    expect(dequeueOrder).toEqual(["B", "C", "D"]);
+    expect(session.getQueueDepth()).toBe(0);
 
-    // Handoff from C -> D
-    const runC = pendingRuns[2];
-    expect(runC.onCheckpoint).toBeDefined();
-    // Only D remains, still should yield
+    const runBatch = pendingRuns[1];
+    expect(runBatch.onCheckpoint).toBeDefined();
     expect(
-      runC.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
-    ).toBe("yield");
-    resolveRun(2);
-    await waitForPendingRun(4);
-
-    // D has no more queued -> checkpoint should return 'continue'
-    const runD = pendingRuns[3];
-    expect(runD.onCheckpoint).toBeDefined();
-    expect(
-      runD.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+      runBatch.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
     ).toBe("continue");
 
-    resolveRun(3);
+    resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
-
-    // Verify FIFO dequeue order
-    expect(dequeueOrder).toEqual(["B", "C", "D"]);
   });
 
-  test("[experimental] queued persistence failure does not strand later messages", async () => {
+  test("[experimental] batch drain with empty + valid messages processes both", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
-    const eventsA: ServerMessage[] = [];
     const eventsB: ServerMessage[] = [];
     const eventsC: ServerMessage[] = [];
 
-    // Start processing message A
-    const pA = session.processMessage(
-      "msg-A",
-      [],
-      (e) => eventsA.push(e),
-      "req-A",
-    );
+    const pA = session.processMessage("msg-A", [], () => {}, "req-A");
     await waitForPendingRun(1);
 
-    // Enqueue B (empty content — will fail to persist) and C (valid)
     session.enqueueMessage("", [], (e) => eventsB.push(e), "req-B");
     session.enqueueMessage("msg-C", [], (e) => eventsC.push(e), "req-C");
     expect(session.getQueueDepth()).toBe(2);
 
-    // Complete message A — triggers drain. B should fail, C should proceed.
     resolveRun(0);
     await pA;
-
-    // C should have been dequeued and started a new AgentLoop.run
     await waitForPendingRun(2);
 
-    // B should have received an error event
-    const errB = eventsB.find((e) => e.type === "error");
-    expect(errB).toBeDefined();
-    if (errB && errB.type === "error") {
-      expect(errB.message).toContain("required");
-    }
-
-    // C should have received a dequeued event
+    expect(eventsB.some((e) => e.type === "message_dequeued")).toBe(true);
     expect(eventsC.some((e) => e.type === "message_dequeued")).toBe(true);
 
-    // Complete C's run
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
-
-    // C should have completed successfully
-    expect(eventsC.some((e) => e.type === "message_complete")).toBe(true);
   });
 
   test("onCheckpoint callback is passed to both initial and retry runs", async () => {
@@ -1296,38 +1184,28 @@ describe("Terminal trace events on rejection/failure", () => {
     pendingRuns = [];
   });
 
-  test("queued persist failure emits request_error trace", async () => {
+  test("batch drain dequeue trace events are emitted for all messages", async () => {
     const traceEvents: ServerMessage[] = [];
     const session = makeSession((msg) => {
       if ("type" in msg && msg.type === "trace_event") traceEvents.push(msg);
     });
     await session.loadFromDb();
 
-    // Start first message
     const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
-    // Enqueue empty content (will fail persistUserMessage)
-    session.enqueueMessage("", [], () => {}, "req-bad");
-    // Enqueue valid message so drain continues
+    session.enqueueMessage("msg-2", [], () => {}, "req-2");
     session.enqueueMessage("msg-3", [], () => {}, "req-3");
 
-    // Complete first — triggers drain, empty msg fails persist
     resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    // Should have a request_error trace for the failed persist
-    const errorTrace = traceEvents.find(
-      (e) =>
-        "kind" in e &&
-        e.kind === "request_error" &&
-        "requestId" in e &&
-        e.requestId === "req-bad",
+    const dequeueTraces = traceEvents.filter(
+      (e) => "kind" in e && e.kind === "request_dequeued",
     );
-    expect(errorTrace).toBeDefined();
+    expect(dequeueTraces.length).toBe(2);
 
-    // Cleanup
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });

@@ -3199,6 +3199,18 @@ public struct IPCPublishPageResponse: Codable, Sendable {
     }
 }
 
+public struct IPCQueueReordered: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let requestIds: [String]
+
+    public init(type: String, sessionId: String, requestIds: [String]) {
+        self.type = type
+        self.sessionId = sessionId
+        self.requestIds = requestIds
+    }
+}
+
 /// Recording options shared across standalone and CU recording flows.
 public struct IPCRecordingOptions: Codable, Sendable {
     public let captureScope: String?

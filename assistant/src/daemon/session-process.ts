@@ -27,7 +27,7 @@ import { getLogger } from "../util/logger.js";
 import { resolveGuardianVerificationIntent } from "./guardian-verification-intent.js";
 import type { UsageStats } from "./ipc-contract.js";
 import type { ServerMessage, UserMessageAttachment } from "./ipc-protocol.js";
-import type { MessageQueue } from "./session-queue-manager.js";
+import type { MessageQueue, QueuedMessage } from "./session-queue-manager.js";
 import type { QueueDrainReason } from "./session-queue-manager.js";
 import type { TrustContext } from "./session-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./session-slash.js";
@@ -192,73 +192,97 @@ function buildSlashContext(session: ProcessSessionContext): SlashContext {
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
- * Process the next message in the queue, if any.
- * Called from the `runAgentLoop` finally block after processing completes.
+ * Drain all queued messages at once and process them as a batch.
  *
- * When a dequeued message fails to persist (e.g. empty content, DB error),
- * `processMessage` catches the error and resolves without calling
- * `runAgentLoop`. Since the drain chain depends on `runAgentLoop`'s `finally`
- * block, we must explicitly continue draining on failure — otherwise
- * remaining queued messages would be stranded.
+ * - Slash commands (unknown → persist+respond; rewritten → run individually)
+ *   are handled one-at-a-time before the batch.
+ * - Passthrough messages are combined into a single user message and run
+ *   through a single agent loop, giving the LLM full context.
  */
 export async function drainQueue(
   session: ProcessSessionContext,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
-  const next = session.queue.shift();
-  if (!next) return;
+  const all = session.queue.shiftAll();
+  if (all.length === 0) return;
 
-  log.info(
-    {
-      conversationId: session.conversationId,
-      requestId: next.requestId,
-      reason,
-    },
-    "Dequeuing message",
-  );
-  session.traceEmitter.emit(
-    "request_dequeued",
-    `Message dequeued (${reason})`,
-    {
-      requestId: next.requestId,
-      status: "info",
-      attributes: { reason },
-    },
-  );
-  next.onEvent({
-    type: "message_dequeued",
-    sessionId: session.conversationId,
-    requestId: next.requestId,
-  });
+  for (const msg of all) {
+    log.info(
+      {
+        conversationId: session.conversationId,
+        requestId: msg.requestId,
+        reason,
+      },
+      "Dequeuing message",
+    );
+    session.traceEmitter.emit(
+      "request_dequeued",
+      `Message dequeued (${reason})`,
+      {
+        requestId: msg.requestId,
+        status: "info",
+        attributes: { reason },
+      },
+    );
+    msg.onEvent({
+      type: "message_dequeued",
+      sessionId: session.conversationId,
+      requestId: msg.requestId,
+    });
+  }
   session.emitActivityState(
     "thinking",
     "message_dequeued",
     "assistant_turn",
-    next.requestId,
+    all[0].requestId,
   );
 
+  // Partition into slash commands vs passthrough messages
+  const slashMessages: Array<{
+    msg: QueuedMessage;
+    result: ReturnType<typeof resolveSlash>;
+  }> = [];
+  const passthroughMessages: QueuedMessage[] = [];
+
+  for (const msg of all) {
+    const slashResult = resolveSlash(msg.content, buildSlashContext(session));
+    if (slashResult.kind === "unknown" || slashResult.kind === "rewritten") {
+      slashMessages.push({ msg, result: slashResult });
+    } else {
+      passthroughMessages.push(msg);
+    }
+  }
+
+  for (const { msg, result } of slashMessages) {
+    await drainSingleSlashMessage(session, msg, result);
+  }
+
+  if (passthroughMessages.length === 0) return;
+
+  if (passthroughMessages.length === 1) {
+    await drainSinglePassthrough(session, passthroughMessages[0]);
+    return;
+  }
+
+  await drainBatchPassthrough(session, passthroughMessages);
+}
+
+async function drainSingleSlashMessage(
+  session: ProcessSessionContext,
+  next: QueuedMessage,
+  slashResult: ReturnType<typeof resolveSlash>,
+): Promise<void> {
   const queuedTurnCtx = resolveQueuedTurnContext(
     next,
     session.getTurnChannelContext(),
   );
-  if (queuedTurnCtx) {
-    session.setTurnChannelContext(queuedTurnCtx);
-  }
-
+  if (queuedTurnCtx) session.setTurnChannelContext(queuedTurnCtx);
   const queuedInterfaceCtx = resolveQueuedTurnInterfaceContext(
     next,
     session.getTurnInterfaceContext(),
   );
-  if (queuedInterfaceCtx) {
-    session.setTurnInterfaceContext(queuedInterfaceCtx);
-  }
+  if (queuedInterfaceCtx) session.setTurnInterfaceContext(queuedInterfaceCtx);
 
-  // Resolve slash commands for queued messages
-  const slashResult = resolveSlash(next.content, buildSlashContext(session));
-
-  // Unknown slash — persist the exchange and continue draining.
-  // Persist each message before pushing to session.messages so that a
-  // failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === "unknown") {
     try {
       const drainProvenance = provenanceFromTrustContext(session.trustContext);
@@ -279,9 +303,6 @@ export async function drainQueue(
           : {}),
       };
       const userMsg = createUserMessage(next.content, next.attachments);
-      // When displayContent is provided (e.g. original text before recording
-      // intent stripping), persist that to DB so users see the full message.
-      // The in-memory userMessage (sent to the LLM) still uses the stripped content.
       const contentToPersist = next.displayContent
         ? JSON.stringify(
             createUserMessage(next.displayContent, next.attachments).content,
@@ -304,32 +325,24 @@ export async function drainQueue(
       );
       session.messages.push(assistantMsg);
 
-      if (queuedTurnCtx) {
+      if (queuedTurnCtx)
         conversationStore.setConversationOriginChannelIfUnset(
           session.conversationId,
           queuedTurnCtx.userMessageChannel,
         );
-      }
-      if (queuedInterfaceCtx) {
+      if (queuedInterfaceCtx)
         conversationStore.setConversationOriginInterfaceIfUnset(
           session.conversationId,
           queuedInterfaceCtx.userMessageInterface,
         );
-      }
 
-      // Emit fresh model info before the text delta so the client has
-      // up-to-date configuredProviders when rendering /model or /models UI.
-      if (isModelSlashCommand(next.content)) {
+      if (isModelSlashCommand(next.content))
         next.onEvent(buildModelInfoEvent());
-      }
       next.onEvent({ type: "assistant_text_delta", text: slashResult.message });
       session.traceEmitter.emit(
         "message_complete",
         "Unknown slash command handled",
-        {
-          requestId: next.requestId,
-          status: "success",
-        },
+        { requestId: next.requestId, status: "success" },
       );
       next.onEvent({
         type: "message_complete",
@@ -356,21 +369,35 @@ export async function drainQueue(
       );
       next.onEvent({ type: "error", message });
     }
-    // Continue draining regardless of success/failure
-    await drainQueue(session);
     return;
   }
 
-  const resolvedContent = slashResult.content;
-
-  // Preactivate skill tools when slash resolution identifies a known skill
   if (slashResult.kind === "rewritten") {
     session.preactivatedSkillIds = [slashResult.skillId];
+    await drainSinglePassthrough(session, next);
   }
+}
 
-  // Guardian verification intent interception for queued messages.
-  // Preserve the original user content for persistence; only the agent
-  // loop receives the rewritten instruction.
+async function drainSinglePassthrough(
+  session: ProcessSessionContext,
+  next: QueuedMessage,
+): Promise<void> {
+  const queuedTurnCtx = resolveQueuedTurnContext(
+    next,
+    session.getTurnChannelContext(),
+  );
+  if (queuedTurnCtx) session.setTurnChannelContext(queuedTurnCtx);
+  const queuedInterfaceCtx = resolveQueuedTurnInterfaceContext(
+    next,
+    session.getTurnInterfaceContext(),
+  );
+  if (queuedInterfaceCtx) session.setTurnInterfaceContext(queuedInterfaceCtx);
+
+  const slashResult = resolveSlash(next.content, buildSlashContext(session));
+  // drainSinglePassthrough is only called for passthrough/rewritten, never unknown
+  const resolvedContent =
+    slashResult.kind === "unknown" ? next.content : slashResult.content;
+
   let agentLoopContent = resolvedContent;
   if (slashResult.kind === "passthrough") {
     const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
@@ -387,10 +414,6 @@ export async function drainQueue(
     }
   }
 
-  // Try to persist and run the dequeued message. If persistUserMessage
-  // succeeds, runAgentLoop is called and its finally block will drain
-  // the next message. If persistUserMessage fails, processMessage
-  // resolves early (no runAgentLoop call), so we must continue draining.
   let userMessageId: string;
   try {
     userMessageId = await session.persistUserMessage(
@@ -420,19 +443,13 @@ export async function drainQueue(
       },
     );
     next.onEvent({ type: "error", message });
-    // runAgentLoop never ran, so its finally block won't clear this
     session.preactivatedSkillIds = undefined;
-    // Continue draining — don't strand remaining messages
-    await drainQueue(session);
     return;
   }
 
-  // Set the active surface for the dequeued message so runAgentLoop can inject context
   session.currentActiveSurfaceId = next.activeSurfaceId;
   session.currentPage = next.currentPage;
 
-  // Fire-and-forget: detect notification preferences in the queued message
-  // and persist any that are found, mirroring the logic in processMessage.
   if (session.assistantId) {
     const aid = session.assistantId;
     extractPreferences(resolvedContent)
@@ -446,26 +463,10 @@ export async function drainQueue(
             priority: pref.priority,
           });
         }
-        log.info(
-          {
-            count: result.preferences.length,
-            conversationId: session.conversationId,
-          },
-          "Persisted extracted notification preferences (queued)",
-        );
       })
-      .catch((err) => {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.warn(
-          { err: errMsg, conversationId: session.conversationId },
-          "Background preference extraction failed (queued)",
-        );
-      });
+      .catch(() => {});
   }
 
-  // Fire-and-forget: persistUserMessage set session.processing = true
-  // so subsequent messages will still be enqueued.
-  // runAgentLoop's finally block will call drainQueue when this run completes.
   const drainLoopOptions: {
     isInteractive?: boolean;
     isUserMessage?: boolean;
@@ -496,6 +497,109 @@ export async function drainQueue(
       next.onEvent({
         type: "error",
         message: `Failed to process queued message: ${message}`,
+      });
+    });
+}
+
+async function drainBatchPassthrough(
+  session: ProcessSessionContext,
+  messages: QueuedMessage[],
+): Promise<void> {
+  const first = messages[0];
+
+  const queuedTurnCtx = resolveQueuedTurnContext(
+    first,
+    session.getTurnChannelContext(),
+  );
+  if (queuedTurnCtx) session.setTurnChannelContext(queuedTurnCtx);
+  const queuedInterfaceCtx = resolveQueuedTurnInterfaceContext(
+    first,
+    session.getTurnInterfaceContext(),
+  );
+  if (queuedInterfaceCtx) session.setTurnInterfaceContext(queuedInterfaceCtx);
+
+  const combinedParts: string[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    combinedParts.push(`[Message ${i + 1}]\n${messages[i].content}`);
+  }
+  const combinedContent = combinedParts.join("\n\n");
+
+  const mergedAttachments: UserMessageAttachment[] = [];
+  for (const msg of messages) mergedAttachments.push(...msg.attachments);
+
+  const isInteractive = messages.every((m) => m.isInteractive !== false);
+
+  const fanOutOnEvent = (event: ServerMessage) => {
+    for (const msg of messages) {
+      try {
+        msg.onEvent(event);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  let userMessageId: string;
+  try {
+    userMessageId = await session.persistUserMessage(
+      combinedContent,
+      mergedAttachments,
+      first.requestId,
+      first.metadata,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(
+      {
+        err,
+        conversationId: session.conversationId,
+        requestId: first.requestId,
+      },
+      "Failed to persist batched queued messages",
+    );
+    fanOutOnEvent({ type: "error", message });
+    session.preactivatedSkillIds = undefined;
+    return;
+  }
+
+  session.currentActiveSurfaceId = first.activeSurfaceId;
+  session.currentPage = first.currentPage;
+
+  if (session.assistantId) {
+    const aid = session.assistantId;
+    extractPreferences(combinedContent)
+      .then((result) => {
+        if (!result.detected) return;
+        for (const pref of result.preferences) {
+          createPreference({
+            assistantId: aid,
+            preferenceText: pref.preferenceText,
+            appliesWhen: pref.appliesWhen,
+            priority: pref.priority,
+          });
+        }
+      })
+      .catch(() => {});
+  }
+
+  session
+    .runAgentLoop(combinedContent, userMessageId, fanOutOnEvent, {
+      isUserMessage: true,
+      isInteractive,
+    })
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        {
+          err,
+          conversationId: session.conversationId,
+          requestId: first.requestId,
+        },
+        "Error processing batched queued messages",
+      );
+      fanOutOnEvent({
+        type: "error",
+        message: `Failed to process batched queued messages: ${message}`,
       });
     });
 }

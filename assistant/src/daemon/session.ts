@@ -485,6 +485,10 @@ export class Session {
     return this.queue.removeByRequestId(requestId) !== undefined;
   }
 
+  reorderQueue(requestIds: string[]): string[] {
+    return this.queue.reorder(requestIds);
+  }
+
   canHandoffAtCheckpoint(): boolean {
     return this.processing && this.hasQueuedMessages();
   }

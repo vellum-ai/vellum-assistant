@@ -1033,6 +1033,10 @@ extension IPCMessageQueuedDeleted {
     }
 }
 
+/// Server → Client notification that the queue was reordered.
+/// Backed by generated `IPCQueueReordered`.
+public typealias QueueReorderedMessage = IPCQueueReordered
+
 /// Client → Server request to delete a specific queued message.
 /// Backed by generated `IPCDeleteQueuedMessage`.
 public typealias DeleteQueuedMessageMessage = IPCDeleteQueuedMessage
@@ -2175,6 +2179,7 @@ public enum ServerMessage: Decodable, Sendable {
     case messageDequeued(MessageDequeuedMessage)
     case messageRequestComplete(MessageRequestCompleteMessage)
     case messageQueuedDeleted(MessageQueuedDeletedMessage)
+    case queueReordered(QueueReorderedMessage)
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case skillStateChanged(SkillStateChangedMessage)
@@ -2419,6 +2424,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "message_queued_deleted":
             let message = try MessageQueuedDeletedMessage(from: decoder)
             self = .messageQueuedDeleted(message)
+        case "queue_reordered":
+            let message = try QueueReorderedMessage(from: decoder)
+            self = .queueReordered(message)
         case "skills_list_response":
             let message = try SkillsListResponseMessage(from: decoder)
             self = .skillsListResponse(message)

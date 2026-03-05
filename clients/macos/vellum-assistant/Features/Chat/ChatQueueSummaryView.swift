@@ -10,6 +10,7 @@ struct ChatQueueSummaryView: View {
     let queuedMessages: [ChatMessage]
     var onDeleteQueuedMessage: ((UUID) -> Void)?
     var onSendDirectQueuedMessage: ((UUID) -> Void)?
+    var onReorderQueuedMessages: (([UUID]) -> Void)?
     @Binding var isExpanded: Bool
 
     var body: some View {
@@ -41,11 +42,17 @@ struct ChatQueueSummaryView: View {
                     VStack(spacing: VSpacing.xs) {
                         ForEach(queuedMessages, id: \.id) { message in
                             HStack(spacing: VSpacing.sm) {
-                                Circle()
-                                    .fill(VColor.textMuted)
-                                    .frame(width: 5, height: 5)
+                                if onReorderQueuedMessages != nil {
+                                    Image(systemName: "line.3.horizontal")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(VColor.textMuted)
+                                        .accessibilityLabel("Drag to reorder")
+                                } else {
+                                    Circle()
+                                        .fill(VColor.textMuted)
+                                        .frame(width: 5, height: 5)
+                                }
                                 if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    // Attachment-only message — show filenames
                                     let names = message.attachments.map(\.filename).joined(separator: ", ")
                                     Label(names.isEmpty ? "Attachment" : names, systemImage: "paperclip")
                                         .font(VFont.body)
@@ -82,6 +89,23 @@ struct ChatQueueSummaryView: View {
                                 }
                             }
                             .padding(.horizontal, VSpacing.lg)
+                            .draggable(message.id.uuidString) {
+                                Text(message.text.isEmpty ? "Attachment" : message.text)
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.vertical, VSpacing.xs)
+                                    .background(VColor.surface)
+                                    .cornerRadius(VRadius.sm)
+                            }
+                            .dropDestination(for: String.self) { items, _ in
+                                guard let draggedIdStr = items.first,
+                                      let draggedId = UUID(uuidString: draggedIdStr),
+                                      draggedId != message.id else { return false }
+                                reorderByDrop(draggedId: draggedId, targetId: message.id)
+                                return true
+                            } isTargeted: { _ in }
                         }
                     }
                     .padding(.bottom, VSpacing.sm)
@@ -102,5 +126,14 @@ struct ChatQueueSummaryView: View {
             .frame(maxWidth: .infinity)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
+    }
+
+    private func reorderByDrop(draggedId: UUID, targetId: UUID) {
+        var ids = queuedMessages.map(\.id)
+        guard let fromIndex = ids.firstIndex(of: draggedId),
+              let toIndex = ids.firstIndex(of: targetId) else { return }
+        ids.remove(at: fromIndex)
+        ids.insert(draggedId, at: toIndex)
+        onReorderQueuedMessages?(ids)
     }
 }

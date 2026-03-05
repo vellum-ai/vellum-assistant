@@ -114,6 +114,7 @@ public protocol DaemonClientProtocol {
     func disconnect()
     func startSSE()
     func stopSSE()
+    func reorderQueue(sessionId: String, requestIds: [String]) async -> [String]?
 }
 
 extension Notification.Name {
@@ -1018,6 +1019,25 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Delete a specific queued message by its requestId.
     public func sendDeleteQueuedMessage(sessionId: String, requestId: String) throws {
         try send(DeleteQueuedMessageMessage(sessionId: sessionId, requestId: requestId))
+    }
+
+    /// Reorder queued messages via HTTP PUT /v1/queue/reorder.
+    public func reorderQueue(sessionId: String, requestIds: [String]) async -> [String]? {
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/queue/reorder", method: "PUT") else { return nil }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = ["sessionId": sessionId, "requestIds": requestIds]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        request.httpBody = jsonData
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            struct ReorderResponse: Decodable { let requestIds: [String] }
+            return try JSONDecoder().decode(ReorderResponse.self, from: data).requestIds
+        } catch {
+            return nil
+        }
     }
 
     // MARK: - Regenerate

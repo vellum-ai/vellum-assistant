@@ -1634,6 +1634,47 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Reorder queued messages. Takes an array of local message UUIDs in the desired order.
+    public func reorderQueuedMessages(orderedMessageIds: [UUID]) {
+        guard let sessionId else { return }
+
+        let requestIds = orderedMessageIds.compactMap { msgId -> String? in
+            requestIdToMessageId.first(where: { $0.value == msgId })?.key
+        }
+        guard !requestIds.isEmpty else { return }
+
+        Task {
+            guard let newOrder = await daemonClient.reorderQueue(sessionId: sessionId, requestIds: requestIds) else {
+                log.error("Failed to reorder queue")
+                return
+            }
+
+            let requestIdToNewPosition = Dictionary(uniqueKeysWithValues: newOrder.enumerated().map { ($1, $0) })
+            var queuedIndices: [Int] = []
+            var queuedMessages: [ChatMessage] = []
+            for i in messages.indices {
+                if case .queued = messages[i].status {
+                    queuedIndices.append(i)
+                    queuedMessages.append(messages[i])
+                }
+            }
+
+            queuedMessages.sort { a, b in
+                let aReqId = requestIdToMessageId.first(where: { $0.value == a.id })?.key ?? ""
+                let bReqId = requestIdToMessageId.first(where: { $0.value == b.id })?.key ?? ""
+                let aPos = requestIdToNewPosition[aReqId] ?? Int.max
+                let bPos = requestIdToNewPosition[bReqId] ?? Int.max
+                return aPos < bPos
+            }
+
+            for (idx, queueIdx) in queuedIndices.enumerated() {
+                var msg = queuedMessages[idx]
+                msg.status = .queued(position: idx)
+                messages[queueIdx] = msg
+            }
+        }
+    }
+
     /// Delete a queued message by its local message ID.
     /// Finds the daemon requestId for the message and sends a delete request.
     public func deleteQueuedMessage(messageId: UUID) {

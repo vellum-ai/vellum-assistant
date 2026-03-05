@@ -901,6 +901,52 @@ export function handleSearchConversations(url: URL): Response {
 // Route definitions
 // ---------------------------------------------------------------------------
 
+export async function handleQueueReorder(
+  req: Request,
+  deps: { sendMessageDeps?: SendMessageDeps },
+): Promise<Response> {
+  const body = (await req.json()) as {
+    sessionId?: string;
+    requestIds?: string[];
+  };
+
+  const { sessionId, requestIds } = body;
+  if (!sessionId || typeof sessionId !== "string") {
+    return httpError("BAD_REQUEST", "sessionId is required", 400);
+  }
+  if (!Array.isArray(requestIds) || requestIds.length === 0) {
+    return httpError("BAD_REQUEST", "requestIds array is required", 400);
+  }
+
+  if (!deps.sendMessageDeps) {
+    return httpError(
+      "SERVICE_UNAVAILABLE",
+      "Message processing is not available",
+      503,
+    );
+  }
+
+  const session = await deps.sendMessageDeps.getOrCreateSession(sessionId);
+  const newOrder = session.reorderQueue(requestIds);
+
+  const event = buildAssistantEvent(
+    DAEMON_INTERNAL_ASSISTANT_ID,
+    {
+      type: "queue_reordered",
+      sessionId,
+      requestIds: newOrder,
+    } as ServerMessage,
+    sessionId,
+  );
+  deps.sendMessageDeps.assistantEventHub
+    .publish(event)
+    .catch((err) =>
+      log.warn({ err }, "Failed to publish queue_reordered event"),
+    );
+
+  return Response.json({ requestIds: newOrder });
+}
+
 export function conversationRouteDefinitions(deps: {
   interfacesDir: string | null;
   sendMessageDeps?: SendMessageDeps;
@@ -926,6 +972,12 @@ export function conversationRouteDefinitions(deps: {
           },
           authContext,
         ),
+    },
+    {
+      endpoint: "queue/reorder",
+      method: "PUT",
+      handler: async ({ req }) =>
+        handleQueueReorder(req, { sendMessageDeps: deps.sendMessageDeps }),
     },
     {
       endpoint: "search",

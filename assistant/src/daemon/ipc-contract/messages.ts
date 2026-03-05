@@ -217,6 +217,12 @@ export interface MessageQueuedDeleted {
   requestId: string;
 }
 
+export interface QueueReordered {
+  type: "queue_reordered";
+  sessionId: string;
+  requestIds: string[];
+}
+
 export interface SuggestionResponse {
   type: "suggestion_response";
   requestId: string;
@@ -333,6 +339,7 @@ export type _MessagesServerMessages =
   | MessageDequeued
   | MessageRequestComplete
   | MessageQueuedDeleted
+  | QueueReordered
   | SuggestionResponse
   | TraceEvent
   | ConfirmationStateChanged

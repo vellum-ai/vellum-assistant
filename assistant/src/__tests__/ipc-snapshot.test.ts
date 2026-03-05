@@ -1178,6 +1178,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: "sess-001",
     requestId: "req-queue-001",
   },
+  queue_reordered: {
+    type: "queue_reordered",
+    sessionId: "sess-001",
+    requestIds: ["req-1", "req-2"],
+  },
   notification_intent: {
     type: "notification_intent",
     sourceEventName: "guardian.question",

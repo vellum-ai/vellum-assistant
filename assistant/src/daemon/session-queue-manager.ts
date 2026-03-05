@@ -33,8 +33,6 @@ export interface QueuedMessage {
 }
 
 export const MAX_QUEUE_DEPTH = 10;
-/** Messages older than this (ms) are auto-expired from the queue. */
-export const DEFAULT_MAX_WAIT_MS = 60_000;
 const CAPACITY_WARNING_THRESHOLD = 0.8;
 
 /**
@@ -56,7 +54,6 @@ export interface QueuePolicy {
 export interface QueueMetrics {
   currentDepth: number;
   totalDropped: number;
-  totalExpired: number;
   /** Average wait time (ms) of dequeued messages. 0 when no messages have been dequeued. */
   averageWaitMs: number;
 }
@@ -65,25 +62,17 @@ export interface QueueMetrics {
  * Typed wrapper around the queued-message array.
  *
  * Session owns one instance; the wrapper handles capacity checks,
- * expiry, metrics, and iteration so the rest of Session doesn't
+ * metrics, and iteration so the rest of Session doesn't
  * touch the raw array.
  */
 export class MessageQueue {
   private items: QueuedMessage[] = [];
-  private maxWaitMs: number;
   private droppedCount = 0;
-  private expiredCount = 0;
   private totalWaitMs = 0;
   private dequeuedCount = 0;
   private capacityWarned = false;
 
-  constructor(maxWaitMs: number = DEFAULT_MAX_WAIT_MS) {
-    this.maxWaitMs = maxWaitMs;
-  }
-
   push(item: QueuedMessage): boolean {
-    this.expireStale();
-
     if (this.items.length >= MAX_QUEUE_DEPTH) {
       this.droppedCount++;
       return false;
@@ -107,7 +96,6 @@ export class MessageQueue {
   }
 
   shift(): QueuedMessage | undefined {
-    this.expireStale();
     const item = this.items.shift();
     if (item) {
       this.dequeuedCount++;
@@ -146,50 +134,53 @@ export class MessageQueue {
     return {
       currentDepth: this.items.length,
       totalDropped: this.droppedCount,
-      totalExpired: this.expiredCount,
       averageWaitMs:
         this.dequeuedCount > 0 ? this.totalWaitMs / this.dequeuedCount : 0,
     };
   }
 
-  /** Remove messages that have been waiting longer than maxWaitMs. */
-  private expireStale(): void {
+  /**
+   * Rearrange the queue to match the given order of requestIds.
+   * Items whose requestIds are in the array are placed first (in the given order);
+   * items not mentioned keep their relative order at the end.
+   */
+  reorder(requestIds: string[]): string[] {
+    const idSet = new Set(requestIds);
+    const ordered: QueuedMessage[] = [];
+    const remaining: QueuedMessage[] = [];
+
+    const byId = new Map<string, QueuedMessage>();
+    for (const item of this.items) {
+      byId.set(item.requestId, item);
+    }
+
+    for (const id of requestIds) {
+      const item = byId.get(id);
+      if (item) ordered.push(item);
+    }
+
+    for (const item of this.items) {
+      if (!idSet.has(item.requestId)) remaining.push(item);
+    }
+
+    this.items = [...ordered, ...remaining];
+    return this.items.map((item) => item.requestId);
+  }
+
+  /**
+   * Drain the entire queue, returning all items at once.
+   * Updates dequeue metrics for each item.
+   */
+  shiftAll(): QueuedMessage[] {
+    const all = this.items;
+    this.items = [];
     const now = Date.now();
-    const cutoff = now - this.maxWaitMs;
-    const expired: QueuedMessage[] = [];
-    this.items = this.items.filter((item) => {
-      if (item.queuedAt < cutoff) {
-        this.expiredCount++;
-        expired.push(item);
-        return false;
-      }
-      return true;
-    });
-    for (const item of expired) {
-      log.warn(
-        { requestId: item.requestId, waitMs: now - item.queuedAt },
-        "Expiring stale queued message",
-      );
-      try {
-        item.onEvent({
-          type: "error",
-          message:
-            "Your queued message was dropped because it waited too long in the queue.",
-          category: "queue_expired",
-        });
-      } catch (e) {
-        log.debug(
-          { err: e, requestId: item.requestId },
-          "Failed to notify client of expired message",
-        );
-      }
+    for (const item of all) {
+      this.dequeuedCount++;
+      this.totalWaitMs += now - item.queuedAt;
     }
-    if (
-      expired.length > 0 &&
-      this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD
-    ) {
-      this.capacityWarned = false;
-    }
+    this.capacityWarned = false;
+    return all;
   }
 
   [Symbol.iterator](): Iterator<QueuedMessage> {

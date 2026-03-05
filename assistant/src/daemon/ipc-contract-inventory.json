@@ -273,6 +273,7 @@
     "platform_config_response",
     "pong",
     "publish_page_response",
+    "queue_reordered",
     "recording_pause",
     "recording_resume",
     "recording_start",
