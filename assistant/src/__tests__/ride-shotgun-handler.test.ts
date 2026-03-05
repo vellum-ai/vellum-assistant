@@ -451,12 +451,13 @@ describe("ride-shotgun-handler", () => {
     // Give background task time to execute
     await new Promise((r) => setTimeout(r, 500));
 
-    // The result message should indicate failure, not "recording saved"
+    // The result message should indicate the specific CDP failure
     const resultMsg = ctx.sent.find(
       (m: any) => m.type === "ride_shotgun_result",
     ) as any;
     expect(resultMsg).toBeDefined();
     expect(resultMsg.summary).toContain("failed");
+    expect(resultMsg.summary).toContain("browser could not be started");
     expect(resultMsg.summary).not.toContain("recording saved");
   });
 

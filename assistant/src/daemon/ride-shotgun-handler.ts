@@ -103,12 +103,12 @@ async function completeSession(session: WatchSession): Promise<void> {
       }
     }
 
-    // When no recorder ever started, the browser failed to launch — report failure
+    // When no recorder ever started, report the specific bootstrap failure
     const summary = hasRecorder
       ? session.savedRecordingPath
         ? "Learn session completed — recording saved."
         : "Learn session completed — recording failed to save."
-      : "Learn session failed — browser could not be started.";
+      : `Learn session failed — ${session.bootstrapFailureReason ?? "unknown error."}`;
 
     lastSummaryBySession.set(sessionId, summary);
     session.status = "completed";
@@ -202,6 +202,7 @@ export async function handleRideShotgunStart(
             "Failed to start browser — Chrome CDP could not be launched.",
         });
         // Fail-fast: complete the session immediately instead of waiting for timeout
+        session.bootstrapFailureReason = "browser could not be started.";
         await completeSession(session);
         return;
       }
@@ -398,6 +399,8 @@ export async function handleRideShotgunStart(
               sessionId,
               message: "Failed to start network recording after 10 attempts.",
             });
+            session.bootstrapFailureReason =
+              "network recording could not be started after 10 attempts.";
             await completeSession(session);
           }
         }
