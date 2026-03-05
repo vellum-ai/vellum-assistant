@@ -15,17 +15,28 @@ import { probePort } from "./port-probe.js";
  * side-by-side without conflicts.
  */
 export interface LocalInstanceResources {
-  /** Root directory for this instance (e.g. ~/.vellum/instances/<name>/) */
+  /**
+   * Instance-specific data root. For named instances this is
+   * `~/.vellum/instances/<name>/`; the daemon's working directory
+   * (`.vellum/`) lives inside it (e.g. `~/.vellum/instances/<name>/.vellum/`).
+   * Distinct from `AssistantEntry.baseDataDir`, which is a legacy field from
+   * the pre-multi-instance layout kept for backward compatibility.
+   */
   instanceDir: string;
-  /** HTTP port for the daemon runtime server */
+  /**
+   * Allocated port for process management — detecting conflicts, displaying
+   * status, and waking/sleeping. Overlaps with `AssistantEntry.runtimeUrl`
+   * (which is the full URL clients connect to) but kept separately so
+   * lifecycle commands can reason about port numbers directly.
+   */
   daemonPort: number;
   /** HTTP port for the gateway */
   gatewayPort: number;
   /** HTTP port for the Qdrant vector store */
   qdrantPort: number;
-  /** Path to the Unix domain socket */
+  /** Absolute path to the Unix domain socket for IPC */
   socketPath: string;
-  /** Path to the daemon PID file */
+  /** Absolute path to the daemon PID file used for process lifecycle */
   pidFile: string;
 }
 
