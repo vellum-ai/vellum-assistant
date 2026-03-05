@@ -128,15 +128,15 @@ struct ComposerFocusBridge: NSViewRepresentable {
                         self.parent.onSend()
                         return nil
                     case .bridgeInsertNewline:
-                        // Insert newline only if we can find the field editor;
-                        // otherwise let the event propagate normally.
+                        // Insert newline via the field editor. If the text view
+                        // can't be found, still consume the event to prevent
+                        // .onSubmit from firing (which would send the message).
                         let textView = (event.window?.firstResponder as? NSTextView)
                             ?? (NSApp.keyWindow?.firstResponder as? NSTextView)
                         if let textView {
                             textView.insertText("\n", replacementRange: textView.selectedRange())
-                            return nil
                         }
-                        return event
+                        return nil
                     case .deferToSubmit:
                         return event
                     }

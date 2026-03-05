@@ -12,8 +12,10 @@ enum ComposerReturnKeyRouting {
     }
 
     static func resolve(cmdEnterToSend: Bool, modifiers: NSEvent.ModifierFlags) -> Action {
-        // Strip device-independent modifier flags to compare only modifier keys
-        let keys = modifiers.intersection(.deviceIndependentFlagsMask)
+        // Mask to only the four modifier keys we care about so that
+        // incidental flags (capsLock, function, numericPad) don't break
+        // equality checks.
+        let keys = modifiers.intersection([.shift, .command, .control, .option])
 
         if !cmdEnterToSend && keys == .shift {
             return .bridgeInsertNewline

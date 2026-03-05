@@ -47,5 +47,17 @@ final class ComposerReturnKeyRoutingTests: XCTestCase {
         let action = ComposerReturnKeyRouting.resolve(cmdEnterToSend: true, modifiers: [.option])
         XCTAssertEqual(action, .deferToSubmit)
     }
+
+    // MARK: - Extra modifier flags (capsLock, function, etc.)
+
+    func testDefaultMode_shiftReturnWithCapsLock_insertsNewline() {
+        let action = ComposerReturnKeyRouting.resolve(cmdEnterToSend: false, modifiers: [.shift, .capsLock])
+        XCTAssertEqual(action, .bridgeInsertNewline)
+    }
+
+    func testCmdEnterMode_cmdReturnWithCapsLock_sends() {
+        let action = ComposerReturnKeyRouting.resolve(cmdEnterToSend: true, modifiers: [.command, .capsLock])
+        XCTAssertEqual(action, .bridgeSend)
+    }
 }
 #endif
