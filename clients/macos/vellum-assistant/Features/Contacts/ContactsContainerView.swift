@@ -34,9 +34,20 @@ struct ContactsContainerView: View {
             Divider()
                 .background(VColor.surfaceBorder)
 
-            // Right pane: detail or placeholder
-            if let contactId = selectedContactId,
-               let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
+            // Right pane: detail, loading, or placeholder
+            if viewModel.isLoading && viewModel.contacts.isEmpty {
+                // Loading state — contacts are being fetched
+                VStack(spacing: VSpacing.md) {
+                    ProgressView()
+                        .controlSize(.regular)
+                    Text("Loading contacts...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(VColor.background)
+            } else if let contactId = selectedContactId,
+                      let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
                 ContactDetailView(
                     contact: contact,
                     daemonClient: daemonClient,
@@ -45,6 +56,7 @@ struct ContactsContainerView: View {
                 .id(contactId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
+                // True empty state — contacts loaded but none selected
                 VStack(spacing: VSpacing.md) {
                     Image(systemName: "person.2.fill")
                         .font(.system(size: 36))
