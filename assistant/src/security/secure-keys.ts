@@ -1,13 +1,23 @@
 /**
- * Unified secure key storage — encrypted-at-rest file storage.
+ * Unified secure key storage — routes through the keychain broker when
+ * available (macOS app embedded), with transparent fallback to the
+ * encrypted-at-rest file store.
  *
- * Provides get/set/delete/list interface backed by the encrypted store.
+ * Async variants try the broker first; sync variants always use the
+ * encrypted store (startup code paths cannot do async I/O).
  */
 
 import * as encryptedStore from "./encrypted-store.js";
+import { createBrokerClient } from "./keychain-broker-client.js";
+
+const broker = createBrokerClient();
+
+// ---------------------------------------------------------------------------
+// Sync variants — encrypted store only (startup / sync call sites)
+// ---------------------------------------------------------------------------
 
 /**
- * Retrieve a secret from secure storage.
+ * Retrieve a secret from secure storage (sync — encrypted store only).
  * Returns `undefined` if the key doesn't exist or on error.
  */
 export function getSecureKey(account: string): string | undefined {
@@ -15,7 +25,7 @@ export function getSecureKey(account: string): string | undefined {
 }
 
 /**
- * Store a secret in secure storage.
+ * Store a secret in secure storage (sync — encrypted store only).
  * Returns `true` on success, `false` on failure.
  */
 export function setSecureKey(account: string, value: string): boolean {
@@ -23,7 +33,7 @@ export function setSecureKey(account: string, value: string): boolean {
 }
 
 /**
- * Delete a secret from secure storage.
+ * Delete a secret from secure storage (sync — encrypted store only).
  * Returns `true` on success, `false` if not found or on error.
  */
 export function deleteSecureKey(account: string): boolean {
@@ -31,19 +41,23 @@ export function deleteSecureKey(account: string): boolean {
 }
 
 /**
- * List all account names in secure storage.
- * Throws if the store file exists but cannot be read (encrypted backend).
+ * List all account names in secure storage (sync — encrypted store only).
+ * Throws if the store file exists but cannot be read.
  */
 export function listSecureKeys(): string[] {
   return encryptedStore.listKeys();
 }
 
+// ---------------------------------------------------------------------------
+// Backend introspection
+// ---------------------------------------------------------------------------
+
 /**
  * Return the currently resolved backend type.
- * Always returns "encrypted" now that keychain CLI is removed.
+ * Returns `"broker"` when the keychain broker is reachable, `"encrypted"` otherwise.
  */
-export function getBackendType(): "keychain" | "encrypted" | null {
-  return "encrypted";
+export function getBackendType(): "broker" | "encrypted" | null {
+  return broker.isAvailable() ? "broker" : "encrypted";
 }
 
 /**
@@ -55,44 +69,73 @@ export function isDowngradedFromKeychain(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Async variants — thin wrappers around sync calls since the encrypted
-// store uses synchronous file I/O.
+// Async variants — try broker first, fall back to encrypted store
 // ---------------------------------------------------------------------------
 
 /**
- * Async version of `getSecureKey` — retrieve a secret without blocking.
+ * Async version of `getSecureKey`. When the broker is available it is
+ * queried first; if it returns `undefined` (not found *or* error) the
+ * encrypted store is consulted as a fallback.
  */
 export async function getSecureKeyAsync(
   account: string,
 ): Promise<string | undefined> {
-  return getSecureKey(account);
+  if (broker.isAvailable()) {
+    const value = await broker.get(account);
+    if (value !== undefined) return value;
+  }
+  return encryptedStore.getKey(account);
 }
 
 /**
- * Async version of `setSecureKey` — store a secret without blocking.
+ * Async version of `setSecureKey`. When the broker is available the key
+ * is written there first; the encrypted store is always updated as well
+ * so that sync callers have a consistent view.
  */
 export async function setSecureKeyAsync(
   account: string,
   value: string,
 ): Promise<boolean> {
-  return setSecureKey(account, value);
+  if (broker.isAvailable()) {
+    const ok = await broker.set(account, value);
+    if (ok) {
+      // Also persist to encrypted store so sync callers stay consistent.
+      encryptedStore.setKey(account, value);
+      return true;
+    }
+  }
+  return encryptedStore.setKey(account, value);
 }
 
 /**
- * Async version of `deleteSecureKey` — delete a secret without blocking.
+ * Async version of `deleteSecureKey`. When the broker is available the
+ * key is deleted there first; the encrypted store entry is always removed
+ * as well so that sync callers have a consistent view.
  */
 export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
-  return deleteSecureKey(account);
+  if (broker.isAvailable()) {
+    const ok = await broker.del(account);
+    if (ok) {
+      // Also remove from encrypted store so sync callers stay consistent.
+      encryptedStore.deleteKey(account);
+      return true;
+    }
+  }
+  return encryptedStore.deleteKey(account);
 }
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
 
 /** @internal Test-only: reset the cached backend so it's re-evaluated. */
 export function _resetBackend(): void {
-  // No-op — encrypted store is always the backend.
+  // No-op — backend selection is determined by broker availability at call time.
 }
 
 /** @internal Test-only: force a specific backend. Pass `undefined` to reset. */
 export function _setBackend(
-  _backend: "keychain" | "encrypted" | null | undefined,
+  _backend: "keychain" | "encrypted" | "broker" | null | undefined,
 ): void {
   // No-op — kept for test compatibility.
 }

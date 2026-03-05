@@ -23,16 +23,53 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// ---------------------------------------------------------------------------
+// Broker client mock — set up before importing secure-keys so the
+// module-level `createBrokerClient()` call picks up our mock.
+// ---------------------------------------------------------------------------
+
+let mockBrokerAvailable = false;
+let mockBrokerStore: Map<string, string> = new Map();
+let mockBrokerGetError = false;
+let mockBrokerSetError = false;
+let mockBrokerDelError = false;
+
+mock.module("../security/keychain-broker-client.js", () => ({
+  createBrokerClient: () => ({
+    isAvailable: () => mockBrokerAvailable,
+    ping: async () => (mockBrokerAvailable ? { version: "test" } : null),
+    get: async (account: string) => {
+      if (mockBrokerGetError) return undefined;
+      return mockBrokerStore.get(account);
+    },
+    set: async (account: string, value: string) => {
+      if (mockBrokerSetError) return false;
+      mockBrokerStore.set(account, value);
+      return true;
+    },
+    del: async (account: string) => {
+      if (mockBrokerDelError) return false;
+      const existed = mockBrokerStore.has(account);
+      mockBrokerStore.delete(account);
+      return existed;
+    },
+    list: async () => Array.from(mockBrokerStore.keys()),
+  }),
+}));
+
 import { _setStorePath } from "../security/encrypted-store.js";
 import {
   _resetBackend,
   _setBackend,
   deleteSecureKey,
+  deleteSecureKeyAsync,
   getBackendType,
   getSecureKey,
+  getSecureKeyAsync,
   isDowngradedFromKeychain,
   listSecureKeys,
   setSecureKey,
+  setSecureKeyAsync,
 } from "../security/secure-keys.js";
 
 // ---------------------------------------------------------------------------
@@ -48,6 +85,13 @@ const STORE_PATH = join(TEST_DIR, "keys.enc");
 describe("secure-keys", () => {
   beforeEach(() => {
     _resetBackend();
+
+    // Reset broker mock state
+    mockBrokerAvailable = false;
+    mockBrokerStore = new Map();
+    mockBrokerGetError = false;
+    mockBrokerSetError = false;
+    mockBrokerDelError = false;
 
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true });
@@ -71,8 +115,13 @@ describe("secure-keys", () => {
   // Backend selection
   // -----------------------------------------------------------------------
   describe("backend selection", () => {
-    test("always uses encrypted backend", () => {
+    test("returns encrypted when broker is unavailable", () => {
       expect(getBackendType()).toBe("encrypted");
+    });
+
+    test("returns broker when broker is available", () => {
+      mockBrokerAvailable = true;
+      expect(getBackendType()).toBe("broker");
     });
 
     test("isDowngradedFromKeychain always returns false", () => {
@@ -81,9 +130,9 @@ describe("secure-keys", () => {
   });
 
   // -----------------------------------------------------------------------
-  // CRUD operations (via encrypted store backend)
+  // CRUD operations (via encrypted store backend — sync)
   // -----------------------------------------------------------------------
-  describe("CRUD with encrypted backend", () => {
+  describe("CRUD with encrypted backend (sync)", () => {
     test("set and get a key", () => {
       setSecureKey("openai", "sk-openai-789");
       expect(getSecureKey("openai")).toBe("sk-openai-789");
@@ -110,6 +159,129 @@ describe("secure-keys", () => {
       expect(keys).toContain("anthropic");
       expect(keys).toContain("openai");
       expect(keys.length).toBe(2);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Sync variants always use encrypted store even when broker is available
+  // -----------------------------------------------------------------------
+  describe("sync variants ignore broker", () => {
+    test("getSecureKey uses encrypted store even when broker is available", () => {
+      mockBrokerAvailable = true;
+      mockBrokerStore.set("api-key", "broker-value");
+      // Sync getter should not see broker-only keys
+      expect(getSecureKey("api-key")).toBeUndefined();
+      // But encrypted store keys should work
+      setSecureKey("api-key", "encrypted-value");
+      expect(getSecureKey("api-key")).toBe("encrypted-value");
+    });
+
+    test("setSecureKey uses encrypted store even when broker is available", () => {
+      mockBrokerAvailable = true;
+      setSecureKey("api-key", "encrypted-value");
+      expect(getSecureKey("api-key")).toBe("encrypted-value");
+      // Should not have written to broker
+      expect(mockBrokerStore.has("api-key")).toBe(false);
+    });
+
+    test("deleteSecureKey uses encrypted store even when broker is available", () => {
+      mockBrokerAvailable = true;
+      mockBrokerStore.set("api-key", "broker-value");
+      setSecureKey("api-key", "encrypted-value");
+      deleteSecureKey("api-key");
+      expect(getSecureKey("api-key")).toBeUndefined();
+      // Broker value should be untouched
+      expect(mockBrokerStore.has("api-key")).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Async variants — broker available path
+  // -----------------------------------------------------------------------
+  describe("async variants with broker available", () => {
+    test("getSecureKeyAsync returns broker value when available", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerStore.set("api-key", "broker-value");
+      setSecureKey("api-key", "encrypted-value");
+      expect(await getSecureKeyAsync("api-key")).toBe("broker-value");
+    });
+
+    test("getSecureKeyAsync falls back to encrypted store when broker returns undefined", async () => {
+      mockBrokerAvailable = true;
+      // Broker has nothing for this key
+      setSecureKey("api-key", "encrypted-value");
+      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
+    });
+
+    test("getSecureKeyAsync falls back to encrypted store on broker error", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerGetError = true;
+      setSecureKey("api-key", "encrypted-value");
+      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
+    });
+
+    test("setSecureKeyAsync writes to broker and encrypted store", async () => {
+      mockBrokerAvailable = true;
+      const result = await setSecureKeyAsync("api-key", "new-value");
+      expect(result).toBe(true);
+      expect(mockBrokerStore.get("api-key")).toBe("new-value");
+      // Also persisted to encrypted store for sync callers
+      expect(getSecureKey("api-key")).toBe("new-value");
+    });
+
+    test("setSecureKeyAsync falls back to encrypted store on broker error", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerSetError = true;
+      const result = await setSecureKeyAsync("api-key", "new-value");
+      expect(result).toBe(true);
+      expect(mockBrokerStore.has("api-key")).toBe(false);
+      expect(getSecureKey("api-key")).toBe("new-value");
+    });
+
+    test("deleteSecureKeyAsync deletes from broker and encrypted store", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerStore.set("api-key", "broker-value");
+      setSecureKey("api-key", "encrypted-value");
+      const result = await deleteSecureKeyAsync("api-key");
+      expect(result).toBe(true);
+      expect(mockBrokerStore.has("api-key")).toBe(false);
+      expect(getSecureKey("api-key")).toBeUndefined();
+    });
+
+    test("deleteSecureKeyAsync falls back to encrypted store on broker error", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerDelError = true;
+      setSecureKey("api-key", "encrypted-value");
+      const result = await deleteSecureKeyAsync("api-key");
+      expect(result).toBe(true);
+      expect(getSecureKey("api-key")).toBeUndefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Async variants — broker unavailable path
+  // -----------------------------------------------------------------------
+  describe("async variants with broker unavailable", () => {
+    test("getSecureKeyAsync uses encrypted store", async () => {
+      setSecureKey("api-key", "encrypted-value");
+      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
+    });
+
+    test("getSecureKeyAsync returns undefined for missing key", async () => {
+      expect(await getSecureKeyAsync("missing")).toBeUndefined();
+    });
+
+    test("setSecureKeyAsync uses encrypted store", async () => {
+      const result = await setSecureKeyAsync("api-key", "new-value");
+      expect(result).toBe(true);
+      expect(getSecureKey("api-key")).toBe("new-value");
+    });
+
+    test("deleteSecureKeyAsync uses encrypted store", async () => {
+      setSecureKey("api-key", "value");
+      const result = await deleteSecureKeyAsync("api-key");
+      expect(result).toBe(true);
+      expect(getSecureKey("api-key")).toBeUndefined();
     });
   });
 
