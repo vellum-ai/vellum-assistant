@@ -8,48 +8,14 @@ import {
   mock,
 } from "bun:test";
 
-// When ride-shotgun-handler.test.ts runs in the same bun test process, it
-// mock.module's network-recorder.js with a stub class. To test the real
-// NetworkRecorder.startDirect behavior, we override that mock with a minimal
-// re-implementation of the constructor + startDirect that exercises the same
-// fetch call as the real code. This avoids coupling to the full class while
-// ensuring tests verify the actual URL-construction logic.
-const DEFAULT_CDP_BASE = "http://localhost:9222";
-
-class RealNetworkRecorder {
-  private cdpBaseUrl: string = DEFAULT_CDP_BASE;
-
-  constructor(_targetDomain?: string, cdpBaseUrl?: string) {
-    if (cdpBaseUrl) this.cdpBaseUrl = cdpBaseUrl;
-  }
-
-  async startDirect(cdpBaseUrl?: string): Promise<void> {
-    if (cdpBaseUrl) this.cdpBaseUrl = cdpBaseUrl;
-
-    const versionRes = await fetch(`${this.cdpBaseUrl}/json/version`);
-    const version = (await versionRes.json()) as {
-      webSocketDebuggerUrl: string;
-    };
-    const wsUrl = version.webSocketDebuggerUrl;
-
-    if (!wsUrl) {
-      throw new Error("Chrome CDP: no webSocketDebuggerUrl found");
-    }
-
-    // The real class connects a WebSocket here; we stop at the fetch call
-    // since that's what the tests verify.
-    const ws = new WebSocket(wsUrl);
-    await new Promise<void>((resolve, reject) => {
-      ws.addEventListener("open", () => resolve());
-      ws.addEventListener("error", () =>
-        reject(new Error("ws connect failed")),
-      );
-    });
-  }
-}
-
-mock.module("./network-recorder.js", () => ({
-  NetworkRecorder: RealNetworkRecorder,
+// Mock the logger to avoid side effects during tests
+mock.module("../../util/logger.js", () => ({
+  getLogger: () => ({
+    info: () => {},
+    debug: () => {},
+    warn: () => {},
+    error: () => {},
+  }),
 }));
 
 const { NetworkRecorder } = await import("./network-recorder.js");
