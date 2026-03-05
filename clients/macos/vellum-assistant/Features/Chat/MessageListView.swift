@@ -379,7 +379,6 @@ struct MessageListView: View {
                                     onTemporaryAllow: onTemporaryAllow
                                 )
                                 .id(message.id)
-                                .transition(.opacity)
                             } else {
                                 let hasPrecedingAssistant: Bool = {
                                     guard index > 0 else { return false }
@@ -395,21 +394,17 @@ struct MessageListView: View {
                                         onTemporaryAllow: onTemporaryAllow
                                     )
                                     .id(message.id)
-                                    .transition(.opacity)
                                 }
                             }
                         } else if message.modelPicker != nil {
                             modelPickerView(for: message)
                                 .id(message.id)
-                                .transition(.opacity)
                         } else if message.modelList != nil {
                             modelListView(for: message)
                                 .id(message.id)
-                                .transition(.opacity)
                         } else if message.commandList != nil {
                             CommandListBubble()
                                 .id(message.id)
-                                .transition(.opacity)
                         } else if let guardianDecision = message.guardianDecision {
                             GuardianDecisionBubble(
                                 decision: guardianDecision,
@@ -418,7 +413,6 @@ struct MessageListView: View {
                                 }
                             )
                             .id(message.id)
-                            .transition(.opacity)
                         } else {
                             let nextIsPendingConfirmation = index + 1 < displayMessages.count
                                 && displayMessages[index + 1].confirmation?.state == .pending
@@ -452,7 +446,6 @@ struct MessageListView: View {
                                 activeSurfaceId: activeSurfaceId
                             )
                                 .id(message.id)
-                                .transition(.opacity)
                         }
 
                         ForEach(subagentsByParent[message.id] ?? []) { subagent in
@@ -465,7 +458,6 @@ struct MessageListView: View {
                                 .frame(maxWidth: 520, alignment: .leading)
                                 .padding(.leading, 36)
                                 .id("subagent-\(subagent.id)")
-                                .transition(.opacity)
                         }
 
                         if shouldShowThinkingIndicator && anchoredThinkingIndex == index {
