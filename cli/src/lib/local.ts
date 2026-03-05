@@ -79,18 +79,6 @@ function findGatewaySourceFromCwd(): string | undefined {
   }
 }
 
-function isOutboundProxySourceDir(dir: string): boolean {
-  const pkgPath = join(dir, "package.json");
-  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "main.ts")))
-    return false;
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    return pkg.name === "@vellumai/outbound-proxy";
-  } catch {
-    return false;
-  }
-}
-
 function resolveAssistantIndexPath(): string | undefined {
   // Source tree layout: cli/src/lib/ -> ../../.. -> repo root -> assistant/src/index.ts
   const sourceTreeIndex = join(
@@ -351,21 +339,6 @@ function resolveGatewayDir(): string {
     throw new Error(
       "Gateway not found. Ensure @vellumai/vellum-gateway is installed, run from the source tree, or set VELLUM_GATEWAY_DIR.",
     );
-  }
-}
-
-function resolveOutboundProxyDir(): string | undefined {
-  // Compiled binary: outbound-proxy/ bundled adjacent to the CLI executable.
-  const binProxy = join(dirname(process.execPath), "outbound-proxy");
-  if (isOutboundProxySourceDir(binProxy)) {
-    return binProxy;
-  }
-
-  try {
-    const pkgPath = _require.resolve("@vellumai/outbound-proxy/package.json");
-    return dirname(pkgPath);
-  } catch {
-    return undefined;
   }
 }
 
@@ -949,130 +922,10 @@ export async function startGateway(
   return gatewayUrl;
 }
 
-export async function startOutboundProxy(
-  watch: boolean = false,
-): Promise<void> {
-  const proxyDir = resolveOutboundProxyDir();
-  if (!proxyDir) {
-    console.log("   ⚠️  Outbound proxy not found — skipping");
-    return;
-  }
-
-  console.log("🔒 Starting outbound proxy...");
-
-  const vellumDir = join(homedir(), ".vellum");
-  mkdirSync(vellumDir, { recursive: true });
-
-  const pidFile = join(vellumDir, "outbound-proxy.pid");
-
-  // Check if already running
-  if (existsSync(pidFile)) {
-    try {
-      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
-      if (!isNaN(pid)) {
-        try {
-          process.kill(pid, 0);
-          console.log(`   Outbound proxy already running (pid ${pid})\n`);
-          return;
-        } catch {
-          try {
-            unlinkSync(pidFile);
-          } catch {}
-        }
-      }
-    } catch {}
-  }
-
-  const proxyEnv: Record<string, string> = {
-    ...(process.env as Record<string, string>),
-    PROXY_PORT: process.env.PROXY_PORT || "7829",
-    PROXY_HEALTH_PORT: process.env.PROXY_HEALTH_PORT || "7828",
-  };
-
-  const proxyLogFd = openLogFile("hatch.log");
-
-  let proxy;
-  if (process.env.VELLUM_DESKTOP_APP && !watch) {
-    const proxyBinary = join(
-      dirname(process.execPath),
-      "vellum-outbound-proxy",
-    );
-    if (!existsSync(proxyBinary)) {
-      console.log(
-        "   ⚠️  Outbound proxy binary not found — falling back to source",
-      );
-      const bunArgs = watch
-        ? ["--watch", "run", "src/main.ts"]
-        : ["run", "src/main.ts"];
-      proxy = spawn("bun", bunArgs, {
-        cwd: proxyDir,
-        detached: true,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: proxyEnv,
-      });
-    } else {
-      proxy = spawn(proxyBinary, [], {
-        detached: true,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: proxyEnv,
-      });
-    }
-  } else {
-    const bunArgs = watch
-      ? ["--watch", "run", "src/main.ts"]
-      : ["run", "src/main.ts"];
-    proxy = spawn("bun", bunArgs, {
-      cwd: proxyDir,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: proxyEnv,
-    });
-  }
-
-  pipeToLogFile(proxy, proxyLogFd, "outbound-proxy");
-  proxy.unref();
-
-  if (proxy.pid) {
-    writeFileSync(pidFile, String(proxy.pid), "utf-8");
-  }
-
-  if (watch) {
-    console.log("   Outbound proxy started in watch mode (bun --watch)");
-  }
-
-  // Wait for the health endpoint to respond
-  const healthPort = Number(process.env.PROXY_HEALTH_PORT) || 7828;
-  const start = Date.now();
-  const timeoutMs = 15000;
-  let ready = false;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(`http://localhost:${healthPort}/healthz`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (res.ok) {
-        ready = true;
-        break;
-      }
-    } catch {
-      // Not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-
-  if (!ready) {
-    console.warn(
-      "   ⚠️  Outbound proxy started but health check did not respond within 15s",
-    );
-  }
-
-  console.log("✅ Outbound proxy started\n");
-}
-
 /**
- * Stop any locally-running daemon, gateway, and outbound-proxy processes
- * and clean up PID/socket files. Called when hatch fails partway through
- * so we don't leave orphaned processes with no lock file entry.
+ * Stop any locally-running daemon and gateway processes and clean up
+ * PID/socket files. Called when hatch fails partway through so we don't
+ * leave orphaned processes with no lock file entry.
  */
 export async function stopLocalProcesses(): Promise<void> {
   const vellumDir = join(homedir(), ".vellum");
@@ -1083,6 +936,4 @@ export async function stopLocalProcesses(): Promise<void> {
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway");
 
-  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
-  await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
 }

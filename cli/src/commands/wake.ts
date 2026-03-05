@@ -4,11 +4,7 @@ import { join } from "path";
 
 import { loadAllAssistants } from "../lib/assistant-config";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
-import {
-  startLocalDaemon,
-  startGateway,
-  startOutboundProxy,
-} from "../lib/local";
+import { startLocalDaemon, startGateway } from "../lib/local";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -87,18 +83,6 @@ export async function wake(): Promise<void> {
       await startGateway(undefined, watch);
     }
   }
-
-  // Start outbound proxy
-  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
-  const outboundProxyStatus = isProcessAlive(outboundProxyPidFile);
-  if (outboundProxyStatus.alive && watch) {
-    // Restart in watch mode
-    console.log(
-      `Outbound proxy running (pid ${outboundProxyStatus.pid}) — restarting in watch mode...`,
-    );
-    await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
-  }
-  await startOutboundProxy(watch);
 
   console.log("✅ Wake complete.");
 }
