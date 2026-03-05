@@ -282,33 +282,57 @@ jobs:
         run: |
           # On macOS 15+ (Sequoia), screencapture triggers a "requesting to
           # bypass the system private window picker" dialog unless screen
-          # recording access is pre-granted. Approve it via the TCC database
-          # and the ScreenCaptureApprovals plist so the modal never appears.
+          # recording access is pre-granted. We must:
+          #   1. Write TCC entries (system + user databases)
+          #   2. Restart tccd so it picks up the manual DB changes
+          #   3. Write ScreenCaptureApprovals plist
+          #   4. Kill replayd so it re-reads the plist
+          # Without the daemon restarts, manual DB/plist writes are ignored.
 
           set -x  # echo commands for debugging
 
-          # 1. System TCC database — grants the underlying screen-capture entitlement.
-          #    Use named columns so extra columns added in newer macOS versions
-          #    get their default values automatically.
+          CLIENTS="/usr/sbin/screencapture /bin/bash /bin/zsh /opt/homebrew/bin/bun"
+          TS=$(date +%s)
+
+          # ── 1a. System-level TCC database ──
           echo "--- TCC.db schema ---"
           sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" ".schema access" || echo "Cannot read TCC schema"
 
-          CLIENTS="/usr/sbin/screencapture /bin/bash /bin/zsh /opt/homebrew/bin/bun"
-          TS=$(date +%s)
           for client in $CLIENTS; do
             sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
               "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \
-              && echo "TCC: granted $client" \
-              || echo "TCC: FAILED for $client"
+              && echo "TCC system: granted $client" \
+              || echo "TCC system: FAILED for $client"
           done
 
-          echo "--- TCC entries after insert ---"
+          # ── 1b. User-level TCC database ──
+          USER_TCC="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+          if [ -f "$USER_TCC" ]; then
+            for client in $CLIENTS; do
+              sqlite3 "$USER_TCC" \
+                "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \
+                && echo "TCC user: granted $client" \
+                || echo "TCC user: FAILED for $client"
+            done
+          else
+            echo "User TCC.db not found at $USER_TCC — skipping user-level grants"
+          fi
+
+          echo "--- System TCC entries after insert ---"
           sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
             "SELECT client, auth_value FROM access WHERE service='kTCCServiceScreenCapture';" || true
 
-          # 2. ScreenCaptureApprovals plist — suppresses the Sequoia monthly
-          #    "bypass the system private window picker" nag by setting the
-          #    last-alerted timestamp far into the future.
+          # ── 2. Restart TCC daemon so it picks up the DB changes ──
+          # Without this, tccd caches the old state and ignores manual inserts.
+          echo "--- Restarting TCC daemons ---"
+          sudo killall -9 tccd 2>&1 || echo "tccd kill failed (may not be running)"
+          sleep 1
+          echo "tccd processes after restart:"
+          ps aux | grep -i tccd | grep -v grep || echo "no tccd found"
+
+          # ── 3. ScreenCaptureApprovals plist ──
+          # Suppresses the Sequoia "bypass the system private window picker"
+          # nag by setting the last-alerted timestamp far into the future.
           APPROVALS_DIR="$HOME/Library/Group Containers/group.com.apple.replayd"
           mkdir -p "$APPROVALS_DIR"
           APPROVALS_PLIST="$APPROVALS_DIR/ScreenCaptureApprovals"
@@ -321,6 +345,13 @@ jobs:
 
           echo "--- ScreenCaptureApprovals plist ---"
           defaults read "$APPROVALS_PLIST" || echo "Cannot read ScreenCaptureApprovals"
+
+          # ── 4. Kill replayd so it re-reads the plist on next launch ──
+          echo "--- Restarting replayd ---"
+          killall -9 replayd 2>&1 || echo "replayd kill failed (may not be running)"
+          sleep 1
+
+          echo "--- Done. Daemons restarted. ---"
 
       - name: Run Playwright tests
         id: tests
