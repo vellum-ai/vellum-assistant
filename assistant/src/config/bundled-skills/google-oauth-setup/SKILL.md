@@ -311,6 +311,8 @@ If the user is already authenticated (`gcloud auth list` shows an active account
 
 Tell the user: "Setting up your Google Cloud project, APIs, and credentials..."
 
+### Primary: `gws auth setup`
+
 ```bash
 gws auth setup
 ```
@@ -323,7 +325,52 @@ This command automates:
 
 Wait for the command to complete. It may have interactive prompts — let them run in the terminal and the user can respond if needed.
 
-Note the **project ID** from the output — you'll need it for the next step.
+If `gws auth setup` **succeeds**, note the **project ID** from the output and continue to **CLI Step 5**.
+
+### Fallback: `gcloud` CLI + browser automation
+
+If `gws auth setup` **fails** (common with personal Google accounts due to workspace-admin scope errors), use `gcloud` CLI and browser automation instead.
+
+**Step 4f-1: Create GCP project**
+
+Generate a unique suffix (4-6 random alphanumeric characters):
+
+```bash
+gcloud projects create vellum-assistant-SUFFIX --name="Vellum Assistant"
+```
+
+If the project already exists, use it. Note the **project ID**.
+
+**Step 4f-2: Enable APIs**
+
+```bash
+gcloud services enable gmail.googleapis.com --project=PROJECT_ID
+gcloud services enable calendar-json.googleapis.com --project=PROJECT_ID
+gcloud services enable people.googleapis.com --project=PROJECT_ID
+```
+
+**Step 4f-3: Configure OAuth consent screen via browser**
+
+Navigate to `https://console.cloud.google.com/apis/credentials/consent?project=PROJECT_ID`.
+
+Take a screenshot and snapshot, then:
+
+1. Select **"External"** user type, click **Create**
+2. Fill in the app registration form:
+   - App name: **"Vellum Assistant"**
+   - User support email: select the authenticated email from the dropdown
+   - Developer contact email: type the same email
+   - Click **Save and Continue**
+3. On the Scopes page, click **Save and Continue** (scopes are not needed for test-mode apps)
+4. On the Test users page:
+   - Click **+ Add Users**
+   - Enter the authenticated email address
+   - Click **Add**, then **Save and Continue**
+5. On the Summary page, click **Back to Dashboard**
+
+**Verify:** Take a screenshot. The consent screen should show "Testing" publishing status.
+
+After the fallback completes, skip CLI Step 5 (APIs already enabled above) and CLI Step 5c (test user already added above) — continue directly to **CLI Step 6**.
 
 ## CLI Step 5: Enable Additional APIs
 
@@ -335,6 +382,22 @@ gcloud services enable people.googleapis.com --project=PROJECT_ID
 ```
 
 If either command reports the API is already enabled, that's fine — continue.
+
+## CLI Step 5c: Add Test User
+
+`gws auth setup` does not add test users to the consent screen, and there is no CLI/API for it. Use browser automation to add the authenticated email as a test user.
+
+Navigate to `https://console.cloud.google.com/apis/credentials/consent?project=PROJECT_ID`.
+
+Take a screenshot and snapshot. Find the **Test users** section (you may need to click **Edit App** or navigate to the consent screen edit flow):
+
+1. Find and click the option to add test users (e.g., **+ Add Users** button)
+2. Enter the authenticated email address (from `gcloud auth list`)
+3. Click **Add** or **Save**
+
+**Verify:** Take a screenshot confirming the email appears in the test users list.
+
+If the user is already listed as a test user, skip this step.
 
 ## CLI Step 6: Create OAuth Credentials via Browser
 
