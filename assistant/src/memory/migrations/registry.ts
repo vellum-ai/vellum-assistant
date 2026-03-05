@@ -122,6 +122,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id after backfill",
   },
+  {
+    key: "backfill_contact_interaction_stats",
+    version: 17,
+    description:
+      "Backfill contacts.last_interaction from the max lastSeenAt across each contact's channels",
+  },
 ];
 
 export interface MigrationValidationResult {
