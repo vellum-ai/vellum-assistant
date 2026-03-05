@@ -140,6 +140,7 @@ import { slackInviteAdapter } from "./channel-invite-transports/slack.js";
 import { smsInviteAdapter } from "./channel-invite-transports/sms.js";
 import { telegramInviteAdapter } from "./channel-invite-transports/telegram.js";
 import { voiceInviteAdapter } from "./channel-invite-transports/voice.js";
+import { whatsappInviteAdapter } from "./channel-invite-transports/whatsapp.js";
 
 /** Create a registry instance with built-in adapters registered. */
 export function createInviteAdapterRegistry(): InviteAdapterRegistry {
@@ -149,6 +150,7 @@ export function createInviteAdapterRegistry(): InviteAdapterRegistry {
   registry.register(smsInviteAdapter);
   registry.register(telegramInviteAdapter);
   registry.register(voiceInviteAdapter);
+  registry.register(whatsappInviteAdapter);
   return registry;
 }
 

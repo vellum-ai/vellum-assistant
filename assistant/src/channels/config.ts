@@ -60,7 +60,7 @@ const CHANNEL_POLICIES = {
       conversationStrategy: "continue_existing_conversation",
     },
     invite: {
-      codeRedemptionEnabled: false,
+      codeRedemptionEnabled: true,
     },
   },
   slack: {
