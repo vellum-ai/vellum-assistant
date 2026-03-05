@@ -53,6 +53,9 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p .perf-baselines
+          # Remove stale summary from artifact download so a failed test run
+          # doesn't cause the PR comment step to post outdated results.
+          rm -f .perf-baselines/summary.md
           swift test --package-path clients --filter 'MarkdownPerformanceTests|MessageListAnchorPerformanceTests|AXTreeDiffPerformanceTests' 2>&1 | tee .perf-baselines/results.log
 
       - name: Compare baselines
