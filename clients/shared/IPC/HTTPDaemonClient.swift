@@ -1169,6 +1169,13 @@ public final class HTTPTransport {
             let channel: String
             let ready: Bool
             let channelHandle: String?
+            let localChecks: [CheckResult]?
+            let remoteChecks: [CheckResult]?
+        }
+        struct CheckResult: Decodable {
+            let name: String
+            let passed: Bool
+            let message: String
         }
     }
 
@@ -1320,9 +1327,12 @@ public final class HTTPTransport {
         let decoded = try decoder.decode(HTTPChannelReadinessResponse.self, from: data)
         var result: [String: DaemonClient.ChannelReadinessInfo] = [:]
         for snapshot in decoded.snapshots {
+            let checks = ((snapshot.localChecks ?? []) + (snapshot.remoteChecks ?? []))
+                .map { DaemonClient.ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
             result[snapshot.channel] = DaemonClient.ChannelReadinessInfo(
                 ready: snapshot.ready,
-                channelHandle: snapshot.channelHandle
+                channelHandle: snapshot.channelHandle,
+                checks: checks
             )
         }
         return result
