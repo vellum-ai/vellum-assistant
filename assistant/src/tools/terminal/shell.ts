@@ -10,6 +10,7 @@ import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
   getSessionEnv,
+  TRUSTED_HOSTS,
 } from "../network/script-proxy/index.js";
 import { registerTool } from "../registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
@@ -190,7 +191,7 @@ class ShellTool implements Tool {
     // Sessions are NOT stopped here — the session manager's idle timer handles
     // cleanup after all commands finish (see resetIdleTimer / stopAllSessions).
     let proxyEnv: ProxyEnvVars | null = null;
-    const platformOnly = networkMode === "off";
+    const allowedHosts = networkMode === "off" ? TRUSTED_HOSTS : undefined;
 
     try {
       const { session } = await getOrStartSession(
@@ -199,7 +200,7 @@ class ShellTool implements Tool {
         undefined,
         getDataDir(),
         context.proxyApprovalCallback,
-        { platformOnly },
+        { allowedHosts },
       );
       proxyEnv = getSessionEnv(session.id);
     } catch (err) {
@@ -207,7 +208,7 @@ class ShellTool implements Tool {
       // For platform-only sessions, failing to start the proxy is non-fatal —
       // the command simply won't be able to reach the platform API, which is
       // the same behavior as before this change.
-      if (!platformOnly) {
+      if (!allowedHosts) {
         return {
           content: `Error: failed to start proxy session — ${
             err instanceof Error ? err.message : String(err)

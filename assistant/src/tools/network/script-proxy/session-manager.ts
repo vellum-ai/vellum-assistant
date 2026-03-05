@@ -43,15 +43,15 @@ const DEFAULT_CONFIG: ProxySessionConfig = {
 };
 
 /**
- * Hosts that are always reachable even in network_mode="off".
- *
- * When a proxy session is created with `platformOnly: true`, only requests
- * targeting these hosts are allowed through; everything else is blocked.
- *
- * TODO(temporary): remove once a proper per-command allowlist is implemented.
+ * Hosts that are trusted by default and always reachable, even when
+ * `network_mode="off"`. When a proxy session is created with
+ * `allowedHosts` set to this value, only requests targeting these hosts
+ * are allowed through; everything else is blocked.
  */
-const PLATFORM_ALLOWED_HOSTS: ReadonlySet<string> = new Set([
+export const TRUSTED_HOSTS: ReadonlySet<string> = new Set([
   "platform.vellum.ai",
+  "dev-platform.vellum.ai",
+  "localhost",
 ]);
 
 interface ManagedSession {
@@ -68,11 +68,11 @@ interface ManagedSession {
   /** Path to the combined CA bundle, set only when ensureCombinedCABundle succeeds. */
   combinedCABundlePath: string | null;
   /**
-   * When true, the proxy only allows requests to PLATFORM_ALLOWED_HOSTS.
-   * Used for network_mode="off" sessions that still need to reach the
-   * Vellum platform API.
+   * When set, only requests targeting hosts in this set are allowed through
+   * the proxy; everything else is blocked. When `null`, the full policy
+   * engine is consulted (normal proxied mode).
    */
-  platformOnly: boolean;
+  allowedHosts: ReadonlySet<string> | null;
 }
 
 const sessions = new Map<ProxySessionId, ManagedSession>();
@@ -134,7 +134,7 @@ export function createSession(
   config?: Partial<ProxySessionConfig>,
   dataDir?: string,
   approvalCallback?: ProxyApprovalCallback,
-  options?: { platformOnly?: boolean },
+  options?: { allowedHosts?: ReadonlySet<string> },
 ): ProxySession {
   const merged: ProxySessionConfig = { ...DEFAULT_CONFIG, ...config };
 
@@ -166,7 +166,7 @@ export function createSession(
     listenHost: "127.0.0.1",
     stopPromise: null,
     combinedCABundlePath: null,
-    platformOnly: options?.platformOnly ?? false,
+    allowedHosts: options?.allowedHosts ?? null,
   });
 
   return cloneSession(session);
@@ -329,20 +329,14 @@ export async function startSession(
     reqPath: string,
     scheme: "http" | "https",
   ) => {
-    // Platform-only sessions restrict traffic to PLATFORM_ALLOWED_HOSTS.
+    // Restricted sessions only allow traffic to their allowedHosts set.
     // Everything else is blocked without even consulting the policy engine.
-    if (managed.platformOnly) {
-      if (PLATFORM_ALLOWED_HOSTS.has(hostname)) {
-        log.debug(
-          { hostname },
-          "Platform-only session: allowing platform host",
-        );
+    if (managed.allowedHosts) {
+      if (managed.allowedHosts.has(hostname)) {
+        log.debug({ hostname }, "Restricted session: allowing trusted host");
         return {};
       }
-      log.debug(
-        { hostname },
-        "Platform-only session: blocking non-platform host",
-      );
+      log.debug({ hostname }, "Restricted session: blocking non-trusted host");
       return null;
     }
 
@@ -539,20 +533,20 @@ export async function getOrStartSession(
   config?: Partial<ProxySessionConfig>,
   dataDir?: string,
   approvalCallback?: ProxyApprovalCallback,
-  options?: { listenHost?: string; platformOnly?: boolean },
+  options?: { listenHost?: string; allowedHosts?: ReadonlySet<string> },
 ): Promise<{ session: ProxySession; created: boolean }> {
   const requestedHost = options?.listenHost ?? "127.0.0.1";
-  const requestedPlatformOnly = options?.platformOnly ?? false;
+  const requestedAllowedHosts = options?.allowedHosts ?? null;
 
   // Fast path — session already active with matching credentials, listen host,
-  // and platformOnly flag, no lock needed.
+  // and allowedHosts, no lock needed.
   const existing = getActiveSession(conversationId);
   if (existing && credentialIdsMatch(existing.credentialIds, credentialIds)) {
     const managed = sessions.get(existing.id);
     if (
       managed &&
       managed.listenHost === requestedHost &&
-      managed.platformOnly === requestedPlatformOnly
+      managed.allowedHosts === requestedAllowedHosts
     ) {
       return { session: existing, created: false };
     }
@@ -575,12 +569,12 @@ export async function getOrStartSession(
       if (
         m &&
         m.listenHost === requestedHost &&
-        m.platformOnly === requestedPlatformOnly
+        m.allowedHosts === requestedAllowedHosts
       ) {
         return { session, created: false };
       }
     }
-    // Credential, listenHost, or platformOnly mismatch — tear down and loop
+    // Credential, listenHost, or allowedHosts mismatch — tear down and loop
     // back to re-check whether another waiter has already started a
     // replacement session.
     await stopSession(session.id);
@@ -596,7 +590,7 @@ export async function getOrStartSession(
         credentialIdsMatch(recheck.credentialIds, credentialIds) &&
         m &&
         m.listenHost === requestedHost &&
-        m.platformOnly === requestedPlatformOnly
+        m.allowedHosts === requestedAllowedHosts
       ) {
         return { session: recheck, created: false };
       }
@@ -609,7 +603,9 @@ export async function getOrStartSession(
       config,
       dataDir,
       approvalCallback,
-      { platformOnly: requestedPlatformOnly },
+      requestedAllowedHosts
+        ? { allowedHosts: requestedAllowedHosts }
+        : undefined,
     );
     const started = await startSession(session.id, options);
     return { session: started, created: true };
