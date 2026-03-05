@@ -8,7 +8,10 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
-import { touchChannelLastSeen } from "../../../contacts/contacts-write.js";
+import {
+  touchChannelLastSeen,
+  touchContactInteraction,
+} from "../../../contacts/contacts-write.js";
 import type {
   ChannelStatus,
   ContactChannel,
@@ -634,6 +637,7 @@ export async function enforceIngressAcl(
 
       // 'allow' or 'escalate' — update last seen and continue
       touchChannelLastSeen(resolvedMember.channel.id);
+      touchContactInteraction(resolvedMember.contact.id);
     }
   }
 
