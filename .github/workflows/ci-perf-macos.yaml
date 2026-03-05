@@ -83,4 +83,5 @@ jobs:
         with:
           name: perf-baselines
           path: .perf-baselines/
+          include-hidden-files: true
           retention-days: 90
