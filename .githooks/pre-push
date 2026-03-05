@@ -2,10 +2,9 @@
 
 # Pre-push hook: run tests related to changed files before pushing.
 #
-# For each package (assistant, cli, gateway), finds source files that changed
-# between HEAD and the remote tracking branch, then matches them to co-located
-# test files using filename heuristics. Runs matched tests in isolation so
-# failures surface fast.
+# Uses a dependency graph (scripts/affected-tests.ts) to find test files
+# that transitively import changed source files. Falls back to filename
+# heuristics for guard tests and when the graph builder fails.
 #
 # Skip with: git push --no-verify
 
@@ -142,13 +141,12 @@ trap 'rm -rf "${RESULTS_DIR}"' EXIT
 
 # For each package, find test files that correspond to changed source files.
 #
-# Heuristic: for a changed source file like `src/foo/bar-baz.ts`, look for
-# test files matching `bar-baz.test.ts` (exact) or `bar-baz-*.test.ts`
-# (hyphenated variants) anywhere under the package's src/. This catches:
-#   - src/__tests__/bar-baz.test.ts          (exact match)
-#   - src/__tests__/bar-baz-edge.test.ts     (hyphenated variant)
-#   - src/foo/__tests__/bar-baz.test.ts      (co-located)
-# but avoids false matches like `bar-bazillion.test.ts` or `bar.test.ts`.
+# Phase A: Use the dependency graph (scripts/affected-tests.ts) to discover
+# test files that transitively import the changed source files.
+#
+# Phase B: Supplement with filename heuristics to catch guard tests that use
+# readFileSync (invisible to the import graph). For a changed source file like
+# `src/foo/bar-baz.ts`, looks for `bar-baz.test.ts` or `bar-baz-*.test.ts`.
 
 PACKAGES=("assistant" "cli" "gateway")
 overall_exit=0
@@ -175,17 +173,6 @@ for pkg in "${PACKAGES[@]}"; do
         continue
     fi
 
-    # Build a list of basename stems from changed source files.
-    # Guard the loop for bash 3.2 compatibility (empty array + set -u).
-    stems=()
-    if [ ${#pkg_changed[@]} -gt 0 ]; then
-        for file in "${pkg_changed[@]}"; do
-            base="$(basename "$file")"
-            stem="${base%.*}"
-            stems+=("$stem")
-        done
-    fi
-
     # Find matching test files (deduplicated)
     test_files=()
     unset seen_tests 2>/dev/null || true
@@ -202,8 +189,43 @@ for pkg in "${PACKAGES[@]}"; do
         done
     fi
 
-    # Search for test files matching source file stems.
-    # Two find passes per stem: exact match and hyphenated variants.
+    # Phase A: dependency graph lookup
+    _debug_log "$pkg: building dependency graph"
+    graph_test_files=()
+    if [ ${#pkg_changed[@]} -gt 0 ]; then
+        # Strip pkg/ prefix — script expects paths relative to pkg root
+        stripped_changed=()
+        for f in "${pkg_changed[@]}"; do
+            stripped_changed+=("${f#${pkg}/}")
+        done
+        graph_output=""
+        graph_output=$("$BUN" run "${REPO_ROOT}/scripts/affected-tests.ts" --pkg "$pkg" "${stripped_changed[@]}" 2>/dev/null)
+        graph_exit=$?
+        if [ $graph_exit -eq 0 ] && [ -n "$graph_output" ]; then
+            while IFS= read -r tf; do
+                abs_tf="${REPO_ROOT}/${pkg}/${tf}"
+                if [ -f "$abs_tf" ] && [ -z "${seen_tests[$abs_tf]:-}" ]; then
+                    graph_test_files+=("$abs_tf")
+                    seen_tests["$abs_tf"]=1
+                fi
+            done <<< "$graph_output"
+            _debug_log "$pkg: dep graph found ${#graph_test_files[@]} affected test(s)"
+        else
+            _debug_log "$pkg: dep graph failed (exit=$graph_exit), falling back to filename heuristic"
+        fi
+    fi
+    test_files+=("${graph_test_files[@]}")
+
+    # Phase B: filename heuristic (fallback + supplement for guard tests)
+    stems=()
+    if [ ${#pkg_changed[@]} -gt 0 ]; then
+        for file in "${pkg_changed[@]}"; do
+            base="$(basename "$file")"
+            stem="${base%.*}"
+            stems+=("$stem")
+        done
+    fi
+
     if [ ${#stems[@]} -gt 0 ]; then
         for stem in "${stems[@]}"; do
             while IFS= read -r tf; do
