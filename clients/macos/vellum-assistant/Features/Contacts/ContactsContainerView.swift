@@ -74,8 +74,9 @@ struct ContactsContainerView: View {
                 .background(VColor.background)
             }
         }
-        .onReceive(viewModel.$contacts) { _ in
-            if selectedContactId == nil, let guardian = viewModel.guardianContact {
+        .onReceive(viewModel.$contacts) { newContacts in
+            if selectedContactId == nil,
+               let guardian = newContacts.first(where: { $0.role == "guardian" }) {
                 selectedContactId = guardian.id
             }
         }
