@@ -351,7 +351,7 @@ const accessRequestResolver: GuardianRequestResolver = {
       request.requesterChatId ?? request.requesterExternalUserId ?? "";
     const requesterLabel =
       requesterExternalUserId || requesterChatId || "the requester";
-    const decidedByExternalUserId = ctx.actor.externalUserId ?? "";
+    const decidedByExternalUserId = ctx.actor.actorExternalUserId ?? "";
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
     const desktopBearerToken = mintDaemonDeliveryToken();
