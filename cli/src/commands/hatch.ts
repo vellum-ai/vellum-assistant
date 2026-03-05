@@ -726,98 +726,72 @@ async function hatchLocal(
   }
 
   const baseDataDir = join(resources.instanceDir, ".vellum");
-  const isFirstLocal = localAssistants.length === 0;
 
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
   console.log("");
 
-  // Subsequent assistants are registered but not started — the user can wake
-  // them explicitly via the toggle or `vellum wake`. The first assistant is
-  // always started immediately since there's nothing running yet.
-  if (isFirstLocal || restart) {
-    await startLocalDaemon(watch, resources);
+  await startLocalDaemon(watch, resources);
 
-    let runtimeUrl: string;
-    try {
-      runtimeUrl = await startGateway(instanceName, watch, resources);
-    } catch (error) {
-      // Gateway failed — stop the daemon we just started so we don't leave
-      // orphaned processes with no lock file entry.
-      console.error(
-        `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
-      );
-      await stopLocalProcesses(resources);
-      throw error;
+  let runtimeUrl: string;
+  try {
+    runtimeUrl = await startGateway(instanceName, watch, resources);
+  } catch (error) {
+    // Gateway failed — stop the daemon we just started so we don't leave
+    // orphaned processes with no lock file entry.
+    console.error(
+      `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
+    );
+    await stopLocalProcesses(resources);
+    throw error;
+  }
+
+  await startOutboundProxy(watch);
+
+  // Read the bearer token (JWT) written by the daemon so the CLI can
+  // with the gateway (which requires auth by default). The daemon writes under
+  // getRootDir() which resolves to <instanceDir>/.vellum/.
+  let bearerToken: string | undefined;
+  try {
+    const tokenPath = join(resources.instanceDir, ".vellum", "http-token");
+    const token = readFileSync(tokenPath, "utf-8").trim();
+    if (token) bearerToken = token;
+  } catch {
+    // Token file may not exist if daemon started without HTTP server
+  }
+
+  const localEntry: AssistantEntry = {
+    assistantId: instanceName,
+    runtimeUrl,
+    localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
+    baseDataDir,
+    bearerToken,
+    cloud: "local",
+    species,
+    hatchedAt: new Date().toISOString(),
+    resources,
+  };
+  if (!daemonOnly && !restart) {
+    saveAssistantEntry(localEntry);
+    syncConfigToLockfile();
+
+    if (process.env.VELLUM_DESKTOP_APP) {
+      installCLISymlink();
     }
 
-    await startOutboundProxy(watch);
+    console.log("");
+    console.log(`✅ Local assistant hatched!`);
+    console.log("");
+    console.log("Instance details:");
+    console.log(`  Name: ${instanceName}`);
+    console.log(`  Runtime: ${runtimeUrl}`);
+    console.log("");
 
-    // Read the bearer token (JWT) written by the daemon so the CLI can
-    // authenticate with the gateway. The daemon writes under
-    // getRootDir() which resolves to <instanceDir>/.vellum/.
-    let bearerToken: string | undefined;
-    try {
-      const tokenPath = join(resources.instanceDir, ".vellum", "http-token");
-      const token = readFileSync(tokenPath, "utf-8").trim();
-      if (token) bearerToken = token;
-    } catch {
-      // Token file may not exist if daemon started without HTTP server
-    }
-
-    const localEntry: AssistantEntry = {
-      assistantId: instanceName,
-      runtimeUrl,
-      localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
-      baseDataDir,
-      bearerToken,
-      cloud: "local",
-      species,
-      hatchedAt: new Date().toISOString(),
-      resources,
-    };
-    if (!daemonOnly && !restart) {
-      saveAssistantEntry(localEntry);
-      syncConfigToLockfile();
-
-      if (process.env.VELLUM_DESKTOP_APP) {
-        installCLISymlink();
-      }
-
-      console.log("");
-      console.log(`✅ Local assistant hatched!`);
-      console.log("");
-      console.log("Instance details:");
-      console.log(`  Name: ${instanceName}`);
-      console.log(`  Runtime: ${runtimeUrl}`);
-      console.log("");
-
-      // Use loopback for HTTP calls (health check + pairing register) since
-      // mDNS hostnames may not resolve on the local machine, but keep the
-      // external runtimeUrl in the QR payload so iOS devices can reach it.
-      const localGatewayUrl = `http://127.0.0.1:${resources.gatewayPort}`;
-      await displayPairingQRCode(localGatewayUrl, bearerToken, runtimeUrl);
-    }
-  } else {
-    // Register the new assistant without starting it. It will be woken on demand.
-    const localEntry: AssistantEntry = {
-      assistantId: instanceName,
-      runtimeUrl: `http://localhost:${resources.gatewayPort}`,
-      localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
-      baseDataDir,
-      cloud: "local",
-      species,
-      hatchedAt: new Date().toISOString(),
-      resources,
-    };
-    if (!daemonOnly) {
-      saveAssistantEntry(localEntry);
-      syncConfigToLockfile();
-
-      console.log(`✅ Local assistant registered: ${instanceName}`);
-      console.log(`   Wake it with: vellum wake ${instanceName}`);
-      console.log("");
-    }
+    // Use loopback for HTTP calls (health check + pairing register) since
+    // mDNS hostnames may not resolve on the local machine, but keep the
+    // external runtimeUrl in the QR payload so iOS devices can reach it.
+    const localGatewayUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+    await displayPairingQRCode(localGatewayUrl, bearerToken, runtimeUrl);
   }
 }
 
