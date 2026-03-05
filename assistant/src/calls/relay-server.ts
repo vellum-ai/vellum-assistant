@@ -20,6 +20,7 @@ import {
 import {
   createGuardianBinding,
   revokeGuardianBinding,
+  touchContactInteraction,
   upsertMember,
 } from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
@@ -874,6 +875,10 @@ export class RelayConnection {
       }
 
       // Guardian and trusted-contact callers proceed normally.
+      if (actorTrust.memberRecord) {
+        touchContactInteraction(actorTrust.memberRecord.contact.id);
+      }
+
       // Update the controller's guardian context with the trust-resolved
       // context so downstream policy gates have accurate actor metadata.
       if (this.controller && actorTrust.trustClass !== "unknown") {
