@@ -8,9 +8,15 @@
  */
 
 import * as encryptedStore from "./encrypted-store.js";
+import type { KeychainBrokerClient } from "./keychain-broker-client.js";
 import { createBrokerClient } from "./keychain-broker-client.js";
 
-const broker = createBrokerClient();
+let _broker: KeychainBrokerClient | undefined;
+
+function getBroker(): KeychainBrokerClient {
+  if (!_broker) _broker = createBrokerClient();
+  return _broker;
+}
 
 // ---------------------------------------------------------------------------
 // Sync variants — encrypted store only (startup / sync call sites)
@@ -57,7 +63,7 @@ export function listSecureKeys(): string[] {
  * Returns `"broker"` when the keychain broker is reachable, `"encrypted"` otherwise.
  */
 export function getBackendType(): "broker" | "encrypted" | null {
-  return broker.isAvailable() ? "broker" : "encrypted";
+  return getBroker().isAvailable() ? "broker" : "encrypted";
 }
 
 /**
@@ -80,6 +86,7 @@ export function isDowngradedFromKeychain(): boolean {
 export async function getSecureKeyAsync(
   account: string,
 ): Promise<string | undefined> {
+  const broker = getBroker();
   if (broker.isAvailable()) {
     const value = await broker.get(account);
     if (value !== undefined) return value;
@@ -96,6 +103,7 @@ export async function setSecureKeyAsync(
   account: string,
   value: string,
 ): Promise<boolean> {
+  const broker = getBroker();
   if (broker.isAvailable()) {
     const ok = await broker.set(account, value);
     if (ok) {
@@ -113,6 +121,7 @@ export async function setSecureKeyAsync(
  * as well so that sync callers have a consistent view.
  */
 export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
+  const broker = getBroker();
   if (broker.isAvailable()) {
     const ok = await broker.del(account);
     if (ok) {
@@ -128,9 +137,9 @@ export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-/** @internal Test-only: reset the cached backend so it's re-evaluated. */
+/** @internal Test-only: reset the cached broker so it's re-created. */
 export function _resetBackend(): void {
-  // No-op — backend selection is determined by broker availability at call time.
+  _broker = undefined;
 }
 
 /** @internal Test-only: force a specific backend. Pass `undefined` to reset. */

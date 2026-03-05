@@ -59,7 +59,11 @@ function createMockBroker(): {
     request: Record<string, unknown>,
   ) => Record<string, unknown> = () => ({ ok: true });
 
+  const connections = new Set<import("node:net").Socket>();
+
   const server = createServer((conn) => {
+    connections.add(conn);
+    conn.on("close", () => connections.delete(conn));
     let buffer = "";
     conn.on("data", (chunk) => {
       buffer += chunk.toString();
@@ -90,6 +94,9 @@ function createMockBroker(): {
       }),
     stop: () =>
       new Promise<void>((resolve) => {
+        // Destroy active connections so server.close() can complete
+        for (const conn of connections) conn.destroy();
+        connections.clear();
         server.close(() => resolve());
       }),
   };
