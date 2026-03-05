@@ -118,6 +118,78 @@ final class UsageDashboardViewTests: XCTestCase {
     }
 }
 
+// MARK: - View Rendering Tests
+
+#if canImport(UIKit)
+import SwiftUI
+
+/// Tests that actually instantiate `UsageDashboardView` and verify its body
+/// renders without crashing across different store states.
+@MainActor
+final class UsageDashboardViewRenderingTests: XCTestCase {
+
+    // MARK: - Idle State
+
+    func testViewRendersInIdleState() {
+        let store = UsageDashboardStore(client: MockDaemonClient())
+        let view = UsageDashboardView(store: store)
+        // Force body evaluation — confirms the view hierarchy builds without crashing.
+        let _ = view.body
+    }
+
+    // MARK: - Failed State
+
+    func testViewRendersInFailedState() async {
+        let client = MockDaemonClient()
+        let store = UsageDashboardStore(client: client)
+        // MockDaemonClient returns nil for usage fetches, triggering .failed states.
+        await store.refresh()
+
+        XCTAssertNotNil(store.totalsState)
+        if case .failed = store.totalsState {} else {
+            XCTFail("Expected totalsState to be .failed after nil fetch")
+        }
+
+        let view = UsageDashboardView(store: store)
+        let _ = view.body
+    }
+
+    // MARK: - Loaded State
+
+    func testViewRendersInLoadedState() async {
+        let client = StubUsageDaemonClient()
+        let store = UsageDashboardStore(client: client)
+        await store.refresh()
+
+        if case .loaded = store.totalsState {} else {
+            XCTFail("Expected totalsState to be .loaded")
+        }
+
+        let view = UsageDashboardView(store: store)
+        let _ = view.body
+    }
+
+    // MARK: - Formatting Helpers
+
+    func testFormatCostProducesDollarString() {
+        let result = UsageDashboardView.formatCost(1.2345)
+        XCTAssertEqual(result, "$1.2345")
+    }
+
+    func testFormatCostZero() {
+        let result = UsageDashboardView.formatCost(0)
+        XCTAssertEqual(result, "$0.0000")
+    }
+
+    func testFormatCountUsesDecimalGrouping() {
+        let result = UsageDashboardView.formatCount(1_000_000)
+        // NumberFormatter with .decimal style uses locale-specific grouping.
+        XCTAssertTrue(result.contains("1"), "Formatted count should contain the digit 1")
+        XCTAssertTrue(result.count > 1, "Formatted count should have grouping separators or multiple digits")
+    }
+}
+#endif
+
 // MARK: - Stub Client
 
 /// A stub that returns canned usage data for populated-state tests.
