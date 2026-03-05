@@ -49,10 +49,3 @@ export const voiceInviteAdapter: ChannelInviteAdapter = {
     return undefined;
   },
 };
-
-// ---------------------------------------------------------------------------
-// Backward-compatible alias
-// ---------------------------------------------------------------------------
-
-/** @deprecated Use `voiceInviteAdapter` instead. */
-export const voiceInviteTransport = voiceInviteAdapter;

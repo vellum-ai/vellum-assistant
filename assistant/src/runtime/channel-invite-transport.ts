@@ -66,16 +66,6 @@ export interface ChannelInviteAdapter {
 }
 
 // ---------------------------------------------------------------------------
-// Backward-compatible type aliases
-// ---------------------------------------------------------------------------
-
-/** @deprecated Use `ChannelInviteAdapter` instead. */
-export type ChannelInviteTransport = ChannelInviteAdapter;
-
-/** @deprecated Use `InviteShareLink` instead. */
-export type InviteSharePayload = InviteShareLink;
-
-// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -132,7 +122,7 @@ export async function resolveAdapterHandle(
 }
 
 // ---------------------------------------------------------------------------
-// Singleton registry + backward-compatible free functions
+// Singleton registry
 // ---------------------------------------------------------------------------
 
 import { emailInviteAdapter } from "./channel-invite-transports/email.js";
@@ -154,39 +144,10 @@ export function createInviteAdapterRegistry(): InviteAdapterRegistry {
   return registry;
 }
 
-/**
- * Module-level singleton registry, created eagerly so callers that
- * import the free functions continue to work without changes.
- */
+/** Module-level singleton registry, created eagerly at import time. */
 const defaultRegistry = createInviteAdapterRegistry();
 
 /** Return the module-level singleton registry. */
 export function getInviteAdapterRegistry(): InviteAdapterRegistry {
   return defaultRegistry;
-}
-
-/**
- * Register a channel invite adapter on the default registry.
- * @deprecated Prefer `getInviteAdapterRegistry().register(adapter)`.
- */
-export function registerTransport(transport: ChannelInviteAdapter): void {
-  defaultRegistry.register(transport);
-}
-
-/**
- * Look up the registered adapter for a channel on the default registry.
- * @deprecated Prefer `getInviteAdapterRegistry().get(channel)`.
- */
-export function getTransport(
-  channel: ChannelId,
-): ChannelInviteAdapter | undefined {
-  return defaultRegistry.get(channel);
-}
-
-/**
- * Reset the default registry. Intended for tests only.
- * @internal
- */
-export function _resetRegistry(): void {
-  defaultRegistry._reset();
 }

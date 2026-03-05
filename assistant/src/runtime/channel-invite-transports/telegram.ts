@@ -109,10 +109,3 @@ export const telegramInviteAdapter: ChannelInviteAdapter = {
     return undefined;
   },
 };
-
-// ---------------------------------------------------------------------------
-// Backward-compatible alias
-// ---------------------------------------------------------------------------
-
-/** @deprecated Use `telegramInviteAdapter` instead. */
-export const telegramInviteTransport = telegramInviteAdapter;
