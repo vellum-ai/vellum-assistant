@@ -8,14 +8,6 @@ import AppKit
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 200
     private let composerActionButtonSize: CGFloat = 34
-    private let composerActionIconSize: CGFloat = 14
-
-    private enum ComposerActionFocus: Hashable {
-        case stop
-        case send
-        case microphone
-        case attachment
-    }
 
     @Binding var inputText: String
     let hasAPIKey: Bool
@@ -50,12 +42,7 @@ struct ComposerView: View {
     @Environment(\.conversationZoomScale) private var zoomScale
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     @FocusState private var composerFocus: Bool
-    @State private var isStopHovered = false
-    @State private var isSendHovered = false
-    @State private var isMicrophoneHovered = false
-    @State private var isAttachmentHovered = false
     @State private var isComposerFocused = false
-    @FocusState private var focusedComposerAction: ComposerActionFocus?
 
     @State var showSlashMenu = false
     @State var slashFilter = ""
@@ -446,104 +433,44 @@ struct ComposerView: View {
     private var composerActionButtons: some View {
         HStack(spacing: 2) {
             if isSending && !hasPendingConfirmation {
-                Button(action: onStop) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(VColor.textPrimary)
-                            .frame(width: 30, height: 30)
-                        RoundedRectangle(cornerRadius: VRadius.xs)
-                            .fill(VColor.surface)
-                            .frame(width: 10, height: 10)
-                    }
-                }
-                .buttonStyle(VIconButtonStyle(
-                    isHovered: isStopHovered,
-                    isFocused: focusedComposerAction == .stop,
-                    size: composerActionButtonSize
-                ))
-                .focused($focusedComposerAction, equals: .stop)
-                .focusable(true)
-                .onHover { hovering in
-                    handleComposerButtonHover(
-                        hovering,
-                        state: $isStopHovered
-                    )
-                }
-                .accessibilityLabel("Stop generation")
+                VIconButton(
+                    label: "Stop generation",
+                    icon: "stop.fill",
+                    iconOnly: true,
+                    variant: .filled(VColor.textPrimary),
+                    size: composerActionButtonSize,
+                    action: onStop
+                )
             } else {
-                Button(action: { onAttach(); focusedComposerAction = nil }) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: composerActionIconSize, weight: .regular))
-                        .foregroundColor(adaptiveColor(light: Forest._500, dark: Moss._400))
-                }
-                .buttonStyle(VIconButtonStyle(
-                    isHovered: isAttachmentHovered,
-                    isFocused: focusedComposerAction == .attachment,
-                    size: composerActionButtonSize
-                ))
-                .focused($focusedComposerAction, equals: .attachment)
-                .focusable(true)
-                .onHover { hovering in
-                    handleComposerButtonHover(
-                        hovering,
-                        state: $isAttachmentHovered,
-                        isEnabled: hasAPIKey
-                    )
-                }
-                .accessibilityLabel("Attach file")
+                VIconButton(
+                    label: "Attach file",
+                    icon: "paperclip",
+                    iconOnly: true,
+                    size: composerActionButtonSize,
+                    action: { onAttach() }
+                )
                 .disabled(!hasAPIKey)
 
                 if canSend {
-                    Button {
+                    VIconButton(
+                        label: "Send message",
+                        icon: "arrow.up",
+                        iconOnly: true,
+                        variant: .filled(VColor.sendButton),
+                        size: composerActionButtonSize
+                    ) {
                         composerFocus = true
                         onSend()
-                    } label: {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(VColor.sendButton)
-                                .frame(width: 30, height: 30)
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
                     }
-                    .buttonStyle(VIconButtonStyle(
-                        isHovered: isSendHovered,
-                        isFocused: focusedComposerAction == .send,
-                        size: composerActionButtonSize
-                    ))
-                    .focused($focusedComposerAction, equals: .send)
-                    .focusable(true)
-                    .onHover { hovering in
-                        handleComposerButtonHover(
-                            hovering,
-                            state: $isSendHovered
-                        )
-                    }
-                    .accessibilityLabel("Send message")
                     .transition(.scale.combined(with: .opacity))
                 } else {
                     MicrophoneButton(
                         isRecording: isRecording,
-                        iconSize: composerActionIconSize,
-                        action: { onMicrophoneToggle(); focusedComposerAction = nil }
+                        size: composerActionButtonSize,
+                        action: { onMicrophoneToggle() }
                     )
-                        .buttonStyle(VIconButtonStyle(
-                            isHovered: isMicrophoneHovered,
-                            isFocused: focusedComposerAction == .microphone,
-                            size: composerActionButtonSize
-                        ))
-                        .focused($focusedComposerAction, equals: .microphone)
-                        .focusable(true)
-                        .onHover { hovering in
-                            handleComposerButtonHover(
-                                hovering,
-                                state: $isMicrophoneHovered,
-                                isEnabled: hasAPIKey
-                            )
-                        }
-                        .disabled(!hasAPIKey)
-                        .transition(.scale.combined(with: .opacity))
+                    .disabled(!hasAPIKey)
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
         }
@@ -586,38 +513,24 @@ struct ComposerView: View {
                     .frame(width: 28, height: composerActionButtonSize)
 
                 // Mute / unmute
-                Button(action: { manager.toggleListening() }) {
-                    Image(systemName: manager.state == .listening ? "mic.fill" : "mic.slash.fill")
-                        .font(.system(size: composerActionIconSize, weight: .medium))
-                        .foregroundColor(manager.state == .listening
-                            ? adaptiveColor(light: Forest._500, dark: Moss._400)
-                            : VColor.textSecondary)
-                }
-                .buttonStyle(VIconButtonStyle(
-                    isHovered: false,
-                    isFocused: false,
-                    size: composerActionButtonSize
-                ))
+                VIconButton(
+                    label: manager.state == .listening ? "Mute" : "Unmute",
+                    icon: manager.state == .listening ? "mic.fill" : "mic.slash.fill",
+                    iconOnly: true,
+                    size: composerActionButtonSize,
+                    action: { manager.toggleListening() }
+                )
                 .disabled(manager.state == .processing)
-                .accessibilityLabel(manager.state == .listening ? "Mute" : "Unmute")
 
                 // End voice mode (red X)
-                Button(action: { onEndVoiceMode?() }) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(VColor.error)
-                            .frame(width: 30, height: 30)
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-                }
-                .buttonStyle(VIconButtonStyle(
-                    isHovered: false,
-                    isFocused: false,
-                    size: composerActionButtonSize
-                ))
-                .accessibilityLabel("End voice mode")
+                VIconButton(
+                    label: "End voice mode",
+                    icon: "xmark",
+                    iconOnly: true,
+                    variant: .filled(VColor.error),
+                    size: composerActionButtonSize,
+                    action: { onEndVoiceMode?() }
+                )
             }
             .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
         }
@@ -656,22 +569,6 @@ struct ComposerView: View {
         case .processing: return VColor.textSecondary
         default: return Moss._500
         }
-    }
-
-    private func handleComposerButtonHover(
-        _ hovering: Bool,
-        state: Binding<Bool>,
-        isEnabled: Bool = true
-    ) {
-        let resolvedHover = isEnabled && hovering
-        state.wrappedValue = resolvedHover
-        #if os(macOS)
-        if resolvedHover {
-            NSCursor.pointingHand.set()
-        } else {
-            NSCursor.arrow.set()
-        }
-        #endif
     }
 
     var canSend: Bool {

@@ -157,9 +157,12 @@ struct ComposerFocusBridge: NSViewRepresentable {
 
 struct MicrophoneButton: View {
     let isRecording: Bool
-    let iconSize: CGFloat
+    let size: CGFloat
     let action: () -> Void
+
     @State private var isPulsing = false
+    @State private var isHovered = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         Button(action: action) {
@@ -174,10 +177,22 @@ struct MicrophoneButton: View {
                 }
 
                 Image(systemName: isRecording ? "mic.fill" : "mic")
-                    .font(.system(size: iconSize, weight: .regular))
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 14, height: 14)
                     .foregroundColor(isRecording ? VColor.error : adaptiveColor(light: Forest._500, dark: Moss._400))
             }
         }
+        .buttonStyle(VIconButtonStyle(isHovered: isHovered, isFocused: isFocused, size: size))
+        .focused($isFocused)
+        #if os(macOS)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
+        }
+        #else
+        .onHover { isHovered = $0 }
+        #endif
         .accessibilityLabel(isRecording ? "Stop recording" : "Start voice input")
         .onChange(of: isRecording) {
             isPulsing = isRecording
