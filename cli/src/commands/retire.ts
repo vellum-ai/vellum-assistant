@@ -102,11 +102,11 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
   }
 
-  // If the PID file didn't track a running daemon, scan for orphaned
-  // daemon processes that may have been started without writing a PID.
-  if (!daemonStopped) {
-    await stopOrphanedDaemonProcesses();
-  }
+  // Always scan for orphaned daemon processes. The macOS desktop app can
+  // spawn daemon/gateway processes independently of the CLI's PID tracking,
+  // so even if we successfully killed the PID-file daemon there may be
+  // app-spawned processes still running.
+  await stopOrphanedDaemonProcesses();
 
   // For named instances (instanceDir under ~/.vellum/instances/<name>/),
   // archive and remove the entire instance directory. For default instances
