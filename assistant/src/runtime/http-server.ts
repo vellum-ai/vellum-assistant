@@ -836,7 +836,7 @@ export class RuntimeHttpServer {
 
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,
-        sendMessageDeps: this.sendMessageDeps!,
+        sendMessageDeps: this.sendMessageDeps,
         approvalConversationGenerator: this.approvalConversationGenerator,
         suggestionCache: this.suggestionCache,
         suggestionInFlight: this.suggestionInFlight,
