@@ -80,6 +80,8 @@ export interface ToolUseStart {
   toolName: string;
   input: Record<string, unknown>;
   sessionId?: string;
+  /** The tool_use block ID for client-side correlation. */
+  toolUseId?: string;
 }
 
 export interface ToolOutputChunk {

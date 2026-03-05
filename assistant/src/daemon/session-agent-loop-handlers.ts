@@ -67,6 +67,20 @@ export interface EventHandlerState {
   firstThinkingDeltaEmitted: boolean;
   /** Name of the last completed tool, used to generate contextual statusText. */
   lastCompletedToolName: string | undefined;
+  /** Tracks tool_use_id → timing data for persisting on content blocks. */
+  readonly toolCallTimestamps: Map<
+    string,
+    { startedAt: number; completedAt?: number }
+  >;
+  /** The tool_use_id of the currently executing tool (set in handleToolUse, cleared in handleToolResult). */
+  currentToolUseId: string | undefined;
+  /** Maps confirmation requestId → tool_use_id for linking decisions to tools. */
+  readonly requestIdToToolUseId: Map<string, string>;
+  /** Stores confirmation outcomes keyed by tool_use_id. */
+  readonly toolConfirmationOutcomes: Map<
+    string,
+    { decision: string; label: string }
+  >;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -108,6 +122,10 @@ export function createEventHandlerState(): EventHandlerState {
     firstTextDeltaEmitted: false,
     firstThinkingDeltaEmitted: false,
     lastCompletedToolName: undefined,
+    toolCallTimestamps: new Map(),
+    currentToolUseId: undefined,
+    requestIdToToolUseId: new Map(),
+    toolConfirmationOutcomes: new Map(),
   };
 }
 
@@ -253,6 +271,8 @@ export function handleToolUse(
 ): void {
   state.toolUseIdToName.set(event.id, event.name);
   state.currentTurnToolNames.push(event.name);
+  state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
+  state.currentToolUseId = event.id;
   const statusText = `Running ${friendlyToolName(event.name)}`;
   deps.ctx.emitActivityState(
     "tool_running",
@@ -266,6 +286,7 @@ export function handleToolUse(
     toolName: event.name,
     input: event.input,
     sessionId: deps.ctx.conversationId,
+    toolUseId: event.id,
   });
 }
 
@@ -391,6 +412,11 @@ export function handleToolResult(
     isError: event.isError,
     contentBlocks: event.contentBlocks,
   });
+
+  // Record tool completion timestamp
+  const ts = state.toolCallTimestamps.get(event.toolUseId);
+  if (ts) ts.completedAt = Date.now();
+  state.currentToolUseId = undefined;
 
   const toolName = state.toolUseIdToName.get(event.toolUseId);
   if (toolName === "file_write" || toolName === "bash") {
@@ -531,6 +557,30 @@ export async function handleMessageComplete(
       },
       "Parsed attachment directives from assistant message",
     );
+  }
+
+  // Annotate tool_use blocks with timing and confirmation metadata.
+  // The blocks are JSON-serialized for persistence, so adding underscore-prefixed
+  // fields is safe and requires no DB migration.
+  for (const block of cleanedBlocks) {
+    if (block.type === "tool_use") {
+      const rec = block as unknown as Record<string, unknown>;
+      const id = rec.id as string | undefined;
+      if (id) {
+        const ts = state.toolCallTimestamps.get(id);
+        if (ts) {
+          rec._startedAt = ts.startedAt;
+          if (ts.completedAt != null) {
+            rec._completedAt = ts.completedAt;
+          }
+        }
+        const confirmation = state.toolConfirmationOutcomes.get(id);
+        if (confirmation) {
+          rec._confirmationDecision = confirmation.decision;
+          rec._confirmationLabel = confirmation.label;
+        }
+      }
+    }
   }
 
   // Build content with UI surfaces

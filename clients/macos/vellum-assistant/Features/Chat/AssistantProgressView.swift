@@ -28,7 +28,7 @@ struct AssistantProgressView: View {
     let processingStatusText: String?
     let streamingCodePreview: String?
     let streamingCodeToolName: String?
-    let decidedConfirmation: ToolConfirmationData?
+    let decidedConfirmations: [ToolConfirmationData]
     var onRehydrate: (() -> Void)?
 
     @State private var isExpanded: Bool = false
@@ -38,9 +38,11 @@ struct AssistantProgressView: View {
     // MARK: - Derived State
 
     /// Whether the permission was denied or timed out, meaning incomplete tools were blocked.
-    /// Mirrors `ChatBubbleToolStatusView.permissionWasDenied`.
+    /// Checks both live confirmation (during streaming) and persisted per-tool-call data
+    /// (after history restore).
     private var permissionWasDenied: Bool {
-        decidedConfirmation?.state == .denied || decidedConfirmation?.state == .timedOut
+        decidedConfirmations.contains { $0.state == .denied || $0.state == .timedOut }
+            || toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
     }
 
     private var phase: ProgressPhase {
@@ -180,9 +182,9 @@ struct AssistantProgressView: View {
             // Header row (always visible)
             headerRow
 
-            // Permission chip below header (when not expanded)
-            if !isExpanded, let confirmation = decidedConfirmation, confirmation.state != .pending {
-                compactPermissionChip(confirmation)
+            // Permission chips below header (when not expanded)
+            if !isExpanded {
+                permissionChips
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.bottom, VSpacing.sm)
             }
@@ -191,13 +193,11 @@ struct AssistantProgressView: View {
             if isExpanded {
                 expandedContent
 
-                // Permission chip at bottom of expanded list
-                if let confirmation = decidedConfirmation, confirmation.state != .pending {
-                    compactPermissionChip(confirmation)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.top, VSpacing.sm)
-                        .padding(.bottom, VSpacing.sm)
-                }
+                // Permission chips at bottom of expanded list
+                permissionChips
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.top, VSpacing.sm)
+                    .padding(.bottom, VSpacing.sm)
             }
 
             // Code preview (streaming code phase)
@@ -219,6 +219,11 @@ struct AssistantProgressView: View {
         .onAppear {
             if phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
+            }
+            // Seed startDate from persisted timestamps so the header timer
+            // shows correct elapsed time after history restore.
+            if let earliest = toolCalls.compactMap(\.startedAt).min() {
+                startDate = earliest
             }
         }
     }
@@ -280,7 +285,7 @@ struct AssistantProgressView: View {
                 tileColor: Danger._200
             )
         case .denied:
-            if decidedConfirmation?.state == .timedOut {
+            if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
                 statusIconTile(
                     systemName: "clock.fill",
                     iconColor: VColor.textMuted,
@@ -406,7 +411,19 @@ struct AssistantProgressView: View {
         }
     }
 
-    // MARK: - Permission Chip
+    // MARK: - Permission Chips
+
+    @ViewBuilder
+    private var permissionChips: some View {
+        let resolved = decidedConfirmations.filter { $0.state != .pending }
+        if !resolved.isEmpty {
+            HStack(spacing: VSpacing.xs) {
+                ForEach(Array(resolved.enumerated()), id: \.offset) { _, confirmation in
+                    compactPermissionChip(confirmation)
+                }
+            }
+        }
+    }
 
     private func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
         let isApproved = confirmation.state == .approved
@@ -831,7 +848,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -853,7 +870,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -874,7 +891,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -895,7 +912,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: "Processing results",
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -917,7 +934,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -938,7 +955,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -971,7 +988,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             export default App;
             """,
             streamingCodeToolName: "app_create",
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()

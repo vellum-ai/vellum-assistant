@@ -222,6 +222,12 @@ export class Session {
    * no-op for socketless sessions.
    */
   private onStateSignal?: (msg: ServerMessage) => void;
+  /** Set by the agent loop to track confirmation outcomes for persistence. */
+  onConfirmationOutcome?: (
+    requestId: string,
+    state: string,
+    toolName?: string,
+  ) => void;
 
   constructor(
     conversationId: string,
@@ -252,6 +258,9 @@ export class Session {
         state,
         source,
       });
+      // Notify the agent loop so it can track requestId → toolUseId mappings
+      // and record confirmation outcomes for persistence.
+      this.onConfirmationOutcome?.(requestId, state);
       // Emit activity state transitions for confirmation lifecycle
       if (state === "pending") {
         this.emitActivityState(
@@ -554,6 +563,8 @@ export class Session {
         ? { decisionText: emissionContext.decisionText }
         : {}),
     });
+    // Notify the agent loop of the confirmation outcome for persistence
+    this.onConfirmationOutcome?.(requestId, resolvedState);
     this.emitActivityState(
       "thinking",
       "confirmation_resolved",

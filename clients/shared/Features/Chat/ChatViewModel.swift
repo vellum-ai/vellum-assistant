@@ -2142,6 +2142,22 @@ public final class ChatViewModel: ObservableObject {
                     toolCall.cachedImage = decodedImage
                     toolCall.reasonDescription = (tc.input["reason"]?.value as? String)
                         ?? (tc.input["reasoning"]?.value as? String)
+                    // Restore persisted timing and confirmation data
+                    if let startMs = tc.startedAt {
+                        toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
+                    }
+                    if let endMs = tc.completedAt {
+                        toolCall.completedAt = Date(timeIntervalSince1970: Double(endMs) / 1000.0)
+                    }
+                    if let decision = tc.confirmationDecision {
+                        switch decision {
+                        case "approved": toolCall.confirmationDecision = .approved
+                        case "denied": toolCall.confirmationDecision = .denied
+                        case "timed_out": toolCall.confirmationDecision = .timedOut
+                        default: break
+                        }
+                    }
+                    toolCall.confirmationLabel = tc.confirmationLabel
                     // Cap tool input size to prevent unbounded memory from large history
                     // restores. Check size synchronously to avoid a race where a deferred
                     // Task might run before self.messages is populated with these new items.

@@ -142,10 +142,34 @@ extension ChatBubble {
             return message.toolCalls[idx]
         }
         if !groupedToolCalls.isEmpty {
-            // The single decidedConfirmation always corresponds to the most recent
-            // permission prompt, which belongs to the latest tool group. Earlier
-            // groups' confirmations are consumed and no longer available in the
-            // message list, so we only show the chip on the latest group.
+            // Derive confirmations from this group's own tool call stamps.
+            // We intentionally do NOT use the message-level decidedConfirmation
+            // here because it comes from the confirmation message at index+1,
+            // which can be stale — after the confirmation is resolved and new
+            // tool groups are added, the old confirmation message stays at
+            // index+1 and would leak to unrelated groups.
+            // Deduplicate by (toolCategory, state) so repeated identical permissions
+            // collapse into one chip.
+            let groupConfirmations: [ToolConfirmationData] = {
+                var seen = Set<String>()
+                var result: [ToolConfirmationData] = []
+                for tc in groupedToolCalls {
+                    guard let decision = tc.confirmationDecision else { continue }
+                    let label = tc.confirmationLabel ?? tc.toolName
+                    let key = "\(label)|\(decision)"
+                    guard seen.insert(key).inserted else { continue }
+                    var data = ToolConfirmationData(
+                        requestId: "",
+                        toolName: tc.toolName,
+                        riskLevel: "medium",
+                        state: decision
+                    )
+                    data._overrideToolCategory = tc.confirmationLabel
+                    result.append(data)
+                }
+                return result
+            }()
+
             AssistantProgressView(
                 toolCalls: groupedToolCalls,
                 isStreaming: isLatestGroup ? message.isStreaming : false,
@@ -154,7 +178,7 @@ extension ChatBubble {
                 processingStatusText: isLatestGroup && isProcessingAfterTools ? processingStatusText : nil,
                 streamingCodePreview: isLatestGroup ? message.streamingCodePreview : nil,
                 streamingCodeToolName: isLatestGroup ? message.streamingCodeToolName : nil,
-                decidedConfirmation: isLatestGroup ? decidedConfirmation : nil,
+                decidedConfirmations: groupConfirmations,
                 onRehydrate: onRehydrate
             )
             .frame(maxWidth: 520, alignment: .leading)

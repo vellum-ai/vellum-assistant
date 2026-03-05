@@ -12,6 +12,7 @@ extension ChatBubble {
     /// Whether the permission was denied, meaning incomplete tools were blocked (not running).
     var permissionWasDenied: Bool {
         decidedConfirmation?.state == .denied || decidedConfirmation?.state == .timedOut
+            || message.toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
     }
 
     @ViewBuilder
@@ -24,6 +25,14 @@ extension ChatBubble {
             && !(message.streamingCodePreview?.isEmpty ?? true)
         let shouldShowProcessing = isProcessingAfterTools && !inlineToolProgressRenderedInContent
 
+        // Use live confirmations if available, otherwise derive from persisted tool call data
+        let effectiveConfirmations: [ToolConfirmationData] = {
+            if let live = decidedConfirmation {
+                return [live]
+            }
+            return message.derivedConfirmationsFromToolCalls()
+        }()
+
         if hasToolCalls || hasStreamingCode || shouldShowProcessing {
             // Unified progress view handles all tool/streaming/processing states
             AssistantProgressView(
@@ -34,15 +43,17 @@ extension ChatBubble {
                 processingStatusText: shouldShowProcessing ? processingStatusText : nil,
                 streamingCodePreview: message.streamingCodePreview,
                 streamingCodeToolName: message.streamingCodeToolName,
-                decidedConfirmation: decidedConfirmation,
+                decidedConfirmations: effectiveConfirmations,
                 onRehydrate: onRehydrate
             )
             .frame(maxWidth: 520, alignment: .leading)
-        } else if let confirmation = decidedConfirmation, !inlineToolProgressRenderedInContent {
-            // No tool display needed — only show permission chip.
+        } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
+            // No tool display needed — only show permission chips.
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
-                    compactPermissionChip(confirmation)
+                    ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
+                        compactPermissionChip(confirmation)
+                    }
                     Spacer()
                 }
             }

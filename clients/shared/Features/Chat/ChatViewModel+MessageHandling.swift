@@ -27,6 +27,31 @@ extension ChatViewModel {
         return messageSessionId == sessionId
     }
 
+    /// Map daemon confirmation state string to ToolConfirmationState.
+    private func mapConfirmationState(_ state: String) -> ToolConfirmationState? {
+        switch state {
+        case "approved": return .approved
+        case "denied": return .denied
+        case "timed_out": return .timedOut
+        default: return nil
+        }
+    }
+
+    /// Stamp confirmation decision on the most recent incomplete tool call matching the tool name.
+    private func stampConfirmationOnToolCall(toolName: String, decision: ToolConfirmationState) {
+        guard let assistantId = currentAssistantMessageId,
+              let msgIdx = messages.firstIndex(where: { $0.id == assistantId }) else { return }
+        // Find the last tool call that matches the tool name and lacks a confirmation decision
+        if let tcIdx = messages[msgIdx].toolCalls.lastIndex(where: {
+            $0.toolName == toolName && $0.confirmationDecision == nil
+        }) {
+            messages[msgIdx].toolCalls[tcIdx].confirmationDecision = decision
+            // Use the tool category from the confirmation data as the label
+            let label = ToolConfirmationData(requestId: "", toolName: toolName, riskLevel: "").toolCategory
+            messages[msgIdx].toolCalls[tcIdx].confirmationLabel = label
+        }
+    }
+
     /// Priority list of input keys whose values are most useful as a tool call summary.
     static let toolInputPriorityKeys = [
         "command", "file_path", "path", "query", "url", "pattern", "glob"
@@ -1135,6 +1160,7 @@ extension ChatViewModel {
                 startedAt: Date()
             )
             toolCall.buildingStatus = buildingStatus
+            toolCall.toolUseId = msg.toolUseId
             toolCall.reasonDescription = (msg.input["reason"]?.value as? String)
                 ?? (msg.input["reasoning"]?.value as? String)
             // Add to existing assistant message or create one.
@@ -1571,8 +1597,10 @@ extension ChatViewModel {
         case .confirmationStateChanged(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             // Find the confirmation with this requestId and update its state.
+            var confirmationToolName: String?
             for i in messages.indices {
                 guard messages[i].confirmation?.requestId == msg.requestId else { continue }
+                confirmationToolName = messages[i].confirmation?.toolName
                 switch msg.state {
                 case "approved":
                     messages[i].confirmation?.state = .approved
@@ -1588,6 +1616,12 @@ extension ChatViewModel {
                     break
                 }
                 break
+            }
+            // Stamp confirmation data on the corresponding ToolCallData in the
+            // preceding assistant message so it survives thread switches.
+            if let toolName = confirmationToolName,
+               let state = mapConfirmationState(msg.state) {
+                stampConfirmationOnToolCall(toolName: toolName, decision: state)
             }
 
         case .assistantActivityState(let msg):

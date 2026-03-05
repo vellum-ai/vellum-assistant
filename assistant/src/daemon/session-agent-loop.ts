@@ -118,6 +118,27 @@ import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("session-agent-loop");
 
+/** Title-cased friendly labels for tool names, used in confirmation chips. */
+const TOOL_FRIENDLY_LABEL: Record<string, string> = {
+  bash: "Run Command",
+  web_search: "Web Search",
+  web_fetch: "Web Fetch",
+  file_read: "Read File",
+  file_write: "Write File",
+  file_edit: "Edit File",
+  browser_navigate: "Browser",
+  browser_click: "Browser",
+  browser_type: "Browser",
+  browser_screenshot: "Browser",
+  browser_scroll: "Browser",
+  browser_wait: "Browser",
+  app_create: "Create App",
+  app_update: "Update App",
+  skill_load: "Load Skill",
+  app_file_edit: "Edit App File",
+  app_file_write: "Write App File",
+};
+
 type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
@@ -221,6 +242,17 @@ export interface AgentLoopSessionContext {
         >
       : never,
   ): void;
+
+  /**
+   * Optional callback invoked by the Session when a confirmation state changes.
+   * The agent loop registers this to track requestId → toolUseId mappings
+   * and record confirmation outcomes for persistence.
+   */
+  onConfirmationOutcome?: (
+    requestId: string,
+    state: string,
+    toolName?: string,
+  ) => void;
 
   getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
   commitTurnChanges?: typeof commitTurnChanges;
@@ -432,6 +464,35 @@ export async function runAgentLoopImpl(
     }
 
     const state = createEventHandlerState();
+
+    // Register confirmation outcome tracker so the agent loop can link
+    // confirmation decisions to tool_use_ids for persistence.
+    ctx.onConfirmationOutcome = (requestId, confirmationState, toolName) => {
+      if (confirmationState === "pending") {
+        // At "pending" time, currentToolUseId is the tool awaiting confirmation
+        if (state.currentToolUseId) {
+          state.requestIdToToolUseId.set(requestId, state.currentToolUseId);
+        }
+      } else if (
+        confirmationState === "approved" ||
+        confirmationState === "denied" ||
+        confirmationState === "timed_out"
+      ) {
+        const toolUseId = state.requestIdToToolUseId.get(requestId);
+        if (toolUseId) {
+          const name = state.toolUseIdToName.get(toolUseId) ?? toolName ?? "";
+          // Build a friendly label from the tool name
+          const label =
+            TOOL_FRIENDLY_LABEL[name] ??
+            name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+          state.toolConfirmationOutcomes.set(toolUseId, {
+            decision: confirmationState,
+            label,
+          });
+        }
+      }
+    };
+
     let runMessages = ctx.messages;
 
     const memoryResult = await prepareMemoryContext(
@@ -1347,6 +1408,7 @@ export async function runAgentLoopImpl(
 
     ctx.abortController = null;
     ctx.processing = false;
+    ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
