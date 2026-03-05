@@ -65,7 +65,7 @@ public struct VButton: View {
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
-        .accessibilityIdentifier(accessibilityID ?? "")
+        .optionalAccessibilityIdentifier(accessibilityID)
     }
 
     private var iconSize: CGFloat {
@@ -209,6 +209,17 @@ private struct VButtonStyle: ButtonStyle {
             return .clear
         default:
             return .clear
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func optionalAccessibilityIdentifier(_ identifier: String?) -> some View {
+        if let identifier {
+            self.accessibilityIdentifier(identifier)
+        } else {
+            self
         }
     }
 }

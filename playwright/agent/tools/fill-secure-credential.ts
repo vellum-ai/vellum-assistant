@@ -154,7 +154,11 @@ tell application "System Events"
     end repeat
 
     -- Restore the clipboard to its original value.
-    set the clipboard to savedClip
+    -- Only restore if we captured text; if the original clipboard was non-text
+    -- (image, file, etc.), savedClip is still "" and restoring would clobber it.
+    if savedClip is not "" then
+      set the clipboard to savedClip
+    end if
 
     if not foundField then
       error "Could not find or focus the text field in the Secure Credential panel"
