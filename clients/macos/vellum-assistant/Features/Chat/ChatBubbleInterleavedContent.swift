@@ -25,7 +25,7 @@ extension ChatBubble {
     /// array offset, which avoids spurious view invalidation when the array is
     /// recreated with identical values on each render pass.
     enum ContentGroup: Hashable {
-        case text(Int)
+        case texts([Int])
         case toolCalls([Int])
         case surface(Int)
     }
@@ -35,7 +35,11 @@ extension ChatBubble {
         for ref in message.contentOrder {
             switch ref {
             case .text(let i):
-                groups.append(.text(i))
+                if case .texts(let indices) = groups.last {
+                    groups[groups.count - 1] = .texts(indices + [i])
+                } else {
+                    groups.append(.texts([i]))
+                }
             case .toolCall(let i):
                 if case .toolCalls(let indices) = groups.last {
                     groups[groups.count - 1] = .toolCalls(indices + [i])
@@ -60,12 +64,17 @@ extension ChatBubble {
         // conversations with many interleaved blocks.
         ForEach(groups, id: \.self) { group in
             switch group {
-            case .text(let i):
-                if i < message.textSegments.count {
-                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !segmentText.isEmpty {
-                        textBubble(for: segmentText)
+            case .texts(let indices):
+                let joined = indices
+                    .compactMap { i in
+                        i < message.textSegments.count
+                            ? message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                            : nil
                     }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                if !joined.isEmpty {
+                    textBubble(for: joined)
                 }
             case .toolCalls:
                 // Tool calls are rendered by trailingStatus below the message
