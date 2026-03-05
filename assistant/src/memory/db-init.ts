@@ -63,7 +63,6 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
-  migrateReorderUsageDashboardIndexes,
   migrateSchemaIndexesAndColumns,
   migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
@@ -299,8 +298,8 @@ export function initializeDb(): void {
   // 41. Indexes on llm_usage_events for usage dashboard time-range and breakdown queries
   migrateUsageDashboardIndexes(database);
 
-  // 42. Reorder usage dashboard composite indexes so created_at leads (matches query shape)
-  migrateReorderUsageDashboardIndexes(database);
+  // 42. (skipped) migrateReorderUsageDashboardIndexes — superseded by 43 which drops
+  // all composite indexes that 42 would create, so running it is wasted work.
 
   // 43. Drop all composite usage indexes — they don't eliminate temp B-trees for GROUP BY
   migrateDropUsageCompositeIndexes(database);
