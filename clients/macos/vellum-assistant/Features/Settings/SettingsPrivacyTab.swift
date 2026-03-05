@@ -160,10 +160,12 @@ struct SettingsPrivacyTab: View {
             // Clear any previous error so stale failure messages don't persist after a successful save.
             loadError = nil
             // Apply Sentry state immediately rather than waiting for the next daemon
-            // reconnect to call checkAndApplyPrivacyFlag(). Serialised through
-            // MetricKitManager.closeSentry() so it doesn't race with concurrent
-            // MetricKit captures on sentrySerialQueue.
-            if !enabled {
+            // reconnect to call checkAndApplyPrivacyFlag(). Both paths are serialised
+            // through sentrySerialQueue so they don't race with concurrent MetricKit
+            // captures or manual report sends.
+            if enabled {
+                MetricKitManager.startSentry()
+            } else {
                 MetricKitManager.closeSentry()
             }
         } catch {

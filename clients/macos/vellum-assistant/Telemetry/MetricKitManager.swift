@@ -83,6 +83,23 @@ import Sentry
             SentrySDK.close()
         }
     }
+
+    /// Restarts the Sentry SDK through `sentrySerialQueue`, mirroring the
+    /// AppDelegate initialization options. Called when the user re-enables
+    /// usage-data collection so Sentry resumes within the same app session
+    /// without requiring a restart. No-op if the SDK is already enabled.
+    /// `nonisolated` so Settings code can call it without crossing @MainActor.
+    nonisolated static func startSentry() {
+        sentrySerialQueue.async {
+            guard !SentrySDK.isEnabled else { return }
+            SentrySDK.start { options in
+                options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                options.debug = false
+                options.tracesSampleRate = 0.1
+                options.sendDefaultPii = false
+            }
+        }
+    }
 }
 
 extension MetricKitManager: MXMetricManagerSubscriber {
