@@ -135,7 +135,11 @@ export class EmailService {
     } catch {
       this.cachedPrimaryAddress = undefined;
     }
-    this.primaryAddressResolved = true;
+    // Only cache positive results so a missing inbox is retried on next call
+    // (e.g. user sets up email after initial miss).
+    if (this.cachedPrimaryAddress !== undefined) {
+      this.primaryAddressResolved = true;
+    }
     return this.cachedPrimaryAddress;
   }
 
@@ -168,7 +172,10 @@ export class EmailService {
     displayName?: string,
   ): Promise<EmailInbox> {
     const p = await this.provider();
-    return p.createInbox({ username, domain, displayName });
+    const inbox = await p.createInbox({ username, domain, displayName });
+    this.primaryAddressResolved = false;
+    this.cachedPrimaryAddress = undefined;
+    return inbox;
   }
 
   async listInboxes(): Promise<EmailInbox[]> {
@@ -178,7 +185,10 @@ export class EmailService {
 
   async ensureInboxes(domain: string): Promise<EmailInbox[]> {
     const p = await this.provider();
-    return p.ensureInboxes({ domain });
+    const inboxes = await p.ensureInboxes({ domain });
+    this.primaryAddressResolved = false;
+    this.cachedPrimaryAddress = undefined;
+    return inboxes;
   }
 
   // =========================================================================
