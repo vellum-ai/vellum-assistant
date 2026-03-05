@@ -96,7 +96,8 @@ export async function processGuardianDecision(
     requestId,
     action: action as ApprovalAction,
     actorContext: {
-      externalUserId: actorContext.actorPrincipalId,
+      actorPrincipalId: actorContext.actorPrincipalId,
+      actorExternalUserId: undefined, // Desktop/IPC path — no channel-native ID
       channel,
       guardianPrincipalId: actorContext.guardianPrincipalId,
     },
