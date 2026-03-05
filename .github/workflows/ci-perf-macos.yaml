@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - 'clients/macos/**'
+      - 'clients/shared/**'
   pull_request:
     branches: [main]
     paths:
       - 'clients/macos/**'
+      - 'clients/shared/**'
 
 jobs:
   perf-baselines:
@@ -42,7 +44,8 @@ jobs:
       - name: Run performance tests
         working-directory: clients/macos
         run: |
-          swift test --filter MarkdownPerformanceTests 2>&1
+          mkdir -p ../.perf-baselines
+          swift test --filter MarkdownPerformanceTests 2>&1 | tee ../.perf-baselines/results.log
 
       - name: Compare baselines
         run: bash scripts/compare-perf-baselines.sh
