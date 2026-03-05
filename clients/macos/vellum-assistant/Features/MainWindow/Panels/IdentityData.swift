@@ -94,6 +94,30 @@ enum AssistantHome {
     }
 }
 
+enum AssistantDisplayName {
+    static let placeholder = "Assistant"
+    private static let hiddenBootstrapPrefix = "_("
+
+    /// Freshly hatched assistants can briefly persist an internal bootstrap
+    /// instruction as the name. Mask that sentinel in all user-facing UI.
+    static func firstUserFacing(from candidates: [String?]) -> String? {
+        for candidate in candidates {
+            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { continue }
+            if trimmed.hasPrefix(hiddenBootstrapPrefix) {
+                return placeholder
+            }
+            return trimmed
+        }
+
+        return nil
+    }
+
+    static func resolve(_ candidates: String?..., fallback: String = placeholder) -> String {
+        firstUserFacing(from: candidates) ?? fallback
+    }
+}
+
 // MARK: - Identity Info (parsed from IDENTITY.md)
 
 struct IdentityInfo {

@@ -14,7 +14,8 @@ struct ThinkingIndicatorView: View {
         if let statusText, !statusText.isEmpty {
             return "\(statusText)..."
         }
-        if completedConversationCount <= 5, let name = IdentityInfo.load()?.name {
+        if completedConversationCount <= 5,
+           let name = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) {
             return "\(name) is thinking..."
         }
         return "Thinking..."
