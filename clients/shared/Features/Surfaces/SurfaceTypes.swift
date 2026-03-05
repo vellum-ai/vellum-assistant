@@ -421,6 +421,8 @@ public enum SurfaceData: Sendable, Equatable {
     /// Placeholder for data that was cleared during memory compaction.
     /// The surface can be re-fetched from the daemon if the user scrolls back.
     case stripped
+    /// Re-fetch was attempted but failed after exhausting retries.
+    case strippedFailed
 }
 
 public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
@@ -605,6 +607,8 @@ public extension Surface {
             return .documentPreview(dp)
         case .stripped:
             return .stripped
+        case .strippedFailed:
+            return .strippedFailed
         }
     }
 

@@ -1,4 +1,10 @@
+import os
 import SwiftUI
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "InlineSurfaceRouter"
+)
 
 /// Routes an `InlineSurfaceData` to the correct inline widget view.
 public struct InlineSurfaceRouter: View {
@@ -56,7 +62,9 @@ public struct InlineSurfaceRouter: View {
 
     public var body: some View {
         Group {
-        if case .stripped = surface.data {
+        if case .strippedFailed = surface.data {
+            strippedFailedPlaceholder
+        } else if case .stripped = surface.data {
             strippedPlaceholder
         } else if let completion = surface.completionState {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
@@ -158,9 +166,28 @@ public struct InlineSurfaceRouter: View {
         .frame(maxWidth: 540, alignment: .leading)
         .inlineWidgetCard(interactive: false)
         .onAppear {
-            guard let sessionId = surface.surfaceRef?.sessionId else { return }
+            guard let sessionId = surface.surfaceRef?.sessionId else {
+                log.warning("Surface \(surface.id) has no surfaceRef — cannot refetch")
+                return
+            }
             onRefetch?(surface.id, sessionId)
         }
+    }
+
+    /// Placeholder shown when a stripped surface could not be re-fetched after retries.
+    @ViewBuilder
+    private var strippedFailedPlaceholder: some View {
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 12))
+                .foregroundColor(VColor.textSecondary)
+            Text("Failed to load surface")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: 540, alignment: .leading)
+        .inlineWidgetCard(interactive: false)
     }
 
     @ViewBuilder
