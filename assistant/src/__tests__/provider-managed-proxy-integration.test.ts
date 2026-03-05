@@ -23,7 +23,11 @@ mock.module("../security/secure-keys.js", () => ({
   },
 }));
 
-import { initializeProviders, listProviders } from "../providers/registry.js";
+import {
+  getProviderRoutingSource,
+  initializeProviders,
+  listProviders,
+} from "../providers/registry.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,7 +76,7 @@ beforeEach(() => {
 describe("managed proxy integration — credential precedence", () => {
   describe("user keys present → providers use direct connections (not proxy)", () => {
     test.each(MANAGED_PROVIDERS)(
-      "%s registers when user key is provided regardless of managed context",
+      "%s routes via user-key when user key is provided regardless of managed context",
       (provider: string) => {
         enableManagedProxy();
         initializeProviders({
@@ -81,10 +85,11 @@ describe("managed proxy integration — credential precedence", () => {
           model: "test-model",
         });
         expect(listProviders()).toContain(provider);
+        expect(getProviderRoutingSource(provider)).toBe("user-key");
       },
     );
 
-    test("all five managed providers register with user keys", () => {
+    test("all five managed providers route via user-key with user keys", () => {
       enableManagedProxy();
       initializeProviders({
         apiKeys: userKeysFor(...MANAGED_PROVIDERS),
@@ -94,10 +99,11 @@ describe("managed proxy integration — credential precedence", () => {
       const registered = listProviders();
       for (const p of MANAGED_PROVIDERS) {
         expect(registered).toContain(p);
+        expect(getProviderRoutingSource(p)).toBe("user-key");
       }
     });
 
-    test("user keys still work when managed context is disabled", () => {
+    test("user keys still route via user-key when managed context is disabled", () => {
       disableManagedProxy();
       initializeProviders({
         apiKeys: userKeysFor(...MANAGED_PROVIDERS),
@@ -107,13 +113,14 @@ describe("managed proxy integration — credential precedence", () => {
       const registered = listProviders();
       for (const p of MANAGED_PROVIDERS) {
         expect(registered).toContain(p);
+        expect(getProviderRoutingSource(p)).toBe("user-key");
       }
     });
   });
 
   describe("user keys absent + managed context available → providers use managed proxy", () => {
     test.each(MANAGED_PROVIDERS)(
-      "%s registers via managed fallback when no user key",
+      "%s routes via managed-proxy when no user key",
       (provider: string) => {
         enableManagedProxy();
         initializeProviders({
@@ -123,10 +130,11 @@ describe("managed proxy integration — credential precedence", () => {
           model: "test-model",
         });
         expect(listProviders()).toContain(provider);
+        expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
       },
     );
 
-    test("all five managed providers register via managed fallback simultaneously", () => {
+    test("all five managed providers route via managed-proxy simultaneously", () => {
       enableManagedProxy();
       initializeProviders({
         apiKeys: {},
@@ -136,6 +144,7 @@ describe("managed proxy integration — credential precedence", () => {
       const registered = listProviders();
       for (const p of MANAGED_PROVIDERS) {
         expect(registered).toContain(p);
+        expect(getProviderRoutingSource(p)).toBe("managed-proxy");
       }
     });
   });
@@ -151,6 +160,7 @@ describe("managed proxy integration — credential precedence", () => {
           model: "test-model",
         });
         expect(listProviders()).not.toContain(provider);
+        expect(getProviderRoutingSource(provider)).toBeUndefined();
       },
     );
 
@@ -166,7 +176,7 @@ describe("managed proxy integration — credential precedence", () => {
   });
 
   describe("mixed: some user keys + managed fallback fills gaps", () => {
-    test("user key for anthropic, managed fallback fills remaining four", () => {
+    test("user key for anthropic routes direct, managed fallback fills remaining four via proxy", () => {
       enableManagedProxy();
       initializeProviders({
         apiKeys: userKeysFor("anthropic"),
@@ -175,13 +185,14 @@ describe("managed proxy integration — credential precedence", () => {
       });
       const registered = listProviders();
       expect(registered).toContain("anthropic");
-      expect(registered).toContain("openai");
-      expect(registered).toContain("gemini");
-      expect(registered).toContain("fireworks");
-      expect(registered).toContain("openrouter");
+      expect(getProviderRoutingSource("anthropic")).toBe("user-key");
+      for (const p of ["openai", "gemini", "fireworks", "openrouter"]) {
+        expect(registered).toContain(p);
+        expect(getProviderRoutingSource(p)).toBe("managed-proxy");
+      }
     });
 
-    test("user key for openai, managed fallback fills remaining four", () => {
+    test("user key for openai routes direct, managed fallback fills remaining four via proxy", () => {
       enableManagedProxy();
       initializeProviders({
         apiKeys: userKeysFor("openai"),
@@ -189,8 +200,11 @@ describe("managed proxy integration — credential precedence", () => {
         model: "test-model",
       });
       const registered = listProviders();
-      for (const p of MANAGED_PROVIDERS) {
+      expect(registered).toContain("openai");
+      expect(getProviderRoutingSource("openai")).toBe("user-key");
+      for (const p of ["anthropic", "gemini", "fireworks", "openrouter"]) {
         expect(registered).toContain(p);
+        expect(getProviderRoutingSource(p)).toBe("managed-proxy");
       }
     });
   });
