@@ -6,7 +6,7 @@
  * policy decision, not a runtime configuration.
  */
 
-import type { AuthContext, Scope, ScopeProfile } from "./types.js";
+import type { Scope, ScopeProfile } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Profile -> scope mapping
@@ -47,14 +47,4 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
 /** Resolve a scope profile name to its set of granted scopes. */
 export function resolveScopeProfile(profile: ScopeProfile): ReadonlySet<Scope> {
   return PROFILE_SCOPES[profile];
-}
-
-/** Check whether the auth context includes a specific scope. */
-export function hasScope(ctx: AuthContext, scope: Scope): boolean {
-  return ctx.scopes.has(scope);
-}
-
-/** Check whether the auth context includes all of the given scopes. */
-export function hasAllScopes(ctx: AuthContext, ...scopes: Scope[]): boolean {
-  return scopes.every((s) => ctx.scopes.has(s));
 }
