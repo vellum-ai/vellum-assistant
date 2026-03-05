@@ -63,7 +63,7 @@ Exclusions (EXDATE, EXRULE) always take precedence over inclusions (RRULE, RDATE
 
 ## Tool Input
 
-Use `syntax` + `expression` to specify the schedule type explicitly, or just `expression` to auto-detect. The legacy `cron_expression` field is still accepted as a cron alias.
+Use `syntax` + `expression` to specify the schedule type explicitly, or just `expression` to auto-detect.
 
 ## Lifecycle
 

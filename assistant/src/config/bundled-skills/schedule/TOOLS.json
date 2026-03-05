@@ -20,11 +20,7 @@
           },
           "expression": {
             "type": "string",
-            "description": "Canonical schedule expression (cron or RRULE). Preferred over cron_expression."
-          },
-          "cron_expression": {
-            "type": "string",
-            "description": "Deprecated alias for expression with cron syntax. Use expression + syntax instead."
+            "description": "Schedule expression (cron or RRULE)"
           },
           "timezone": {
             "type": "string",
@@ -97,11 +93,7 @@
           },
           "expression": {
             "type": "string",
-            "description": "New schedule expression (cron or RRULE). Preferred over cron_expression."
-          },
-          "cron_expression": {
-            "type": "string",
-            "description": "Deprecated alias for expression with cron syntax. Use expression + syntax instead."
+            "description": "New schedule expression (cron or RRULE)"
           },
           "timezone": {
             "type": "string",

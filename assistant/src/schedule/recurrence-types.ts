@@ -34,13 +34,11 @@ export function detectScheduleSyntax(
  * Resolution order:
  * 1. If explicit `syntax` is provided, use it
  * 2. If `expression` is provided, auto-detect from expression
- * 3. If `legacyCronExpression` is provided, treat as cron
- * 4. Return null if nothing resolved
+ * 3. Return null if nothing resolved
  */
 export function normalizeScheduleSyntax(input: {
   syntax?: ScheduleSyntax;
   expression?: string;
-  legacyCronExpression?: string;
 }): { syntax: ScheduleSyntax; expression: string } | null {
   // Explicit syntax + expression
   if (input.syntax && input.expression) {
@@ -58,14 +56,6 @@ export function normalizeScheduleSyntax(input: {
       return { syntax: input.syntax, expression: input.expression };
     }
     return null;
-  }
-
-  // Legacy cron_expression fallback
-  if (input.legacyCronExpression) {
-    return {
-      syntax: input.syntax ?? "cron",
-      expression: input.legacyCronExpression,
-    };
   }
 
   return null;

@@ -76,7 +76,7 @@ describe("schedule_create tool", () => {
     const result = await executeScheduleCreate(
       {
         name: "Daily standup",
-        cron_expression: "0 9 * * 1-5",
+        expression: "0 9 * * 1-5",
         message: "Time for standup!",
       },
       ctx,
@@ -93,7 +93,7 @@ describe("schedule_create tool", () => {
     const result = await executeScheduleCreate(
       {
         name: "Paused job",
-        cron_expression: "0 12 * * *",
+        expression: "0 12 * * *",
         message: "Noon check",
         enabled: false,
       },
@@ -108,7 +108,7 @@ describe("schedule_create tool", () => {
     const result = await executeScheduleCreate(
       {
         name: "LA morning",
-        cron_expression: "0 8 * * *",
+        expression: "0 8 * * *",
         message: "Good morning LA",
         timezone: "America/Los_Angeles",
       },
@@ -122,7 +122,7 @@ describe("schedule_create tool", () => {
   test("rejects missing name", async () => {
     const result = await executeScheduleCreate(
       {
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -142,16 +142,14 @@ describe("schedule_create tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain(
-      "expression (or cron_expression) is required",
-    );
+    expect(result.content).toContain("expression is required");
   });
 
   test("rejects missing message", async () => {
     const result = await executeScheduleCreate(
       {
         name: "Test",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
       },
       ctx,
     );
@@ -164,7 +162,8 @@ describe("schedule_create tool", () => {
     const result = await executeScheduleCreate(
       {
         name: "Bad cron",
-        cron_expression: "not-a-cron",
+        syntax: "cron",
+        expression: "not-a-cron",
         message: "test",
       },
       ctx,
@@ -194,7 +193,7 @@ describe("schedule_list tool", () => {
     await executeScheduleCreate(
       {
         name: "Job Alpha",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "Alpha",
       },
       ctx,
@@ -202,7 +201,7 @@ describe("schedule_list tool", () => {
     await executeScheduleCreate(
       {
         name: "Job Beta",
-        cron_expression: "0 17 * * *",
+        expression: "0 17 * * *",
         message: "Beta",
       },
       ctx,
@@ -220,7 +219,7 @@ describe("schedule_list tool", () => {
     await executeScheduleCreate(
       {
         name: "Enabled Job",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "enabled",
       },
       ctx,
@@ -228,7 +227,7 @@ describe("schedule_list tool", () => {
     await executeScheduleCreate(
       {
         name: "Disabled Job",
-        cron_expression: "0 17 * * *",
+        expression: "0 17 * * *",
         message: "disabled",
         enabled: false,
       },
@@ -246,7 +245,7 @@ describe("schedule_list tool", () => {
     await executeScheduleCreate(
       {
         name: "Detail Job",
-        cron_expression: "30 14 * * *",
+        expression: "30 14 * * *",
         message: "Afternoon check",
       },
       ctx,
@@ -286,7 +285,7 @@ describe("schedule_update tool", () => {
     await executeScheduleCreate(
       {
         name: "Old Name",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -312,7 +311,7 @@ describe("schedule_update tool", () => {
     await executeScheduleCreate(
       {
         name: "Timing Test",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -324,7 +323,7 @@ describe("schedule_update tool", () => {
     const result = await executeScheduleUpdate(
       {
         job_id: row.id,
-        cron_expression: "0 17 * * *",
+        expression: "0 17 * * *",
       },
       ctx,
     );
@@ -337,7 +336,7 @@ describe("schedule_update tool", () => {
     await executeScheduleCreate(
       {
         name: "Disable Me",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -370,7 +369,7 @@ describe("schedule_update tool", () => {
     await executeScheduleCreate(
       {
         name: "No Update",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -402,7 +401,7 @@ describe("schedule_update tool", () => {
     await executeScheduleCreate(
       {
         name: "Bad Update",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -414,7 +413,8 @@ describe("schedule_update tool", () => {
     const result = await executeScheduleUpdate(
       {
         job_id: row.id,
-        cron_expression: "invalid",
+        syntax: "cron",
+        expression: "invalid",
       },
       ctx,
     );
@@ -430,22 +430,6 @@ describe("schedule_create with RRULE", () => {
   beforeEach(() => {
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
-  });
-
-  test("creates a schedule with legacy cron_expression", async () => {
-    const result = await executeScheduleCreate(
-      {
-        name: "Legacy cron",
-        cron_expression: "0 9 * * 1-5",
-        message: "Legacy test",
-      },
-      ctx,
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Schedule created successfully");
-    expect(result.content).toContain("Syntax: cron");
-    expect(result.content).toContain("Every weekday at 9:00 AM");
   });
 
   test("creates a schedule with RRULE syntax + expression", async () => {
@@ -507,7 +491,7 @@ describe("schedule_update with RRULE", () => {
     await executeScheduleCreate(
       {
         name: "Cron to RRULE",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -535,7 +519,7 @@ describe("schedule_update with RRULE", () => {
     await executeScheduleCreate(
       {
         name: "Auto-detect on update",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -561,7 +545,7 @@ describe("schedule_update with RRULE", () => {
     await executeScheduleCreate(
       {
         name: "Cron auto-detect",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -593,7 +577,7 @@ describe("schedule_list with RRULE", () => {
     await executeScheduleCreate(
       {
         name: "Cron Job",
-        cron_expression: "0 9 * * 1-5",
+        expression: "0 9 * * 1-5",
         message: "Cron test",
       },
       ctx,
@@ -750,7 +734,7 @@ describe("schedule_update with RRULE set", () => {
     await executeScheduleCreate(
       {
         name: "Cron to set",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -784,7 +768,7 @@ describe("schedule_update with RRULE set", () => {
     await executeScheduleCreate(
       {
         name: "Bad set update",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,
@@ -928,7 +912,7 @@ describe("schedule_delete tool", () => {
     await executeScheduleCreate(
       {
         name: "Delete Me",
-        cron_expression: "0 9 * * *",
+        expression: "0 9 * * *",
         message: "test",
       },
       ctx,

@@ -29,10 +29,6 @@
             "type": "string",
             "description": "Optional recurrence schedule ID to fire a reminder when overdue"
           },
-          "reminder_cron_id": {
-            "type": "string",
-            "description": "Deprecated alias for reminder_schedule_id. Use reminder_schedule_id instead."
-          },
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"

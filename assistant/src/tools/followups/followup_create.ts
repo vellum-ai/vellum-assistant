@@ -51,9 +51,7 @@ export async function executeFollowupCreate(
   const expectedResponseHours = input.expected_response_hours as
     | number
     | undefined;
-  // Canonical: reminder_schedule_id; deprecated alias: reminder_cron_id
-  const reminderScheduleId = (input.reminder_schedule_id ??
-    input.reminder_cron_id) as string | undefined;
+  const reminderScheduleId = input.reminder_schedule_id as string | undefined;
 
   // Validate contact exists if provided
   if (contactId) {
