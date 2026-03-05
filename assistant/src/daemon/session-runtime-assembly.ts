@@ -115,6 +115,16 @@ export interface InboundActorContext {
   memberPolicy?: string;
   /** Denial reason when access is blocked. */
   denialReason?: string;
+  /** Contact relationship label (e.g. "guardian", "friend", "coworker"). */
+  contactRelationship?: string;
+  /** Contact importance score (0-1). */
+  contactImportance?: number;
+  /** How the contact expects responses (e.g. "prompt", "async"). */
+  contactResponseExpectation?: string;
+  /** Preferred communication tone (e.g. "casual", "formal"). */
+  contactPreferredTone?: string;
+  /** Number of prior interactions with this contact. */
+  contactInteractionCount?: number;
 }
 
 /**
@@ -159,6 +169,13 @@ export function inboundActorContextFromTrust(
       : undefined,
     memberPolicy: ctx.memberRecord?.channel.policy ?? undefined,
     denialReason: ctx.denialReason,
+    contactRelationship: ctx.memberRecord?.contact.relationship ?? undefined,
+    contactImportance: ctx.memberRecord?.contact.importance ?? undefined,
+    contactResponseExpectation:
+      ctx.memberRecord?.contact.responseExpectation ?? undefined,
+    contactPreferredTone: ctx.memberRecord?.contact.preferredTone ?? undefined,
+    contactInteractionCount:
+      ctx.memberRecord?.contact.interactionCount ?? undefined,
   };
 }
 
@@ -773,6 +790,25 @@ export function buildInboundActorContextBlock(
     lines.push(`member_policy: ${ctx.memberPolicy}`);
   }
   lines.push(`denial_reason: ${ctx.denialReason ?? "none"}`);
+  // Contact metadata — only included when the sender has a contact record
+  // with non-default values.
+  if (ctx.contactRelationship) {
+    lines.push(`contact_relationship: ${ctx.contactRelationship}`);
+  }
+  if (ctx.contactImportance != null && ctx.contactImportance !== 0.5) {
+    lines.push(`contact_importance: ${ctx.contactImportance}`);
+  }
+  if (ctx.contactResponseExpectation) {
+    lines.push(
+      `contact_response_expectation: ${ctx.contactResponseExpectation}`,
+    );
+  }
+  if (ctx.contactPreferredTone) {
+    lines.push(`contact_preferred_tone: ${ctx.contactPreferredTone}`);
+  }
+  if (ctx.contactInteractionCount != null && ctx.contactInteractionCount > 0) {
+    lines.push(`contact_interaction_count: ${ctx.contactInteractionCount}`);
+  }
   if (
     ctx.actorMemberDisplayName &&
     ctx.actorSenderDisplayName &&
