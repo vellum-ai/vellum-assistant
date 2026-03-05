@@ -42,17 +42,10 @@ const log = getLogger("guardian-request-resolvers");
 
 /** Actor context for the entity making the decision. */
 export interface ActorContext {
-  /**
-   * Identity of the deciding actor. Mixed semantics depending on entry path:
-   * - HTTP/IPC path (desktop): this is a principal ID (same as guardianPrincipalId)
-   * - Callback/conversational path (channel): this is a channel-native ID (Telegram user ID, E.164 phone, etc.)
-   *
-   * TODO: Split into two distinct fields — `actorPrincipalId` for auth identity
-   * and `actorChannelUserId` for channel-native identity — to eliminate the ambiguity.
-   * The `ProcessGuardianDecisionParams` and `ApplyGuardianDecisionParams` have already
-   * been renamed to `actorPrincipalId` as a first step.
-   */
-  externalUserId: string | undefined;
+  /** Auth-identity principal ID of the deciding actor (undefined for callback-only actors). */
+  actorPrincipalId: string | undefined;
+  /** Channel-native external user ID (Telegram user ID, E.164 phone, etc.) of the deciding actor (undefined for desktop actors). Maps to `decided_by_external_user_id` DB column. */
+  actorExternalUserId: string | undefined;
   /** Channel the decision arrived on. */
   channel: string;
   /** Principal ID for authorization — must match the request's guardianPrincipalId. */
