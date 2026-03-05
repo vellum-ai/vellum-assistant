@@ -183,8 +183,8 @@ struct AssistantProgressView: View {
             // Permission chip below header (when not expanded)
             if !isExpanded, let confirmation = decidedConfirmation, confirmation.state != .pending {
                 compactPermissionChip(confirmation)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.bottom, VSpacing.md)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.bottom, VSpacing.sm)
             }
 
             // Expanded content
@@ -194,16 +194,16 @@ struct AssistantProgressView: View {
                 // Permission chip at bottom of expanded list
                 if let confirmation = decidedConfirmation, confirmation.state != .pending {
                     compactPermissionChip(confirmation)
-                        .padding(.horizontal, VSpacing.lg)
-                        .padding(.bottom, VSpacing.md)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.bottom, VSpacing.sm)
                 }
             }
 
             // Code preview (streaming code phase)
             if phase == .streamingCode, let code = streamingCodePreview {
                 CodePreviewView(code: code)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.bottom, VSpacing.md)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.bottom, VSpacing.sm)
             }
         }
         .padding(.bottom, isExpanded ? VSpacing.sm : 0)
