@@ -216,12 +216,16 @@ struct ContactDetailView: View {
                             Divider().background(VColor.divider)
                         }
                     }
-                } else {
-                    unconfiguredChannelRow(type: type)
-                }
 
-                if index < totalRows - 1 {
-                    Divider().background(VColor.divider)
+                    if index < totalRows - 1 {
+                        Divider().background(VColor.divider)
+                    }
+                } else if channelReadiness[type]?.ready == true {
+                    unconfiguredChannelRow(type: type)
+
+                    if index < totalRows - 1 {
+                        Divider().background(VColor.divider)
+                    }
                 }
             }
 
@@ -252,9 +256,8 @@ struct ContactDetailView: View {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
             } catch {
-                // Silently fail — empty dict means probed channels (SMS, Telegram,
-                // Voice) hide their Invite buttons until a successful fetch, while
-                // non-probed channels (email, Slack) default to showing Invite.
+                // Silently fail — empty dict means unconfigured channel rows
+                // stay hidden until a successful readiness fetch.
             }
         }
     }
@@ -341,15 +344,7 @@ struct ContactDetailView: View {
 
                 // Voice invites require additional fields (phone number, friend/guardian
                 // names) that aren't available in this context, so hide the button.
-                // Channels that require infrastructure probing (SMS, Telegram) only
-                // show Invite when the server has explicitly confirmed readiness.
-                // Non-probed channels (email, Slack) default to ready unless
-                // explicitly marked false.
-                let probedChannels: Set<String> = ["sms", "telegram", "voice"]
-                let channelIsReady = probedChannels.contains(type)
-                    ? channelReadiness[type]?.ready == true
-                    : channelReadiness[type]?.ready != false
-                if displayContact.role != "guardian" && type != "voice" && channelIsReady {
+                if displayContact.role != "guardian" && type != "voice" {
                     if inviteInProgress == type {
                         ProgressView()
                             .controlSize(.small)
