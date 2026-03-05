@@ -38,6 +38,8 @@ struct ComposerEditorHeightKey: PreferenceKey {
 /// - Intercepts Cmd+V when the pasteboard contains image content.
 /// - Intercepts Cmd+Return when `cmdEnterToSend` is enabled to trigger send
 ///   before SwiftUI's `.onSubmit` fires.
+/// - Intercepts Shift+Return in default send mode to insert a newline
+///   before SwiftUI's `.onSubmit` fires.
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
     let cmdEnterToSend: Bool
@@ -111,13 +113,33 @@ struct ComposerFocusBridge: NSViewRepresentable {
                     return nil
                 }
 
-                // Cmd+Return send when cmdEnterToSend is enabled.
-                // All other Return routing is handled by SwiftUI's .onSubmit
-                // on the TextField in ComposerView.
+                // Return-key routing. The bridge handles modifier-specific
+                // interception (Shift+Enter newline, Cmd+Enter send).
+                // Plain Enter flows through to SwiftUI's .onSubmit which
+                // calls performSendAction() — the canonical send path that
+                // handles slash-menu, ghost-text, and pending-confirmation.
                 let isReturn = event.keyCode == 36 || event.keyCode == 76
-                if isReturn, self.parent.cmdEnterToSend, modifiers == [.command] {
-                    self.parent.onSend()
-                    return nil
+                if isReturn {
+                    switch ComposerReturnKeyRouting.resolve(
+                        cmdEnterToSend: self.parent.cmdEnterToSend,
+                        modifiers: modifiers
+                    ) {
+                    case .bridgeSend:
+                        self.parent.onSend()
+                        return nil
+                    case .bridgeInsertNewline:
+                        // Insert newline only if we can find the field editor;
+                        // otherwise let the event propagate normally.
+                        let textView = (event.window?.firstResponder as? NSTextView)
+                            ?? (NSApp.keyWindow?.firstResponder as? NSTextView)
+                        if let textView {
+                            textView.insertText("\n", replacementRange: textView.selectedRange())
+                            return nil
+                        }
+                        return event
+                    case .deferToSubmit:
+                        return event
+                    }
                 }
 
                 // Let zoom shortcuts propagate instead of being consumed
