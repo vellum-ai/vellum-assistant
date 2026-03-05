@@ -7,6 +7,7 @@ import VellumAssistantShared
 @MainActor
 struct SettingsPrivacyTab: View {
     var daemonClient: DaemonClient?
+    @ObservedObject var store: SettingsStore
 
     private static let collectUsageDataKey = "feature_flags.collect-usage-data.enabled"
 
@@ -14,8 +15,6 @@ struct SettingsPrivacyTab: View {
     @State private var isLoading: Bool = false
     @State private var isUpdating: Bool = false
     @State private var loadError: String?
-
-    @AppStorage("sendPerformanceReports") private var sendPerformanceReports: Bool = false
 
     @State private var isReportSheetPresented: Bool = false
 
@@ -92,7 +91,10 @@ struct SettingsPrivacyTab: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 Spacer()
-                VToggle(isOn: $sendPerformanceReports)
+                VToggle(isOn: Binding(
+                    get: { store.sendPerformanceReports },
+                    set: { store.sendPerformanceReports = $0 }
+                ))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -176,6 +178,7 @@ private struct ReportProblemSheet: View {
     @State private var userDescription: String = ""
     @State private var isSending: Bool = false
     @State private var didSend: Bool = false
+    @State private var dismissTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -232,12 +235,22 @@ private struct ReportProblemSheet: View {
         )
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         event.tags = ["source": "manual_report", "app_version": appVersion]
+        // Ensure Sentry is running for this manual report — it may have been
+        // shut down via the opt-out path. Manual reports always go through.
+        if !SentrySDK.isEnabled {
+            SentrySDK.start { options in
+                options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                options.sendDefaultPii = false
+            }
+        }
         SentrySDK.capture(event: event)
         isSending = false
         didSend = true
         // Dismiss automatically after a short delay so the user can see the confirmation.
-        Task {
+        dismissTask?.cancel()
+        dismissTask = Task {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled else { return }
             isPresented = false
         }
     }
@@ -246,7 +259,7 @@ private struct ReportProblemSheet: View {
 #Preview("SettingsPrivacyTab") {
     ZStack {
         VColor.background.ignoresSafeArea()
-        SettingsPrivacyTab(daemonClient: nil)
+        SettingsPrivacyTab(daemonClient: nil, store: SettingsStore())
             .frame(width: 480)
             .padding()
     }
