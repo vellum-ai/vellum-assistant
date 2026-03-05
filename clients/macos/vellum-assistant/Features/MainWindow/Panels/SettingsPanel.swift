@@ -168,6 +168,9 @@ struct SettingsPanel: View {
                let enabled = notification.userInfo?["enabled"] as? Bool,
                key == Self.contactsFeatureFlagKey {
                 isContactsEnabled = enabled
+                if !enabled && selectedTab == .contacts {
+                    selectedTab = .account
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
