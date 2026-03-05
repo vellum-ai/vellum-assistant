@@ -102,9 +102,17 @@ declare -a SAFE_LINE_PATTERNS=(
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
     "[Cc]lient[_-]?[Ss]ecret[?]?:[[:space:]]*(string|String)[?]?[[:space:]]*[;,][[:space:]]*$"
+    # Swift var/let declarations with type annotation and empty string default
+    # (e.g. `@State private var twitterClientSecret: String = ""`)
+    "[Cc]lient[Ss]ecret:[[:space:]]*(String|string)[?]?[[:space:]]*=[[:space:]]*['\"]['\"][[:space:]]*$"
+    # Swift/JS: assignment of clientSecret variable to empty string
+    # (e.g. `twitterClientSecret = ""` or `clientSecret = ''`)
+    "[Cc]lient[Ss]ecret[[:space:]]*=[[:space:]]*['\"]['\"][[:space:]]*$"
     # Swift: named argument passing a variable (e.g. `clientSecret: trimmedSecret`)
     # where the line ends with the identifier or has a trailing closing paren.
-    "[Cc]lient[Ss]ecret:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*$"
+    # Also covers ternary expressions with no string literals
+    # (e.g. `clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret`).
+    "[Cc]lient[Ss]ecret:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*([[:space:]]*$|[[:space:]]+[?][[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*$)"
     # Swift: named argument passing a variable for privateKey (e.g. `sshPrivateKey: state.sshPrivateKey,`)
     "[Pp]rivate[Kk]ey:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*[,)][[:space:]]*$"
     # Swift/Kotlin: constant declaration whose value is a camelCase identifier
@@ -242,7 +250,13 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_VAR_NULLISH_SECRET='oauth2ClientSecret: clientSecret ?? undefined,'
     # Dotted property access as value (false positive to whitelist)
     SAFE_DOTTED_PROP_SECRET='    clientSecret: options.clientSecret,'
-    # Swift named argument passing a variable (false positive to whitelist)
+    # Swift var declaration with empty string default (false positive to whitelist)
+    SAFE_SWIFT_EMPTY_SECRET='    @State private var twitterClientSecret: String = ""'
+    # Assignment of clientSecret to empty string (false positive to whitelist)
+    SAFE_SWIFT_ASSIGN_EMPTY_SECRET='                                    twitterClientSecret = ""'
+    # clientSecret in ternary expression (false positive to whitelist)
+    SAFE_SWIFT_TERNARY_SECRET='                                    clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret'
+    # Swift named argument passing a variable — also covers ternary (false positive)
     SAFE_SWIFT_NAMED_ARG='                clientSecret: trimmedSecret'
     # Swift named argument passing a variable for privateKey (false positive to whitelist)
     SAFE_SWIFT_PRIVATE_KEY_ARG='            sshPrivateKey: state.sshPrivateKey,'
@@ -475,6 +489,18 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_DOTTED_PROP_SECRET" && ! matches_safe_line_pattern "$SAFE_DOTTED_PROP_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} dotted property clientSecret assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_EMPTY_SECRET" && ! matches_safe_line_pattern "$SAFE_SWIFT_EMPTY_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Swift empty-string clientSecret declaration false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_ASSIGN_EMPTY_SECRET" && ! matches_safe_line_pattern "$SAFE_SWIFT_ASSIGN_EMPTY_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Swift clientSecret empty-string assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_TERNARY_SECRET" && ! matches_safe_line_pattern "$SAFE_SWIFT_TERNARY_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Swift clientSecret ternary expression false positive"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_SWIFT_NAMED_ARG" && ! matches_safe_line_pattern "$SAFE_SWIFT_NAMED_ARG"; then

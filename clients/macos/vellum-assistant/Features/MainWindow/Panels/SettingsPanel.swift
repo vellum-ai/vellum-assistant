@@ -163,6 +163,13 @@ struct SettingsPanel: View {
                 selectedTab = tab
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+            if let key = notification.userInfo?["key"] as? String,
+               let enabled = notification.userInfo?["enabled"] as? Bool,
+               key == Self.contactsFeatureFlagKey {
+                isContactsEnabled = enabled
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Primary mechanism: Check permissions when app becomes active.
             // This handles the common case where the user grants permission in
