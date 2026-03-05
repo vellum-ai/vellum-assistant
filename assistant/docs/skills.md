@@ -12,20 +12,20 @@ Because skills can introduce arbitrary tool behavior, they are subject to strict
 
 Skill-origin tools follow a stricter default permission policy than core tools:
 
-| Scenario | Core tool behavior | Skill tool behavior |
-|---|---|---|
-| Low risk, no matching rule | Auto-allowed (legacy mode) | **Prompted** |
-| Medium risk, no matching rule | Prompted | Prompted |
-| High risk, no matching rule | Prompted | Prompted |
-| Allow rule matches, non-high risk | Auto-allowed | Auto-allowed |
-| Allow rule matches, high risk, `allowHighRisk: true` | Auto-allowed | Auto-allowed |
-| Allow rule matches, high risk, `allowHighRisk` absent | Prompted | Prompted |
+| Scenario                                              | Core tool behavior            | Skill tool behavior |
+| ----------------------------------------------------- | ----------------------------- | ------------------- |
+| Low risk, no matching rule                            | Auto-allowed (workspace mode) | **Prompted**        |
+| Medium risk, no matching rule                         | Prompted                      | Prompted            |
+| High risk, no matching rule                           | Prompted                      | Prompted            |
+| Allow rule matches, non-high risk                     | Auto-allowed                  | Auto-allowed        |
+| Allow rule matches, high risk, `allowHighRisk: true`  | Auto-allowed                  | Auto-allowed        |
+| Allow rule matches, high risk, `allowHighRisk` absent | Prompted                      | Prompted            |
 
 Even if a skill's `TOOLS.json` declares `"risk": "low"` for one of its tools, the permission checker will prompt the user unless an explicit trust rule in `~/.vellum/protected/trust.json` allows it. This prevents third-party skill tools from silently auto-executing.
 
 ## Skill Load Approval
 
-The `skill_load` tool activates a skill within the current session. In **strict mode** (`permissions.mode = 'strict'`), loading a skill requires an explicit matching trust rule. In **legacy mode**, `skill_load` is classified as low risk and auto-allowed.
+The `skill_load` tool activates a skill within the current session. In **strict mode** (`permissions.mode = 'strict'`), loading a skill requires an explicit matching trust rule. In **workspace mode** (default), `skill_load` is prompted unless a matching trust rule exists.
 
 When `skill_load` is invoked, the permission checker generates multiple command candidates for rule matching:
 
@@ -57,10 +57,10 @@ When a skill's source files change (any file added, removed, or modified), the h
 
 ### Choosing between version-specific and any-version rules
 
-| Approval type | Rule pattern | Behavior |
-|---|---|---|
+| Approval type    | Rule pattern                       | Behavior                                                                     |
+| ---------------- | ---------------------------------- | ---------------------------------------------------------------------------- |
 | Version-specific | `skill_load:my-skill@v1:abc123...` | Only this exact version is auto-allowed. Any code change triggers re-prompt. |
-| Any-version | `skill_load:my-skill` | All versions of this skill are auto-allowed. No re-prompt on code changes. |
+| Any-version      | `skill_load:my-skill`              | All versions of this skill are auto-allowed. No re-prompt on code changes.   |
 
 Version-specific rules are more secure but require re-approval after every skill update. Any-version rules are more convenient but grant persistent access regardless of code changes.
 
@@ -91,7 +91,7 @@ The `normalizeFilePath()` function walks up the directory tree to find the neare
 
 When `permissions.mode` is set to `strict` in the assistant configuration, **all** tool actions require a matching trust rule. There is no implicit auto-allow for any risk level. This means:
 
-- Low-risk tools that would normally auto-execute in legacy mode (e.g., `file_read`, `web_search`) will prompt unless a trust rule allows them.
+- Low-risk tools that would normally auto-execute in workspace mode (e.g., `file_read`, `web_search`) will prompt unless a trust rule allows them.
 - `skill_load` requires an explicit rule match, even though it is classified as low risk.
 - The **starter bundle** can be accepted to seed common safe rules and reduce prompt noise.
 
@@ -99,14 +99,14 @@ When `permissions.mode` is set to `strict` in the assistant configuration, **all
 
 The starter bundle is an opt-in set of allow rules for read-only tools that most users would approve individually. Accepting the bundle seeds these rules at once:
 
-| Tool | Pattern |
-|---|---|
-| `file_read` | `file_read:**` |
-| `glob` | `glob:**` |
-| `grep` | `grep:**` |
+| Tool             | Pattern             |
+| ---------------- | ------------------- |
+| `file_read`      | `file_read:**`      |
+| `glob`           | `glob:**`           |
+| `grep`           | `grep:**`           |
 | `list_directory` | `list_directory:**` |
-| `web_search` | `web_search:**` |
-| `web_fetch` | `web_fetch:**` |
+| `web_search`     | `web_search:**`     |
+| `web_fetch`      | `web_fetch:**`      |
 
 Acceptance is idempotent and recorded in `trust.json`. The bundle does not include any tools that mutate the filesystem or execute arbitrary code.
 
@@ -114,10 +114,10 @@ Acceptance is idempotent and recorded in `trust.json`. The bundle does not inclu
 
 Tools can execute in two contexts:
 
-| Target | Description |
-|---|---|
+| Target    | Description                                                                            |
+| --------- | -------------------------------------------------------------------------------------- |
 | `sandbox` | Isolated execution within `~/.vellum/workspace` (Docker container or OS-level sandbox) |
-| `host` | Direct execution on the host machine |
+| `host`    | Direct execution on the host machine                                                   |
 
 Trust rules can include an `executionTarget` field to bind the rule to a specific context. A rule without `executionTarget` matches both sandbox and host invocations.
 
@@ -143,9 +143,9 @@ Strict mode requires an explicit trust rule for every tool action. There is no i
 
 **Fix**: Accept the starter approval bundle to seed common safe rules. Then approve additional tools as needed — each approval creates a persistent trust rule.
 
-### "Why does skill_load prompt in strict mode but not in legacy mode?"
+### "Why does skill_load prompt in strict mode but not in workspace mode?"
 
-In legacy mode, `skill_load` is classified as low risk and auto-allowed. In strict mode, low-risk auto-allow is disabled, so an explicit rule is needed.
+In workspace mode, `skill_load` may be auto-allowed by system default rules (e.g., `skill_load:*` at priority 100). In strict mode, low-risk auto-allow is disabled, so an explicit rule is needed.
 
 **Fix**: Create a rule for the specific skill (version-specific or any-version) or accept the starter bundle if it covers your needs.
 

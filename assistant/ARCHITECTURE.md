@@ -1549,7 +1549,7 @@ graph TB
 
 ## Permission and Trust Security Model
 
-The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+The permission system controls which tool actions the agent can execute without explicit user approval. It supports two operating modes (`workspace` and `strict`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
 
 ### Permission Evaluation Flow
 
@@ -1577,35 +1577,31 @@ graph TB
     RISK_FALLBACK_WS -->|"Low"| AUTO_WS_LOW["decision: allow<br/>Low risk auto-allow"]
     RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
     RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
-    NO_MATCH -->|"legacy mode"| RISK_FALLBACK{"Risk level?"}
-    RISK_FALLBACK -->|"Low"| AUTO_LOW["decision: allow<br/>Low risk auto-allow"]
-    RISK_FALLBACK -->|"Medium"| PROMPT_MED["decision: prompt"]
-    RISK_FALLBACK -->|"High"| PROMPT_HIGH2["decision: prompt"]
 ```
 
-### Permission Modes: Workspace, Strict, and Legacy
+### Permission Modes: Workspace and Strict
 
-The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
+The `permissions.mode` config option (`workspace` or `strict`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
 
-| Behavior                                           | Workspace mode (default)                      | Strict mode                                   | Legacy mode (deprecated)                      |
-| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
-| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      | Auto-allowed (low risk)                       |
-| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      | Auto-allowed                                  |
-| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      | Prompted                                      |
-| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      | Prompted                                      |
-| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      | Auto-allowed (low risk)                       |
-| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
-| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
-| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      | Prompted                                      |
-| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  | Auto-allowed                                  |
-| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
-| Deny rules                                         | Blocked                                       | Blocked                                       | Blocked                                       |
+| Behavior                                           | Workspace mode (default)                      | Strict mode                                   |
+| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      |
+| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      |
+| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      |
+| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      |
+| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      |
+| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
+| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
+| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      |
+| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  |
+| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
+| Deny rules                                         | Blocked                                       | Blocked                                       |
 
 **Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
 
 **Strict mode** is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
 
-**Legacy mode** (deprecated) auto-allows all low-risk tools regardless of scope. It is deprecated and will be removed in a future release. A one-time runtime warning is emitted when legacy mode is active. Users should migrate to `workspace` (default) or `strict`.
+> **Migration note:** Existing config files with `permissions.mode = "legacy"` are automatically migrated to `workspace` during config loading. The `legacy` value is not a supported steady-state mode.
 
 ### Trust Rules (v3 Schema)
 
@@ -1649,7 +1645,7 @@ The `skill_load` tool generates version-aware command candidates for rule matchi
 2. `skill_load:<skill-id>` — matches any-version rules
 3. `skill_load:<raw-selector>` — matches the raw user-provided selector
 
-In strict mode, `skill_load` without a matching rule is always prompted. In legacy mode, it is auto-allowed as a Low-risk tool. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
+In strict mode, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
 
 ### Starter Approval Bundle
 
@@ -1684,7 +1680,7 @@ In addition to the opt-in starter bundle, the permission system seeds unconditio
 | `default:allow-browser_extract-global`         | `browser_extract`         | `browser_extract:*`         | (same)                                                                                                   |
 | `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same)                                                                                                   |
 
-These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both strict and legacy modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
+These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both workspace and strict modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
 ### Shell Command Identity and Allowlist Options
 
@@ -1732,7 +1728,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
 | `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
-| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`)                                                                                                  |
+| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict`)                                                                                                             |
 | `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
 | `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
 
