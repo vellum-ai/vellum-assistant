@@ -52,7 +52,7 @@ let package = Package(
                 .product(name: "Sentry", package: "sentry-cocoa"),
             ],
             path: "macos/vellum-assistant",
-            exclude: ["Resources/Info.plist", "Resources/bg.png"],
+            exclude: ["Resources/Info.plist", "Resources/bg.png", "Resources/VellumDocument.icns"],
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .process("Resources/meadow.svg"),

@@ -1,7 +1,7 @@
 import Foundation
 import MetricKit
 import os
-import Sentry
+@preconcurrency import Sentry
 
 @MainActor final class MetricKitManager: NSObject, ObservableObject {
     private let logger = Logger(

@@ -149,13 +149,7 @@ extension AppDelegate {
 
     func showCrashReportWindow(url: URL, content: String) {
         let dismiss: () -> Void = { [weak self] in
-            if let observer = self?.crashReportWindowObserver {
-                NotificationCenter.default.removeObserver(observer)
-                self?.crashReportWindowObserver = nil
-            }
-            self?.crashReportWindow?.close()
-            self?.crashReportWindow = nil
-            self?.scheduleActivationPolicyRevert()
+            self?.dismissCrashReportWindow()
         }
 
         let view = CrashReportView(
@@ -189,12 +183,9 @@ extension AppDelegate {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            if let observer = self?.crashReportWindowObserver {
-                NotificationCenter.default.removeObserver(observer)
+            MainActor.assumeIsolated {
+                self?.handleCrashReportWindowWillClose()
             }
-            self?.crashReportWindowObserver = nil
-            self?.crashReportWindow = nil
-            self?.scheduleActivationPolicyRevert()
         }
 
         NSApp.setActivationPolicy(.regular)
@@ -202,6 +193,25 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         crashReportWindow = window
+    }
+
+    private func dismissCrashReportWindow() {
+        if let observer = crashReportWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            crashReportWindowObserver = nil
+        }
+        crashReportWindow?.close()
+        crashReportWindow = nil
+        scheduleActivationPolicyRevert()
+    }
+
+    private func handleCrashReportWindowWillClose() {
+        if let observer = crashReportWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            crashReportWindowObserver = nil
+        }
+        crashReportWindow = nil
+        scheduleActivationPolicyRevert()
     }
 }
 
