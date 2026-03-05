@@ -51,13 +51,18 @@ export async function handleNewCommand(
   sourceChannel: ChannelId,
   conversationExternalId: string,
   sendReply: (text: string) => Promise<void>,
+  logger: Logger,
 ): Promise<{ handled: true }> {
   try {
     await resetConversation(config, sourceChannel, conversationExternalId);
     sendReply(NEW_COMMAND_SUCCESS).catch(() => {
       // fire-and-forget — callers log send failures at their own level
     });
-  } catch {
+  } catch (err) {
+    logger.error(
+      { err, conversationExternalId },
+      "Failed to reset conversation for /new command",
+    );
     sendReply(NEW_COMMAND_ERROR).catch(() => {
       // fire-and-forget
     });

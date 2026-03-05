@@ -162,6 +162,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           normalized.message.conversationExternalId,
           (text) =>
             sendSmsReply(config, params.From, text, routing.assistantId),
+          log,
         );
       }
 

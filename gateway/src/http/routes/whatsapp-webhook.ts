@@ -204,6 +204,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
             async (text) => {
               await sendWhatsAppReply(config, from, text);
             },
+            log,
           );
         }
 
