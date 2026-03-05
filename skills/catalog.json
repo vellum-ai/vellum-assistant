@@ -5,9 +5,9 @@
     {
       "id": "google-oauth-setup",
       "name": "google-oauth-setup",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation",
+      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using CLI tools or guided manual steps",
       "emoji": "🔑",
-      "compatibility": "Requires browser automation and public ingress for OAuth callback"
+      "compatibility": "Desktop: requires gcloud and gws CLI tools. Channels: requires public ingress for OAuth callback"
     },
     {
       "id": "weather",
