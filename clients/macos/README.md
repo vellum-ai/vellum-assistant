@@ -120,6 +120,12 @@ The fastest way to build and launch the app locally:
 ./build.sh run
 ```
 
+To point managed sign-in at a specific platform host for a local run:
+
+```bash
+VELLUM_ASSISTANT_PLATFORM_URL=https://platform.vellum.ai ./build.sh run
+```
+
 This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 
 ## Build
