@@ -251,8 +251,9 @@ struct ContactDetailView: View {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
             } catch {
-                // Silently fail — default to empty dict means all channels treated as
-                // ready (invite buttons shown), since we only hide on explicit false.
+                // Silently fail — empty dict means probed channels (SMS, Telegram,
+                // Voice) hide their Invite buttons until a successful fetch, while
+                // non-probed channels (email, Slack) default to showing Invite.
             }
         }
     }
@@ -332,10 +333,15 @@ struct ContactDetailView: View {
 
                 // Voice invites require additional fields (phone number, friend/guardian
                 // names) that aren't available in this context, so hide the button.
-                // channelReadiness gating: only hide Invite when the channel is
-                // explicitly not ready (false). Channels without probes (e.g. email,
-                // slack) are treated as ready by default (nil = ready).
-                if displayContact.role != "guardian" && type != "voice" && channelReadiness[type] != false {
+                // Channels that require infrastructure probing (SMS, Telegram) only
+                // show Invite when the server has explicitly confirmed readiness.
+                // Non-probed channels (email, Slack) default to ready unless
+                // explicitly marked false.
+                let probedChannels: Set<String> = ["sms", "telegram", "voice"]
+                let channelIsReady = probedChannels.contains(type)
+                    ? channelReadiness[type] == true
+                    : channelReadiness[type] != false
+                if displayContact.role != "guardian" && type != "voice" && channelIsReady {
                     if inviteInProgress == type {
                         ProgressView()
                             .controlSize(.small)
