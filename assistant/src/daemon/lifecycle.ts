@@ -20,7 +20,6 @@ import {
 import { loadConfig } from "../config/loader.js";
 import { ensurePromptFiles } from "../config/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../config/update-bulletin.js";
-import { migrateContactsFromLegacyTables } from "../contacts/startup-migration.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -201,18 +200,6 @@ export async function runDaemon(): Promise<void> {
       log.warn(
         { err },
         "Vellum guardian binding backfill failed — continuing startup",
-      );
-    }
-
-    // Catch-up migration: populate contacts table from legacy guardian
-    // bindings and contact rows. Ensures upgrades from pre-contacts
-    // versions have a populated contacts table on first boot.
-    try {
-      migrateContactsFromLegacyTables("self");
-    } catch (err) {
-      log.warn(
-        { err },
-        "Contacts startup migration failed — continuing startup",
       );
     }
 
