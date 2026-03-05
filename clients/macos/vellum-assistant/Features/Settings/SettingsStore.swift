@@ -687,6 +687,7 @@ public final class SettingsStore: ObservableObject {
         refreshChannelGuardianStatus(channel: "telegram")
         refreshChannelGuardianStatus(channel: "sms")
         refreshChannelGuardianStatus(channel: "voice")
+        refreshChannelGuardianStatus(channel: "slack")
 
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
