@@ -151,11 +151,29 @@ struct MarkdownSegmentView: View {
     @MainActor private static var groupedLRUCounter: Int = 0
     private static let groupedCacheLimit = 200
 
+    /// Returns a small integer discriminant for each `MarkdownSegment` case,
+    /// used to build a structural cache key without touching string content.
+    private static func segmentTypeDiscriminant(_ segment: MarkdownSegment) -> Int {
+        switch segment {
+        case .text:           return 0
+        case .table:          return 1
+        case .image:          return 2
+        case .heading:        return 3
+        case .codeBlock:      return 4
+        case .horizontalRule: return 5
+        case .list:           return 6
+        }
+    }
+
     /// Groups consecutive text-selectable segments together so they render
     /// as a single Text view, enabling cross-paragraph text selection.
     private var groupedSegments: [SegmentGroup] {
+        // Hash only the structural identity (count + type sequence), NOT string
+        // content. Hashing full payloads is O(total text length) on every body
+        // evaluation and reintroduces the scroll jank the cache was meant to fix.
         var hasher = Hasher()
-        for segment in segments { hasher.combine(segment) }
+        hasher.combine(segments.count)
+        for segment in segments { hasher.combine(Self.segmentTypeDiscriminant(segment)) }
         let key = hasher.finalize()
 
         if let cached = Self.groupedSegmentsCache[key] {
