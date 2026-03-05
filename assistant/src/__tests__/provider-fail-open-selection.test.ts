@@ -17,9 +17,9 @@ mock.module("../providers/managed-proxy/context.js", () => ({
   buildManagedBaseUrl: (provider: string) => {
     if (!mockManagedEnabled) return undefined;
     const paths: Record<string, string> = {
-      openai: "/v1/proxy/openai",
-      fireworks: "/v1/proxy/fireworks",
-      openrouter: "/v1/proxy/openrouter",
+      openai: "/v1/runtime-proxy/openai",
+      fireworks: "/v1/runtime-proxy/fireworks",
+      openrouter: "/v1/runtime-proxy/openrouter",
     };
     const path = paths[provider];
     if (!path) return undefined;

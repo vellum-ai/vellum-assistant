@@ -21,22 +21,30 @@ export interface ManagedProviderMeta {
  * are marked accordingly and have no proxy path.
  */
 export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
-  openai: { name: "openai", managed: true, proxyPath: "/v1/proxy/openai" },
+  openai: {
+    name: "openai",
+    managed: true,
+    proxyPath: "/v1/runtime-proxy/openai",
+  },
   anthropic: {
     name: "anthropic",
     managed: true,
-    proxyPath: "/v1/proxy/anthropic",
+    proxyPath: "/v1/runtime-proxy/anthropic",
   },
-  gemini: { name: "gemini", managed: true, proxyPath: "/v1/proxy/gemini" },
+  gemini: {
+    name: "gemini",
+    managed: true,
+    proxyPath: "/v1/runtime-proxy/gemini",
+  },
   fireworks: {
     name: "fireworks",
     managed: true,
-    proxyPath: "/v1/proxy/fireworks",
+    proxyPath: "/v1/runtime-proxy/fireworks",
   },
   openrouter: {
     name: "openrouter",
     managed: true,
-    proxyPath: "/v1/proxy/openrouter",
+    proxyPath: "/v1/runtime-proxy/openrouter",
   },
   ollama: { name: "ollama", managed: false },
 };

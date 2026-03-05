@@ -953,13 +953,13 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
 
   test("constructor passes baseURL to Anthropic SDK when provided", () => {
     new AnthropicProvider("managed-key", "claude-sonnet-4-6", {
-      baseURL: "https://platform.example.com/v1/proxy/anthropic",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/anthropic",
     });
 
     expect(lastConstructorArgs).not.toBeNull();
     expect(lastConstructorArgs!.apiKey).toBe("managed-key");
     expect(lastConstructorArgs!.baseURL).toBe(
-      "https://platform.example.com/v1/proxy/anthropic",
+      "https://platform.example.com/v1/runtime-proxy/anthropic",
     );
   });
 
@@ -973,7 +973,7 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
 
   test("managed mode provider preserves tool-pairing behavior", async () => {
     const provider = new AnthropicProvider("managed-key", "claude-sonnet-4-6", {
-      baseURL: "https://platform.example.com/v1/proxy/anthropic",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/anthropic",
     });
 
     const messages: Message[] = [
@@ -996,7 +996,7 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
 
   test("managed mode provider preserves cache-control behavior", async () => {
     const provider = new AnthropicProvider("managed-key", "claude-sonnet-4-6", {
-      baseURL: "https://platform.example.com/v1/proxy/anthropic",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/anthropic",
     });
 
     await provider.sendMessage(

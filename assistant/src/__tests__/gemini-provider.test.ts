@@ -741,12 +741,12 @@ describe("GeminiProvider", () => {
 
   test("sets httpOptions.baseUrl when managedBaseUrl is provided", () => {
     new GeminiProvider("managed-key", "gemini-3-flash", {
-      managedBaseUrl: "https://platform.example.com/v1/proxy/gemini",
+      managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
     });
     expect(lastConstructorOpts).toEqual({
       apiKey: "managed-key",
       httpOptions: {
-        baseUrl: "https://platform.example.com/v1/proxy/gemini",
+        baseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
       },
     });
   });
@@ -756,7 +756,7 @@ describe("GeminiProvider", () => {
       "managed-key",
       "gemini-3-flash",
       {
-        managedBaseUrl: "https://platform.example.com/v1/proxy/gemini",
+        managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
       },
     );
 
@@ -781,7 +781,7 @@ describe("GeminiProvider", () => {
       "managed-key",
       "gemini-3-flash",
       {
-        managedBaseUrl: "https://platform.example.com/v1/proxy/gemini",
+        managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
       },
     );
 
