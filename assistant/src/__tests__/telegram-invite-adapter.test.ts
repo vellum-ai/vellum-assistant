@@ -4,10 +4,15 @@
  * Covers `buildShareLink`, `extractInboundToken`, and
  * `resolveChannelHandle` on the real production adapter.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ChannelId } from "../channels/types.js";
 import { telegramInviteAdapter } from "../runtime/channel-invite-transports/telegram.js";
+
+// Mock credential metadata so tests don't depend on local persisted state.
+mock.module("../tools/credentials/metadata-store.js", () => ({
+  getCredentialMetadata: () => undefined,
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
