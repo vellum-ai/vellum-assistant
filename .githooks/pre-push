@@ -71,6 +71,32 @@ fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
+# --- TypeScript type check for assistant/ ---
+# The pre-commit hook skips tsc in worktrees to keep commits fast (~20s cold).
+# Pre-push is the right place to catch cross-file type errors before they hit CI.
+ASSISTANT_TS_CHANGED=0
+while IFS= read -r file; do
+    if [[ "$file" == assistant/*.ts ]] || [[ "$file" == assistant/*.tsx ]]; then
+        ASSISTANT_TS_CHANGED=1
+        break
+    fi
+done <<< "$CHANGED_FILES"
+
+if [ $ASSISTANT_TS_CHANGED -eq 1 ]; then
+    echo ""
+    echo "🔍 Type-checking assistant/..."
+    if ! (cd "${REPO_ROOT}/assistant" && "$BUN" x tsc --noEmit) 2>&1; then
+        echo ""
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${RED}TypeScript type errors in assistant/ — push blocked${NC}"
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo "Fix the type errors or push with --no-verify to skip."
+        exit 1
+    fi
+    echo -e "  ${GREEN}✅ Type check OK in assistant/${NC}"
+fi
+
 # Temp dir for capturing test output
 RESULTS_DIR="$(mktemp -d)"
 trap 'rm -rf "${RESULTS_DIR}"' EXIT
