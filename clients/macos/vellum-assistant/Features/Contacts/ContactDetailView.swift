@@ -57,7 +57,7 @@ struct ContactDetailView: View {
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack {
-                if isEditing {
+                if isEditing && displayContact.role != "guardian" {
                     TextField("Display name", text: $editedName)
                         .font(VFont.largeTitle)
                         .foregroundColor(VColor.textPrimary)
@@ -688,7 +688,8 @@ struct ContactDetailView: View {
     // MARK: - Actions
 
     private func saveCardEdits() async {
-        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isGuardian = displayContact.role == "guardian"
+        let trimmedName = isGuardian ? displayContact.displayName : editedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
         let trimmedNotes = editedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
