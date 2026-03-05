@@ -6,9 +6,13 @@ import VellumAssistantShared
 /// channels with verification status, and action buttons.
 @MainActor
 struct ContactDetailView: View {
-    private static let allChannelTypes = ["telegram", "sms", "email", "voice", "slack"]
+    private static let allChannelTypes = ["telegram", "sms", "email", "whatsapp", "voice", "slack"]
 
     private static let guardianSupportedChannels: Set<String> = ["telegram", "sms", "voice", "slack"]
+
+    /// Channels that support 6-digit code invites from this view. Voice invites
+    /// require additional fields not available here, so they are excluded.
+    private static let codeInviteChannels: Set<String> = ["telegram", "sms", "email", "whatsapp", "slack"]
 
     let contact: ContactPayload
     var daemonClient: DaemonClient?
@@ -407,9 +411,10 @@ struct ContactDetailView: View {
                         showLabel: false
                     )
                 }
-            } else if type != "voice" {
-                // Voice invites require additional fields (phone number, friend/guardian
-                // names) that aren't available in this context, so hide the button.
+            } else if Self.codeInviteChannels.contains(type) {
+                // Channels that support 6-digit code invites can be invited directly
+                // from this view. Voice invites require additional fields (phone number,
+                // friend/guardian names) that aren't available in this context.
                 // Row visibility is already gated on channelReadiness[type]?.ready == true,
                 // so no additional readiness check is needed here.
                 if inviteInProgress == type {
@@ -469,6 +474,32 @@ struct ContactDetailView: View {
                                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                                 guard !Task.isCancelled else { return }
                                 if inviteCopiedType == "\(type)-link" {
+                                    inviteCopiedType = nil
+                                }
+                            }
+                        }
+                    }
+                } else if let channelHandle = result.channelHandle {
+                    // For channels without a share URL (email, WhatsApp, SMS),
+                    // show the assistant's channel handle so it can be copied.
+                    HStack(spacing: VSpacing.sm) {
+                        Text(channelHandle)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textSecondary)
+
+                        VButton(
+                            label: inviteCopiedType == "\(type)-handle" ? "Copied!" : "Copy Address",
+                            icon: "doc.on.doc",
+                            style: .secondary,
+                            size: .medium
+                        ) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(channelHandle, forType: .string)
+                            inviteCopiedType = "\(type)-handle"
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                guard !Task.isCancelled else { return }
+                                if inviteCopiedType == "\(type)-handle" {
                                     inviteCopiedType = nil
                                 }
                             }
@@ -771,6 +802,7 @@ struct ContactDetailView: View {
         case "telegram": return "Telegram"
         case "sms": return "SMS"
         case "email": return "Email"
+        case "whatsapp": return "WhatsApp"
         case "voice": return "Voice"
         case "slack": return "Slack"
         default: return type.capitalized
