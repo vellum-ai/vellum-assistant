@@ -37,7 +37,6 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
-    var onPreviewImageUpdate: ((String, String) -> Void)? = nil
     @ObservedObject var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Pagination
@@ -423,8 +422,7 @@ struct MessageListView: View {
                                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
-                                activeSurfaceId: activeSurfaceId,
-                                onPreviewImageUpdate: onPreviewImageUpdate
+                                activeSurfaceId: activeSurfaceId
                             )
                                 .id(message.id)
                                 .transition(.opacity)
