@@ -244,13 +244,6 @@ export async function handleChannelInbound(
 
   // ── Edit path: update existing message content, no new agent loop ──
   if (isEdit && sourceMessageId) {
-    // Edits don't go through recordInbound (no dedup concern), so it's safe
-    // to track the interaction here — ensures message edits from active
-    // members still increment interactionCount and update lastInteraction.
-    if (resolvedMember) {
-      touchContactInteraction(resolvedMember.contact.id);
-    }
-
     return handleEditIntercept({
       sourceChannel,
       conversationExternalId,
@@ -259,6 +252,7 @@ export async function handleChannelInbound(
       canonicalAssistantId,
       assistantId,
       content,
+      contactId: resolvedMember?.contact.id,
     });
   }
 
