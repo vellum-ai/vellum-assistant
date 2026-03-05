@@ -5,6 +5,7 @@
  */
 
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -59,9 +60,12 @@ export function createSessionStore(providerKey: string): CookieSessionStore {
   function saveSession(session: CookieSession): void {
     const dir = getSessionDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(getSessionPath(), JSON.stringify(session, null, 2), {
+    const path = getSessionPath();
+    writeFileSync(path, JSON.stringify(session, null, 2), {
       mode: 0o600,
     });
+    // writeFileSync mode only applies to newly created files; enforce on existing ones too
+    chmodSync(path, 0o600);
   }
 
   function clearSession(): void {
