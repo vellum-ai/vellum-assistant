@@ -6,6 +6,7 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
+import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
 import { touchChannelLastSeen } from "../../../contacts/contacts-write.js";
@@ -26,7 +27,10 @@ import {
 } from "../../channel-guardian-service.js";
 import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
 import { deliverChannelReply } from "../../gateway-client.js";
-import { redeemInvite } from "../../invite-redemption-service.js";
+import {
+  redeemInvite,
+  redeemInviteByCode,
+} from "../../invite-redemption-service.js";
 import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
 
 const log = getLogger("runtime-http");
@@ -253,6 +257,32 @@ export async function enforceIngressAcl(
           };
       }
 
+      // ── 6-digit invite code intercept (non-member) ──
+      // On channels with codeRedemptionEnabled, a bare 6-digit message may be
+      // an invite code. Attempt redemption; on failure (no matching code) fall
+      // through to normal processing — the number may be a regular message.
+      if (denyNonMember && /^\d{6}$/.test(trimmedContent)) {
+        const codeInterceptResult = await handleInviteCodeIntercept({
+          code: trimmedContent,
+          sourceChannel,
+          externalChatId: conversationExternalId,
+          externalMessageId,
+          senderExternalUserId: canonicalSenderId ?? rawSenderId,
+          senderName: actorDisplayName,
+          senderUsername: actorUsername,
+          replyCallbackUrl,
+          bearerToken: mintBearerToken(),
+          assistantId,
+          canonicalAssistantId,
+        });
+        if (codeInterceptResult)
+          return {
+            resolvedMember: null,
+            earlyResponse: codeInterceptResult,
+            guardianVerifyCode,
+          };
+      }
+
       if (denyNonMember) {
         log.info(
           { sourceChannel, externalUserId: canonicalSenderId },
@@ -455,6 +485,31 @@ export async function enforceIngressAcl(
             return {
               resolvedMember: null,
               earlyResponse: inviteResult,
+              guardianVerifyCode,
+            };
+        }
+
+        // ── 6-digit invite code intercept (inactive member) ──
+        // Same as the non-member branch: codes can reactivate revoked/pending
+        // members. Non-matching codes fall through to normal processing.
+        if (denyInactiveMember && /^\d{6}$/.test(trimmedContent)) {
+          const codeInterceptResult = await handleInviteCodeIntercept({
+            code: trimmedContent,
+            sourceChannel,
+            externalChatId: conversationExternalId,
+            externalMessageId,
+            senderExternalUserId: canonicalSenderId ?? rawSenderId,
+            senderName: actorDisplayName,
+            senderUsername: actorUsername,
+            replyCallbackUrl,
+            bearerToken: mintBearerToken(),
+            assistantId,
+            canonicalAssistantId,
+          });
+          if (codeInterceptResult)
+            return {
+              resolvedMember: null,
+              earlyResponse: codeInterceptResult,
               guardianVerifyCode,
             };
         }
@@ -793,6 +848,163 @@ async function handleInviteTokenIntercept(params: {
     eventId: dedupResult.eventId,
     denied: true,
     inviteRedemption: outcome.reason,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 6-digit invite code intercept
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a bare 6-digit message as a potential invite code redemption.
+ *
+ * Checks channel policy (codeRedemptionEnabled), attempts redemption via
+ * `redeemInviteByCode`, and returns a Response to short-circuit the handler
+ * on success. Returns `null` when the code does not match any active invite,
+ * allowing the message to fall through to normal processing.
+ */
+async function handleInviteCodeIntercept(params: {
+  code: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  externalMessageId: string;
+  senderExternalUserId?: string;
+  senderName?: string;
+  senderUsername?: string;
+  replyCallbackUrl?: string;
+  bearerToken?: string;
+  assistantId?: string;
+  canonicalAssistantId: string;
+}): Promise<Response | null> {
+  const {
+    code,
+    sourceChannel,
+    externalChatId,
+    externalMessageId,
+    senderExternalUserId,
+    senderName,
+    senderUsername,
+    replyCallbackUrl,
+    bearerToken,
+    assistantId,
+    canonicalAssistantId,
+  } = params;
+
+  // Skip channels that don't support code redemption
+  if (!isInviteCodeRedemptionEnabled(sourceChannel)) {
+    return null;
+  }
+
+  const outcome = redeemInviteByCode({
+    code,
+    sourceChannel,
+    externalUserId: senderExternalUserId,
+    externalChatId,
+    displayName: senderName,
+    username: senderUsername,
+    assistantId: canonicalAssistantId,
+  });
+
+  // Non-matching codes fall through to normal message processing — a bare
+  // 6-digit number may be a regular message, not an invite code.
+  if (!outcome.ok && outcome.reason === "invalid_token") {
+    return null;
+  }
+
+  log.info(
+    {
+      sourceChannel,
+      externalChatId,
+      ok: outcome.ok,
+      type: outcome.ok ? outcome.type : undefined,
+      reason: !outcome.ok ? outcome.reason : undefined,
+    },
+    "Invite code intercept: redemption result",
+  );
+
+  // Record the inbound event for dedup tracking after a successful match.
+  const dedupResult = channelDeliveryStore.recordInbound(
+    sourceChannel,
+    externalChatId,
+    externalMessageId,
+    { assistantId: canonicalAssistantId },
+  );
+
+  if (dedupResult.duplicate) {
+    return Response.json({
+      accepted: true,
+      duplicate: true,
+      eventId: dedupResult.eventId,
+    });
+  }
+
+  // already_member: deliver acknowledgement and short-circuit
+  if (outcome.ok && outcome.type === "already_member") {
+    const replyText = getInviteRedemptionReply(outcome);
+    if (replyCallbackUrl) {
+      try {
+        await deliverChannelReply(
+          replyCallbackUrl,
+          {
+            chatId: externalChatId,
+            text: replyText,
+            assistantId,
+          },
+          bearerToken,
+        );
+      } catch (err) {
+        log.error(
+          { err, externalChatId },
+          "Failed to deliver invite code already-member reply",
+        );
+      }
+    }
+    channelDeliveryStore.markProcessed(dedupResult.eventId);
+    return Response.json({
+      accepted: true,
+      eventId: dedupResult.eventId,
+      inviteRedemption: "already_member",
+    });
+  }
+
+  const replyText = getInviteRedemptionReply(outcome);
+
+  if (replyCallbackUrl) {
+    try {
+      await deliverChannelReply(
+        replyCallbackUrl,
+        {
+          chatId: externalChatId,
+          text: replyText,
+          assistantId,
+        },
+        bearerToken,
+      );
+    } catch (err) {
+      log.error(
+        { err, externalChatId },
+        "Failed to deliver invite code redemption reply",
+      );
+    }
+  }
+
+  if (outcome.ok && outcome.type === "redeemed") {
+    channelDeliveryStore.markProcessed(dedupResult.eventId);
+    return Response.json({
+      accepted: true,
+      eventId: dedupResult.eventId,
+      inviteRedemption: "redeemed",
+      memberId: outcome.memberId,
+    });
+  }
+
+  // Failed redemption (expired, revoked, etc.) — inform and deny
+  channelDeliveryStore.markProcessed(dedupResult.eventId);
+  return Response.json({
+    accepted: true,
+    eventId: dedupResult.eventId,
+    denied: true,
+    inviteRedemption: !outcome.ok ? outcome.reason : undefined,
   });
 }
 
