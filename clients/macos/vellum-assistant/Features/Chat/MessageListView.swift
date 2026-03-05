@@ -174,22 +174,6 @@ struct MessageListView: View {
         return result
     }
 
-    private func modelPickerView(for message: ChatMessage) -> some View {
-        ModelPickerBubble(
-            models: SettingsStore.availableModels.map { id in
-                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
-            },
-            selectedModelId: selectedModel,
-            onSelect: { modelId in
-                onModelPickerSelect?(message.id, modelId)
-            }
-        )
-    }
-
-    private func modelListView(for message: ChatMessage) -> some View {
-        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
-    }
-
     private var shouldShowThreadScrollbar: Bool {
         isAppActive && isThreadContentHovered && !suppressScrollbarDuringThreadSwitch
     }
@@ -364,105 +348,38 @@ struct MessageListView: View {
                     let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
                     let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
                     ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
-                        if showTimestamp.contains(index) {
-                            TimestampDivider(date: message.timestamp)
-                        }
-
-                        if let confirmation = message.confirmation {
-                            if confirmation.state == .pending {
-                                ToolConfirmationBubble(
-                                    confirmation: confirmation,
-                                    isKeyboardActive: confirmation.requestId == activePendingRequestId,
-                                    onAllow: { onConfirmationAllow(confirmation.requestId) },
-                                    onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                    onAlwaysAllow: onAlwaysAllow,
-                                    onTemporaryAllow: onTemporaryAllow
-                                )
-                                .id(message.id)
-                            } else {
-                                let hasPrecedingAssistant: Bool = {
-                                    guard index > 0 else { return false }
-                                    return displayMessages[index - 1].role == .assistant
-                                }()
-
-                                if !hasPrecedingAssistant {
-                                    ToolConfirmationBubble(
-                                        confirmation: confirmation,
-                                        onAllow: { onConfirmationAllow(confirmation.requestId) },
-                                        onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                        onAlwaysAllow: onAlwaysAllow,
-                                        onTemporaryAllow: onTemporaryAllow
-                                    )
-                                    .id(message.id)
-                                }
-                            }
-                        } else if message.modelPicker != nil {
-                            modelPickerView(for: message)
-                                .id(message.id)
-                        } else if message.modelList != nil {
-                            modelListView(for: message)
-                                .id(message.id)
-                        } else if message.commandList != nil {
-                            CommandListBubble()
-                                .id(message.id)
-                        } else if let guardianDecision = message.guardianDecision {
-                            GuardianDecisionBubble(
-                                decision: guardianDecision,
-                                onAction: { requestId, action in
-                                    onGuardianAction?(requestId, action)
-                                }
-                            )
-                            .id(message.id)
-                        } else {
-                            let nextIsPendingConfirmation = index + 1 < displayMessages.count
-                                && displayMessages[index + 1].confirmation?.state == .pending
-
-                            let nextDecidedConfirmation: ToolConfirmationData? = {
-                                guard index + 1 < displayMessages.count,
-                                      let conf = displayMessages[index + 1].confirmation,
-                                      conf.state != .pending else { return nil }
-                                return conf
-                            }()
-
-                            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
-
-                            ChatBubble(
-                                message: message,
-                                hideToolCalls: nextIsPendingConfirmation,
-                                decidedConfirmation: nextDecidedConfirmation,
-                                onSurfaceAction: onSurfaceAction,
-                                onDismissDocumentWidget: { surfaceId in
-                                    onDismissDocumentWidget?(surfaceId)
-                                },
-                                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                                onReportMessage: onReportMessage,
-                                onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
-                                mediaEmbedSettings: mediaEmbedSettings,
-                                resolveHttpPort: resolveHttpPort,
-                                showAvatar: !previousIsAssistant,
-                                isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
-                                isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
-                                processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
-                                activeSurfaceId: activeSurfaceId
-                            )
-                                .id(message.id)
-                        }
-
-                        ForEach(subagentsByParent[message.id] ?? []) { subagent in
-                            SubagentThreadView(
-                                subagent: subagent,
-                                events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
-                                onAbort: { onAbortSubagent?(subagent.id) },
-                                onTap: { onSubagentTap?(subagent.id) }
-                            )
-                                .frame(maxWidth: 520, alignment: .leading)
-                                .padding(.leading, 36)
-                                .id("subagent-\(subagent.id)")
-                        }
-
-                        if shouldShowThinkingIndicator && anchoredThinkingIndex == index {
-                            thinkingIndicatorRow(displayMessages: displayMessages)
-                        }
+                        MessageCellView(
+                            message: message,
+                            index: index,
+                            displayMessages: displayMessages,
+                            showTimestamp: showTimestamp,
+                            activePendingRequestId: activePendingRequestId,
+                            latestAssistantId: latestAssistantId,
+                            anchoredThinkingIndex: anchoredThinkingIndex,
+                            subagentsByParent: subagentsByParent,
+                            canInlineProcessing: canInlineProcessing,
+                            shouldShowThinkingIndicator: shouldShowThinkingIndicator,
+                            assistantStatusText: assistantStatusText,
+                            dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                            activeSurfaceId: activeSurfaceId,
+                            mediaEmbedSettings: mediaEmbedSettings,
+                            resolveHttpPort: resolveHttpPort,
+                            onConfirmationAllow: onConfirmationAllow,
+                            onConfirmationDeny: onConfirmationDeny,
+                            onAlwaysAllow: onAlwaysAllow,
+                            onTemporaryAllow: onTemporaryAllow,
+                            onGuardianAction: onGuardianAction,
+                            onSurfaceAction: onSurfaceAction,
+                            onDismissDocumentWidget: onDismissDocumentWidget,
+                            onReportMessage: onReportMessage,
+                            onRehydrateMessage: onRehydrateMessage,
+                            onAbortSubagent: onAbortSubagent,
+                            onSubagentTap: onSubagentTap,
+                            onModelPickerSelect: onModelPickerSelect,
+                            subagentDetailStore: subagentDetailStore,
+                            selectedModel: selectedModel,
+                            configuredProviders: configuredProviders
+                        )
                     }
 
                     ForEach(orphanSubagents) { subagent in
@@ -871,6 +788,188 @@ struct MessageListView: View {
                 suppressScrollbarDuringThreadSwitch = false
                 isThreadContentHovered = false
             }
+        }
+    }
+}
+
+// MARK: - MessageCellView
+
+/// Per-message cell extracted from the ForEach body so SwiftUI has a typed
+/// struct boundary for diffing: when all `let` inputs are equal, SwiftUI can
+/// skip re-evaluating the body during LazySubviewPlacements.updateValue.
+private struct MessageCellView: View {
+    let message: ChatMessage
+    let index: Int
+    let displayMessages: [ChatMessage]
+    let showTimestamp: Set<Int>
+    let activePendingRequestId: String?
+    let latestAssistantId: UUID?
+    let anchoredThinkingIndex: Int?
+    let subagentsByParent: [UUID: [SubagentInfo]]
+    let canInlineProcessing: Bool
+    let shouldShowThinkingIndicator: Bool
+    let assistantStatusText: String?
+    let dismissedDocumentSurfaceIds: Set<String>
+    let activeSurfaceId: String?
+    let mediaEmbedSettings: MediaEmbedResolverSettings?
+    let resolveHttpPort: () -> Int?
+    let onConfirmationAllow: (String) -> Void
+    let onConfirmationDeny: (String) -> Void
+    let onAlwaysAllow: (String, String, String, String) -> Void
+    var onTemporaryAllow: ((String, String) -> Void)?
+    var onGuardianAction: ((String, String) -> Void)?
+    let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    let onDismissDocumentWidget: ((String) -> Void)?
+    let onReportMessage: ((String?) -> Void)?
+    var onRehydrateMessage: ((UUID) -> Void)?
+    var onAbortSubagent: ((String) -> Void)?
+    var onSubagentTap: ((String) -> Void)?
+    var onModelPickerSelect: ((UUID, String) -> Void)?
+    @ObservedObject var subagentDetailStore: SubagentDetailStore
+    let selectedModel: String
+    let configuredProviders: Set<String>
+
+    @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
+    @State private var appearance = AvatarAppearanceManager.shared
+
+    private func modelPickerView(for msg: ChatMessage) -> some View {
+        ModelPickerBubble(
+            models: SettingsStore.availableModels.map { id in
+                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
+            },
+            selectedModelId: selectedModel,
+            onSelect: { modelId in
+                onModelPickerSelect?(msg.id, modelId)
+            }
+        )
+    }
+
+    private func modelListView(for msg: ChatMessage) -> some View {
+        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
+    }
+
+    @ViewBuilder
+    private func thinkingIndicatorRow() -> some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(nsImage: appearance.chatAvatarImage)
+                .interpolation(.none)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
+                .padding(.top, 2)
+
+            RunningIndicator(
+                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                    ? "Waking up..."
+                    : assistantStatusText ?? "Thinking",
+                showIcon: false
+            )
+        }
+        .frame(maxWidth: 520, alignment: .leading)
+        .id("thinking-indicator")
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    var body: some View {
+        if showTimestamp.contains(index) {
+            TimestampDivider(date: message.timestamp)
+        }
+
+        if let confirmation = message.confirmation {
+            if confirmation.state == .pending {
+                ToolConfirmationBubble(
+                    confirmation: confirmation,
+                    isKeyboardActive: confirmation.requestId == activePendingRequestId,
+                    onAllow: { onConfirmationAllow(confirmation.requestId) },
+                    onDeny: { onConfirmationDeny(confirmation.requestId) },
+                    onAlwaysAllow: onAlwaysAllow,
+                    onTemporaryAllow: onTemporaryAllow
+                )
+                .id(message.id)
+            } else {
+                let hasPrecedingAssistant: Bool = {
+                    guard index > 0 else { return false }
+                    return displayMessages[index - 1].role == .assistant
+                }()
+
+                if !hasPrecedingAssistant {
+                    ToolConfirmationBubble(
+                        confirmation: confirmation,
+                        onAllow: { onConfirmationAllow(confirmation.requestId) },
+                        onDeny: { onConfirmationDeny(confirmation.requestId) },
+                        onAlwaysAllow: onAlwaysAllow,
+                        onTemporaryAllow: onTemporaryAllow
+                    )
+                    .id(message.id)
+                }
+            }
+        } else if message.modelPicker != nil {
+            modelPickerView(for: message)
+                .id(message.id)
+        } else if message.modelList != nil {
+            modelListView(for: message)
+                .id(message.id)
+        } else if message.commandList != nil {
+            CommandListBubble()
+                .id(message.id)
+        } else if let guardianDecision = message.guardianDecision {
+            GuardianDecisionBubble(
+                decision: guardianDecision,
+                onAction: { requestId, action in
+                    onGuardianAction?(requestId, action)
+                }
+            )
+            .id(message.id)
+        } else {
+            let nextIsPendingConfirmation = index + 1 < displayMessages.count
+                && displayMessages[index + 1].confirmation?.state == .pending
+
+            let nextDecidedConfirmation: ToolConfirmationData? = {
+                guard index + 1 < displayMessages.count,
+                      let conf = displayMessages[index + 1].confirmation,
+                      conf.state != .pending else { return nil }
+                return conf
+            }()
+
+            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
+
+            ChatBubble(
+                message: message,
+                hideToolCalls: nextIsPendingConfirmation,
+                decidedConfirmation: nextDecidedConfirmation,
+                onSurfaceAction: onSurfaceAction,
+                onDismissDocumentWidget: { surfaceId in
+                    onDismissDocumentWidget?(surfaceId)
+                },
+                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                onReportMessage: onReportMessage,
+                onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
+                mediaEmbedSettings: mediaEmbedSettings,
+                resolveHttpPort: resolveHttpPort,
+                showAvatar: !previousIsAssistant,
+                isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
+                isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
+                processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
+                activeSurfaceId: activeSurfaceId
+            )
+            .id(message.id)
+        }
+
+        ForEach(subagentsByParent[message.id] ?? []) { subagent in
+            SubagentThreadView(
+                subagent: subagent,
+                events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
+                onAbort: { onAbortSubagent?(subagent.id) },
+                onTap: { onSubagentTap?(subagent.id) }
+            )
+                .frame(maxWidth: 520, alignment: .leading)
+                .padding(.leading, 36)
+                .id("subagent-\(subagent.id)")
+        }
+
+        if shouldShowThinkingIndicator && anchoredThinkingIndex == index {
+            thinkingIndicatorRow()
         }
     }
 }
