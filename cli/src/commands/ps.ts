@@ -412,7 +412,25 @@ async function listAllAssistants(): Promise<void> {
 
   await Promise.all(
     assistants.map(async (a, rowIndex) => {
-      const health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+      // For local assistants, check if the daemon process is alive before
+      // hitting the health endpoint. If the PID file is missing or the
+      // process isn't running, the assistant is sleeping — skip the
+      // network health check to avoid a misleading "unreachable" status.
+      let health: { status: string; detail: string | null };
+      const resources =
+        a.resources ??
+        (a.cloud === "local" ? defaultLocalResources() : undefined);
+      if (a.cloud === "local" && resources) {
+        const pid = readPidFile(resources.pidFile);
+        const alive = pid !== null && isProcessAlive(pid);
+        if (!alive) {
+          health = { status: "sleeping", detail: null };
+        } else {
+          health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+        }
+      } else {
+        health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+      }
 
       const infoParts = [a.runtimeUrl];
       if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
