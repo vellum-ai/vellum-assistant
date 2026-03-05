@@ -586,13 +586,19 @@ struct ContactDetailView: View {
         errorMessage = nil
 
         do {
-            if let updated = try await daemonClient?.updateContact(
+            guard let daemonClient else {
+                errorMessage = "Failed to update name"
+                return
+            }
+            if let updated = try await daemonClient.updateContact(
                 contactId: displayContact.id,
                 displayName: trimmed
             ) {
                 currentContact = updated
+                isEditingName = false
+            } else {
+                errorMessage = "Failed to update name"
             }
-            isEditingName = false
         } catch {
             errorMessage = "Failed to update name: \(error.localizedDescription)"
         }
