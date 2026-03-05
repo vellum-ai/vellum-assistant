@@ -390,13 +390,13 @@ INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
 printf '%s\n' "$INVITE_JSON"
 ```
 
-The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInstruction, channelHandle, ... } }`.
+The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInstruction, channelHandle?, ... } }`.
 
 - `inviteCode` is the 6-digit code the invitee must send to redeem the invite.
 - `guardianInstruction` is a generated instruction telling the guardian how to share the invite.
-- `channelHandle` is the assistant's WhatsApp phone number.
+- `channelHandle` (optional) is the assistant's WhatsApp display phone number. It is only present when a display number is configured via `whatsapp.phoneNumber` in workspace config.
 
-**Presenting to the guardian**: Give the guardian the invite code and the assistant's WhatsApp number:
+**Presenting to the guardian**: If `channelHandle` is present, give the guardian the invite code and the assistant's WhatsApp number:
 
 > WhatsApp invite created for **<contact_name>**:
 >
@@ -406,7 +406,9 @@ The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInst
 >
 > This code can be used <maxUses> time(s)<and expires in X hours/days if applicable>.
 
-If the assistant's WhatsApp number is not available (Meta WhatsApp Business API credentials not configured), tell the guardian they need to set up WhatsApp integration first.
+If `channelHandle` is absent, present the invite code and tell the guardian to share the code with the invitee, instructing them to send it to the assistant on WhatsApp (without citing a specific number).
+
+If the assistant's WhatsApp integration is not configured at all (Meta WhatsApp Business API credentials missing), tell the guardian they need to set up WhatsApp integration first.
 
 ### Create an SMS invite
 
@@ -584,7 +586,7 @@ Each channel has:
 
 **"Invite someone by email"** / **"Send an email invite"** -- Create an invite with `sourceChannel: "email"`. Present the 6-digit invite code and the assistant's email address. Tell the guardian to share both with the invitee.
 
-**"Invite someone on WhatsApp"** -- Create an invite with `sourceChannel: "whatsapp"`. Present the 6-digit invite code and the assistant's WhatsApp number. Tell the guardian to share both with the invitee.
+**"Invite someone on WhatsApp"** -- Create an invite with `sourceChannel: "whatsapp"`. Present the 6-digit invite code. If `channelHandle` is returned, also present the assistant's WhatsApp number; otherwise, tell the guardian to share the code and instruct the invitee to send it to the assistant on WhatsApp.
 
 **"Invite someone via SMS"** / **"Send a text invite"** -- Create an invite with `sourceChannel: "sms"`. Present the 6-digit invite code and the assistant's phone number. Tell the guardian to share both with the invitee.
 
