@@ -485,6 +485,7 @@ struct MessageListView: View {
                 .frame(maxWidth: 700)
                 .frame(maxWidth: .infinity)
             }
+            .defaultScrollAnchor(.bottom)
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)

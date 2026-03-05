@@ -462,18 +462,9 @@ struct ScrollWheelDetector: NSViewRepresentable {
             let locationInView = view.convert(event.locationInWindow, from: nil)
             guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
 
-            // The threshold accounts for the composer's safeAreaInset which SwiftUI
-            // includes in proxy.scrollTo calculations but NSScrollView's raw geometry
-            // does not. Without this offset, manual scroll detection disagrees with
-            // programmatic scroll about where "the bottom" is.
             let threshold = coordinator.bottomInset + 20
 
             if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
-                // Direct user scroll up (toward older content) — untether,
-                // but only if actually scrolled away from the bottom.
-                // Momentum events are excluded so a flick doesn't accidentally untether.
-                // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
-                // reading it synchronously in the event monitor sees the pre-scroll state.
                 DispatchQueue.main.async {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
@@ -486,9 +477,6 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     }
                 }
             } else if event.scrollingDeltaY < -1 {
-                // Scrolling down (direct or momentum) — re-tether if at bottom.
-                // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
-                // reading it synchronously in the event monitor sees the pre-scroll state.
                 DispatchQueue.main.async {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
@@ -499,6 +487,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     }
                 }
             }
+
             return event
         }
         return view
