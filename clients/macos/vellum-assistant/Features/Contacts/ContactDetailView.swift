@@ -90,17 +90,6 @@ struct ContactDetailView: View {
 
             HStack(spacing: VSpacing.sm) {
                 roleBadge
-
-                if let relationship = displayContact.relationship,
-                   !relationship.isEmpty {
-                    Text(relationship)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xxs)
-                        .background(VColor.surfaceSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -309,45 +298,60 @@ struct ContactDetailView: View {
 
     // MARK: - Metadata Section
 
-    @ViewBuilder
     private var metadataSection: some View {
-        let hasMetadata = displayContact.importance > 0
-            || displayContact.interactionCount > 0
-            || displayContact.lastInteraction != nil
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Metadata")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
 
-        if hasMetadata {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Metadata")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                metadataRow(
+                    label: "Contact type",
+                    value: formatContactType(displayContact.contactType)
+                )
 
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    if displayContact.importance > 0 {
-                        metadataRow(
-                            label: "Importance",
-                            value: String(format: "%.1f", displayContact.importance)
-                        )
-                    }
+                if let relationship = displayContact.relationship,
+                   !relationship.isEmpty {
+                    metadataRow(label: "Relationship", value: relationship)
+                }
 
-                    if displayContact.interactionCount > 0 {
-                        metadataRow(
-                            label: "Interactions",
-                            value: "\(displayContact.interactionCount)"
-                        )
-                    }
+                metadataRow(
+                    label: "Importance",
+                    value: String(format: "%.1f", displayContact.importance)
+                )
 
-                    if let lastInteraction = displayContact.lastInteraction {
-                        metadataRow(
-                            label: "Last interaction",
-                            value: relativeTime(epochMs: Int(lastInteraction))
-                        )
-                    }
+                if let expectation = displayContact.responseExpectation,
+                   !expectation.isEmpty {
+                    metadataRow(
+                        label: "Response expectation",
+                        value: formatResponseExpectation(expectation)
+                    )
+                }
+
+                if let tone = displayContact.preferredTone,
+                   !tone.isEmpty {
+                    metadataRow(
+                        label: "Preferred tone",
+                        value: capitalizeFirst(tone)
+                    )
+                }
+
+                metadataRow(
+                    label: "Interactions",
+                    value: "\(displayContact.interactionCount)"
+                )
+
+                if let lastInteraction = displayContact.lastInteraction {
+                    metadataRow(
+                        label: "Last interaction",
+                        value: relativeTime(epochMs: Int(lastInteraction))
+                    )
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     private func metadataRow(label: String, value: String) -> some View {
@@ -355,12 +359,43 @@ struct ContactDetailView: View {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
-                .frame(width: 120, alignment: .leading)
+                .frame(width: 140, alignment: .leading)
             Text(value)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
             Spacer()
         }
+    }
+
+    // MARK: - Formatting Helpers
+
+    private func formatContactType(_ contactType: String?) -> String {
+        switch contactType {
+        case "assistant":
+            return "Assistant"
+        default:
+            return "Human"
+        }
+    }
+
+    private func formatResponseExpectation(_ value: String) -> String {
+        switch value {
+        case "immediate":
+            return "Immediate"
+        case "within_hours":
+            return "Within hours"
+        case "within_day":
+            return "Within a day"
+        case "flexible":
+            return "Flexible"
+        default:
+            return capitalizeFirst(value.replacingOccurrences(of: "_", with: " "))
+        }
+    }
+
+    private func capitalizeFirst(_ value: String) -> String {
+        guard let first = value.first else { return value }
+        return first.uppercased() + value.dropFirst()
     }
 
     // MARK: - Helpers
@@ -477,6 +512,9 @@ struct ContactDetailView: View {
                 role: "contact",
                 relationship: "colleague",
                 importance: 0.8,
+                responseExpectation: "within_hours",
+                preferredTone: "casual",
+                contactType: "human",
                 lastInteraction: Date().timeIntervalSince1970 * 1000 - 3_600_000,
                 interactionCount: 42,
                 channels: [
