@@ -1318,31 +1318,52 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Local Daemon HTTP Helpers
 
-    /// Resolves the base URL and bearer token for the daemon's local HTTP server.
-    /// Returns `nil` when no local HTTP port is configured.
+    /// Which local server a request should target.
+    private enum LocalHTTPTarget {
+        /// The daemon runtime HTTP server (port from httpPort, default 7821).
+        case daemon
+        /// The gateway server (port from GATEWAY_PORT env, default 7830).
+        case gateway
+    }
+
+    /// Build an authenticated URLRequest for a local HTTP endpoint.
     ///
-    /// Prefers the JWT access token from `ActorTokenManager` (which carries
-    /// the scopes the daemon's JWT-only auth middleware expects) and falls back
-    /// to the file-based http-token for backwards compatibility.
-    private func resolveLocalDaemonHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
-        guard let port = httpPort else { return nil }
-        let baseURL = "http://localhost:\(port)"
-
-        // Prefer JWT — the daemon auth middleware requires JWTs.
-        if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty {
-            return (baseURL, jwt)
+    /// Token resolution order:
+    /// 1. `tokenOverride` (for callers that need a specific token, e.g. feature-flag token)
+    /// 2. JWT from `ActorTokenManager.getToken()`
+    /// 3. Legacy file-based token from `readHttpToken()`
+    ///
+    /// Returns `nil` when the required port is unavailable.
+    private func buildLocalRequest(
+        target: LocalHTTPTarget,
+        path: String,
+        method: String = "GET",
+        timeout: TimeInterval = 10,
+        tokenOverride: String? = nil
+    ) -> URLRequest? {
+        let baseURL: String
+        switch target {
+        case .daemon:
+            guard let port = httpPort else { return nil }
+            baseURL = "http://localhost:\(port)"
+        case .gateway:
+            let port = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+                .flatMap(Int.init) ?? 7830
+            baseURL = "http://127.0.0.1:\(port)"
         }
 
-        // Legacy fallback: file-based shared-secret token.
-        let tokenPath = resolveHttpTokenPath()
-        let bearerToken: String?
-        do {
-            bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            log.error("Failed to read HTTP bearer token from \(tokenPath, privacy: .private): \(error)")
-            bearerToken = nil
+        guard let url = URL(string: "\(baseURL)/\(path)") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = timeout
+
+        let token = tokenOverride
+            ?? ActorTokenManager.getToken()
+            ?? readHttpToken()
+        if let token, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        return (baseURL, bearerToken)
+        return request
     }
 
     // MARK: - Integrations Status
@@ -1395,24 +1416,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Uses `httpTransport` for remote assistants or `httpPort` for local connections.
     /// Returns the file content as a string, or `nil` if the file does not exist.
     public func fetchInterfaceFile(path: String) async -> String? {
-        let baseURL: String
-        let bearerToken: String?
+        let request: URLRequest
 
         if let httpTransport {
-            baseURL = httpTransport.baseURL
-            bearerToken = httpTransport.bearerToken
-        } else if let local = resolveLocalDaemonHTTPEndpoint() {
-            baseURL = local.baseURL
-            bearerToken = local.bearerToken
+            guard let url = URL(string: "\(httpTransport.baseURL)/v1/interfaces/\(path)") else { return nil }
+            var r = URLRequest(url: url)
+            r.timeoutInterval = 5
+            if let token = httpTransport.bearerToken, !token.isEmpty {
+                r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            request = r
+        } else if let r = buildLocalRequest(target: .daemon, path: "v1/interfaces/\(path)", timeout: 5) {
+            request = r
         } else {
             return nil
-        }
-
-        guard let url = URL(string: "\(baseURL)/v1/interfaces/\(path)") else { return nil }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 5
-        if let token = bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
         do {
@@ -1590,15 +1607,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         // Local daemon path: direct HTTP call using the runtime server port.
-        guard let local = resolveLocalDaemonHTTPEndpoint() else { return nil }
-
-        guard let url = URL(string: "\(local.baseURL)/v1/contacts") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/contacts", method: "POST") else { return nil }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = local.bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
 
         var body: [String: Any] = ["id": contactId, "displayName": displayName]
         if let notes { body["notes"] = notes }
@@ -1635,15 +1645,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             )
         }
 
-        guard let local = resolveLocalDaemonHTTPEndpoint() else { return nil }
-
-        guard let url = URL(string: "\(local.baseURL)/v1/contacts") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/contacts", method: "POST") else { return nil }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = local.bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
 
         var body: [String: Any] = ["displayName": displayName]
         if let notes { body["notes"] = notes }
@@ -2075,31 +2078,27 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     ///
     /// Returns `true` on success, `false` on failure.
     public func bootstrapActorToken(platform: String, deviceId: String) async -> Bool {
-        let baseURL: String
-        let bearerToken: String?
+        var request: URLRequest
 
         if let httpTransport {
-            baseURL = httpTransport.baseURL
-            bearerToken = httpTransport.bearerToken
-        } else if let local = resolveLocalDaemonHTTPEndpoint() {
-            baseURL = local.baseURL
-            bearerToken = local.bearerToken
+            guard let url = URL(string: "\(httpTransport.baseURL)/v1/integrations/guardian/vellum/bootstrap") else {
+                log.error("Invalid bootstrap URL")
+                return false
+            }
+            var r = URLRequest(url: url)
+            r.httpMethod = "POST"
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            r.timeoutInterval = 15
+            if let token = httpTransport.bearerToken, !token.isEmpty {
+                r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            request = r
+        } else if var r = buildLocalRequest(target: .daemon, path: "v1/integrations/guardian/vellum/bootstrap", method: "POST", timeout: 15) {
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request = r
         } else {
             log.error("Cannot bootstrap access token — no HTTP endpoint available")
             return false
-        }
-
-        guard let url = URL(string: "\(baseURL)/v1/integrations/guardian/vellum/bootstrap") else {
-            log.error("Invalid bootstrap URL")
-            return false
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 15
-        if let token = bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
         let body: [String: Any] = [
