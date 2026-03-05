@@ -1,5 +1,6 @@
 import XCTest
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 // MARK: - Markdown Pipeline Performance Baselines
 //
@@ -257,7 +258,9 @@ private func groupSegments(_ segments: [MarkdownSegment]) -> [SegmentGroup] {
 
 /// Builds a combined `AttributedString` from a selectable run by parsing each
 /// text segment's inline markdown.  Mirrors the hot path in
-/// `MarkdownSegmentView.buildAttributedStringUncached(from:…)`.
+/// `MarkdownSegmentView.buildAttributedStringUncached(from:…)`, including the
+/// inline code styling pass that applies foreground/background colors and
+/// thin-space padding to inline code spans.
 private func makeAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
     let options = AttributedString.MarkdownParsingOptions(
         interpretedSyntax: .inlineOnlyPreservingWhitespace
@@ -273,5 +276,25 @@ private func makeAttributedString(from segments: [MarkdownSegment]) -> Attribute
             result += attributed
         }
     }
+
+    // Apply background, text color, and padding to inline code spans —
+    // mirrors the pass in buildAttributedStringUncached (lines ~350-365).
+    var codeRanges: [Range<AttributedString.Index>] = []
+    for run in result.runs {
+        if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+            codeRanges.append(run.range)
+        }
+    }
+    for range in codeRanges.reversed() {
+        result[range].foregroundColor = VColor.codeText
+        result[range].backgroundColor = VColor.codeBackground
+        var trailing = AttributedString("\u{2009}")
+        trailing.backgroundColor = VColor.codeBackground
+        result.insert(trailing, at: range.upperBound)
+        var leading = AttributedString("\u{2009}")
+        leading.backgroundColor = VColor.codeBackground
+        result.insert(leading, at: range.lowerBound)
+    }
+
     return result
 }
