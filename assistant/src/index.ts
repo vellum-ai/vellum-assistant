@@ -4,9 +4,6 @@ import { createRequire } from "node:module";
 
 import { Command } from "commander";
 
-const require = createRequire(import.meta.url);
-const { version } = require("../package.json") as { version: string };
-
 import { registerAmazonCommand } from "./cli/amazon.js";
 import { registerAuditCommand } from "./cli/audit.js";
 import { registerAutonomyCommand } from "./cli/autonomy.js";
@@ -31,6 +28,9 @@ import { registerSessionsCommand } from "./cli/sessions.js";
 import { registerTrustCommand } from "./cli/trust.js";
 import { registerTwitterCommand } from "./cli/twitter.js";
 import { registerHooksCommand } from "./hooks/cli.js";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json") as { version: string };
 
 const program = new Command();
 
