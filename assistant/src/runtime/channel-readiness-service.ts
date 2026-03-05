@@ -8,6 +8,7 @@ import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadRawConfig } from "../config/loader.js";
 import { getEmailService } from "../email/service.js";
 import { getSecureKey } from "../security/secure-keys.js";
+import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
 import type {
   ChannelId,
   ChannelProbe,
@@ -368,6 +369,17 @@ const whatsappProbe: ChannelProbe = {
       message: hasWebhookVerifyToken
         ? "WhatsApp webhook verify token is configured"
         : "WhatsApp webhook verify token is not configured",
+    });
+
+    // Display phone number is optional — invites still work without it
+    // (falling back to generic instructions), but we surface the status.
+    const displayNumber = resolveWhatsAppDisplayNumber();
+    results.push({
+      name: "whatsapp_display_phone_number",
+      passed: true, // informational, never blocks readiness
+      message: displayNumber
+        ? `WhatsApp display phone number is configured (${displayNumber})`
+        : "WhatsApp display phone number is not configured — invite instructions will be generic",
     });
 
     const invitePolicy = getChannelInvitePolicy("whatsapp");
