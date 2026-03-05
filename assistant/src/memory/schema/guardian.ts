@@ -1,15 +1,11 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { callPendingQuestions, callSessions } from "./calls.js";
 
 export const guardianActionRequests = sqliteTable(
   "guardian_action_requests",
   {
     id: text("id").primaryKey(),
-    assistantId: text("assistant_id")
-      .notNull()
-      .default(DAEMON_INTERNAL_ASSISTANT_ID),
     kind: text("kind").notNull(), // 'ask_guardian'
     sourceChannel: text("source_channel").notNull(), // 'voice'
     sourceConversationId: text("source_conversation_id").notNull(),
@@ -145,7 +141,6 @@ export const scopedApprovalGrants = sqliteTable(
   "scoped_approval_grants",
   {
     id: text("id").primaryKey(),
-    assistantId: text("assistant_id").notNull(),
     scopeMode: text("scope_mode").notNull(), // 'request_id' | 'tool_signature'
     requestId: text("request_id"),
     toolName: text("tool_name"),

@@ -886,7 +886,7 @@ describe("verification rate limiting store", () => {
     );
     expect(rl.invalidAttempts).toBe(1);
     expect(rl.lockedUntil).toBeNull();
-    expect(rl.assistantId).toBe("self");
+    // assistantId column has been removed; no longer asserted
     expect(rl.channel).toBe("telegram");
     expect(rl.actorExternalUserId).toBe("user-42");
   });
@@ -3742,7 +3742,6 @@ describe("outbound voice verification", () => {
       db.insert(channelGuardianVerificationChallenges)
         .values({
           id: `rate-limit-voice-${i}`,
-          assistantId: "self",
           channel: "voice",
           challengeHash: `hash-${i}`,
           expiresAt: now + 600_000,

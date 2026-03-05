@@ -8,7 +8,6 @@
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
 import { channelGuardianRateLimits } from "./schema.js";
 
@@ -18,7 +17,6 @@ import { channelGuardianRateLimits } from "./schema.js";
 
 export interface VerificationRateLimit {
   id: string;
-  assistantId: string;
   channel: string;
   actorExternalUserId: string;
   actorChatId: string;
@@ -50,7 +48,6 @@ function rowToRateLimit(
   const timestamps = parseTimestamps(row.attemptTimestampsJson);
   return {
     id: row.id,
-    assistantId: row.assistantId,
     channel: row.channel,
     actorExternalUserId: row.actorExternalUserId,
     actorChatId: row.actorChatId,
@@ -151,7 +148,6 @@ export function recordInvalidAttempt(
   const lockedUntil = 1 >= maxAttempts ? now + lockoutMs : null;
   const row = {
     id,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     channel,
     actorExternalUserId,
     actorChatId,

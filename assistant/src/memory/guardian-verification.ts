@@ -8,7 +8,6 @@
 
 import { and, count, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
 import { channelGuardianVerificationChallenges } from "./schema.js";
 
@@ -31,7 +30,6 @@ export type VerificationPurpose = "guardian" | "trusted_contact";
 
 export interface VerificationChallenge {
   id: string;
-  assistantId: string;
   channel: string;
   challengeHash: string;
   expiresAt: number;
@@ -69,7 +67,6 @@ function rowToChallenge(
 ): VerificationChallenge {
   return {
     id: row.id,
-    assistantId: row.assistantId,
     channel: row.channel,
     challengeHash: row.challengeHash,
     expiresAt: row.expiresAt,
@@ -124,7 +121,6 @@ export function createChallenge(params: {
 
   const row = {
     id: params.id,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     channel: params.channel,
     challengeHash: params.challengeHash,
     expiresAt: params.expiresAt,
@@ -288,7 +284,6 @@ export function createVerificationSession(params: {
 
   const row = {
     id: params.id,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     channel: params.channel,
     challengeHash: params.challengeHash,
     expiresAt: params.expiresAt,

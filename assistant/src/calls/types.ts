@@ -73,7 +73,6 @@ export interface CallSession {
   guardianVerificationSessionId: string | null;
   callerIdentityMode: string | null;
   callerIdentitySource: string | null;
-  assistantId: string | null;
   initiatedFromConversationId?: string | null;
   startedAt: number | null;
   endedAt: number | null;

@@ -12,7 +12,6 @@ import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
 import { notificationPreferences } from "../memory/schema.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 
 // ── Row type ────────────────────────────────────────────────────────────
 
@@ -64,7 +63,6 @@ export function createPreference(
 
   const row = {
     id: uuid(),
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     preferenceText: params.preferenceText,
     appliesWhenJson: JSON.stringify(params.appliesWhen ?? {}),
     priority: params.priority ?? 0,
