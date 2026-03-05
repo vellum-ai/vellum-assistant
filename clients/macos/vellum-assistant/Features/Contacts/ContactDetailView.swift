@@ -42,6 +42,7 @@ struct ContactDetailView: View {
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
+    @State private var readinessFetchFailed = false
     @State private var guardianDestinationTexts: [String: String] = [:]
     @State private var guardianCountdownNow: Date = Date()
     @State private var guardianCountdownTimer: Timer?
@@ -240,9 +241,11 @@ struct ContactDetailView: View {
             )
             let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
 
-            // Compute which standard types are visible (have channels or readiness info)
+            // Compute which standard types are visible (have channels, readiness info,
+            // or should appear as unavailable after a readiness fetch failure)
             let visibleTypes = Self.allChannelTypes.filter { type in
                 channelsByType[type] != nil || channelReadiness[type] != nil
+                    || (readinessFetchFailed && Self.codeInviteChannels.contains(type))
             }
             let lastVisibleType = visibleTypes.last
             let hasExtraChannels = !extraChannels.isEmpty
@@ -269,6 +272,14 @@ struct ContactDetailView: View {
                         // Channel exists but is not ready — show with reason
                         unavailableChannelRow(type: type, reason: readiness.reasonSummary)
                     }
+
+                    if type != lastVisibleType || hasExtraChannels {
+                        Divider().background(VColor.divider)
+                    }
+                } else if readinessFetchFailed && Self.codeInviteChannels.contains(type) {
+                    // Readiness fetch failed — show as unavailable so channels
+                    // aren't silently hidden by a transient error.
+                    unavailableChannelRow(type: type, reason: "Unable to check readiness")
 
                     if type != lastVisibleType || hasExtraChannels {
                         Divider().background(VColor.divider)
@@ -303,8 +314,7 @@ struct ContactDetailView: View {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
             } catch {
-                // Silently fail — empty dict means unconfigured channels stay
-                // hidden until a successful readiness fetch.
+                readinessFetchFailed = true
             }
         }
     }
