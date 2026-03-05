@@ -25,6 +25,8 @@ export interface ContactsInviteRequest {
   status?: string;
   /** Invitee's first name (voice invite create only). */
   friendName?: string;
+  /** Contact display name for personalizing invite instructions (create only). */
+  contactName?: string;
   /** Guardian's first name (voice invite create only). */
   guardianName?: string;
 }

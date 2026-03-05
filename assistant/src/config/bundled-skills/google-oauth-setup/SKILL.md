@@ -88,6 +88,7 @@ Tell the user:
 >    - `https://www.googleapis.com/auth/calendar.readonly`
 >    - `https://www.googleapis.com/auth/calendar.events`
 >    - `https://www.googleapis.com/auth/userinfo.email`
+>    - `https://www.googleapis.com/auth/contacts.readonly`
 >    - Click **Update**, then **Save and Continue**
 > 5. On the Test users page, add **your email**, click **Save and Continue**
 > 6. On the Summary page, click **Back to Dashboard**

@@ -323,6 +323,13 @@ struct ComposerView: View {
         }
         .onChange(of: inputText) {
             if inputText.isEmpty {
+                // Reset all height state atomically so the ScrollView frame
+                // shrinks immediately. Without this, the GeometryReader
+                // re-measures the old (large) ScrollView frame and confirms
+                // the stale contentHeight, preventing collapse.
+                contentHeight = composerCompactHeight
+                editorContentHeight = composerCompactHeight
+                isComposerExpanded = false
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
             } else {
                 updateSlashState()
