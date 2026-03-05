@@ -417,13 +417,7 @@ struct ContactDetailView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if let channelHandle = result.channelHandle {
-                    Text(channelHandle)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                // When a share URL is available, show it prominently above the code
+                // When a share URL is available, show it as a copyable row below the instruction
                 if let shareUrl = result.shareUrl {
                     HStack(spacing: VSpacing.sm) {
                         let truncated = shareUrl.count > 30
@@ -451,12 +445,6 @@ struct ContactDetailView: View {
                             }
                         }
                     }
-
-                    Divider().background(VColor.divider)
-
-                    Text("Or use this code:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
                 }
 
                 // Large monospaced invite code for readability
