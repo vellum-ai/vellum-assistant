@@ -382,7 +382,7 @@ All endpoints are bearer-authenticated. Skills and clients should call the gatew
 - **Voice**: Checks Twilio credentials, phone number assignment, and public ingress URL.
 - **Telegram**: Checks bot token, webhook secret, and public ingress URL.
 - **Email**: Checks AgentMail API key, invite policy, public ingress URL, and verifies an inbox address is available (remote check).
-- **WhatsApp**: Checks Meta WhatsApp Business API credentials (phoneNumberId, accessToken, appSecret, webhookVerifyToken), display phone number (`whatsapp.phoneNumber`), invite policy, and public ingress URL.
+- **WhatsApp**: Checks Meta WhatsApp Business API credentials (phoneNumberId, accessToken, appSecret, webhookVerifyToken), invite policy, and public ingress URL.
 - **Slack**: Checks bot token and app token.
 
 ### Key modules
