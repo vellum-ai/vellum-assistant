@@ -177,9 +177,11 @@ final class UsageDashboardViewTests: XCTestCase {
 
     func testFormatCountUsesDecimalGrouping() {
         let result = UsageFormatting.formatCount(1_000_000)
-        // NumberFormatter with .decimal style uses locale-specific grouping.
-        XCTAssertTrue(result.contains("1"), "Formatted count should contain the digit 1")
-        XCTAssertTrue(result.count > 1, "Formatted count should have grouping separators or multiple digits")
+        // The raw digit string without grouping would be "1000000".
+        // Verify the formatter actually inserts grouping separators.
+        XCTAssertNotEqual(result, "1000000", "formatCount should insert grouping separators, not return raw digits")
+        let groupingSeparator = Locale.current.groupingSeparator ?? ","
+        XCTAssertTrue(result.contains(groupingSeparator), "Formatted count should contain the locale grouping separator (\(groupingSeparator))")
     }
 }
 
