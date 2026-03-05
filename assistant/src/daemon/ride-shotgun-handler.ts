@@ -295,7 +295,7 @@ export async function handleRideShotgunStart(
                 clearInterval(checkInterval);
               }
             }, 1000);
-            navigateXPages(abortSignal, cdpBaseUrl)
+            navigateXPages({ abortSignal, cdpBaseUrl })
               .then((completed) => {
                 clearInterval(checkInterval);
                 log.info(
@@ -322,10 +322,9 @@ export async function handleRideShotgunStart(
                 clearInterval(checkInterval);
               }
             }, 1000);
-            autoNavigate(
-              navDomain,
+            autoNavigate(navDomain, {
               abortSignal,
-              (progress) => {
+              onProgress: (progress) => {
                 // Send progress to connected client
                 if (progress.type === "visiting" && progress.url) {
                   const shortUrl = progress.url.replace(/^https?:\/\//, "");
@@ -337,7 +336,7 @@ export async function handleRideShotgunStart(
                 }
               },
               cdpBaseUrl,
-            )
+            })
               .then((visited) => {
                 clearInterval(checkInterval);
                 log.info(
