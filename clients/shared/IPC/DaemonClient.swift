@@ -1320,9 +1320,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Resolves the base URL and bearer token for the daemon's local HTTP server.
     /// Returns `nil` when no local HTTP port is configured.
+    ///
+    /// Prefers the JWT access token from `ActorTokenManager` (which carries
+    /// the scopes the daemon's JWT-only auth middleware expects) and falls back
+    /// to the file-based http-token for backwards compatibility.
     private func resolveLocalDaemonHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
         guard let port = httpPort else { return nil }
         let baseURL = "http://localhost:\(port)"
+
+        // Prefer JWT — the daemon auth middleware requires JWTs.
+        if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty {
+            return (baseURL, jwt)
+        }
+
+        // Legacy fallback: file-based shared-secret token.
         let tokenPath = resolveHttpTokenPath()
         let bearerToken: String?
         do {
