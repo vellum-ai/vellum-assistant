@@ -224,7 +224,11 @@ export function getUsageGroupBreakdown(
   range: UsageTimeRange,
   groupBy: GroupByDimension,
 ): UsageGroupBreakdown[] {
-  // The column name matches the enum value exactly.
+  // Runtime allowlist — defense-in-depth against SQL injection via type assertions.
+  const ALLOWED_COLUMNS = new Set<string>(["actor", "provider", "model"]);
+  if (!ALLOWED_COLUMNS.has(groupBy)) {
+    throw new Error(`Invalid groupBy column: ${groupBy}`);
+  }
   const column = groupBy;
   const rows = rawAll<GroupRow>(
     /*sql*/ `
