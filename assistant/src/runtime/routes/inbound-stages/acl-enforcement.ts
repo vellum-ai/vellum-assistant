@@ -959,15 +959,27 @@ async function handleInviteCodeIntercept(params: {
     });
   }
 
-  const outcome = redeemInviteByCode({
-    code,
-    sourceChannel,
-    externalUserId: senderExternalUserId,
-    externalChatId,
-    displayName: senderName,
-    username: senderUsername,
-    assistantId: canonicalAssistantId,
-  });
+  let outcome: ReturnType<typeof redeemInviteByCode>;
+  try {
+    outcome = redeemInviteByCode({
+      code,
+      sourceChannel,
+      externalUserId: senderExternalUserId,
+      externalChatId,
+      displayName: senderName,
+      username: senderUsername,
+      assistantId: canonicalAssistantId,
+    });
+  } catch (err) {
+    // Redemption threw — roll back the dedup record so webhook retries
+    // can re-attempt instead of short-circuiting as duplicates.
+    log.error(
+      { err, sourceChannel, externalChatId },
+      "Invite code intercept: redemption threw, rolling back dedup record",
+    );
+    channelDeliveryStore.deleteInbound(dedupResult.eventId);
+    throw err;
+  }
 
   log.info(
     {
