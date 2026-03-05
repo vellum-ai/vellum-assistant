@@ -5,7 +5,8 @@ struct UsageDashboardPanel: View {
     let store: UsageDashboardStore
     var onClose: () -> Void
 
-    @State private var activeTask: Task<Void, Never>?
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var breakdownTask: Task<Void, Never>?
 
     var body: some View {
         VSidePanel(title: "Usage", onClose: onClose, pinnedContent: {
@@ -15,15 +16,17 @@ struct UsageDashboardPanel: View {
             contentView(store: store)
         }
         .onAppear {
-            activeTask = Task {
+            refreshTask = Task {
                 if store.needsRefresh {
                     await store.refresh()
                 }
             }
         }
         .onDisappear {
-            activeTask?.cancel()
-            activeTask = nil
+            refreshTask?.cancel()
+            refreshTask = nil
+            breakdownTask?.cancel()
+            breakdownTask = nil
         }
     }
 
@@ -35,8 +38,9 @@ struct UsageDashboardPanel: View {
             HStack(spacing: VSpacing.sm) {
                 ForEach(UsageTimeRange.allCases, id: \.rawValue) { range in
                     Button {
-                        activeTask?.cancel()
-                        activeTask = Task { await store.selectRange(range) }
+                        refreshTask?.cancel()
+                        breakdownTask?.cancel()
+                        refreshTask = Task { await store.selectRange(range) }
                     } label: {
                         Text(range.rawValue)
                             .font(VFont.captionMedium)
@@ -178,8 +182,8 @@ struct UsageDashboardPanel: View {
         HStack(spacing: VSpacing.xs) {
             ForEach(UsageGroupByDimension.allCases, id: \.rawValue) { dimension in
                 Button {
-                    activeTask?.cancel()
-                    activeTask = Task { await store.selectGroupBy(dimension) }
+                    breakdownTask?.cancel()
+                    breakdownTask = Task { await store.selectGroupBy(dimension) }
                 } label: {
                     Text(dimension.rawValue.capitalized)
                         .font(VFont.small)
