@@ -119,6 +119,7 @@ export async function pairDeliveryWithConversation(
       : composeThreadSeed(signal, channel, copy);
 
     const threadAction = options?.threadAction;
+    const bindingContext = options?.bindingContext;
 
     // Attempt to reuse an existing conversation when the model requests it
     if (threadAction?.action === "reuse_existing") {
@@ -134,6 +135,16 @@ export async function pairDeliveryWithConversation(
           undefined,
           { skipIndexing: true },
         );
+
+        // Rebind the destination so subsequent deliveries to the same
+        // (sourceChannel, externalChatId) resolve to this conversation.
+        if (bindingContext?.sourceChannel && bindingContext?.externalChatId) {
+          upsertOutboundBinding({
+            conversationId: existing.id,
+            sourceChannel: notificationChannel(bindingContext.sourceChannel),
+            externalChatId: bindingContext.externalChatId,
+          });
+        }
 
         log.info(
           {
@@ -182,6 +193,16 @@ export async function pairDeliveryWithConversation(
         { skipIndexing: true },
       );
 
+      // Bind the new conversation to the destination so subsequent
+      // deliveries reuse it instead of creating yet another conversation.
+      if (bindingContext?.sourceChannel && bindingContext?.externalChatId) {
+        upsertOutboundBinding({
+          conversationId: conversation.id,
+          sourceChannel: notificationChannel(bindingContext.sourceChannel),
+          externalChatId: bindingContext.externalChatId,
+        });
+      }
+
       return {
         conversationId: conversation.id,
         messageId: message.id,
@@ -194,7 +215,6 @@ export async function pairDeliveryWithConversation(
     // For channels with continue_existing_conversation strategy, try to
     // reuse a previously bound conversation keyed by (sourceChannel, externalChatId)
     // before falling through to create a new one.
-    const bindingContext = options?.bindingContext;
     if (
       strategy === "continue_existing_conversation" &&
       bindingContext?.sourceChannel &&

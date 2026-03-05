@@ -456,6 +456,80 @@ describe("pairDeliveryWithConversation", () => {
     expect(upsertArgs.externalChatId).toBe("C0123ABCDEF");
   });
 
+  test("reuse_existing rebinds destination when binding context is present", async () => {
+    mockExistingConversations["conv-explicit"] = {
+      id: "conv-explicit",
+      source: "notification",
+      title: "Explicit Thread",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy({
+      threadSeedMessage: "Follow-up to explicit reuse target",
+    });
+    const threadAction: ThreadAction = {
+      action: "reuse_existing",
+      conversationId: "conv-explicit",
+    };
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "telegram" as NotificationChannel,
+      externalChatId: "chat-rebind",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "telegram" as NotificationChannel,
+      copy,
+      { threadAction, bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-explicit");
+    expect(result.createdNewConversation).toBe(false);
+    // Should rebind the destination to the reused conversation
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(upsertArgs.conversationId).toBe("conv-explicit");
+    expect(upsertArgs.sourceChannel).toBe("notification:telegram");
+    expect(upsertArgs.externalChatId).toBe("chat-rebind");
+  });
+
+  test("reuse_existing fallback rebinds destination when binding context is present", async () => {
+    // Target does not exist — falls back to new conversation
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const threadAction: ThreadAction = {
+      action: "reuse_existing",
+      conversationId: "conv-gone",
+    };
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "sms" as NotificationChannel,
+      externalChatId: "+15559876543",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "sms" as NotificationChannel,
+      copy,
+      { threadAction, bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.threadDecisionFallbackUsed).toBe(true);
+    // Should bind the new conversation to the destination
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(upsertArgs.conversationId).toBe("conv-001");
+    expect(upsertArgs.sourceChannel).toBe("notification:sms");
+    expect(upsertArgs.externalChatId).toBe("+15559876543");
+  });
+
   test("explicit reuse_existing takes precedence over binding-key reuse", async () => {
     // Both a binding and a reuse_existing target exist — reuse_existing wins
     mockExistingConversations["conv-explicit"] = {
