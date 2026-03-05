@@ -90,11 +90,14 @@ fi
 # device name that may not exist on every Xcode version.
 resolve_simulator_destination() {
     local sim_name
-    # Extract the device name from lines like "    iPhone 16 Pro (UUID) (Booted)"
-    # The regex captures everything between leading whitespace and the first " (".
+    # Extract the device name from lines like:
+    #   "    iPhone 16 Pro (XXXXXXXX-XXXX-...) (Shutdown)"
+    #   "    iPhone SE (3rd generation) (XXXXXXXX-XXXX-...) (Shutdown)"
+    # Strip the UUID parenthetical and any trailing state like (Booted)/(Shutdown),
+    # but preserve parenthesized model qualifiers like "(3rd generation)".
     sim_name=$(xcrun simctl list devices available 2>/dev/null \
         | grep 'iPhone' \
-        | sed -n 's/^[[:space:]]*\(iPhone[^(]*\) (.*/\1/p' \
+        | sed -n 's/^[[:space:]]*\(iPhone.*\) ([0-9A-Fa-f]\{8\}-.*$/\1/p' \
         | sed 's/[[:space:]]*$//' \
         | head -1 || true)
     if [ -n "$sim_name" ]; then
