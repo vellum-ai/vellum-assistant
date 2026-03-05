@@ -39,7 +39,7 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 
 - After making changes, run only the tests relevant to what you changed:
   `cd assistant && bun test src/path/to/file.test.ts`
-- To run tests matching a pattern: `cd assistant && bun test --grep "pattern"`
+- To run tests matching a pattern: `cd assistant && bun test src/path/to/file.test.ts --grep "pattern"`
 - Use `bunx tsc --noEmit` for full-project type-checking instead of running all tests.
 
 ## Keep the README up to date
