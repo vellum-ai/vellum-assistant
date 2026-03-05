@@ -198,7 +198,42 @@ After the user authorizes (they'll come back and say so, or you can suggest they
 
 # Path B: CLI Setup (macOS Desktop App)
 
-You will set up Google Cloud OAuth credentials using the `gcloud` and `gws` command-line tools. This avoids browser automation entirely — the user only needs to sign in once via the browser and copy-paste credentials from terminal output into secure prompts.
+You will set up Google Cloud OAuth credentials using the `gcloud` and `gws` command-line tools plus browser automation. The user signs in once via the browser, the CLI handles project setup, and the browser automates credential creation — the user only needs to copy-paste the Client Secret.
+
+## Browser Interaction Principles
+
+Google Cloud Console's UI may change over time. Do NOT memorize or depend on specific element IDs, CSS selectors, or DOM structures. Instead:
+
+1. **Screenshot first, act second.** Before every interaction, take a `browser_screenshot` to see the current visual state. Use `browser_snapshot` to find interactive elements.
+2. **Adapt to what you see.** If a button's label or position differs from what you expect, use the screenshot to find the correct element.
+3. **Verify after every action.** After clicking, typing, or navigating, take a new screenshot to confirm the action succeeded.
+4. **Never assume DOM structure.** Use the snapshot to identify what's on the page and interact accordingly.
+5. **When stuck, screenshot and describe.** If you cannot find an expected element after 2 attempts, take a screenshot, describe what you see to the user, and ask for guidance.
+
+## Anti-Loop Guardrails
+
+Each step has a **retry budget of 3 attempts**. An attempt is one try at the step's primary action (e.g., clicking a button, filling a form). If a step fails after 3 attempts:
+
+1. **Stop trying.** Do not continue retrying the same approach.
+2. **Fall back to manual.** Tell the user what you were trying to do and ask them to complete that step manually in the browser. Give them the direct URL and clear text instructions.
+3. **Resume automation** at the next step once the user confirms the manual step is done.
+
+If **two or more steps** require manual fallback, abandon the automated flow entirely and switch to giving the user the remaining steps as clear text instructions with links.
+
+## Things That Do Not Work — Do Not Attempt
+
+These actions are technically impossible in the browser automation environment:
+
+- **Downloading files.** `browser_click` on a Download button does not save files to disk. Do NOT click "Download JSON" in the OAuth client creation dialog.
+- **Reading the Client Secret from a screenshot.** The secret IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot — it is too easy to misread characters, and the value must be exact. Always use the `credential_store prompt` approach to let the user copy-paste it accurately.
+- **Clipboard operations.** You cannot copy/paste via browser automation.
+
+## Error Handling
+
+- **Page load failures:** Retry navigation once. If it still fails, tell the user and ask them to check their internet connection.
+- **Element not found:** Take a fresh screenshot to re-assess. The GCP Console UI may have changed. Describe what you see and try alternative approaches. If stuck after 2 attempts, ask the user for guidance.
+- **OAuth client already exists with same name:** This is fine — GCP allows multiple clients with the same name. Proceed with creation.
+- **Any unexpected state:** Take a `browser_screenshot`, describe what you see, and ask the user for guidance.
 
 ## CLI Step 1: Confirm
 
@@ -210,9 +245,10 @@ Use `ui_show` with `surface_type: "confirmation"`:
   >
   > 1. **Install CLI tools** (`gcloud` and `gws`) if not already installed
   > 2. **You sign in** to your Google account once via the browser
-  > 3. **CLI automates everything** — project creation, APIs, consent screen, and credentials
-  > 4. **You copy-paste credentials** from the terminal output into secure prompts
-  > 5. **You authorize Vellum** with one click
+  > 3. **CLI automates everything** — project creation, APIs, and consent screen
+  > 4. **I create OAuth credentials** in the browser — you just watch
+  > 5. **One quick copy-paste** — you copy the Client Secret into a secure prompt
+  > 6. **You authorize** with one click
   >
   > Takes about a minute after first-time setup. Ready?
 
@@ -299,33 +335,56 @@ gcloud services enable people.googleapis.com --project=PROJECT_ID
 
 If either command reports the API is already enabled, that's fine — continue.
 
-## CLI Step 6: Collect Credentials
+## CLI Step 6: Create OAuth Credentials via Browser
 
-The `gws auth setup` output or the GCP Console shows the Client ID and Client Secret. Ask the user to copy-paste them into secure prompts.
+**Goal:** Create a Desktop OAuth client in GCP Console and capture both credentials.
 
-**Client ID:**
+Navigate to `https://console.cloud.google.com/apis/credentials?project=PROJECT_ID` (substitute the actual project ID from step 4).
+
+Take a screenshot and snapshot to check the page state:
+- **Sign-in page:** Tell the user: "Please sign in to your Google account in the browser." Then auto-detect sign-in completion by polling screenshots every 5-10 seconds. Once signed in, continue.
+- **Already signed in / Credentials page loaded:** Continue immediately.
+
+### Step 6a: Create the OAuth Client
+
+1. Take a screenshot and snapshot. Find and click **+ Create Credentials**, then select **OAuth client ID**.
+2. On the creation form:
+   - Application type: Select **"Desktop app"**
+   - Name: **"Vellum Assistant"**
+   - Click **Create**
+3. **Verify:** Take a screenshot. A dialog should appear showing both the **Client ID** and **Client Secret**.
+
+### Step 6b: Extract Client ID
+
+Use `browser_extract` to read the Client ID from the creation dialog. It looks like `123456789-xxxxx.apps.googleusercontent.com`.
+
+Store it immediately:
 
 ```
-credential_store prompt:
+credential_store store:
   service: "integration:gmail"
   field: "client_id"
-  label: "Google OAuth Client ID"
-  description: "Copy the Client ID from the setup output or GCP Console. It looks like 123456789-xxxxx.apps.googleusercontent.com"
-  placeholder: "xxxxx.apps.googleusercontent.com"
+  value: "<the extracted Client ID>"
 ```
 
-**Client Secret:**
+### Step 6c: Capture Client Secret via Secure Prompt
+
+The Client Secret is visible in the same dialog. Do NOT attempt to read it from the screenshot — use a secure prompt so the user copies it accurately.
+
+Tell the user: "Your OAuth credentials have been created! Please copy the **Client Secret** shown in the dialog and paste it into the secure prompt below."
 
 ```
 credential_store prompt:
   service: "integration:gmail"
   field: "client_secret"
   label: "Google OAuth Client Secret"
-  description: "Copy the Client Secret from the setup output or GCP Console. It starts with GOCSPX-"
+  description: "Copy the Client Secret from the dialog on screen. It starts with GOCSPX-"
   placeholder: "GOCSPX-..."
 ```
 
-Wait for both prompts to be completed before continuing.
+**CRITICAL — do NOT dismiss the creation dialog before the user has copied the secret.** Wait for the secure prompt to be completed before clicking OK or navigating away.
+
+After the secret is stored, you may close the dialog.
 
 ## CLI Step 7: Authorize
 
