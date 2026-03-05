@@ -10,19 +10,16 @@ import {
   isRejection,
 } from "../../routing/resolve-assistant.js";
 import {
-  CircuitBreakerOpenError,
-  resetConversation,
-} from "../../runtime/client.js";
+  handleCircuitBreakerError,
+  handleNewCommand,
+  isNewCommand,
+  processInboundResult,
+} from "../../webhook-pipeline.js";
+import { ROUTING_REJECTION_NOTICE } from "../../webhook-copy.js";
 import { markWhatsAppMessageRead } from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
 import { verifyWhatsAppWebhookSignature } from "../../whatsapp/verify.js";
-import {
-  NEW_COMMAND_ERROR,
-  NEW_COMMAND_SUCCESS,
-  ROUTING_REJECTION_NOTICE,
-  SERVICE_UNAVAILABLE_ERROR,
-} from "../../webhook-copy.js";
 
 const log = getLogger("whatsapp-webhook");
 
@@ -185,7 +182,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       const routing = resolveAssistant(config, from, from);
 
       // Handle /new command — reset conversation before it reaches the runtime
-      if (event.message.content.trim().toLowerCase() === "/new") {
+      if (isNewCommand(event.message.content)) {
         if (isRejection(routing)) {
           tlog.warn(
             { from, reason: routing.reason },
@@ -200,28 +197,14 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
             },
           );
         } else {
-          try {
-            await resetConversation(
-              config,
-              event.sourceChannel,
-              event.message.conversationExternalId,
-            );
-            sendWhatsAppReply(config, from, NEW_COMMAND_SUCCESS).catch(
-              (err) => {
-                tlog.error({ err }, "Failed to send /new confirmation");
-              },
-            );
-          } catch (err) {
-            tlog.error({ err }, "Failed to reset conversation");
-            sendWhatsAppReply(config, from, NEW_COMMAND_ERROR).catch(
-              (replyErr) => {
-                tlog.error(
-                  { err: replyErr },
-                  "Failed to send /new error reply",
-                );
-              },
-            );
-          }
+          await handleNewCommand(
+            config,
+            event.sourceChannel,
+            event.message.conversationExternalId,
+            async (text) => {
+              await sendWhatsAppReply(config, from, text);
+            },
+          );
         }
 
         dedupCache.mark(whatsappMessageId);
@@ -255,31 +238,26 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           routingOverride: routing,
         });
 
-        if (result.rejected) {
-          tlog.warn(
-            { from, reason: result.rejectionReason },
-            "Routing rejected inbound WhatsApp message",
-          );
-          if (rejectionLimiter.shouldSend(from)) {
-            sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
-              (err) => {
-                tlog.error(
-                  { err, to: from },
-                  "Failed to send routing rejection notice",
-                );
-              },
-            );
-          }
-          dedupCache.mark(whatsappMessageId);
-          continue;
-        }
+        const processed = processInboundResult(
+          result,
+          dedupCache,
+          whatsappMessageId,
+          () => {
+            if (rejectionLimiter.shouldSend(from)) {
+              sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+                (err) => {
+                  tlog.error(
+                    { err, to: from },
+                    "Failed to send routing rejection notice",
+                  );
+                },
+              );
+            }
+          },
+          tlog,
+        );
 
-        if (!result.forwarded) {
-          tlog.error(
-            { whatsappMessageId },
-            "Failed to forward WhatsApp message to runtime",
-          );
-          dedupCache.unreserve(whatsappMessageId);
+        if (!processed.ok) {
           hasFailure = true;
           continue;
         }
@@ -290,20 +268,14 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           "WhatsApp message forwarded to runtime",
         );
       } catch (err) {
-        if (err instanceof CircuitBreakerOpenError) {
-          tlog.warn(
-            { retryAfterSecs: err.retryAfterSecs },
-            "Circuit breaker open — returning 503",
-          );
-          dedupCache.unreserve(whatsappMessageId);
-          return Response.json(
-            { error: SERVICE_UNAVAILABLE_ERROR },
-            {
-              status: 503,
-              headers: { "Retry-After": String(err.retryAfterSecs) },
-            },
-          );
-        }
+        const cbResponse = handleCircuitBreakerError(
+          err,
+          dedupCache,
+          whatsappMessageId,
+          tlog,
+        );
+        if (cbResponse) return cbResponse;
+
         tlog.error(
           { err, whatsappMessageId },
           "Failed to process inbound WhatsApp message",
