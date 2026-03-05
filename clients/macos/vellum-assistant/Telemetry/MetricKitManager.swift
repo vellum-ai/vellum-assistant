@@ -70,48 +70,30 @@ extension MetricKitManager: MXMetricManagerSubscriber {
     nonisolated func didReceive(_ payloads: [MXMetricPayload]) {
         for payload in payloads {
             // Always log — regardless of opt-out preference.
-            // hangRate (MXAverage<UnitDuration>) and the MXAverage variant of
-            // scrollHitchTimeRatio both require macOS 14+.  On older SDK versions
-            // scrollHitchTimeRatio has a different type (Measurement<Unit>) so both
-            // are guarded together to avoid compile-time type mismatches.
-            let hangDurationSecs: Double
-            let scrollHitchMs: Double
-            if #available(macOS 14.0, *) {
-                hangDurationSecs = payload.applicationResponsivenessMetrics?.hangRate?.averageMeasurement.converted(to: .seconds).value ?? 0
-                scrollHitchMs = payload.animationMetrics?.scrollHitchTimeRatio?.averageMeasurement.converted(to: .milliseconds).value ?? 0
-            } else {
-                hangDurationSecs = 0
-                scrollHitchMs = 0
-            }
+            // Only use APIs available since macOS 12 (peakMemoryUsage,
+            // cumulativeCPUTime) to ensure the code compiles on all supported
+            // SDK versions. Hang and hitch metrics are captured via the diagnostics
+            // delegate below, which uses hangDiagnostics (available on macOS 12+).
             let peakMemory = payload.memoryMetrics?.peakMemoryUsage.converted(to: .megabytes).value ?? 0
             let cpuTime = payload.cpuMetrics?.cumulativeCPUTime.converted(to: .seconds).value ?? 0
 
             Task { @MainActor in
-                self.logger.info("MetricKit payload: hangDuration=\(hangDurationSecs, privacy: .public)s scrollHitch=\(scrollHitchMs, privacy: .public)ms peakMem=\(peakMemory, privacy: .public)MB cpu=\(cpuTime, privacy: .public)s")
+                self.logger.info("MetricKit payload: peakMem=\(peakMemory, privacy: .public)MB cpu=\(cpuTime, privacy: .public)s")
             }
 
-            // Forward to Sentry only if opted in
+            // Forward to Sentry only if opted in and values are noteworthy.
             guard UserDefaults.standard.bool(forKey: "sendPerformanceReports") else { continue }
+            guard peakMemory > 500 || cpuTime > 30 else { continue }
 
-            // Only send noteworthy events: >500ms hang duration or >50ms hitch per scroll
-            guard hangDurationSecs > 0.5 || scrollHitchMs > 50 else { continue }
-
-            // Build event on the current (MetricKit callback) thread before handing
-            // off to sentrySerialQueue. DispatchQueue.async has no Sendable constraint
-            // so capturing the Event reference is safe.
             let event = Event(level: .warning)
             event.message = SentryMessage(
-                formatted: "MetricKit: hangDuration=\(String(format: "%.2f", hangDurationSecs))s scrollHitch=\(String(format: "%.1f", scrollHitchMs))ms"
+                formatted: "MetricKit: peakMem=\(String(format: "%.0f", peakMemory))MB cpu=\(String(format: "%.1f", cpuTime))s"
             )
             event.tags = ["source": "metrickit_payload"]
             event.extra = [
-                "hang_duration_s": hangDurationSecs,
-                "scroll_hitch_ms": scrollHitchMs,
                 "peak_memory_mb": peakMemory,
                 "cpu_time_s": cpuTime,
             ]
-            // Serialised through sentrySerialQueue to prevent concurrent callbacks
-            // from racing on SDK state; auto-capture is disabled when restarting.
             MetricKitManager.captureSentryEvent(event)
         }
     }
