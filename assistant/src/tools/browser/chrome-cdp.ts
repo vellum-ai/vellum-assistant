@@ -155,6 +155,7 @@ async function setWindowState(
       const msg = JSON.parse(String(event.data)) as {
         id: number;
         result?: { windowId: number };
+        error?: { message: string };
       };
       if (msg.id === 1 && msg.result) {
         ws.send(
@@ -174,7 +175,13 @@ async function setWindowState(
       } else if (msg.id === 2) {
         clearTimeout(timeout);
         ws.close();
-        resolve();
+        if (msg.error) {
+          reject(
+            new Error(`Browser.setWindowBounds failed: ${msg.error.message}`),
+          );
+        } else {
+          resolve();
+        }
       }
     });
 

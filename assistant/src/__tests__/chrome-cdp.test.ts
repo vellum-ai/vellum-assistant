@@ -226,6 +226,66 @@ describe("minimizeChromeWindow", () => {
   });
 });
 
+describe("setWindowState error handling", () => {
+  test("rejects when Browser.setWindowBounds returns an error", async () => {
+    let wsOnOpen: (() => void) | undefined;
+    let wsOnMessage: ((event: { data: string }) => void) | undefined;
+
+    fetchImpl = async (url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/json/list")) {
+        return new Response(
+          JSON.stringify([
+            {
+              type: "page",
+              webSocketDebuggerUrl: "ws://localhost:9222/devtools/page/ABC",
+            },
+          ]),
+        );
+      }
+      return new Response("{}", { status: 200 });
+    };
+
+    const OriginalWebSocket = globalThis.WebSocket;
+    globalThis.WebSocket = class MockWebSocket {
+      constructor(_url: string) {}
+      addEventListener(event: string, handler: (...args: unknown[]) => void) {
+        if (event === "open") wsOnOpen = handler as () => void;
+        if (event === "message")
+          wsOnMessage = handler as (event: { data: string }) => void;
+      }
+      send(data: string) {
+        const msg = JSON.parse(data);
+        if (msg.method === "Browser.getWindowForTarget") {
+          setTimeout(() => {
+            wsOnMessage?.({
+              data: JSON.stringify({ id: 1, result: { windowId: 42 } }),
+            });
+          }, 0);
+        } else if (msg.method === "Browser.setWindowBounds") {
+          setTimeout(() => {
+            wsOnMessage?.({
+              data: JSON.stringify({
+                id: 2,
+                error: { message: "No window with given id" },
+              }),
+            });
+          }, 0);
+        }
+      }
+      close() {}
+    } as unknown as typeof WebSocket;
+
+    const promise = minimizeChromeWindow();
+    await new Promise((r) => setTimeout(r, 10));
+    wsOnOpen?.();
+
+    await expect(promise).rejects.toThrow("Browser.setWindowBounds failed");
+
+    globalThis.WebSocket = OriginalWebSocket;
+  });
+});
+
 describe("restoreChromeWindow", () => {
   test("sends restore command via WebSocket", async () => {
     const sentMessages: string[] = [];
