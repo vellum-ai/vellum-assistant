@@ -3,8 +3,6 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { createCipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
-import type { Server } from "node:net";
-import { createServer } from "node:net";
 
 // ---------------------------------------------------------------------------
 // Mock logger — capture log calls to verify no secrets leak
@@ -21,6 +19,23 @@ mock.module("../logger.js", () => ({
           logCalls.push({ level: String(prop), args });
         },
     }),
+}));
+
+// Mock node:child_process to avoid spawnSync deadlock: spawnSync blocks the
+// event loop, preventing an in-process mock broker from accepting connections.
+let mockSpawnSyncImpl:
+  | ((
+      cmd: string,
+      args: string[],
+      opts: Record<string, unknown>,
+    ) => { stdout: Buffer; status: number })
+  | null = null;
+
+mock.module("node:child_process", () => ({
+  spawnSync: (cmd: string, args: string[], opts: Record<string, unknown>) => {
+    if (mockSpawnSyncImpl) return mockSpawnSyncImpl(cmd, args, opts);
+    return { stdout: Buffer.from(""), status: 1 };
+  },
 }));
 
 import {
@@ -122,61 +137,13 @@ function writeEncryptedStore(entries: Record<string, string>): void {
 // Broker test helpers
 // ---------------------------------------------------------------------------
 
-const SOCKET_PATH = join(testDir, "broker.sock");
+const BROKER_SOCKET_PLACEHOLDER = "/tmp/mock-broker.sock";
 const TEST_TOKEN = "test-auth-token-abc123";
 
 function writeBrokerToken(token: string): void {
   const tokenDir = join(testDir, ".vellum", "protected");
   mkdirSync(tokenDir, { recursive: true });
   writeFileSync(join(tokenDir, "keychain-broker.token"), token);
-}
-
-function createMockBroker(): {
-  server: Server;
-  setHandler: (
-    fn: (request: Record<string, unknown>) => Record<string, unknown>,
-  ) => void;
-  start: () => Promise<void>;
-  stop: () => Promise<void>;
-} {
-  let handler: (
-    request: Record<string, unknown>,
-  ) => Record<string, unknown> = () => ({ ok: true });
-
-  const server = createServer((conn) => {
-    let buffer = "";
-    conn.on("data", (chunk) => {
-      buffer += chunk.toString();
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, idx).trim();
-        buffer = buffer.slice(idx + 1);
-        if (!line) continue;
-        try {
-          const request = JSON.parse(line);
-          const response = handler(request);
-          conn.write(JSON.stringify({ id: request.id, ...response }) + "\n");
-        } catch {
-          // Malformed request — ignore
-        }
-      }
-    });
-  });
-
-  return {
-    server,
-    setHandler: (fn) => {
-      handler = fn;
-    },
-    start: () =>
-      new Promise<void>((resolve) => {
-        server.listen(SOCKET_PATH, () => resolve());
-      }),
-    stop: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      }),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -190,12 +157,7 @@ beforeEach(() => {
   savedBrokerSocket = process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
   delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
   logCalls.length = 0;
-  // Clean up socket file from prior test
-  try {
-    rmSync(SOCKET_PATH, { force: true });
-  } catch {
-    /* ignore */
-  }
+  mockSpawnSyncImpl = null;
 });
 
 afterEach(() => {
@@ -318,7 +280,7 @@ describe("readCredential broker integration", () => {
   });
 
   test("falls back to encrypted store when broker token file is missing", () => {
-    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = BROKER_SOCKET_PLACEHOLDER;
     // Don't write a token file
 
     writeEncryptedStore({
@@ -329,77 +291,51 @@ describe("readCredential broker integration", () => {
     expect(result).toBe("encrypted-value");
   });
 
-  test("reads credential from broker when available", async () => {
-    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+  test("reads credential from broker when available", () => {
+    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = BROKER_SOCKET_PLACEHOLDER;
     writeBrokerToken(TEST_TOKEN);
 
-    const broker = createMockBroker();
-    broker.setHandler((req) => {
-      if (
-        req.method === "get" &&
-        req.account === "credential:test:key" &&
-        req.token === TEST_TOKEN
-      ) {
-        return { ok: true, value: "broker-secret-value" };
-      }
-      return { ok: false, error: "not found" };
+    mockSpawnSyncImpl = () => ({
+      stdout: Buffer.from("broker-secret-value"),
+      status: 0,
     });
-    await broker.start();
 
-    try {
-      const result = readCredential("credential:test:key");
-      expect(result).toBe("broker-secret-value");
-    } finally {
-      await broker.stop();
-    }
+    const result = readCredential("credential:test:key");
+    expect(result).toBe("broker-secret-value");
   });
 
-  test("broker result takes priority over encrypted store", async () => {
-    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
-    writeBrokerToken(TEST_TOKEN);
-
-    // Write a value to the encrypted store
-    writeEncryptedStore({
-      "credential:test:key": "encrypted-value",
-    });
-
-    // Also set up broker to return a different value
-    const broker = createMockBroker();
-    broker.setHandler((req) => {
-      if (req.method === "get" && req.account === "credential:test:key") {
-        return { ok: true, value: "broker-value" };
-      }
-      return { ok: false, error: "not found" };
-    });
-    await broker.start();
-
-    try {
-      const result = readCredential("credential:test:key");
-      expect(result).toBe("broker-value");
-    } finally {
-      await broker.stop();
-    }
-  });
-
-  test("falls back to encrypted store when broker returns not found", async () => {
-    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+  test("broker result takes priority over encrypted store", () => {
+    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = BROKER_SOCKET_PLACEHOLDER;
     writeBrokerToken(TEST_TOKEN);
 
     writeEncryptedStore({
       "credential:test:key": "encrypted-value",
     });
 
-    const broker = createMockBroker();
-    broker.setHandler(() => {
-      return { ok: false, error: "not found" };
+    mockSpawnSyncImpl = () => ({
+      stdout: Buffer.from("broker-value"),
+      status: 0,
     });
-    await broker.start();
 
-    try {
-      const result = readCredential("credential:test:key");
-      expect(result).toBe("encrypted-value");
-    } finally {
-      await broker.stop();
-    }
+    const result = readCredential("credential:test:key");
+    expect(result).toBe("broker-value");
+  });
+
+  test("falls back to encrypted store when broker returns not found", () => {
+    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = BROKER_SOCKET_PLACEHOLDER;
+    writeBrokerToken(TEST_TOKEN);
+
+    writeEncryptedStore({
+      "credential:test:key": "encrypted-value",
+    });
+
+    // Mock returns empty stdout, simulating broker returning no value
+    mockSpawnSyncImpl = () => ({
+      stdout: Buffer.from(""),
+      status: 0,
+    });
+
+    const result = readCredential("credential:test:key");
+    expect(result).toBe("encrypted-value");
   });
 });
