@@ -365,14 +365,14 @@ These endpoints share the same business logic as the IPC-based verification flow
 
 ## Channel Readiness
 
-Channel readiness is exposed via HTTP control-plane endpoints that provide a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. Local checks (credential presence, phone number assignment, ingress config) run synchronously; optional remote checks (API reachability) run asynchronously with a 5-minute TTL cache.
+Channel readiness is exposed via HTTP control-plane endpoints that provide a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. Local checks (credential presence, phone number assignment, ingress config) run synchronously; remote checks (API reachability) run by default and are cached with a 5-minute TTL. Remote checks can be disabled by passing `includeRemote=false`.
 
 ### Channel Readiness HTTP Endpoints
 
-| Method | Path                             | Description                                                                                                                                                                                            |
-| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/v1/channels/readiness`         | Returns readiness snapshots for the specified channel (query param `channel`, optional) or all channels. Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
-| POST   | `/v1/channels/readiness/refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. Body: `{ channel?: ChannelId, includeRemote?: boolean }`                                              |
+| Method | Path                             | Description                                                                                                                                                                                                                                                                 |
+| ------ | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/channels/readiness`         | Returns readiness snapshots for the specified channel (query param `channel`, optional) or all channels. Local checks always run; remote checks run by default (`includeRemote=true`) and use a cached result when fresh. Pass `includeRemote=false` to skip remote checks. |
+| POST   | `/v1/channels/readiness/refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. Body: `{ channel?: ChannelId, includeRemote?: boolean }`. `includeRemote` defaults to `true`.                                                                              |
 
 All endpoints are bearer-authenticated. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/channels/readiness*` routes.
 
@@ -381,7 +381,7 @@ All endpoints are bearer-authenticated. Skills and clients should call the gatew
 - **SMS**: Checks Twilio credentials, phone number assignment, and public ingress URL.
 - **Voice**: Checks Twilio credentials, phone number assignment, and public ingress URL.
 - **Telegram**: Checks bot token, webhook secret, and public ingress URL.
-- **Email**: Checks AgentMail API key, invite policy, and public ingress URL.
+- **Email**: Checks AgentMail API key, invite policy, public ingress URL, and verifies an inbox address is available (remote check).
 - **WhatsApp**: Checks Meta WhatsApp Business API credentials (phoneNumberId, accessToken, appSecret, webhookVerifyToken), invite policy, and public ingress URL.
 - **Slack**: Checks bot token and app token.
 
