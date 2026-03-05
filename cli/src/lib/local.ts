@@ -647,14 +647,18 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         }
       }
 
+      // Use fd inheritance instead of pipes so the daemon's stdout/stderr
+      // survive after the parent (hatch) exits. Bun does not ignore SIGPIPE,
+      // so piped stdio would kill the daemon on its first write after the
+      // parent closes.
       const daemonLogFd = openLogFile("hatch.log");
       const child = spawn(daemonBinary, [], {
         cwd: dirname(daemonBinary),
         detached: true,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["ignore", daemonLogFd, daemonLogFd],
         env: daemonEnv,
       });
-      pipeToLogFile(child, daemonLogFd, "daemon");
+      if (typeof daemonLogFd === "number") closeSync(daemonLogFd);
       child.unref();
       const daemonPid = child.pid;
 
@@ -856,13 +860,15 @@ export async function startGateway(
       );
     }
 
+    // Use fd inheritance (not pipes) so the gateway survives after the
+    // hatch CLI exits — Bun does not ignore SIGPIPE.
     const gatewayLogFd = openLogFile("hatch.log");
     gateway = spawn(gatewayBinary, [], {
       detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", gatewayLogFd, gatewayLogFd],
       env: gatewayEnv,
     });
-    pipeToLogFile(gateway, gatewayLogFd, "gateway");
+    if (typeof gatewayLogFd === "number") closeSync(gatewayLogFd);
   } else {
     // Source tree / bunx: resolve the gateway source directory and run via bun.
     const gatewayDir = resolveGatewayDir();
@@ -873,10 +879,10 @@ export async function startGateway(
     gateway = spawn("bun", bunArgs, {
       cwd: gatewayDir,
       detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", gwLogFd, gwLogFd],
       env: gatewayEnv,
     });
-    pipeToLogFile(gateway, gwLogFd, "gateway");
+    if (typeof gwLogFd === "number") closeSync(gwLogFd);
     if (watch) {
       console.log("   Gateway started in watch mode (bun --watch)");
     }
@@ -935,5 +941,4 @@ export async function stopLocalProcesses(): Promise<void> {
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway");
-
 }
