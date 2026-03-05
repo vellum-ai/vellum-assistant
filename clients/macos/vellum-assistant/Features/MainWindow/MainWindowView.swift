@@ -50,10 +50,6 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     @State var showThreadSwitcher = false
-    /// Cancellable task for the delayed hover trigger on the collapsed thread section.
-    @State var threadSwitcherHoverTask: Task<Void, Never>?
-    /// Cancellable task that dismisses the thread switcher popover after leaving the hover area.
-    @State var threadSwitcherDismissTask: Task<Void, Never>?
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
