@@ -944,5 +944,11 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
     "When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.",
     "",
     lines.join("\n"),
+    "",
+    "### Installing additional skills",
+    "If `skill_load` fails because a skill is not found, additional first-party skills may be available in the Vellum catalog.",
+    "Use `bash` to discover and install them:",
+    "- `vellum skills list` — list all available catalog skills",
+    "- `vellum skills install <skill-id>` — install a skill, then retry `skill_load`",
   ].join("\n");
 }

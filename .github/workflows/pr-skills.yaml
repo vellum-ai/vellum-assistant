@@ -101,6 +101,37 @@ jobs:
       - name: Validate SKILL.md files
         run: node scripts/skills/lint-skill-spec.mjs
 
+  test:
+    name: 'Test: ${{ matrix.skill }}'
+    needs: discover
+    if: needs.discover.outputs.changed_skills != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        skill: ${{ fromJson(needs.discover.outputs.changed_skills) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Run tests
+        run: |
+          SKILL_DIR="skills/${{ matrix.skill }}"
+          # Only run tests if the skill has test files
+          if find "$SKILL_DIR" -name '*.test.ts' -o -name '*.test.js' | grep -q .; then
+            cd "$SKILL_DIR"
+            # Install deps if package.json exists
+            if [ -f package.json ]; then
+              bun install
+            fi
+            bun test
+          else
+            echo "No test files found for ${{ matrix.skill }}, skipping"
+          fi
+
   check-catalog:
     name: Check catalog.json is up to date
     runs-on: ubuntu-latest

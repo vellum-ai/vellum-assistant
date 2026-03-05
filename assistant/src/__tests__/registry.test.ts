@@ -255,16 +255,6 @@ describe("baseline characterization: hardcoded tool loading", () => {
     }
   });
 
-  test("weather tool is NOT in global registry after initializeTools()", async () => {
-    await initializeTools();
-    const tool = getTool("get_weather");
-    expect(tool).toBeUndefined();
-  });
-
-  test("weather tool name is NOT in eagerModuleToolNames manifest", () => {
-    expect(eagerModuleToolNames).not.toContain("get_weather");
-  });
-
   test("claude_code is NOT in global registry after initializeTools()", async () => {
     await initializeTools();
     const tool = getTool("claude_code");
