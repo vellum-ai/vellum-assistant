@@ -57,7 +57,7 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
-    @ObservedObject var subagentDetailStore: SubagentDetailStore
+    var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Pagination
 
@@ -376,16 +376,16 @@ struct MessageListView: View {
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onModelPickerSelect: onModelPickerSelect,
-                            eventsBySubagent: subagentDetailStore.eventsBySubagent,
+                            subagentDetailStore: subagentDetailStore,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders
                         )
                     }
 
                     ForEach(orphanSubagents) { subagent in
-                        SubagentThreadView(
+                        SubagentEventsReader(
+                            store: subagentDetailStore,
                             subagent: subagent,
-                            events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
                             onAbort: { onAbortSubagent?(subagent.id) },
                             onTap: { onSubagentTap?(subagent.id) }
                         )
@@ -825,7 +825,7 @@ private struct MessageCellView: View {
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     var onModelPickerSelect: ((UUID, String) -> Void)?
-    let eventsBySubagent: [String: [SubagentEventItem]]
+    var subagentDetailStore: SubagentDetailStore
     let selectedModel: String
     let configuredProviders: Set<String>
 
@@ -956,9 +956,9 @@ private struct MessageCellView: View {
         }
 
         ForEach(subagentsByParent[message.id] ?? []) { subagent in
-            SubagentThreadView(
+            SubagentEventsReader(
+                store: subagentDetailStore,
                 subagent: subagent,
-                events: eventsBySubagent[subagent.id] ?? [],
                 onAbort: { onAbortSubagent?(subagent.id) },
                 onTap: { onSubagentTap?(subagent.id) }
             )

@@ -62,7 +62,7 @@ struct ChatView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
-    @ObservedObject var subagentDetailStore: SubagentDetailStore
+    var subagentDetailStore: SubagentDetailStore
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
     var resolveHttpPort: (() -> Int?) = { nil }

@@ -18,7 +18,7 @@ Key findings from the process sample taken during an idle chat session:
 | PR | Title | Impact |
 |---|---|---|
 | M0 | Profiling harness + acceptance gates | Debug counters for publish frequency |
-| M1 | Coalesce SubagentDetailStore publishes | 50 ms coalescing window, reduces per-token publishes |
+| M1 | Coalesce SubagentDetailStore publishes | 50 ms coalescing window, reduces per-token publishes (superseded by M11) |
 | M2 | Decouple TaskProgressOverlay from chat list | Only react to activeSurfaceId changes |
 | M3 | Stop TimelineView ticks for terminal subagents | Conditional TimelineView when isRunning |
 | M4 | Tune streaming publish rate | 100 ms flush interval (from 50 ms) |
@@ -28,6 +28,7 @@ Key findings from the process sample taken during an idle chat session:
 | M8 | Attachment lifecycle tightening | Clear base64 data after dequeue |
 | M9 | Selection-overlay containment | Disable .textSelection during streaming |
 | M10 | Regression tests | Verify coalescing, stripping, clearing |
+| M11 | Migrate SubagentDetailStore to @Observable | Property-level observation replaces whole-store objectWillChange; SubagentEventsReader wrapper scopes invalidation to individual subagent rows; phaseAnimator replaces TimelineView timer |
 
 ## Expected Improvements
 
@@ -50,6 +51,5 @@ Key findings from the process sample taken during an idle chat session:
 
 ## Deferred Work
 
-- **SubagentDetailStore observation scoping**: MessageListView still holds SubagentDetailStore as an `@ObservedObject`, meaning any publish on that store invalidates the entire message list. A future change should scope observation to only the fields MessageListView actually reads.
 - **History pagination surface data re-fetch**: When the user scrolls back into messages whose surface data has been stripped (M6), the client should lazily re-fetch the full surface payload on demand rather than retaining it in memory.
 - **Per-surface lazy loading**: For very long conversations, surfaces that scroll out of the visible viewport could be unloaded and re-fetched when scrolled back into view, further bounding memory usage.

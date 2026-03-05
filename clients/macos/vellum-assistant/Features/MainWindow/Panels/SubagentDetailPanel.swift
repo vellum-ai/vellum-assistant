@@ -4,7 +4,7 @@ import VellumAssistantShared
 struct SubagentDetailPanel: View {
     let subagentId: String
     @ObservedObject var viewModel: ChatViewModel
-    @ObservedObject var detailStore: SubagentDetailStore
+    var detailStore: SubagentDetailStore
     var onAbort: (() -> Void)?
     var onRequestDetail: (() -> Void)?
     var onClose: () -> Void

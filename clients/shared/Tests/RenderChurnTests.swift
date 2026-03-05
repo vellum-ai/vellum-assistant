@@ -1,25 +1,18 @@
-import Combine
 import XCTest
 @testable import VellumAssistantShared
 
 /// Regression tests for render-churn reduction and memory-retention fixes.
-/// Validates: SubagentDetailStore coalescing, stripHeavyContent surface stripping,
+/// Validates: SubagentDetailStore event recording, stripHeavyContent surface stripping,
 /// attachment lifecycle clearing guards, and ToolCallData Equatable exclusions.
 @MainActor
 final class RenderChurnTests: XCTestCase {
 
-    // MARK: - SubagentDetailStore coalescing
+    // MARK: - SubagentDetailStore event recording
 
-    /// Rapid-fire events should be coalesced into 1-2 objectWillChange publishes
-    /// within the 50ms debounce window, not fire once per event.
-    func testSubagentDetailStoreCoalescesRapidEvents() async {
+    /// Rapid-fire text deltas should accumulate into a single text event per subagent.
+    func testSubagentDetailStoreAccumulatesTextDeltas() async {
         let store = SubagentDetailStore()
-        var publishCount = 0
-        let cancellable = store.objectWillChange.sink { _ in
-            publishCount += 1
-        }
 
-        // Fire 10 rapid events synchronously (no awaits between them).
         for i in 0..<10 {
             store.handleEvent(
                 subagentId: "agent-1",
@@ -27,25 +20,9 @@ final class RenderChurnTests: XCTestCase {
             )
         }
 
-        // Wait 150ms (3x the 50ms coalesce window) for the publish task to fire.
-        try? await Task.sleep(nanoseconds: 150_000_000)
-
-        // The coalescing logic should collapse all 10 mutations into 1-2 publishes.
-        XCTAssertLessThanOrEqual(
-            publishCount, 2,
-            "Expected at most 2 objectWillChange publishes for 10 rapid events, got \(publishCount)"
-        )
-        XCTAssertGreaterThanOrEqual(
-            publishCount, 1,
-            "Expected at least 1 objectWillChange publish"
-        )
-
-        // Verify the events were actually recorded despite coalescing.
         let events = store.eventsBySubagent["agent-1"] ?? []
         XCTAssertEqual(events.count, 1, "Text deltas should accumulate into a single text event")
         XCTAssertTrue(events[0].content.contains("chunk-9"), "Final chunk should be present in accumulated text")
-
-        cancellable.cancel()
     }
 
     // MARK: - stripHeavyContent surface stripping
