@@ -270,7 +270,7 @@ struct AssistantProgressView: View {
         case .complete:
             statusIconTile(
                 systemName: hasAnyErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
-                iconColor: hasAnyErrors ? VColor.warning : VColor.success,
+                iconColor: hasAnyErrors ? VColor.warning : VColor.iconAccent,
                 tileColor: hasAnyErrors ? Amber._200 : Forest._200
             )
         case .error:
@@ -411,7 +411,7 @@ struct AssistantProgressView: View {
     private func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
         let isApproved = confirmation.state == .approved
         let isDenied = confirmation.state == .denied
-        let chipColor: Color = isApproved ? VColor.success : isDenied ? VColor.error : VColor.textMuted
+        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
 
         return HStack(spacing: VSpacing.xs) {
             Group {
@@ -497,7 +497,7 @@ private struct StepDetailRow: View {
                     if toolCall.isComplete {
                         Image(systemName: toolCall.isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                             .font(.system(size: 14))
-                            .foregroundColor(toolCall.isError ? VColor.error : VColor.success)
+                            .foregroundColor(toolCall.isError ? VColor.error : VColor.iconAccent)
                             .frame(width: 16)
                     } else if phase == .denied {
                         Image(systemName: "exclamationmark.circle.fill")

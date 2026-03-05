@@ -62,7 +62,7 @@ extension ChatBubble {
     func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
         let isApproved = confirmation.state == .approved
         let isDenied = confirmation.state == .denied
-        let chipColor: Color = isApproved ? VColor.success : isDenied ? VColor.error : VColor.textMuted
+        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
 
         return HStack(spacing: VSpacing.xs) {
             Group {
