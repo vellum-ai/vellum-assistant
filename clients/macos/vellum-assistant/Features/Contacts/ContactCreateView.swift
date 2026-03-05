@@ -1,8 +1,8 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// A form sheet for creating a new contact with a display name,
-/// optional notes, and one initial channel (type + address).
+/// A form sheet for creating a new contact with a display name
+/// and optional notes.
 @MainActor
 struct ContactCreateView: View {
     var daemonClient: DaemonClient?
@@ -13,18 +13,8 @@ struct ContactCreateView: View {
 
     @State private var displayName = ""
     @State private var notes = ""
-    @State private var channelType = "telegram"
-    @State private var channelAddress = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
-
-    private let channelOptions: [(label: String, value: String)] = [
-        (label: "Telegram", value: "telegram"),
-        (label: "SMS", value: "sms"),
-        (label: "Email", value: "email"),
-        (label: "Slack", value: "slack"),
-        (label: "Voice", value: "voice"),
-    ]
 
     // MARK: - Body
 
@@ -39,7 +29,7 @@ struct ContactCreateView: View {
             actionButtons
         }
         .padding(VSpacing.xl)
-        .frame(width: 400, height: 420)
+        .frame(width: 400, height: 340)
         .background(VColor.background)
     }
 
@@ -50,7 +40,7 @@ struct ContactCreateView: View {
             Text("Add Contact")
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
-            Text("Create a new contact with an optional channel.")
+            Text("Create a new contact with optional notes.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
         }
@@ -73,27 +63,27 @@ struct ContactCreateView: View {
                 Text("Notes")
                     .font(VFont.inputLabel)
                     .foregroundColor(VColor.textSecondary)
-                VTextField(placeholder: "e.g. Colleague, prefers casual tone (optional)", text: $notes)
-            }
-
-            // Channel type picker
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Channel Type")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.textSecondary)
-                VDropdown(
-                    placeholder: "Select channel type",
-                    selection: $channelType,
-                    options: channelOptions
+                ZStack(alignment: .topLeading) {
+                    if notes.isEmpty {
+                        Text("e.g. Colleague, prefers casual tone (optional)")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textMuted)
+                            .padding(.horizontal, VSpacing.xs)
+                            .padding(.vertical, VSpacing.sm)
+                    }
+                    TextEditor(text: $notes)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 60, maxHeight: 120)
+                }
+                .padding(VSpacing.xs)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
                 )
-            }
-
-            // Channel address
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Channel Address")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.textSecondary)
-                VTextField(placeholder: channelAddressPlaceholder, text: $channelAddress)
             }
         }
     }
@@ -141,29 +131,10 @@ struct ContactCreateView: View {
         !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSubmitting
     }
 
-    private var channelAddressPlaceholder: String {
-        switch channelType {
-        case "telegram": return "@username or phone number"
-        case "sms", "voice": return "+15551234567"
-        case "email": return "user@example.com"
-        case "slack": return "#channel or @user"
-        default: return "Address"
-        }
-    }
-
     private func submit() {
         guard let daemonClient, canSubmit else { return }
         isSubmitting = true
         errorMessage = nil
-
-        let trimmedAddress = channelAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        let channels: [DaemonClient.NewContactChannel]? = trimmedAddress.isEmpty ? nil : [
-            DaemonClient.NewContactChannel(
-                type: channelType,
-                address: trimmedAddress,
-                isPrimary: true
-            ),
-        ]
 
         let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -172,7 +143,7 @@ struct ContactCreateView: View {
                 let contact = try await daemonClient.createContact(
                     displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
                     notes: trimmedNotes.isEmpty ? nil : trimmedNotes,
-                    channels: channels
+                    channels: nil
                 )
                 if let contact {
                     onCreated?(contact)
@@ -195,7 +166,7 @@ struct ContactCreateView: View {
 struct ContactCreateView_Preview: PreviewProvider {
     static var previews: some View {
         ContactCreateViewPreviewWrapper()
-            .frame(width: 400, height: 420)
+            .frame(width: 400, height: 340)
             .previewDisplayName("ContactCreateView")
     }
 }
