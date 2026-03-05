@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import type * as net from "node:net";
 
 import { autoNavigate } from "../tools/browser/auto-navigate.js";
+import {
+  type CdpSession,
+  ensureChromeWithCdp,
+  minimizeChromeWindow,
+} from "../tools/browser/chrome-cdp.js";
 import { NetworkRecorder } from "../tools/browser/network-recorder.js";
 import type { SessionRecording } from "../tools/browser/network-recording-types.js";
 import { saveRecording } from "../tools/browser/recording-store.js";
@@ -23,6 +28,9 @@ const log = getLogger("ride-shotgun-handler");
 
 /** Active network recorders keyed by watchId. */
 const activeRecorders = new Map<string, NetworkRecorder>();
+
+/** Active CDP sessions keyed by watchId — tracks browser ownership for cleanup. */
+const activeCdpSessions = new Map<string, CdpSession>();
 
 /** Active progress interval timers keyed by watchId, cleared on session completion. */
 const activeProgressIntervals = new Map<string, NodeJS.Timeout>();
@@ -76,6 +84,21 @@ async function completeSession(session: WatchSession): Promise<void> {
       session,
       session.recordingId,
     );
+
+    // Clean up the CDP session — minimize if we launched Chrome, leave it alone otherwise
+    const cdpSession = activeCdpSessions.get(watchId);
+    if (cdpSession) {
+      activeCdpSessions.delete(watchId);
+      if (cdpSession.launchedByUs) {
+        try {
+          await minimizeChromeWindow(cdpSession.baseUrl);
+          log.info({ watchId }, "Minimized assistant-launched Chrome window");
+        } catch (err) {
+          log.debug({ err, watchId }, "Failed to minimize Chrome window");
+        }
+      }
+    }
+
     lastSummaryBySession.set(
       sessionId,
       session.savedRecordingPath
@@ -142,10 +165,34 @@ export async function handleRideShotgunStart(
     "Session created and stored in watchSessions map",
   );
 
-  // In learn mode, connect directly to Chrome's CDP endpoint for network recording.
-  // Retry a few times since Chrome may still be starting up after the Swift client restarts it.
+  // In learn mode, ensure Chrome is available with CDP, then connect for network recording.
   if (isLearnMode) {
     const startRecording = async () => {
+      // Ensure Chrome is running with CDP — launches it if needed
+      let cdpSession: CdpSession;
+      try {
+        cdpSession = await ensureChromeWithCdp({
+          startUrl: targetDomain ? `https://${targetDomain}` : undefined,
+        });
+        activeCdpSessions.set(watchId, cdpSession);
+        log.info(
+          {
+            watchId,
+            launchedByUs: cdpSession.launchedByUs,
+            baseUrl: cdpSession.baseUrl,
+          },
+          "CDP session established",
+        );
+      } catch (err) {
+        log.warn(
+          { err, watchId },
+          "Failed to ensure Chrome with CDP — cannot start recording",
+        );
+        return;
+      }
+
+      const cdpBaseUrl = cdpSession.baseUrl;
+
       for (let attempt = 0; attempt < 10; attempt++) {
         // Check if session is still active before each attempt
         if (session.status !== "active") {
@@ -156,7 +203,7 @@ export async function handleRideShotgunStart(
           return;
         }
         try {
-          const recorder = new NetworkRecorder(targetDomain);
+          const recorder = new NetworkRecorder(targetDomain, cdpBaseUrl);
           recorder.loginSignals = getLoginSignals(targetDomain);
           await recorder.startDirect();
           // If session completed while we were connecting, stop immediately to avoid leak
@@ -248,7 +295,7 @@ export async function handleRideShotgunStart(
                 clearInterval(checkInterval);
               }
             }, 1000);
-            navigateXPages(abortSignal)
+            navigateXPages(abortSignal, cdpBaseUrl)
               .then((completed) => {
                 clearInterval(checkInterval);
                 log.info(
@@ -275,17 +322,22 @@ export async function handleRideShotgunStart(
                 clearInterval(checkInterval);
               }
             }, 1000);
-            autoNavigate(navDomain, abortSignal, (progress) => {
-              // Send progress to connected client
-              if (progress.type === "visiting" && progress.url) {
-                const shortUrl = progress.url.replace(/^https?:\/\//, "");
-                ctx.send(socket, {
-                  type: "ride_shotgun_progress",
-                  watchId,
-                  message: `[${progress.pageNumber || "?"}] ${shortUrl}`,
-                });
-              }
-            })
+            autoNavigate(
+              navDomain,
+              abortSignal,
+              (progress) => {
+                // Send progress to connected client
+                if (progress.type === "visiting" && progress.url) {
+                  const shortUrl = progress.url.replace(/^https?:\/\//, "");
+                  ctx.send(socket, {
+                    type: "ride_shotgun_progress",
+                    watchId,
+                    message: `[${progress.pageNumber || "?"}] ${shortUrl}`,
+                  });
+                }
+              },
+              cdpBaseUrl,
+            )
               .then((visited) => {
                 clearInterval(checkInterval);
                 log.info(

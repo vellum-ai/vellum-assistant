@@ -9,7 +9,7 @@ import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("x-auto-navigate");
 
-const CDP_BASE = "http://localhost:9222";
+const DEFAULT_CDP_BASE = "http://localhost:9222";
 
 interface NavStep {
   label: string;
@@ -78,12 +78,13 @@ class MiniCDP {
  * @param abortSignal Optional signal to stop navigation early.
  * @returns List of step labels that completed successfully.
  */
-export async function navigateXPages(abortSignal?: {
-  aborted: boolean;
-}): Promise<string[]> {
+export async function navigateXPages(
+  abortSignal?: { aborted: boolean },
+  cdpBaseUrl: string = DEFAULT_CDP_BASE,
+): Promise<string[]> {
   let wsUrl: string | null = null;
   try {
-    const res = await fetch(`${CDP_BASE}/json/list`);
+    const res = await fetch(`${cdpBaseUrl}/json/list`);
     if (!res.ok) {
       log.warn("CDP not available for auto-navigation");
       return [];

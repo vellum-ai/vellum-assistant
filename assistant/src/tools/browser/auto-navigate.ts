@@ -9,7 +9,7 @@ import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("auto-navigate");
 
-const CDP_BASE = "http://localhost:9222";
+const DEFAULT_CDP_BASE = "http://localhost:9222";
 const MAX_PAGES = 10;
 const PAGE_WAIT_MS = 2500;
 const SCROLL_WAIT_MS = 1000;
@@ -93,10 +93,11 @@ export async function autoNavigate(
   domain: string,
   abortSignal?: { aborted: boolean },
   onProgress?: (p: AutoNavProgress) => void,
+  cdpBaseUrl: string = DEFAULT_CDP_BASE,
 ): Promise<string[]> {
   let wsUrl: string | null = null;
   try {
-    const res = await fetch(`${CDP_BASE}/json/list`);
+    const res = await fetch(`${cdpBaseUrl}/json/list`);
     if (!res.ok) {
       log.warn("CDP not available for auto-navigation");
       return [];
