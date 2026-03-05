@@ -23,7 +23,7 @@ struct SidebarThreadsHeader: View {
                 )
                 .disabled(isLoading)
             }
-            VIconButton(label: "New thread", icon: "plus", iconOnly: true, action: onNewThread)
+            VIconButton(label: "New thread", icon: "square.and.pencil", iconOnly: true, action: onNewThread)
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }
