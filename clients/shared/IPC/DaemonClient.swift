@@ -1639,9 +1639,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
             .flatMap(Int.init) ?? 7830
         let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        #else
-        return nil
-        #endif
 
         guard let url = URL(string: "\(baseURL)/v1/contacts") else { return nil }
         var request = URLRequest(url: url)
@@ -1672,6 +1669,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         let decoded = try JSONDecoder().decode(UpsertResponse.self, from: data)
         return decoded.contact
+        #else
+        return nil
+        #endif
     }
 
     /// Send a verification code to a contact's channel via the gateway.
@@ -1692,9 +1692,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
             .flatMap(Int.init) ?? 7830
         let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        #else
-        return nil
-        #endif
 
         let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
         let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
@@ -1710,6 +1707,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         guard let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode) else { return nil }
         return try JSONDecoder().decode(ChannelVerificationResult.self, from: data)
+        #else
+        return nil
+        #endif
     }
 
     // MARK: - Feature Flags
