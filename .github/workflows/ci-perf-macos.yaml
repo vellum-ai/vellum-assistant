@@ -62,6 +62,20 @@ jobs:
           UPDATE_BASELINE: ${{ github.event_name == 'push' && 'true' || 'false' }}
         run: bash scripts/compare-perf-baselines.sh
 
+      - name: Performance summary
+        if: always()
+        run: |
+          if [ -f .perf-baselines/summary.md ]; then
+            cat .perf-baselines/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Comment on PR with performance results
+        if: always() && github.event_name == 'pull_request' && hashFiles('.perf-baselines/summary.md') != ''
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: .perf-baselines/summary.md
+
       - name: Upload new baselines
         uses: actions/upload-artifact@v4
         if: always()
