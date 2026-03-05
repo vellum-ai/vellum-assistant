@@ -1536,7 +1536,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Update a contact's metadata via the HTTP API (`POST /v1/contacts`).
-    /// Works for both local daemon (via httpPort) and managed (via httpTransport).
+    /// Routes through `HTTPTransport` when available so that managed-mode
+    /// URL paths (`/v1/assistants/{id}/contacts/`) and auth headers
+    /// (`X-Session-Token`) are applied correctly. Falls back to the local
+    /// daemon HTTP server for socket-based connections.
     public func updateContact(
         contactId: String,
         displayName: String,
@@ -1545,24 +1548,27 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         responseExpectation: String? = nil,
         preferredTone: String? = nil
     ) async throws -> ContactPayload? {
-        let baseURL: String
-        let bearerToken: String?
-
+        // Delegate to HTTPTransport when active — it handles buildURL/applyAuth
+        // for both runtimeFlat and platformAssistantProxy route modes.
         if let httpTransport {
-            baseURL = httpTransport.baseURL
-            bearerToken = httpTransport.bearerToken
-        } else if let local = resolveLocalDaemonHTTPEndpoint() {
-            baseURL = local.baseURL
-            bearerToken = local.bearerToken
-        } else {
-            return nil
+            return try await httpTransport.updateContactAndReturn(
+                contactId: contactId,
+                displayName: displayName,
+                relationship: relationship,
+                importance: importance,
+                responseExpectation: responseExpectation,
+                preferredTone: preferredTone
+            )
         }
 
-        guard let url = URL(string: "\(baseURL)/v1/contacts") else { return nil }
+        // Local daemon path: direct HTTP call using the runtime server port.
+        guard let local = resolveLocalDaemonHTTPEndpoint() else { return nil }
+
+        guard let url = URL(string: "\(local.baseURL)/v1/contacts") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = bearerToken, !token.isEmpty {
+        if let token = local.bearerToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 

@@ -1045,6 +1045,51 @@ public final class HTTPTransport {
         let contact: ContactPayload
     }
 
+    /// Update a contact's metadata via `POST /v1/contacts` and return the updated payload.
+    /// Routes through `buildURL`/`applyAuth` so managed-mode URL paths and auth headers
+    /// are applied correctly.
+    func updateContactAndReturn(
+        contactId: String,
+        displayName: String,
+        relationship: String? = nil,
+        importance: Double? = nil,
+        responseExpectation: String? = nil,
+        preferredTone: String? = nil,
+        isRetry: Bool = false
+    ) async throws -> ContactPayload? {
+        guard let url = buildURL(for: .contactsUpsert) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = ["id": contactId, "displayName": displayName]
+        if let relationship { body["relationship"] = relationship }
+        if let importance { body["importance"] = importance }
+        if let responseExpectation { body["responseExpectation"] = responseExpectation }
+        if let preferredTone { body["preferredTone"] = preferredTone }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await updateContactAndReturn(contactId: contactId, displayName: displayName, relationship: relationship, importance: importance, responseExpectation: responseExpectation, preferredTone: preferredTone, isRetry: true)
+                }
+                return nil
+            }
+            guard (200...201).contains(http.statusCode) else {
+                return nil
+            }
+        }
+
+        let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
     /// Update a contact's metadata via `POST /v1/contacts`.
     /// Emits a `contactsResponse` on success so the detail view can react.
     func updateContact(
