@@ -15,9 +15,34 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+DIM='\033[2m'
 
 # Per-test timeout in seconds — kills bun processes that hang due to open handles.
 PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-60}"
+
+# Debug logging — on by default for passive bottleneck detection.
+# Set PREPUSH_DEBUG=0 to suppress.
+PREPUSH_DEBUG="${PREPUSH_DEBUG:-1}"
+PREPUSH_START_EPOCH=""
+
+_debug_log() {
+    if [ "$PREPUSH_DEBUG" != "1" ]; then return; fi
+    local now
+    if command -v gdate &>/dev/null; then
+        now=$(gdate +%s%3N)
+    elif date +%s%3N &>/dev/null 2>&1; then
+        now=$(date +%s%3N)
+    else
+        now=$(( $(date +%s) * 1000 ))
+    fi
+    if [ -z "$PREPUSH_START_EPOCH" ]; then
+        PREPUSH_START_EPOCH="$now"
+    fi
+    local elapsed=$(( now - PREPUSH_START_EPOCH ))
+    printf "${DIM}[pre-push +%d.%03ds] %s${NC}\n" $((elapsed / 1000)) $((elapsed % 1000)) "$1" >&2
+}
+
+_debug_log "hook started"
 
 BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
 
@@ -26,6 +51,8 @@ if [ ! -x "$BUN" ]; then
     exit 0
 fi
 
+_debug_log "bun resolved: $BUN"
+
 # Resolve timeout binary (coreutils `timeout` on Linux, `gtimeout` on macOS via brew)
 TIMEOUT_CMD=""
 if command -v timeout &>/dev/null; then
@@ -33,6 +60,8 @@ if command -v timeout &>/dev/null; then
 elif command -v gtimeout &>/dev/null; then
     TIMEOUT_CMD="gtimeout"
 fi
+
+_debug_log "timeout command: ${TIMEOUT_CMD:-none}"
 
 # Determine the merge base to diff against.
 # stdin provides lines of: <local ref> <local sha> <remote ref> <remote sha>
@@ -57,6 +86,8 @@ while read -r _ local_sha _ remote_sha; do
     fi
 done
 
+_debug_log "merge base resolved: ${REMOTE_SHA:-(empty)}"
+
 if [ -z "$REMOTE_SHA" ]; then
     echo -e "${YELLOW}⚠️  Could not determine remote base — skipping pre-push tests${NC}"
     exit 0
@@ -65,11 +96,16 @@ fi
 # Get all changed files (source files only, not deleted)
 CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$REMOTE_SHA"..HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' 2>/dev/null)
 
+_changed_count=$(echo "$CHANGED_FILES" | grep -c . 2>/dev/null || echo 0)
+_debug_log "changed files: ${_changed_count}"
+
 if [ -z "$CHANGED_FILES" ]; then
     exit 0
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+_debug_log "scanning for assistant/ TS changes"
 
 # --- TypeScript type check for assistant/ ---
 # The pre-commit hook skips tsc in worktrees to keep commits fast (~20s cold).
@@ -85,6 +121,7 @@ done <<< "$CHANGED_FILES"
 if [ $ASSISTANT_TS_CHANGED -eq 1 ]; then
     echo ""
     echo "🔍 Type-checking assistant/..."
+    _debug_log "tsc --noEmit start"
     if ! (cd "${REPO_ROOT}/assistant" && "$BUN" x tsc --noEmit) 2>&1; then
         echo ""
         echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -92,9 +129,11 @@ if [ $ASSISTANT_TS_CHANGED -eq 1 ]; then
         echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
         echo "Fix the type errors or push with --no-verify to skip."
+        _debug_log "tsc --noEmit done (FAILED)"
         exit 1
     fi
     echo -e "  ${GREEN}✅ Type check OK in assistant/${NC}"
+    _debug_log "tsc --noEmit done (passed)"
 fi
 
 # Temp dir for capturing test output
@@ -115,6 +154,7 @@ PACKAGES=("assistant" "cli" "gateway")
 overall_exit=0
 
 for pkg in "${PACKAGES[@]}"; do
+    _debug_log "package scan: $pkg"
     # Collect changed source files for this package (excluding test files)
     pkg_changed=()
     while IFS= read -r file; do
@@ -184,6 +224,8 @@ for pkg in "${PACKAGES[@]}"; do
         continue
     fi
 
+    _debug_log "$pkg: discovered ${#test_files[@]} test file(s)"
+
     echo ""
     echo "🧪 Running ${#test_files[@]} related test(s) for ${pkg}/..."
 
@@ -195,6 +237,7 @@ for pkg in "${PACKAGES[@]}"; do
         safe_name="$(echo "$rel" | tr "/" "_")"
         out_file="${RESULTS_DIR}/${safe_name}.out"
 
+        _debug_log "$pkg: running $base"
         if [ -n "$TIMEOUT_CMD" ]; then
             (cd "${REPO_ROOT}/${pkg}" && "$TIMEOUT_CMD" -k 10 "$PER_TEST_TIMEOUT" "$BUN" test "$rel" > "$out_file" 2>&1)
         else
@@ -211,6 +254,7 @@ for pkg in "${PACKAGES[@]}"; do
         else
             echo -e "  ${GREEN}✓${NC} ${base}"
         fi
+        _debug_log "$pkg: finished $base (exit=$exit_code)"
     done
 
     if [ ${#failed_files[@]} -gt 0 ]; then
@@ -236,4 +280,5 @@ for pkg in "${PACKAGES[@]}"; do
     fi
 done
 
+_debug_log "hook finished (exit=$overall_exit)"
 exit $overall_exit
