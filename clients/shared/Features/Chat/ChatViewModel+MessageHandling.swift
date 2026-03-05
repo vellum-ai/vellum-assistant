@@ -1392,6 +1392,7 @@ extension ChatViewModel {
             // Eagerly request preview for app surfaces that don't have one yet
             if case .dynamicPage(let dpData) = surface.data,
                let appId = dpData.appId,
+               dpData.preview != nil,
                dpData.preview?.previewImage == nil {
                 NotificationCenter.default.post(
                     name: Notification.Name("MainWindow.requestAppPreview"),
