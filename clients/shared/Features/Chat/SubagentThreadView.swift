@@ -233,6 +233,13 @@ public struct SubagentEventsReader: View {
     var onAbort: (() -> Void)?
     var onTap: (() -> Void)?
 
+    public init(store: SubagentDetailStore, subagent: SubagentInfo, onAbort: (() -> Void)? = nil, onTap: (() -> Void)? = nil) {
+        self.store = store
+        self.subagent = subagent
+        self.onAbort = onAbort
+        self.onTap = onTap
+    }
+
     public var body: some View {
         SubagentThreadView(
             subagent: subagent,
