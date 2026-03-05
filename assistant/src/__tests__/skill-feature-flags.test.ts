@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
-import {
-  isSkillFeatureEnabled,
-  resolveSkillStates,
-} from "../config/skill-state.js";
+import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
 
 const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
@@ -55,27 +52,33 @@ function makeSkill(
 }
 
 // ---------------------------------------------------------------------------
-// isSkillFeatureEnabled (legacy wrapper — backward compat)
+// isAssistantFeatureFlagEnabled with skillFlagKey (canonical path)
 // ---------------------------------------------------------------------------
 
-describe("isSkillFeatureEnabled", () => {
+describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
   test("returns false when no flag overrides (registry default is false)", () => {
     const config = makeConfig();
-    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
+    expect(
+      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+    ).toBe(false);
   });
 
   test("returns true when skill key is explicitly true", () => {
     const config = makeConfig({
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     });
-    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(true);
+    expect(
+      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+    ).toBe(true);
   });
 
   test("returns false when skill key is explicitly false", () => {
     const config = makeConfig({
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     });
-    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
+    expect(
+      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+    ).toBe(false);
   });
 });
 
