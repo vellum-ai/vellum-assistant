@@ -19,6 +19,7 @@ import {
   getContactInternal,
   updateChannelLastSeenById,
   updateChannelStatus,
+  updateContactInteraction,
   upsertContact,
 } from "./contact-store.js";
 import type {
@@ -282,5 +283,17 @@ export function touchChannelLastSeen(channelId: string): void {
     updateChannelLastSeenById(channelId);
   } catch (err) {
     log.warn({ err }, "Failed to update channel lastSeenAt");
+  }
+}
+
+/**
+ * Increment the interaction count and update lastInteraction on a contact.
+ * Expects a plain contact UUID (Contact.id).
+ */
+export function touchContactInteraction(contactId: string): void {
+  try {
+    updateContactInteraction(contactId);
+  } catch (err) {
+    log.warn({ err }, "Failed to update contact interaction stats");
   }
 }
