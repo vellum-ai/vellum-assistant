@@ -245,11 +245,8 @@ extension AppDelegate {
         window.runtimeHTTPResolver = {
             let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
                 .flatMap(Int.init) ?? 7821
-            if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty {
-                return ("http://localhost:\(port)", jwt)
-            }
-            guard let token = readHttpToken() else { return nil }
-            return ("http://localhost:\(port)", token)
+            guard let jwt = ActorTokenManager.getToken(), !jwt.isEmpty else { return nil }
+            return ("http://localhost:\(port)", jwt)
         }
 
         window.show()

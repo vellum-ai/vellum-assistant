@@ -412,7 +412,7 @@ extension AppDelegate {
                         bearerToken = httpTransport.bearerToken
                     } else if let port = self.daemonClient.httpPort {
                         baseURL = "http://localhost:\(port)"
-                        bearerToken = ActorTokenManager.getToken() ?? readHttpToken()
+                        bearerToken = ActorTokenManager.getToken()
                     } else {
                         continue
                     }

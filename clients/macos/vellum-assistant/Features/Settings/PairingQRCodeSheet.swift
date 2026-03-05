@@ -241,11 +241,7 @@ struct PairingQRCodeSheet: View {
 
     /// Shared HTTP request logic for pairing registration.
     private func performRegistrationRequest(gatewayBaseUrl: String, requestId: String, secret: String) async -> Result<Void, RegistrationRequestError> {
-        let tokenPath = resolveHttpTokenPath()
-        let bearerToken: String? = {
-            guard let path = tokenPath else { return nil }
-            return try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-        }()
+        let bearerToken = ActorTokenManager.getToken()
 
         let url = URL(string: "\(gatewayBaseUrl)/pairing/register")!
 
@@ -281,14 +277,6 @@ struct PairingQRCodeSheet: View {
         } catch {
             return .failure(RegistrationRequestError(message: "Could not reach daemon: \(error.localizedDescription)"))
         }
-    }
-
-    private func resolveHttpTokenPath() -> String? {
-        if let envPath = ProcessInfo.processInfo.environment["VELLUM_HTTP_TOKEN_PATH"], !envPath.isEmpty {
-            return envPath
-        }
-        let base = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? NSHomeDirectory()
-        return "\(base)/.vellum/http-token"
     }
 
     private func computeLocalLanUrl() -> String? {
