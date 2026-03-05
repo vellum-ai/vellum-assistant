@@ -38,7 +38,7 @@ export const guardianActionsHandlers = defineHandlers({
         conversationId: msg.conversationId,
         channel: "vellum",
         actorContext: {
-          externalUserId: localTrustCtx.guardianExternalUserId,
+          actorPrincipalId: localTrustCtx.guardianExternalUserId,
           guardianPrincipalId: localTrustCtx.guardianPrincipalId ?? undefined,
         },
       });
