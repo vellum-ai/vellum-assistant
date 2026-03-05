@@ -25,18 +25,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Use encrypted backend (no keychain) with a temp store path
+// Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
-
-import { _overrideDeps, _resetDeps } from "../security/keychain.js";
-
-// Make keychain unavailable so secure-keys always uses encrypted backend
-_overrideDeps({
-  isMacOS: () => false,
-  isLinux: () => false,
-  execFileSync: (() =>
-    "") as unknown as typeof import("node:child_process").execFileSync,
-});
 
 import { _setStorePath } from "../security/encrypted-store.js";
 import { _resetBackend, _setBackend } from "../security/secure-keys.js";
@@ -206,7 +196,6 @@ describe("credential_store tool", () => {
   });
 
   afterAll(() => {
-    _resetDeps();
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 

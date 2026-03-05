@@ -34,21 +34,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Use encrypted backend (no keychain) with a temp store path
+// Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
 
-import { _overrideDeps, _resetDeps } from "../security/keychain.js";
-
-_overrideDeps({
-  isMacOS: () => false,
-  isLinux: () => false,
-  execFileSync: (() =>
-    "") as unknown as typeof import("node:child_process").execFileSync,
-});
-
-// Restore process-level keychain deps so later test files are not affected
 afterAll(() => {
-  _resetDeps();
   mock.restore();
 });
 

@@ -24,17 +24,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Use encrypted backend (no keychain) with a temp store path
+// Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
-
-import { _overrideDeps, _resetDeps } from "../security/keychain.js";
-
-_overrideDeps({
-  isMacOS: () => false,
-  isLinux: () => false,
-  execFileSync: (() =>
-    "") as unknown as typeof import("node:child_process").execFileSync,
-});
 
 import { _setStorePath } from "../security/encrypted-store.js";
 import { _resetBackend } from "../security/secure-keys.js";
@@ -74,7 +65,6 @@ const _ctx: ToolContext = {
 };
 
 afterAll(() => {
-  _resetDeps();
   mock.restore();
   if (existsSync(TEST_DIR)) {
     rmSync(TEST_DIR, { recursive: true });
