@@ -168,10 +168,35 @@ function ensureBunInstalled(): void {
 
   console.log("   Installing bun...");
   try {
+    const installEnv: Record<string, string> = {
+      HOME: process.env.HOME || homedir(),
+      PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+      TMPDIR: process.env.TMPDIR || "/tmp",
+      USER: process.env.USER || "",
+      LANG: process.env.LANG || "",
+    };
+    // Preserve proxy/TLS env vars so curl works in proxied/corporate environments
+    for (const key of [
+      "HTTP_PROXY",
+      "http_proxy",
+      "HTTPS_PROXY",
+      "https_proxy",
+      "ALL_PROXY",
+      "all_proxy",
+      "NO_PROXY",
+      "no_proxy",
+      "SSL_CERT_FILE",
+      "SSL_CERT_DIR",
+      "CURL_CA_BUNDLE",
+    ]) {
+      if (process.env[key]) {
+        installEnv[key] = process.env[key]!;
+      }
+    }
     execSync("curl -fsSL https://bun.sh/install | bash", {
       stdio: "pipe",
       timeout: 60_000,
-      env: { ...process.env },
+      env: installEnv,
     });
     console.log("   Bun installed successfully");
   } catch {
@@ -637,6 +662,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         } else {
           console.log("   Assistant socket is responsive — skipping restart\n");
         }
+        // Ensure bun is available for runtime features (browser, skills install)
+        // even when reusing an existing daemon.
+        ensureBunInstalled();
         return;
       }
 
@@ -704,6 +732,13 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       if (daemonPid) {
         writeFileSync(pidFile, String(daemonPid), "utf-8");
       }
+    }
+
+    // Ensure bun is available for runtime features (browser, skills install)
+    // Runs after daemon-reuse checks so the fast attach path is not blocked
+    // by a potentially slow bun install when the daemon is already alive.
+    if (daemonAlive) {
+      ensureBunInstalled();
     }
 
     // Wait for socket at ~/.vellum/vellum.sock (up to 60s — fresh installs
