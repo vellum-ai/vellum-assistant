@@ -30,7 +30,6 @@ struct SidebarThreadsHeader: View {
         .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
         .padding(.trailing, VSpacing.md)
         .padding(.top, SidebarLayoutMetrics.sectionTitleTopGap)
-        .padding(.bottom, SidebarLayoutMetrics.sectionTitleBottomGap)
         .contextMenu {
             Button {
                 onMarkAllSeen()
