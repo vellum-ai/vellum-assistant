@@ -1835,16 +1835,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let flags: [AssistantFeatureFlag]
     }
 
-    /// Resolve the runtime bearer token from either `httpTransport`, the JWT access token, or the on-disk token file.
-    /// Returns `nil` when no runtime token is available.
-    private func resolveRuntimeBearerToken() -> String? {
-        if let httpTransport = self.httpTransport, let bt = httpTransport.bearerToken, !bt.isEmpty {
-            return bt
-        }
-        if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty { return jwt }
-        return readHttpToken()
-    }
-
     /// Resolve an auth token for feature-flag requests.
     /// The gateway requires JWT edge tokens with `feature_flags.read`/`feature_flags.write`
     /// scopes (via `requireEdgeAuthWithScope`). The JWT access token from
