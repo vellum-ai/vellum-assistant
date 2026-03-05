@@ -29,29 +29,9 @@ extension MainWindowView {
                     // Use the publish target's appId (not windowState.selection) to avoid
                     // a race where the user navigates away before this async callback fires.
                     if let targetAppId = appId {
-                        isAppChatOpen = true
-                        let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
-                        if let threadId {
-                            threadManager.selectThread(id: threadId)
-                            windowState.setAppEditing(appId: targetAppId, threadId: threadId)
-                        } else {
-                            threadManager.createThread()
-                            if let newThreadId = threadManager.activeThreadId {
-                                windowState.setAppEditing(appId: targetAppId, threadId: newThreadId)
-                            }
-                        }
+                        enterAppEditing(appId: targetAppId)
                     } else if case .app(let currentAppId) = windowState.selection {
-                        isAppChatOpen = true
-                        let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
-                        if let threadId {
-                            threadManager.selectThread(id: threadId)
-                            windowState.setAppEditing(appId: currentAppId, threadId: threadId)
-                        } else {
-                            threadManager.createThread()
-                            if let newThreadId = threadManager.activeThreadId {
-                                windowState.setAppEditing(appId: currentAppId, threadId: newThreadId)
-                            }
-                        }
+                        enterAppEditing(appId: currentAppId)
                     }
                     // Inject message into active session to trigger assistant-driven setup
                     if let viewModel = threadManager.activeViewModel {

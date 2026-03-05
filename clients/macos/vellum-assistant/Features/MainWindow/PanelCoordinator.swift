@@ -125,9 +125,7 @@ extension MainWindowView {
                 onAction: { actionId, actionData in
                     if !windowState.isChatDockOpen {
                         let appId = dpData.appId ?? surfaceId
-                        if let threadId = threadManager.activeThreadId {
-                            windowState.setAppEditing(appId: appId, threadId: threadId)
-                        }
+                        enterAppEditing(appId: appId)
                     }
                     // Route relay_prompt actions directly as chat messages so they
                     // reach the active session instead of being lost when the surface
@@ -207,27 +205,56 @@ extension MainWindowView {
         )
     }
 
+    func clampedChatDockWidth(geometry: GeometryProxy) -> Binding<Double> {
+        let settingsOpen: Bool = {
+            if case .panel(.settings) = windowState.selection { return true }
+            return false
+        }()
+        let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
+        let hstackSpacing: CGFloat = 16
+        let outerPadding: CGFloat = 32
+        let windowWidth: Double = Double(geometry.size.width) / zoomManager.zoomLevel
+        let availableWidth: Double = windowWidth - Double(sidebarWidth) - Double(hstackSpacing) - Double(outerPadding)
+
+        let preferredMin: Double = 300
+        let dividerBudget: Double = Double(VSpacing.xs) + 12
+        let maxDock: Double = availableWidth - 300 - dividerBudget
+        let effectiveMin: Double = min(preferredMin, max(maxDock, 100))
+
+        return Binding<Double>(
+            get: {
+                let raw = appChatDockWidth > 0 ? appChatDockWidth : availableWidth * 0.4
+                return min(max(raw, effectiveMin), max(maxDock, effectiveMin))
+            },
+            set: {
+                appChatDockWidth = min(max($0, effectiveMin), max(maxDock, effectiveMin))
+            }
+        )
+    }
+
     @ViewBuilder
     func chatContentView(geometry: GeometryProxy) -> some View {
         switch windowState.selection {
         case .thread:
             // Show chat for this thread (threadManager.activeViewModel is synced)
             defaultChatLayout
-        case .app:
-            // App workspace: full width (no chat dock), wrapped in rounded container
+        case .app(let appId), .appEditing(let appId, _):
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
-                dynamicWorkspaceView(surface: surface, data: dpData)
-                    .background(VColor.background)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                AppWorkspaceDockLayout(
+                    dockWidth: clampedChatDockWidth(geometry: geometry),
+                    showDock: windowState.isChatDockOpen,
+                    dock: {
+                        chatView
+                    },
+                    workspace: {
+                        dynamicWorkspaceView(surface: surface, data: dpData)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    }
+                )
             } else {
-                // Loading state while waiting for daemon to send surface data
-                // via ui_surface_show in response to app_open_request.
                 AppLoadingView(
-                    appId: {
-                        if case .app(let id) = windowState.selection { return id }
-                        return nil
-                    }(),
+                    appId: appId,
                     onRetry: { appId in
                         try? daemonClient.sendAppOpen(appId: appId)
                     },
@@ -235,28 +262,7 @@ extension MainWindowView {
                         windowState.closeDynamicPanel()
                     }
                 )
-                .id({
-                    if case .app(let id) = windowState.selection { return id }
-                    return nil
-                }() as String?)
-            }
-        case .appEditing:
-            // VSplitView: ChatView (left) + workspace (right)
-            if let surface = windowState.activeDynamicParsedSurface,
-               case .dynamicPage(let dpData) = surface.data {
-                VSplitView(
-                    panelWidth: clampedPanelWidth(geometry: geometry),
-                    showPanel: true,
-                    main: {
-                        chatView
-                    },
-                    panel: {
-                        dynamicWorkspaceView(surface: surface, data: dpData)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    }
-                )
-            } else {
-                defaultChatLayout
+                .id(appId)
             }
         case .panel(let panelType):
             if panelType == .directory {
@@ -564,23 +570,11 @@ extension MainWindowView {
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
                 onToggleChatDock: {
-                    if case .appEditing(let appId, _) = windowState.selection {
-                        // Toggle off: go back to full-screen app view
-                        isAppChatOpen = false
-                        windowState.selection = .app(appId)
-                    } else if case .app(let appId) = windowState.selection {
-                        // Toggle on: find most recent thread and enter editing mode
-                        isAppChatOpen = true
-                        let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
-                        if let threadId {
-                            threadManager.selectThread(id: threadId)
-                            windowState.setAppEditing(appId: appId, threadId: threadId)
-                        } else {
-                            // No threads exist — create one, then transition
-                            threadManager.createThread()
-                            if let newThreadId = threadManager.activeThreadId {
-                                windowState.setAppEditing(appId: appId, threadId: newThreadId)
-                            }
+                    withAnimation(VAnimation.panel) {
+                        if case .appEditing(let appId, _) = windowState.selection {
+                            exitAppEditing(appId: appId)
+                        } else if case .app(let appId) = windowState.selection {
+                            enterAppEditing(appId: appId)
                         }
                     }
                 },

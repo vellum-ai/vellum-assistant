@@ -31,6 +31,7 @@ struct MainWindowView: View {
     let sidebarCollapsedWidth: CGFloat = 52
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
+    @AppStorage("appChatDockWidth") var appChatDockWidth: Double = -1
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
@@ -144,6 +145,16 @@ struct MainWindowView: View {
         if let id = threadManager.visibleThreads.first?.id { return id }
         threadManager.createThread()
         return threadManager.activeThreadId!
+    }
+
+    func enterAppEditing(appId: String) {
+        let threadId = resolveThreadId()
+        threadManager.selectThread(id: threadId)
+        windowState.setAppEditing(appId: appId, threadId: threadId)
+    }
+
+    func exitAppEditing(appId: String) {
+        windowState.selection = .app(appId)
     }
 
     /// Whether the chat bubble toggle is active (chat is open).

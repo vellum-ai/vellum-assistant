@@ -14,7 +14,6 @@ enum ViewSelection: Equatable {
 @MainActor
 public final class MainWindowState: ObservableObject {
     @AppStorage("lastActivePanel") private var lastActivePanelString: String?
-    @AppStorage("chatDockOpen") private var chatDockOpen = false
     @AppStorage("isAppChatOpen") private var isAppChatOpen = false
 
     /// The single source of truth for what the main content area displays.
@@ -134,16 +133,9 @@ public final class MainWindowState: ObservableObject {
             return false
         }
         set {
-            if newValue {
-                // No-op: callers should use setAppEditing(appId:threadId:) directly
-                // since transitioning to .appEditing requires a thread ID.
-            } else {
-                // Closing chat dock: transition from .appEditing to .app
-                if case .appEditing(let appId, _) = selection {
-                    selection = .app(appId)
-                }
+            if !newValue, case .appEditing(let appId, _) = selection {
+                selection = .app(appId)
             }
-            chatDockOpen = newValue
         }
     }
 
@@ -223,24 +215,9 @@ public final class MainWindowState: ObservableObject {
         activeDynamicParsedSurface = nil
     }
 
-    func toggleChatDock() {
-        if case .appEditing(let appId, _) = selection {
-            // Currently editing -> close chat dock
-            selection = .app(appId)
-            chatDockOpen = false
-        } else if case .app(let appId) = selection {
-            // Currently app only -> open chat dock (needs thread)
-            // The view layer will wire the thread ID via setAppEditing
-            // For now, mark intent by keeping .app and letting the view handle transition
-            _ = appId
-            chatDockOpen = true
-        }
-    }
-
     /// Transition to appEditing with a specific thread
     func setAppEditing(appId: String, threadId: UUID) {
         selection = .appEditing(appId: appId, threadId: threadId)
-        chatDockOpen = true
     }
 
     func resetLayout() {
