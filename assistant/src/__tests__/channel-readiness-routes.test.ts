@@ -189,7 +189,25 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       ).toBe(true);
     });
 
-    test("reports ready when all Meta credentials are configured", async () => {
+    test("reports ready when all Meta credentials and display number are configured", async () => {
+      mockSecureKeys = {
+        "credential:whatsapp:phone_number_id": "123456789",
+        "credential:whatsapp:access_token": "EAAxxxxxx",
+        "credential:whatsapp:app_secret": "abc123",
+        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+      };
+      mockRawConfig = {
+        whatsapp: { phoneNumber: "+15551234567" },
+        ingress: { publicBaseUrl: "https://example.com", enabled: true },
+      };
+      const service = createReadinessService();
+      const [snapshot] = await service.getReadiness("whatsapp");
+
+      expect(snapshot.ready).toBe(true);
+      expect(snapshot.reasons).toHaveLength(0);
+    });
+
+    test("reports not ready when display phone number is missing", async () => {
       mockSecureKeys = {
         "credential:whatsapp:phone_number_id": "123456789",
         "credential:whatsapp:access_token": "EAAxxxxxx",
@@ -202,8 +220,12 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 
-      expect(snapshot.ready).toBe(true);
-      expect(snapshot.reasons).toHaveLength(0);
+      expect(snapshot.ready).toBe(false);
+      expect(
+        snapshot.reasons.some(
+          (r) => r.code === "whatsapp_display_phone_number",
+        ),
+      ).toBe(true);
     });
 
     test("checks each Meta credential individually", async () => {
@@ -250,6 +272,7 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
         "credential:whatsapp:webhook_verify_token": "my-verify-token",
       };
       mockRawConfig = {
+        whatsapp: { phoneNumber: "+15551234567" },
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
       };
       const service = createReadinessService();
@@ -269,7 +292,9 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
         "credential:whatsapp:app_secret": "abc123",
         "credential:whatsapp:webhook_verify_token": "my-verify-token",
       };
-      mockRawConfig = {};
+      mockRawConfig = {
+        whatsapp: { phoneNumber: "+15551234567" },
+      };
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 

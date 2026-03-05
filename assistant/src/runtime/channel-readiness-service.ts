@@ -371,15 +371,14 @@ const whatsappProbe: ChannelProbe = {
         : "WhatsApp webhook verify token is not configured",
     });
 
-    // Display phone number is optional — invites still work without it
-    // (falling back to generic instructions), but we surface the status.
     const displayNumber = resolveWhatsAppDisplayNumber();
+    const hasDisplayNumber = !!displayNumber;
     results.push({
       name: "whatsapp_display_phone_number",
-      passed: true, // informational, never blocks readiness
-      message: displayNumber
+      passed: hasDisplayNumber,
+      message: hasDisplayNumber
         ? `WhatsApp display phone number is configured (${displayNumber})`
-        : "WhatsApp display phone number is not configured — invite instructions will be generic",
+        : "WhatsApp display phone number is not configured — set whatsapp.phoneNumber in workspace config",
     });
 
     const invitePolicy = getChannelInvitePolicy("whatsapp");
