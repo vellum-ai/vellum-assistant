@@ -4,6 +4,22 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 export const DEFAULT_USER_REFERENCE = "my human";
 
 /**
+ * Read the raw "Preferred name/reference:" value from USER.md.
+ * Returns the trimmed value when present, or `null` when the file
+ * is missing, unreadable, or the field is empty.
+ */
+function readPreferredNameFromUserMd(): string | null {
+  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
+  if (content != null) {
+    const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
+    if (match && match[1].trim()) {
+      return match[1].trim();
+    }
+  }
+  return null;
+}
+
+/**
  * Resolve the name/reference the assistant uses when referring to
  * the human it represents in external communications.
  *
@@ -12,15 +28,7 @@ export const DEFAULT_USER_REFERENCE = "my human";
  * file is missing, unreadable, or the field is empty.
  */
 export function resolveUserReference(): string {
-  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
-  if (content != null) {
-    const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
-    if (match && match[1].trim()) {
-      return match[1].trim();
-    }
-  }
-
-  return DEFAULT_USER_REFERENCE;
+  return readPreferredNameFromUserMd() ?? DEFAULT_USER_REFERENCE;
 }
 
 /**
@@ -80,9 +88,9 @@ function cleanPronounValue(raw: string): string | null {
 export function resolveGuardianName(
   guardianDisplayName?: string | null,
 ): string {
-  const userRef = resolveUserReference();
-  if (userRef !== DEFAULT_USER_REFERENCE) {
-    return userRef;
+  const preferredName = readPreferredNameFromUserMd();
+  if (preferredName != null) {
+    return preferredName;
   }
 
   if (guardianDisplayName && guardianDisplayName.trim().length > 0) {
