@@ -3,23 +3,21 @@
  * CLI for weather skill: `bun run scripts/weather-cli.ts`
  *
  * Fetches current weather conditions and forecasts from Open-Meteo.
- * All commands output JSON to stdout. Use --json for machine-readable output.
+ * Outputs structured JSON data that can be presented in any environment.
  */
 
-import { executeGetWeather } from "./service.js";
+import { executeGetWeather, type WeatherData } from "./service.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function output(data: unknown, json: boolean): void {
-  process.stdout.write(
-    json ? JSON.stringify(data) + "\n" : JSON.stringify(data, null, 2) + "\n",
-  );
+function output(data: unknown): void {
+  process.stdout.write(JSON.stringify(data) + "\n");
 }
 
 function outputError(message: string, code = 1): void {
-  output({ ok: false, error: message }, true);
+  output({ ok: false, error: message });
   process.exitCode = code;
 }
 
@@ -34,12 +32,17 @@ Arguments:
 Options:
   --units <unit>       Temperature units: celsius or fahrenheit (default: fahrenheit)
   --days <n>           Number of forecast days (1-16, default: 10)
-  --json               Machine-readable JSON output
+  --help, -h           Show this help message
+
+Output:
+  Returns JSON with { ok, text, data } where:
+  - text: Human-readable summary
+  - data: Structured WeatherData object with location, current, hourly, daily
 
 Examples:
-  bun run scripts/weather-cli.ts "San Francisco" --json
-  bun run scripts/weather-cli.ts "Tokyo" --units celsius --days 7 --json
-  bun run scripts/weather-cli.ts "London, UK" --json
+  bun run scripts/weather-cli.ts "San Francisco"
+  bun run scripts/weather-cli.ts "Tokyo" --units celsius --days 7
+  bun run scripts/weather-cli.ts "London, UK"
 `);
 }
 
@@ -51,13 +54,11 @@ function parseArgs(args: string[]): {
   location: string;
   units: "celsius" | "fahrenheit";
   days: number;
-  json: boolean;
   help: boolean;
 } {
   let location = "";
   let units: "celsius" | "fahrenheit" = "fahrenheit";
   let days = 10;
-  let json = false;
   let help = false;
 
   let i = 0;
@@ -66,9 +67,6 @@ function parseArgs(args: string[]): {
 
     if (arg === "--help" || arg === "-h") {
       help = true;
-      i++;
-    } else if (arg === "--json") {
-      json = true;
       i++;
     } else if (arg === "--units" && i + 1 < args.length) {
       const val = args[i + 1];
@@ -95,7 +93,7 @@ function parseArgs(args: string[]): {
     }
   }
 
-  return { location, units, days, json, help };
+  return { location, units, days, help };
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +108,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const { location, units, days, json, help } = parseArgs(args);
+  const { location, units, days, help } = parseArgs(args);
 
   if (help) {
     printUsage();
@@ -127,21 +125,17 @@ async function main(): Promise<void> {
     const result = await executeGetWeather(
       { location, units, days },
       globalThis.fetch,
-      // No proxy resolver - CLI mode doesn't auto-emit UI surfaces
-      undefined,
     );
 
     if (result.isError) {
       outputError(result.content);
     } else {
-      // Parse the text output and structure it for JSON
-      // The service returns text format - we'll pass it through
-      if (json) {
-        output({ ok: true, weather: result.content }, true);
-      } else {
-        // Pretty print for human consumption
-        process.stdout.write(result.content + "\n");
-      }
+      // Parse the JSON content from service
+      const parsed = JSON.parse(result.content) as {
+        text: string;
+        data: WeatherData;
+      };
+      output({ ok: true, text: parsed.text, data: parsed.data });
     }
   } catch (err) {
     outputError(err instanceof Error ? err.message : String(err));

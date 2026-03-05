@@ -16,22 +16,42 @@ You are a weather assistant. When the user asks about weather, use the CLI scrip
 Run the weather command via:
 
 ```bash
-bun run scripts/weather-cli.ts "<location>" [--units celsius|fahrenheit] [--days <n>] --json
+bun run scripts/weather-cli.ts "<location>" [--units celsius|fahrenheit] [--days <n>]
 ```
 
 ### Examples
 
-- **Current conditions**: `bun run scripts/weather-cli.ts "San Francisco" --json`
-- **Multi-day forecast**: `bun run scripts/weather-cli.ts "Tokyo" --units celsius --days 7 --json`
-- **Specific units**: `bun run scripts/weather-cli.ts "London" --units celsius --json`
+- **Current conditions**: `bun run scripts/weather-cli.ts "San Francisco"`
+- **Multi-day forecast**: `bun run scripts/weather-cli.ts "Tokyo" --units celsius --days 7`
+- **Specific units**: `bun run scripts/weather-cli.ts "London" --units celsius`
 
-## Understanding the Output
+## Output Format
 
-The command returns:
+The command returns JSON with:
 
-- **Current conditions** — temperature, feels-like temperature, humidity, wind speed and direction, and a description of conditions (e.g. "Partly cloudy")
-- **Hourly forecast** — next 24 hours of temperature and conditions
-- **Daily forecast** — high/low temperatures, precipitation probability, and conditions for each day
+```json
+{
+  "ok": true,
+  "text": "Human-readable weather summary",
+  "data": {
+    "location": { "name": "...", "latitude": ..., "longitude": ... },
+    "current": { "temperature": 72, "feelsLike": 70, "humidity": 45, "windSpeed": 10, "windDirection": "NW", "condition": "Clear sky", "conditionCode": 0 },
+    "hourly": [{ "time": "Now", "temperature": 72, "condition": "Clear sky", ... }],
+    "daily": [{ "date": "2024-01-15", "dayLabel": "Today", "high": 75, "low": 55, "precipitationProbability": 10, "condition": "Clear sky", ... }],
+    "units": { "temperature": "F", "speed": "mph" }
+  }
+}
+```
+
+## Presenting Results
+
+Present weather data visually if your environment supports rich output. Otherwise, use the `text` field for a readable summary.
+
+**Suggested presentation:**
+- Show current temperature prominently with the condition
+- Include "feels like" temperature and key metrics (humidity, wind)
+- Display the forecast as a list or table with highs, lows, and conditions
+- Use weather condition codes or descriptions to add appropriate icons/emoji
 
 ## Temperature Units
 
@@ -47,4 +67,3 @@ The command returns:
 
 - If the user provides an ambiguous location (e.g. "Springfield"), the geocoding API picks the most prominent match. If the result seems wrong, suggest the user be more specific (e.g. "Springfield, IL").
 - The command fetches **live data** from the Open-Meteo Weather API.
-- Always use `--json` flag for reliable parsing.
