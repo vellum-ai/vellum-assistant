@@ -235,15 +235,21 @@ private struct ReportProblemSheet: View {
         )
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         event.tags = ["source": "manual_report", "app_version": appVersion]
-        // Ensure Sentry is running for this manual report — it may have been
-        // shut down via the opt-out path. Manual reports always go through.
-        if !SentrySDK.isEnabled {
+        // If the user opted out, Sentry is closed by checkAndApplyPrivacyFlag().
+        // Start it temporarily for this manual report only, then flush and close
+        // to fully restore the opted-out state so no automatic events slip through.
+        let wasDisabled = !SentrySDK.isEnabled
+        if wasDisabled {
             SentrySDK.start { options in
                 options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
                 options.sendDefaultPii = false
             }
         }
         SentrySDK.capture(event: event)
+        if wasDisabled {
+            SentrySDK.flush(timeout: 5)
+            SentrySDK.close()
+        }
         isSending = false
         didSend = true
         // Dismiss automatically after a short delay so the user can see the confirmation.
