@@ -236,7 +236,11 @@ export async function packageApp(
 
   // Create the zip archive
   const safeName = app.name.replace(/[/\\:*?"<>|]/g, "_").trim() || "App";
-  const bundleFilename = `${safeName}.vellum`;
+  const uniqueSuffix = createHash("sha256")
+    .update(`${appId}-${Date.now()}`)
+    .digest("hex")
+    .slice(0, 8);
+  const bundleFilename = `${safeName}-${uniqueSuffix}.vellum`;
   const bundlePath = join(tmpdir(), bundleFilename);
 
   await new Promise<void>((resolve, reject) => {

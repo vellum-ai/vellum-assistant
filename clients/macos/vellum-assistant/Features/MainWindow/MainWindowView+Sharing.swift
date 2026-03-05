@@ -118,7 +118,9 @@ extension MainWindowView {
         sharing.isBundling = true
 
         Task { @MainActor in
+            let previousHandler = daemonClient.onBundleAppResponse
             daemonClient.onBundleAppResponse = { response in
+                daemonClient.onBundleAppResponse = previousHandler
                 sharing.shareFileURL = URL(fileURLWithPath: response.bundlePath)
                 sharing.isBundling = false
                 sharing.showSharePicker = true
@@ -128,6 +130,7 @@ extension MainWindowView {
                 try daemonClient.sendBundleApp(appId: appId)
             } catch {
                 sharing.isBundling = false
+                daemonClient.onBundleAppResponse = previousHandler
             }
         }
     }
