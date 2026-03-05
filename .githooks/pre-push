@@ -3,12 +3,14 @@
 # Pre-push hook: run tests related to changed files before pushing.
 #
 # Checks:
-# 1. Swift build (clients/) — when .swift files changed
-# 2. TypeScript type check (assistant/) — when .ts/.tsx files changed
-# 3. Related test discovery and execution — via dependency graph + filename heuristics
+# 1. Swift build (clients/) — when .swift files changed (macOS SPM)
+# 2. iOS build (clients/ios/) — when .swift files changed (xcodebuild for simulator)
+# 3. TypeScript type check (assistant/) — when .ts/.tsx files changed
+# 4. Related test discovery and execution — via dependency graph + filename heuristics
 #
-# Skip Swift build only: SKIP_SWIFT_BUILD=1 git push
-# Skip all hooks: git push --no-verify
+# Skip Swift build only:  SKIP_SWIFT_BUILD=1 git push
+# Skip iOS build only:    SKIP_IOS_BUILD=1 git push
+# Skip all hooks:         git push --no-verify
 
 set -uo pipefail
 
@@ -28,6 +30,9 @@ PREPUSH_START_EPOCH=""
 
 # Set SKIP_SWIFT_BUILD=1 to skip the Swift compilation check.
 SKIP_SWIFT_BUILD="${SKIP_SWIFT_BUILD:-0}"
+
+# Set SKIP_IOS_BUILD=1 to skip the iOS xcodebuild check.
+SKIP_IOS_BUILD="${SKIP_IOS_BUILD:-0}"
 
 _debug_log() {
     if [ "$PREPUSH_DEBUG" != "1" ]; then return; fi
@@ -139,6 +144,36 @@ if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_SWIFT_BUILD" != "1" ]; then
         fi
         echo -e "  ${GREEN}✅ Swift build OK in clients/${NC}"
         _debug_log "swift build done (passed)"
+    fi
+fi
+
+# --- iOS build check for clients/ios/ ---
+# The Swift SPM build above compiles for macOS only. Code inside
+# #if os(iOS) / #else blocks can have scope or type errors invisible
+# to `swift build`. This runs xcodebuild for the iOS Simulator target
+# to catch cross-platform conditional compilation bugs.
+if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_IOS_BUILD" != "1" ]; then
+    if ! command -v xcodegen &>/dev/null; then
+        echo -e "${YELLOW}⚠️  xcodegen not found — skipping iOS build check (brew install xcodegen)${NC}"
+    elif [ ! -f "${REPO_ROOT}/clients/ios/build.sh" ]; then
+        _debug_log "clients/ios/build.sh not found — skipping iOS build check"
+    else
+        echo ""
+        echo "🔍 Building clients/ios/ (xcodebuild, iOS Simulator)..."
+        _debug_log "iOS xcodebuild start"
+        if ! "${REPO_ROOT}/clients/ios/build.sh" 2>&1; then
+            echo ""
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}iOS build errors in clients/ — push blocked${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Fix the build errors or push with --no-verify to skip."
+            echo "Skip only this check: SKIP_IOS_BUILD=1 git push"
+            _debug_log "iOS xcodebuild done (FAILED)"
+            exit 1
+        fi
+        echo -e "  ${GREEN}✅ iOS build OK in clients/${NC}"
+        _debug_log "iOS xcodebuild done (passed)"
     fi
 fi
 
