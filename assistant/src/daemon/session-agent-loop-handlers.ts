@@ -81,6 +81,8 @@ export interface EventHandlerState {
     string,
     { decision: string; label: string }
   >;
+  /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
+  currentTurnToolUseIds: string[];
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -126,6 +128,7 @@ export function createEventHandlerState(): EventHandlerState {
     currentToolUseId: undefined,
     requestIdToToolUseId: new Map(),
     toolConfirmationOutcomes: new Map(),
+    currentTurnToolUseIds: [],
   };
 }
 
@@ -273,6 +276,7 @@ export function handleToolUse(
   state.currentTurnToolNames.push(event.name);
   state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
   state.currentToolUseId = event.id;
+  state.currentTurnToolUseIds.push(event.id);
   const statusText = `Running ${friendlyToolName(event.name)}`;
   deps.ctx.emitActivityState(
     "tool_running",
@@ -459,6 +463,68 @@ export function handleToolResult(
     deps.reqId,
     statusText,
   );
+
+  // Once all tools for this turn have completed, annotate the persisted
+  // assistant message with timing and confirmation metadata.
+  const allToolsDone = state.currentTurnToolUseIds.every((id) => {
+    const ts = state.toolCallTimestamps.get(id);
+    return ts && ts.completedAt != null;
+  });
+  if (allToolsDone && state.currentTurnToolUseIds.length > 0) {
+    annotatePersistedAssistantMessage(state);
+  }
+}
+
+/**
+ * After all tools for the current turn complete, fetch the persisted assistant
+ * message, annotate its tool_use blocks with timing and confirmation metadata,
+ * and update the DB. This runs post-tool-execution so the metadata maps are
+ * fully populated (unlike message_complete which fires before tools run).
+ */
+function annotatePersistedAssistantMessage(state: EventHandlerState): void {
+  const messageId = state.lastAssistantMessageId;
+  if (!messageId) return;
+
+  const row = conversationStore.getMessageById(messageId);
+  if (!row) return;
+
+  let content: ContentBlock[];
+  try {
+    content = JSON.parse(row.content) as ContentBlock[];
+  } catch {
+    return;
+  }
+
+  let modified = false;
+  for (const block of content) {
+    if (block.type === "tool_use") {
+      const rec = block as unknown as Record<string, unknown>;
+      const id = rec.id as string | undefined;
+      if (!id) continue;
+
+      const ts = state.toolCallTimestamps.get(id);
+      if (ts) {
+        rec._startedAt = ts.startedAt;
+        if (ts.completedAt != null) {
+          rec._completedAt = ts.completedAt;
+        }
+        modified = true;
+      }
+      const confirmation = state.toolConfirmationOutcomes.get(id);
+      if (confirmation) {
+        rec._confirmationDecision = confirmation.decision;
+        rec._confirmationLabel = confirmation.label;
+        modified = true;
+      }
+    }
+  }
+
+  if (modified) {
+    conversationStore.updateMessageContent(messageId, JSON.stringify(content));
+  }
+
+  // Clear for the next turn
+  state.currentTurnToolUseIds = [];
 }
 
 export function handleError(
@@ -491,6 +557,9 @@ export async function handleMessageComplete(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "message_complete" }>,
 ): Promise<void> {
+  // Reset per-turn tool tracking for the new turn.
+  state.currentTurnToolUseIds = [];
+
   // Flush any remaining directive display buffer
   if (state.pendingDirectiveDisplayBuffer.length > 0) {
     deps.onEvent({
@@ -559,29 +628,10 @@ export async function handleMessageComplete(
     );
   }
 
-  // Annotate tool_use blocks with timing and confirmation metadata.
-  // The blocks are JSON-serialized for persistence, so adding underscore-prefixed
-  // fields is safe and requires no DB migration.
-  for (const block of cleanedBlocks) {
-    if (block.type === "tool_use") {
-      const rec = block as unknown as Record<string, unknown>;
-      const id = rec.id as string | undefined;
-      if (id) {
-        const ts = state.toolCallTimestamps.get(id);
-        if (ts) {
-          rec._startedAt = ts.startedAt;
-          if (ts.completedAt != null) {
-            rec._completedAt = ts.completedAt;
-          }
-        }
-        const confirmation = state.toolConfirmationOutcomes.get(id);
-        if (confirmation) {
-          rec._confirmationDecision = confirmation.decision;
-          rec._confirmationLabel = confirmation.label;
-        }
-      }
-    }
-  }
+  // NOTE: Tool timing/confirmation annotations are NOT applied here because
+  // message_complete fires BEFORE tool_use/tool_result events. The annotations
+  // are applied in handleToolResult after all tools for the turn complete,
+  // then the persisted message is updated via updateMessageContent.
 
   // Build content with UI surfaces
   const contentWithSurfaces: ContentBlock[] = [...cleanedBlocks];
