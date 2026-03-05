@@ -2,6 +2,7 @@ import Carbon.HIToolbox
 import Combine
 import Foundation
 import os
+import SwiftUI
 import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
@@ -255,6 +256,13 @@ public final class SettingsStore: ObservableObject {
     /// Sourced from `DaemonClient.isTrustRulesSheetOpen` so each view can
     /// disable its button when the other surface is showing trust rules.
     @Published var isAnyTrustRulesSheetOpen = false
+
+    // MARK: - Privacy
+
+    /// Whether the user has opted in to sharing anonymised performance metrics (e.g. hang rate,
+    /// scroll speed). Defaults to `false`. Read by the MetricKit integration (M4) to decide
+    /// whether to forward payloads.
+    @AppStorage("sendPerformanceReports") var sendPerformanceReports: Bool = false
 
     // MARK: - Private
 

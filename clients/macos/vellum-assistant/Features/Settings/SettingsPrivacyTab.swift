@@ -1,3 +1,4 @@
+import Sentry
 import SwiftUI
 import VellumAssistantShared
 
@@ -14,12 +15,20 @@ struct SettingsPrivacyTab: View {
     @State private var isUpdating: Bool = false
     @State private var loadError: String?
 
+    @AppStorage("sendPerformanceReports") private var sendPerformanceReports: Bool = false
+
+    @State private var isReportSheetPresented: Bool = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             diagnosticsSection
+            reportProblemSection
         }
         .onAppear {
             Task { await loadPrivacyFlags() }
+        }
+        .sheet(isPresented: $isReportSheetPresented) {
+            ReportProblemSheet(isPresented: $isReportSheetPresented)
         }
     }
 
@@ -69,6 +78,52 @@ struct SettingsPrivacyTab: View {
                 ))
                 .disabled(isLoading || isUpdating || daemonClient == nil)
             }
+
+            Divider()
+                .foregroundColor(VColor.divider)
+
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Share performance metrics")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Text("Send anonymised performance metrics (hang rate, scroll speed) to help us improve responsiveness. No personal data or message content is included.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Spacer()
+                VToggle(isOn: $sendPerformanceReports)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Report a Problem Section
+
+    private var reportProblemSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Feedback")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Report a Problem")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Text("Send a manual report to the development team. Always available, even when automatic reporting is off.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Spacer()
+                Button("Report a Problem") {
+                    isReportSheetPresented = true
+                }
+                .buttonStyle(.bordered)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
@@ -111,6 +166,83 @@ struct SettingsPrivacyTab: View {
     }
 }
 
+// MARK: - Report a Problem Sheet
+
+/// Sheet that lets the user write a description and send a manual Sentry report.
+/// The report is always sent regardless of the auto-reporting opt-out setting.
+@MainActor
+private struct ReportProblemSheet: View {
+    @Binding var isPresented: Bool
+    @State private var userDescription: String = ""
+    @State private var isSending: Bool = false
+    @State private var didSend: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            Text("Report a Problem")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Describe what happened (optional)")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+
+            TextEditor(text: $userDescription)
+                .font(VFont.body)
+                .frame(minHeight: 120)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(VColor.divider, lineWidth: 1)
+                )
+
+            if didSend {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                    Text("Report sent. Thank you!")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSending)
+
+                Button("Send Report") {
+                    sendReport()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isSending || didSend)
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(width: 440)
+    }
+
+    private func sendReport() {
+        isSending = true
+        let event = Event(level: .info)
+        event.message = SentryMessage(
+            formatted: userDescription.isEmpty ? "Manual problem report" : userDescription
+        )
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        event.tags = ["source": "manual_report", "app_version": appVersion]
+        SentrySDK.capture(event: event)
+        isSending = false
+        didSend = true
+        // Dismiss automatically after a short delay so the user can see the confirmation.
+        Task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            isPresented = false
+        }
+    }
+}
+
 #Preview("SettingsPrivacyTab") {
     ZStack {
         VColor.background.ignoresSafeArea()
@@ -118,4 +250,9 @@ struct SettingsPrivacyTab: View {
             .frame(width: 480)
             .padding()
     }
+}
+
+#Preview("ReportProblemSheet") {
+    ReportProblemSheet(isPresented: .constant(true))
+        .padding()
 }
