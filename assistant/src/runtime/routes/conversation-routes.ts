@@ -530,8 +530,6 @@ export async function handleSendMessage(
     }
   }
 
-  const mapping = getOrCreateConversation(conversationKey);
-
   if (!deps.sendMessageDeps) {
     return httpError(
       "SERVICE_UNAVAILABLE",
@@ -539,6 +537,8 @@ export async function handleSendMessage(
       503,
     );
   }
+
+  const mapping = getOrCreateConversation(conversationKey);
   const smDeps = deps.sendMessageDeps;
   const session = await smDeps.getOrCreateSession(mapping.conversationId);
 
