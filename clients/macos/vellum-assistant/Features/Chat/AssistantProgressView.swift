@@ -192,9 +192,8 @@ struct AssistantProgressView: View {
                     .padding(.bottom, VSpacing.xs)
             }
         }
-        .padding(VSpacing.md)
         .background(VColor.surface.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
                 processingStartDate = Date()
@@ -247,8 +246,8 @@ struct AssistantProgressView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.md)
     }
 
     // MARK: - Status Icon
@@ -347,7 +346,7 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             ForEach(toolCalls) { toolCall in
                 if !toolCall.isComplete && toolCall.toolName == "claude_code"
                     && !toolCall.claudeCodeSteps.isEmpty {
@@ -358,7 +357,8 @@ struct AssistantProgressView: View {
                 }
             }
         }
-        .padding(.bottom, VSpacing.xs)
+        .padding(.horizontal, VSpacing.md)
+        .padding(.bottom, VSpacing.md)
     }
 
     // MARK: - Permission Chip
@@ -525,10 +525,9 @@ private struct StepDetailRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
             .background(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.3) : .clear)
-            .background(VColor.surface.opacity(0.5))
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
@@ -549,6 +548,8 @@ private struct StepDetailRow: View {
                     }
             }
         }
+        .background(VColor.surface.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
             if newValue, cachedInputFull == nil {
