@@ -18,9 +18,7 @@ Key findings from the process sample taken during an idle chat session:
 | PR | Title | Impact |
 |---|---|---|
 | M0 | Profiling harness + acceptance gates | Debug counters for publish frequency |
-| M1 | Coalesce SubagentDetailStore publishes | 50 ms coalescing window, reduces per-token publishes (superseded by M11) |
 | M2 | Decouple TaskProgressOverlay from chat list | Only react to activeSurfaceId changes |
-| M3 | Stop TimelineView ticks for terminal subagents | Conditional TimelineView when isRunning (superseded by M11 — TimelineView removed entirely) |
 | M4 | Tune streaming publish rate | 100 ms flush interval (from 50 ms) |
 | M5 | Reduce ChatViewModel fan-out invalidation | 100 ms coalesced sub-manager forwarding |
 | M6 | Compact inline surface payloads | .stripped SurfaceData for completed surfaces |
@@ -34,7 +32,7 @@ Key findings from the process sample taken during an idle chat session:
 
 - **CPU**: The continuous render loop should break. An idle chat session should NOT show continuous SwiftUI view graph updates; the main thread should be largely idle between user interactions.
 - **Memory**: Surface HTML payloads are cleared from completed messages via `.stripped` SurfaceData (M6), and attachment base64 data is cleared after send (M8). Together these bound memory growth over long conversations.
-- **Streaming**: Render frequency during active streaming drops from immediate per-token to 100 ms coalesced publishes (M1, M4, M5), with no visible UX regression in message rendering or animation smoothness.
+- **Streaming**: Render frequency during active streaming drops from immediate per-token to 100 ms coalesced publishes (M4, M5, M11), with no visible UX regression in message rendering or animation smoothness.
 - **Selection**: SelectionOverlay is disabled during streaming (M9), eliminating it from hot frames entirely (14% of samples reduced to approximately 0%).
 
 ## How to Verify
