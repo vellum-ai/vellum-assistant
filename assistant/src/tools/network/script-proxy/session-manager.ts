@@ -43,20 +43,19 @@ const DEFAULT_CONFIG: ProxySessionConfig = {
 };
 
 /**
- * Host patterns that are trusted by default and always allowed through the
- * proxy policy engine, regardless of session configuration. Supports exact
- * matches (e.g. `"localhost"`) and wildcard subdomain patterns (e.g.
- * `"*.vellum.ai"` matches `platform.vellum.ai`, `dev-platform.vellum.ai`,
- * etc.).
+ * Host patterns that are allowed by default through the proxy policy engine,
+ * regardless of session configuration. Supports exact matches (e.g.
+ * `"localhost"`) and wildcard subdomain patterns (e.g. `"*.vellum.ai"`
+ * matches `platform.vellum.ai`, `dev-platform.vellum.ai`, etc.).
  */
-const TRUSTED_HOST_PATTERNS: readonly string[] = ["*.vellum.ai", "localhost"];
+const ALLOWED_HOST_PATTERNS: readonly string[] = ["*.vellum.ai", "localhost"];
 
 /**
  * Returns `true` when `hostname` matches any entry in
- * {@link TRUSTED_HOST_PATTERNS}.
+ * {@link ALLOWED_HOST_PATTERNS}.
  */
-function isTrustedHost(hostname: string): boolean {
-  for (const pattern of TRUSTED_HOST_PATTERNS) {
+function isAllowedHost(hostname: string): boolean {
+  for (const pattern of ALLOWED_HOST_PATTERNS) {
     if (pattern.startsWith("*.")) {
       const suffix = pattern.slice(1); // e.g. ".vellum.ai"
       if (hostname.endsWith(suffix) || hostname === pattern.slice(2)) {
@@ -336,10 +335,10 @@ export async function startSession(
     reqPath: string,
     scheme: "http" | "https",
   ) => {
-    // Trusted hosts are always allowed through the proxy, regardless of
+    // Allowed hosts are always passed through the proxy, regardless of
     // session configuration or credential state.
-    if (isTrustedHost(hostname)) {
-      log.debug({ hostname }, "Allowing trusted host");
+    if (isAllowedHost(hostname)) {
+      log.debug({ hostname }, "Allowing always-permitted host");
       return {};
     }
 
