@@ -39,6 +39,8 @@ mock.module("../tools/registry.js", () => ({
   getAllTools: () => [],
 }));
 
+import type { Database } from "bun:sqlite";
+
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { renderTemplate } from "../tasks/task-runner.js";
 import {
@@ -54,6 +56,7 @@ import {
 import { executeTaskDelete } from "../tools/tasks/task-delete.js";
 import { executeTaskList } from "../tools/tasks/task-list.js";
 import { executeTaskRun } from "../tools/tasks/task-run.js";
+import { executeTaskSave } from "../tools/tasks/task-save.js";
 import { executeTaskListAdd } from "../tools/tasks/work-item-enqueue.js";
 import { executeTaskListShow } from "../tools/tasks/work-item-list.js";
 import { executeTaskListRemove } from "../tools/tasks/work-item-remove.js";
@@ -90,11 +93,50 @@ const ctx: ToolContext = {
   trustClass: "guardian",
 };
 
+function getRawDb(): Database {
+  return (getDb() as unknown as { $client: Database }).$client;
+}
+
 function clearTables() {
   const db = getDb();
   db.run("DELETE FROM work_items");
   db.run("DELETE FROM task_runs");
   db.run("DELETE FROM tasks");
+}
+
+function clearTablesWithConversations() {
+  const raw = getRawDb();
+  raw.run("DELETE FROM work_items");
+  raw.run("DELETE FROM task_runs");
+  raw.run("DELETE FROM tasks");
+  raw.run("DELETE FROM messages");
+  raw.run("DELETE FROM conversations");
+}
+
+function createTestConversation(id: string): string {
+  const raw = getRawDb();
+  const now = Date.now();
+  raw
+    .query(
+      `INSERT INTO conversations (id, title, created_at, updated_at, thread_type, memory_scope_id) VALUES (?, 'Test', ?, ?, 'standard', 'default')`,
+    )
+    .run(id, now, now);
+  return id;
+}
+
+function addTestMessage(
+  conversationId: string,
+  role: string,
+  content: string,
+): void {
+  const raw = getRawDb();
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  raw
+    .query(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(id, conversationId, role, content, now);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1041,5 +1083,74 @@ describe("executeTaskListRemove tool", () => {
     const result = await executeTaskListRemove({ title: "Ambiguous" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Multiple items match");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Tool: executeTaskSave
+// ═══════════════════════════════════════════════════════════════════
+
+describe("executeTaskSave tool", () => {
+  beforeEach(clearTablesWithConversations);
+
+  test("creates a task from a conversation", async () => {
+    const convId = createTestConversation("conv-save-1");
+    addTestMessage(convId, "user", "Please summarize the document");
+    addTestMessage(
+      convId,
+      "assistant",
+      JSON.stringify([
+        {
+          type: "tool_use",
+          id: "tu1",
+          name: "file_read",
+          input: { path: "/tmp/doc.txt" },
+        },
+      ]),
+    );
+    addTestMessage(convId, "assistant", "Here is the summary...");
+
+    const result = await executeTaskSave({ conversation_id: convId }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Task saved successfully");
+    expect(result.content).toContain("Please summarize the document");
+    expect(result.content).toContain("file_read");
+  });
+
+  test("uses title override when provided", async () => {
+    const convId = createTestConversation("conv-save-2");
+    addTestMessage(convId, "user", "Read and analyze the logs");
+    addTestMessage(convId, "assistant", "Done!");
+
+    const result = await executeTaskSave(
+      { conversation_id: convId, title: "My Custom Title" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("My Custom Title");
+  });
+
+  test("uses context conversation_id when missing", async () => {
+    const convId = createTestConversation(ctx.conversationId);
+    addTestMessage(convId, "user", "Summarize the report");
+    addTestMessage(convId, "assistant", "Done.");
+
+    const result = await executeTaskSave({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Task saved successfully");
+    expect(result.content).toContain("Summarize the report");
+  });
+
+  test("returns error for nonexistent conversation", async () => {
+    const result = await executeTaskSave(
+      { conversation_id: "nonexistent" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No messages found");
   });
 });
