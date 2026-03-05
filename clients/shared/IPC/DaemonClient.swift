@@ -73,13 +73,6 @@ public func resolveVellumDir(environment: [String: String]? = nil) -> String {
     return NSHomeDirectory() + "/.vellum"
 }
 
-/// Resolve the runtime HTTP bearer token path.
-/// Uses BASE_DATA_DIR when set to match daemon root resolution.
-/// Available on all platforms since HTTP transport is used on both macOS and iOS.
-public func resolveHttpTokenPath(environment: [String: String]? = nil) -> String {
-    return resolveVellumDir(environment: environment) + "/http-token"
-}
-
 /// Resolve the feature-flag bearer token path.
 /// Uses BASE_DATA_DIR when set to match daemon root resolution.
 public func resolveFeatureFlagTokenPath(environment: [String: String]? = nil) -> String {
@@ -89,25 +82,6 @@ public func resolveFeatureFlagTokenPath(environment: [String: String]? = nil) ->
 /// Resolve the daemon PID file path, honoring `BASE_DATA_DIR`.
 public func resolvePidPath(environment: [String: String]? = nil) -> String {
     return resolveVellumDir(environment: environment) + "/vellum.pid"
-}
-
-/// Read the runtime HTTP bearer token from disk.
-/// Available on all platforms since HTTP transport is used on both macOS and iOS.
-public func readHttpToken(environment: [String: String]? = nil) -> String? {
-    let tokenPath = resolveHttpTokenPath(environment: environment)
-    let data: Data
-    do {
-        data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
-    } catch {
-        log.error("Failed to read HTTP token from \(tokenPath, privacy: .private): \(error)")
-        return nil
-    }
-    guard let token = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-          !token.isEmpty else {
-        return nil
-    }
-    return token
 }
 
 /// Read the feature-flag bearer token from disk.

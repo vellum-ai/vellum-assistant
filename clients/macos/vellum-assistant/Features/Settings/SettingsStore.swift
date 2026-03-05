@@ -245,15 +245,6 @@ public final class SettingsStore: ObservableObject {
     @Published var isCheckingTunnel: Bool = false
     @Published var tunnelLastChecked: Date?
 
-    // MARK: - Token Regeneration State
-
-    /// Shared across Account and Channels tabs so both views know when the
-    /// daemon is restarting after a bearer token regeneration. Without this,
-    /// switching to Channels immediately after regenerating in Account could
-    /// cause PairingQRCodeSheet to read the new token while the daemon is
-    /// still running on the old one, leading to transient pairing failures.
-    @Published var isRegeneratingToken: Bool = false
-
     // MARK: - Dev Mode
 
     @Published var isDevMode: Bool
@@ -2249,11 +2240,6 @@ public final class SettingsStore: ObservableObject {
     /// Gateway URL for iOS pairing.
     var resolvedIosGatewayUrl: String {
         ingressPublicBaseUrl
-    }
-
-    /// Bearer token for iOS pairing.
-    var resolvedIosBearerToken: String {
-        readHttpToken() ?? ""
     }
 
     /// LAN pairing URL for the gateway (port 7830), or nil if no LAN IP available.

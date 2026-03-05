@@ -11,12 +11,7 @@ struct SettingsChannelsTab: View {
     var daemonClient: DaemonClient?
     private static let smsFeatureFlagKey = "feature_flags.sms.enabled"
 
-    @State private var bearerToken: String = ""
-    @State private var tokenRevealed: Bool = false
-    @State private var tokenCopied: Bool = false
     @State private var showingPairingQR: Bool = false
-    @State private var showingRegenerateConfirmation: Bool = false
-    @State private var advancedExpanded: Bool = false
     @State private var isSmsFeatureEnabled: Bool = true
 
     // Telegram credential entry
@@ -67,7 +62,6 @@ struct SettingsChannelsTab: View {
         .onAppear {
             store.refreshAssistantEmail()
             store.refreshApprovedDevices()
-            refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "voice")
             store.refreshChannelGuardianStatus(channel: "slack")
@@ -92,97 +86,11 @@ struct SettingsChannelsTab: View {
                 store.refreshTwilioNumbers()
             }
         }
-        .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Regenerate", role: .destructive) {
-                regenerateHttpToken()
-            }
-        } message: {
-            Text("This will generate a new security token and restart your assistant. Any paired devices will need to reconnect.")
-        }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
                 gatewayUrl: store.resolvedIosGatewayUrl,
                 daemonClient: daemonClient
             )
-        }
-    }
-
-    // MARK: - Bearer Token Content
-
-    private var bearerTokenContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Bearer Token")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
-
-            if bearerToken.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Bearer token not found. Restart the daemon to generate it.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else {
-                HStack(spacing: VSpacing.sm) {
-                    // Masked or revealed token
-                    if tokenRevealed {
-                        Text(bearerToken)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    } else {
-                        Text(String(repeating: "\u{2022}", count: min(bearerToken.count, 24)))
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    // Reveal/hide toggle
-                    Button {
-                        tokenRevealed.toggle()
-                    } label: {
-                        Image(systemName: tokenRevealed ? "eye.slash" : "eye")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(tokenRevealed ? "Hide token" : "Reveal token")
-                    .help(tokenRevealed ? "Hide token" : "Reveal token")
-
-                    // Copy button
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(bearerToken, forType: .string)
-                        tokenCopied = true
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            tokenCopied = false
-                        }
-                    } label: {
-                        Image(systemName: tokenCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(tokenCopied ? VColor.success : VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Copy bearer token")
-                    .help("Copy token")
-
-                }
-
-                VButton(label: "Regenerate", style: .tertiary) {
-                    showingRegenerateConfirmation = true
-                }
-            }
         }
     }
 
@@ -1548,37 +1456,6 @@ struct SettingsChannelsTab: View {
 
             // Device pairing row — mirrors Guardian Verification row layout
             mobilePairingRow
-
-            // Compact advanced disclosure for power users
-            Divider().background(VColor.surfaceBorder)
-
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    withAnimation(VAnimation.fast) {
-                        advancedExpanded.toggle()
-                    }
-                } label: {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Advanced")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundColor(VColor.textMuted)
-                            .rotationEffect(.degrees(advancedExpanded ? 90 : 0))
-                            .animation(VAnimation.fast, value: advancedExpanded)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                if advancedExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        bearerTokenContent
-                    }
-                    .padding(.top, VSpacing.sm)
-                }
-            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1589,17 +1466,8 @@ struct SettingsChannelsTab: View {
     @ViewBuilder
     private var mobilePairingRow: some View {
         let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
-        let hasToken = !bearerToken.isEmpty
 
-        if store.isRegeneratingToken {
-            HStack(spacing: VSpacing.sm) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Restarting daemon\u{2026}")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        } else if !hasGateway {
+        if !hasGateway {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(VColor.warning)
@@ -1607,20 +1475,6 @@ struct SettingsChannelsTab: View {
                 Text("Configure a gateway URL to enable pairing")
                     .font(VFont.body)
                     .foregroundColor(VColor.warning)
-            }
-        } else if !hasToken {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Bearer token required")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.warning)
-                }
-                VButton(label: "Generate Token", style: .secondary) {
-                    regenerateHttpToken()
-                }
             }
         } else {
             VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary) {
@@ -1630,7 +1484,7 @@ struct SettingsChannelsTab: View {
     }
 
 
-    // MARK: - Token Helpers
+    // MARK: - Feature Flags
 
     private func loadSmsFeatureFlag() async {
         // Primary source: gateway feature-flags API.
@@ -1658,51 +1512,4 @@ struct SettingsChannelsTab: View {
         // values are absent, keep the default enabled behavior.
     }
 
-    private func refreshBearerToken() {
-        bearerToken = readHttpToken() ?? ""
-    }
-
-    private func regenerateHttpToken() {
-        let tokenPath = resolveHttpTokenPath()
-        // Generate new random bytes before deleting the old file so a
-        // SecRandomCopyBytes failure doesn't leave us with no token at all.
-        var bytes = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return }
-        let newToken = bytes.map { String(format: "%02x", $0) }.joined()
-        try? FileManager.default.removeItem(atPath: tokenPath)
-        let dir = (tokenPath as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: tokenPath, contents: Data(newToken.utf8), attributes: [.posixPermissions: 0o600])
-        bearerToken = newToken
-        // Kill the daemon so the health monitor restarts it with the new token.
-        // The daemon only reads the token at startup, so a restart is required.
-        store.isRegeneratingToken = true
-        let pidPath = resolvePidPath()
-        if let pidStr = try? String(contentsOfFile: pidPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-           let pid = Int32(pidStr) {
-            kill(pid, SIGTERM)
-        }
-        // Wait for the daemon to restart and become reachable with the new token.
-        Task {
-            let base = store.localGatewayTarget.hasSuffix("/")
-                ? String(store.localGatewayTarget.dropLast())
-                : store.localGatewayTarget
-            guard let url = URL(string: "\(base)/v1/health") else {
-                store.isRegeneratingToken = false
-                return
-            }
-            var request = URLRequest(url: url)
-            request.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
-            request.timeoutInterval = 2
-            for _ in 0..<30 { // up to ~30s
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                if let (_, response) = try? await URLSession.shared.data(for: request),
-                   let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                    store.isRegeneratingToken = false
-                    return
-                }
-            }
-            store.isRegeneratingToken = false
-        }
-    }
 }
