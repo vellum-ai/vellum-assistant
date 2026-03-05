@@ -397,7 +397,7 @@ describe("Memory lifecycle E2E regression", () => {
           confidence: 0.88,
           importance: 0.8,
           fingerprint: "fp-item-ui-existing",
-          verificationState: "assistant_inferred",
+          verificationState: "user_reported",
           scopeId: "default",
           firstSeenAt: now + 30,
           lastSeenAt: now + 30,
@@ -413,7 +413,7 @@ describe("Memory lifecycle E2E regression", () => {
           confidence: 0.84,
           importance: 0.8,
           fingerprint: "fp-item-ui-candidate",
-          verificationState: "assistant_inferred",
+          verificationState: "user_reported",
           scopeId: "default",
           firstSeenAt: now + 31,
           lastSeenAt: now + 31,
@@ -432,23 +432,21 @@ describe("Memory lifecycle E2E regression", () => {
     });
 
     const conflictGate = new ConflictGate();
-    const firstGateDecision = await conflictGate.evaluate(
+
+    // First evaluation: conflict remains pending (no user-facing output)
+    await conflictGate.evaluate(
       "Need react roadmap update today",
       TEST_CONFIG.memory.conflicts,
     );
-    expect(firstGateDecision).not.toBeNull();
-    expect(firstGateDecision?.relevant).toBe(true);
-    expect(firstGateDecision?.question).toContain("React");
 
     const pendingAfterFirstGate = getConflictById(gatedConflict.id);
     expect(pendingAfterFirstGate?.status).toBe("pending_clarification");
-    expect(pendingAfterFirstGate?.lastAskedAt).not.toBeNull();
 
-    const secondGateDecision = await conflictGate.evaluate(
+    // Second evaluation: clarification-like reply resolves the conflict
+    await conflictGate.evaluate(
       "Use the new renderer going forward.",
       TEST_CONFIG.memory.conflicts,
     );
-    expect(secondGateDecision).toBeNull();
 
     const resolvedAfterSecondGate = getConflictById(gatedConflict.id);
     expect(resolvedAfterSecondGate?.status).toBe("resolved_keep_candidate");

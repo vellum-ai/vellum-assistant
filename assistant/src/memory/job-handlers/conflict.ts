@@ -26,7 +26,6 @@ import { memoryItemConflicts, messages } from "../schema.js";
 const log = getLogger("memory-jobs-worker");
 
 const CLEANUP_BATCH_LIMIT = 250;
-const BACKGROUND_RECENT_ASK_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 export async function resolvePendingConflictsForMessageJob(
   job: MemoryJob,
@@ -93,16 +92,10 @@ export async function resolvePendingConflictsForMessageJob(
   );
   if (eligible.length === 0) return;
   const candidates = eligible.filter((conflict) => {
-    const askedAt = conflict.lastAskedAt;
-    const wasRecentlyAsked =
-      typeof askedAt === "number" &&
-      askedAt <= message.createdAt &&
-      message.createdAt - askedAt <= BACKGROUND_RECENT_ASK_WINDOW_MS;
     const relevance = computeConflictRelevance(userMessage, conflict);
     return shouldAttemptConflictResolution({
       clarificationReply,
       relevance,
-      wasRecentlyAsked,
     });
   });
   if (candidates.length === 0) return;
