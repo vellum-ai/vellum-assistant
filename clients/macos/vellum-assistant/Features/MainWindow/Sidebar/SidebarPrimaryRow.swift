@@ -9,6 +9,7 @@ struct SidebarPrimaryRow: View {
     let icon: String
     let label: String
     var isActive: Bool = false
+    var trailingIcon: String? = nil
     var isExpanded: Bool = true
     let action: () -> Void
     @State private var isHovered = false
@@ -31,6 +32,11 @@ struct SidebarPrimaryRow: View {
                     .allowsHitTesting(false)
                 if isExpanded {
                     Spacer()
+                    if let trailingIcon {
+                        Image(systemName: trailingIcon)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                    }
                 }
             }
             .padding(.leading, isExpanded ? VSpacing.xs : 0)

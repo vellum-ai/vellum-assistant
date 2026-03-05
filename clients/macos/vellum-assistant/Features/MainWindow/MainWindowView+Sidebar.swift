@@ -105,7 +105,9 @@ extension MainWindowView {
                 collapsedSidebarContent
             }
         }
-        .padding(VSpacing.xs)
+        .padding(.horizontal, VSpacing.xs)
+        .padding(.top, VSpacing.md)
+        .padding(.bottom, sidebarExpanded ? VSpacing.md : VSpacing.sm)
         .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
         .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
@@ -439,8 +441,12 @@ extension MainWindowView {
 
             Spacer(minLength: VSpacing.sm)
 
+            sidebarSectionDivider(isExpanded: true)
+
             // Preferences row (fixed)
             PreferencesRow(
+                isActive: sidebar.showPreferencesDrawer,
+                isExpanded: true,
                 onToggle: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                         sidebar.showPreferencesDrawer.toggle()
@@ -532,11 +538,17 @@ extension MainWindowView {
 
             Spacer()
 
-            SidebarNavRow(icon: "slider.horizontal.3", label: "Preferences", isActive: false, isExpanded: false) {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    sidebar.showPreferencesDrawer.toggle()
+            sidebarSectionDivider(isExpanded: false)
+
+            PreferencesRow(
+                isActive: sidebar.showPreferencesDrawer,
+                isExpanded: false,
+                onToggle: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        sidebar.showPreferencesDrawer.toggle()
+                    }
                 }
-            }
+            )
 
             Spacer().frame(height: 0)
         }

@@ -528,9 +528,8 @@ struct MainWindowView: View {
                     // Preferences drawer rendered at top level so it floats above all content
                     if sidebar.showPreferencesDrawer {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let drawerX = sidebarExpanded
-                            ? 16 + VSpacing.sm
-                            : 16 + sidebarCollapsedWidth - VSpacing.xs
+                        let sidebarWidth = sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth
+                        let drawerX = 16 + sidebarWidth - VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
