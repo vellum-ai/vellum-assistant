@@ -11,7 +11,7 @@ enum AssistantStatus {
         case .idle: return "Assistant is idle"
         case .thinking: return "Assistant is thinking..."
         case .error(let msg): return "Error: \(msg)"
-        case .disconnected: return "Disconnected from daemon"
+        case .disconnected: return "Disconnected from assistant"
         }
     }
 
