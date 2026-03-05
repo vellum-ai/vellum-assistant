@@ -406,7 +406,7 @@ The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInst
 >
 > This code can be used <maxUses> time(s)<and expires in X hours/days if applicable>.
 
-If the assistant's WhatsApp number is not available (Twilio not configured for WhatsApp), tell the guardian they need to set up WhatsApp integration first.
+If the assistant's WhatsApp number is not available (Meta WhatsApp Business API credentials not configured), tell the guardian they need to set up WhatsApp integration first.
 
 ### Create an SMS invite
 
@@ -429,6 +429,37 @@ The response follows the same shape as email and WhatsApp invites (`inviteCode`,
 
 **Presenting to the guardian**: Give the guardian the invite code and the assistant's phone number, with instructions for the invitee to text the code.
 
+### Create a Slack invite
+
+Use this when the guardian wants to invite someone to message the assistant on Slack. Slack invites use a 6-digit code -- the invitee sends the code as a direct message to the assistant's Slack bot to redeem access.
+
+```bash
+INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
+  -d '{
+    "sourceChannel": "slack",
+    "contactName": "<invitee display name>",
+    "maxUses": 1,
+    "note": "<optional note, e.g. the person it is for>"
+  }')
+printf '%s\n' "$INVITE_JSON"
+```
+
+The response follows the same shape as email, WhatsApp, and SMS invites (`inviteCode`, `guardianInstruction`, `channelHandle`).
+
+**Presenting to the guardian**: Give the guardian the invite code and instructions for the invitee to send the code as a DM to the assistant's Slack bot.
+
+> Slack invite created for **<contact_name>**:
+>
+> **Invite code: `<inviteCode>`**
+>
+> Tell them to send a direct message to the assistant's Slack bot with the code **<inviteCode>**. Once verified, they will be added as a trusted contact and can message the assistant on Slack directly.
+>
+> This code can be used <maxUses> time(s)<and expires in X hours/days if applicable>.
+
+If the Slack bot is not available (Slack credentials not configured), tell the guardian they need to set up Slack integration first.
+
 ### List invites
 
 Use this to show the guardian their active (and optionally all) invite links.
@@ -443,12 +474,13 @@ For voice invites:
 vellum contacts invites --source-channel voice --json
 ```
 
-For email, WhatsApp, or SMS invites:
+For email, WhatsApp, SMS, or Slack invites:
 
 ```bash
 vellum contacts invites --source-channel email --json
 vellum contacts invites --source-channel whatsapp --json
 vellum contacts invites --source-channel sms --json
+vellum contacts invites --source-channel slack --json
 ```
 
 Optional query parameters:
@@ -509,7 +541,7 @@ Each channel has:
 
 ## Confirmation Requirements
 
-**All mutating actions (allow, revoke, block, revoke invite) require explicit user confirmation before execution.** This is a safety measure -- modifying who can access the assistant should always be a deliberate choice. Creating an invite (Telegram link or voice invite) does not require confirmation since it does not grant access until the invitee redeems it.
+**All mutating actions (allow, revoke, block, revoke invite) require explicit user confirmation before execution.** This is a safety measure -- modifying who can access the assistant should always be a deliberate choice. Creating an invite (Telegram link, voice invite, email invite, WhatsApp invite, SMS invite, or Slack invite) does not require confirmation since it does not grant access until the invitee redeems it.
 
 - Clearly state what action you are about to take and who it affects.
 - Wait for the user to confirm before running the curl command.
@@ -555,6 +587,8 @@ Each channel has:
 **"Invite someone on WhatsApp"** -- Create an invite with `sourceChannel: "whatsapp"`. Present the 6-digit invite code and the assistant's WhatsApp number. Tell the guardian to share both with the invitee.
 
 **"Invite someone via SMS"** / **"Send a text invite"** -- Create an invite with `sourceChannel: "sms"`. Present the 6-digit invite code and the assistant's phone number. Tell the guardian to share both with the invitee.
+
+**"Invite someone on Slack"** -- Create an invite with `sourceChannel: "slack"`. Present the 6-digit invite code and tell the guardian to have the invitee DM the code to the assistant's Slack bot.
 
 **"Show my invites"** / **"List active invite links"** -- List invites filtered by `sourceChannel=telegram`, present active invites with uses remaining and expiration info. Use the appropriate `--source-channel` value for other channels.
 

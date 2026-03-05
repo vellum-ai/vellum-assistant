@@ -382,7 +382,7 @@ All endpoints are bearer-authenticated. Skills and clients should call the gatew
 - **Voice**: Checks Twilio credentials, phone number assignment, and public ingress URL.
 - **Telegram**: Checks bot token, webhook secret, and public ingress URL.
 - **Email**: Checks AgentMail API key, invite policy, and public ingress URL.
-- **WhatsApp**: Checks Twilio credentials, phone number assignment, invite policy, and public ingress URL.
+- **WhatsApp**: Checks Meta WhatsApp Business API credentials (phoneNumberId, accessToken, appSecret, webhookVerifyToken), invite policy, and public ingress URL.
 - **Slack**: Checks bot token and app token.
 
 ### Key modules
@@ -419,16 +419,8 @@ The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) 
 The invite redemption system uses a three-layer architecture:
 
 - **Core redemption engine** (`invite-redemption-service.ts`) — Channel-agnostic business logic that validates tokens, enforces expiry/use-count/channel-match constraints, handles member reactivation, and returns a discriminated-union `InviteRedemptionOutcome`. Deterministic reply templates (`invite-redemption-templates.ts`) map each outcome to a user-facing message without passing through the LLM.
-- **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable deep links (`buildShareableInvite`) and extract inbound tokens (`extractInboundToken`). Currently only the Telegram adapter is implemented.
+- **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable links (`buildShareLink`) and extract inbound tokens (`extractInboundToken`). Adapters are implemented for Telegram, SMS, Voice, Email, WhatsApp, and Slack.
 - **Conversational orchestration** (`guardian-invite-intent.ts`) — Pattern-based intent detection that intercepts guardian invite management requests (create, list, revoke) in the session pipeline and forces immediate entry into the `contacts` skill, bypassing the normal agent loop.
-
-#### Deferred Channel Support
-
-The transport adapter registry is architecturally extensible to additional channels. The following are not yet implemented:
-
-- **SMS** — Requires a deep-link strategy compatible with SMS (e.g., a short URL that redirects to an SMS reply flow or web-based redemption page). The core redemption engine is channel-agnostic and ready.
-- **Slack** — Requires DM-safe ingress (Socket Mode currently handles channel messages but DM-initiated invite flows need additional routing). The adapter would build Slack deep links or slash-command payloads.
-- **Voice** — Requires DTMF or speech-based token capture during an inbound call. The adapter would need to integrate with the voice relay state machine for token entry.
 
 Redemption auto-creates a **member** record with an access policy:
 
