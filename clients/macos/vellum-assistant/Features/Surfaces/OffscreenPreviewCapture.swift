@@ -32,12 +32,12 @@ enum OffscreenPreviewCapture {
         window.contentView = webView
 
         // Load the HTML and wait for navigation to finish.
-        webView.loadHTMLString(html, baseURL: nil)
         let didLoad = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let delegate = NavigationDelegate(continuation: continuation)
             webView.navigationDelegate = delegate
             // Hold a reference so ARC doesn't deallocate the delegate before it fires.
             objc_setAssociatedObject(webView, "navDelegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+            webView.loadHTMLString(html, baseURL: nil)
         }
 
         guard didLoad else {
