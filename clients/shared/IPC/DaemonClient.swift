@@ -1693,6 +1693,40 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         #endif
     }
 
+    /// Fetch per-channel readiness state from the gateway.
+    /// Routes through `HTTPTransport` when available. Falls back to the
+    /// local gateway for socket-based connections.
+    public func fetchChannelReadiness() async throws -> [String: Bool] {
+        if let httpTransport {
+            return try await httpTransport.fetchChannelReadiness()
+        }
+
+        #if os(macOS)
+        guard let request = buildLocalRequest(target: .gateway, path: "v1/channels/readiness", method: "GET") else { return [:] }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode) else { return [:] }
+
+        struct ReadinessResponse: Decodable {
+            let success: Bool
+            let snapshots: [Snapshot]
+            struct Snapshot: Decodable {
+                let channel: String
+                let ready: Bool
+            }
+        }
+        let decoded = try JSONDecoder().decode(ReadinessResponse.self, from: data)
+        var result: [String: Bool] = [:]
+        for snapshot in decoded.snapshots {
+            result[snapshot.channel] = snapshot.ready
+        }
+        return result
+        #else
+        return [:]
+        #endif
+    }
+
     /// Send a verification code to a contact's channel via the gateway.
     /// Routes through `HTTPTransport` when available. Falls back to the
     /// local gateway (port 7830) for socket-based connections.

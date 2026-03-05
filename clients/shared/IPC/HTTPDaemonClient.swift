@@ -174,6 +174,7 @@ public final class HTTPTransport {
         case contactsChannelVerify(contactId: String, channelId: String)
         case contactsUpsert
         case contactsInvitesCreate
+        case channelsReadiness
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -270,6 +271,8 @@ public final class HTTPTransport {
             return ("/v1/contacts", nil)
         case .contactsInvitesCreate:
             return ("/v1/contacts/invites", nil)
+        case .channelsReadiness:
+            return ("/v1/channels/readiness", nil)
         }
     }
 
@@ -347,6 +350,8 @@ public final class HTTPTransport {
             return ("\(prefix)/contacts/", nil)
         case .contactsInvitesCreate:
             return ("\(prefix)/contacts/invites/", nil)
+        case .channelsReadiness:
+            return ("\(prefix)/channels/readiness/", nil)
         }
     }
 
@@ -1128,6 +1133,17 @@ public final class HTTPTransport {
         }
     }
 
+    /// Response wrapper for `GET /v1/channels/readiness`.
+    private struct HTTPChannelReadinessResponse: Decodable {
+        let success: Bool
+        let snapshots: [ChannelReadinessSnapshot]
+
+        struct ChannelReadinessSnapshot: Decodable {
+            let channel: String
+            let ready: Bool
+        }
+    }
+
     /// Update a contact's metadata via `POST /v1/contacts` and return the updated payload.
     /// Routes through `buildURL`/`applyAuth` so managed-mode URL paths and auth headers
     /// are applied correctly.
@@ -1249,6 +1265,36 @@ public final class HTTPTransport {
         let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
         guard let invite = decoded.invite, let token = invite.token else { return nil }
         return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction)
+    }
+
+    // MARK: - Channel Readiness
+
+    /// Fetch per-channel readiness from `GET /v1/channels/readiness`.
+    /// Returns a dictionary mapping channel type strings to their readiness state.
+    func fetchChannelReadiness(isRetry: Bool = false) async throws -> [String: Bool] {
+        guard let url = buildURL(for: .channelsReadiness) else { return [:] }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        applyAuth(&request)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await fetchChannelReadiness(isRetry: true)
+                }
+                return [:]
+            }
+            guard (200...299).contains(http.statusCode) else { return [:] }
+        }
+
+        let decoded = try decoder.decode(HTTPChannelReadinessResponse.self, from: data)
+        var result: [String: Bool] = [:]
+        for snapshot in decoded.snapshots {
+            result[snapshot.channel] = snapshot.ready
+        }
+        return result
     }
 
     // MARK: - Channel Verification
