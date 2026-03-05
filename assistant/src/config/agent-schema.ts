@@ -82,7 +82,7 @@ export const SwarmConfigSchema = z.object({
       coder: z.number().int().positive().optional(),
       reviewer: z.number().int().positive().optional(),
     })
-    .default({} as any),
+    .default({}),
   plannerModelIntent: z
     .enum(["latency-optimized", "quality-optimized", "vision-optimized"], {
       error: "swarm.plannerModelIntent must be a valid model intent",
