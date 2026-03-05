@@ -64,7 +64,20 @@ extension MetricKitManager: MXMetricManagerSubscriber {
                 "peak_memory_mb": peakMemory,
                 "cpu_time_s": cpuTime,
             ]
+            // If Sentry was shut down (e.g. collect-usage-data flag off), restart it
+            // temporarily for this event, capture, flush, then close to restore state.
+            let wasDisabled = !SentrySDK.isEnabled
+            if wasDisabled {
+                SentrySDK.start { options in
+                    options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                    options.sendDefaultPii = false
+                }
+            }
             SentrySDK.capture(event: event)
+            if wasDisabled {
+                SentrySDK.flush(timeout: 5)
+                SentrySDK.close()
+            }
         }
     }
 
@@ -82,7 +95,18 @@ extension MetricKitManager: MXMetricManagerSubscriber {
             let event = Event(level: .warning)
             event.message = SentryMessage(formatted: "MetricKit hang diagnostic: \(hangs.count) hang(s)")
             event.tags = ["source": "metrickit_hang"]
+            let wasDisabled = !SentrySDK.isEnabled
+            if wasDisabled {
+                SentrySDK.start { options in
+                    options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                    options.sendDefaultPii = false
+                }
+            }
             SentrySDK.capture(event: event)
+            if wasDisabled {
+                SentrySDK.flush(timeout: 5)
+                SentrySDK.close()
+            }
         }
     }
 }
